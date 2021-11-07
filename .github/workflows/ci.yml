@@ -45,7 +45,7 @@ jobs:
             ${{ runner.os }}-test-${{ env.cache-name }}-
             ${{ runner.os }}-test-${{ matrix.os }}
             ${{ runner.os }}-
-      - run: julia --color=yes .ci/test_and_change_uuid.jl
+      - run: julia --color=yes -e 'write("Project.toml", replace(read("Project.toml", String), r"uuid = .*?\n" =>"uuid = \"3f01184e-e22b-5df5-ae63-d93ebab69eaf\"\n"));'
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1
