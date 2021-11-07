@@ -7,8 +7,8 @@ else
 end
 
 # To generate the new UUID, we simply modify the first character of the original UUID
-const original_uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-const new_uuid      = "1f01184e-e22b-5df5-ae63-d93ebab69eaf"
+const original_uuid = "3f01184e-e22b-5df5-ae63-d93ebab69eaf"
+const new_uuid      = "4f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 # `@__DIR__` is the `.ci/` folder.
 # Therefore, `dirname(@__DIR__)` is the repository root.
