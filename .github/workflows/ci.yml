@@ -9,6 +9,11 @@ on:
       - 'main'
       - 'release-*'
     tags: '*'
+concurrency:
+  # Skip intermediate builds: all builds except for builds on the `main` or `release-*` branches
+  # Cancel intermediate builds: only pull request builds
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref != 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-') || github.run_number }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
