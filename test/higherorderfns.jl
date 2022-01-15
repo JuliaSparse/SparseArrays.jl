@@ -727,6 +727,24 @@ end
     @test extrema(x; dims=[]) == extrema(y; dims=[])
 end
 
+function test_extrema(a; dims_test = ((), 1, 2, (1,2), 3))
+    for dims in dims_test
+        vext = extrema(a; dims)
+        vmin, vmax = minimum(a; dims), maximum(a; dims)
+        @test all(x -> isequal(x[1], x[2:3]), zip(vext,vmin,vmax))
+    end
+end
+@testset "NaN test for sparse extrema" begin
+    for sz = (3, 10, 100)
+        A = sprand(sz, sz, 0.3)
+        A[rand(1:sz^2,sz)] .= NaN
+        test_extrema(A)
+        A = sprand(sz*sz, 0.3)
+        A[rand(1:sz^2,sz)] .= NaN
+        test_extrema(A; dims_test = ((), 1, 2))
+    end
+end
+
 @testset "issue #42670 - error in sparsevec outer product" begin
     A = spzeros(Int, 4)
     B = copy(A)
