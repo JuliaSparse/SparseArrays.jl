@@ -871,8 +871,8 @@ end
                           occursin("collection slices must be non-empty", str)
         @test sum(sparse(Int[])) === 0
         @test prod(sparse(Int[])) === 1
-        @test_throws ArgumentError minimum(sparse(Int[]))
-        @test_throws ArgumentError maximum(sparse(Int[]))
+        @test_throws "reducing over an empty" minimum(sparse(Int[]))
+        @test_throws "reducing over an empty" maximum(sparse(Int[]))
 
         for f in (sum, prod)
             @test isequal(f(spzeros(0, 1), dims=1), f(Matrix{Int}(I, 0, 1), dims=1))
