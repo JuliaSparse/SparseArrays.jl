@@ -1,6 +1,6 @@
 name: Backport
 on:
-  pull_request:
+  pull_request_target:
     types:
       - closed
       - labeled
@@ -8,6 +8,7 @@ jobs:
   backport:
     runs-on: ubuntu-18.04
     name: Backport
+    if: github.event.pull_request.merged
     steps:
       - name: Backport
         uses: tibdex/backport@v1
