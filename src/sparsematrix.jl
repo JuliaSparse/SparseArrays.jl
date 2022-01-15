@@ -2096,10 +2096,9 @@ _mapreducerows!(pred::P, ::typeof(&), R::AbstractMatrix{Bool},
 
 # findmax/min and argmax/min methods
 # find first zero value in sparse matrix - return linear index in full matrix
-# non-structural zeros are identified by x == 0 in line with the sparse constructors.
+# non-structural zeros are identified by `iszero` in line with the sparse constructors.
 function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=1:size(A, 1), cols=1:size(A, 2)) where {Tv,Ti}
     colptr = getcolptr(A); rowval = rowvals(A); nzval = nonzeros(A)
-    zval = 0
     row = 0
     rowmin = rows[1]; rowmax = rows[end]
     allrows = (rows == 1:size(A, 1))
@@ -2111,7 +2110,7 @@ function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=1:size(A, 1), cols=1:siz
             (r1 <= r2 ) && (r2 = searchsortedlast(rowval, rowmax, r1, r2, Forward))
         end
         row = rowmin
-        while (r1 <= r2) && (row == rowval[r1]) && (nzval[r1] != zval)
+        while (r1 <= r2) && (row == rowval[r1]) && !iszero(nzval[r1])
             r1 += 1
             row += 1
         end
@@ -2717,7 +2716,7 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
     if (I[1] < 1 || I[end] > size(A, 1)) || (J[1] < 1 || J[end] > size(A, 2))
         throw(BoundsError(A, (I, J)))
     end
-    if x == 0
+    if iszero(x)
         _spsetz_setindex!(A, I, J)
     else
         _spsetnz_setindex!(A, convert(Tv, x), I, J)
@@ -3533,7 +3532,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
             row = rowval[p]
 
             # Ignore stored zeros
-            if val == 0
+            if iszero(val)
                 continue
             end
 
