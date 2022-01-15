@@ -1914,13 +1914,16 @@ function Base._mapreduce(f, op, ::Base.IndexCartesian, A::AbstractSparseMatrixCS
     end
 end
 
-# Specialized mapreduce for +/*
-_mapreducezeros(f, ::typeof(+), ::Type{T}, nzeros::Integer, v0) where {T} =
-    nzeros == 0 ? v0 : f(zero(T))*nzeros + v0
-_mapreducezeros(f, ::typeof(*), ::Type{T}, nzeros::Integer, v0) where {T} =
-    nzeros == 0 ? v0 : f(zero(T))^nzeros * v0
+# Specialized mapreduce for +/*/min/max/_extrema_rf
+_mapreducezeros(f, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {T} =
+    nzeros == 0 ? op(zero(v0), v0) : op(f(zero(T))*nzeros, v0)
+_mapreducezeros(f, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {T} =
+    nzeros == 0 ? op(one(v0), v0) : op(f(zero(T))^nzeros, v0)
+_mapreducezeros(f, op::Union{typeof(min),typeof(max),typeof(Base._extrema_rf)},
+                                ::Type{T}, nzeros::Integer, v0) where {T} =
+    nzeros == 0 ? v0 : op(v0, f(zero(T)))
 
-function Base._mapreduce(f, op::typeof(*), A::AbstractSparseMatrixCSC{T}) where T
+function Base._mapreduce(f, op::typeof(*), ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
     nzeros = widelength(A)-nnz(A)
     if nzeros == 0
         # No zeros, so don't compute f(0) since it might throw

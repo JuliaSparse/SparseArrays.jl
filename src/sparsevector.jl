@@ -1392,45 +1392,31 @@ for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
 end
 
 ### Reduction
+Base.reducedim_initarray(A::AbstractSparseVector, region, v0, ::Type{R}) where {R} =
+    fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 
-function sum(f, x::AbstractSparseVector)
-    n = length(x)
-    n > 0 || return sum(f, nonzeros(x)) # return zero() of proper type
-    m = nnz(x)
-    (m == 0 ? n * f(zero(eltype(x))) :
-     m == n ? sum(f, nonzeros(x)) :
-     Base.add_sum((n - m) * f(zero(eltype(x))), sum(f, nonzeros(x))))
-end
-
-sum(x::AbstractSparseVector) = sum(nonzeros(x))
-
-function maximum(f, x::AbstractSparseVector)
-    n = length(x)
-    if n == 0
-        if f === abs || f === abs2
-            return zero(eltype(x)) # preserving maximum(abs/abs2, x) behaviour in 1.0.x
-        else
-            throw(ArgumentError("maximum over an empty array is not allowed."))
-        end
+function Base._mapreduce(f, op, ::IndexCartesian, A::AbstractSparseVector{T}) where {T}
+    isempty(A) && return Base.mapreduce_empty(f, op, T)
+    z = nnz(A)
+    rest, ini = if z == 0
+        length(A)-z-1, f(zero(T))
+    else
+        length(A)-z, Base.mapreduce_impl(f, op, nonzeros(A), 1, z)
     end
-    m = nnz(x)
-    (m == 0 ? f(zero(eltype(x))) :
-     m == n ? maximum(f, nonzeros(x)) :
-     max(f(zero(eltype(x))), maximum(f, nonzeros(x))))
+    _mapreducezeros(f, op, T, rest, ini)
 end
 
-maximum(x::AbstractSparseVector) = maximum(identity, x)
-
-function minimum(f, x::AbstractSparseVector)
-    n = length(x)
-    n > 0 || throw(ArgumentError("minimum over an empty array is not allowed."))
-    m = nnz(x)
-    (m == 0 ? f(zero(eltype(x))) :
-     m == n ? minimum(f, nonzeros(x)) :
-     min(f(zero(eltype(x))), minimum(f, nonzeros(x))))
+function Base.mapreducedim!(f, op, R::AbstractVector, A::AbstractSparseVector)
+    # dim1 reduction could be safely replaced with a mapreduce
+    if length(R) == 1
+        I = firstindex(R)
+        v = Base._mapreduce(f, op, IndexCartesian(), A)
+        R[I] = op(R[I], v)
+        return R
+    end
+    # otherwise there's no reduction
+    map!((x, y) -> op(x, f(y)), R, R, A)
 end
-
-minimum(x::AbstractSparseVector) = minimum(identity, x)
 
 for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum"))
     @eval function $fun(f, x::AbstractSparseVector{T}) where {T}
