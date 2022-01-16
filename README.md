@@ -13,7 +13,7 @@
 [ci-img]: https://github.com/JuliaLang/sparsearrays.jl/workflows/CI/badge.svg?branch=main
 [ci-url]: https://github.com/JuliaLang/sparsearrays.jl/actions?query=workflow%3A%22CI%22
 
-[codecov-img]: https://codecov.io/gh/JuliaLang/sparsearrays.jl/branch/master/graph/badge.svg
+[codecov-img]: https://codecov.io/gh/JuliaLang/sparsearrays.jl/branch/main/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/JuliaLang/sparsearrays.jl
 
 This package ships as part of the Julia stdlib.
