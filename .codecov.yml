@@ -1,0 +1,8 @@
+coverage:
+  status:
+    patch:
+      default:
+        only_pulls: true # Only show the `codecov/patch` commit status on pull requests.
+    project:
+      default:
+        only_pulls: true # Only show the `codecov/project` commit status on pull requests.
