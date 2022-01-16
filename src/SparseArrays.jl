@@ -44,4 +44,4 @@ zero(a::AbstractSparseArray) = spzeros(eltype(a), size(a)...)
 LinearAlgebra.diagzero(D::Diagonal{<:AbstractSparseMatrix{T}},i,j) where {T} =
     spzeros(T, size(D.diag[i], 1), size(D.diag[j], 2))
 
-end
+end # module
