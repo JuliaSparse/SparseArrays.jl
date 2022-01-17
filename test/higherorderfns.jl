@@ -709,8 +709,11 @@ end
     @test extrema(f, x) == extrema(f, y)
     @test extrema(spzeros(n, n)) == (0.0, 0.0)
     @test extrema(spzeros(n)) == (0.0, 0.0)
-    @test_throws ArgumentError extrema(spzeros(0, 0))
-    @test_throws ArgumentError extrema(spzeros(0))
+    # TODO: Remove the temporary skip once https://github.com/JuliaLang/julia/pull/43604 is merged
+    if isdefined(Base, :_extrema_rf)
+        @test_throws "reducing over an empty" extrema(spzeros(0, 0))
+        @test_throws "reducing over an empty" extrema(spzeros(0))
+    end
     @test extrema(sparse(ones(n, n))) == (1.0, 1.0)
     @test extrema(sparse(ones(n))) == (1.0, 1.0)
     @test extrema(A; dims=:) == extrema(B; dims=:)
@@ -718,13 +721,40 @@ end
     @test extrema(A; dims=2) == extrema(B; dims=2)
     @test extrema(A; dims=(1,2)) == extrema(B; dims=(1,2))
     @test extrema(f, A; dims=1) == extrema(f, B; dims=1)
-    @test extrema(sparse(C); dims=1) == extrema(C; dims=1)
+    # TODO: Remove the temporary skip once https://github.com/JuliaLang/julia/pull/43604 is merged
+    if isdefined(Base, :_extrema_rf)
+        @test_throws "reducing over an empty" extrema(sparse(C); dims=1) == extrema(C; dims=1)
+    end
     @test extrema(A; dims=[]) == extrema(B; dims=[])
     @test extrema(x; dims=:) == extrema(y; dims=:)
     @test extrema(x; dims=1) == extrema(y; dims=1)
     @test extrema(f, x; dims=1) == extrema(f, y; dims=1)
-    @test_throws BoundsError extrema(sparse(z); dims=1)
+    # TODO: Remove the temporary skip once https://github.com/JuliaLang/julia/pull/43604 is merged
+    if isdefined(Base, :_extrema_rf)
+        @test_throws "reducing over an empty" extrema(sparse(z); dims=1)
+    end
     @test extrema(x; dims=[]) == extrema(y; dims=[])
+end
+
+# TODO: Remove the temporary skip once https://github.com/JuliaLang/julia/pull/43604 is merged
+if isdefined(Base, :_extrema_rf)
+    function test_extrema(a; dims_test = ((), 1, 2, (1,2), 3))
+        for dims in dims_test
+            vext = extrema(a; dims)
+            vmin, vmax = minimum(a; dims), maximum(a; dims)
+            @test all(x -> isequal(x[1], x[2:3]), zip(vext,vmin,vmax))
+        end
+    end
+    @testset "NaN test for sparse extrema" begin
+        for sz = (3, 10, 100)
+            A = sprand(sz, sz, 0.3)
+            A[rand(1:sz^2,sz)] .= NaN
+            test_extrema(A)
+            A = sprand(sz*sz, 0.3)
+            A[rand(1:sz^2,sz)] .= NaN
+            test_extrema(A; dims_test = ((), 1, 2))
+        end
+    end
 end
 
 @testset "issue #42670 - error in sparsevec outer product" begin

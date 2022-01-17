@@ -893,8 +893,8 @@ end
     end
 
     let x = spzeros(Float64, 0)
-        @test_throws ArgumentError minimum(t -> true, x)
-        @test_throws ArgumentError maximum(t -> true, x)
+        @test_throws "reducing over an empty" minimum(t -> true, x)
+        @test_throws "reducing over an empty" maximum(t -> true, x)
         @test_throws ArgumentError findmin(x)
         @test_throws ArgumentError findmax(x)
     end
