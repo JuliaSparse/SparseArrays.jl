@@ -1921,10 +1921,8 @@ _mapreducezeros(f, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros:
     nzeros == 0 ? op(one(v0), v0) : op(f(zero(T))^nzeros, v0)
 _mapreducezeros(f, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
-if isdefined(Base, :_extrema_rf)
-    _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
-        nzeros == 0 ? v0 : op(v0, f(zero(T)))
-end
+_mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
+    nzeros == 0 ? v0 : op(v0, f(zero(T)))
 
 function Base._mapreduce(f, op::typeof(*), ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
     nzeros = widelength(A)-nnz(A)
