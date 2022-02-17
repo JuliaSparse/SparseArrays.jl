@@ -299,10 +299,25 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
         scaleWidth = n
     end
 
+    # Make sure that the matrix size is big enough to be able to display all
+    # the corner border characters
+    if scaleHeight < 8
+        scaleHeight = 8
+    end
+    if scaleWidth < 4
+        scaleWidth = 4
+    end
+
     # `brailleGrid` is used to store the needed braille characters for
     # the matrix `S`. Each row of the braille pattern to print is stored
     # in a column of `brailleGrid`.
-    brailleGrid = fill(UInt16(10240), (scaleWidth - 1) ÷ 2 + 2, (scaleHeight - 1) ÷ 4 + 1)
+    brailleGrid = fill(UInt16(10240), (scaleWidth - 1) ÷ 2 + 4, (scaleHeight - 1) ÷ 4 + 1)
+    brailleGrid[1,:] .= '⎢'
+    brailleGrid[end-1,:] .= '⎥'
+    brailleGrid[1,1] = '⎡'
+    brailleGrid[1,end] = '⎣'
+    brailleGrid[end-1,1] = '⎤'
+    brailleGrid[end-1,end] = '⎦'
     brailleGrid[end, :] .= '\n'
 
     rvals = rowvals(parent(S))
@@ -323,7 +338,7 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
                 # element at `(si, sj)` can be found at position `(k, l)` in the
                 # braille grid `brailleGrid` and corresponds to the 1-dot braille
                 # character `brailleBlocks[p]`
-                k = (sj - 1) ÷ 2 + 1
+                k = (sj - 1) ÷ 2 + 2
                 l = (si - 1) ÷ 4 + 1
                 p = ((sj - 1) % 2) * 4 + ((si - 1) % 4 + 1)
 
@@ -337,7 +352,7 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
             si = round(Int, (i - 1) * rowscale + 1)
             for x in nzrange(parent(S), i)
                 sj = round(Int, (rvals[x] - 1) * colscale + 1)
-                k = (sj - 1) ÷ 2 + 1
+                k = (sj - 1) ÷ 2 + 2
                 l = (si - 1) ÷ 4 + 1
                 p = ((sj - 1) % 2) * 4 + ((si - 1) % 4 + 1)
                 brailleGrid[k, l] |= brailleBlocks[p]
