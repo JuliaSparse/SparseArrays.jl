@@ -2,6 +2,7 @@
 # these tests have been moved from other files in julia tests to
 # the SparseArrays.jl repo
 
+using Test
 using Random, LinearAlgebra, SparseArrays
 
 # From arrayops.jl
