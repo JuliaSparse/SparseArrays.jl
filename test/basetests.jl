@@ -12,6 +12,7 @@ using Random, LinearAlgebra, SparseArrays
         for a = ([1], UInt[1], [3, 4, 5], UInt[3, 4, 5])
             @test s === copy!(s, SparseVector(a)) == Vector(a)
         end
+    end
 end
 
 @testset "CartesianIndex" begin
@@ -46,12 +47,12 @@ end
     M = rand(n, n)
     @testset "vector of vectors" begin
         v = [[M]; [M]] # using vcat
-	@test size(v) == (2,)
+        @test size(v) == (2,)
         @test !issparse(v)
     end
     @testset "matrix of vectors" begin
         m1 = [[M] [M]] # using hcat
-	m2 = [[M] [M];] # using hvcat
+        m2 = [[M] [M];] # using hvcat
         @test m1 == m2
         @test size(m1) == (1,2)
         @test !issparse(m1)
