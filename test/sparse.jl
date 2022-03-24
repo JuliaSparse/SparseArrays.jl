@@ -2997,7 +2997,7 @@ end
 @testset "sprandn with type $T" for T in (Float64, Float32, Float16, ComplexF64, ComplexF32, ComplexF16)
     @test sprandn(T, 5, 5, 0.5) isa AbstractSparseMatrix{T}
 end
-@testset "sprandn with invalid type $T" for T in (AbstractFloat, BigFloat, Complex)
+@testset "sprandn with invalid type $T" for T in (AbstractFloat, Complex)
     @test_throws MethodError sprandn(T, 5, 5, 0.5)
 end
 
