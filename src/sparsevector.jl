@@ -1078,10 +1078,11 @@ const _SparseConcatGroup = Union{_DenseConcatGroup, _SparseConcatArrays, _Annota
 _makesparse(x::Number) = x
 _makesparse(x::AbstractArray) = SparseMatrixCSC(issparse(x) ? x : sparse(x))
 
-function Base._cat(dims, Xin::_SparseConcatGroup...)
+# `@constprop :aggressive` allows `dims` to be propagated as constant improving return type inference
+Base.@constprop :aggressive function Base._cat(dims, Xin::_SparseConcatGroup...)
     X = map(_makesparse, Xin)
     T = promote_eltype(Xin...)
-    Base.cat_t(T, X...; dims=dims)
+    return Base._cat_t(dims, T, X...)
 end
 function hcat(Xin::_SparseConcatGroup...)
     X = map(_makesparse, Xin)
