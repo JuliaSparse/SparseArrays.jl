@@ -1433,11 +1433,12 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
         # we need to find the first zero, which could be stored or implicit
         # we try to avoid findfirst(iszero, x)
         sindex = findfirst(iszero, nzvals) # first stored zero, if any
-        zindex = findfirst(i -> i <= nzinds[i], eachindex(nzinds)) # first non-stored zero
-        if !isnothing(zindex) && zindex < lastindex(x)
-            zindex += 1
+        zindex = findfirst(i -> i < nzinds[i], eachindex(nzinds)) # first non-stored zero
+        index = if isnothing(zindex) && last(nzinds) < lastindex(x)
+            last(nzinds) + 1
+        else
+            isnothing(sindex) ? zindex : min(sindex, zindex)
         end
-        index = isnothing(sindex) ? zindex : min(sindex, zindex)
         return zeroval, index
     end
 end

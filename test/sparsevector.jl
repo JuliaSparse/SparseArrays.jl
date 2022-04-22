@@ -903,6 +903,8 @@ end
         v[1] = 2
         @test argmin(v) == 2
         @test argmax(v) == 1
+        v[2] = 2
+        @test argmin(v) == 3
         v[1] = 0
         v[3] = 2
         @test argmin(v) == 1
