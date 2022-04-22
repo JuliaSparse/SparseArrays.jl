@@ -898,6 +898,21 @@ end
         @test_throws ArgumentError findmin(x)
         @test_throws ArgumentError findmax(x)
     end
+    
+    let v = spzeros(3) #Julia #44978
+        v[1] = 2
+        @test argmin(v) == 2
+        @test argmax(v) == 1
+        v[1] = 0
+        v[3] = 2
+        @test argmin(v) == 1
+        @test argmax(v) == 3
+    end
+
+    let v = spzeros(3) #Julia #44978
+        v[3] = 2
+        @test argmax(v) == 3
+    end
 end
 
 ### linalg
