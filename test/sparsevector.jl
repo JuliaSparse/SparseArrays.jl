@@ -906,6 +906,7 @@ end
         v[2] = 2
         @test argmin(v) == 3
         v[1] = 0
+        v[2] = 0
         v[3] = 2
         @test argmin(v) == 1
         @test argmax(v) == 3
