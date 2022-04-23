@@ -1437,6 +1437,7 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
         index = isnothing(sindex) ? zindex : min(sindex, zindex)
         return zeroval, index
     end
+    @eval $fun(x::AbstractSparseVector{T}) where {T} = $fun(identity, x)
 end
 
 norm(x::SparseVectorUnion, p::Real=2) = norm(nonzeros(x), p)
