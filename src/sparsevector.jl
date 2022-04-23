@@ -1434,10 +1434,13 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
         # we try to avoid findfirst(iszero, x)
         sindex = findfirst(iszero, nzvals) # first stored zero, if any
         zindex = findfirst(i -> i < nzinds[i], eachindex(nzinds)) # first non-stored zero
-        index = if isnothing(zindex) && last(nzinds) < lastindex(x)
+        index = if isnothing(zindex) && isnothing(sindex) && last(nzinds) < lastindex(x)
+            # non-stored zero are contiguous and at the end
             last(nzinds) + 1
+        elseif isnothing(sindex)
+            zindex
         else
-            isnothing(sindex) ? zindex : min(sindex, zindex)
+            min(sindex, zindex)
         end
         return zeroval, index
     end
