@@ -561,6 +561,11 @@ end
                 @test issparse(hvcat((2,), othervecormat, spvec))
                 @test issparse(cat(spvec, othervecormat; dims=(1,2)))
                 @test issparse(cat(othervecormat, spvec; dims=(1,2)))
+
+                # inferrability (https://github.com/JuliaSparse/SparseArrays.jl/pull/92)
+                cat_with_constdims(args...) = cat(args...; dims=(1,2))
+                @test issparse(@inferred cat_with_constdims(spvec, othervecormat))
+                @test issparse(@inferred cat_with_constdims(othervecormat, spvec))
             end
             # The preceding tests should cover multi-way combinations of those types, but for good
             # measure test a few multi-way combinations involving those types
@@ -572,6 +577,11 @@ end
             @test issparse(hvcat((5,), spvec, densemat, diagmat, densevec, spmat))
             @test issparse(cat(densemat, diagmat, spmat, densevec, spvec; dims=(1,2)))
             @test issparse(cat(spvec, diagmat, densevec, spmat, densemat; dims=(1,2)))
+
+            # inferrability (https://github.com/JuliaSparse/SparseArrays.jl/pull/92)
+            cat_with_constdims(args...) = cat(args...; dims=(1,2))
+            @test issparse(@inferred cat_with_constdims(densemat, diagmat, spmat, densevec, spvec))
+            @test issparse(@inferred cat_with_constdims(spvec, diagmat, densevec, spmat, densemat))
         end
         @testset "vertical concatenation of SparseVectors with different el- and ind-type (#22225)" begin
             spv6464 = SparseVector(0, Int64[], Int64[])
