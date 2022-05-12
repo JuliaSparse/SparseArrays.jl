@@ -3414,4 +3414,11 @@ using Base: swaprows!, swapcols!
     end
 end
 
+@testset "Issue #29" begin
+    s = sprand(6, 6, .2)
+    li = LinearIndices(s)
+    ci = CartesianIndices(s)
+    @test s[li] == s[ci] == s[Matrix(li)] == s[Matrix(ci)]
+end
+
 end # module
