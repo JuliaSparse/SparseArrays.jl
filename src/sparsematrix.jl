@@ -2644,7 +2644,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     idxB = 1
 
     for i in 1:n
-        ((I[i] < 1) | (I[i] > nA)) && throw(BoundsError())
+        @boundscheck checkbounds(A, I[i])
         row,col = Base._ind2sub(szA, I[i])
         for r in colptrA[col]:(colptrA[col+1]-1)
             @inbounds if rowvalA[r] == row
