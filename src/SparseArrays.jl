@@ -11,6 +11,8 @@ using Base.Sort: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, matprod
 
+
+
 import Base: +, -, *, \, /, &, |, xor, ==, zero
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
     issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded,
@@ -37,7 +39,8 @@ include("sparsevector.jl")
 include("higherorderfns.jl")
 include("linalg.jl")
 include("deprecated.jl")
-
+include("solvers/SuiteSparse.jl")
+using .SuiteSparse
 
 zero(a::AbstractSparseArray) = spzeros(eltype(a), size(a)...)
 
