@@ -27,10 +27,10 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # tried.  If there is a high fill-in with AMD then try METIS(A'A) and take
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
-using SparseArrays
-using SparseArrays: getcolptr
-using ..SuiteSparse.CHOLMOD
-using ..SuiteSparse.CHOLMOD: change_stype!, free!
+using ..SparseArrays
+using ..SparseArrays: getcolptr
+using ..CHOLMOD
+using ..CHOLMOD: change_stype!, free!
 
 import ..LibSuiteSparse: cholmod_l_free
 

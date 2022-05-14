@@ -39,8 +39,31 @@ include("sparsevector.jl")
 include("higherorderfns.jl")
 include("linalg.jl")
 include("deprecated.jl")
-include("solvers/SuiteSparse.jl")
-using .SuiteSparse
+
+## Functions to switch to 0-based indexing to call external sparse solvers
+
+# Convert from 1-based to 0-based indices
+function decrement!(A::AbstractArray{T}) where T<:Integer
+    for i in eachindex(A); A[i] -= oneunit(T) end
+    A
+end
+decrement(A::AbstractArray{<:Integer}) = decrement!(copy(A))
+
+# Convert from 0-based to 1-based indices
+function increment!(A::AbstractArray{T}) where T<:Integer
+    for i in eachindex(A); A[i] += oneunit(T) end
+    A
+end
+increment(A::AbstractArray{<:Integer}) = increment!(copy(A))
+
+include("solvers/LibSuiteSparse.jl")
+using .LibSuiteSparse
+
+if Base.USE_GPL_LIBS
+    include("solvers/umfpack.jl")
+    include("solvers/cholmod.jl")
+    include("solvers/spqr.jl")
+end
 
 zero(a::AbstractSparseArray) = spzeros(eltype(a), size(a)...)
 
