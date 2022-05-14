@@ -20,7 +20,7 @@ if Base.USE_GPL_LIBS
         # case we are not running currently.
         other_nthreads = Threads.nthreads() == 1 ? 4 : 1
         @testset "threads = $other_nthreads" begin
-            let p, cmd = `$(Base.julia_cmd()) --depwarn=error --startup-file=no threads.jl`
+            let p, cmd = `$(Base.julia_cmd()) --depwarn=error --startup-file=no solvers/threads.jl`
                 p = run(
                         pipeline(
                             setenv(
