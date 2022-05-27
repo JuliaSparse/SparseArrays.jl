@@ -1,12 +1,76 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using SparseArrays.UMFPACK
-using SparseArrays
-using SparseArrays: increment!
+using SuiteSparse.UMFPACK
+using SuiteSparse
+using SuiteSparse: increment!
 using Serialization
 using LinearAlgebra:
     I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC
+
+@testset "Workspace management" begin
+    A0 = I + sprandn(100, 100, 0.01)
+    b0 = randn(100)
+    bn0 = rand(100, 20)
+    @testset "Core functionality for $Tv elements" for Tv in (Float64, ComplexF64)
+        for Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+            A = convert(SparseMatrixCSC{Tv,Ti}, A0)
+            Af = lu(A)
+            b = convert(Vector{Tv}, b0)
+            x = SuiteSparse.UMFPACK.solve!(
+                similar(b), 
+                Af, b, 
+                SuiteSparse.UMFPACK.UMFPACK_A)
+            @test A \ b == x
+            bn = convert(Matrix{Tv}, bn0)
+            xn = similar(bn)
+            for i in 1:20
+                xn[:, i] .= SuiteSparse.UMFPACK.solve!(
+                    similar(bn[:, i]), 
+                    Af, bn[:, i], 
+                    SuiteSparse.UMFPACK.UMFPACK_A)
+            end
+            @test A \ bn == xn
+        end
+    end
+    f = function(Tv, Ti)
+        A = convert(SparseMatrixCSC{Tv,Ti}, A0)
+        Af = lu(A)
+        b = convert(Vector{Tv}, b0)
+        x = similar(b)
+        ldiv!(x, Af, b)
+        aloc1 = @allocated ldiv!(x, Af, b)
+        bn = convert(Matrix{Tv}, bn0)
+        xn = similar(bn)
+        ldiv!(xn, Af, bn)
+        aloc2 = @allocated ldiv!(xn, Af, bn)
+        return aloc1 + aloc2
+    end
+    @testset "Allocations" begin
+        for Tv in Base.uniontypes(SuiteSparse.UMFPACK.UMFVTypes),
+            Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+            @test f(Tv, Ti) == 0
+        end
+    end
+    @testset "new_workspace" begin
+        for Tv in Base.uniontypes(SuiteSparse.UMFPACK.UMFVTypes),
+            Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+            A = convert(SparseMatrixCSC{Tv,Ti}, A0)
+            Af = lu(A)
+            Bf = SuiteSparse.UMFPACK.new_workspace(Af)
+            for i in [:symbolic, :numeric, :colptr, :rowval, :nzval]
+                @test getproperty(Af, i) === getproperty(Bf, i)
+            end
+            for i in [:m, :n, :status]
+                @test getproperty(Af, i) == getproperty(Bf, i)
+            end
+            for i in [:W, :Wi]
+                @test getproperty(Af, i) !== getproperty(Bf, i)
+                @test length(getproperty(Af, i)) == length(getproperty(Bf, i))
+            end
+        end
+    end
+end
 
 @testset "UMFPACK wrappers" begin
     se33 = sparse(1.0I, 3, 3)
@@ -21,7 +85,7 @@ using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC
 
     @testset "Core functionality for $Tv elements" for Tv in (Float64, ComplexF64)
         # We might be able to support two index sizes one day
-        for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        for Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             lua = lu(A)
             @test nnz(lua) == 18
@@ -96,7 +160,7 @@ using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC
 
     @testset "More tests for complex cases" begin
         Ac0 = complex.(A0,A0)
-        for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        for Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
             Ac = convert(SparseMatrixCSC{ComplexF64,Ti}, Ac0)
             x  = fill(1.0 + im, size(Ac,1))
             lua = lu(Ac)
@@ -167,9 +231,9 @@ using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC
 
     @testset "Test aliasing" begin
         a = rand(5)
-        @test_throws ArgumentError UMFPACK.solve!(a, lu(sparse(1.0I, 5, 5)), a, UMFPACK.UMFPACK_A)
+        @test_throws ArgumentError SuiteSparse.UMFPACK.solve!(a, lu(sparse(1.0I, 5, 5)), a, SuiteSparse.UMFPACK.UMFPACK_A)
         aa = complex(a)
-        @test_throws ArgumentError UMFPACK.solve!(aa, lu(sparse((1.0im)I, 5, 5)), aa, UMFPACK.UMFPACK_A)
+        @test_throws ArgumentError SuiteSparse.UMFPACK.solve!(aa, lu(sparse((1.0im)I, 5, 5)), aa, SuiteSparse.UMFPACK.UMFPACK_A)
     end
 
     @testset "Issues #18246,18244 - lu sparse pivot" begin
@@ -215,7 +279,7 @@ using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
         for Tv in (Float64, ComplexF64, Float16, Float32, ComplexF16, ComplexF32)
-            for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            for Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
                 B = convert(SparseMatrixCSC{Tv,Ti}, A1)
                 b = Tv[8., 45., -3., 3., 19.]
