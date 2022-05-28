@@ -148,6 +148,7 @@ mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
     rowval::Vector{Ti}                  # 0-based row indices
     nzval::Vector{Tv}
     status::Int
+    # workspaces
     Wi::Vector{Ti}
     W::Vector{Float64}
 end
@@ -168,8 +169,8 @@ new_workspace(lu::UmfpackLU) = UmfpackLU(
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
 
-workspase_size(S::SparseMatrixCSC{Float64, Ti}) where Ti = 5 * size(S, 2)
-workspase_size(S::SparseMatrixCSC{ComplexF64, Ti}) where Ti = 10 * size(S, 2)
+workspace_size(S::SparseMatrixCSC{Float64}) = 5 * size(S, 2)
+workspace_size(S::SparseMatrixCSC{ComplexF64}) = 10 * size(S, 2)
 
 """
     lu(A::SparseMatrixCSC; check = true) -> F::UmfpackLU
@@ -222,7 +223,7 @@ function lu(S::SparseMatrixCSC{<:UMFVTypes, Ti}; check::Bool = true) where {Ti <
                     zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
                     copy(nonzeros(S)), 0, 
                     Vector{Ti}(undef, size(S, 2)), 
-                    Vector{Float64}(undef, workspase_size(S)))
+                    Vector{Float64}(undef, workspace_size(S)))
     finalizer(umfpack_free_symbolic, res)
     umfpack_numeric!(res)
     check && (issuccess(res) || throw(LinearAlgebra.SingularException(0)))
@@ -436,21 +437,9 @@ for itype in UmfpackIndexTypes
             U.numeric = tmp[1]
             return U
         end
-        function solve!(x::StridedVector{Float64}, lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64}, typ::Integer)
-            if x === b
-                throw(ArgumentError("output array must not be aliased with input array"))
-            end
-            if stride(x, 1) != 1 || stride(b, 1) != 1
-                throw(ArgumentError("in and output vectors must have unit strides"))
-            end
-            umfpack_numeric!(lu)
-            (size(b,1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
-            @isok $sol_r(typ, lu.colptr, lu.rowval, lu.nzval,
-                        x, b, lu.numeric, umf_ctrl,
-                        umf_info)
-            return x
-        end
-        function solve!(x::StridedVector{Float64}, lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64}, Wi::StridedVector{$itype}, W::StridedVector{Float64}, typ::Integer)
+        function solve!(
+            x::StridedVector{Float64}, lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64}, typ::Integer;
+            Wi::StridedVector{$itype} = lu.Wi, W::StridedVector{Float64} = lu.W)
             if x === b
                 throw(ArgumentError("output array must not be aliased with input array"))
             end
@@ -467,20 +456,9 @@ for itype in UmfpackIndexTypes
                         umf_info, Wi, W)
             return x
         end
-        function solve!(x::StridedVector{ComplexF64}, lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, typ::Integer)
-            if x === b
-                throw(ArgumentError("output array must not be aliased with input array"))
-            end
-            if stride(x, 1) != 1 || stride(b, 1) != 1
-                throw(ArgumentError("in and output vectors must have unit strides"))
-            end
-            umfpack_numeric!(lu)
-            (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
-            @isok $sol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
-                        C_NULL, lu.numeric, umf_ctrl, umf_info)
-            return x
-        end
-        function solve!(x::StridedVector{ComplexF64}, lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, Wi::StridedVector{$itype}, W::StridedVector{Float64}, typ::Integer)
+        function solve!(
+            x::StridedVector{ComplexF64}, lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, typ::Integer;
+            Wi::StridedVector{$itype} = lu.Wi, W::StridedVector{Float64} = lu.W)
             if x === b
                 throw(ArgumentError("output array must not be aliased with input array"))
             end
@@ -769,14 +747,14 @@ function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, tran
     _AqldivB_kernel!(X, lu, B, transposeoptype)
     return X
 end
-function _AqldivB_kernel!(x::StridedVector{Tv}, lu::UmfpackLU{Tv, Ti},
-                          b::StridedVector{Tv}, transposeoptype) where {Tv<:UMFVTypes, Ti<:UMFITypes}
-    solve!(x, lu, b, lu.Wi, lu.W, transposeoptype)
+function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},
+                          b::StridedVector{T}, transposeoptype) where {T<:UMFVTypes}
+    solve!(x, lu, b, transposeoptype)
 end
-function _AqldivB_kernel!(X::StridedMatrix{Tv}, lu::UmfpackLU{Tv,Ti},
-                          B::StridedMatrix{Tv}, transposeoptype) where {Tv<:UMFVTypes, Ti<:UMFITypes}
+function _AqldivB_kernel!(X::StridedMatrix{T}, lu::UmfpackLU{T},
+                          B::StridedMatrix{T}, transposeoptype) where {T<:UMFVTypes}
     for col in 1:size(X, 2)
-        solve!(view(X, :, col), lu, view(B, :, col), lu.Wi, lu.W, transposeoptype)
+        solve!(view(X, :, col), lu, view(B, :, col), transposeoptype)
     end
 end
 function _AqldivB_kernel!(x::StridedVector{Tb}, lu::UmfpackLU{Float64},
