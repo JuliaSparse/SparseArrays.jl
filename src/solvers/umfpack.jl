@@ -137,6 +137,18 @@ function show_umf_info(level::Real = 2.0)
     umfpack_dl_report_info(umf_ctrl, umf_info)
     umf_ctrl[1] = old_prt
 end
+"""
+Working space for Umfpack so ldiv! doesn't reallocate
+"""
+struct UmfpackWS{T<:UMFITypes}
+    Wi::Vector{T}
+    W::Vector{Float64}
+end
+
+Base.similar(w::UmfpackWS) = UmfpackWS(similar(w.Wi), similar(w.W))
+# TODO, this actually doesn't need to be this big if iter refinement is off
+UmfpackWS(S::SparseMatrixCSC{Float64, T}) where T= UmfpackWS{T}(Vector{T}(undef, size(S, 2)), Vector{Float64}(undef, 5 * size(S, 2)))
+UmfpackWS(S::SparseMatrixCSC{ComplexF64, T}) where T = UmfpackWS{T}(Vector{T}(undef, size(S, 2)), Vector{Float64}(undef, 10 * size(S, 2)))
 
 ## Should this type be immutable?
 mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
@@ -148,29 +160,12 @@ mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
     rowval::Vector{Ti}                  # 0-based row indices
     nzval::Vector{Tv}
     status::Int
-    # workspaces
-    Wi::Vector{Ti}
-    W::Vector{Float64}
+    workspace::UmfpackWS    
 end
-
-new_workspace(lu::UmfpackLU) = UmfpackLU(
-    lu.symbolic,
-    lu.numeric,
-    lu.m,
-    lu.n,
-    lu.colptr,
-    lu.rowval,
-    lu.nzval,
-    lu.status,
-    similar(lu.Wi),
-    similar(lu.W)
-)
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
 
-workspace_size(S::SparseMatrixCSC{Float64}) = 5 * size(S, 2)
-workspace_size(S::SparseMatrixCSC{ComplexF64}) = 10 * size(S, 2)
 
 """
     lu(A::SparseMatrixCSC; check = true) -> F::UmfpackLU
@@ -221,9 +216,7 @@ function lu(S::SparseMatrixCSC{<:UMFVTypes, Ti}; check::Bool = true) where {Ti <
     res = UmfpackLU(C_NULL, C_NULL, size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
                     zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
-                    copy(nonzeros(S)), 0, 
-                    Vector{Ti}(undef, size(S, 2)), 
-                    Vector{Float64}(undef, workspace_size(S)))
+                    copy(nonzeros(S)), 0, UmfpackWS(S))
     finalizer(umfpack_free_symbolic, res)
     umfpack_numeric!(res)
     check && (issuccess(res) || throw(LinearAlgebra.SingularException(0)))
@@ -288,12 +281,17 @@ julia> F \\ ones(2)
 """
 function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool=true)
     zerobased = getcolptr(S)[1] == 0
+    # resize workspace if needed
+    if F.n < size(S, 2)
+        F.workspace = UmfpackWS(S)
+    end
+
     F.m = size(S, 1)
     F.n = size(S, 2)
     F.colptr = zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S))
     F.rowval = zerobased ? copy(rowvals(S)) : decrement(rowvals(S))
     F.nzval = copy(nonzeros(S))
-
+    
     umfpack_numeric!(F, reuse_numeric = false)
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
@@ -345,9 +343,8 @@ function deserialize(s::AbstractSerializer, t::Type{UmfpackLU{Tv,Ti}}) where {Tv
     rowval   = deserialize(s)
     nzval    = deserialize(s)
     status   = deserialize(s)
-    Wi       = deserialize(s)
-    W        = deserialize(s)
-    obj      = UmfpackLU{Tv,Ti}(symbolic, numeric, m, n, colptr, rowval, nzval, status, Wi, W)
+    ws       = deserialize(s)
+    obj      = UmfpackLU{Tv,Ti}(symbolic, numeric, m, n, colptr, rowval, nzval, status, ws)
 
     finalizer(umfpack_free_symbolic, obj)
 
@@ -439,7 +436,7 @@ for itype in UmfpackIndexTypes
         end
         function solve!(
             x::StridedVector{Float64}, lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64}, typ::Integer;
-            Wi::StridedVector{$itype} = lu.Wi, W::StridedVector{Float64} = lu.W)
+            Wi::StridedVector{$itype} = lu.workspace.Wi, W::StridedVector{Float64} = lu.workspace.W)
             if x === b
                 throw(ArgumentError("output array must not be aliased with input array"))
             end
@@ -458,7 +455,7 @@ for itype in UmfpackIndexTypes
         end
         function solve!(
             x::StridedVector{ComplexF64}, lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, typ::Integer;
-            Wi::StridedVector{$itype} = lu.Wi, W::StridedVector{Float64} = lu.W)
+            Wi::StridedVector{$itype} = lu.workspace.Wi, W::StridedVector{Float64} = lu.workspace.W)
             if x === b
                 throw(ArgumentError("output array must not be aliased with input array"))
             end
@@ -714,63 +711,64 @@ LinearAlgebra.issuccess(lu::UmfpackLU) = lu.status == UMFPACK_OK
 
 import LinearAlgebra.ldiv!
 
-ldiv!(lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    ldiv!(B, lu, copy(B))
-ldiv!(translu::Transpose{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = translu.parent; ldiv!(B, transpose(lu), copy(B)))
-ldiv!(adjlu::Adjoint{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = adjlu.parent; ldiv!(B, adjoint(lu), copy(B)))
-ldiv!(lu::UmfpackLU{Float64}, B::StridedVecOrMat{<:Complex}) =
-    ldiv!(B, lu, copy(B))
-ldiv!(translu::Transpose{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
-    (lu = translu.parent; ldiv!(B, transpose(lu), copy(B)))
-ldiv!(adjlu::Adjoint{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
-    (lu = adjlu.parent; ldiv!(B, adjoint(lu), copy(B)))
+ldiv!(lu::UmfpackLU{T}, B::StridedVecOrMat{T}; workspace=lu.workspace) where {T<:UMFVTypes} =
+    ldiv!(B, lu, copy(B); workspace)
+ldiv!(translu::Transpose{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=translu.parent.workspace) where {T<:UMFVTypes} =
+    (lu = translu.parent; ldiv!(B, transpose(lu), copy(B); workspace))
+ldiv!(adjlu::Adjoint{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=adjlu.parent.workspace) where {T<:UMFVTypes} =
+    (lu = adjlu.parent; ldiv!(B, adjoint(lu), copy(B); workspace))
+ldiv!(lu::UmfpackLU{Float64}, B::StridedVecOrMat{<:Complex}; workspace=lu.workspace) =
+    ldiv!(B, lu, copy(B); workspace)
+ldiv!(translu::Transpose{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}; workspace=translu.parent.workspace) =
+    (lu = translu.parent; ldiv!(B, transpose(lu), copy(B); workspace))
+ldiv!(adjlu::Adjoint{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}; workspace=adjlu.parent.workspace) =
+    (lu = adjlu.parent; ldiv!(B, adjoint(lu), copy(B); workspace))
 
-ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
-ldiv!(X::StridedVecOrMat{T}, translu::Transpose{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
-ldiv!(X::StridedVecOrMat{T}, adjlu::Adjoint{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
-ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
-    _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
-ldiv!(X::StridedVecOrMat{Tb}, translu::Transpose{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
-    (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
-ldiv!(X::StridedVecOrMat{Tb}, adjlu::Adjoint{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
-    (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
+ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}; workspace=lu.workspace) where {T<:UMFVTypes} =
+    _Aq_ldiv_B!(X, lu, B, UMFPACK_A, workspace)
+ldiv!(X::StridedVecOrMat{T}, translu::Transpose{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=translu.parent.workspace) where {T<:UMFVTypes} =
+    (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat, workspace))
+ldiv!(X::StridedVecOrMat{T}, adjlu::Adjoint{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=adjlu.parent.workspace) where {T<:UMFVTypes} =
+    (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At, workspace))
+ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}; workspace=lu.workspace) where {Tb<:Complex} =
+    _Aq_ldiv_B!(X, lu, B, UMFPACK_A, workspace)
+ldiv!(X::StridedVecOrMat{Tb}, translu::Transpose{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}; 
+    workspace=translu.parent.workspace) where {Tb<:Complex} =
+    (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat, workspace))
+ldiv!(X::StridedVecOrMat{Tb}, adjlu::Adjoint{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}; workspace=adjlu.parent.workspace) where {Tb<:Complex} =
+    (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At, workspace))
 
-function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype)
+function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype, workspace::UmfpackWS)
     if size(X, 2) != size(B, 2)
         throw(DimensionMismatch("input and output arrays must have same number of columns"))
     end
-    _AqldivB_kernel!(X, lu, B, transposeoptype)
+    _AqldivB_kernel!(X, lu, B, transposeoptype, workspace)
     return X
 end
 function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},
-                          b::StridedVector{T}, transposeoptype) where {T<:UMFVTypes}
-    solve!(x, lu, b, transposeoptype)
+                          b::StridedVector{T}, transposeoptype, workspace::UmfpackWS) where {T<:UMFVTypes}
+    solve!(x, lu, b, transposeoptype; Wi=workspace.Wi, W=workspace.W)
 end
 function _AqldivB_kernel!(X::StridedMatrix{T}, lu::UmfpackLU{T},
-                          B::StridedMatrix{T}, transposeoptype) where {T<:UMFVTypes}
+                          B::StridedMatrix{T}, transposeoptype, workspace::UmfpackWS) where {T<:UMFVTypes}
     for col in 1:size(X, 2)
-        solve!(view(X, :, col), lu, view(B, :, col), transposeoptype)
+        solve!(view(X, :, col), lu, view(B, :, col), transposeoptype; Wi=workspace.Wi, W=workspace.W)
     end
 end
 function _AqldivB_kernel!(x::StridedVector{Tb}, lu::UmfpackLU{Float64},
-                          b::StridedVector{Tb}, transposeoptype) where Tb<:Complex
+                          b::StridedVector{Tb}, transposeoptype, workspace::UmfpackWS) where Tb<:Complex
     r, i = similar(b, Float64), similar(b, Float64)
-    solve!(r, lu, Vector{Float64}(real(b)), transposeoptype)
-    solve!(i, lu, Vector{Float64}(imag(b)), transposeoptype)
+    solve!(r, lu, Vector{Float64}(real(b)), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+    solve!(i, lu, Vector{Float64}(imag(b)), transposeoptype; Wi=workspace.Wi, W=workspace.W)
     map!(complex, x, r, i)
 end
 function _AqldivB_kernel!(X::StridedMatrix{Tb}, lu::UmfpackLU{Float64},
-                          B::StridedMatrix{Tb}, transposeoptype) where Tb<:Complex
+                          B::StridedMatrix{Tb}, transposeoptype, workspace::UmfpackWS) where Tb<:Complex
     r = similar(B, Float64, size(B, 1))
     i = similar(B, Float64, size(B, 1))
     for j in 1:size(B, 2)
-        solve!(r, lu, Vector{Float64}(real(view(B, :, j))), transposeoptype)
-        solve!(i, lu, Vector{Float64}(imag(view(B, :, j))), transposeoptype)
+        solve!(r, lu, Vector{Float64}(real(view(B, :, j))), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+        solve!(i, lu, Vector{Float64}(imag(view(B, :, j))), transposeoptype; Wi=workspace.Wi, W=workspace.W)
         map!(complex, view(X, :, j), r, i)
     end
 end

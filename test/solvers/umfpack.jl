@@ -85,24 +85,6 @@ end
             @test f(Tv, Ti) == 0
         end
     end
-    @testset "new_workspace" begin
-        for Tv in Base.uniontypes(UMFPACK.UMFVTypes),
-            Ti in Base.uniontypes(UMFPACK.UMFITypes)
-            A = convert(SparseMatrixCSC{Tv,Ti}, A0)
-            Af = lu(A)
-            Bf = UMFPACK.new_workspace(Af)
-            for i in [:symbolic, :numeric, :colptr, :rowval, :nzval]
-                @test getproperty(Af, i) === getproperty(Bf, i)
-            end
-            for i in [:m, :n, :status]
-                @test getproperty(Af, i) == getproperty(Bf, i)
-            end
-            for i in [:W, :Wi]
-                @test getproperty(Af, i) !== getproperty(Bf, i)
-                @test length(getproperty(Af, i)) == length(getproperty(Bf, i))
-            end
-        end
-    end
 end
 
 @testset "UMFPACK wrappers" begin
