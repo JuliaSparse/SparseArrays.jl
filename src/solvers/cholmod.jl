@@ -1228,7 +1228,7 @@ julia> A = [2 1 1; 1 2 0; 1 0 2]
  1  0  2
 
 julia> C = cholesky(sparse(A))
-SuiteSparse.CHOLMOD.Factor{Float64}
+SparseArrays.CHOLMOD.Factor{Float64}
 type:    LLt
 method:  simplicial
 maxnnz:  5
@@ -1262,7 +1262,7 @@ julia> P' * L * L' * P ≈ A
 true
 
 julia> C = cholesky(sparse(A), perm=1:3)
-SuiteSparse.CHOLMOD.Factor{Float64}
+SparseArrays.CHOLMOD.Factor{Float64}
 type:    LLt
 method:  simplicial
 maxnnz:  6

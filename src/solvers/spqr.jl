@@ -165,9 +165,9 @@ julia> A = sparse([1,2,3,4], [1,1,2,2], [1.0,1.0,1.0,1.0])
   ⋅   1.0
 
 julia> qr(A)
-SuiteSparse.SPQR.QRSparse{Float64, Int64}
+SparseArrays.SPQR.QRSparse{Float64, Int64}
 Q factor:
-4×4 SuiteSparse.SPQR.QRSparseQ{Float64, Int64}:
+4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}:
  -0.707107   0.0        0.0       -0.707107
   0.0       -0.707107  -0.707107   0.0
   0.0       -0.707107   0.707107   0.0
