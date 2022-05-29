@@ -7,28 +7,61 @@ using Serialization
 using LinearAlgebra:
     I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC
+for itype in UMFPACK.UmfpackIndexTypes
+    sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
+    sol_c = Symbol(UMFPACK.umf_nm("solve", :ComplexF64, itype))
+    @eval begin
+        function alloc_solve!(x::StridedVector{Float64}, lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64}, typ::Integer)
+            if x === b
+                throw(ArgumentError("output array must not be aliased with input array"))
+            end
+            if stride(x, 1) != 1 || stride(b, 1) != 1
+                throw(ArgumentError("in and output vectors must have unit strides"))
+            end
+            UMFPACK.umfpack_numeric!(lu)
+            (size(b,1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
+            UMFPACK.@isok UMFPACK.$sol_r(typ, lu.colptr, lu.rowval, lu.nzval,
+                        x, b, lu.numeric, UMFPACK.umf_ctrl,
+                        UMFPACK.umf_info)
+            return x
+        end
+        function alloc_solve!(x::StridedVector{ComplexF64}, lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, typ::Integer)
+            if x === b
+                throw(ArgumentError("output array must not be aliased with input array"))
+            end
+            if stride(x, 1) != 1 || stride(b, 1) != 1
+                throw(ArgumentError("in and output vectors must have unit strides"))
+            end
+            UMFPACK.umfpack_numeric!(lu)
+            (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
+            UMFPACK.@isok UMFPACK.$sol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
+                        C_NULL, lu.numeric, UMFPACK.umf_ctrl, UMFPACK.umf_info)
+            return x
+        end
+    end
+end
 
 @testset "Workspace management" begin
     A0 = I + sprandn(100, 100, 0.01)
     b0 = randn(100)
     bn0 = rand(100, 20)
     @testset "Core functionality for $Tv elements" for Tv in (Float64, ComplexF64)
-        for Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+        for Ti in Base.uniontypes(UMFPACK.UMFITypes)
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             Af = lu(A)
             b = convert(Vector{Tv}, b0)
-            x = SuiteSparse.UMFPACK.solve!(
+            x = alloc_solve!(
                 similar(b), 
                 Af, b, 
-                SuiteSparse.UMFPACK.UMFPACK_A)
+                UMFPACK.UMFPACK_A)
             @test A \ b == x
             bn = convert(Matrix{Tv}, bn0)
             xn = similar(bn)
             for i in 1:20
-                xn[:, i] .= SuiteSparse.UMFPACK.solve!(
+                xn[:, i] .= alloc_solve!(
                     similar(bn[:, i]), 
                     Af, bn[:, i], 
-                    SuiteSparse.UMFPACK.UMFPACK_A)
+                    UMFPACK.UMFPACK_A)
             end
             @test A \ bn == xn
         end
@@ -47,17 +80,17 @@ using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC
         return aloc1 + aloc2
     end
     @testset "Allocations" begin
-        for Tv in Base.uniontypes(SuiteSparse.UMFPACK.UMFVTypes),
-            Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+        for Tv in Base.uniontypes(UMFPACK.UMFVTypes),
+            Ti in Base.uniontypes(UMFPACK.UMFITypes)
             @test f(Tv, Ti) == 0
         end
     end
     @testset "new_workspace" begin
-        for Tv in Base.uniontypes(SuiteSparse.UMFPACK.UMFVTypes),
-            Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+        for Tv in Base.uniontypes(UMFPACK.UMFVTypes),
+            Ti in Base.uniontypes(UMFPACK.UMFITypes)
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             Af = lu(A)
-            Bf = SuiteSparse.UMFPACK.new_workspace(Af)
+            Bf = UMFPACK.new_workspace(Af)
             for i in [:symbolic, :numeric, :colptr, :rowval, :nzval]
                 @test getproperty(Af, i) === getproperty(Bf, i)
             end
