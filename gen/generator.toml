@@ -1,0 +1,51 @@
+[general]
+library_name = "libcholmod"
+library_names = { "SuiteSparseQR_C.h" = "libspqr", "umfpack.*.h" = "libumfpack", "amd.h" = "libamd", "colamd.h" = "libcolamd", "ccolamd.h" = "libccolamd", "cholmod_camd.h" = "libcholmod"}
+
+use_julia_native_enum_type = true
+use_deterministic_symbol = true
+auto_mutability = true
+
+output_ignorelist = [
+    # Clang.jl cannot handle these macro correctly, skip for now.
+    "SuiteSparse_long_id",  
+    "CHOLMOD_CUBLAS_HANDLE",
+    "CHOLMOD_CUDASTREAM",
+    "CHOLMOD_CUDAEVENT",
+    # useless macros
+    "CHOLMOD_CPU_GEMM_CALLS",
+    "CHOLMOD_CPU_SYRK_CALLS",
+    "CHOLMOD_CPU_TRSM_CALLS",
+    "CHOLMOD_CPU_POTRF_CALLS",
+    "CHOLMOD_GPU_GEMM_CALLS",
+    "CHOLMOD_GPU_SYRK_CALLS",
+    "CHOLMOD_GPU_TRSM_CALLS",
+    "CHOLMOD_GPU_POTRF_CALLS",
+    "CHOLMOD_CPU_GEMM_TIME",
+    "CHOLMOD_CPU_SYRK_TIME",
+    "CHOLMOD_CPU_TRSM_TIME",
+    "CHOLMOD_CPU_POTRF_TIME",
+    "CHOLMOD_GPU_GEMM_TIME",
+    "CHOLMOD_GPU_SYRK_TIME",
+    "CHOLMOD_GPU_TRSM_TIME",
+    "CHOLMOD_GPU_POTRF_TIME",
+    "CHOLMOD_ASSEMBLE_TIME",
+    "CHOLMOD_ASSEMBLE_TIME2",
+]
+
+[codegen]
+use_ccall_macro = true
+
+[codegen.macro]
+macro_mode = "basic"
+
+functionlike_macro_includelist = [
+    "SUITESPARSE_VER_CODE",
+    "CHOLMOD_VER_CODE",
+    "SPQR_VER_CODE",
+    "AMD_VERSION_CODE",
+    "UMFPACK_VER_CODE",
+    "COLAMD_VERSION_CODE",
+    "KLU_VERSION_CODE",
+    "BTF_VERSION_CODE"
+]
