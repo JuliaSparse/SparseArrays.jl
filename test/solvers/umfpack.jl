@@ -1,12 +1,8 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using SuiteSparse.UMFPACK
-using SuiteSparse
-using SuiteSparse: increment!
-using Serialization
 using LinearAlgebra:
     I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal
-using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC
+using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
 for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
     sol_c = Symbol(UMFPACK.umf_nm("solve", :ComplexF64, itype))
