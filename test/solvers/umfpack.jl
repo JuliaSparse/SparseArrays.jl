@@ -1,5 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
-
+using SparseArrays
+using Serialization
 using LinearAlgebra:
     I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
@@ -7,7 +8,7 @@ for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
     sol_c = Symbol(UMFPACK.umf_nm("solve", :ComplexF64, itype))
     @eval begin
-        function alloc_solve!(x::StridedVector{Float64}, lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64}, typ::Integer)
+        function alloc_solve!(x::StridedVector{Float64}, lu::UMFPACK.UmfpackLU{Float64,$itype}, b::StridedVector{Float64}, typ::Integer)
             if x === b
                 throw(ArgumentError("output array must not be aliased with input array"))
             end
@@ -21,7 +22,7 @@ for itype in UMFPACK.UmfpackIndexTypes
                         UMFPACK.umf_info)
             return x
         end
-        function alloc_solve!(x::StridedVector{ComplexF64}, lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, typ::Integer)
+        function alloc_solve!(x::StridedVector{ComplexF64}, lu::UMFPACK.UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, typ::Integer)
             if x === b
                 throw(ArgumentError("output array must not be aliased with input array"))
             end
@@ -96,7 +97,7 @@ end
 
     @testset "Core functionality for $Tv elements" for Tv in (Float64, ComplexF64)
         # We might be able to support two index sizes one day
-        for Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+        for Ti in Base.uniontypes(UMFPACK.UMFITypes)
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             lua = lu(A)
             @test nnz(lua) == 18
@@ -171,7 +172,7 @@ end
 
     @testset "More tests for complex cases" begin
         Ac0 = complex.(A0,A0)
-        for Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+        for Ti in Base.uniontypes(UMFPACK.UMFITypes)
             Ac = convert(SparseMatrixCSC{ComplexF64,Ti}, Ac0)
             x  = fill(1.0 + im, size(Ac,1))
             lua = lu(Ac)
@@ -242,9 +243,9 @@ end
 
     @testset "Test aliasing" begin
         a = rand(5)
-        @test_throws ArgumentError SuiteSparse.UMFPACK.solve!(a, lu(sparse(1.0I, 5, 5)), a, SuiteSparse.UMFPACK.UMFPACK_A)
+        @test_throws ArgumentError UMFPACK.solve!(a, lu(sparse(1.0I, 5, 5)), a, UMFPACK.UMFPACK_A)
         aa = complex(a)
-        @test_throws ArgumentError SuiteSparse.UMFPACK.solve!(aa, lu(sparse((1.0im)I, 5, 5)), aa, SuiteSparse.UMFPACK.UMFPACK_A)
+        @test_throws ArgumentError UMFPACK.solve!(aa, lu(sparse((1.0im)I, 5, 5)), aa, UMFPACK.UMFPACK_A)
     end
 
     @testset "Issues #18246,18244 - lu sparse pivot" begin
@@ -290,7 +291,7 @@ end
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
         for Tv in (Float64, ComplexF64, Float16, Float32, ComplexF16, ComplexF32)
-            for Ti in Base.uniontypes(SuiteSparse.UMFPACK.UMFITypes)
+            for Ti in Base.uniontypes(UMFPACK.UMFITypes)
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
                 B = convert(SparseMatrixCSC{Tv,Ti}, A1)
                 b = Tv[8., 45., -3., 3., 19.]
