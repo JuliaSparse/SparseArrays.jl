@@ -138,17 +138,34 @@ function show_umf_info(level::Real = 2.0)
     umf_ctrl[1] = old_prt
 end
 """
-Working space for Umfpack so ldiv! doesn't reallocate
+Working space for Umfpack so `ldiv!` doesn't allocate.
+
+This is allocated once per lu factorization so that Umpfack does not allocated.
+However, this makes `ldiv!` edit the the workspace field of the lu factorization. 
+This structure is thread safe as it's not obvious that `ldiv!` modifies the lu factorization.
+If the lock cannot be aquired, it will send a warning. 
+
+To use multiple threads, each thread should have their own workspace that can be allocated using `Base.similar(::UmfpackWS)` and passed as a kwarg to `ldiv!`.
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
     W::Vector{Float64}
+    l::ReentrantLock
 end
-
-Base.similar(w::UmfpackWS) = UmfpackWS(similar(w.Wi), similar(w.W))
+UmfpackWS(Wi, W) = UmfpackWS(Wi, W, ReentrantLock())
 # TODO, this actually doesn't need to be this big if iter refinement is off
-UmfpackWS(S::SparseMatrixCSC{Float64, T}) where T= UmfpackWS{T}(Vector{T}(undef, size(S, 2)), Vector{Float64}(undef, 5 * size(S, 2)))
-UmfpackWS(S::SparseMatrixCSC{ComplexF64, T}) where T = UmfpackWS{T}(Vector{T}(undef, size(S, 2)), Vector{Float64}(undef, 10 * size(S, 2)))
+UmfpackWS(S::SparseMatrixCSC{Float64, T}) where T= UmfpackWS{T}(Vector{T}(undef, size(S, 2)), Vector{Float64}(undef, 5 * size(S, 2)), ReentrantLock())
+UmfpackWS(S::SparseMatrixCSC{ComplexF64, T}) where T = UmfpackWS{T}(Vector{T}(undef, size(S, 2)), Vector{Float64}(undef, 10 * size(S, 2)), ReentrantLock())
+
+function Base.lock(workspace::UmfpackWS)
+    if !trylock(workspace.l)
+        @info """waiting for UmfpackWS's lock, it's safe to ignore this message.
+        see the documentation for UmfpackWS""" maxlog=1
+        lock(workspace.l)
+    end
+end
+@inline Base.unlock(workspace::UmfpackWS) = unlock(workspace.l)
+Base.similar(w::UmfpackWS) = UmfpackWS(similar(w.Wi), similar(w.W))
 
 ## Should this type be immutable?
 mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
@@ -211,7 +228,7 @@ See also [`lu!`](@ref)
 
 [^ACM832]: Davis, Timothy A. (2004b). Algorithm 832: UMFPACK V4.3---an Unsymmetric-Pattern Multifrontal Method. ACM Trans. Math. Softw., 30(2), 196–199. [doi:10.1145/992200.992206](https://doi.org/10.1145/992200.992206)
 """
-function lu(S::SparseMatrixCSC{<:UMFVTypes, Ti}; check::Bool = true) where {Ti <:UMFITypes}
+function lu(S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool = true)
     zerobased = getcolptr(S)[1] == 0
     res = UmfpackLU(C_NULL, C_NULL, size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
@@ -747,29 +764,50 @@ function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, tran
 end
 function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},
                           b::StridedVector{T}, transposeoptype, workspace::UmfpackWS) where {T<:UMFVTypes}
-    solve!(x, lu, b, transposeoptype; Wi=workspace.Wi, W=workspace.W)
+    lock(workspace)
+    try
+        solve!(x, lu, b, transposeoptype; Wi=workspace.Wi, W=workspace.W)
+    finally
+        unlock(workspace)
+    end
 end
 function _AqldivB_kernel!(X::StridedMatrix{T}, lu::UmfpackLU{T},
                           B::StridedMatrix{T}, transposeoptype, workspace::UmfpackWS) where {T<:UMFVTypes}
-    for col in 1:size(X, 2)
-        solve!(view(X, :, col), lu, view(B, :, col), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+    lock(workspace)
+    try
+        for col in 1:size(X, 2)
+            solve!(view(X, :, col), lu, view(B, :, col), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+        end
+    finally
+        unlock(workspace)
     end
 end
 function _AqldivB_kernel!(x::StridedVector{Tb}, lu::UmfpackLU{Float64},
                           b::StridedVector{Tb}, transposeoptype, workspace::UmfpackWS) where Tb<:Complex
     r, i = similar(b, Float64), similar(b, Float64)
-    solve!(r, lu, Vector{Float64}(real(b)), transposeoptype; Wi=workspace.Wi, W=workspace.W)
-    solve!(i, lu, Vector{Float64}(imag(b)), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+    lock(workspace)
+    try 
+        solve!(r, lu, Vector{Float64}(real(b)), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+        solve!(i, lu, Vector{Float64}(imag(b)), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+    finally
+        unlock(workspace)
+    end
     map!(complex, x, r, i)
 end
 function _AqldivB_kernel!(X::StridedMatrix{Tb}, lu::UmfpackLU{Float64},
                           B::StridedMatrix{Tb}, transposeoptype, workspace::UmfpackWS) where Tb<:Complex
     r = similar(B, Float64, size(B, 1))
     i = similar(B, Float64, size(B, 1))
-    for j in 1:size(B, 2)
-        solve!(r, lu, Vector{Float64}(real(view(B, :, j))), transposeoptype; Wi=workspace.Wi, W=workspace.W)
-        solve!(i, lu, Vector{Float64}(imag(view(B, :, j))), transposeoptype; Wi=workspace.Wi, W=workspace.W)
-        map!(complex, view(X, :, j), r, i)
+    
+    lock(workspace)
+    try
+        for j in 1:size(B, 2)
+            solve!(r, lu, Vector{Float64}(real(view(B, :, j))), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+            solve!(i, lu, Vector{Float64}(imag(view(B, :, j))), transposeoptype; Wi=workspace.Wi, W=workspace.W)
+            map!(complex, view(X, :, j), r, i)
+        end
+    finally
+        unlock(workspace)
     end
 end
 

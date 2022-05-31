@@ -82,6 +82,27 @@ end
             @test f(Tv, Ti) == 0
         end
     end
+    @testset "Thread safety" begin
+        Af = lu(A0)
+        x = similar(b0)
+        ldiv!(x, Af, b0)
+        n = 30
+        acc = [similar(b0) for _ in 1:n]
+        Threads.@threads for i in 1:n
+            ldiv!(acc[i], Af, b0)
+        end
+        for i in acc
+            @test i == x
+        end
+    end
+    @testset "test similar" begin
+        Af = lu(A0)
+        sim = similar(Af.workspace)
+        for f in [typeof, length],
+            p in [:Wi, :W]
+            @test f(getproperty(sim, p)) == f(getproperty(Af.workspace, p))
+        end
+    end
 end
 
 @testset "UMFPACK wrappers" begin
