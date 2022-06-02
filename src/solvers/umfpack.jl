@@ -200,7 +200,7 @@ function Base.lock(F::UmfpackLU)
         lock(F.lock)
     end
 end
-
+@inline Base.trylock(F::UmfpackLU) = trylock(F.lock)
 @inline Base.unlock(F::UmfpackLU) = unlock(F.lock)
 
 function show_umf_ctrl(F::UmfpackLU, level::Real = 2.0)

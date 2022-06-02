@@ -94,6 +94,11 @@ end
         for i in acc
             @test i == x
         end
+
+        Af1 = UMFPACK.duplicate(Af)
+        @test trylock(Af)
+        @test trylock(Af1)
+        
     end
     @testset "test similar" begin
         Af = lu(A0)
@@ -101,6 +106,20 @@ end
         for f in [typeof, length],
             p in [:Wi, :W]
             @test f(getproperty(sim, p)) == f(getproperty(Af.workspace, p))
+            @test getproperty(sim, p) !== getproperty(Af.workspace, p)
+        end
+    end
+    @testset "test duplicate" begin
+        Af = lu(A0)
+        Af1 = UMFPACK.duplicate(Af)
+        for i in [:symbolic, :numeric, :colptr, :rowval, :nzval]
+            @test getproperty(Af, i) === getproperty(Af1, i)
+        end
+        for i in [:n, :m]
+            @test getproperty(Af, i) == getproperty(Af1, i)
+        end
+        for i in [:workspace, :control, :info, :lock]
+            @test getproperty(Af, i) !== getproperty(Af1, i)
         end
     end
 end
