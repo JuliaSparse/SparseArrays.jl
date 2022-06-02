@@ -914,23 +914,18 @@ function umfpack_report_symbolic(lu::UmfpackLU, level::Real=4.0)
     end
 end
 
-function umfpack_report_numeric(lu::UmfpackLU, level::Real)
+function umfpack_report_numeric(lu::UmfpackLU, level::Real=0.4)
     lock(lu)
     try
         old_prl::Float64 = lu.control[UMFPACK_PRL]
         lu.control[UMFPACK_PRL] = Float64(level)
         @isok umfpack_dl_report_numeric(num, lu.control)
         lu.control[UMFPACK_PRL] = old_prl
+
     finally
         unlock(lu)
     end
 end
 
-umfpack_report_numeric(num::Ptr{Cvoid}) = umfpack_report_numeric(num, 4.)
-function umfpack_report_numeric(lu::UmfpackLU, level::Real)
-    umfpack_report_numeric(umfpack_numeric!(lu).numeric, level)
-end
-
-umfpack_report_numeric(lu::UmfpackLU) = umfpack_report_numeric(lu,4.)
 
 end # UMFPACK module
