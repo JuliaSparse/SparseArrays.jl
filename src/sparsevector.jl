@@ -897,7 +897,6 @@ end
 show(io::IO, x::AbstractSparseVector) = show(convert(IOContext, io), x)
 function show(io::IOContext, x::AbstractSparseVector)
     # TODO: make this a one-line form
-    n = length(x)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     if isempty(nzind)
@@ -905,7 +904,7 @@ function show(io::IOContext, x::AbstractSparseVector)
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    pad = ndigits(n)
+    pad = ndigits(nzind[end])
     if !haskey(io, :compact)
         io = IOContext(io, :compact => true)
     end
