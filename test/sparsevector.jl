@@ -1431,7 +1431,7 @@ mutable struct t20488 end
     @test String(take!(io)) == "  [1]  =  #undef\n  [2]  =  #undef\n  [3]  =  #undef"
     # Test that we don't introduce unnecessary padding for long sparse arrays
     show(io, MIME"text/plain"(), SparseVector(div(typemax(Int32), 2), Int[1], Int[1]))
-    @test String(take!(io)) == "1073741823-element SparseArrays.SparseVector{Int64, Int64} with 1 stored entry:\n  [1]  =  1"
+    @test String(take!(io)) == "1073741823-element SparseArrays.SparseVector{Int32, Int32} with 1 stored entry:\n  [1]  =  1"
 end
 
 @testset "spzeros with index type" begin
