@@ -1,5 +1,5 @@
 name = "SparseArrays"
-uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+uuid = "2f01183e-e22b-5df5-ae63-d93ebab69eaf"
 
 [deps]
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
