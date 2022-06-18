@@ -330,8 +330,8 @@ end
         A1 = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
-        # temporarily remove non-64-bit eltypes due to julia #45736 issue
-        for Tv in (Float64, ComplexF64, #=Float16, Float32, ComplexF16, ComplexF32=#)
+        # temporarily remove 16-bit eltypes due to julia #45736 issue: Float16, ComplexF16
+        for Tv in (Float64, ComplexF64, Float32, ComplexF32)
             for Ti in Base.uniontypes(UMFPACK.UMFITypes)
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
                 B = convert(SparseMatrixCSC{Tv,Ti}, A1)
