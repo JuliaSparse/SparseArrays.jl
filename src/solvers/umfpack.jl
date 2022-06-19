@@ -149,7 +149,7 @@ Alternativly see `duplicate(::UmfpackLU)`
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
-    W::Vector{Float64}    
+    W::Vector{Float64}
 end
 
 # TODO, this actually doesn't need to be this big if iter refinement is off
@@ -169,7 +169,7 @@ mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
     nzval::Vector{Tv}
     status::Int
     workspace::UmfpackWS{Ti}
-    control::Vector{Float64}  
+    control::Vector{Float64}
     info::Vector{Float64}
     lock::ReentrantLock
 end
@@ -258,8 +258,8 @@ The relation between `F` and `A` is
 See also [`lu!`](@ref)
 
 !!! note
-    `lu(A::SparseMatrixCSC)` uses the UMFPACK[^ACM832][^ACM836][^ACM837] library that is part of
-    [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse). 
+    `lu(A::SparseMatrixCSC)` uses the UMFPACK[^ACM832] library that is part of
+    [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
     As this library only supports sparse matrices with [`Float64`](@ref) or
     `ComplexF64` elements, `lu` converts `A` into a copy that is of type
     `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
@@ -350,7 +350,7 @@ function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::B
     F.colptr = zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S))
     F.rowval = zerobased ? copy(rowvals(S)) : decrement(rowvals(S))
     F.nzval = copy(nonzeros(S))
-    
+
     umfpack_numeric!(F, reuse_numeric = false)
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
@@ -405,8 +405,8 @@ function deserialize(s::AbstractSerializer, t::Type{UmfpackLU{Tv,Ti}}) where {Tv
     workspace= deserialize(s)
     control  = deserialize(s)
     info     = deserialize(s)
-    obj      = UmfpackLU{Tv,Ti}(symbolic, numeric, m, n, 
-        colptr, rowval, nzval, status, 
+    obj      = UmfpackLU{Tv,Ti}(symbolic, numeric, m, n,
+        colptr, rowval, nzval, status,
         workspace, control, info, ReentrantLock())
 
     finalizer(umfpack_free_symbolic, obj)
@@ -481,11 +481,11 @@ for itype in UmfpackIndexTypes
             return U
         end
         function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric = true)
-            lock(U) 
+            lock(U)
             try
                 if (reuse_numeric && U.numeric != C_NULL) return U end
                 if U.symbolic == C_NULL umfpack_symbolic!(U) end
-        
+
                 tmp = Vector{Ptr{Cvoid}}(undef, 1)
                 status = $num_r(U.colptr, U.rowval, U.nzval, U.symbolic, tmp, U.control, U.info)
                 U.status = status
@@ -494,17 +494,17 @@ for itype in UmfpackIndexTypes
                 end
                 U.numeric != C_NULL && umfpack_free_numeric(U)
                 U.numeric = tmp[1]
-            finally 
+            finally
                 unlock(U)
             end
             return U
         end
         function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric = true)
             lock(U)
-            try 
+            try
                 if (reuse_numeric && U.numeric != C_NULL) return U end
                 if U.symbolic == C_NULL umfpack_symbolic!(U) end
-        
+
                 tmp = Vector{Ptr{Cvoid}}(undef, 1)
                 status = $num_c(U.colptr, U.rowval, real(U.nzval), imag(U.nzval), U.symbolic, tmp,
                                 U.control, U.info)
@@ -534,7 +534,7 @@ for itype in UmfpackIndexTypes
             try
                 umfpack_numeric!(lu)
                 (size(b,1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
-             
+
                 @isok $wsol_r(typ, lu.colptr, lu.rowval, lu.nzval,
                             x, b, lu.numeric, lu.control,
                             lu.info, lu.workspace.Wi, lu.workspace.W)
@@ -568,7 +568,7 @@ for itype in UmfpackIndexTypes
         function det(lu::UmfpackLU{Float64,$itype})
             mx = Ref{Float64}()
             lock(lu)
-            try 
+            try
                 @isok $det_r(mx, C_NULL, lu.numeric, lu.info)
             finally
                 unlock(lu)
