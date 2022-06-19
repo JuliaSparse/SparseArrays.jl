@@ -14,4 +14,4 @@ makedocs(
     strict = Symbol[:doctest],
     )
 
-deploydocs(repo = "github.com/JuliaLang/SparseArrays.jl.git")
+deploydocs(repo = "github.com/JuliaSparse/SparseArrays.jl.git")
