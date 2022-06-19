@@ -40,7 +40,7 @@ options = load_options(joinpath(@__DIR__, "generator.toml"))
 for target in JLLEnvs.JLL_ENV_TRIPLES
     @info "processing $target"
 
-    options["general"]["output_file_path"] = joinpath(@__DIR__, "..", "lib", "$target.jl")
+    options["general"]["output_file_path"] = joinpath(@__DIR__, "..", "src/solvers/lib", "$target.jl")
 
     args = get_default_args(target)
     push!(args, "-I$include_dir")
