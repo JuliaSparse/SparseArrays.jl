@@ -8,7 +8,7 @@ makedocs(
     sitename = "SparseArrays",
     pages = Any[
         "SparseArrays" => "index.md",
-        "Solvers" => "solvers.md",
+        "Sparse Linear Algebra" => "solvers.md",
         ];
     # strict = true,
     strict = Symbol[:doctest],
