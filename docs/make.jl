@@ -7,7 +7,8 @@ makedocs(
     modules = [SparseArrays],
     sitename = "SparseArrays",
     pages = Any[
-        "SparseArrays" => "index.md"
+        "SparseArrays" => "index.md",
+        "Solvers" => "solvers.md",
         ];
     # strict = true,
     strict = Symbol[:doctest],
