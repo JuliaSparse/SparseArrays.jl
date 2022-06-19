@@ -4,11 +4,11 @@ using Documenter: DocMeta, makedocs, deploydocs
 DocMeta.setdocmeta!(SparseArrays, :DocTestSetup, :(using SparseArrays; using LinearAlgebra); recursive=true)
 
 makedocs(
-    modules = [SparseArrays, SparseArrays.Solvers],
+    modules = [SparseArrays],
     sitename = "SparseArrays",
     pages = Any[
         "SparseArrays" => "index.md",
-        "SparseArrays.Solvers" => "Sparse Solvers",
+        "Solvers" => "solvers.md",
         ];
     # strict = true,
     strict = Symbol[:doctest],
