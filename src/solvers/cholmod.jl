@@ -1282,8 +1282,8 @@ true
 ```
 
 !!! note
-    This method uses the CHOLMOD[^ACM887][^DavisHager2009][^ACM836][^ACM837] library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse). 
-    CHOLMOD only supports double or complex double element types. 
+    This method uses the CHOLMOD[^ACM887][^DavisHager2009] library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
+    CHOLMOD only supports double or complex double element types.
     Input matrices not of those element types will
     be converted to `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}`
     as appropriate.
@@ -1386,7 +1386,7 @@ it should be a permutation of `1:size(A,1)` giving the ordering to use
 (instead of CHOLMOD's default AMD ordering).
 
 !!! note
-    This method uses the CHOLMOD[^ACM887][^DavisHager2009][^ACM836][^ACM837] library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
+    This method uses the CHOLMOD[^ACM887][^DavisHager2009] library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
     CHOLMOD only supports double or complex double element types. Input matrices not of those element types will
     be converted to `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}`
     as appropriate.
