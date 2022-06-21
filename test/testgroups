@@ -1,4 +1,7 @@
 higherorderfns
-sparse
+sparsematrix_ops
+sparsematrix_constructors_indexing
+linalg
+issues
 sparsevector
 basetests
