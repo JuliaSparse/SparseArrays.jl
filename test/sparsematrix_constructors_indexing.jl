@@ -1,3 +1,12 @@
+module SparseMatrixConstructorIndexingTests
+
+using Test
+using SparseArrays
+using SparseArrays: nonzeroinds, getcolptr
+using LinearAlgebra
+using Random
+include("forbidproperties.jl")
+
 @testset "spzeros de-splatting" begin
     @test spzeros(Float64, Int64, (2, 2)) == spzeros(Float64, Int64, 2, 2)
     @test spzeros(Float64, Int32, (2, 2)) == spzeros(Float64, Int32, 2, 2)
@@ -1555,4 +1564,6 @@ end
     A[1,2] = 1
     @test SparseArrays.expandptr(getcolptr(A)) == [1; 2; 2; 3; 4; 5]
     @test_throws ArgumentError SparseArrays.expandptr([2; 3])
+end
+
 end

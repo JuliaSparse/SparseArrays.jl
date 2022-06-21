@@ -1,3 +1,11 @@
+module SparseIssuesTests
+using Test
+using SparseArrays
+using SparseArrays: nonzeroinds, getcolptr
+using LinearAlgebra
+using Random
+include("forbidproperties.jl")
+
 @testset "Issue #33169" begin
     m21 = sparse([1, 2], [2, 2], SimpleSMatrix{2,1}.([rand(2, 1), rand(2, 1)]), 2, 2)
     m12 = sparse([1, 2], [2, 2], SimpleSMatrix{1,2}.([rand(1, 2), rand(1, 2)]), 2, 2)
@@ -593,4 +601,6 @@ end
     local v = vec(A)
     v[1] = 2
     @test A[1,1] == 2
+end
+
 end

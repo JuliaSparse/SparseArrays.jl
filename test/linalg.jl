@@ -1,3 +1,12 @@
+module SparseLinalgTests
+
+using Test
+using SparseArrays
+using SparseArrays: nonzeroinds, getcolptr
+using LinearAlgebra
+using Random
+include("forbidproperties.jl")
+
 @testset "circshift" begin
     m,n = 17,15
     A = sprand(m, n, 0.5)
@@ -815,4 +824,5 @@ end
     @test sparse(2I, (3, 4))::SparseMatrixCSC{Int,Int} == Matrix(2I, 3, 4)
     @test sparse(3I, 4, 5) == sparse(1:4, 1:4, 3, 4, 5)
     @test sparse(3I, 5, 4) == sparse(1:4, 1:4, 3, 5, 4)
+end
 end
