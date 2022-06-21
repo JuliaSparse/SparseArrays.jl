@@ -5,7 +5,12 @@ using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
+using Printf: @printf # for debug
+using Test: guardseed
+using InteractiveUtils: @which
+using Dates
 include("forbidproperties.jl")
+include("simplesmatrix.jl")
 
 @testset "spzeros de-splatting" begin
     @test spzeros(Float64, Int64, (2, 2)) == spzeros(Float64, Int64, 2, 2)
