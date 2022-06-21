@@ -232,7 +232,6 @@ SparseArrays.transpose!
 SparseArrays.adjoint!
 SparseArrays.halfperm!
 SparseArrays.ftranspose!
-SparseArrays.unchecked_noalias_permute!
 SparseArrays.fkeep!
 ```
 
