@@ -44,7 +44,8 @@ end
 
 @testset "concatenation tests" begin
     sp33 = sparse(1.0I, 3, 3)
-
+    se33 = SparseMatrixCSC{Float64}(I, 3, 3)
+    do33 = fill(1.,3)
     @testset "horizontal concatenation" begin
         @test [se33 se33] == [Array(se33) Array(se33)]
         @test length(nonzeros([sp33 0I])) == 3
