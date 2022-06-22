@@ -1,7 +1,11 @@
+ambiguous
 higherorderfns
 sparsematrix_ops
 sparsematrix_constructors_indexing
 linalg
 issues
 sparsevector
-basetests
+linalg_solvers
+umfpack
+cholmod
+spqr
