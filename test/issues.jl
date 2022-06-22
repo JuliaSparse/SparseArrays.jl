@@ -378,7 +378,7 @@ end
     F = lu(Tridiagonal(sparse(1.0I, 3, 3)))
     @test F.L == Matrix(I, 3, 3)
     @test startswith(sprint(show, MIME("text/plain"), F),
-          "$(LinearAlgebra.LU){Float64, $(LinearAlgebra.Tridiagonal){Float64, SparseArrays.SparseVector")
+                     "$(LinearAlgebra.LU){Float64, $(LinearAlgebra.Tridiagonal){Float64, $(SparseArrays.SparseVector)")
 end
 
 @testset "reverse search direction if step < 0 #21986" begin
