@@ -1,8 +1,13 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-if Base.USE_GPL_LIBS
-
 module SparseLinalgSolversTests
+
+using Test
+using SparseArrays
+using Random
+using LinearAlgebra
+
+if Base.USE_GPL_LIBS
 
 @testset "explicit zeros" begin
     a = SparseMatrixCSC(2, 2, [1, 3, 5], [1, 2, 1, 2], [1.0, 0.0, 0.0, 1.0])
@@ -178,6 +183,6 @@ end
     @test_throws ErrorException inv(A)
 end
 
-end # module
-
 end # Base.USE_GPL_LIBS
+
+end # module

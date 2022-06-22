@@ -2,11 +2,9 @@
 
 module CHOLMODTests
 
-if Base.USE_GPL_LIBS
-
+using Test
 using SparseArrays.CHOLMOD
 using DelimitedFiles
-using Test
 using Random
 using Serialization
 using LinearAlgebra:
@@ -17,6 +15,8 @@ using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
 using SparseArrays.LibSuiteSparse: SuiteSparse_long
+
+if Base.USE_GPL_LIBS
 
 # CHOLMOD tests
 Random.seed!(123)

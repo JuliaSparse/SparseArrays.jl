@@ -2,14 +2,16 @@
 
 module UMFPACKTests
 
-if Base.USE_GPL_LIBS
-
 using Test
+using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
-    I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal
+    I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal, logabsdet
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
+
+if Base.USE_GPL_LIBS
+
 for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
     sol_c = Symbol(UMFPACK.umf_nm("solve", :ComplexF64, itype))

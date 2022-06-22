@@ -2,13 +2,13 @@
 
 module SPQRTests
 
-if Base.USE_GPL_LIBS
-
 using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose
 using SparseArrays: sparse, sprandn, spzeros, SparseMatrixCSC
+
+if Base.USE_GPL_LIBS
 
 @testset "Sparse QR" begin
 m, n = 100, 10
