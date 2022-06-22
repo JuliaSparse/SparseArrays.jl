@@ -1,5 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+if Base.USE_GPL_LIBS
+
+module SPQRTests
+
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose
@@ -133,3 +137,7 @@ end
 end
 
 end
+
+end # module
+
+end # Base.USE_GPL_LIBS

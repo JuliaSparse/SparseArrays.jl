@@ -1,5 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+if Base.USE_GPL_LIBS
+
+module CHOLMODTests
+
 using SparseArrays.CHOLMOD
 using DelimitedFiles
 using Test
@@ -914,3 +918,7 @@ end
         @test getproperty(current_common[], name) == getproperty(default_common[], name)
     end
 end
+
+end # module
+
+end # Base.USE_GPL_LIBS

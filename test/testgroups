@@ -1,7 +1,12 @@
+ambiguous.jl
 higherorderfns
 sparsematrix_ops
 sparsematrix_constructors_indexing
 linalg
 issues
 sparsevector
-basetests
+solvers/linalg_tests
+solvers/umfpack.jl
+solvers/cholmod.jl
+solvers/spqr.jl
+solvers/linalg_tests.jl

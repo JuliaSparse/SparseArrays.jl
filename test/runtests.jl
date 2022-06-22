@@ -3,13 +3,8 @@
 for file in readlines(joinpath(@__DIR__, "testgroups"))
     include(file * ".jl")
 end
-include("basetests.jl")
+
 if Base.USE_GPL_LIBS
-    include("solvers/ambiguous.jl")
-    include("solvers/umfpack.jl")
-    include("solvers/cholmod.jl")
-    include("solvers/spqr.jl")
-    include("solvers/linalg_tests.jl")
 
     # Test multithreaded execution
     @testset "threaded SuiteSparse tests" verbose = true begin
@@ -38,4 +33,5 @@ if Base.USE_GPL_LIBS
             end
         end
     end
+
 end

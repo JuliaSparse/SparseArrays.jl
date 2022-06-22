@@ -1,4 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
+
+if Base.USE_GPL_LIBS
+
+module UMFPACKTests
+
 using SparseArrays
 using Serialization
 using LinearAlgebra:
@@ -48,16 +53,16 @@ end
             Af = lu(A)
             b = convert(Vector{Tv}, b0)
             x = alloc_solve!(
-                similar(b), 
-                Af, b, 
+                similar(b),
+                Af, b,
                 UMFPACK.UMFPACK_A)
             @test A \ b == x
             bn = convert(Matrix{Tv}, bn0)
             xn = similar(bn)
             for i in 1:20
                 xn[:, i] .= alloc_solve!(
-                    similar(bn[:, i]), 
-                    Af, bn[:, i], 
+                    similar(bn[:, i]),
+                    Af, bn[:, i],
                     UMFPACK.UMFPACK_A)
             end
             @test A \ bn == xn
@@ -98,7 +103,7 @@ end
         Af1 = UMFPACK.duplicate(Af)
         @test trylock(Af)
         @test trylock(Af1)
-        
+
     end
     @testset "test similar" begin
         Af = lu(A0)
@@ -372,3 +377,7 @@ end
     facstring = sprint((t, s) -> show(t, "text/plain", s), F)
     @test facstring == "Failed factorization of type $(summary(F))"
 end
+
+end # module
+
+end # Base.USE_GPL_LIBS
