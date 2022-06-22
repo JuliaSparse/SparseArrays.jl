@@ -9,4 +9,3 @@ solvers/linalg_tests
 solvers/umfpack
 solvers/cholmod
 solvers/spqr
-solvers/linalg_tests
