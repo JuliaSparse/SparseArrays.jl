@@ -9,7 +9,7 @@ if Base.USE_GPL_LIBS
     include("solvers/umfpack.jl")
     include("solvers/cholmod.jl")
     include("solvers/spqr.jl")
-    include("solvers/linalg_tests.jl")
+    include("solvers/linalg_solver.jl")
 
     # Test multithreaded execution
     @testset "threaded SuiteSparse tests" verbose = true begin
