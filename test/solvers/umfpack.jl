@@ -1,9 +1,10 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-if Base.USE_GPL_LIBS
-
 module UMFPACKTests
 
+if Base.USE_GPL_LIBS
+
+using Test
 using SparseArrays
 using Serialization
 using LinearAlgebra:
@@ -378,6 +379,6 @@ end
     @test facstring == "Failed factorization of type $(summary(F))"
 end
 
-end # module
-
 end # Base.USE_GPL_LIBS
+
+end # module

@@ -1,8 +1,8 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-if Base.USE_GPL_LIBS
-
 module CHOLMODTests
+
+if Base.USE_GPL_LIBS
 
 using SparseArrays.CHOLMOD
 using DelimitedFiles
@@ -919,6 +919,6 @@ end
     end
 end
 
-end # module
-
 end # Base.USE_GPL_LIBS
+
+end # module
