@@ -27,7 +27,7 @@ struct SparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
                             rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
         _goodbuffers(Int(m), Int(n), colptr, rowval, nzval) ||
-            throw(ArgumentError("Illegal buffers for SparseMatrixCSC construction $n $colptr $rowval $nzval"))
+            throw(ArgumentError("Invalid buffers for SparseMatrixCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
         new(Int(m), Int(n), colptr, rowval, nzval)
     end
 end
@@ -1134,7 +1134,15 @@ respectively. Simultaneously fixes the one-position-forward shift in `getcolptr(
     end
     return # kill potential type instability
 end
+"""
+    ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::Function) where {Tv,Ti}
 
+Transpose `A` and store it in `X` while applying the function `f` to the non-zero elements. 
+Does not remove the zeros created by `f`. `size(X)` must be equal to `size(transpose(A))`.
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+
+See `halfperm!`
+"""
 function ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::Function) where {Tv,Ti}
     # Check compatibility of source argument A and destination argument X
     if size(X, 2) != size(A, 1)
@@ -1146,7 +1154,27 @@ function ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixC
     end
     halfperm!(X, A, 1:size(A, 2), f)
 end
+
+"""
+    transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+
+Transpose the matrix `A` and stores it in the matrix `X`. 
+`size(X)` must be equal to `size(transpose(A))`.
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+
+See `halfperm!`
+"""
 transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, identity)
+
+"""
+    adjoint!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+
+Transpose the matrix `A` and stores the adjoint of the elements in the matrix `X`.
+`size(X)` must be equal to `size(transpose(A))`. 
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+
+See `halfperm!`
+"""
 adjoint!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, conj)
 
 # manually specifying eltype allows to avoid calling return_type of f on TvA

@@ -13,7 +13,20 @@ using LinearAlgebra: _SpecialArrays, _DenseConcatGroup
 """
     SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
 
-Vector type for storing sparse vectors.
+Vector type for storing sparse vectors. Can be created by passing the length of the vector,
+a *sorted* vector of non-zero indices, and a vector of non-zero values. 
+
+For instance, the Vector `[5, 6, 0, 7]` can be represented as 
+```julia
+SparseVector(4, [1, 2, 4], [5, 6, 7])
+````
+This indicates that the index 1 is 5, the index 2 is 6, the index 3 is `zero(Int)`, and index 4 is 7.
+
+It may be more convenient to create sparse vectors directly from dense vectors using `sparse` as 
+```julia
+sparse([5, 6, 0, 7])
+``` 
+yeilds the same sparse vector.
 """
 struct SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
@@ -897,7 +910,6 @@ end
 show(io::IO, x::AbstractSparseVector) = show(convert(IOContext, io), x)
 function show(io::IOContext, x::AbstractSparseVector)
     # TODO: make this a one-line form
-    n = length(x)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     if isempty(nzind)
@@ -905,7 +917,7 @@ function show(io::IOContext, x::AbstractSparseVector)
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    pad = ndigits(n)
+    pad = ndigits(nzind[end])
     if !haskey(io, :compact)
         io = IOContext(io, :compact => true)
     end
