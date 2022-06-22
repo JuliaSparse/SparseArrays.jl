@@ -7,6 +7,14 @@ using LinearAlgebra
 using Random
 include("forbidproperties.jl")
 
+sA = sprandn(3, 7, 0.5)
+sC = similar(sA)
+dA = Array(sA)
+
+const BASE_TEST_PATH = joinpath(Sys.BINDIR, "..", "share", "julia", "test")
+isdefined(Main, :Quaternions) || @eval Main include(joinpath($(BASE_TEST_PATH), "testhelpers", "Quaternions.jl"))
+using .Main.Quaternions
+
 @testset "circshift" begin
     m,n = 17,15
     A = sprand(m, n, 0.5)

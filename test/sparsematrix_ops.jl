@@ -129,10 +129,6 @@ end
     end
 end
 
-const BASE_TEST_PATH = joinpath(Sys.BINDIR, "..", "share", "julia", "test")
-isdefined(Main, :Quaternions) || @eval Main include(joinpath($(BASE_TEST_PATH), "testhelpers", "Quaternions.jl"))
-using .Main.Quaternions
-
 sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
 dA = Array(sA)

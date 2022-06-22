@@ -4,7 +4,10 @@ using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
+using Test: guardseed
+using InteractiveUtils: @which
 include("forbidproperties.jl")
+include("simplesmatrix.jl")
 
 @testset "Issue #33169" begin
     m21 = sparse([1, 2], [2, 2], SimpleSMatrix{2,1}.([rand(2, 1), rand(2, 1)]), 2, 2)

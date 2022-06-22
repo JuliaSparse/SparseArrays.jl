@@ -2,7 +2,7 @@ module SparseMatrixConstructorIndexingTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr
+using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns
 using LinearAlgebra
 using Random
 using Printf: @printf # for debug
