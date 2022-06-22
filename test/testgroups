@@ -5,7 +5,7 @@ sparsematrix_constructors_indexing
 linalg
 issues
 sparsevector
-solvers/linalg_tests
-solvers/umfpack
-solvers/cholmod
-solvers/spqr
+linalg_solvers
+umfpack
+cholmod
+spqr
