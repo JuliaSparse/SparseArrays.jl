@@ -9,13 +9,13 @@ if Base.USE_GPL_LIBS
     # Test multithreaded execution
     @testset "threaded SuiteSparse tests" verbose = true begin
         @testset "threads = $(Threads.nthreads())" begin
-            include("solvers/threads.jl")
+            include("threads.jl")
         end
         # test both nthreads==1 and nthreads>1. spawn a process to test whichever
         # case we are not running currently.
         other_nthreads = Threads.nthreads() == 1 ? 4 : 1
         @testset "threads = $other_nthreads" begin
-            let p, cmd = `$(Base.julia_cmd()) --depwarn=error --startup-file=no solvers/threads.jl`
+            let p, cmd = `$(Base.julia_cmd()) --depwarn=error --startup-file=no threads.jl`
                 p = run(
                         pipeline(
                             setenv(
