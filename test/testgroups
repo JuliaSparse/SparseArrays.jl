@@ -6,7 +6,7 @@ linalg
 issues
 sparsevector
 solvers/linalg_tests
-solvers/umfpack.jl
-solvers/cholmod.jl
-solvers/spqr.jl
-solvers/linalg_tests.jl
+solvers/umfpack
+solvers/cholmod
+solvers/spqr
+solvers/linalg_tests
