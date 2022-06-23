@@ -1119,7 +1119,7 @@ distributing `rowvals(A)` and `f`-transformed `nonzeros(A)` into `rowvals(X)` an
 respectively. Simultaneously fixes the one-position-forward shift in `getcolptr(X)`.
 """
 @noinline function _distributevals_halfperm!(X::AbstractSparseMatrixCSC{Tv,Ti},
-        A::AbstractSparseMatrixCSC{TvA,Ti}, q::AbstractVector{<:Integer}, f::F) where {Tv,TvA,Ti,F}
+        A::AbstractSparseMatrixCSC{TvA,Ti}, q::AbstractVector{<:Integer}, f::F) where {Tv,TvA,Ti,F<:Function}
     resize!(nonzeros(X), nnz(A))
     resize!(rowvals(X), nnz(A))
     @inbounds for Xi in 1:size(A, 2)
