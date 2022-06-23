@@ -445,7 +445,7 @@ end
 @testset "transpose! does not allocate" begin
     function f()
         A = sprandn(10, 10, 0.1)
-        X = deepcopy(A)
+        X = copy(A)
         return @allocated transpose!(X, A)
     end
     #precompile
