@@ -3863,9 +3863,16 @@ end
 
 ## Uniform matrix arithmetic
 
-(+)(A::AbstractSparseMatrixCSC, J::UniformScaling) = A + sparse(J, size(A)...)
-(-)(A::AbstractSparseMatrixCSC, J::UniformScaling) = A - sparse(J, size(A)...)
-(-)(J::UniformScaling, A::AbstractSparseMatrixCSC) = sparse(J, size(A)...) - A
+(+)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} = 
+    A + sparse(T, Ti, J, size(A)...)
+(+)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} = 
+    sparse(T, Ti, J, size(A)...) + A
+(-)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} = 
+    A - sparse(T, Ti, J, size(A)...)
+(-)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} = 
+    sparse(T, Ti, J, size(A)...) - A
+
+
 
 ## circular shift
 

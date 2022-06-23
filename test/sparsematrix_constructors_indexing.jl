@@ -12,6 +12,12 @@ using Dates
 include("forbidproperties.jl")
 include("simplesmatrix.jl")
 
+@testset "uniform scaling should not change type #103" begin
+    A = spzeros(Float32, Int8, 5, 5)
+    B = I - A
+    @test typeof(B) == typeof(A)
+end
+
 @testset "spzeros de-splatting" begin
     @test spzeros(Float64, Int64, (2, 2)) == spzeros(Float64, Int64, 2, 2)
     @test spzeros(Float64, Int32, (2, 2)) == spzeros(Float64, Int32, 2, 2)
