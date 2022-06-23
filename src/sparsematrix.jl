@@ -1848,6 +1848,8 @@ end
 
 sparse(s::UniformScaling, dims::Dims{2}) = SparseMatrixCSC(s, dims)
 sparse(s::UniformScaling, m::Integer, n::Integer) = sparse(s, Dims((m, n)))
+sparse(::Type{Tv}, s::UniformScaling, m::Integer, n::Integer) where {Tv} = SparseMatrixCSC{Tv}(s, Dims((m, n)))
+sparse(::Type{Tv}, ::Type{Ti}, s::UniformScaling, m::Integer, n::Integer) where {Tv, Ti} = SparseMatrixCSC{Tv, Ti}(s, Dims((m, n)))
 
 # TODO: More appropriate location?
 function conj!(A::AbstractSparseMatrixCSC)
