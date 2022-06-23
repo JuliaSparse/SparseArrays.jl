@@ -1088,7 +1088,7 @@ algorithms for sparse matrices: multiplication and permuted transposition," ACM 
 beyond that passed in.
 """
 function halfperm!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{TvA,Ti},
-        q::AbstractVector{<:Integer}, f::F = identity) where {Tv,TvA,Ti,F}
+        q::AbstractVector{<:Integer}, f::F = identity) where {Tv,TvA,Ti,F<:Function}
     _computecolptrs_halfperm!(X, A)
     _distributevals_halfperm!(X, A, q, f)
     return X
