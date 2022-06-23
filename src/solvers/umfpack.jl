@@ -869,19 +869,24 @@ function _AqldivB_kernel!(X::StridedMatrix{T}, lu::UmfpackLU{T},
 end
 function _AqldivB_kernel!(x::StridedVector{Tb}, lu::UmfpackLU{Float64},
                           b::StridedVector{Tb}, transposeoptype) where Tb<:Complex
-    r, i = similar(b, Float64), similar(b, Float64)
-    solve!(r, lu, Vector{Float64}(real(b)), transposeoptype)
-    solve!(i, lu, Vector{Float64}(imag(b)), transposeoptype)
+    r = similar(b, Float64)
+    i = similar(b, Float64)
+    c = real.(b)
+    solve!(r, lu, c, transposeoptype)
+    c .= imag.(b)
+    solve!(i, lu, c, transposeoptype)
     map!(complex, x, r, i)
 end
 function _AqldivB_kernel!(X::StridedMatrix{Tb}, lu::UmfpackLU{Float64},
                           B::StridedMatrix{Tb}, transposeoptype) where Tb<:Complex
     r = similar(B, Float64, size(B, 1))
     i = similar(B, Float64, size(B, 1))
-
+    c = similar(B, Float64, size(B, 1))
     for j in 1:size(B, 2)
-        solve!(r, lu, Vector{Float64}(real(view(B, :, j))), transposeoptype)
-        solve!(i, lu, Vector{Float64}(imag(view(B, :, j))), transposeoptype)
+        c .= real.(view(B, :, j))
+        solve!(r, lu, c, transposeoptype)
+        c .= imag.(view(B, :, j))
+        solve!(i, lu, c, transposeoptype)
         map!(complex, view(X, :, j), r, i)
     end
 end
