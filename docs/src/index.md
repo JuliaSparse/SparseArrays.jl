@@ -252,6 +252,6 @@ Several other Julia packages provide sparse matrix implementations that should b
 
 5. [SparseArrayKit.jl](https://github.com/Jutho/SparseArrayKit.jl) available for multidimensional sparse arrays.
 
-6. [LuxurySparse.jl](https://github.com/QuantumBFS/LuxurySparse.jl)
+6. [LuxurySparse.jl](https://github.com/QuantumBFS/LuxurySparse.jl) provides static sparse array formats, as well as a coordinate format.
 
 7. [ExtendableSparse.jl](https://github.com/j-fu/ExtendableSparse.jl)
