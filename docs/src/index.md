@@ -5,12 +5,9 @@ DocTestSetup = :(using SparseArrays, LinearAlgebra)
 ```
 
 Julia has support for sparse vectors and [sparse matrices](https://en.wikipedia.org/wiki/Sparse_matrix)
-in the `SparseArrays` stdlib module, but limted to (1D and) 2D arrays, unlike the regular dense arrays.
-There's an external package [SparseArrayKit.jl](https://github.com/Jutho/SparseArrayKit.jl) available
-for multidimensional sparse arrays (and also other packages for sparse).
+in the `SparseArrays` stdlib module. Sparse arrays are arrays that contain enough zeros that storing them in a special data structure leads to savings in space and execution time, compared to dense arrays.
 
-Sparse arrays are arrays that contain enough zeros that storing them in a special data structure leads
-to savings in space and execution time, compared to dense arrays.
+External packages which implement different sparse storage types, multidimensional sparse arrays, and more can be found in [Noteworthy external packages](@ref man-csc)
 
 ## [Compressed Sparse Column (CSC) Sparse Matrix Storage](@id man-csc)
 
