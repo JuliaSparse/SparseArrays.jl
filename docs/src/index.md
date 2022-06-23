@@ -252,3 +252,9 @@ Several other Julia packages provide sparse matrix implementations that should b
 3. [SparseMatricesCSR.jl](https://github.com/gridap/SparseMatricesCSR.jl) provides a Julia native implementation of the Compressed Sparse Rows (CSR) format.
 
 4. [MKLSparse.jl](https://github.com/JuliaSparse/MKLSparse.jl) accelerates SparseArrays sparse-dense matrix operations using Intel's MKL library.
+
+5. [SparseArrayKit.jl](https://github.com/Jutho/SparseArrayKit.jl) available for multidimensional sparse arrays.
+
+6. [LuxurySparse.jl](https://github.com/QuantumBFS/LuxurySparse.jl)
+
+7. [ExtendableSparse.jl](https://github.com/j-fu/ExtendableSparse.jl)
