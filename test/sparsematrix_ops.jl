@@ -442,4 +442,15 @@ end
     @test one(A) isa SparseMatrixCSC{Int}
 end
 
+@testset "transpose! does not allocate" begin
+    function f()
+        A = sprandn(10, 10, 0.1)
+        X = deepcopy(A)
+        return @allocated transpose!(X, A)
+    end
+    #precompile
+    f()
+    f()
+    @test f() == 0
+end
 end # module
