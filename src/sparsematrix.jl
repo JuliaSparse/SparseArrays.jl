@@ -1143,7 +1143,7 @@ No additonal memory is allocated other than resizing the rowval and nzval of `X`
 
 See `halfperm!`
 """
-function ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::F) where {Tv,Ti,F}
+function ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::F) where {Tv,Ti,F<:Function}
     # Check compatibility of source argument A and destination argument X
     if size(X, 2) != size(A, 1)
         throw(DimensionMismatch(string("destination argument `X`'s column count, ",
