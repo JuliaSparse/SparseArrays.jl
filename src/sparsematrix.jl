@@ -1088,7 +1088,7 @@ algorithms for sparse matrices: multiplication and permuted transposition," ACM 
 beyond that passed in.
 """
 function halfperm!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{TvA,Ti},
-        q::AbstractVector{<:Integer}, f::Function = identity) where {Tv,TvA,Ti}
+        q::AbstractVector{<:Integer}, f::F = identity) where {Tv,TvA,Ti,F}
     _computecolptrs_halfperm!(X, A)
     _distributevals_halfperm!(X, A, q, f)
     return X
@@ -1119,7 +1119,7 @@ distributing `rowvals(A)` and `f`-transformed `nonzeros(A)` into `rowvals(X)` an
 respectively. Simultaneously fixes the one-position-forward shift in `getcolptr(X)`.
 """
 @noinline function _distributevals_halfperm!(X::AbstractSparseMatrixCSC{Tv,Ti},
-        A::AbstractSparseMatrixCSC{TvA,Ti}, q::AbstractVector{<:Integer}, f::Function) where {Tv,TvA,Ti}
+        A::AbstractSparseMatrixCSC{TvA,Ti}, q::AbstractVector{<:Integer}, f::F) where {Tv,TvA,Ti,F}
     resize!(nonzeros(X), nnz(A))
     resize!(rowvals(X), nnz(A))
     @inbounds for Xi in 1:size(A, 2)
@@ -1143,7 +1143,7 @@ No additonal memory is allocated other than resizing the rowval and nzval of `X`
 
 See `halfperm!`
 """
-function ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::Function) where {Tv,Ti}
+function ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::F) where {Tv,Ti,F}
     # Check compatibility of source argument A and destination argument X
     if size(X, 2) != size(A, 1)
         throw(DimensionMismatch(string("destination argument `X`'s column count, ",
