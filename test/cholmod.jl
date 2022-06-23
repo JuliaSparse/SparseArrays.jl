@@ -1,8 +1,10 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+module CHOLMODTests
+
+using Test
 using SparseArrays.CHOLMOD
 using DelimitedFiles
-using Test
 using Random
 using Serialization
 using LinearAlgebra:
@@ -13,6 +15,8 @@ using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
 using SparseArrays.LibSuiteSparse: SuiteSparse_long
+
+if Base.USE_GPL_LIBS
 
 # CHOLMOD tests
 Random.seed!(123)
@@ -914,3 +918,7 @@ end
         @test getproperty(current_common[], name) == getproperty(default_common[], name)
     end
 end
+
+end # Base.USE_GPL_LIBS
+
+end # module

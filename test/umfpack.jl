@@ -1,9 +1,17 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
+
+module UMFPACKTests
+
+using Test
+using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
-    I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal
+    I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal, logabsdet
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
+
+if Base.USE_GPL_LIBS
+
 for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
     sol_c = Symbol(UMFPACK.umf_nm("solve", :ComplexF64, itype))
@@ -48,16 +56,16 @@ end
             Af = lu(A)
             b = convert(Vector{Tv}, b0)
             x = alloc_solve!(
-                similar(b), 
-                Af, b, 
+                similar(b),
+                Af, b,
                 UMFPACK.UMFPACK_A)
             @test A \ b == x
             bn = convert(Matrix{Tv}, bn0)
             xn = similar(bn)
             for i in 1:20
                 xn[:, i] .= alloc_solve!(
-                    similar(bn[:, i]), 
-                    Af, bn[:, i], 
+                    similar(bn[:, i]),
+                    Af, bn[:, i],
                     UMFPACK.UMFPACK_A)
             end
             @test A \ bn == xn
@@ -98,7 +106,7 @@ end
         Af1 = UMFPACK.duplicate(Af)
         @test trylock(Af)
         @test trylock(Af1)
-        
+
     end
     @testset "test similar" begin
         Af = lu(A0)
@@ -372,3 +380,7 @@ end
     facstring = sprint((t, s) -> show(t, "text/plain", s), F)
     @test facstring == "Failed factorization of type $(summary(F))"
 end
+
+end # Base.USE_GPL_LIBS
+
+end # module
