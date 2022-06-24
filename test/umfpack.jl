@@ -257,22 +257,25 @@ end
         @test_throws ArgumentError lu(sparse(Int[], Int[], Float64[], 5, 0))
     end
 
-    @testset "Issue #15099" for (Tin, Tout) in (
-            (ComplexF16, ComplexF64),
+    @testset "Issue #15099" begin
+        testtypes = [
             (ComplexF32, ComplexF64),
             (ComplexF64, ComplexF64),
-            (Float16, Float64),
             (Float32, Float64),
             (Float64, Float64),
             (Int, Float64),
-        )
+        ]
+        # Remove 16-bit eltypes on Windows due to julia #45736 issue
+        !Sys.iswindows() && push!(testtypes, (ComplexF16, ComplexF64), (Float16, Float64))
 
-        F = lu(sparse(fill(Tin(1), 1, 1)))
-        L = sparse(fill(Tout(1), 1, 1))
-        @test F.p == F.q == [1]
-        @test F.Rs == [1.0]
-        @test F.L == F.U == L
-        @test F.:(:) == (L, L, [1], [1], [1.0])
+        for (Tin, Tout) in testtypes
+            F = lu(sparse(fill(Tin(1), 1, 1)))
+            L = sparse(fill(Tout(1), 1, 1))
+            @test F.p == F.q == [1]
+            @test F.Rs == [1.0]
+            @test F.L == F.U == L
+            @test F.:(:) == (L, L, [1], [1], [1.0])
+        end
     end
 
     @testset "BigFloat not supported" for T in (BigFloat, Complex{BigFloat})
@@ -338,8 +341,10 @@ end
         A1 = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
-        # temporarily remove 16-bit eltypes due to julia #45736 issue: Float16, ComplexF16
-        for Tv in (Float64, ComplexF64, Float32, ComplexF32)
+        # Remove 16-bit eltypes on Windows due to julia #45736 issue
+        testtypes = [Float64, ComplexF64, Float32, ComplexF32]
+        !Sys.iswindows() && push!(testtypes, Float16, ComplexF16)
+        for Tv in testtypes
             for Ti in Base.uniontypes(UMFPACK.UMFITypes)
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
                 B = convert(SparseMatrixCSC{Tv,Ti}, A1)
