@@ -5,9 +5,9 @@ DocTestSetup = :(using SparseArrays, LinearAlgebra)
 ```
 
 Julia has support for sparse vectors and [sparse matrices](https://en.wikipedia.org/wiki/Sparse_matrix)
-in the `SparseArrays` stdlib module. Sparse arrays are arrays that contain enough zeros
-that storing them in a special data structure leads to savings in space and execution time,
-compared to dense arrays.
+in the `SparseArrays` stdlib module. Sparse arrays are arrays that contain enough zeros that storing them in a special data structure leads to savings in space and execution time, compared to dense arrays.
+
+External packages which implement different sparse storage types, multidimensional sparse arrays, and more can be found in [Noteworthy external packages](@ref man-csc)
 
 ## [Compressed Sparse Column (CSC) Sparse Matrix Storage](@id man-csc)
 
@@ -247,3 +247,9 @@ Several other Julia packages provide sparse matrix implementations that should b
 3. [SparseMatricesCSR.jl](https://github.com/gridap/SparseMatricesCSR.jl) provides a Julia native implementation of the Compressed Sparse Rows (CSR) format.
 
 4. [MKLSparse.jl](https://github.com/JuliaSparse/MKLSparse.jl) accelerates SparseArrays sparse-dense matrix operations using Intel's MKL library.
+
+5. [SparseArrayKit.jl](https://github.com/Jutho/SparseArrayKit.jl) available for multidimensional sparse arrays.
+
+6. [LuxurySparse.jl](https://github.com/QuantumBFS/LuxurySparse.jl) provides static sparse array formats, as well as a coordinate format.
+
+7. [ExtendableSparse.jl](https://github.com/j-fu/ExtendableSparse.jl) enables fast insertion into sparse matrices using a lazy approach to new stored indices.
