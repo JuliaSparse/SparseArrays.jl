@@ -25,14 +25,14 @@ jobs:
           # - '1.6'
           - 'nightly'
         os:
-          - ubuntu-latest
-          - macOS-latest
-          - windows-latest
+          - ubuntu-18.04
+          - macOS-10.15
+          - windows-2016
         arch:
           - x64
           - x86
         exclude:
-          - os: macOS-latest
+          - os: macOS-10.15
             arch: x86
     steps:
       - uses: actions/checkout@v2
