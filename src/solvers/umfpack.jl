@@ -266,7 +266,7 @@ See also [`lu!`](@ref)
 
 [^ACM832]: Davis, Timothy A. (2004b). Algorithm 832: UMFPACK V4.3---an Unsymmetric-Pattern Multifrontal Method. ACM Trans. Math. Softw., 30(2), 196–199. [doi:10.1145/992200.992206](https://doi.org/10.1145/992200.992206)
 """
-function lu(S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool = true)
+function lu(S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool = true, q=nothing)
     zerobased = getcolptr(S)[1] == 0
     res = UmfpackLU(C_NULL, C_NULL, size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
@@ -277,7 +277,7 @@ function lu(S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool = true)
                     ReentrantLock())
 
     finalizer(umfpack_free_symbolic, res)
-    umfpack_numeric!(res)
+    umfpack_numeric!(res; q)
     check && (issuccess(res) || throw(LinearAlgebra.SingularException(0)))
     return res
 end
@@ -338,7 +338,7 @@ julia> F \\ ones(2)
  1.0
 ```
 """
-function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool=true)
+function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool=true, q=nothing)
     zerobased = getcolptr(S)[1] == 0
     # resize workspace if needed
     if F.n < size(S, 2)
@@ -351,7 +351,7 @@ function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::B
     F.rowval = zerobased ? copy(rowvals(S)) : decrement(rowvals(S))
     F.nzval = copy(nonzeros(S))
 
-    umfpack_numeric!(F, reuse_numeric = false)
+    umfpack_numeric!(F; reuse_numeric = false, q)
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
 end
@@ -441,7 +441,9 @@ umf_nm(nm,Tv,Ti) = "umfpack_" * (Tv === :Float64 ? "d" : "z") * (Ti === :Int64 ?
 
 for itype in UmfpackIndexTypes
     sym_r = Symbol(umf_nm("symbolic", :Float64, itype))
+    symq_r = Symbol(umf_nm("qsymbolic", :Float64, itype))
     sym_c = Symbol(umf_nm("symbolic", :ComplexF64, itype))
+    symq_c = Symbol(umf_nm("qsymbolic", :ComplexF64, itype))
     num_r = Symbol(umf_nm("numeric", :Float64, itype))
     num_c = Symbol(umf_nm("numeric", :ComplexF64, itype))
     sol_r = Symbol(umf_nm("solve", :Float64, itype))
@@ -455,36 +457,45 @@ for itype in UmfpackIndexTypes
     get_num_r = Symbol(umf_nm("get_numeric", :Float64, itype))
     get_num_z = Symbol(umf_nm("get_numeric", :ComplexF64, itype))
     @eval begin
-        function umfpack_symbolic!(U::UmfpackLU{Float64,$itype})
+        function umfpack_symbolic!(U::UmfpackLU{Float64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             if U.symbolic != C_NULL return U end
             lock(U)
             try
                 tmp = Vector{Ptr{Cvoid}}(undef, 1)
-                @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
+                if q === nothing
+                    @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
+                else
+                    @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, q, tmp, U.control, U.info)
+                end
                 U.symbolic = tmp[1]
             finally
                 unlock(U)
             end
             return U
         end
-        function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype})
+        function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             if U.symbolic != C_NULL return U end
             lock(U)
             try
                 tmp = Vector{Ptr{Cvoid}}(undef, 1)
-                @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
-                            U.control, U.info)
+                if q === nothing
+                    @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
+                                U.control, U.info)
+                else
+                    @isok $symq_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), q, tmp,
+                                U.control, U.info)
+                end
                 U.symbolic = tmp[1]
             finally
                 unlock(U)
             end
             return U
         end
-        function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric = true)
+        function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric=true, q=nothing)
             lock(U)
             try
                 if (reuse_numeric && U.numeric != C_NULL) return U end
-                if U.symbolic == C_NULL umfpack_symbolic!(U) end
+                if U.symbolic == C_NULL umfpack_symbolic!(U, q) end
 
                 tmp = Vector{Ptr{Cvoid}}(undef, 1)
                 status = $num_r(U.colptr, U.rowval, U.nzval, U.symbolic, tmp, U.control, U.info)
@@ -499,11 +510,11 @@ for itype in UmfpackIndexTypes
             end
             return U
         end
-        function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric = true)
+        function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric = true, q=nothing)
             lock(U)
             try
                 if (reuse_numeric && U.numeric != C_NULL) return U end
-                if U.symbolic == C_NULL umfpack_symbolic!(U) end
+                if U.symbolic == C_NULL umfpack_symbolic!(U, q) end
 
                 tmp = Vector{Ptr{Cvoid}}(undef, 1)
                 status = $num_c(U.colptr, U.rowval, real(U.nzval), imag(U.nzval), U.symbolic, tmp,
