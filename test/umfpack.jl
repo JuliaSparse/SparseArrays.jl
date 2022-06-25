@@ -264,9 +264,9 @@ end
             (Float32, Float64),
             (Float64, Float64),
             (Int, Float64),
+            (ComplexF16, ComplexF64),
+            (Float16, Float64),
         ]
-        # Remove 16-bit eltypes on Windows due to julia #45736 issue
-        !Sys.iswindows() && push!(testtypes, (ComplexF16, ComplexF64), (Float16, Float64))
 
         for (Tin, Tout) in testtypes
             F = lu(sparse(fill(Tin(1), 1, 1)))
@@ -342,8 +342,7 @@ end
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
         # Remove 16-bit eltypes on Windows due to julia #45736 issue
-        testtypes = [Float64, ComplexF64, Float32, ComplexF32]
-        !Sys.iswindows() && push!(testtypes, Float16, ComplexF16)
+        testtypes = [Float64, ComplexF64, Float32, ComplexF32, Float16, ComplexF16)]
         for Tv in testtypes
             for Ti in Base.uniontypes(UMFPACK.UMFITypes)
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
