@@ -341,8 +341,7 @@ end
         A1 = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
-        # Remove 16-bit eltypes on Windows due to julia #45736 issue
-        testtypes = [Float64, ComplexF64, Float32, ComplexF32, Float16, ComplexF16)]
+        testtypes = [Float64, ComplexF64, Float32, ComplexF32, Float16, ComplexF16]
         for Tv in testtypes
             for Ti in Base.uniontypes(UMFPACK.UMFITypes)
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
