@@ -1848,6 +1848,8 @@ end
 
 sparse(s::UniformScaling, dims::Dims{2}) = SparseMatrixCSC(s, dims)
 sparse(s::UniformScaling, m::Integer, n::Integer) = sparse(s, Dims((m, n)))
+sparse(::Type{Tv}, s::UniformScaling, m::Integer, n::Integer) where {Tv} = SparseMatrixCSC{Tv}(s, Dims((m, n)))
+sparse(::Type{Tv}, ::Type{Ti}, s::UniformScaling, m::Integer, n::Integer) where {Tv, Ti} = SparseMatrixCSC{Tv, Ti}(s, Dims((m, n)))
 
 # TODO: More appropriate location?
 function conj!(A::AbstractSparseMatrixCSC)
@@ -3861,9 +3863,16 @@ end
 
 ## Uniform matrix arithmetic
 
-(+)(A::AbstractSparseMatrixCSC, J::UniformScaling) = A + sparse(J, size(A)...)
-(-)(A::AbstractSparseMatrixCSC, J::UniformScaling) = A - sparse(J, size(A)...)
-(-)(J::UniformScaling, A::AbstractSparseMatrixCSC) = sparse(J, size(A)...) - A
+(+)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} = 
+    A + sparse(T, Ti, J, size(A)...)
+(+)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} = 
+    sparse(T, Ti, J, size(A)...) + A
+(-)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} = 
+    A - sparse(T, Ti, J, size(A)...)
+(-)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} = 
+    sparse(T, Ti, J, size(A)...) - A
+
+
 
 ## circular shift
 
