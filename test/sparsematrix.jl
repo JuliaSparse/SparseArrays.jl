@@ -42,6 +42,13 @@ end
 end
 end
 
+@testset "iteratenz" begin
+    for i in 1:20
+        A = sprandn(100, 100, 1 / i)
+        @test collect(SparseArrays.iternz(A)) == collect(zip(findnz(A)...))
+    end
+end
+
 @testset "findnz for adjoint/transpose (issue #632)" begin
     A = sparse([1, 1, 2, 3], [1, 2, 3, 2], [1.0+2.0im, 3.0, 4.0-1.0im, 0.0], 3, 4)
     for T in (ComplexF64,), op in (@static COMPREHENSIVE ? (adjoint, transpose) : (adjoint,))

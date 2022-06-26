@@ -831,6 +831,25 @@ end
 _sparse_findnextnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findnextnz(v, i[1])
 _sparse_findprevnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findprevnz(v, i[1])
 
+
+struct IterateSparseVec{T<: AbstractSparseVector} <: SparseIndexIterate
+    m::T
+end
+
+Base.eltype(::IterateSparseVec{T}) where {Ti, Tv, T <: AbstractSparseVector{Tv, Ti}} = Tuple{Ti, Tv}
+
+Base.iterate(x::IterateSparseVec, state=0) = @inbounds begin
+    state += 1
+    if state > nnz(x)
+        nothing
+    else
+        (nonzeroinds(x)[state], nonzeros(x)[state]), state
+    end
+end
+
+iternz(S::AbstractSparseVector) = IterateSparseVec(S)
+
+
 ### Generic functions operating on AbstractSparseVector
 
 ## Explicit efficient comparisons with vectors
