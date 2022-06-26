@@ -829,6 +829,26 @@ function _sparse_findprevnz(v::SparseVector, i::Integer)
     end
 end
 
+
+
+struct IterateSparseVec{T<: AbstractSparseVector} <: SparseIndexIterate
+    m::T
+end
+
+Base.eltype(::IterateSparseVec{T}) where {Ti, Tv, T <: AbstractSparseVector{Tv, Ti}} = Tuple{Ti, Tv}
+
+Base.iterate(x::IterateSparseVec, state=0) = @inbounds begin
+    state += 1
+    if state > nnz(x)
+        nothing
+    else
+        (nonzeroinds(x)[state], nonzeros(x)[state]), state
+    end
+end
+
+iternz(S::AbstractSparseVector) = IterateSparseVec(S)
+
+
 ### Generic functions operating on AbstractSparseVector
 
 ### getindex

@@ -1700,6 +1700,37 @@ function sparse_sortedlinearindices!(I::Vector{Ti}, V::Vector, m::Int, n::Int) w
     return SparseMatrixCSC(m, n, colptr, I, V)
 end
 
+
+abstract type SparseIndexIterate end
+@inline getcolptr(x::SparseIndexIterate) = getcolptr(x.m)
+@inline getrowval(x::SparseIndexIterate) = getrowval(x.m)
+@inline getnzval(x::SparseIndexIterate) = getnzval(x.m)
+@inline nonzeroinds(x::SparseIndexIterate) = nonzeroinds(x.m)
+@inline nonzeros(x::SparseIndexIterate) = nonzeros(x.m)
+@inline nnz(x::SparseIndexIterate) = nnz(x.m)
+
+Base.length(x::SparseIndexIterate) = nnz(x.m)
+Base.size(x::SparseIndexIterate) = size(x.m)
+Base.size(x::SparseIndexIterate, i) = size(x.m)[i]
+struct IterateNZCSC{T<: AbstractSparseMatrixCSC} <: SparseIndexIterate
+    m::T
+end
+
+Base.eltype(::IterateNZCSC{T}) where {Ti, Tv, T <: AbstractSparseMatrixCSC{Tv, Ti}} = Tuple{Ti, Ti, Tv}
+Base.iterate(x::IterateNZCSC, state=(1, 0)) = @inbounds let (j, ind) = state
+    ind += 1
+    while (j < size(x, 2)) && (ind > getcolptr(x)[j + 1] - 1)
+        j += 1
+    end
+    (j > size(x, 2) || ind > getcolptr(x)[end] - 1) && return nothing
+
+    (getrowval(x)[ind], j, getnzval(x)[ind]), (j, ind)
+end
+
+iternz(S::AbstractSparseMatrixCSC) = IterateNZCSC(S)
+
+
+
 """
     sprand([rng],[type],m,[n],p::AbstractFloat,[rfn])
 
