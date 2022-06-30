@@ -223,7 +223,7 @@ end
 
 
 """
-    lu(A::SparseMatrixCSC; check = true) -> F::UmfpackLU
+    lu(A::SparseMatrixCSC; check = true, q = nothing) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`.
 
@@ -234,6 +234,11 @@ For sparse `A` with real or complex element type, the return type of `F` is
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
+
+The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
+is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a 
+zero based copy is made.
+
 
 The individual components of the factorization `F` can be accessed by indexing:
 
@@ -300,7 +305,7 @@ lu(A::Union{Adjoint{T, S}, Transpose{T, S}}; check::Bool = true) where {T<:UMFVT
 lu(copy(A); check)
 
 """
-    lu!(F::UmfpackLU, A::SparseMatrixCSC; check=true) -> F::UmfpackLU
+    lu!(F::UmfpackLU, A::SparseMatrixCSC; check=true, q=nothing) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`, reusing the symbolic
 factorization of an already existing LU factorization stored in `F`. The
@@ -310,6 +315,10 @@ to create the LU factorization `F`, otherwise an error is thrown.
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
+
+The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
+is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a 
+zero based copy is made.
 
 See also [`lu`](@ref)
 
@@ -465,7 +474,10 @@ for itype in UmfpackIndexTypes
                 if q === nothing
                     @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
                 else
-                    @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, q, tmp, U.control, U.info)
+                    if minimum(q) > 0 # one based indexing
+                        q = q .- 1
+                    end
+                    @isok $symq_r(U.m, U.n, U.colptr, U.rowval, U.nzval, q, tmp, U.control, U.info)
                 end
                 U.symbolic = tmp[1]
             finally
@@ -482,6 +494,9 @@ for itype in UmfpackIndexTypes
                     @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
                                 U.control, U.info)
                 else
+                    if minimum(q) > 0 # one based indexing
+                        q = q .- 1
+                    end
                     @isok $symq_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), q, tmp,
                                 U.control, U.info)
                 end
