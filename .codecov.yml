@@ -6,3 +6,5 @@ coverage:
     project:
       default:
         only_pulls: true # Only show the `codecov/project` commit status on pull requests.
+ignore:
+  - "src/solvers/lib/*.jl"
