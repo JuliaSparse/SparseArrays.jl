@@ -337,6 +337,10 @@ end
         @test findall(!iszero, xc) == findall(!iszero, fc)
         @test findnz(xc) == ([2, 3, 5], [1.25, 0, -0.75])
     end
+    let Xc = spdiagm(spv_x1)
+        @test all(isempty, findnz(@view Xc[:,1]))
+        @test findnz(@view Xc[:,2]) == ([2], [1.25])
+    end
 end
 ### Array manipulation
 
