@@ -40,6 +40,7 @@ const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:Sparse
 
 ### Basic properties
 
+length(x::SparseVector)   = getfield(x, :n)
 size(x::SparseVector)     = (getfield(x, :n),)
 count(f, x::SparseVector) = count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x))
 
