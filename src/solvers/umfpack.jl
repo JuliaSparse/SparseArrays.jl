@@ -139,22 +139,32 @@ function show_umf_info(control::Vector{Float64}, info::Vector{Float64}=umf_info,
 end
 
 
+# TODO, this actually doesn't need to be this big if iter refinement is off
+worspace_W_size(S::SparseMatrixCSC{<:AbstractFloat}) = 5 * size(S, 2)
+worspace_W_size(S::SparseMatrixCSC{<:Complex}) = 10 * size(S, 2)
 
 
 """
 Working space for Umfpack so `ldiv!` doesn't allocate.
 
-To use multiple threads, each thread should have their own workspace that can be allocated using `Base.similar(::UmfpackWS)` and passed as a kwarg to `ldiv!`.
-Alternativly see `duplicate(::UmfpackLU)`
+To use multiple threads, each thread should have their own workspace that can be allocated using `Base.similar(::UmfpackWS)` 
+and passed as a kwarg to `ldiv!`. Alternativly see `duplicate(::UmfpackLU)`
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
     W::Vector{Float64}
 end
 
-# TODO, this actually doesn't need to be this big if iter refinement is off
-UmfpackWS(S::SparseMatrixCSC{Float64, T}) where T = UmfpackWS{T}(Vector{T}(undef, size(S, 2)), Vector{Float64}(undef, 5 * size(S, 2)))
-UmfpackWS(S::SparseMatrixCSC{ComplexF64, T}) where T = UmfpackWS{T}(Vector{T}(undef, size(S, 2)), Vector{Float64}(undef, 10 * size(S, 2)))
+function Base.resize!(W::UmfpackWS, S::SparseMatrixCSC)
+    resize!(W.Wi, size(S, 2))
+    resize!(W.W, worspace_W_size(S))
+end
+
+
+UmfpackWS(S::SparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = UmfpackWS{Ti}(
+    Vector{Ti}(undef, size(S, 2)),
+    Vector{Float64}(undef, worspace_W_size(S)))
+
 
 Base.similar(w::UmfpackWS) = UmfpackWS(similar(w.Wi), similar(w.W))
 
@@ -175,7 +185,7 @@ mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
 end
 
 """
-A shallow copy of UmfpackLU to use simultaniously
+A shallow copy of UmfpackLU to use in multithreaded applications
 """
 duplicate(F::UmfpackLU) = UmfpackLU(
     F.symbolic,
@@ -193,31 +203,33 @@ duplicate(F::UmfpackLU) = UmfpackLU(
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
 
-function Base.lock(F::UmfpackLU)
-    if !trylock(F.lock)
-        @info """waiting for UmfpackLU's lock, it's safe to ignore this message.
-        see the documentation for Umfpack""" maxlog=1
-        lock(F.lock)
+# is needed for some reason
+function Base.lock(f::Function, F::UmfpackLU)
+    lock(F)
+    try
+        f()
+    finally
+        unlock(F)
     end
+end
+function Base.lock(F::UmfpackLU)
+    trylock(F.lock) && return
+    @info """waiting for UmfpackLU's lock, it's safe to ignore this message.
+    see the documentation for Umfpack""" maxlog = 1
+    lock(F.lock)
 end
 @inline Base.trylock(F::UmfpackLU) = trylock(F.lock)
 @inline Base.unlock(F::UmfpackLU) = unlock(F.lock)
 
-function show_umf_ctrl(F::UmfpackLU, level::Real = 2.0)
-    lock(F)
-    try
+function show_umf_ctrl(F::UmfpackLU, level::Real=2.0)
+    lock(F) do
         show_umf_ctrl(F.control, level)
-    finally
-        unlock(F)
     end
 end
 
-function show_umf_info(F::UmfpackLU, level::Real = 2.0)
-    lock(F)
-    try
+function show_umf_info(F::UmfpackLU, level::Real=2.0)
+    lock(F) do
         show_umf_info(F.control, F.info, level)
-    finally
-        unlock(F)
     end
 end
 
@@ -305,12 +317,14 @@ lu(A::Union{Adjoint{T, S}, Transpose{T, S}}; check::Bool = true) where {T<:UMFVT
 lu(copy(A); check)
 
 """
-    lu!(F::UmfpackLU, A::SparseMatrixCSC; check=true, q=nothing) -> F::UmfpackLU
+    lu!(F::UmfpackLU, A::SparseMatrixCSC; check=true, reuse_symbolic=true, q=nothing) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`, reusing the symbolic
-factorization of an already existing LU factorization stored in `F`. The
-sparse matrix `A` must have an identical nonzero pattern as the matrix used
-to create the LU factorization `F`, otherwise an error is thrown.
+factorization of an already existing LU factorization stored in `F`. 
+Unless `reuse_symbolic` is set to false, the sparse matrix `A` must have an 
+identical nonzero pattern as the matrix used to create the LU factorization `F`, 
+otherwise an error is thrown. If the size of `A` and `F` differ, all vectors will 
+be resized accordingly.
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
@@ -325,8 +339,8 @@ See also [`lu`](@ref)
 !!! note
     `lu!(F::UmfpackLU, A::SparseMatrixCSC)` uses the UMFPACK library that is part of
     SuiteSparse. As this library only supports sparse matrices with [`Float64`](@ref) or
-    `ComplexF64` elements, `lu!` converts `A` into a copy that is of type
-    `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
+    `ComplexF64` elements, `lu!` will automatically convert the types to those set by the LU 
+    factorization or `SparseMatrixCSC{ComplexF64}` as appropriate.
 
 !!! compat "Julia 1.5"
     `lu!` for `UmfpackLU` requires at least Julia 1.5.
@@ -347,33 +361,43 @@ julia> F \\ ones(2)
  1.0
 ```
 """
-function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool=true, q=nothing)
+function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; 
+  check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
     zerobased = getcolptr(S)[1] == 0
-    # resize workspace if needed
-    if F.n < size(S, 2)
-        F.workspace = UmfpackWS(S)
-    end
 
     F.m = size(S, 1)
     F.n = size(S, 2)
-    F.colptr = zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S))
-    F.rowval = zerobased ? copy(rowvals(S)) : decrement(rowvals(S))
-    F.nzval = copy(nonzeros(S))
 
-    umfpack_numeric!(F; reuse_numeric = false, q)
+    # resize workspace if needed
+    resize!(F.workspace, S)
+
+    resize!(F.colptr, length(getcolptr(S)))
+    if zerobased
+        F.colptr .= getcolptr(S)
+    else
+        F.colptr .= getcolptr(S) .- one(Ti)
+    end
+
+    resize!(F.rowval, length(rowvals(S)))
+    if zerobased
+        F.rowval .= rowvals(S)
+    else
+        F.rowval .= rowvals(S) .- one(Ti)
+    end
+
+    resize!(F.nzval, length(nonzeros(S)))
+    F.nzval .= nonzeros(S)
+
+    if !reuse_symbolic && F.symbolic != C_NULL
+        umfpack_free_symbolic(F)
+        F.symbolic = C_NULL
+    end
+
+    umfpack_numeric!(F, reuse_numeric=false, q)
+
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
 end
-lu!(F::UmfpackLU, A::SparseMatrixCSC{<:Union{Float16,Float32},Ti};
-   check::Bool = true) where {Ti<:UMFITypes} =
-    lu!(F, convert(SparseMatrixCSC{Float64,Ti}, A); check = check)
-lu!(F::UmfpackLU, A::SparseMatrixCSC{<:Union{ComplexF16,ComplexF32},Ti};
-   check::Bool = true) where {Ti<:UMFITypes} =
-    lu!(F, convert(SparseMatrixCSC{ComplexF64,Ti}, A); check = check)
-lu!(F::UmfpackLU, A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
-   check::Bool = true) where {T<:AbstractFloat} =
-    throw(ArgumentError(string("matrix type ", typeof(A), "not supported.")))
-lu!(F::UmfpackLU, A::SparseMatrixCSC; check::Bool = true) = lu!(F, float(A); check = check)
 
 size(F::UmfpackLU) = (F.m, F.n)
 function size(F::UmfpackLU, dim::Integer)
@@ -467,81 +491,71 @@ for itype in UmfpackIndexTypes
     get_num_z = Symbol(umf_nm("get_numeric", :ComplexF64, itype))
     @eval begin
         function umfpack_symbolic!(U::UmfpackLU{Float64,$itype}, q::Union{Nothing, StridedVector{$itype}})
-            if U.symbolic != C_NULL return U end
-            lock(U)
-            try
-                tmp = Vector{Ptr{Cvoid}}(undef, 1)
+            U.symbolic != C_NULL && return U
+
+            lock(U) do
+                tmp = Ref{Ptr{Cvoid}}()
                 if q === nothing
                     @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
                 else
-                    if minimum(q) > 0 # one based indexing
-                        q = q .- 1
-                    end
-                    @isok $symq_r(U.m, U.n, U.colptr, U.rowval, U.nzval, q, tmp, U.control, U.info)
+                    qq = minimum(q) == 1 ? q .- one(eltype(q)) : q
+                    @isok $symq_r(U.m, U.n, U.colptr, U.rowval, U.nzval, qq, tmp, U.control, U.info)
                 end
-                U.symbolic = tmp[1]
-            finally
-                unlock(U)
+                U.symbolic = tmp[]
             end
             return U
         end
         function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype}, q::Union{Nothing, StridedVector{$itype}})
-            if U.symbolic != C_NULL return U end
-            lock(U)
-            try
-                tmp = Vector{Ptr{Cvoid}}(undef, 1)
+            U.symbolic != C_NULL && return U
+            lock(U) do
+                tmp = Ref{Ptr{Cvoid}}()
                 if q === nothing
                     @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
-                                U.control, U.info)
+                                 U.control, U.info)
                 else
-                    if minimum(q) > 0 # one based indexing
-                        q = q .- 1
-                    end
-                    @isok $symq_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), q, tmp,
-                                U.control, U.info)
+                    qq = minimum(q) == 1 ? q .- one(eltype(q)) : q
+                    @isok $symq_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), qq, tmp, U.control, U.info)
                 end
-                U.symbolic = tmp[1]
-            finally
-                unlock(U)
+                U.symbolic = tmp[]
             end
             return U
         end
         function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric=true, q=nothing)
-            lock(U)
-            try
-                if (reuse_numeric && U.numeric != C_NULL) return U end
-                if U.symbolic == C_NULL umfpack_symbolic!(U, q) end
+            lock(U) do
+                if (reuse_numeric && U.numeric != C_NULL)
+                    return U
+                end
+                if U.symbolic == C_NULL
+                    umfpack_symbolic!(U, q)
+                end
 
-                tmp = Vector{Ptr{Cvoid}}(undef, 1)
+
+                tmp = Ref{Ptr{Cvoid}}()
                 status = $num_r(U.colptr, U.rowval, U.nzval, U.symbolic, tmp, U.control, U.info)
                 U.status = status
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
                 U.numeric != C_NULL && umfpack_free_numeric(U)
-                U.numeric = tmp[1]
-            finally
-                unlock(U)
+                U.numeric = tmp[]
             end
             return U
         end
-        function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric = true, q=nothing)
-            lock(U)
-            try
+        function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric=true, q=nothing)
+            lock(U) do
                 if (reuse_numeric && U.numeric != C_NULL) return U end
                 if U.symbolic == C_NULL umfpack_symbolic!(U, q) end
 
-                tmp = Vector{Ptr{Cvoid}}(undef, 1)
+
+                tmp = Ref{Ptr{Cvoid}}()
                 status = $num_c(U.colptr, U.rowval, real(U.nzval), imag(U.nzval), U.symbolic, tmp,
-                                U.control, U.info)
+                    U.control, U.info)
                 U.status = status
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
                 U.numeric != C_NULL && umfpack_free_numeric(U)
-                U.numeric = tmp[1]
-            finally
-                unlock(U)
+                U.numeric = tmp[]
             end
             return U
         end
@@ -556,16 +570,13 @@ for itype in UmfpackIndexTypes
             if size(lu, 2) > length(lu.workspace.Wi)
                 throw(ArgumentError("Wi should be at least larger than `size(Af, 2)`"))
             end
-            lock(lu)
-            try
+            lock(lu) do
                 umfpack_numeric!(lu)
-                (size(b,1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
+                (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
 
                 @isok $wsol_r(typ, lu.colptr, lu.rowval, lu.nzval,
-                            x, b, lu.numeric, lu.control,
-                            lu.info, lu.workspace.Wi, lu.workspace.W)
-            finally
-                unlock(lu)
+                    x, b, lu.numeric, lu.control,
+                    lu.info, lu.workspace.Wi, lu.workspace.W)
             end
             return x
         end
@@ -580,35 +591,26 @@ for itype in UmfpackIndexTypes
             if size(lu, 2) > length(lu.workspace.Wi)
                 throw(ArgumentError("Wi should be at least larger than `size(Af, 2)`"))
             end
-            lock(lu)
-            try
+            lock(lu) do
                 umfpack_numeric!(lu)
                 (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
                 @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
-                            C_NULL, lu.numeric, lu.control, lu.info, lu.workspace.Wi, lu.workspace.W)
-            finally
-                unlock(lu)
+                    C_NULL, lu.numeric, lu.control, lu.info, lu.workspace.Wi, lu.workspace.W)
             end
             return x
         end
         function det(lu::UmfpackLU{Float64,$itype})
             mx = Ref{Float64}()
-            lock(lu)
-            try
+            lock(lu) do
                 @isok $det_r(mx, C_NULL, lu.numeric, lu.info)
-            finally
-                unlock(lu)
             end
             mx[]
         end
         function det(lu::UmfpackLU{ComplexF64,$itype})
             mx = Ref{Float64}()
             mz = Ref{Float64}()
-            lock(lu)
-            try
+            lock(lu) do
                 @isok $det_z(mx, mz, C_NULL, lu.numeric, lu.info)
-            finally
-                unlock(lu)
             end
             complex(mx[], mz[])
         end
@@ -933,28 +935,21 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
 end
 
 function umfpack_report_symbolic(lu::UmfpackLU, level::Real=4.0)
-    lock(lu)
-    try
+    lock(lu) do
         umfpack_symbolic!(lu)
         old_prl::Float64 = lu.control[UMFPACK_PRL]
         lu.ctrol[UMFPACK_PRL] = Float64(level)
         @isok umfpack_dl_report_symbolic(lu.symbolic, lu.control)
         lu.control[UMFPACK_PRL] = old_prl
-    finally
-        unlock(lu)
     end
 end
 
 function umfpack_report_numeric(lu::UmfpackLU, level::Real=0.4)
-    lock(lu)
-    try
+    lock(lu) do
         old_prl::Float64 = lu.control[UMFPACK_PRL]
         lu.control[UMFPACK_PRL] = Float64(level)
         @isok umfpack_dl_report_numeric(num, lu.control)
         lu.control[UMFPACK_PRL] = old_prl
-
-    finally
-        unlock(lu)
     end
 end
 
