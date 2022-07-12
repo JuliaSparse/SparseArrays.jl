@@ -235,7 +235,7 @@ end
 
 
 """
-    lu(A::SparseMatrixCSC; check = true) -> F::UmfpackLU
+    lu(A::SparseMatrixCSC; check = true, q = nothing) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`.
 
@@ -246,6 +246,11 @@ For sparse `A` with real or complex element type, the return type of `F` is
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
+
+The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
+is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a 
+zero based copy is made.
+
 
 The individual components of the factorization `F` can be accessed by indexing:
 
@@ -278,7 +283,7 @@ See also [`lu!`](@ref)
 
 [^ACM832]: Davis, Timothy A. (2004b). Algorithm 832: UMFPACK V4.3---an Unsymmetric-Pattern Multifrontal Method. ACM Trans. Math. Softw., 30(2), 196–199. [doi:10.1145/992200.992206](https://doi.org/10.1145/992200.992206)
 """
-function lu(S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool = true)
+function lu(S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool = true, q=nothing)
     zerobased = getcolptr(S)[1] == 0
     res = UmfpackLU(C_NULL, C_NULL, size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
@@ -289,7 +294,7 @@ function lu(S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool = true)
                     ReentrantLock())
 
     finalizer(umfpack_free_symbolic, res)
-    umfpack_numeric!(res)
+    umfpack_numeric!(res; q)
     check && (issuccess(res) || throw(LinearAlgebra.SingularException(0)))
     return res
 end
@@ -312,7 +317,7 @@ lu(A::Union{Adjoint{T, S}, Transpose{T, S}}; check::Bool = true) where {T<:UMFVT
 lu(copy(A); check)
 
 """
-    lu!(F::UmfpackLU, A::SparseMatrixCSC; check=true, reuse_symbolic=true) -> F::UmfpackLU
+    lu!(F::UmfpackLU, A::SparseMatrixCSC; check=true, reuse_symbolic=true, q=nothing) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`, reusing the symbolic
 factorization of an already existing LU factorization stored in `F`. 
@@ -324,6 +329,10 @@ be resized accordingly.
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
+
+The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
+is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a 
+zero based copy is made.
 
 See also [`lu`](@ref)
 
@@ -352,9 +361,8 @@ julia> F \\ ones(2)
  1.0
 ```
 """
-function lu!(F::UmfpackLU, S::SparseMatrixCSC{Tv,Ti};
-    check::Bool=true, reuse_symbolic::Bool=true) where {Tv,Ti}
-
+function lu!(F::UmfpackLU, S::SparseMatrixCSC; 
+  check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
     zerobased = getcolptr(S)[1] == 0
 
     F.m = size(S, 1)
@@ -367,14 +375,14 @@ function lu!(F::UmfpackLU, S::SparseMatrixCSC{Tv,Ti};
     if zerobased
         F.colptr .= getcolptr(S)
     else
-        F.colptr .= getcolptr(S) .- one(Ti)
+        F.colptr .= getcolptr(S) .- one(eltype(S))
     end
 
     resize!(F.rowval, length(rowvals(S)))
     if zerobased
         F.rowval .= rowvals(S)
     else
-        F.rowval .= rowvals(S) .- one(Ti)
+        F.rowval .= rowvals(S) .- one(eltype(S))
     end
 
     resize!(F.nzval, length(nonzeros(S)))
@@ -385,7 +393,8 @@ function lu!(F::UmfpackLU, S::SparseMatrixCSC{Tv,Ti};
         F.symbolic = C_NULL
     end
 
-    umfpack_numeric!(F, reuse_numeric=false)
+    umfpack_numeric!(F; reuse_numeric=false, q)
+
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
 end
@@ -465,7 +474,9 @@ umf_nm(nm,Tv,Ti) = "umfpack_" * (Tv === :Float64 ? "d" : "z") * (Ti === :Int64 ?
 
 for itype in UmfpackIndexTypes
     sym_r = Symbol(umf_nm("symbolic", :Float64, itype))
+    symq_r = Symbol(umf_nm("qsymbolic", :Float64, itype))
     sym_c = Symbol(umf_nm("symbolic", :ComplexF64, itype))
+    symq_c = Symbol(umf_nm("qsymbolic", :ComplexF64, itype))
     num_r = Symbol(umf_nm("numeric", :Float64, itype))
     num_c = Symbol(umf_nm("numeric", :ComplexF64, itype))
     sol_r = Symbol(umf_nm("solve", :Float64, itype))
@@ -479,34 +490,45 @@ for itype in UmfpackIndexTypes
     get_num_r = Symbol(umf_nm("get_numeric", :Float64, itype))
     get_num_z = Symbol(umf_nm("get_numeric", :ComplexF64, itype))
     @eval begin
-        function umfpack_symbolic!(U::UmfpackLU{Float64,$itype})
+        function umfpack_symbolic!(U::UmfpackLU{Float64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             U.symbolic != C_NULL && return U
 
             lock(U) do
                 tmp = Ref{Ptr{Cvoid}}()
-                @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
+                if q === nothing
+                    @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
+                else
+                    qq = minimum(q) == 1 ? q .- one(eltype(q)) : q
+                    @isok $symq_r(U.m, U.n, U.colptr, U.rowval, U.nzval, qq, tmp, U.control, U.info)
+                end
                 U.symbolic = tmp[]
             end
             return U
         end
-        function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype})
+        function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             U.symbolic != C_NULL && return U
             lock(U) do
                 tmp = Ref{Ptr{Cvoid}}()
-                @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
-                    U.control, U.info)
+                if q === nothing
+                    @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
+                                 U.control, U.info)
+                else
+                    qq = minimum(q) == 1 ? q .- one(eltype(q)) : q
+                    @isok $symq_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), qq, tmp, U.control, U.info)
+                end
                 U.symbolic = tmp[]
             end
             return U
         end
-        function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric=true)
+        function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric=true, q=nothing)
             lock(U) do
                 if (reuse_numeric && U.numeric != C_NULL)
                     return U
                 end
                 if U.symbolic == C_NULL
-                    umfpack_symbolic!(U)
+                    umfpack_symbolic!(U, q)
                 end
+
 
                 tmp = Ref{Ptr{Cvoid}}()
                 status = $num_r(U.colptr, U.rowval, U.nzval, U.symbolic, tmp, U.control, U.info)
@@ -519,14 +541,11 @@ for itype in UmfpackIndexTypes
             end
             return U
         end
-        function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric=true)
+        function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric=true, q=nothing)
             lock(U) do
-                if (reuse_numeric && U.numeric != C_NULL)
-                    return U
-                end
-                if U.symbolic == C_NULL
-                    umfpack_symbolic!(U)
-                end
+                if (reuse_numeric && U.numeric != C_NULL) return U end
+                if U.symbolic == C_NULL umfpack_symbolic!(U, q) end
+
 
                 tmp = Ref{Ptr{Cvoid}}()
                 status = $num_c(U.colptr, U.rowval, real(U.nzval), imag(U.nzval), U.symbolic, tmp,
@@ -915,9 +934,9 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
     end
 end
 
-function umfpack_report_symbolic(lu::UmfpackLU, level::Real=4.0)
+function umfpack_report_symbolic(lu::UmfpackLU, level::Real=4.0, q=nothing)
     lock(lu) do
-        umfpack_symbolic!(lu)
+        umfpack_symbolic!(lu, q)
         old_prl::Float64 = lu.control[UMFPACK_PRL]
         lu.ctrol[UMFPACK_PRL] = Float64(level)
         @isok umfpack_dl_report_symbolic(lu.symbolic, lu.control)
