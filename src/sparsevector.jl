@@ -48,7 +48,7 @@ SparseVector(n::Integer, nzind::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
 # union of such a view and a SparseVector so we define an alias for such a union as well
 const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
 const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const SparseVectorUnion{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
+const SparseVectorUnion{Tv,Ti} = Union{AbstractSparseVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
 const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
 
 ### Basic properties
@@ -780,7 +780,7 @@ findall(p::Base.Fix2{typeof(in)}, x::SparseVector{<:Any,Ti}) where {Ti} =
     findnz(x::SparseVector)
 
 Return a tuple `(I, V)`  where `I` is the indices of the stored ("structurally non-zero")
-values in sparse vector `x` and `V` is a vector of the values.
+values in sparse vector-like `x` and `V` is a vector of the values.
 
 # Examples
 ```jldoctest
@@ -795,7 +795,7 @@ julia> findnz(x)
 ([1, 4, 6, 8], [1, 2, 4, 3])
 ```
 """
-function findnz(x::SparseVector{Tv,Ti}) where {Tv,Ti}
+function findnz(x::SparseVectorUnion{Tv,Ti}) where {Tv,Ti}
     numnz = nnz(x)
 
     I = Vector{Ti}(undef, numnz)
@@ -1406,10 +1406,10 @@ for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
 end
 
 ### Reduction
-Base.reducedim_initarray(A::AbstractSparseVector, region, v0, ::Type{R}) where {R} =
+Base.reducedim_initarray(A::SparseVectorUnion, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 
-function Base._mapreduce(f, op, ::IndexCartesian, A::AbstractSparseVector{T}) where {T}
+function Base._mapreduce(f, op, ::IndexCartesian, A::SparseVectorUnion{T}) where {T}
     isempty(A) && return Base.mapreduce_empty(f, op, T)
     z = nnz(A)
     rest, ini = if z == 0
@@ -1420,7 +1420,7 @@ function Base._mapreduce(f, op, ::IndexCartesian, A::AbstractSparseVector{T}) wh
     _mapreducezeros(f, op, T, rest, ini)
 end
 
-function Base.mapreducedim!(f, op, R::AbstractVector, A::AbstractSparseVector)
+function Base.mapreducedim!(f, op, R::AbstractVector, A::SparseVectorUnion)
     # dim1 reduction could be safely replaced with a mapreduce
     if length(R) == 1
         I = firstindex(R)
