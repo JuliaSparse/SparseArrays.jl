@@ -361,7 +361,7 @@ julia> F \\ ones(2)
  1.0
 ```
 """
-function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; 
+function lu!(F::UmfpackLU, S::SparseMatrixCSC; 
   check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
     zerobased = getcolptr(S)[1] == 0
 
