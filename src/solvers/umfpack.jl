@@ -375,14 +375,14 @@ function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes};
     if zerobased
         F.colptr .= getcolptr(S)
     else
-        F.colptr .= getcolptr(S) .- one(Ti)
+        F.colptr .= getcolptr(S) .- one(eltype(S))
     end
 
     resize!(F.rowval, length(rowvals(S)))
     if zerobased
         F.rowval .= rowvals(S)
     else
-        F.rowval .= rowvals(S) .- one(Ti)
+        F.rowval .= rowvals(S) .- one(eltype(S))
     end
 
     resize!(F.nzval, length(nonzeros(S)))
@@ -393,7 +393,7 @@ function lu!(F::UmfpackLU, S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes};
         F.symbolic = C_NULL
     end
 
-    umfpack_numeric!(F, reuse_numeric=false, q)
+    umfpack_numeric!(F; reuse_numeric=false, q)
 
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
@@ -934,9 +934,9 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
     end
 end
 
-function umfpack_report_symbolic(lu::UmfpackLU, level::Real=4.0)
+function umfpack_report_symbolic(lu::UmfpackLU, level::Real=4.0, q=nothing)
     lock(lu) do
-        umfpack_symbolic!(lu)
+        umfpack_symbolic!(lu, q)
         old_prl::Float64 = lu.control[UMFPACK_PRL]
         lu.ctrol[UMFPACK_PRL] = Float64(level)
         @isok umfpack_dl_report_symbolic(lu.symbolic, lu.control)
