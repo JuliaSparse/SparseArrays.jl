@@ -422,6 +422,14 @@ end
     @test length(A.workspace.W) == 500
 end
 
+
+for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+    A = I + sprandn(100, 100, 0.01)
+    Af = lu(A)
+    UMFPACK.umfpack_report_numeric(Af, 0)
+    UMFPACK.umfpack_report_symbolic(Af, 0)
+end
+
 end # Base.USE_GPL_LIBS
 
 end # module
