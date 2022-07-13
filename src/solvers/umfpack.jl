@@ -222,7 +222,7 @@ has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
 # auto magick resize
-getworkspace(F::UmfpackLU) = lock(F.lock) do
+getworkspace(F::UmfpackLU) = @lock F.lock begin
         resize!(F.workspace, F, has_refinement(F))
         F.workspace
     end
@@ -260,25 +260,20 @@ function Base.lock(f::Function, F::UmfpackLU)
     end
 end
 Base.lock(F::UmfpackLU) = if !trylock(F.lock) 
-    # @async @info """waiting for UmfpackLU's lock, it's safe to ignore this message.
-    # see the documentation for Umfpack""" maxlog = 1
+    @info """waiting for UmfpackLU's lock, it's safe to ignore this message.
+    see the documentation for Umfpack""" maxlog = 1
     lock(F.lock)
 end
 
 @inline Base.trylock(F::UmfpackLU) = trylock(F.lock)
 @inline Base.unlock(F::UmfpackLU) = unlock(F.lock)
 
-function show_umf_ctrl(F::UmfpackLU, level::Real=2.0)
-    lock(F) do
-        show_umf_ctrl(F.control, level)
-    end
-end
+show_umf_ctrl(F::UmfpackLU, level::Real=2.0) = 
+    @lock F show_umf_ctrl(F.control, level)
 
-function show_umf_info(F::UmfpackLU, level::Real=2.0)
-    lock(F) do
-        show_umf_info(F.control, F.info, level)
-    end
-end
+
+show_umf_info(F::UmfpackLU, level::Real=2.0) =
+    @lock F show_umf_info(F.control, F.info, level)
 
 
 """
@@ -540,7 +535,7 @@ for itype in UmfpackIndexTypes
         function umfpack_symbolic!(U::UmfpackLU{Float64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             U.symbolic != C_NULL && return U
 
-            lock(U) do
+            @lock U begin
                 tmp = Ref{Ptr{Cvoid}}()
                 if q === nothing
                     @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
@@ -554,7 +549,7 @@ for itype in UmfpackIndexTypes
         end
         function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             U.symbolic != C_NULL && return U
-            lock(U) do
+            @lock U begin
                 tmp = Ref{Ptr{Cvoid}}()
                 if q === nothing
                     @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
@@ -568,7 +563,7 @@ for itype in UmfpackIndexTypes
             return U
         end
         function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric=true, q=nothing)
-            lock(U) do
+            @lock U begin
                 if (reuse_numeric && U.numeric != C_NULL)
                     return U
                 end
@@ -589,7 +584,7 @@ for itype in UmfpackIndexTypes
             return U
         end
         function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric=true, q=nothing)
-            lock(U) do
+            @lock U begin
                 if (reuse_numeric && U.numeric != C_NULL) return U end
                 if U.symbolic == C_NULL umfpack_symbolic!(U, q) end
 
@@ -621,7 +616,7 @@ for itype in UmfpackIndexTypes
             if workspace_W_size(lu) > length(workspace.W)
                 throw(ArguementError("W should be larger than `workspace_W_size(Af)`"))
             end
-            lock(lu) do
+            @lock lu begin
                 umfpack_numeric!(lu)
                 (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
 
@@ -646,7 +641,7 @@ for itype in UmfpackIndexTypes
             if workspace_W_size(lu) > length(workspace.W)
                 throw(ArguementError("W should be larger than `workspace_W_size(Af)`"))
             end
-            lock(lu) do
+            @lock lu begin
                 umfpack_numeric!(lu)
                 (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
                 @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
@@ -656,17 +651,14 @@ for itype in UmfpackIndexTypes
         end
         function det(lu::UmfpackLU{Float64,$itype})
             mx = Ref{Float64}()
-            lock(lu) do
-                @isok $det_r(mx, C_NULL, lu.numeric, lu.info)
-            end
+            @lock lu @isok($det_r(mx, C_NULL, lu.numeric, lu.info))
             mx[]
         end
+
         function det(lu::UmfpackLU{ComplexF64,$itype})
             mx = Ref{Float64}()
             mz = Ref{Float64}()
-            lock(lu) do
-                @isok $det_z(mx, mz, C_NULL, lu.numeric, lu.info)
-            end
+            @lock lu @isok($det_z(mx, mz, C_NULL, lu.numeric, lu.info))
             complex(mx[], mz[])
         end
         function logabsdet(F::UmfpackLU{T, $itype}) where {T<:Union{Float64,ComplexF64}} # return log(abs(det)) and sign(det)
@@ -987,7 +979,7 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
 
     _report_symbolic = Symbol(umf_nm("report_symbolic", Tv, Ti))  
     @eval umfpack_report_symbolic(lu::UmfpackLU{$Tv,$Ti}, level::Real=4; q=nothing) =
-        lock(lu) do
+        @lock lu begin
             umfpack_symbolic!(lu, q)
             old_prl = lu.control[JL_UMFPACK_PRL]
             lu.control[JL_UMFPACK_PRL] = level
@@ -997,7 +989,7 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
         end
     _report_numeric = Symbol(umf_nm("report_numeric", Tv, Ti))
     @eval umfpack_report_numeric(lu::UmfpackLU{$Tv,$Ti}, level::Real=4; q=nothing) =
-        lock(lu) do
+        @lock lu begin
             umfpack_numeric!(lu; q)
             old_prl = lu.control[JL_UMFPACK_PRL]
             lu.control[JL_UMFPACK_PRL] = level
@@ -1007,11 +999,13 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
         end
 end
 
-umfpack_free_numeric(lu::UmfpackLU) = lock(lu) do
+umfpack_free_numeric(lu::UmfpackLU) = 
+@lock lu begin
     umfpack_free_numeric_nl(lu)
     lu
 end
-umfpack_free_symbolic(lu::UmfpackLU) = lock(lu) do
+umfpack_free_symbolic(lu::UmfpackLU) = 
+@lock lu begin
     umfpack_free_symblic_nl(lu)
 end
 
