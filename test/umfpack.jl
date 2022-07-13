@@ -25,8 +25,8 @@ for itype in UMFPACK.UmfpackIndexTypes
             UMFPACK.umfpack_numeric!(lu)
             (size(b,1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
             UMFPACK.@isok UMFPACK.$sol_r(typ, lu.colptr, lu.rowval, lu.nzval,
-                        x, b, lu.numeric, UMFPACK.umf_ctrl,
-                        UMFPACK.umf_info)
+                        x, b, lu.numeric, lu.control,
+                        lu.info)
             return x
         end
         function alloc_solve!(x::StridedVector{ComplexF64}, lu::UMFPACK.UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, typ::Integer)
@@ -39,7 +39,7 @@ for itype in UMFPACK.UmfpackIndexTypes
             UMFPACK.umfpack_numeric!(lu)
             (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
             UMFPACK.@isok UMFPACK.$sol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
-                        C_NULL, lu.numeric, UMFPACK.umf_ctrl, UMFPACK.umf_info)
+                        C_NULL, lu.numeric, lu.control, lu.info)
             return x
         end
     end

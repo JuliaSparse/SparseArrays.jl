@@ -151,15 +151,6 @@ const UMFVTypes = Union{Float64,ComplexF64}
 
 ## UMFPACK
 
-# the control and info arrays
-const umf_ctrl = Vector{Float64}(undef, UMFPACK_CONTROL)
-umfpack_dl_defaults(umf_ctrl)
-# Put julia's config here
-# disable iterative refinement by default Issue #122
-umf_ctrl[JL_UMFPACK_IRSTEP] = 0
-
-const umf_info = Vector{Float64}(undef, UMFPACK_INFO)
-
 function show_umf_ctrl(control::Vector{Float64}, level::Real = 2.0)
     old_prt::Float64 = control[1]
     control[1] = Float64(level)
@@ -167,7 +158,7 @@ function show_umf_ctrl(control::Vector{Float64}, level::Real = 2.0)
     control[1] = old_prt
 end
 
-function show_umf_info(control::Vector{Float64}, info::Vector{Float64}=umf_info, level::Real = 2.0)
+function show_umf_info(control::Vector{Float64}, info::Vector{Float64}, level::Real = 2.0)
     old_prt::Float64 = control[1]
     control[1] = Float64(level)
     umfpack_dl_report_info(control, info)
@@ -277,7 +268,7 @@ show_umf_info(F::UmfpackLU, level::Real=2.0) =
 
 
 """
-    lu(A::SparseMatrixCSC; check = true, q = nothing) -> F::UmfpackLU
+    lu(A::SparseMatrixCSC; check = true, q = nothing, control = get_umfpack_control) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`.
 
@@ -292,6 +283,10 @@ validity (via [`issuccess`](@ref)) lies with the user.
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
 zero based copy is made.
+
+The `control` vector default to the package's default configs for umfpacks but can be changed passing a 
+vector of length `UMFPACK_CONTROL`. See the UMFPACK manual for possible configurations. The corresponding
+variables are named `JL_UMFPACK_` since julia uses one based indexing.
 
 
 The individual components of the factorization `F` can be accessed by indexing:
@@ -325,14 +320,17 @@ See also [`lu!`](@ref)
 
 [^ACM832]: Davis, Timothy A. (2004b). Algorithm 832: UMFPACK V4.3---an Unsymmetric-Pattern Multifrontal Method. ACM Trans. Math. Softw., 30(2), 196–199. [doi:10.1145/992200.992206](https://doi.org/10.1145/992200.992206)
 """
-function lu(S::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}; check::Bool = true, q=nothing)
+function lu(S::SparseMatrixCSC{Tv, Ti}; 
+    check::Bool = true, q=nothing, control=get_umfpack_control(Tv, Ti)) where 
+    {Tv<:UMFVTypes,Ti<:UMFITypes}
+
     zerobased = getcolptr(S)[1] == 0
     res = UmfpackLU(C_NULL, C_NULL, size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
                     zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
-                    copy(nonzeros(S)), 0, UmfpackWS(S, has_refinement(umf_ctrl)),
-                    copy(umf_ctrl),
-                    copy(umf_info),
+                    copy(nonzeros(S)), 0, UmfpackWS(S, has_refinement(control)),
+                    copy(control),
+                    Vector{Float64}(undef, UMFPACK_INFO),
                     ReentrantLock())
 
     finalizer(umfpack_free_symbolic_nl, res)
@@ -997,6 +995,17 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
             lu.control[JL_UMFPACK_PRL] = old_prl
             lu
         end
+    # the control and info arrays
+    _defaults = Symbol(umf_nm("defaults", Tv, Ti))
+    @eval function get_umfpack_control(::Type{$Tv}, ::Type{$Ti})
+        control = Vector{Float64}(undef, UMFPACK_CONTROL)
+        $_defaults(control)
+        # Put julia's config here
+        # disable iterative refinement by default Issue #122
+        control[JL_UMFPACK_IRSTEP] = 0
+
+        return control
+    end
 end
 
 umfpack_free_numeric(lu::UmfpackLU) = 
