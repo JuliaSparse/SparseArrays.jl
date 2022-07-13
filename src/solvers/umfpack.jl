@@ -534,7 +534,7 @@ for itype in UmfpackIndexTypes
             U.symbolic != C_NULL && return U
 
             @lock U begin
-                tmp = Ref{Ptr{Cvoid}}()
+                tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 if q === nothing
                     @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
                 else
@@ -548,7 +548,7 @@ for itype in UmfpackIndexTypes
         function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             U.symbolic != C_NULL && return U
             @lock U begin
-                tmp = Ref{Ptr{Cvoid}}()
+                tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 if q === nothing
                     @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
                                  U.control, U.info)
@@ -570,7 +570,7 @@ for itype in UmfpackIndexTypes
                 end
 
 
-                tmp = Ref{Ptr{Cvoid}}()
+                tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 status = $num_r(U.colptr, U.rowval, U.nzval, U.symbolic, tmp, U.control, U.info)
                 U.status = status
                 if status != UMFPACK_WARNING_singular_matrix
@@ -587,7 +587,7 @@ for itype in UmfpackIndexTypes
                 if U.symbolic == C_NULL umfpack_symbolic!(U, q) end
 
 
-                tmp = Ref{Ptr{Cvoid}}()
+                tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 status = $num_c(U.colptr, U.rowval, real(U.nzval), imag(U.nzval), U.symbolic, tmp,
                     U.control, U.info)
                 U.status = status
