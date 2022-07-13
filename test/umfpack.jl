@@ -10,6 +10,11 @@ using LinearAlgebra:
     I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal, logabsdet
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
 if Base.USE_GPL_LIBS
+function umfpack_report(l::UMFPACK.UmfpackLU)
+    UMFPACK.umfpack_report_numeric(l, 0)
+    UMFPACK.umfpack_report_symbolic(l, 0)
+    return
+end
 
 for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
@@ -53,6 +58,7 @@ end
         for Ti in Base.uniontypes(UMFPACK.UMFITypes)
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             Af = lu(A)
+            umfpack_report(Af)
             b = convert(Vector{Tv}, b0)
             x = alloc_solve!(
                 similar(b),
@@ -68,11 +74,13 @@ end
                     UMFPACK.UMFPACK_A)
             end
             @test A \ bn == xn
+            umfpack_report(Af)
         end
     end
     function f(Tv, Ti)
         A = convert(SparseMatrixCSC{Tv,Ti}, A0)
         Af = lu(A)
+        umfpack_report(Af)
         b = convert(Vector{Tv}, b0)
         x = similar(b)
         ldiv!(x, Af, b)
@@ -81,6 +89,7 @@ end
         xn = similar(bn)
         ldiv!(xn, Af, bn)
         aloc2 = @allocated ldiv!(xn, Af, bn)
+        umfpack_report(Af)
         return aloc1 + aloc2
     end
     @testset "Allocations" begin
@@ -93,6 +102,7 @@ end
     end
     @testset "Thread safety" begin
         Af = lu(A0)
+        umfpack_report(Af)
         x = similar(b0)
         ldiv!(x, Af, b0)
         n = 30
@@ -103,23 +113,27 @@ end
         for i in acc
             @test i == x
         end
-
+        umfpack_report(Af)
         Af1 = UMFPACK.duplicate(Af)
+        umfpack_report(Af1)
         @test trylock(Af)
         @test trylock(Af1)
     end
 
     @testset "test similar" begin
         Af = lu(A0)
+        umfpack_report(Af)
         sim = similar(Af.workspace)
         for f in [typeof, length],
             p in [:Wi, :W]
             @test f(getproperty(sim, p)) == f(getproperty(Af.workspace, p))
             @test getproperty(sim, p) !== getproperty(Af.workspace, p)
         end
+        umfpack_report(Af)
     end
     @testset "test duplicate" begin
         Af = lu(A0)
+        umfpack_report(Af)
         Af1 = UMFPACK.duplicate(Af)
         for i in [:symbolic, :numeric, :colptr, :rowval, :nzval]
             @test getproperty(Af, i) === getproperty(Af1, i)
@@ -130,6 +144,7 @@ end
         for i in [:workspace, :control, :info, :lock]
             @test getproperty(Af, i) !== getproperty(Af1, i)
         end
+        umfpack_report(Af)
     end
 end
 
@@ -149,6 +164,7 @@ end
         for Ti in Base.uniontypes(UMFPACK.UMFITypes)
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             lua = lu(A)
+            umfpack_report(lua)
             @test nnz(lua) == 18
             @test_throws ErrorException lua.Z
             L,U,p,q,Rs = lua.:(:)
@@ -216,6 +232,7 @@ end
 
             # Element promotion and type inference
             @inferred lua\fill(1, size(A, 2))
+            umfpack_report(lua)
         end
     end
 
@@ -225,6 +242,7 @@ end
             Ac = convert(SparseMatrixCSC{ComplexF64,Ti}, Ac0)
             x  = fill(1.0 + im, size(Ac,1))
             lua = lu(Ac)
+            umfpack_report(lua)
             L,U,p,q,Rs = lua.:(:)
             @test (Diagonal(Rs) * Ac)[p,q] ≈ L * U
             b  = Ac*x
@@ -233,6 +251,7 @@ end
             @test Ac'\b ≈ x
             b  = transpose(Ac)*x
             @test transpose(Ac)\b ≈ x
+            umfpack_report(lua)
         end
     end
 
@@ -243,8 +262,10 @@ end
         Random.seed!(30072018)
         A = sparse([1:min(m,n); rand(1:m, 10)], [1:min(m,n); rand(1:n, 10)], elty == Float64 ? randn(min(m, n) + 10) : complex.(randn(min(m, n) + 10), randn(min(m, n) + 10)))
         F = lu(A)
+        umfpack_report(F)
         L, U, p, q, Rs = F.:(:)
         @test (Diagonal(Rs) * A)[p,q] ≈ L * U
+        umfpack_report(F)
     end
 
     @testset "Issue #4523 - complex sparse \\" begin
@@ -271,11 +292,13 @@ end
 
         for (Tin, Tout) in testtypes
             F = lu(sparse(fill(Tin(1), 1, 1)))
+            umfpack_report(F)
             L = sparse(fill(Tout(1), 1, 1))
             @test F.p == F.q == [1]
             @test F.Rs == [1.0]
             @test F.L == F.U == L
             @test F.:(:) == (L, L, [1], [1], [1.0])
+            umfpack_report(F)
         end
     end
 
@@ -286,11 +309,13 @@ end
     @testset "size(::UmfpackLU)" begin
         m = n = 1
         F = lu(sparse(fill(1., m, n)))
+        umfpack_report(F)
         @test size(F) == (m, n)
         @test size(F, 1) == m
         @test size(F, 2) == n
         @test size(F, 3) == 1
         @test_throws ArgumentError size(F,-1)
+        umfpack_report(F)
     end
 
     @testset "Test aliasing" begin
@@ -304,6 +329,7 @@ end
         A = sparse(1.0I, 4, 4)
         A[1:2,1:2] = [-.01 -200; 200 .001]
         F = lu(A)
+        umfpack_report(F)
         @test F.p == [3 ; 4 ; 2 ; 1]
     end
 
@@ -314,9 +340,11 @@ end
         X = zeros(ComplexF64, N, N)
         B = complex.(rand(N, N), rand(N, N))
         luA, lufA = lu(A), lu(Array(A))
+        umfpack_report(luA)
         @test ldiv!(copy(X), luA, B) ≈ ldiv!(copy(X), lufA, B)
         @test ldiv!(copy(X), adjoint(luA), B) ≈ ldiv!(copy(X), adjoint(lufA), B)
         @test ldiv!(copy(X), transpose(luA), B) ≈ ldiv!(copy(X), transpose(lufA), B)
+        umfpack_report(luA)
     end
 
     @testset "singular matrix" begin
@@ -329,6 +357,7 @@ end
     @testset "deserialization" begin
         A  = 10*I + sprandn(10, 10, 0.4)
         F1 = lu(A)
+        umfpack_report(F1)
         b  = IOBuffer()
         serialize(b, F1)
         seekstart(b)
@@ -336,6 +365,8 @@ end
         for nm in (:colptr, :m, :n, :nzval, :rowval, :status)
             @test getfield(F1, nm) == getfield(F2, nm)
         end
+        umfpack_report(F1)
+        umfpack_report(F2)
     end
 
     @testset "Reuse symbolic LU factorization" begin
@@ -349,20 +380,24 @@ end
                 B = convert(SparseMatrixCSC{Tv,Ti}, A1)
                 b = Tv[8., 45., -3., 3., 19.]
                 F = lu(A)
+                umfpack_report(F)
                 lu!(F, B)
+                umfpack_report(F)
                 @test F\b ≈ B\b ≈ Matrix(B)\b
 
                 # singular matrix
                 C = copy(B)
                 C[4, 3] = Tv(0)
                 F = lu(A)
+                umfpack_report(F)
                 @test_throws SingularException lu!(F, C)
-
                 # change of nonzero pattern
                 D = copy(B)
                 D[5, 1] = Tv(1.0)
                 F = lu(A)
+                umfpack_report(F)
                 @test_throws ArgumentError lu!(F, D)
+                umfpack_report(F)
             end
         end
     end
@@ -381,8 +416,10 @@ end
     # singular matrix
     B = sparse(zeros(Float64, 2, 2))
     F = lu(B; check=false)
+    umfpack_report(F)
     facstring = sprint((t, s) -> show(t, "text/plain", s), F)
     @test facstring == "Failed factorization of type $(summary(F))"
+    umfpack_report(F)
 end
 
 
@@ -411,6 +448,7 @@ end
 
 @testset "changing refinement should resize workspace" begin
     A = lu(sprandn(100, 100, 0.1) + I)
+    umfpack_report(A)
     b = randn(100)
     @test length(A.workspace.Wi) == 100
     @test length(A.workspace.W) == 100
@@ -420,6 +458,7 @@ end
     @test x ≈ y
     @test length(A.workspace.Wi) == 100
     @test length(A.workspace.W) == 500
+    umfpack_report(A)
 end
 
 
