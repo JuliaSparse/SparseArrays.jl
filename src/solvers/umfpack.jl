@@ -237,6 +237,8 @@ duplicate(F::UmfpackLU) = UmfpackLU(
     copy(F.control),
     copy(F.info),
     ReentrantLock())
+duplicate(F::Transpose{T, <:UmfpackLU}) where T = Transpose(duplicate(F.parent))
+duplicate(F::Adjoint{T, <:UmfpackLU}) where T = Adjoint(duplicate(F.parent))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
