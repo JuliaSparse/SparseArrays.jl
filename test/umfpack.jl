@@ -25,8 +25,8 @@ for itype in UMFPACK.UmfpackIndexTypes
             UMFPACK.umfpack_numeric!(lu)
             (size(b,1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
             UMFPACK.@isok UMFPACK.$sol_r(typ, lu.colptr, lu.rowval, lu.nzval,
-                        x, b, lu.numeric, UMFPACK.umf_ctrl,
-                        UMFPACK.umf_info)
+                        x, b, lu.numeric, lu.control,
+                        lu.info)
             return x
         end
         function alloc_solve!(x::StridedVector{ComplexF64}, lu::UMFPACK.UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64}, typ::Integer)
@@ -39,7 +39,7 @@ for itype in UMFPACK.UmfpackIndexTypes
             UMFPACK.umfpack_numeric!(lu)
             (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
             UMFPACK.@isok UMFPACK.$sol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
-                        C_NULL, lu.numeric, UMFPACK.umf_ctrl, UMFPACK.umf_info)
+                        C_NULL, lu.numeric, lu.control, lu.info)
             return x
         end
     end
@@ -70,7 +70,7 @@ end
             @test A \ bn == xn
         end
     end
-    f = function(Tv, Ti)
+    function f(Tv, Ti)
         A = convert(SparseMatrixCSC{Tv,Ti}, A0)
         Af = lu(A)
         b = convert(Vector{Tv}, b0)
@@ -86,6 +86,8 @@ end
     @testset "Allocations" begin
         for Tv in Base.uniontypes(UMFPACK.UMFVTypes),
             Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            f(Tv, Ti)
+            f(Tv, Ti)
             @test f(Tv, Ti) == 0
         end
     end
@@ -105,8 +107,8 @@ end
         Af1 = UMFPACK.duplicate(Af)
         @test trylock(Af)
         @test trylock(Af1)
-
     end
+
     @testset "test similar" begin
         Af = lu(A0)
         sim = similar(Af.workspace)
@@ -405,6 +407,27 @@ end
         @test x ≈ x0
         @test x ≈ x1
     end
+end
+
+@testset "changing refinement should resize workspace" begin
+    A = lu(sprandn(100, 100, 0.1) + I)
+    b = randn(100)
+    @test length(A.workspace.Wi) == 100
+    @test length(A.workspace.W) == 100
+    x = A \ b
+    A.control[UMFPACK.JL_UMFPACK_IRSTEP] = 2
+    y = A \ b
+    @test x ≈ y
+    @test length(A.workspace.Wi) == 100
+    @test length(A.workspace.W) == 500
+end
+
+
+for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+    A = I + sprandn(100, 100, 0.01)
+    Af = lu(A)
+    UMFPACK.umfpack_report_numeric(Af, 0)
+    UMFPACK.umfpack_report_symbolic(Af, 0)
 end
 
 end # Base.USE_GPL_LIBS

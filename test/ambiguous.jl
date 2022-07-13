@@ -1,7 +1,5 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using Test, LinearAlgebra, SparseArrays
-
 @testset "detect_ambiguities" begin
     @test_nowarn detect_ambiguities(SparseArrays; recursive=true, ambiguous_bottom=false)
 end
