@@ -209,23 +209,29 @@ workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, SparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, SparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
+const ATLU{Tv, Ti} = Union{Transpose{Tv, UmfpackLU{Tv, Ti}}, Adjoint{Tv, UmfpackLU{Tv, Ti}}}
+has_refinement(F::ATLU) = has_refinement(F.parent)
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
-# auto magick resize
+# auto magick resize, should this only expand and not shrink?
 getworkspace(F::UmfpackLU) = @lock F.lock begin
         resize!(F.workspace, F, has_refinement(F))
         F.workspace
     end
 
-UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv,Ti} = UmfpackWS{Ti}(
+UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
         Vector{Ti}(undef, size(F, 2)),
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
-
+UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
+    
 """
-A shallow copy of UmfpackLU to use in multithreaded applications
+    duplicate(F::UmfpackLU, [ws::UmfpackWS]) -> UmfpackLU
+A shallow copy of UmfpackLU to use in multithreaded applications. This function duplicates the working space, control and locks.
+It can also take transposed or adjoint `UmfpackLU`s.
 """
-duplicate(F::UmfpackLU) = UmfpackLU(
+# Not using simlar helps if the actual needed size has changed as it would need to be resized again
+duplicate(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
     F.symbolic,
     F.numeric,
     F.m, F.n,
@@ -233,17 +239,15 @@ duplicate(F::UmfpackLU) = UmfpackLU(
     F.rowval,
     F.nzval,
     F.status,
-    UmfpackWS(F), # don't resize if workspace does not have the correct size
+    ws,
     copy(F.control),
     copy(F.info),
     ReentrantLock())
-duplicate(F::Transpose{T, <:UmfpackLU}) where T = Transpose(duplicate(F.parent))
-duplicate(F::Adjoint{T, <:UmfpackLU}) where T = Adjoint(duplicate(F.parent))
+duplicate(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = T(duplicate(F.parent, ws))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
 
-# is needed for some reason
 function Base.lock(f::Function, F::UmfpackLU)
     lock(F)
     try
