@@ -234,7 +234,7 @@ A shallow copy of UmfpackLU to use in multithreaded applications. This function 
 It can also take transposed or adjoint `UmfpackLU`s.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-copy(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
+Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
     F.symbolic,
     F.numeric,
     F.m, F.n,
