@@ -171,7 +171,8 @@ end
 Working space for Umfpack so `ldiv!` doesn't allocate.
 
 To use multiple threads, each thread should have their own workspace that can be allocated using `Base.similar(::UmfpackWS)`
-and passed as a kwarg to `ldiv!`. Alternativly see `copy(::UmfpackLU)`
+and passed as a kwarg to `ldiv!`. Alternativly see `copy(::UmfpackLU)`. The constructor is overloaded so to create appropriate
+sized working space given the lu factorization or the sparse matrix and if refinement is on.
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
@@ -209,7 +210,7 @@ workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, SparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, SparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
-const ATLU{Tv, Ti} = Union{Transpose{Tv, UmfpackLU{Tv, Ti}}, Adjoint{Tv, UmfpackLU{Tv, Ti}}}
+const ATLU = Union{Transpose{<:Any, <:UmfpackLU}, Adjoint{<:Any, <:UmfpackLU}}
 has_refinement(F::ATLU) = has_refinement(F.parent)
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
