@@ -171,7 +171,7 @@ end
 Working space for Umfpack so `ldiv!` doesn't allocate.
 
 To use multiple threads, each thread should have their own workspace that can be allocated using `Base.similar(::UmfpackWS)`
-and passed as a kwarg to `ldiv!`. Alternativly see `duplicate(::UmfpackLU)`
+and passed as a kwarg to `ldiv!`. Alternatively see `duplicate(::UmfpackLU)`
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
