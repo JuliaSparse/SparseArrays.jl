@@ -246,7 +246,7 @@ Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
     copy(F.control),
     copy(F.info),
     ReentrantLock())
-copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = T(copy(F.parent, ws))
+Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = T(copy(F.parent, ws))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
@@ -312,7 +312,7 @@ The individual components of the factorization `F` can be accessed by indexing:
 The relation between `F` and `A` is
 
 `F.L*F.U == (F.Rs .* A)[F.p, F.q]`
-
+ 
 `F` further supports the following functions:
 
 - [`\\`](@ref)
