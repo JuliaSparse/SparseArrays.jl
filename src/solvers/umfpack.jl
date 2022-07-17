@@ -183,10 +183,11 @@ UmfpackWS(S::SparseMatrixCSC{Tv,Ti}, refinement::Bool) where {Tv,Ti} = UmfpackWS
     Vector{Ti}(undef, size(S, 2)),
     Vector{Float64}(undef, workspace_W_size(S, refinement)))
 
-function expand_if_needed(W::UmfpackWS, S, refinement::Bool)
-    length(W.Wi) < size(S, 2) && resize!(W.Wi, size(S, 2))
+function Base.resize!(W::UmfpackWS, S, refinement::Bool; expand_only=false)
+    (!expand_only || length(W.Wi) < size(S, 2)) && resize!(W.Wi, size(S, 2))
     ws = workspace_W_size(S, refinement)
-    length(W.W) < ws && resize!(W.W, ws)
+    (!expand_only || length(W.W) < ws) && resize!(W.W, ws)
+    return 
 end
 
 Base.similar(w::UmfpackWS) = UmfpackWS(similar(w.Wi), similar(w.W))
@@ -218,7 +219,7 @@ has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
 # auto magick resize, should this only expand and not shrink?
 getworkspace(F::UmfpackLU) = @lock F.lock begin
-        expand_if_needed(F.workspace, F, has_refinement(F))
+        resize!(F.workspace, F, has_refinement(F); expand_only=true)
         F.workspace
     end
 
@@ -417,7 +418,7 @@ function lu!(F::UmfpackLU, S::SparseMatrixCSC;
     F.n = size(S, 2)
 
     # resize workspace if needed
-    expand_if_needed(F.workspace, S, has_refinement(F))
+    resize!(F.workspace, S, has_refinement(F))
 
     resize!(F.colptr, length(getcolptr(S)))
     if zerobased
