@@ -171,7 +171,7 @@ end
 Working space for Umfpack so `ldiv!` doesn't allocate.
 
 To use multiple threads, each thread should have their own workspace that can be allocated using `Base.similar(::UmfpackWS)`
-and passed as a kwarg to `ldiv!`. Alternativly see `duplicate(::UmfpackLU)`
+and passed as a kwarg to `ldiv!`. Alternativly see `copy(::UmfpackLU)`
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
@@ -226,12 +226,12 @@ UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, T
 UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
     
 """
-    duplicate(F::UmfpackLU, [ws::UmfpackWS]) -> UmfpackLU
+    copy(F::UmfpackLU, [ws::UmfpackWS]) -> UmfpackLU
 A shallow copy of UmfpackLU to use in multithreaded applications. This function duplicates the working space, control and locks.
 It can also take transposed or adjoint `UmfpackLU`s.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-duplicate(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
+copy(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
     F.symbolic,
     F.numeric,
     F.m, F.n,
@@ -243,7 +243,7 @@ duplicate(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
     copy(F.control),
     copy(F.info),
     ReentrantLock())
-duplicate(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = T(duplicate(F.parent, ws))
+copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = T(copy(F.parent, ws))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
