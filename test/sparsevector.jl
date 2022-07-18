@@ -345,6 +345,13 @@ end
         @test findnz(@view Xc[:,2]) == ([2], [1.25])
     end
 end
+
+@testset "iteratenz (vector)" begin
+    for i in 1:10
+        A = sprandn(100, i / 100)
+        @test collect(SparseArrays.iternz(A)) == collect(zip(findnz(A)...))
+    end
+end
 ### Array manipulation
 
 @testset "copy[!]" begin

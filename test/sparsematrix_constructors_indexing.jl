@@ -1578,4 +1578,10 @@ end
     @test_throws ArgumentError SparseArrays.expandptr([2; 3])
 end
 
+@testset "iteratenz" begin
+    for i in 1:20
+        A = sprandn(100, 100, 1 / i)
+        @test collect(SparseArrays.iternz(A)) == collect(zip(findnz(A)...))
+    end
+end
 end
