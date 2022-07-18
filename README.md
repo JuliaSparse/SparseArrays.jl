@@ -20,9 +20,14 @@ This package ships as part of the Julia stdlib.
 
 SparseArrays.jl provides functionality for working with sparse arrays in Julia.
 
-## Using newer version of this package
+## Using newer version of this package with julia master
 
-You need to build Julia from scratch to use the git version (or other version) of this package. The build process is the same, but in Julia-1.8 or later, `DEPS_GIT` should be set like `make DEPS_GIT="SparseArrays SuiteSparse"`. It's important to build both packages from git as older SuiteSparse.jl overwrite the UmfpackLU structures in this repo (and possibly more) as it is loaded after this package. Another solution is changing the commit chosen in `stdlib/{SparseArrays/SuiteSparse}.version`. Again the SuiteSparse commit needs to be the latest if you choose a commit in SparseArrays after May 2020 (see commit `a15fe4b79307cd5bd55f00609297bbe37072033be`). The main environment may become inconsistent so you might need to run `Pkg.instantiate()` and/or `Pkg.resolve()` in the main environment if Julia complains about missing `Serialization` in this package's dependencies.
+You need to build Julia from scratch to use the git version (or other version) of this package. The build process is the same, but `DEPS_GIT` should be set when building i.e. `make DEPS_GIT="SparseArrays" ...`. The other option is to manually select the commit in `stdlib/SparseArrays.version`. 
+
+It's also possible to load a development version of the package using [the trick used in `Pkg.jl`](https://github.com/JuliaLang/Pkg.jl) but the capabilities are limited as all other packages will depend on the stdlib version of the package and will not work with the modified package. 
+
+The main environment may become inconsistent so you might need to run `Pkg.instantiate()` and/or `Pkg.resolve()` in the main or project environments if Julia complains about missing `Serialization` in this package's dependencies. 
+
+For older (1.8 and before) `SuiteSparse.jl` needs to be bumped too.
 
 
-Of course it's possible to load a development version of the package using [the trick used in `Pkg.jl`](https://github.com/JuliaLang/Pkg.jl) but the capabilities are limited as all other packages will depend on the stdlib version of the package.
