@@ -90,6 +90,34 @@ do33 = fill(1.,3)
             end
         end
     end
+    @testset "binary operations on sparse matrices with union eltype" begin
+        A = sparse([1,2,1], [1,1,2], Union{Int, Missing}[1, missing, 0])
+        for fun in (+, -, *, min, max)
+            if fun in (+, -)
+                @test collect(skipmissing(Array(fun(A, A)))) == collect(skipmissing(Array(fun(Array(A), Array(A)))))
+            end
+            @test collect(skipmissing(Array(map(fun, A, A)))) == collect(skipmissing(map(fun, Array(A), Array(A))))
+            @test collect(skipmissing(Array(broadcast(fun, A, A)))) == collect(skipmissing(broadcast(fun, Array(A), Array(A))))
+        end
+        b = convert(SparseMatrixCSC{Union{Float64, Missing}}, sprandn(Float64, 20, 10, 0.2)); b[rand(1:200, 3)] .= missing
+        C = convert(SparseMatrixCSC{Union{Float64, Missing}}, sprandn(Float64, 20, 10, 0.9)); C[rand(1:200, 3)] .= missing
+        CA = Array(C)
+        D = convert(SparseMatrixCSC{Union{Float64, Missing}}, spzeros(Float64, 20, 10)); D[rand(1:200, 3)] .= missing
+        E = convert(SparseMatrixCSC{Union{Float64, Missing}}, spzeros(Float64, 20, 10))
+        for B in (b, C, D, E), fun in (+, -, *, min, max)
+            BA = Array(B)
+            # reverse order for opposite nonzeroinds-structure
+            if fun in (+, -)
+                @test collect(skipmissing(Array(fun(B, C)))) == collect(skipmissing(Array(fun(BA, CA))))
+                @test collect(skipmissing(Array(fun(C, B)))) == collect(skipmissing(Array(fun(CA, BA))))
+            end
+            @test collect(skipmissing(Array(map(fun, B, C)))) == collect(skipmissing(map(fun, BA, CA)))
+            @test collect(skipmissing(Array(map(fun, C, B)))) == collect(skipmissing(map(fun, CA, BA)))
+            @test collect(skipmissing(Array(broadcast(fun, B, C)))) == collect(skipmissing(broadcast(fun, BA, CA)))
+            @test collect(skipmissing(Array(broadcast(fun, C, B)))) == collect(skipmissing(broadcast(fun, CA, BA)))
+        end
+    end
+    
 end
 
 let

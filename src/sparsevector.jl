@@ -14,19 +14,24 @@ using LinearAlgebra: _SpecialArrays, _DenseConcatGroup
     SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
 
 Vector type for storing sparse vectors. Can be created by passing the length of the vector,
-a *sorted* vector of non-zero indices, and a vector of non-zero values. 
+a *sorted* vector of non-zero indices, and a vector of non-zero values.
 
-For instance, the Vector `[5, 6, 0, 7]` can be represented as 
+For instance, the vector `[5, 6, 0, 7]` can be represented as
+
 ```julia
 SparseVector(4, [1, 2, 4], [5, 6, 7])
 ```
-This indicates that the index 1 is 5, the index 2 is 6, the index 3 is `zero(Int)`, and index 4 is 7.
 
-It may be more convenient to create sparse vectors directly from dense vectors using `sparse` as 
+This indicates that the element at index 1 is 5, at index 2 is 6, at index 3 is `zero(Int)`,
+and at index 4 is 7.
+
+It may be more convenient to create sparse vectors directly from dense vectors using `sparse` as
+
 ```julia
 sparse([5, 6, 0, 7])
-``` 
-yeilds the same sparse vector.
+```
+
+yields the same sparse vector.
 """
 struct SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
@@ -344,7 +349,7 @@ function setindex!(x::SparseVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
     if 1 <= k <= m && nzind[k] == i  # i found
         nzval[k] = v
     else  # i not found
-        if !iszero(v)
+        if _isnotzero(v)
             insert!(nzind, k, i)
             insert!(nzval, k, v)
         end
@@ -1201,7 +1206,7 @@ macro unarymap_nz2z_z2z(op, TF)
             @inbounds for j = 1:m
                 i = xnzind[j]
                 v = $(op)(xnzval[j])
-                if v != zero(v)
+                if _isnotzero(v)
                     ir += 1
                     ynzind[ir] = i
                     ynzval[ir] = v
@@ -1253,7 +1258,7 @@ function _binarymap(f::Function,
                     y::AbstractSparseVector{Ty},
                     mode::Int) where {Tx,Ty}
     0 <= mode <= 2 || throw(ArgumentError("Incorrect mode $mode."))
-    R = typeof(f(zero(Tx), zero(Ty)))
+    R = Base.Broadcast.combine_eltypes(f, (x, y))
     n = length(x)
     length(y) == n || throw(DimensionMismatch())
 
@@ -1268,9 +1273,6 @@ function _binarymap(f::Function,
     rind = Vector{Int}(undef, cap)
     rval = Vector{R}(undef, cap)
     ir = 0
-    ix = 1
-    iy = 1
-
     ir = (
         mode == 0 ? _binarymap_mode_0!(f, mx, my,
             xnzind, xnzval, ynzind, ynzval, rind, rval) :
@@ -1288,6 +1290,7 @@ end
 function _binarymap_mode_0!(f::Function, mx::Int, my::Int,
                             xnzind, xnzval, ynzind, ynzval, rind, rval)
     # f(nz, nz) -> nz, f(z, nz) -> z, f(nz, z) ->  z
+    require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
     ir = 0; ix = 1; iy = 1
     @inbounds while ix <= mx && iy <= my
         jx = xnzind[ix]
@@ -1310,13 +1313,14 @@ function _binarymap_mode_1!(f::Function, mx::Int, my::Int,
                             ynzind, ynzval::AbstractVector{Ty},
                             rind, rval) where {Tx,Ty}
     # f(nz, nz) -> z/nz, f(z, nz) -> nz, f(nz, z) -> nz
+    require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
     ir = 0; ix = 1; iy = 1
     @inbounds while ix <= mx && iy <= my
         jx = xnzind[ix]
         jy = ynzind[iy]
         if jx == jy
             v = f(xnzval[ix], ynzval[iy])
-            if v != zero(v)
+            if _isnotzero(v)
                 ir += 1; rind[ir] = jx; rval[ir] = v
             end
             ix += 1; iy += 1
@@ -1348,25 +1352,26 @@ function _binarymap_mode_2!(f::Function, mx::Int, my::Int,
                             ynzind, ynzval::AbstractVector{Ty},
                             rind, rval) where {Tx,Ty}
     # f(nz, nz) -> z/nz, f(z, nz) -> z/nz, f(nz, z) -> z/nz
+    require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
     ir = 0; ix = 1; iy = 1
     @inbounds while ix <= mx && iy <= my
         jx = xnzind[ix]
         jy = ynzind[iy]
         if jx == jy
             v = f(xnzval[ix], ynzval[iy])
-            if v != zero(v)
+            if _isnotzero(v)
                 ir += 1; rind[ir] = jx; rval[ir] = v
             end
             ix += 1; iy += 1
         elseif jx < jy
             v = f(xnzval[ix], zero(Ty))
-            if v != zero(v)
+            if _isnotzero(v)
                 ir += 1; rind[ir] = jx; rval[ir] = v
             end
             ix += 1
         else
             v = f(zero(Tx), ynzval[iy])
-            if v != zero(v)
+            if _isnotzero(v)
                 ir += 1; rind[ir] = jy; rval[ir] = v
             end
             iy += 1
@@ -1374,14 +1379,14 @@ function _binarymap_mode_2!(f::Function, mx::Int, my::Int,
     end
     @inbounds while ix <= mx
         v = f(xnzval[ix], zero(Ty))
-        if v != zero(v)
+        if _isnotzero(v)
             ir += 1; rind[ir] = xnzind[ix]; rval[ir] = v
         end
         ix += 1
     end
     @inbounds while iy <= my
         v = f(zero(Tx), ynzval[iy])
-        if v != zero(v)
+        if _isnotzero(v)
             ir += 1; rind[ir] = ynzind[iy]; rval[ir] = v
         end
         iy += 1
@@ -1392,16 +1397,28 @@ end
 # definition of a few known broadcasted/mapped binary functions — all others defer to HigherOrderFunctions
 
 _bcast_binary_map(f, x, y, mode) = length(x) == length(y) ? _binarymap(f, x, y, mode) : HigherOrderFns._diffshape_broadcast(f, x, y)
+_getmode(::typeof(+), ::Type, ::Type) = 1
+_getmode(::typeof(-), ::Type, ::Type) = 1
+_getmode(::typeof(*), ::Type, ::Type) = 0
+_getmode(::typeof(*), ::Type{Union{Missing, T}}, ::Type) where {T} = 2
+_getmode(::typeof(*), ::Type, ::Type{Union{Missing, T}}) where {T} = 2
+_getmode(::typeof(*), ::Type{Union{Missing, T}}, ::Type{Union{Missing, S}}) where {T,S} = 2
+_getmode(::typeof(min), ::Type, ::Type) = 2
+_getmode(::typeof(max), ::Type, ::Type) = 2
 for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
     fun in (:+, :-) && @eval begin
         # Addition and subtraction can be defined directly on the arrays (without map/broadcast)
         $(fun)(x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($(fun), x, y, $mode)
     end
     @eval begin
-        map(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($fun, x, y, $mode)
-        map(::typeof($fun), x::SparseVector, y::SparseVector) = _binarymap($fun, x, y, $mode)
-        broadcast(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) = _bcast_binary_map($fun, x, y, $mode)
-        broadcast(::typeof($fun), x::SparseVector, y::SparseVector) = _bcast_binary_map($fun, x, y, $mode)
+        map(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
+            _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
+        map(::typeof($fun), x::SparseVector{Tx}, y::SparseVector{Ty}) where {Tx, Ty} =
+            _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
+        broadcast(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
+            _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
+        broadcast(::typeof($fun), x::SparseVector{Tx}, y::SparseVector{Ty}) where {Tx, Ty} =
+            _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
     end
 end
 
@@ -1631,7 +1648,7 @@ function mul!(y::AbstractVector, A::_StridedOrTriangularMatrix, x::AbstractSpars
     xnzval = nonzeros(x)
     @inbounds for i = 1:length(xnzind)
         v = xnzval[i]
-        if v != zero(v)
+        if _isnotzero(v)
             j = xnzind[i]
             αv = v * α
             for r = 1:m
@@ -1765,7 +1782,7 @@ function mul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVe
 
     @inbounds for i = 1:length(xnzind)
         v = xnzval[i]
-        if v != zero(v)
+        if _isnotzero(v)
             αv = v * α
             j = xnzind[i]
             for r = Acolptr[j]:(Acolptr[j+1]-1)
