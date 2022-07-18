@@ -24,7 +24,7 @@ SparseArrays.jl provides functionality for working with sparse arrays in Julia.
 
 You need to build Julia from scratch to use the git version (or other version) of this package. The build process is the same, but `DEPS_GIT` should be set when building i.e. `make DEPS_GIT="SparseArrays" ...`. The other option is to manually select the commit in `stdlib/SparseArrays.version`. 
 
-It's also possible to load a development version of the package using [the trick used in `Pkg.jl`](https://github.com/JuliaLang/Pkg.jl) but the capabilities are limited as all other packages will depend on the stdlib version of the package and will not work with the modified package. 
+It's also possible to load a development version of the package using [the trick used in the Section named "Using the development version of Pkg.jl" in the `Pkg.jl` repo](https://github.com/JuliaLang/Pkg.jl) but the capabilities are limited as all other packages will depend on the stdlib version of the package and will not work with the modified package. 
 
 The main environment may become inconsistent so you might need to run `Pkg.instantiate()` and/or `Pkg.resolve()` in the main or project environments if Julia complains about missing `Serialization` in this package's dependencies. 
 
