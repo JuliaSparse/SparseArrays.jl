@@ -22,11 +22,11 @@ SparseArrays.jl provides functionality for working with sparse arrays in Julia.
 
 ## Using newer version of this package with julia master
 
-You need to build Julia from scratch to use the git version (or other version) of this package. The build process is the same, but `DEPS_GIT` should be set when building i.e. `make DEPS_GIT="SparseArrays" ...`. The other option is to manually select the commit in `stdlib/SparseArrays.version`. 
+To use a newer version of this package, you need to build Julia from scratch. The build process is the same as any other build except that `DEPS_GIT="SparseArrays"` should be passed to `make` i.e. `make DEPS_GIT="SparseArrays"`. Then after the build is complete, the git repo in `stdlib/SparseArrays` can be used to check out the desired commit/branch. Alternatively, you need to change the commit used in `stdlib/SparseArrays.version`. The first method does not require rebuilding julia to update the library.
 
-It's also possible to load a development version of the package using [the trick used in the Section named "Using the development version of Pkg.jl" in the `Pkg.jl` repo](https://github.com/JuliaLang/Pkg.jl#using-the-development-version-of-pkgjl) but the capabilities are limited as all other packages will depend on the stdlib version of the package and will not work with the modified package. 
+It's also possible to load a development version of the package using [the trick used in the Section named "Using the development version of Pkg.jl" in the `Pkg.jl` repo](https://github.com/JuliaLang/Pkg.jl#using-the-development-version-of-pkgjl), but the capabilities are limited as all other packages will depend on the stdlib version of the package and will not work with the modified package. 
 
-The main environment may become inconsistent so you might need to run `Pkg.instantiate()` and/or `Pkg.resolve()` in the main or project environments if Julia complains about missing `Serialization` in this package's dependencies. 
+The main environment may become inconsistent so you might need to run `Pkg.instantiate()` and/or `Pkg.resolve()` in the main or project environments if Julia complains about missing `Serialization.jl` in this package's dependencies. 
 
 For older (1.8 and before) `SuiteSparse.jl` needs to be bumped too.
 
