@@ -478,6 +478,7 @@ function deserialize(s::AbstractSerializer, t::Type{UmfpackLU{Tv,Ti}}) where {Tv
     workspace= deserialize(s)
     control  = deserialize(s)
     info     = deserialize(s)
+    deserialize(s) # lock
     obj      = UmfpackLU{Tv,Ti}(symbolic, numeric, m, n,
         colptr, rowval, nzval, status,
         workspace, control, info, ReentrantLock())
