@@ -6,7 +6,7 @@ using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose
-using SparseArrays: sparse, sprandn, spzeros, SparseMatrixCSC
+using SparseArrays: sparse, sprandn, spzeros, SparseMatrixCSC, _from_eachcol, _from_lmul
 
 if Base.USE_GPL_LIBS
 
@@ -135,6 +135,18 @@ end
     @test rank(S) == 5
     @test all(iszero, (rank(qr(spzeros(10, i))) for i in 1:10))
     @test all(iszero, (rank(spzeros(10, i)) for i in 1:10))
+end
+
+
+@testset "sparse" begin
+    A = I + sprandn(100, 100, 0.01)
+    Q = qr(A).Q
+    sQ = sparse(Q)
+    @test sQ == sparse(Matrix(Q))
+    for f in [_from_eachcol, _from_lmul],
+        sh in [true, false]
+        @test sQ == f(typeof(sQ).parameters..., Q; sizehint=sh)
+    end
 end
 
 end

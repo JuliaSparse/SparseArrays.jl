@@ -748,6 +748,80 @@ SparseMatrixCSC{Tv}(M::Transpose{<:Any,<:AbstractSparseMatrixCSC}) where {Tv} = 
 SparseMatrixCSC{Tv,Ti}(M::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(copy(M))
 SparseMatrixCSC{Tv,Ti}(M::Transpose{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(copy(M))
 
+# we can only view AbstractQs as columns
+SparseMatrixCSC{Tv, Ti}(Q::LinearAlgebra.AbstractQ) where {Tv, Ti} = _from_lmul(Tv, Ti, Q; sizehint=false)
+function _from_eachcol(Tv, Ti, M; sizehint=false)
+    colptr = zeros(Ti, size(M, 2) + 1)
+    nzval = Vector{Tv}(undef, 0)
+    rowval = Vector{Ti}(undef, 0)
+    if sizehint
+        nz = 0
+        for col in eachcol(M)
+            for i in col
+                if iszero(i) == false # should be _isnotzero(v)
+                    nz += 1
+                end
+            end
+        end
+        sizehint!(nzval, nz)
+        sizehint!(rowval, nz)
+    end
+    colptr[1] = 1
+    ind = 1
+    for (j, col) in enumerate(eachcol(M))
+        for (i, v) in enumerate(col)
+            if iszero(v) == false
+                push!(nzval, v)
+                push!(rowval, i)
+                ind += 1
+            end
+        end
+        colptr[j + 1] = ind
+    end
+    return SparseMatrixCSC{Tv, Ti}(size(M)..., colptr, rowval, nzval)
+end
+
+function _from_lmul(Tv, Ti, M; sizehint=false)
+    
+    colptr = zeros(Ti, size(M, 2) + 1)
+    nzval = Vector{Tv}(undef, 0)
+    rowval = Vector{Ti}(undef, 0)
+    col = zeros(eltype(M), size(M, 1))
+    
+    if sizehint
+        nz = 0
+        for j in axes(M, 2)
+            fill!(col, false)
+            col[j] = one(Tv)
+            lmul!(M, col)
+            for i in col
+                if iszero(i) == false # should be _isnotzero(v)
+                    nz += 1
+                end
+            end
+        end
+        sizehint!(nzval, nz)
+        sizehint!(rowval, nz)
+    end
+
+    colptr[1] = 1
+    ind = 1
+    for j in axes(M, 2)
+        fill!(col, false)
+        col[j] = one(Tv)
+        lmul!(M, col)
+        for (i, v) in enumerate(col)
+            if iszero(v) == false
+                push!(nzval, v)
+                push!(rowval, i)
+                ind += 1
+            end
+        end
+        colptr[j + 1] = ind
+    end
+    return SparseMatrixCSC{Tv, Ti}(size(M)..., colptr, rowval, nzval)
+end
+
 # converting from SparseMatrixCSC to other matrix types
 function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
     _checkbuffers(S)
