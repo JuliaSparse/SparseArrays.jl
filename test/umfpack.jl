@@ -365,8 +365,25 @@ end
         for nm in (:colptr, :m, :n, :nzval, :rowval, :status)
             @test getfield(F1, nm) == getfield(F2, nm)
         end
+        for nm in (:W, :Wi)
+            @test getfield(F1.workspace, nm) == getfield(F2.workspace, nm)
+        end
+        b1 = IOBuffer()
+        serialize(b1, (a=F1, b=F2))
+        seekstart(b1)
+        x = deserialize(b1)
+        for nm in (:colptr, :m, :n, :nzval, :rowval, :status)
+            @test getfield(F1, nm) == getfield(x.a, nm) == getfield(x.b, nm)
+        end
+        for nm in (:W, :Wi)
+            @test getfield(x.a.workspace, nm) == getfield(F1.workspace, nm)
+            @test getfield(x.b.workspace, nm) == getfield(F2.workspace, nm)
+        end
+
         umfpack_report(F1)
         umfpack_report(F2)
+        umfpack_report(x.a)
+        umfpack_report(x.b)
     end
 
     @testset "Reuse symbolic LU factorization" begin
