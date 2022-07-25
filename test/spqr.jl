@@ -131,8 +131,8 @@ end
 
 @testset "rank" begin
     S = sprandn(10, 5, 1.0)*sprandn(5, 10, 1.0)
-    @test rank(qr(S)) == 5
-    @test rank(S) == 5
+    @test rank(qr(S; tol=1e-5)) == 5
+    @test rank(S; tol=1e-5) == 5
     @test all(iszero, (rank(qr(spzeros(10, i))) for i in 1:10))
     @test all(iszero, (rank(spzeros(10, i)) for i in 1:10))
 end
