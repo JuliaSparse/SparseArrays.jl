@@ -8,6 +8,7 @@ module HigherOrderFnsTests
 
 using Test
 using SparseArrays
+using SparseArrays: nonzeros
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
@@ -15,7 +16,11 @@ include("forbidproperties.jl")
 @testset "map[!] implementation specialized for a single (input) sparse vector/matrix" begin
     N, M = 10, 12
     for shapeA in ((N,), (N, M))
-        A = sprand(shapeA..., 0.4); fA = Array(A)
+        A = sprand(shapeA..., 0.4)
+        while any(iszero, nonzeros(A)) || any(iszero ∘ sin, nonzeros(A)) || any(iszero ∘ cos, nonzeros(A))
+            A = sprand(shapeA..., 0.4)
+        end
+        fA = Array(A)
         # --> test map entry point
         @test map(sin, A) == sparse(map(sin, fA))
         @test map(cos, A) == sparse(map(cos, fA))
