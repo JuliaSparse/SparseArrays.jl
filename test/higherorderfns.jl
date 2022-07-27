@@ -20,8 +20,8 @@ include("forbidproperties.jl")
         @test map(sin, A) == sparse(map(sin, fA))
         @test map(cos, A) == sparse(map(cos, fA))
         # --> test map! entry point
-        fX = copy(fA); X = sparse(fX)
-        map!(sin, X, A); X = sparse(fX) # warmup for @allocated
+        fX = copy(fA); X = similar(A)
+        map!(sin, X, A); X = similar(A) # warmup for @allocated
         @test (@allocated map!(sin, X, A)) == 0
         @test map!(sin, X, A) == sparse(map!(sin, fX, fA))
         @test map!(cos, X, A) == sparse(map!(cos, fX, fA))
