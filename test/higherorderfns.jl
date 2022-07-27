@@ -22,6 +22,10 @@ function test_map_and_map!(A, alloc_tests)
     fX = copy(fA); X = similar(A)
     map!(sin, X, A); X = similar(A) # warmup for @allocated
     map!(sin, X, A); X = similar(A) # warmup for @allocated
+    if @allocated(map!(sin, X, A)) == 0 || alloc_tests
+        println(stderr, "A in test_map_and_map! is ", A)
+    end
+    X = similar(A)
     @test @allocated(map!(sin, X, A)) == 0 || alloc_tests
     @test map!(sin, X, A) == sparse(map!(sin, fX, fA))
     @test map!(cos, X, A) == sparse(map!(cos, fX, fA))
