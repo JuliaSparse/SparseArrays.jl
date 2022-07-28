@@ -466,7 +466,7 @@ function show(io::IO, mime::MIME{Symbol("text/plain")}, F::UmfpackLU)
     end
 end
 
-function deserialize(s::AbstractSerializer, t::Type{UmfpackLU{Tv,Ti}}) where {Tv,Ti}
+function deserialize(s::AbstractSerializer, ::Type{UmfpackLU{Tv,Ti}}) where {Tv,Ti}
     symbolic = deserialize(s)
     numeric  = deserialize(s)
     m        = deserialize(s)
@@ -478,10 +478,10 @@ function deserialize(s::AbstractSerializer, t::Type{UmfpackLU{Tv,Ti}}) where {Tv
     workspace= deserialize(s)
     control  = deserialize(s)
     info     = deserialize(s)
-    deserialize(s) # lock
+    lock     = deserialize(s)
     obj      = UmfpackLU{Tv,Ti}(symbolic, numeric, m, n,
         colptr, rowval, nzval, status,
-        workspace, control, info, ReentrantLock())
+        workspace, control, info, lock)
 
     finalizer(umfpack_free_symbolic_nl, obj)
 
