@@ -125,3 +125,34 @@ julia> findnz(A)
 function findnz end
 
 widelength(x::AbstractSparseArray) = prod(Int64.(size(x)))
+
+
+const _restore_scalar_indexing = Expr[]
+const _destroy_scalar_indexing = Expr[]
+"""
+    @RCI f
+
+records function `f` to be disabled by calling `allowscalar(false)`
+"""
+macro RCI(exp)
+    if length(exp.args) == 2 && exp.head ∈ (:function, :(=))
+        push!(_restore_scalar_indexing, exp)
+        push!(_destroy_scalar_indexing,
+            Expr(exp.head,
+            exp.args[1],
+            :(error("scalar indexing was turned off"))))
+    else
+        error("can't parse expression")
+    end
+    return exp
+end
+allowscalar(f::Bool) = if f
+    for i in _restore_scalar_indexing
+        @eval $i
+    end
+else
+    for i in _destroy_scalar_indexing
+        @eval $i
+    end
+end
+

@@ -2261,9 +2261,9 @@ function rangesearch(haystack::AbstractRange, needle)
     (rem==0 && 1<=i+1<=length(haystack)) ? i+1 : 0
 end
 
-getindex(A::AbstractSparseMatrixCSC, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
+@RCI getindex(A::AbstractSparseMatrixCSC, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
 
-function getindex(A::AbstractSparseMatrixCSC{T}, i0::Integer, i1::Integer) where T
+@RCI function getindex(A::AbstractSparseMatrixCSC{T}, i0::Integer, i1::Integer) where T
     @boundscheck checkbounds(A, i0, i1)
     r1 = Int(getcolptr(A)[i1])
     r2 = Int(getcolptr(A)[i1+1]-1)
@@ -2709,7 +2709,7 @@ getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{
 ## setindex!
 
 # dispatch helper for #29034
-setindex!(A::AbstractSparseMatrixCSC, _v, _i::Integer, _j::Integer) = _setindex_scalar!(A, _v, _i, _j)
+@RCI setindex!(A::AbstractSparseMatrixCSC, _v, _i::Integer, _j::Integer) = _setindex_scalar!(A, _v, _i, _j)
 
 function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _j::Integer) where {Tv,Ti<:Integer}
     v = convert(Tv, _v)
