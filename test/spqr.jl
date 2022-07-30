@@ -145,10 +145,7 @@ end
     Q = qr(A).Q
     sQ = sparse(Q)
     @test sQ == sparse(Matrix(Q))
-    for f in [_from_eachcol, _from_lmul],
-        sh in [true, false]
-        @test sQ == f(typeof(sQ).parameters..., Q; sizehint=sh)
-    end
+    @test sQ ≈ sparse(qr(Matrix(A)).Q)
 end
 
 end
