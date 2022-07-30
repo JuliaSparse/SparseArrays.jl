@@ -91,7 +91,7 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
     @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test (sparse(I, 2, 2) * F.Q)::SparseMatrixCSC == sparse(qr(A).Q) == sparse(I, 2, 2)
+    @test (sparse(I, 2, 2) * qr(A).Q)::SparseMatrixCSC == sparse(qr(A).Q) == sparse(I, 2, 2)
 end
 
 @testset "Issue 26368" begin
@@ -142,10 +142,14 @@ end
 
 @testset "sparse" begin
     A = I + sprandn(100, 100, 0.01)
-    Q = qr(A).Q
+    q = qr(A; ordering=SPQR.ORDERING_FIXED)
+    Q = q.Q
     sQ = sparse(Q)
     @test sQ == sparse(Matrix(Q))
-    @test sQ ≈ sparse(qr(Matrix(A)).Q)
+    Dq = qr(Matrix(A))
+    perm = inv(Matrix(I, size(A)...)[q.prow, :])
+    f = sum(q.R; dims=2) ./ sum(Dq.R; dims=2)
+    @test perm * (transpose(f) .* sQ) ≈ sparse(Dq.Q)
 end
 
 end
