@@ -2,7 +2,7 @@
 
 module SPQR
 
-import Base: \
+import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
 using ..LibSuiteSparse: SuiteSparseQR_C
@@ -167,11 +167,7 @@ julia> A = sparse([1,2,3,4], [1,1,2,2], [1.0,1.0,1.0,1.0])
 julia> qr(A)
 SparseArrays.SPQR.QRSparse{Float64, Int64}
 Q factor:
-4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}:
- -0.707107    ⋅          ⋅        -0.707107
-   ⋅        -0.707107  -0.707107    ⋅
-   ⋅        -0.707107   0.707107    ⋅
- -0.707107    ⋅          ⋅         0.707107
+4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
  -1.41421    ⋅
@@ -284,8 +280,8 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::Adjoint{<:Any,<:QRSparseQ})
     return A
 end
 
-*(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
-*(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
+(*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
+(*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
 
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :Q
