@@ -32,6 +32,13 @@ Supertype for matrix with compressed sparse column (CSC).
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
 """
+    AbstractFixedCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
+
+Supertype for compressed sparse column (CSC) matrices who have constant entries.
+"""
+abstract type AbstractFixedCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti} end
+
+"""
     issparse(S)
 
 Returns `true` if `S` is sparse, and `false` otherwise.

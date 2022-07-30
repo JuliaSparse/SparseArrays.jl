@@ -8,7 +8,7 @@ import Base: map, map!, broadcast, copy, copyto!
 
 using Base: front, tail, to_shape
 using ..SparseArrays: SparseVector, SparseMatrixCSC, AbstractSparseVector, AbstractSparseMatrixCSC,
-                      AbstractSparseMatrix, AbstractSparseArray, indtype, nnz, nzrange, spzeros,
+                      AbstractSparseMatrix, AbstractSparseArray, AbstractFixedCSC, SorF, indtype, nnz, nzrange, spzeros,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion, nonzeroinds, nonzeros, rowvals, getcolptr, widelength
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
@@ -140,7 +140,7 @@ function expandstorage!(A::SparseVecOrMat, maxstored)
     return maxstored
 end
 
-_checkbuffers(S::SparseMatrixCSC) = (@assert length(getcolptr(S)) == size(S, 2) + 1 && getcolptr(S)[end] - 1 == length(rowvals(S)) == length(nonzeros(S)); S)
+_checkbuffers(S::SorF) = (@assert length(getcolptr(S)) == size(S, 2) + 1 && getcolptr(S)[end] - 1 == length(rowvals(S)) == length(nonzeros(S)); S)
 _checkbuffers(S::SparseVector) = (@assert length(storedvals(S)) == length(storedinds(S)); S)
 
 # (2) map[!] entry points
@@ -244,7 +244,7 @@ function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
         setcolptr!(C, j, Ck)
         for Ak in colrange(A, j)
             Cx = f(storedvals(A)[Ak])
-            if !_iszero(Cx)
+            if !_iszero(Cx) || isa(C, AbstractFixedCSC)
                 Ck > spaceC && (spaceC = expandstorage!(C, Ck + nnz(A) - (Ak - 1)))
                 storedinds(C)[Ck] = storedinds(A)[Ak]
                 storedvals(C)[Ck] = Cx
@@ -256,6 +256,7 @@ function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     trimstorage!(C, Ck - 1)
     return _checkbuffers(C)
 end
+
 """
 Densifies `C`, storing `fillvalue` in place of each unstored entry in `A` and
 `f(A[i])`/`f(A[i,j])` in place of each stored entry `A[i]`/`A[i,j]` in `A`.
