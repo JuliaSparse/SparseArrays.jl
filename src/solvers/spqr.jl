@@ -169,8 +169,8 @@ SparseArrays.SPQR.QRSparse{Float64, Int64}
 Q factor:
 4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}:
  -0.707107    ⋅          ⋅        -0.707107
-   ⋅        -0.707107  -0.707107    ⋅ 
-   ⋅        -0.707107   0.707107    ⋅ 
+   ⋅        -0.707107  -0.707107    ⋅
+   ⋅        -0.707107   0.707107    ⋅
  -0.707107    ⋅          ⋅         0.707107
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
@@ -253,7 +253,6 @@ function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
     return A
 end
 
-
 function LinearAlgebra.lmul!(adjQ::Adjoint{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
     Q = adjQ.parent
     if size(A, 1) != size(Q, 1)
@@ -285,6 +284,9 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::Adjoint{<:Any,<:QRSparseQ})
     return A
 end
 
+*(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
+*(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
+
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :Q
         return QRSparseQ(F.factors, F.τ, size(F, 2))
@@ -312,6 +314,9 @@ function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     show(io, mime, F.prow)
     println(io, "\nColumn permutation:")
     show(io, mime, F.pcol)
+end
+function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
+    summary(io, Q)
 end
 
 # With a real lhs and complex rhs with the same precision, we can reinterpret
