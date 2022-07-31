@@ -132,7 +132,7 @@ struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: LinearAlgebra.AbstractQ{Tv}
     τ::Vector{Tv}
     n::Int # Number of columns in original matrix
 end
-Base.print_array(io::IO, Q::QRSparseQ) = Base.print_array(io, sparse(Q))
+
 Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
 Base.axes(Q::QRSparseQ) = map(Base.OneTo, size(Q))
 
