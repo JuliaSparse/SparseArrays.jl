@@ -132,9 +132,12 @@ const _destroy_scalar_indexing = Expr[]
 """
     @RCI f
 
-records function `f` to be disabled by calling `allowscalar(false)`
+records function `f` to be disabled by calling `allowscalar(false)`.
 """
 macro RCI(exp)
+    # evaluate to not push any broken code in the arrays when developping this package. 
+    # also ensures that restore has the exact same effect.
+    @eval $exp
     if length(exp.args) == 2 && exp.head ∈ (:function, :(=))
         push!(_restore_scalar_indexing, exp)
         push!(_destroy_scalar_indexing,
@@ -144,7 +147,7 @@ macro RCI(exp)
     else
         error("can't parse expression")
     end
-    return exp
+    return
 end
 allowscalar(f::Bool) = if f
     for i in _restore_scalar_indexing
