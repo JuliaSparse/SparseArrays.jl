@@ -171,7 +171,8 @@ end
 Working space for Umfpack so `ldiv!` doesn't allocate.
 
 To use multiple threads, each thread should have their own workspace that can be allocated using `Base.similar(::UmfpackWS)`
-and passed as a kwarg to `ldiv!`. Alternativly see `duplicate(::UmfpackLU)`
+and passed as a kwarg to `ldiv!`. Alternativly see `copy(::UmfpackLU)`. The constructor is overloaded so to create appropriate
+sized working space given the lu factorization or the sparse matrix and if refinement is on.
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
@@ -182,9 +183,11 @@ UmfpackWS(S::SparseMatrixCSC{Tv,Ti}, refinement::Bool) where {Tv,Ti} = UmfpackWS
     Vector{Ti}(undef, size(S, 2)),
     Vector{Float64}(undef, workspace_W_size(S, refinement)))
 
-function Base.resize!(W::UmfpackWS, S, refinement::Bool)
-    resize!(W.Wi, size(S, 2))
-    resize!(W.W, workspace_W_size(S, refinement))
+function Base.resize!(W::UmfpackWS, S, refinement::Bool; expand_only=false)
+    (!expand_only || length(W.Wi) < size(S, 2)) && resize!(W.Wi, size(S, 2))
+    ws = workspace_W_size(S, refinement)
+    (!expand_only || length(W.W) < ws) && resize!(W.W, ws)
+    return 
 end
 
 Base.similar(w::UmfpackWS) = UmfpackWS(similar(w.Wi), similar(w.W))
@@ -209,23 +212,29 @@ workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, SparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, SparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
+const ATLU = Union{Transpose{<:Any, <:UmfpackLU}, Adjoint{<:Any, <:UmfpackLU}}
+has_refinement(F::ATLU) = has_refinement(F.parent)
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
-# auto magick resize
+# auto magick resize, should this only expand and not shrink?
 getworkspace(F::UmfpackLU) = @lock F.lock begin
-        resize!(F.workspace, F, has_refinement(F))
+        resize!(F.workspace, F, has_refinement(F); expand_only=true)
         F.workspace
     end
 
-UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv,Ti} = UmfpackWS{Ti}(
+UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
         Vector{Ti}(undef, size(F, 2)),
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
-
+UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
+    
 """
-A shallow copy of UmfpackLU to use in multithreaded applications
+    copy(F::UmfpackLU, [ws::UmfpackWS]) -> UmfpackLU
+A shallow copy of UmfpackLU to use in multithreaded applications. This function duplicates the working space, control and locks.
+It can also take transposed or adjoint `UmfpackLU`s.
 """
-duplicate(F::UmfpackLU) = UmfpackLU(
+# Not using simlar helps if the actual needed size has changed as it would need to be resized again
+Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
     F.symbolic,
     F.numeric,
     F.m, F.n,
@@ -233,15 +242,15 @@ duplicate(F::UmfpackLU) = UmfpackLU(
     F.rowval,
     F.nzval,
     F.status,
-    UmfpackWS(F), # don't resize if workspace does not have the correct size
+    ws,
     copy(F.control),
     copy(F.info),
     ReentrantLock())
+Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = T(copy(F.parent, ws))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
 
-# is needed for some reason
 function Base.lock(f::Function, F::UmfpackLU)
     lock(F)
     try
@@ -303,7 +312,7 @@ The individual components of the factorization `F` can be accessed by indexing:
 The relation between `F` and `A` is
 
 `F.L*F.U == (F.Rs .* A)[F.p, F.q]`
-
+ 
 `F` further supports the following functions:
 
 - [`\\`](@ref)
