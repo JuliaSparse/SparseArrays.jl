@@ -114,7 +114,7 @@ end
             @test i == x
         end
         umfpack_report(Af)
-        Af1 = UMFPACK.duplicate(Af)
+        Af1 = copy(Af)
         umfpack_report(Af1)
         @test trylock(Af)
         @test trylock(Af1)
@@ -131,10 +131,7 @@ end
         end
         umfpack_report(Af)
     end
-    @testset "test duplicate" begin
-        Af = lu(A0)
-        umfpack_report(Af)
-        Af1 = UMFPACK.duplicate(Af)
+    function test_ws_dup(Af, Af1)
         for i in [:symbolic, :numeric, :colptr, :rowval, :nzval]
             @test getproperty(Af, i) === getproperty(Af1, i)
         end
@@ -144,6 +141,13 @@ end
         for i in [:workspace, :control, :info, :lock]
             @test getproperty(Af, i) !== getproperty(Af1, i)
         end
+    end
+    @testset "test copy(UmfpackLU)" begin
+        Af = lu(A0)
+        umfpack_report(Af)
+        test_ws_dup(Af, copy(Af))
+        test_ws_dup(Af, copy(transpose(Af)).parent)
+        test_ws_dup(Af, copy(adjoint(Af)).parent)
         umfpack_report(Af)
     end
 end
