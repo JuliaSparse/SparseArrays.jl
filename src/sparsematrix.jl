@@ -749,7 +749,17 @@ SparseMatrixCSC{Tv,Ti}(M::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti
 SparseMatrixCSC{Tv,Ti}(M::Transpose{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(copy(M))
 
 # we can only view AbstractQs as columns
-function SparseMatrixCSC{Tv,Ti}(Q::LinearAlgebra.AbstractQ) where {Tv,Ti}
+SparseMatrixCSC{Tv,Ti}(Q::LinearAlgebra.AbstractQ) where {Tv,Ti} = sparse_with_lmul(Tv, Ti, Q)
+
+"""
+    sparse_with_lmul(Tv, Ti, Q) -> SparseMatrixCSC
+
+Helper function that creates a `SparseMatrixCSC{Tv,Ti}` representation of `Q`, where `Q` is
+supposed to not have fast `getindex` or not admit an iteration protocol at all, but instead
+a fast `lmul!(Q, v)` for dense vectors `v`. The prime example for such `Q`s is the Q factor
+of a (sparse) QR decomposition.
+"""
+function sparse_with_lmul(Tv, Ti, Q)
     colptr = zeros(Ti, size(Q, 2) + 1)
     nzval = Tv[]
     rowval = Ti[]
