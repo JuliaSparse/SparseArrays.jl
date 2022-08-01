@@ -9,7 +9,7 @@ using LinearAlgebra
 import LinearAlgebra: Factorization, checksquare, det, logabsdet, lu, lu!, ldiv!
 
 using SparseArrays
-using SparseArrays: getcolptr
+using SparseArrays: getcolptr, AbstractSparseMatrixCSC
 import SparseArrays: nnz
 
 import Serialization: AbstractSerializer, deserialize
@@ -179,7 +179,7 @@ struct UmfpackWS{T<:UMFITypes}
     W::Vector{Float64}
 end
 
-UmfpackWS(S::SparseMatrixCSC{Tv,Ti}, refinement::Bool) where {Tv,Ti} = UmfpackWS{Ti}(
+UmfpackWS(S::AbstractSparseMatrixCSC{Tv,Ti}, refinement::Bool) where {Tv,Ti} = UmfpackWS{Ti}(
     Vector{Ti}(undef, size(S, 2)),
     Vector{Float64}(undef, workspace_W_size(S, refinement)))
 
@@ -209,8 +209,8 @@ mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
 end
 
 workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
-workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, SparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
-workspace_W_size(S::Union{UmfpackLU{<:Complex}, SparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
+workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
+workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
 const ATLU = Union{Transpose{<:Any, <:UmfpackLU}, Adjoint{<:Any, <:UmfpackLU}}
 has_refinement(F::ATLU) = has_refinement(F.parent)
@@ -259,7 +259,7 @@ function Base.lock(f::Function, F::UmfpackLU)
         unlock(F)
     end
 end
-Base.lock(F::UmfpackLU) = if !trylock(F.lock) 
+Base.lock(F::UmfpackLU) = if !trylock(F.lock)
     @info """waiting for UmfpackLU's lock, it's safe to ignore this message.
     see the documentation for Umfpack""" maxlog = 1
     lock(F.lock)
@@ -268,7 +268,7 @@ end
 @inline Base.trylock(F::UmfpackLU) = trylock(F.lock)
 @inline Base.unlock(F::UmfpackLU) = unlock(F.lock)
 
-show_umf_ctrl(F::UmfpackLU, level::Real=2.0) = 
+show_umf_ctrl(F::UmfpackLU, level::Real=2.0) =
     @lock F show_umf_ctrl(F.control, level)
 
 
@@ -277,7 +277,7 @@ show_umf_info(F::UmfpackLU, level::Real=2.0) =
 
 
 """
-    lu(A::SparseMatrixCSC; check = true, q = nothing, control = get_umfpack_control) -> F::UmfpackLU
+    lu(A::AbstractSparseMatrixCSC; check = true, q = nothing, control = get_umfpack_control) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`.
 
@@ -293,7 +293,7 @@ The permutation `q` can either be a permutation vector or `nothing`. If no permu
 is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
 zero based copy is made.
 
-The `control` vector default to the package's default configs for umfpacks but can be changed passing a 
+The `control` vector default to the package's default configs for umfpacks but can be changed passing a
 vector of length `UMFPACK_CONTROL`. See the UMFPACK manual for possible configurations. The corresponding
 variables are named `JL_UMFPACK_` since julia uses one based indexing.
 
@@ -321,7 +321,7 @@ The relation between `F` and `A` is
 See also [`lu!`](@ref)
 
 !!! note
-    `lu(A::SparseMatrixCSC)` uses the UMFPACK[^ACM832] library that is part of
+    `lu(A::AbstractSparseMatrixCSC)` uses the UMFPACK[^ACM832] library that is part of
     [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
     As this library only supports sparse matrices with [`Float64`](@ref) or
     `ComplexF64` elements, `lu` converts `A` into a copy that is of type
@@ -329,8 +329,8 @@ See also [`lu!`](@ref)
 
 [^ACM832]: Davis, Timothy A. (2004b). Algorithm 832: UMFPACK V4.3---an Unsymmetric-Pattern Multifrontal Method. ACM Trans. Math. Softw., 30(2), 196–199. [doi:10.1145/992200.992206](https://doi.org/10.1145/992200.992206)
 """
-function lu(S::SparseMatrixCSC{Tv, Ti}; 
-    check::Bool = true, q=nothing, control=get_umfpack_control(Tv, Ti)) where 
+function lu(S::AbstractSparseMatrixCSC{Tv, Ti};
+    check::Bool = true, q=nothing, control=get_umfpack_control(Tv, Ti)) where
     {Tv<:UMFVTypes,Ti<:UMFITypes}
 
     zerobased = getcolptr(S)[1] == 0
@@ -347,26 +347,26 @@ function lu(S::SparseMatrixCSC{Tv, Ti};
     check && (issuccess(res) || throw(LinearAlgebra.SingularException(0)))
     return res
 end
-lu(A::SparseMatrixCSC{<:Union{Float16,Float32},Ti};
+lu(A::AbstractSparseMatrixCSC{<:Union{Float16,Float32},Ti};
    check::Bool = true) where {Ti<:UMFITypes} =
     lu(convert(SparseMatrixCSC{Float64,Ti}, A); check = check)
-lu(A::SparseMatrixCSC{<:Union{ComplexF16,ComplexF32},Ti};
+lu(A::AbstractSparseMatrixCSC{<:Union{ComplexF16,ComplexF32},Ti};
    check::Bool = true) where {Ti<:UMFITypes} =
     lu(convert(SparseMatrixCSC{ComplexF64,Ti}, A); check = check)
-lu(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
+lu(A::Union{AbstractSparseMatrixCSC{T},AbstractSparseMatrixCSC{Complex{T}}};
    check::Bool = true) where {T<:AbstractFloat} =
     throw(ArgumentError(string("matrix type ", typeof(A), "not supported. ",
     "Try lu(convert(SparseMatrixCSC{Float64/ComplexF64,Int}, A)) for ",
     "sparse floating point LU using UMFPACK or lu(Array(A)) for generic ",
     "dense LU.")))
-lu(A::SparseMatrixCSC; check::Bool = true) = lu(float(A); check = check)
+lu(A::AbstractSparseMatrixCSC; check::Bool = true) = lu(float(A); check = check)
 
 # We could do this as lu(A') = lu(A)' with UMFPACK, but the user could want to do one over the other
-lu(A::Union{Adjoint{T, S}, Transpose{T, S}}; check::Bool = true) where {T<:UMFVTypes, S<:SparseMatrixCSC{T}} =
+lu(A::Union{Adjoint{T, S}, Transpose{T, S}}; check::Bool = true) where {T<:UMFVTypes, S<:AbstractSparseMatrixCSC{T}} =
 lu(copy(A); check)
 
 """
-    lu!(F::UmfpackLU, A::SparseMatrixCSC; check=true, reuse_symbolic=true, q=nothing) -> F::UmfpackLU
+    lu!(F::UmfpackLU, A::AbstractSparseMatrixCSC; check=true, reuse_symbolic=true, q=nothing) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`, reusing the symbolic
 factorization of an already existing LU factorization stored in `F`.
@@ -386,7 +386,7 @@ zero based copy is made.
 See also [`lu`](@ref)
 
 !!! note
-    `lu!(F::UmfpackLU, A::SparseMatrixCSC)` uses the UMFPACK library that is part of
+    `lu!(F::UmfpackLU, A::AbstractSparseMatrixCSC)` uses the UMFPACK library that is part of
     SuiteSparse. As this library only supports sparse matrices with [`Float64`](@ref) or
     `ComplexF64` elements, `lu!` will automatically convert the types to those set by the LU
     factorization or `SparseMatrixCSC{ComplexF64}` as appropriate.
@@ -410,7 +410,7 @@ julia> F \\ ones(2)
  1.0
 ```
 """
-function lu!(F::UmfpackLU, S::SparseMatrixCSC;
+function lu!(F::UmfpackLU, S::AbstractSparseMatrixCSC;
   check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
     zerobased = getcolptr(S)[1] == 0
 
@@ -984,7 +984,7 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
         return lu
     end
 
-    _report_symbolic = Symbol(umf_nm("report_symbolic", Tv, Ti))  
+    _report_symbolic = Symbol(umf_nm("report_symbolic", Tv, Ti))
     @eval umfpack_report_symbolic(lu::UmfpackLU{$Tv,$Ti}, level::Real=4; q=nothing) =
         @lock lu begin
             umfpack_symbolic!(lu, q)
@@ -1017,12 +1017,12 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
     end
 end
 
-umfpack_free_numeric(lu::UmfpackLU) = 
+umfpack_free_numeric(lu::UmfpackLU) =
 @lock lu begin
     umfpack_free_numeric_nl(lu)
     lu
 end
-umfpack_free_symbolic(lu::UmfpackLU) = 
+umfpack_free_symbolic(lu::UmfpackLU) =
 @lock lu begin
     umfpack_free_symblic_nl(lu)
 end
