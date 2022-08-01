@@ -32,6 +32,14 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
 
+# helper function needed in sparsematrix, sparsevector and higherorderfns
+@inline _iszero(x) = x == 0
+@inline _iszero(x::Number) = Base.iszero(x)
+@inline _iszero(x::AbstractArray) = Base.iszero(x)
+@inline _isnotzero(x) = (x != 0) !== false # like `x != 0`, but handles `x::Missing`
+@inline _isnotzero(x::Number) = !iszero(x)
+@inline _isnotzero(x::AbstractArray) = !iszero(x)
+
 include("abstractsparse.jl")
 include("sparsematrix.jl")
 include("sparseconvert.jl")
