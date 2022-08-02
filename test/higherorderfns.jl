@@ -21,11 +21,11 @@ function test_map_and_map!(A, alloc_tests)
     fX = copy(fA); X = similar(A)
     map!(sin, X, A); X = similar(A) # warmup for @allocated
     map!(sin, X, A); X = similar(A) # warmup for @allocated
-    if @allocated(map!(sin, X, A)) == 0 || alloc_tests
+    if @allocated(map!(sin, X, A)) != 0 && alloc_tests
         println(stderr, "A in test_map_and_map! is ", A)
     end
     X = similar(A)
-    @test @allocated(map!(sin, X, A)) == 0 || alloc_tests
+    @test @allocated(map!(sin, X, A)) == 0 || !alloc_tests
     @test map!(sin, X, A) == sparse(map!(sin, fX, fA))
     @test map!(cos, X, A) == sparse(map!(cos, fX, fA))
     @test_throws DimensionMismatch map!(sin, X, spzeros((shapeA .- 1)...))
@@ -37,9 +37,9 @@ end
         nonzeros(A)[sin.(nonzeros(A)) .== 0] .= .0
         nonzeros(A)[cos.(nonzeros(A)) .== 0] .= .0
         A = dropzeros(A)
-        test_map_and_map!(A, true)
-        test_map_and_map!(A, true)
         test_map_and_map!(A, false)
+        test_map_and_map!(A, false)
+        test_map_and_map!(A, true)
     end
     # https://github.com/JuliaLang/julia/issues/37819
     Z = spzeros(Float64, Int32, 50000, 50000)
