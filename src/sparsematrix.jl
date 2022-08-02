@@ -748,6 +748,41 @@ SparseMatrixCSC{Tv}(M::Transpose{<:Any,<:AbstractSparseMatrixCSC}) where {Tv} = 
 SparseMatrixCSC{Tv,Ti}(M::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(copy(M))
 SparseMatrixCSC{Tv,Ti}(M::Transpose{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(copy(M))
 
+# we can only view AbstractQs as columns
+SparseMatrixCSC{Tv,Ti}(Q::LinearAlgebra.AbstractQ) where {Tv,Ti} = sparse_with_lmul(Tv, Ti, Q)
+
+"""
+    sparse_with_lmul(Tv, Ti, Q) -> SparseMatrixCSC
+
+Helper function that creates a `SparseMatrixCSC{Tv,Ti}` representation of `Q`, where `Q` is
+supposed to not have fast `getindex` or not admit an iteration protocol at all, but instead
+a fast `lmul!(Q, v)` for dense vectors `v`. The prime example for such `Q`s is the Q factor
+of a (sparse) QR decomposition.
+"""
+function sparse_with_lmul(Tv, Ti, Q)
+    colptr = zeros(Ti, size(Q, 2) + 1)
+    nzval = Tv[]
+    rowval = Ti[]
+    col = zeros(eltype(Q), size(Q, 1))
+
+    colptr[1] = 1
+    ind = 1
+    for j in axes(Q, 2)
+        fill!(col, false)
+        col[j] = one(Tv)
+        lmul!(Q, col)
+        for (i, v) in enumerate(col)
+            if iszero(v) == false # should be _isnotzero(v)
+                push!(nzval, v)
+                push!(rowval, i)
+                ind += 1
+            end
+        end
+        colptr[j + 1] = ind
+    end
+    return SparseMatrixCSC{Tv,Ti}(size(Q)..., colptr, rowval, nzval)
+end
+
 # converting from SparseMatrixCSC to other matrix types
 function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
     _checkbuffers(S)
@@ -1137,9 +1172,9 @@ end
 """
     ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::Function) where {Tv,Ti}
 
-Transpose `A` and store it in `X` while applying the function `f` to the non-zero elements. 
+Transpose `A` and store it in `X` while applying the function `f` to the non-zero elements.
 Does not remove the zeros created by `f`. `size(X)` must be equal to `size(transpose(A))`.
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -1158,9 +1193,9 @@ end
 """
     transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
-Transpose the matrix `A` and stores it in the matrix `X`. 
+Transpose the matrix `A` and stores it in the matrix `X`.
 `size(X)` must be equal to `size(transpose(A))`.
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -1170,8 +1205,8 @@ transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti})
     adjoint!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
 Transpose the matrix `A` and stores the adjoint of the elements in the matrix `X`.
-`size(X)` must be equal to `size(transpose(A))`. 
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+`size(X)` must be equal to `size(transpose(A))`.
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -3863,13 +3898,13 @@ end
 
 ## Uniform matrix arithmetic
 
-(+)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} = 
+(+)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} =
     A + sparse(T, Ti, J, size(A)...)
-(+)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} = 
+(+)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} =
     sparse(T, Ti, J, size(A)...) + A
-(-)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} = 
+(-)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} =
     A - sparse(T, Ti, J, size(A)...)
-(-)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} = 
+(-)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} =
     sparse(T, Ti, J, size(A)...) - A
 
 
