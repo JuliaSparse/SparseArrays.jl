@@ -772,7 +772,7 @@ function SparseMatrixCSC{Tv,Ti}(M::AbstractMatrix) where {Tv,Ti}
     i = 0
     for v in M
         i += 1
-        if !iszero(v)
+        if _isnotzero(v)
             push!(I, i)
             push!(V, v)
         end
@@ -2812,7 +2812,7 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
     end
     # Column j does not contain entry A[i,j]. If v is nonzero, insert entry A[i,j] = v
     # and return. If to the contrary v is zero, then simply return.
-    if !iszero(v)
+    if _isnotzero(v)
         nz = getcolptr(A)[size(A, 2)+1]
         # throw exception before state is partially modified
         !isbitstype(Ti) || nz < typemax(Ti) ||
