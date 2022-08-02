@@ -8,7 +8,6 @@ module HigherOrderFnsTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeros
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
