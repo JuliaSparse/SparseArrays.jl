@@ -43,7 +43,7 @@ function SparseMatrixCSC(m::Integer, n::Integer, colptr::Vector, rowval::Vector,
     length(nzval) > maxlen && resize!(nzval, maxlen)
     SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
-struct ReadOnly{V}
+struct ReadOnly{T,V<:AbstractVector{T}} <: AbstractVector{T}
     x::V
 end
 @inline inner(x::ReadOnly) = x.x
@@ -65,16 +65,20 @@ Base.copy(x::ReadOnly) = ReadOnly(copy(inner(x)))
 (==)(x::ReadOnly, y) = inner(x) == y
 (==)(x, y::ReadOnly) = x == inner(y)
 (==)(x::ReadOnly, y::ReadOnly) = inner(x) == inner(y)
+size(x::ReadOnly) = size(inner(x))
+size(x::ReadOnly, i) = size(inner(x), i)
+
+
 struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractFixedCSC{Tv,Ti}
     m::Int                  # Number of rows
     n::Int                  # Number of columns
-    colptr::ReadOnly{Vector{Ti}} # Column i is in colptr[i]:(colptr[i+1]-1)
-    rowval::ReadOnly{Vector{Ti}} # Row indices of stored values
+    colptr::ReadOnly{Ti,Vector{Ti}} # Column i is in colptr[i]:(colptr[i+1]-1)
+    rowval::ReadOnly{Ti,Vector{Ti}} # Row indices of stored values
     nzval::Vector{Tv}       # Stored values, typically nonzeros
 
     function FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer, 
-                            colptr::ReadOnly{Vector{Ti}},
-                            rowval::ReadOnly{Vector{Ti}}, 
+                            colptr::ReadOnly{Ti,Vector{Ti}},
+                            rowval::ReadOnly{Ti,Vector{Ti}}, 
                             nzval::Vector{Tv}) where {Tv,Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
         _goodbuffers(Int(m), Int(n), colptr.x, rowval.x, nzval) ||
@@ -83,8 +87,8 @@ struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractFixedCSC{Tv,Ti}
     end
 end
 FixedSparseCSC(m::Integer, n::Integer, 
-    colptr::ReadOnly{Vector{Ti}},
-    rowval::ReadOnly{Vector{Ti}}, 
+    colptr::ReadOnly{Ti, Vector{Ti}},
+    rowval::ReadOnly{Ti, Vector{Ti}}, 
     nzval::Vector{Tv}) where {Tv,Ti<:Integer} = 
     FixedSparseCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 FixedSparseCSC(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} = 
@@ -94,7 +98,8 @@ FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
         convert(Vector{Ti}, getcolptr(x)), 
         convert(Vector{Ti}, rowvals(x)), 
         convert(Vector{Tv}, nonzeros(x)))
-
+fixed(x...) = FixedSparseCSC(sparse(x...))
+fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
 """
     SparseMatrixCSC(x::FixedSparseCSC)

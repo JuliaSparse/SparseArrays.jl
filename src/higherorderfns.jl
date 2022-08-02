@@ -7,7 +7,7 @@ module HigherOrderFns
 import Base: map, map!, broadcast, copy, copyto!
 
 using Base: front, tail, to_shape
-using ..SparseArrays: SparseVector, SparseMatrixCSC, AbstractSparseVector, AbstractSparseMatrixCSC,
+using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, AbstractSparseVector, AbstractSparseMatrixCSC, 
                       AbstractSparseMatrix, AbstractSparseArray, AbstractFixedCSC, SorF, indtype, nnz, nzrange, spzeros,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion, nonzeroinds, nonzeros, rowvals, getcolptr, widelength
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
@@ -67,8 +67,8 @@ PromoteToSparse(::Val{2}) = PromoteToSparse()
 PromoteToSparse(::Val{N}) where N = Broadcast.DefaultArrayStyle{N}()
 
 const StructuredMatrix = Union{Diagonal,Bidiagonal,Tridiagonal,SymTridiagonal}
-Broadcast.BroadcastStyle(::Type{<:Adjoint{T,<:Union{SparseVector,SparseMatrixCSC}} where T}) = PromoteToSparse()
-Broadcast.BroadcastStyle(::Type{<:Transpose{T,<:Union{SparseVector,SparseMatrixCSC}} where T}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::Type{<:Adjoint{T,<:Union{SparseVector,SparseMatrixCSC,FixedSparseCSC}} where T}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::Type{<:Transpose{T,<:Union{SparseVector,SparseMatrixCSC,FixedSparseCSC}} where T}) = PromoteToSparse()
 
 Broadcast.BroadcastStyle(s::SPVM, ::Broadcast.AbstractArrayStyle{0}) = s
 Broadcast.BroadcastStyle(s::SPVM, ::Broadcast.DefaultArrayStyle{0}) = s
@@ -92,6 +92,10 @@ is_supported_sparse_broadcast(::Array, rest...) = is_supported_sparse_broadcast(
 is_supported_sparse_broadcast(t::Union{Transpose, Adjoint}, rest...) = is_supported_sparse_broadcast(t.parent, rest...)
 is_supported_sparse_broadcast(x, rest...) = axes(x) === () && is_supported_sparse_broadcast(rest...)
 is_supported_sparse_broadcast(x::Ref, rest...) = is_supported_sparse_broadcast(rest...)
+
+
+@inline _is_fixed(A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where N = 
+    isa(A, AbstractFixedCSC) || any(x->isa(x, AbstractFixedCSC), Bs)
 
 can_skip_sparsification(f, rest...) = false
 can_skip_sparsification(::typeof(*), ::SparseVectorUnion, ::AdjOrTransSparseVectorUnion) = true
@@ -167,8 +171,10 @@ function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     indextypeC = _promote_indtype(A, Bs...)
     C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
-    return fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
+    
+    r = fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
                         _map_notzeropres!(f, fofzeros, C, A, Bs...)
+    return _is_fixed(A, Bs...) ? FixedSparseCSC(r) : r
 end
 # (3) broadcast[!] entry points
 copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
@@ -188,6 +194,7 @@ copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
     return _checkbuffers(C)
 end
 
+
 function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
     fofzeros = f(_zeros_eltypes(A, Bs...)...)
     fpreszeros = _iszero(fofzeros)
@@ -196,8 +203,9 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
     shapeC = to_shape(Base.Broadcast.combine_axes(A, Bs...))
     maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
     C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
-    return fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
+    r = fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
                         _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
+    return _is_fixed(A, Bs...) ? FixedSparseCSC(r) : r
 end
 # helper functions for map[!]/broadcast[!] entry points (and related methods below)
 @inline _sumnnzs(A) = nnz(A)
@@ -244,7 +252,7 @@ function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
         setcolptr!(C, j, Ck)
         for Ak in colrange(A, j)
             Cx = f(storedvals(A)[Ak])
-            if !_iszero(Cx) || isa(C, AbstractFixedCSC)
+            if isa(C, AbstractFixedCSC) || isa(A, AbstractFixedCSC) || !_iszero(Cx)
                 Ck > spaceC && (spaceC = expandstorage!(C, Ck + nnz(A) - (Ak - 1)))
                 storedinds(C)[Ck] = storedinds(A)[Ak]
                 storedvals(C)[Ck] = Cx
@@ -1151,13 +1159,14 @@ end
 _sparsifystructured(M::AbstractMatrix) = SparseMatrixCSC(M)
 _sparsifystructured(V::AbstractVector) = SparseVector(V)
 _sparsifystructured(M::AbstractSparseMatrix) = SparseMatrixCSC(M)
+_sparsifystructured(M::AbstractFixedCSC) = FixedSparseCSC(M)
 _sparsifystructured(V::AbstractSparseVector) = SparseVector(V)
 _sparsifystructured(S::SparseVecOrMat) = S
 _sparsifystructured(x) = x
 
 
 # (12) map[!] over combinations of sparse and structured matrices
-SparseOrStructuredMatrix = Union{SparseMatrixCSC,LinearAlgebra.StructuredMatrix}
+SparseOrStructuredMatrix = Union{FixedSparseCSC,SparseMatrixCSC,LinearAlgebra.StructuredMatrix}
 map(f::Tf, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, _sparsifystructured(A), map(_sparsifystructured, Bs)...))
 map!(f::Tf, C::AbstractSparseMatrixCSC, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
