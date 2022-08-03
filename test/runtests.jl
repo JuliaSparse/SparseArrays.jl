@@ -7,14 +7,20 @@ end
 
 if Base.USE_GPL_LIBS
 
+    nt = @static if isdefined(Threads, :maxthreadid)
+        Threads.maxthreadid()
+    else
+        Threads.nthreads()
+    end
+
     # Test multithreaded execution
     @testset "threaded SuiteSparse tests" verbose = true begin
-        @testset "threads = $(Threads.nthreads())" begin
+        @testset "threads = $(nt)" begin
             include("threads.jl")
         end
         # test both nthreads==1 and nthreads>1. spawn a process to test whichever
         # case we are not running currently.
-        other_nthreads = Threads.nthreads() == 1 ? 4 : 1
+        other_nthreads = nt == 1 ? 4 : 1
         @testset "threads = $other_nthreads" begin
             let p, cmd = `$(Base.julia_cmd()) --depwarn=error --startup-file=no threads.jl`
                 p = run(

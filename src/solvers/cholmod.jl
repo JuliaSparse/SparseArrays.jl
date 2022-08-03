@@ -221,7 +221,11 @@ function __init__()
         ### Initiate CHOLMOD
         ### common controls the type of factorization and keeps pointers
         ### to temporary memory. We need to manage a copy for each thread.
-        nt = Threads.nthreads()
+        nt = @static if isdefined(Threads, :maxthreadid)
+            Threads.maxthreadid()
+        else
+            Threads.nthreads()
+        end
         resize!(COMMONS, nt)
         errorhandler = @cfunction(error_handler, Cvoid, (Cint, Cstring, Cint, Cstring))
         for i in 1:nt
