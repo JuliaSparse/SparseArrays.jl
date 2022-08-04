@@ -138,7 +138,7 @@ macro cholmod_param(kwarg, code)
     value = kwarg.args[2]
 
     common_param = # Read `common.param`
-        Expr(:., :(COMMONS[Threads.threadid()][]), QuoteNode(param))
+        Expr(:., :(task_local_storage(:cholmod_common)[]), QuoteNode(param))
 
     return quote
         default_value = $common_param
@@ -151,7 +151,18 @@ macro cholmod_param(kwarg, code)
     end
 end
 
-const COMMONS = Vector{Ref{cholmod_common}}()
+function getcommon()
+    if :cholmod_common ∉ keys(task_local_storage()) # havent yet started cholmod on this task
+        common = finalizer(cholmod_l_finish, Ref(cholmod_common()))
+        result = cholmod_l_start(common)
+        @assert result == TRUE "failed to run `cholmod_l_start`!"
+        common[].print = 0  # no printing from CHOLMOD by default
+        common[].error_handler = @cfunction(error_handler, Cvoid, (Cint, Cstring, Cint, Cstring))
+        task_local_storage(:cholmod_common, common)
+    else
+        return task_local_storage(:cholmod_common)
+    end
+end
 
 const BUILD_VERSION = VersionNumber(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION, CHOLMOD_SUBSUB_VERSION)
 
@@ -216,20 +227,6 @@ function __init__()
                  Linux binary from www.julialang.org, which include
                  the correct versions of all dependencies.
                  """
-        end
-
-        ### Initiate CHOLMOD
-        ### common controls the type of factorization and keeps pointers
-        ### to temporary memory. We need to manage a copy for each thread.
-        nt = Threads.nthreads()
-        resize!(COMMONS, nt)
-        errorhandler = @cfunction(error_handler, Cvoid, (Cint, Cstring, Cint, Cstring))
-        for i in 1:nt
-            COMMONS[i] = Ref(cholmod_common())
-            result = cholmod_l_start(COMMONS[i])
-            @assert result == TRUE "failed to run `cholmod_l_start`!"
-            COMMONS[i][].print = 0  # no printing from CHOLMOD by default
-            COMMONS[i][].error_handler = errorhandler
         end
 
         # Register gc tracked allocator if CHOLMOD is new enough
@@ -390,35 +387,35 @@ Factor(FC::FactorComponent) = FC.F
 
 # Dense wrappers
 function allocate_dense(m::Integer, n::Integer, d::Integer, ::Type{Tv}) where {Tv<:VTypes}
-    Dense{Tv}(cholmod_l_allocate_dense(m, n, d, xtyp(Tv), COMMONS[Threads.threadid()]))
+    Dense{Tv}(cholmod_l_allocate_dense(m, n, d, xtyp(Tv), getcommon()))
 end
 
 function free!(p::Ptr{cholmod_dense})
-    cholmod_l_free_dense(Ref(p), COMMONS[Threads.threadid()]) == TRUE
+    cholmod_l_free_dense(Ref(p), getcommon()) == TRUE
 end
 
 function zeros(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-    Dense{Tv}(cholmod_l_zeros(m, n, xtyp(Tv), COMMONS[Threads.threadid()]))
+    Dense{Tv}(cholmod_l_zeros(m, n, xtyp(Tv), getcommon()))
 end
 zeros(m::Integer, n::Integer) = zeros(m, n, Float64)
 
 function ones(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-    Dense{Tv}(cholmod_l_ones(m, n, xtyp(Tv), COMMONS[Threads.threadid()]))
+    Dense{Tv}(cholmod_l_ones(m, n, xtyp(Tv), getcommon()))
 end
 ones(m::Integer, n::Integer) = ones(m, n, Float64)
 
 function eye(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-    Dense{Tv}(cholmod_l_eye(m, n, xtyp(Tv), COMMONS[Threads.threadid()]))
+    Dense{Tv}(cholmod_l_eye(m, n, xtyp(Tv), getcommon()))
 end
 eye(m::Integer, n::Integer) = eye(m, n, Float64)
 eye(n::Integer) = eye(n, n, Float64)
 
 function copy(A::Dense{Tv}) where Tv<:VTypes
-    Dense{Tv}(cholmod_l_copy_dense(A, COMMONS[Threads.threadid()]))
+    Dense{Tv}(cholmod_l_copy_dense(A, getcommon()))
 end
 
 function sort!(S::Sparse{Tv}) where Tv<:VTypes
-    cholmod_l_sort(S, COMMONS[Threads.threadid()])
+    cholmod_l_sort(S, getcommon())
     return S
 end
 
@@ -431,93 +428,93 @@ function norm_dense(D::Dense{Tv}, p::Integer) where Tv<:VTypes
     elseif p != 0 && p != 1
         throw(ArgumentError("second argument must be either 0 (Inf norm), 1, or 2"))
     end
-    cholmod_l_norm_dense(D, p, COMMONS[Threads.threadid()])
+    cholmod_l_norm_dense(D, p, getcommon())
 end
 
 function check_dense(A::Dense{Tv}) where Tv<:VTypes
-    cholmod_l_check_dense(pointer(A), COMMONS[Threads.threadid()]) != 0
+    cholmod_l_check_dense(pointer(A), getcommon()) != 0
 end
 
 # Non-Dense wrappers
 function allocate_sparse(nrow::Integer, ncol::Integer, nzmax::Integer,
         sorted::Bool, packed::Bool, stype::Integer, ::Type{Tv}) where {Tv<:VTypes}
     Sparse{Tv}(cholmod_l_allocate_sparse(nrow, ncol, nzmax, sorted, packed, stype,
-                                         xtyp(Tv), COMMONS[Threads.threadid()]))
+                                         xtyp(Tv), getcommon()))
 end
 
 function free!(ptr::Ptr{cholmod_sparse})
-    cholmod_l_free_sparse(Ref(ptr), COMMONS[Threads.threadid()]) == TRUE
+    cholmod_l_free_sparse(Ref(ptr), getcommon()) == TRUE
 end
 
 function free!(ptr::Ptr{cholmod_factor})
     # Warning! Important that finalizer doesn't modify the global Common struct.
-    cholmod_l_free_factor(Ref(ptr), COMMONS[Threads.threadid()]) == TRUE
+    cholmod_l_free_factor(Ref(ptr), getcommon()) == TRUE
 end
 
 function aat(A::Sparse{Tv}, fset::Vector{SuiteSparse_long}, mode::Integer) where Tv<:VRealTypes
-    Sparse{Tv}(cholmod_l_aat(A, fset, length(fset), mode, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_aat(A, fset, length(fset), mode, getcommon()))
 end
 
 function sparse_to_dense(A::Sparse{Tv}) where Tv<:VTypes
-    Dense{Tv}(cholmod_l_sparse_to_dense(A, COMMONS[Threads.threadid()]))
+    Dense{Tv}(cholmod_l_sparse_to_dense(A, getcommon()))
 end
 function dense_to_sparse(D::Dense{Tv}, ::Type{SuiteSparse_long}) where Tv<:VTypes
-    Sparse{Tv}(cholmod_l_dense_to_sparse(D, true, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_dense_to_sparse(D, true, getcommon()))
 end
 
 function factor_to_sparse!(F::Factor{Tv}) where Tv<:VTypes
     ss = unsafe_load(pointer(F))
     ss.xtype == CHOLMOD_PATTERN && throw(CHOLMODException("only numeric factors are supported"))
-    Sparse{Tv}(cholmod_l_factor_to_sparse(F, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_factor_to_sparse(F, getcommon()))
 end
 
 function change_factor!(F::Factor{Tv}, to_ll::Bool, to_super::Bool, to_packed::Bool,
                         to_monotonic::Bool) where Tv<:VTypes
-    cholmod_l_change_factor(xtyp(Tv), to_ll, to_super, to_packed, to_monotonic, F, COMMONS[Threads.threadid()]) == TRUE
+    cholmod_l_change_factor(xtyp(Tv), to_ll, to_super, to_packed, to_monotonic, F, getcommon()) == TRUE
 end
 
 function check_sparse(A::Sparse{Tv}) where Tv<:VTypes
-    cholmod_l_check_sparse(A, COMMONS[Threads.threadid()]) != 0
+    cholmod_l_check_sparse(A, getcommon()) != 0
 end
 
 function check_factor(F::Factor{Tv}) where Tv<:VTypes
-    cholmod_l_check_factor(F, COMMONS[Threads.threadid()]) != 0
+    cholmod_l_check_factor(F, getcommon()) != 0
 end
 
-nnz(A::Sparse{<:VTypes}) = cholmod_l_nnz(A, COMMONS[Threads.threadid()])
+nnz(A::Sparse{<:VTypes}) = cholmod_l_nnz(A, getcommon())
 
 function speye(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-    Sparse{Tv}(cholmod_l_speye(m, n, xtyp(Tv), COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_speye(m, n, xtyp(Tv), getcommon()))
 end
 
 function spzeros(m::Integer, n::Integer, nzmax::Integer, ::Type{Tv}) where Tv<:VTypes
-    Sparse{Tv}(cholmod_l_spzeros(m, n, nzmax, xtyp(Tv), COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_spzeros(m, n, nzmax, xtyp(Tv), getcommon()))
 end
 
 function transpose_(A::Sparse{Tv}, values::Integer) where Tv<:VTypes
-    Sparse{Tv}(cholmod_l_transpose(A, values, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_transpose(A, values, getcommon()))
 end
 
 function copy(F::Factor{Tv}) where Tv<:VTypes
-    Factor{Tv}(cholmod_l_copy_factor(F, COMMONS[Threads.threadid()]))
+    Factor{Tv}(cholmod_l_copy_factor(F, getcommon()))
 end
 function copy(A::Sparse{Tv}) where Tv<:VTypes
-    Sparse{Tv}(cholmod_l_copy_sparse(A, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_copy_sparse(A, getcommon()))
 end
 function copy(A::Sparse{Tv}, stype::Integer, mode::Integer) where Tv<:VRealTypes
-    Sparse{Tv}(cholmod_l_copy(A, stype, mode, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_copy(A, stype, mode, getcommon()))
 end
 
 function print_sparse(A::Sparse{Tv}, name::String) where Tv<:VTypes
     isascii(name) || error("non-ASCII name: $name")
     @cholmod_param print = 3 begin
-        cholmod_l_print_sparse(A, name, COMMONS[Threads.threadid()])
+        cholmod_l_print_sparse(A, name, getcommon())
     end
     nothing
 end
 function print_factor(F::Factor{Tv}, name::String) where Tv<:VTypes
     @cholmod_param print = 3 begin
-        cholmod_l_print_factor(F, name, COMMONS[Threads.threadid()])
+        cholmod_l_print_factor(F, name, getcommon())
     end
     nothing
 end
@@ -529,18 +526,18 @@ function ssmult(A::Sparse{Tv}, B::Sparse{Tv}, stype::Integer,
     if lA.ncol != lB.nrow
         throw(DimensionMismatch("inner matrix dimensions do not fit"))
     end
-    Sparse{Tv}(cholmod_l_ssmult(A, B, stype, values, sorted, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_ssmult(A, B, stype, values, sorted, getcommon()))
 end
 
 function norm_sparse(A::Sparse{Tv}, norm::Integer) where Tv<:VTypes
     if norm != 0 && norm != 1
         throw(ArgumentError("norm argument must be either 0 or 1"))
     end
-    cholmod_l_norm_sparse(A, norm, COMMONS[Threads.threadid()])
+    cholmod_l_norm_sparse(A, norm, getcommon())
 end
 
 function horzcat(A::Sparse{Tv}, B::Sparse{Tv}, values::Bool) where Tv<:VRealTypes
-    Sparse{Tv}(cholmod_l_horzcat(A, B, values, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_horzcat(A, B, values, getcommon()))
 end
 
 function scale!(S::Dense{Tv}, scale::Integer, A::Sparse{Tv}) where Tv<:VRealTypes
@@ -567,7 +564,7 @@ function scale!(S::Dense{Tv}, scale::Integer, A::Sparse{Tv}) where Tv<:VRealType
     end
 
     sA = unsafe_load(pointer(A))
-    cholmod_l_scale(S, scale, A, COMMONS[Threads.threadid()])
+    cholmod_l_scale(S, scale, A, getcommon())
     A
 end
 
@@ -579,12 +576,12 @@ function sdmult!(A::Sparse{Tv}, transpose::Bool,
     if nc != size(X, 1)
         throw(DimensionMismatch("incompatible dimensions, $nc and $(size(X,1))"))
     end
-    cholmod_l_sdmult(A, transpose, Ref(α), Ref(β), X, Y, COMMONS[Threads.threadid()])
+    cholmod_l_sdmult(A, transpose, Ref(α), Ref(β), X, Y, getcommon())
     Y
 end
 
 function vertcat(A::Sparse{Tv}, B::Sparse{Tv}, values::Bool) where Tv<:VRealTypes
-    Sparse{Tv}(cholmod_l_vertcat(A, B, values, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_vertcat(A, B, values, getcommon()))
 end
 
 function symmetry(A::Sparse{Tv}, option::Integer) where Tv<:VTypes
@@ -593,27 +590,27 @@ function symmetry(A::Sparse{Tv}, option::Integer) where Tv<:VTypes
     nzoffdiag = Ref{SuiteSparse_long}()
     nzdiag = Ref{SuiteSparse_long}()
     rv = cholmod_l_symmetry(A, option, xmatched, pmatched,
-                            nzoffdiag, nzdiag, COMMONS[Threads.threadid()])
+                            nzoffdiag, nzdiag, getcommon())
     rv, xmatched[], pmatched[], nzoffdiag[], nzdiag[]
 end
 
 # For analyze, analyze_p, and factorize_p!, the Common argument must be
 # supplied in order to control if the factorization is LLt or LDLt
 function analyze(A::Sparse{Tv}) where Tv<:VTypes
-    Factor{Tv}(cholmod_l_analyze(A, COMMONS[Threads.threadid()]))
+    Factor{Tv}(cholmod_l_analyze(A, getcommon()))
 end
 function analyze_p(A::Sparse{Tv}, perm::Vector{SuiteSparse_long}) where Tv<:VTypes
     length(perm) != size(A,1) && throw(BoundsError())
-    Factor{Tv}(cholmod_l_analyze_p(A, perm, C_NULL, 0, COMMONS[Threads.threadid()]))
+    Factor{Tv}(cholmod_l_analyze_p(A, perm, C_NULL, 0, getcommon()))
 end
 function factorize!(A::Sparse{Tv}, F::Factor{Tv}) where Tv<:VTypes
-    cholmod_l_factorize(A, F, COMMONS[Threads.threadid()])
+    cholmod_l_factorize(A, F, getcommon())
     F
 end
 function factorize_p!(A::Sparse{Tv}, β::Real, F::Factor{Tv}) where Tv<:VTypes
     # note that β is passed as a complex number (double beta[2]),
     # but the CHOLMOD manual says that only beta[0] (real part) is used
-    cholmod_l_factorize_p(A, Ref{Cdouble}(β), C_NULL, 0, F, COMMONS[Threads.threadid()])
+    cholmod_l_factorize_p(A, Ref{Cdouble}(β), C_NULL, 0, F, getcommon())
     F
 end
 
@@ -630,7 +627,7 @@ function solve(sys::Integer, F::Factor{Tv}, B::Dense{Tv}) where Tv<:VTypes
             throw(LinearAlgebra.ZeroPivotException(s.minor))
         end
     end
-    Dense{Tv}(cholmod_l_solve(sys, F, B, COMMONS[Threads.threadid()]))
+    Dense{Tv}(cholmod_l_solve(sys, F, B, getcommon()))
 end
 
 function spsolve(sys::Integer, F::Factor{Tv}, B::Sparse{Tv}) where Tv<:VTypes
@@ -638,12 +635,12 @@ function spsolve(sys::Integer, F::Factor{Tv}, B::Sparse{Tv}) where Tv<:VTypes
         throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
             "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
     end
-    Sparse{Tv}(cholmod_l_spsolve(sys, F, B, COMMONS[Threads.threadid()]))
+    Sparse{Tv}(cholmod_l_spsolve(sys, F, B, getcommon()))
 end
 
 # Autodetects the types
 function read_sparse(file::Libc.FILE, ::Type{SuiteSparse_long})
-    Sparse(cholmod_l_read_sparse(file.ptr, COMMONS[Threads.threadid()]))
+    Sparse(cholmod_l_read_sparse(file.ptr, getcommon()))
 end
 
 function read_sparse(file::IO, T)
@@ -1418,7 +1415,7 @@ function lowrankupdowndate!(F::Factor{Tv}, C::Sparse{Tv}, update::Cint) where Tv
     if lF.n != lC.nrow
         throw(DimensionMismatch("matrix dimensions do not fit"))
     end
-    cholmod_l_updown(update, C, F, COMMONS[Threads.threadid()])
+    cholmod_l_updown(update, C, F, getcommon())
     F
 end
 
