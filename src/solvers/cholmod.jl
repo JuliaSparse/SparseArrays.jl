@@ -151,17 +151,17 @@ macro cholmod_param(kwarg, code)
     end
 end
 
+function newcommon(; print = 0)
+    common = finalizer(cholmod_l_finish, Ref(cholmod_common()))
+    result = cholmod_l_start(common)
+    @assert result == TRUE "failed to run `cholmod_l_start`!"
+    common[].print = 0  # no printing from CHOLMOD by default
+    common[].error_handler = @cfunction(error_handler, Cvoid, (Cint, Cstring, Cint, Cstring))
+    return common
+end
+
 function getcommon()
-    if !haskey(task_local_storage(), :cholmod_common) # havent yet started cholmod on this task
-        common = finalizer(cholmod_l_finish, Ref(cholmod_common()))
-        result = cholmod_l_start(common)
-        @assert result == TRUE "failed to run `cholmod_l_start`!"
-        common[].print = 0  # no printing from CHOLMOD by default
-        common[].error_handler = @cfunction(error_handler, Cvoid, (Cint, Cstring, Cint, Cstring))
-        task_local_storage(:cholmod_common, common)
-    else
-        return task_local_storage(:cholmod_common)
-    end
+    return get!(task_local_storage(), :cholmod_common, newcommon())::Ref{cholmod_common}
 end
 
 const BUILD_VERSION = VersionNumber(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION, CHOLMOD_SUBSUB_VERSION)
