@@ -152,7 +152,7 @@ macro cholmod_param(kwarg, code)
 end
 
 function getcommon()
-    if :cholmod_common ∉ keys(task_local_storage()) # havent yet started cholmod on this task
+    if !haskey(task_local_storage(), :cholmod_common) # havent yet started cholmod on this task
         common = finalizer(cholmod_l_finish, Ref(cholmod_common()))
         result = cholmod_l_start(common)
         @assert result == TRUE "failed to run `cholmod_l_start`!"
