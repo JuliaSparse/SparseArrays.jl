@@ -66,7 +66,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         H,              # m-by-nh Householder vectors
         HPinv,          # size m row permutation
         HTau,           # 1-by-nh Householder coefficients
-        CHOLMOD.COMMONS[Threads.threadid()]) # /* workspace and parameters */
+        CHOLMOD.getcommon()) # /* workspace and parameters */
 
     if rnk < 0
         error("Sparse QR factorization failed")
@@ -83,7 +83,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(n, sizeof(CHOLMOD.SuiteSparse_long), e, CHOLMOD.COMMONS[Threads.threadid()])
+        cholmod_l_free(n, sizeof(CHOLMOD.SuiteSparse_long), e, CHOLMOD.getcommon())
     end
     hpinv = HPinv[]
     if hpinv == C_NULL
@@ -96,7 +96,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(m, sizeof(CHOLMOD.SuiteSparse_long), hpinv, CHOLMOD.COMMONS[Threads.threadid()])
+        cholmod_l_free(m, sizeof(CHOLMOD.SuiteSparse_long), hpinv, CHOLMOD.getcommon())
     end
 
     return rnk, _E, _HPinv
