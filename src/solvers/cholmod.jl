@@ -161,7 +161,7 @@ function newcommon(; print = 0)
 end
 
 function getcommon()
-    return get!(task_local_storage(), :cholmod_common, newcommon())::Ref{cholmod_common}
+    return get!(newcommon, task_local_storage(), :cholmod_common)::Ref{cholmod_common}
 end
 
 const BUILD_VERSION = VersionNumber(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION, CHOLMOD_SUBSUB_VERSION)
