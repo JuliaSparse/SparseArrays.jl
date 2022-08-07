@@ -132,7 +132,11 @@ const _destroy_scalar_indexing = Expr[]
 """
     @RCI f
 
-records function `f` to be disabled by calling `allowscalar(false)`.
+records the function `f` to be overwritten (and restored) with `allowscalar(::Bool)`.
+
+Note that it wille evaluate the function in the top level of the package. The code of the `f`
+is stored in `_restore_scalar_indexing` and a function that has the exact same header as `f` but 
+returns an error is store in `_destroy_scalar_indexing`.
 """
 macro RCI(exp)
     # evaluate to not push any broken code in the arrays when developping this package. 
@@ -149,7 +153,19 @@ macro RCI(exp)
     end
     return
 end
-allowscalar(f::Bool) = if f
+
+"""
+    allowscalar(::Bool)
+
+Experimental function that removes and restore the scalar indexing for sparse matrix/vectors. 
+Useful for testing purposes as these operations are small. 
+
+`allowscalar(false)` will replace all function that were defined withe `@RCI` macro with functions that throw error. 
+`allowscalar(true)` will restore the original functions. 
+
+Since this function overwrite functions, it will cause a recompilation.
+"""
+allowscalar(p::Bool) = if p
     for i in _restore_scalar_indexing
         @eval $i
     end
@@ -158,4 +174,3 @@ else
         @eval $i
     end
 end
-
