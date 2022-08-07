@@ -132,11 +132,12 @@ const _destroy_scalar_indexing = Expr[]
 """
     @RCI f
 
-records the function `f` to be overwritten (and restored) with `allowscalar(::Bool)`.
+records the function `f` to be overwritten (and restored) with `allowscalar(::Bool)`. This is an
+experimental feature.
 
-Note that it wille evaluate the function in the top level of the package. The code of the `f`
-is stored in `_restore_scalar_indexing` and a function that has the exact same header as `f` but 
-returns an error is store in `_destroy_scalar_indexing`.
+Note that it will evaluate the function in the top level of the package. The original code for `f`
+is stored in `_restore_scalar_indexing` and a function that has the same definition as `f` but 
+returns an error is stored in `_destroy_scalar_indexing`.
 """
 macro RCI(exp)
     # evaluate to not push any broken code in the arrays when developping this package. 
@@ -157,13 +158,14 @@ end
 """
     allowscalar(::Bool)
 
-Experimental function that removes and restore the scalar indexing for sparse matrix/vectors. 
-Useful for testing purposes as these operations are small. 
+An experimental function that allows one to disable and re-enable scalar indexing for sparse matrices and vectors. 
 
-`allowscalar(false)` will replace all function that were defined with the `@RCI` macro with functions that throw error. 
-`allowscalar(true)` will restore the original functions. 
+`allowscalar(false)` will disable scalar indexing for sparse matrices and vectors. 
+`allowscalar(true)` will restore the original scalar indexing functionality.
 
-Since this function overwrite functions, it will cause a recompilation.
+Since this function overwrites existing definitions, it will lead to recompilation. It is useful mainly when testing
+code for devices such as GPUs, where the presence of scalar indexing can lead to substantial slowdowns. Disabling scalar
+indexing during such tests can help identify performance bottlenecks quickly.
 """
 allowscalar(p::Bool) = if p
     for i in _restore_scalar_indexing
