@@ -160,7 +160,7 @@ end
 Experimental function that removes and restore the scalar indexing for sparse matrix/vectors. 
 Useful for testing purposes as these operations are small. 
 
-`allowscalar(false)` will replace all function that were defined withe `@RCI` macro with functions that throw error. 
+`allowscalar(false)` will replace all function that were defined with the `@RCI` macro with functions that throw error. 
 `allowscalar(true)` will restore the original functions. 
 
 Since this function overwrite functions, it will cause a recompilation.
