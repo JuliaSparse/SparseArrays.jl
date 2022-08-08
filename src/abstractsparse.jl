@@ -75,13 +75,13 @@ end
 
 # The following two methods should be overloaded by concrete types to avoid
 # allocating the I = findall(...)
-_sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(!iszero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)
-_sparse_findprevnz(v::AbstractSparseArray, i) = (I = findall(!iszero, v); n = searchsortedlast(I, i);  !iszero(n)   ? I[n] : nothing)
+_sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)
+_sparse_findprevnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedlast(I, i);  _isnotzero(n) ? I[n] : nothing)
 
 function findnext(f::Function, v::AbstractSparseArray, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
-    if nnz(v) == length(v) || (f != (!iszero) && f(zero(eltype(v))))
+    if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
         return invoke(findnext, Tuple{Function,Any,Any}, f, v, i)
     end
     j = _sparse_findnextnz(v, i)
@@ -94,7 +94,7 @@ end
 function findprev(f::Function, v::AbstractSparseArray, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
-    if nnz(v) == length(v) || (f != (!iszero) && f(zero(eltype(v))))
+    if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
         return invoke(findprev, Tuple{Function,Any,Any}, f, v, i)
     end
     j = _sparse_findprevnz(v, i)

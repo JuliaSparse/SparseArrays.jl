@@ -341,7 +341,7 @@ function dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector)
     nzvals = getnzval(A)
     @inbounds for col in 1:n
         ycol = y[col]
-        if !iszero(ycol)
+        if _isnotzero(ycol)
             temp = zero(T)
             for k in nzrange(A, col)
                 temp += adjoint(x[rvals[k]]) * nzvals[k]
