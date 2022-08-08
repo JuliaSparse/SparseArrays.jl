@@ -21,7 +21,6 @@ include("simplesmatrix.jl")
     @test _isnotzero(missing)
     @test !_isnotzero(0.0)
     @test _isnotzero(1.0)
-    @test _isnotzero(nothing)
 end
 
 
