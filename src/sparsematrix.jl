@@ -2800,7 +2800,7 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
     if (I[1] < 1 || I[end] > size(A, 1)) || (J[1] < 1 || J[end] > size(A, 2))
         throw(BoundsError(A, (I, J)))
     end
-    if iszero(x)
+    if _iszero(x)
         _spsetz_setindex!(A, I, J)
     else
         _spsetnz_setindex!(A, convert(Tv, x), I, J)
