@@ -36,7 +36,7 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
 @inline _iszero(x) = x == 0
 @inline _iszero(x::Number) = Base.iszero(x)
 @inline _iszero(x::AbstractArray) = Base.iszero(x)
-@inline _isnotzero(x) = (x != 0) !== false # like `x != 0`, but handles `x::Missing`
+@inline _isnotzero(x) = !iszero(x) !== false # like `x != 0`, but handles `x::Missing`
 @inline _isnotzero(x::Number) = !iszero(x)
 @inline _isnotzero(x::AbstractArray) = !iszero(x)
 
