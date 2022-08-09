@@ -272,18 +272,23 @@ function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
     elseif _S isa Transpose
         print(io, "transpose(")
     end
-    print(io, "sparse(", I, ", [")
-    
-    for col = 1 : size(S, 2) - 1,
-        k = getcolptr(S)[col] : (getcolptr(S)[col+1]-1)
-        print(io, col, ", ")
+    print(io, "sparse(", I, ", ")
+    if length(I) == 0
+        print(io, eltype(getcolptr(S)), "[]")
+    else
+        print(io, "[")
+        il = nnz(S) - 1
+        for col in 1:size(S, 2),
+            k in getcolptr(S)[col] : (getcolptr(S)[col+1]-1)
+            print(io, col)
+            if il > 0
+                print(io, ", ")
+                il -= 1
+            end
+        end
+        print(io, "]")
     end
-    for k = getcolptr(S)[size(S, 2)]:getcolptr(S)[size(S, 2) + 1] - 2
-        print(io, size(S, 2), ", ")
-    end
-    print(io, size(S, 2))
-
-    print(io, "], ", K, ", ", m, ", ", n, ")")
+    print(io, ", ", K, ", ", m, ", ", n, ")")
     if _S isa Adjoint || _S isa Transpose
         print(io, ")")
     end
