@@ -719,6 +719,18 @@ f12063(args...) = 2
 g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
 @test g12063() == 1
 
+@testset "Issue #210" begin
+    io = IOBuffer()
+    show(io, sparse([1 2; 3 4]))
+    @test String(take!(io)) == "sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2)"
+    io = IOBuffer()
+    show(io, sparse([1 2; 3 4])')
+    @test String(take!(io)) == "adjoint(sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2))"
+    io = IOBuffer()
+    show(io, transpose(sparse([1 2; 3 4])))
+    @test String(take!(io)) == "transpose(sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2))"
+end
+
 end
 
 end # module
