@@ -260,14 +260,38 @@ function Base.print_array(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTransp
 end
 
 # always show matrices as `sparse(I, J, K)`
-function Base.show(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
-    _checkbuffers(S)
+function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+    _checkbuffers(_S)
     # can't use `findnz`, because that expects all values not to be #undef
+    S = _S isa Adjoint || _S isa Transpose ? _S.parent : _S
     I = rowvals(S)
-    J = [col for col = 1 : size(S, 2) for k = getcolptr(S)[col] : (getcolptr(S)[col+1]-1)]
     K = nonzeros(S)
     m, n = size(S)
-    print(io, "sparse(", I, ", ", J, ", ", K, ", ", m, ", ", n, ")")
+    if _S isa Adjoint
+        print(io, "adjoint(")
+    elseif _S isa Transpose
+        print(io, "transpose(")
+    end
+    print(io, "sparse(", I, ", ")
+    if length(I) == 0
+        print(io, eltype(getcolptr(S)), "[]")
+    else
+        print(io, "[")
+        il = nnz(S) - 1
+        for col in 1:size(S, 2),
+            k in getcolptr(S)[col] : (getcolptr(S)[col+1]-1)
+            print(io, col)
+            if il > 0
+                print(io, ", ")
+                il -= 1
+            end
+        end
+        print(io, "]")
+    end
+    print(io, ", ", K, ", ", m, ", ", n, ")")
+    if _S isa Adjoint || _S isa Transpose
+        print(io, ")")
+    end
 end
 
 const brailleBlocks = UInt16['⠁', '⠂', '⠄', '⡀', '⠈', '⠐', '⠠', '⢀']
