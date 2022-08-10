@@ -568,6 +568,20 @@ similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1}
 # result's index type in addition to its entry type, and aren't covered by the hooks above.
 # The calls without shape again preserve stored-entry structure, whereas those with shape
 # preserve storage space when the shape calls for a two-dimensional result.
+"""
+    similar(A::AbstractSparseMatrixCSC{Tv,Ti}, [::Type{TvNew}, ::Type{TiNew}, m::Integer, n::Integer]) where {Tv,Ti}
+
+Create an uninitialized mutable array with the given element type,
+index type, and size, based upon the given source
+`SparseMatrixCSC`. The new sparse matrix maintains the structure of
+the original sparse matrix, except in the case where dimensions of the
+output matrix are different from the output.
+
+The output matrix has zeros in the same locations as the input, but
+unititialized values for the nonzero locations.
+
+# Examples
+"""
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}) where{TvNew,TiNew} =
     _sparsesimilar(S, TvNew, TiNew)
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, dims::Union{Dims{1},Dims{2}}) where {TvNew,TiNew} =
