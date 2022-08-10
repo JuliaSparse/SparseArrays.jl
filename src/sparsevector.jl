@@ -71,7 +71,8 @@ FixedSparseVector(s::AbstractSparseVector) = FixedSparseVector(length(s), nonzer
 """
 inverse of fixed, should not allocate
 """
-_unsafe_nofix(s::FixedSparseVector) = SparseVector(length(s), inner(nonzeroinds(s)), nonzeros(s))
+_unsafe_unfix(s::FixedSparseVector) = SparseVector(length(s), inner(nonzeroinds(s)), nonzeros(s))
+_unsafe_unfix(s::SparseVector) = s
 # Define an alias for a view of a whole column of a SparseMatrixCSC. Many methods can be written for the
 # union of such a view and a SparseVector so we define an alias for such a union as well
 const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
@@ -1067,16 +1068,15 @@ end
 # sparse/special/dense matrix/vector types concatenate to SparseMatrixCSCs, instead
 # of _absspvec_vcat below. The <:Integer qualifications are necessary for correct dispatch.
 vcat(X::SparseVector{Tv,Ti}...) where {Tv,Ti<:Integer} = _absspvec_vcat(X...)
-vcat(X::FixedSparseVector{Tv,Ti}...) where {Tv,Ti<:Integer} = _absspvec_vcat(X...)
 vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti<:Integer} = _absspvec_vcat(X...)
-function vcat(X::AbstractSparseVectorC...)
+function vcat(X::SparseVector...)
     commeltype = promote_type(map(eltype, X)...)
     commindtype = promote_type(map(indtype, X)...)
-    return if any(_is_fixed, r)
-        fixed(vcat(map(x -> FixedSparseVector{commeltype,commindtype}(x), X)...))
-    else
-        vcat(map(x -> SparseVector{commeltype,commindtype}(x), X)...)
-    end
+    return vcat(map(x -> SparseVector{commeltype,commindtype}(x), X)...)
+end
+function vcat(X::SVorFSV...)
+    r = vcat(map(_unsafe_unfix, X)...)
+    return any(_is_fixed, X) ? fixed(r) : r
 end
 function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     # check sizes
@@ -1113,7 +1113,7 @@ vcat(Xin::Union{Vector, AbstractSparseVector}...) = vcat(map(sparse, Xin)...)
 # sparse/special/dense matrix/vector types concatenate to SparseMatrixCSCs (because
 # the vcat method immediately above is less specific, being defined in AbstractSparseVector
 # rather than SparseVector).
-vcat(X::Union{Vector,SparseVector}...) = vcat(map(sparse, X)...)
+vcat(X::Union{Vector,AbstractSparseVectorC}...) = vcat(map(sparse, X)...)
 
 
 ### Concatenation of un/annotated sparse/special/dense vectors/matrices

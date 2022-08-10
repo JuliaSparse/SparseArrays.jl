@@ -78,7 +78,8 @@ FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
         getcolptr(x), rowvals(x), nonzeros(x))
 fixed(x...) = fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
-_unsafe_nofix(s::FixedSparseCSC) = SparseMatrixCSC(size(s)..., inner(getcolptr(s)), inner(rowvals(s)), nonzeros(s))
+_unsafe_unfix(s::FixedSparseCSC) = SparseMatrixCSC(size(s)..., inner(getcolptr(s)), inner(rowvals(s)), nonzeros(s))
+_unsafe_unfix(s::SparseMatrixCSC) = s
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
 """
     SparseMatrixCSC(x::FixedSparseCSC)
