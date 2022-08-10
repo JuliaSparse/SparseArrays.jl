@@ -365,7 +365,8 @@ end
 
 ### Element access
 
-function setindex!(x::AbstractSparseVectorC{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
+
+@RCI function setindex!(x::AbstractSparseVectorC{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
     checkbounds(x, i)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
@@ -383,7 +384,7 @@ function setindex!(x::AbstractSparseVectorC{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:
     x
 end
 
-setindex!(x::AbstractSparseVectorC{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
+@RCI setindex!(x::AbstractSparseVectorC{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
     setindex!(x, convert(Tv, v), convert(Ti, i))
 
 
@@ -469,7 +470,7 @@ function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray{T
     n = length(s)
     c = 0
     @inbounds for (i, v) in enumerate(s)
-        if !iszero(v)
+        if _isnotzero(v)
             if c >= cap
                 cap = (cap == 0) ? 1 : 2*cap
                 resize!(nzind, cap)
@@ -873,7 +874,7 @@ function _spgetindex(m::Int, nzind::AbstractVector{Ti}, nzval::AbstractVector{Tv
     (ii <= m && nzind[ii] == i) ? nzval[ii] : zero(Tv)
 end
 
-function getindex(x::AbstractSparseVector, i::Integer)
+@RCI function getindex(x::AbstractSparseVector, i::Integer)
     checkbounds(x, i)
     _spgetindex(nnz(x), nonzeroinds(x), nonzeros(x), i)
 end
@@ -1499,7 +1500,7 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
         $comp(val, zeroval) && return val, nzinds[index]
         # we need to find the first zero, which could be stored or implicit
         # we try to avoid findfirst(iszero, x)
-        sindex = findfirst(iszero, nzvals) # first stored zero, if any
+        sindex = findfirst(_iszero, nzvals) # first stored zero, if any
         zindex = findfirst(i -> i < nzinds[i], eachindex(nzinds)) # first non-stored zero
         index = if isnothing(sindex)
             # non-stored zero are contiguous and at the end
@@ -2113,7 +2114,7 @@ Removes stored numerical zeros from `x`.
 For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
-dropzeros!(x::SparseVector) = fkeep!(x, (i, x) -> !iszero(x))
+dropzeros!(x::SparseVector) = fkeep!(x, (i, x) -> _isnotzero(x))
 
 """
     dropzeros!(x::AbstractFixedSparseVector)

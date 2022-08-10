@@ -245,35 +245,35 @@ end
 
 ## The struct pointer must be constructed by the library constructor and then modified afterwards to checks that the method throws
 @testset "illegal dtype (for now but should be supported at some point)" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint, CHOLMOD_SINGLE, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal dtype" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint, 5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal xtype" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 3)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal itype I" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint, CHOLMOD_INTLONG, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal itype II" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
@@ -322,7 +322,7 @@ end
 
 # Test Sparse and Factor
 @testset "test free!" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     @test CHOLMOD.free!(p)
 end
 
@@ -912,7 +912,7 @@ end
 
 @testset "Check common is still in default state" begin
     # This test intentially depends on all the above tests!
-    current_common = CHOLMOD.COMMONS[Threads.threadid()]
+    current_common = CHOLMOD.getcommon()
     default_common = Ref(cholmod_common())
     result = cholmod_l_start(default_common)
     @test result == CHOLMOD.TRUE

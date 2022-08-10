@@ -2,7 +2,7 @@
 
 module SPQR
 
-import Base: \
+import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
 using ..LibSuiteSparse: SuiteSparseQR_C
@@ -66,7 +66,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         H,              # m-by-nh Householder vectors
         HPinv,          # size m row permutation
         HTau,           # 1-by-nh Householder coefficients
-        CHOLMOD.COMMONS[Threads.threadid()]) # /* workspace and parameters */
+        CHOLMOD.getcommon()) # /* workspace and parameters */
 
     if rnk < 0
         error("Sparse QR factorization failed")
@@ -83,7 +83,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(n, sizeof(CHOLMOD.SuiteSparse_long), e, CHOLMOD.COMMONS[Threads.threadid()])
+        cholmod_l_free(n, sizeof(CHOLMOD.SuiteSparse_long), e, CHOLMOD.getcommon())
     end
     hpinv = HPinv[]
     if hpinv == C_NULL
@@ -96,7 +96,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(m, sizeof(CHOLMOD.SuiteSparse_long), hpinv, CHOLMOD.COMMONS[Threads.threadid()])
+        cholmod_l_free(m, sizeof(CHOLMOD.SuiteSparse_long), hpinv, CHOLMOD.getcommon())
     end
 
     return rnk, _E, _HPinv
@@ -167,11 +167,7 @@ julia> A = sparse([1,2,3,4], [1,1,2,2], [1.0,1.0,1.0,1.0])
 julia> qr(A)
 SparseArrays.SPQR.QRSparse{Float64, Int64}
 Q factor:
-4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}:
- -0.707107   0.0        0.0       -0.707107
-  0.0       -0.707107  -0.707107   0.0
-  0.0       -0.707107   0.707107   0.0
- -0.707107   0.0        0.0        0.707107
+4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
  -1.41421    ⋅
@@ -284,6 +280,9 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::Adjoint{<:Any,<:QRSparseQ})
     return A
 end
 
+(*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
+(*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
+
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :Q
         return QRSparseQ(F.factors, F.τ, size(F, 2))
@@ -311,6 +310,9 @@ function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     show(io, mime, F.prow)
     println(io, "\nColumn permutation:")
     show(io, mime, F.pcol)
+end
+function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
+    summary(io, Q)
 end
 
 # With a real lhs and complex rhs with the same precision, we can reinterpret

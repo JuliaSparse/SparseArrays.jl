@@ -20,7 +20,7 @@ This package ships as part of the Julia stdlib.
 
 SparseArrays.jl provides functionality for working with sparse arrays in Julia.
 
-## Using newer version of this package with julia master
+## Using development versions of this package
 
 To use a newer version of this package, you need to build Julia from scratch. The build process is the same as any other build except that `DEPS_GIT="SparseArrays"` should be passed to `make` i.e. `make DEPS_GIT="SparseArrays"`. Then after the build is complete, the git repo in `stdlib/SparseArrays` can be used to check out the desired commit/branch. Alternatively, you need to change the commit used in `stdlib/SparseArrays.version`. It is also possible to do both to get an up to date git repo directly. There is no need to rebuild julia in case of changes in `stdlib/SparseArrays` (or `SparseArrays-<sha1>` if `DEPS_GIT` was not used) as the package is not in the sysimage but having a git repo is convenient.
 

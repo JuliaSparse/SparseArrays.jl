@@ -90,12 +90,14 @@ end
 @testset "Issue 26367" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
+    @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
+    @test (sparse(I, 2, 2) * qr(A).Q)::SparseMatrixCSC == sparse(qr(A).Q) == sparse(I, 2, 2)
 end
 
 @testset "Issue 26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
-    @test F.Q*F.R == A[F.prow,F.pcol]
+    @test (F.Q*F.R)::SparseMatrixCSC == A[F.prow,F.pcol]
 end
 
 @testset "select ordering overdetermined" begin
@@ -135,6 +137,19 @@ end
     @test rank(S; tol=1e-5) == 5
     @test all(iszero, (rank(qr(spzeros(10, i))) for i in 1:10))
     @test all(iszero, (rank(spzeros(10, i)) for i in 1:10))
+end
+
+
+@testset "sparse" begin
+    A = I + sprandn(100, 100, 0.01)
+    q = qr(A; ordering=SPQR.ORDERING_FIXED)
+    Q = q.Q
+    sQ = sparse(Q)
+    @test sQ == sparse(Matrix(Q))
+    Dq = qr(Matrix(A))
+    perm = inv(Matrix(I, size(A)...)[q.prow, :])
+    f = sum(q.R; dims=2) ./ sum(Dq.R; dims=2)
+    @test perm * (transpose(f) .* sQ) ≈ sparse(Dq.Q)
 end
 
 end

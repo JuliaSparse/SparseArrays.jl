@@ -4,7 +4,7 @@ module SparseTests
 
 using Test
 using SparseArrays
-using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns
+using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero
 using LinearAlgebra
 using Printf: @printf # for debug
 using Random
@@ -13,6 +13,16 @@ using InteractiveUtils: @which
 using Dates
 include("forbidproperties.jl")
 include("simplesmatrix.jl")
+
+
+@testset "_isnotzero" begin
+    @test !_isnotzero(0::Int)
+    @test _isnotzero(1::Int)
+    @test _isnotzero(missing)
+    @test !_isnotzero(0.0)
+    @test _isnotzero(1.0)
+end
+
 
 @testset "issparse" begin
     @test issparse(sparse(fill(1,5,5)))
