@@ -440,7 +440,7 @@ function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray{T
     n = length(s)
     c = 0
     @inbounds for (i, v) in enumerate(s)
-        if !iszero(v)
+        if _isnotzero(v)
             if c >= cap
                 cap = (cap == 0) ? 1 : 2*cap
                 resize!(nzind, cap)
@@ -1463,7 +1463,7 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
         $comp(val, zeroval) && return val, nzinds[index]
         # we need to find the first zero, which could be stored or implicit
         # we try to avoid findfirst(iszero, x)
-        sindex = findfirst(iszero, nzvals) # first stored zero, if any
+        sindex = findfirst(_iszero, nzvals) # first stored zero, if any
         zindex = findfirst(i -> i < nzinds[i], eachindex(nzinds)) # first non-stored zero
         index = if isnothing(sindex)
             # non-stored zero are contiguous and at the end
@@ -2065,7 +2065,7 @@ Removes stored numerical zeros from `x`.
 For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
-dropzeros!(x::SparseVector) = fkeep!(x, (i, x) -> !iszero(x))
+dropzeros!(x::SparseVector) = fkeep!(x, (i, x) -> _isnotzero(x))
 
 """
     dropzeros(x::SparseVector)

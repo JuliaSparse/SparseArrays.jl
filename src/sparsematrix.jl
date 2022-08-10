@@ -697,7 +697,7 @@ function SparseMatrixCSC{Tv,Ti}(D::Diagonal) where {Tv,Ti}
     m = length(D.diag)
     m == 0 && return SparseMatrixCSC{Tv,Ti}(zeros(Tv, 0, 0))
 
-    nz = count(!iszero, D.diag)
+    nz = count(_isnotzero, D.diag)
     nz_counter = 1
 
     rowval = Vector{Ti}(undef, nz)
@@ -708,7 +708,7 @@ function SparseMatrixCSC{Tv,Ti}(D::Diagonal) where {Tv,Ti}
     colptr = Vector{Ti}(undef, m+1)
 
     @inbounds for i=1:m
-        if !iszero(D.diag[i])
+        if _isnotzero(D.diag[i])
             colptr[i] = nz_counter
             rowval[nz_counter] = i
             nzval[nz_counter]  = D.diag[i]
@@ -740,7 +740,7 @@ function SparseMatrixCSC{Tv,Ti}(M::AbstractMatrix) where {Tv,Ti}
 end
 
 function SparseMatrixCSC{Tv,Ti}(M::StridedMatrix) where {Tv,Ti}
-    nz = count(!iszero, M)
+    nz = count(_isnotzero, M)
     colptr = zeros(Ti, size(M, 2) + 1)
     nzval = Vector{Tv}(undef, nz)
     rowval = Vector{Ti}(undef, nz)
@@ -749,7 +749,7 @@ function SparseMatrixCSC{Tv,Ti}(M::StridedMatrix) where {Tv,Ti}
     @inbounds for j in 1:size(M, 2)
         for i in 1:size(M, 1)
             v = M[i, j]
-            if !iszero(v)
+            if _isnotzero(v)
                 rowval[cnt] = i
                 nzval[cnt] = v
                 cnt += 1
@@ -796,7 +796,7 @@ function sparse_with_lmul(Tv, Ti, Q)
         col[j] = one(Tv)
         lmul!(Q, col)
         for (i, v) in enumerate(col)
-            if iszero(v) == false # should be _isnotzero(v)
+            if _isnotzero(v)
                 push!(nzval, v)
                 push!(rowval, i)
                 ind += 1
@@ -1640,7 +1640,7 @@ Removes stored numerical zeros from `A`.
 For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
-dropzeros!(A::AbstractSparseMatrixCSC) = fkeep!(A, (i, j, x) -> !iszero(x))
+dropzeros!(A::AbstractSparseMatrixCSC) = fkeep!(A, (i, j, x) -> _isnotzero(x))
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)
@@ -2218,7 +2218,7 @@ function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=1:size(A, 1), cols=1:siz
             (r1 <= r2 ) && (r2 = searchsortedlast(rowval, rowmax, r1, r2, Forward))
         end
         row = rowmin
-        while (r1 <= r2) && (row == rowval[r1]) && !iszero(nzval[r1])
+        while (r1 <= r2) && (row == rowval[r1]) && _isnotzero(nzval[r1])
             r1 += 1
             row += 1
         end
@@ -2824,7 +2824,7 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
     if (I[1] < 1 || I[end] > size(A, 1)) || (J[1] < 1 || J[end] > size(A, 2))
         throw(BoundsError(A, (I, J)))
     end
-    if iszero(x)
+    if _iszero(x)
         _spsetz_setindex!(A, I, J)
     else
         _spsetnz_setindex!(A, convert(Tv, x), I, J)
@@ -3672,7 +3672,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
                 # We therefore "catch up" here while making sure that
                 # the elements are actually zero.
                 while row2 < col
-                    if !iszero(nzval[offset])
+                    if _isnotzero(nzval[offset])
                         return false
                     end
                     offset += 1
@@ -3710,7 +3710,7 @@ function istriu(A::AbstractSparseMatrixCSC)
             if rowval[l1-i] <= col
                 break
             end
-            if !iszero(nzval[l1-i])
+            if _isnotzero(nzval[l1-i])
                 return false
             end
         end
@@ -3729,7 +3729,7 @@ function istril(A::AbstractSparseMatrixCSC)
             if rowval[i] >= col
                 break
             end
-            if !iszero(nzval[i])
+            if _isnotzero(nzval[i])
                 return false
             end
         end
