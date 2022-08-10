@@ -365,7 +365,7 @@ end
             x = getfield(F1.workspace, nm)
             x .= rand(eltype(x), length(x))
         end
-        
+
         umfpack_report(F1)
         b  = IOBuffer()
         serialize(b, F1)
