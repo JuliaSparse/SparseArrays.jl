@@ -14,19 +14,24 @@ using LinearAlgebra: _SpecialArrays, _DenseConcatGroup
     SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
 
 Vector type for storing sparse vectors. Can be created by passing the length of the vector,
-a *sorted* vector of non-zero indices, and a vector of non-zero values. 
+a *sorted* vector of non-zero indices, and a vector of non-zero values.
 
-For instance, the Vector `[5, 6, 0, 7]` can be represented as 
+For instance, the vector `[5, 6, 0, 7]` can be represented as
+
 ```julia
 SparseVector(4, [1, 2, 4], [5, 6, 7])
 ```
-This indicates that the index 1 is 5, the index 2 is 6, the index 3 is `zero(Int)`, and index 4 is 7.
 
-It may be more convenient to create sparse vectors directly from dense vectors using `sparse` as 
+This indicates that the element at index 1 is 5, at index 2 is 6, at index 3 is `zero(Int)`,
+and at index 4 is 7.
+
+It may be more convenient to create sparse vectors directly from dense vectors using `sparse` as
+
 ```julia
 sparse([5, 6, 0, 7])
-``` 
-yeilds the same sparse vector.
+```
+
+yields the same sparse vector.
 """
 struct SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
@@ -48,11 +53,12 @@ SparseVector(n::Integer, nzind::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
 # union of such a view and a SparseVector so we define an alias for such a union as well
 const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
 const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const SparseVectorUnion{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
+const SparseVectorUnion{Tv,Ti} = Union{AbstractSparseVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
 const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
 
 ### Basic properties
 
+length(x::SparseVector)   = getfield(x, :n)
 size(x::SparseVector)     = (getfield(x, :n),)
 count(f, x::SparseVector) = count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x))
 
@@ -333,7 +339,7 @@ end
 
 ### Element access
 
-function setindex!(x::SparseVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
+@RCI function setindex!(x::SparseVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
     checkbounds(x, i)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
@@ -343,7 +349,7 @@ function setindex!(x::SparseVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
     if 1 <= k <= m && nzind[k] == i  # i found
         nzval[k] = v
     else  # i not found
-        if !iszero(v)
+        if _isnotzero(v)
             insert!(nzind, k, i)
             insert!(nzval, k, v)
         end
@@ -351,7 +357,7 @@ function setindex!(x::SparseVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
     x
 end
 
-setindex!(x::SparseVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
+@RCI setindex!(x::SparseVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
     setindex!(x, convert(Tv, v), convert(Ti, i))
 
 
@@ -434,7 +440,7 @@ function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray{T
     n = length(s)
     c = 0
     @inbounds for (i, v) in enumerate(s)
-        if !iszero(v)
+        if _isnotzero(v)
             if c >= cap
                 cap = (cap == 0) ? 1 : 2*cap
                 resize!(nzind, cap)
@@ -779,7 +785,7 @@ findall(p::Base.Fix2{typeof(in)}, x::SparseVector{<:Any,Ti}) where {Ti} =
     findnz(x::SparseVector)
 
 Return a tuple `(I, V)`  where `I` is the indices of the stored ("structurally non-zero")
-values in sparse vector `x` and `V` is a vector of the values.
+values in sparse vector-like `x` and `V` is a vector of the values.
 
 # Examples
 ```jldoctest
@@ -794,7 +800,7 @@ julia> findnz(x)
 ([1, 4, 6, 8], [1, 2, 4, 3])
 ```
 """
-function findnz(x::SparseVector{Tv,Ti}) where {Tv,Ti}
+function findnz(x::SparseVectorUnion{Tv,Ti}) where {Tv,Ti}
     numnz = nnz(x)
 
     I = Vector{Ti}(undef, numnz)
@@ -858,7 +864,7 @@ function _spgetindex(m::Int, nzind::AbstractVector{Ti}, nzval::AbstractVector{Tv
     (ii <= m && nzind[ii] == i) ? nzval[ii] : zero(Tv)
 end
 
-function getindex(x::AbstractSparseVector, i::Integer)
+@RCI function getindex(x::AbstractSparseVector, i::Integer)
     checkbounds(x, i)
     _spgetindex(nnz(x), nonzeroinds(x), nonzeros(x), i)
 end
@@ -1220,7 +1226,7 @@ macro unarymap_nz2z_z2z(op, TF)
             @inbounds for j = 1:m
                 i = xnzind[j]
                 v = $(op)(xnzval[j])
-                if v != zero(v)
+                if _isnotzero(v)
                     ir += 1
                     ynzind[ir] = i
                     ynzval[ir] = v
@@ -1272,7 +1278,7 @@ function _binarymap(f::Function,
                     y::AbstractSparseVector{Ty},
                     mode::Int) where {Tx,Ty}
     0 <= mode <= 2 || throw(ArgumentError("Incorrect mode $mode."))
-    R = typeof(f(zero(Tx), zero(Ty)))
+    R = Base.Broadcast.combine_eltypes(f, (x, y))
     n = length(x)
     length(y) == n || throw(DimensionMismatch())
 
@@ -1287,9 +1293,6 @@ function _binarymap(f::Function,
     rind = Vector{Int}(undef, cap)
     rval = Vector{R}(undef, cap)
     ir = 0
-    ix = 1
-    iy = 1
-
     ir = (
         mode == 0 ? _binarymap_mode_0!(f, mx, my,
             xnzind, xnzval, ynzind, ynzval, rind, rval) :
@@ -1307,6 +1310,7 @@ end
 function _binarymap_mode_0!(f::Function, mx::Int, my::Int,
                             xnzind, xnzval, ynzind, ynzval, rind, rval)
     # f(nz, nz) -> nz, f(z, nz) -> z, f(nz, z) ->  z
+    require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
     ir = 0; ix = 1; iy = 1
     @inbounds while ix <= mx && iy <= my
         jx = xnzind[ix]
@@ -1329,13 +1333,14 @@ function _binarymap_mode_1!(f::Function, mx::Int, my::Int,
                             ynzind, ynzval::AbstractVector{Ty},
                             rind, rval) where {Tx,Ty}
     # f(nz, nz) -> z/nz, f(z, nz) -> nz, f(nz, z) -> nz
+    require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
     ir = 0; ix = 1; iy = 1
     @inbounds while ix <= mx && iy <= my
         jx = xnzind[ix]
         jy = ynzind[iy]
         if jx == jy
             v = f(xnzval[ix], ynzval[iy])
-            if v != zero(v)
+            if _isnotzero(v)
                 ir += 1; rind[ir] = jx; rval[ir] = v
             end
             ix += 1; iy += 1
@@ -1367,25 +1372,26 @@ function _binarymap_mode_2!(f::Function, mx::Int, my::Int,
                             ynzind, ynzval::AbstractVector{Ty},
                             rind, rval) where {Tx,Ty}
     # f(nz, nz) -> z/nz, f(z, nz) -> z/nz, f(nz, z) -> z/nz
+    require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
     ir = 0; ix = 1; iy = 1
     @inbounds while ix <= mx && iy <= my
         jx = xnzind[ix]
         jy = ynzind[iy]
         if jx == jy
             v = f(xnzval[ix], ynzval[iy])
-            if v != zero(v)
+            if _isnotzero(v)
                 ir += 1; rind[ir] = jx; rval[ir] = v
             end
             ix += 1; iy += 1
         elseif jx < jy
             v = f(xnzval[ix], zero(Ty))
-            if v != zero(v)
+            if _isnotzero(v)
                 ir += 1; rind[ir] = jx; rval[ir] = v
             end
             ix += 1
         else
             v = f(zero(Tx), ynzval[iy])
-            if v != zero(v)
+            if _isnotzero(v)
                 ir += 1; rind[ir] = jy; rval[ir] = v
             end
             iy += 1
@@ -1393,14 +1399,14 @@ function _binarymap_mode_2!(f::Function, mx::Int, my::Int,
     end
     @inbounds while ix <= mx
         v = f(xnzval[ix], zero(Ty))
-        if v != zero(v)
+        if _isnotzero(v)
             ir += 1; rind[ir] = xnzind[ix]; rval[ir] = v
         end
         ix += 1
     end
     @inbounds while iy <= my
         v = f(zero(Tx), ynzval[iy])
-        if v != zero(v)
+        if _isnotzero(v)
             ir += 1; rind[ir] = ynzind[iy]; rval[ir] = v
         end
         iy += 1
@@ -1411,24 +1417,36 @@ end
 # definition of a few known broadcasted/mapped binary functions — all others defer to HigherOrderFunctions
 
 _bcast_binary_map(f, x, y, mode) = length(x) == length(y) ? _binarymap(f, x, y, mode) : HigherOrderFns._diffshape_broadcast(f, x, y)
+_getmode(::typeof(+), ::Type, ::Type) = 1
+_getmode(::typeof(-), ::Type, ::Type) = 1
+_getmode(::typeof(*), ::Type, ::Type) = 0
+_getmode(::typeof(*), ::Type{Union{Missing, T}}, ::Type) where {T} = 2
+_getmode(::typeof(*), ::Type, ::Type{Union{Missing, T}}) where {T} = 2
+_getmode(::typeof(*), ::Type{Union{Missing, T}}, ::Type{Union{Missing, S}}) where {T,S} = 2
+_getmode(::typeof(min), ::Type, ::Type) = 2
+_getmode(::typeof(max), ::Type, ::Type) = 2
 for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
     fun in (:+, :-) && @eval begin
         # Addition and subtraction can be defined directly on the arrays (without map/broadcast)
         $(fun)(x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($(fun), x, y, $mode)
     end
     @eval begin
-        map(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($fun, x, y, $mode)
-        map(::typeof($fun), x::SparseVector, y::SparseVector) = _binarymap($fun, x, y, $mode)
-        broadcast(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) = _bcast_binary_map($fun, x, y, $mode)
-        broadcast(::typeof($fun), x::SparseVector, y::SparseVector) = _bcast_binary_map($fun, x, y, $mode)
+        map(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
+            _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
+        map(::typeof($fun), x::SparseVector{Tx}, y::SparseVector{Ty}) where {Tx, Ty} =
+            _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
+        broadcast(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
+            _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
+        broadcast(::typeof($fun), x::SparseVector{Tx}, y::SparseVector{Ty}) where {Tx, Ty} =
+            _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
     end
 end
 
 ### Reduction
-Base.reducedim_initarray(A::AbstractSparseVector, region, v0, ::Type{R}) where {R} =
+Base.reducedim_initarray(A::SparseVectorUnion, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 
-function Base._mapreduce(f, op, ::IndexCartesian, A::AbstractSparseVector{T}) where {T}
+function Base._mapreduce(f, op, ::IndexCartesian, A::SparseVectorUnion{T}) where {T}
     isempty(A) && return Base.mapreduce_empty(f, op, T)
     z = nnz(A)
     rest, ini = if z == 0
@@ -1439,7 +1457,7 @@ function Base._mapreduce(f, op, ::IndexCartesian, A::AbstractSparseVector{T}) wh
     _mapreducezeros(f, op, T, rest, ini)
 end
 
-function Base.mapreducedim!(f, op, R::AbstractVector, A::AbstractSparseVector)
+function Base.mapreducedim!(f, op, R::AbstractVector, A::SparseVectorUnion)
     # dim1 reduction could be safely replaced with a mapreduce
     if length(R) == 1
         I = firstindex(R)
@@ -1465,7 +1483,7 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
         $comp(val, zeroval) && return val, nzinds[index]
         # we need to find the first zero, which could be stored or implicit
         # we try to avoid findfirst(iszero, x)
-        sindex = findfirst(iszero, nzvals) # first stored zero, if any
+        sindex = findfirst(_iszero, nzvals) # first stored zero, if any
         zindex = findfirst(i -> i < nzinds[i], eachindex(nzinds)) # first non-stored zero
         index = if isnothing(sindex)
             # non-stored zero are contiguous and at the end
@@ -1650,7 +1668,7 @@ function mul!(y::AbstractVector, A::_StridedOrTriangularMatrix, x::AbstractSpars
     xnzval = nonzeros(x)
     @inbounds for i = 1:length(xnzind)
         v = xnzval[i]
-        if v != zero(v)
+        if _isnotzero(v)
             j = xnzind[i]
             αv = v * α
             for r = 1:m
@@ -1784,7 +1802,7 @@ function mul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVe
 
     @inbounds for i = 1:length(xnzind)
         v = xnzval[i]
-        if v != zero(v)
+        if _isnotzero(v)
             αv = v * α
             j = xnzind[i]
             for r = Acolptr[j]:(Acolptr[j+1]-1)
@@ -2067,7 +2085,7 @@ Removes stored numerical zeros from `x`.
 For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
-dropzeros!(x::SparseVector) = fkeep!(x, (i, x) -> !iszero(x))
+dropzeros!(x::SparseVector) = fkeep!(x, (i, x) -> _isnotzero(x))
 
 """
     dropzeros(x::SparseVector)

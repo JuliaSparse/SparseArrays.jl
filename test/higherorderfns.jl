@@ -11,21 +11,35 @@ using SparseArrays
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
-
+function test_map_and_map!(A, alloc_tests)
+    # --> test map entry point
+    fA = Array(A)
+    shapeA = size(A)
+    @test map(sin, A) == sparse(map(sin, fA))
+    @test map(cos, A) == sparse(map(cos, fA))
+    # --> test map! entry point
+    fX = copy(fA); X = similar(A)
+    map!(sin, X, A); X = similar(A) # warmup for @allocated
+    map!(sin, X, A); X = similar(A) # warmup for @allocated
+    if @allocated(map!(sin, X, A)) != 0 && alloc_tests
+        println(stderr, "A in test_map_and_map! is ", A)
+    end
+    X = similar(A)
+    @test @allocated(map!(sin, X, A)) == 0 || !alloc_tests
+    @test map!(sin, X, A) == sparse(map!(sin, fX, fA))
+    @test map!(cos, X, A) == sparse(map!(cos, fX, fA))
+    @test_throws DimensionMismatch map!(sin, X, spzeros((shapeA .- 1)...))
+end
 @testset "map[!] implementation specialized for a single (input) sparse vector/matrix" begin
     N, M = 10, 12
     for shapeA in ((N,), (N, M))
-        A = sprand(shapeA..., 0.4); fA = Array(A)
-        # --> test map entry point
-        @test map(sin, A) == sparse(map(sin, fA))
-        @test map(cos, A) == sparse(map(cos, fA))
-        # --> test map! entry point
-        fX = copy(fA); X = sparse(fX)
-        map!(sin, X, A); X = sparse(fX) # warmup for @allocated
-        @test (@allocated map!(sin, X, A)) == 0
-        @test map!(sin, X, A) == sparse(map!(sin, fX, fA))
-        @test map!(cos, X, A) == sparse(map!(cos, fX, fA))
-        @test_throws DimensionMismatch map!(sin, X, spzeros((shapeA .- 1)...))
+        A = sprand(shapeA..., 0.4)
+        nonzeros(A)[sin.(nonzeros(A)) .== 0] .= .0
+        nonzeros(A)[cos.(nonzeros(A)) .== 0] .= .0
+        A = dropzeros(A)
+        test_map_and_map!(A, false)
+        test_map_and_map!(A, false)
+        test_map_and_map!(A, true)
     end
     # https://github.com/JuliaLang/julia/issues/37819
     Z = spzeros(Float64, Int32, 50000, 50000)

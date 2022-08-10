@@ -33,9 +33,12 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
     @test SparseArrays.nonzeroinds(x) == [2, 5, 6]
     @test nonzeros(x) == [1.25, -0.75, 3.5]
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
-    y = SparseVector(typemax(Int128), Int128[4], [5])
+    y = SparseVector(8, Int128[4], [5])
     @test y isa SparseVector{Int,Int128}
-    @test @inferred size(y) == (@inferred(length(y)),)
+    @test @inferred size(y) == (@inferred(length(y))::Int128,)
+    y = SparseVector(8, Int8[4], [5.0])
+    @test y isa SparseVector{Float64,Int8}
+    @test @inferred size(y) == (@inferred(length(y))::Int8,)
 end
 
 @testset "isstored" begin
@@ -337,6 +340,10 @@ end
         @test findall(!iszero, xc) == findall(!iszero, fc)
         @test findnz(xc) == ([2, 3, 5], [1.25, 0, -0.75])
     end
+    let Xc = spdiagm(spv_x1)
+        @test all(isempty, findnz(@view Xc[:,1]))
+        @test findnz(@view Xc[:,2]) == ([2], [1.25])
+    end
 end
 
 @testset "iteratenz (vector)" begin
@@ -555,6 +562,8 @@ end
             densevec = fill(1., N)
             densemat = fill(1., N, 1)
             diagmat = Diagonal(densevec)
+            # inferrability (https://github.com/JuliaSparse/SparseArrays.jl/pull/92)
+            cat_with_constdims(args...) = cat(args...; dims=(1,2))
             # Test that concatenations of pairwise combinations of sparse vectors with dense
             # vectors/matrices, sparse matrices, or special matrices yield sparse arrays
             for othervecormat in (densevec, densemat, spmat)
@@ -569,8 +578,6 @@ end
                 @test issparse(cat(spvec, othervecormat; dims=(1,2)))
                 @test issparse(cat(othervecormat, spvec; dims=(1,2)))
 
-                # inferrability (https://github.com/JuliaSparse/SparseArrays.jl/pull/92)
-                cat_with_constdims(args...) = cat(args...; dims=(1,2))
                 @test issparse(@inferred cat_with_constdims(spvec, othervecormat))
                 @test issparse(@inferred cat_with_constdims(othervecormat, spvec))
             end
@@ -585,8 +592,6 @@ end
             @test issparse(cat(densemat, diagmat, spmat, densevec, spvec; dims=(1,2)))
             @test issparse(cat(spvec, diagmat, densevec, spmat, densemat; dims=(1,2)))
 
-            # inferrability (https://github.com/JuliaSparse/SparseArrays.jl/pull/92)
-            cat_with_constdims(args...) = cat(args...; dims=(1,2))
             @test issparse(@inferred cat_with_constdims(densemat, diagmat, spmat, densevec, spvec))
             @test issparse(@inferred cat_with_constdims(spvec, diagmat, densevec, spmat, densemat))
         end
@@ -1443,6 +1448,34 @@ end
 
 @testset "spzeros with index type" begin
     @test typeof(spzeros(Float32, Int16, 3)) == SparseVector{Float32,Int16}
+end
+
+@testset "binary operations on sparse vectors with union eltype" begin
+    A = SparseVector(2, [1,2], Union{Int, Missing}[1, missing])
+    for fun in (+, -, *, min, max)
+        if fun in (+, -)
+            @test collect(skipmissing(Array(fun(A, A)))) == collect(skipmissing(Array(fun(Array(A), Array(A)))))
+        end
+        @test collect(skipmissing(Array(map(fun, A, A)))) == collect(skipmissing(map(fun, Array(A), Array(A))))
+        @test collect(skipmissing(Array(broadcast(fun, A, A)))) == collect(skipmissing(broadcast(fun, Array(A), Array(A))))
+    end
+    b = convert(SparseVector{Union{Float64, Missing}}, sprandn(Float64, 10, 0.2)); b[rand(1:10, 3)] .= missing
+    C = convert(SparseVector{Union{Float64, Missing}}, sprandn(Float64, 10, 0.9)); C[rand(1:10, 3)] .= missing
+    CA = Array(C)
+    D = convert(SparseVector{Union{Float64, Missing}}, spzeros(Float64, 10)); D[rand(1:10, 3)] .= missing
+    E = convert(SparseVector{Union{Float64, Missing}}, spzeros(Float64, 10))
+    for B in (b, C, D, E), fun in (+, -, *, min, max)
+        BA = Array(B)
+        # reverse order for opposite nonzeroinds-structure
+        if fun in (+, -)
+            @test collect(skipmissing(Array(fun(B, C)))) == collect(skipmissing(Array(fun(BA, CA))))
+            @test collect(skipmissing(Array(fun(C, B)))) == collect(skipmissing(Array(fun(CA, BA))))
+        end
+        @test collect(skipmissing(Array(map(fun, B, C)))) == collect(skipmissing(map(fun, BA, CA)))
+        @test collect(skipmissing(Array(map(fun, C, B)))) == collect(skipmissing(map(fun, CA, BA)))
+        @test collect(skipmissing(Array(broadcast(fun, B, C)))) == collect(skipmissing(broadcast(fun, BA, CA)))
+        @test collect(skipmissing(Array(broadcast(fun, C, B)))) == collect(skipmissing(broadcast(fun, CA, BA)))
+    end
 end
 
 @testset "corner cases of broadcast arithmetic operations with scalars (#21515)" begin

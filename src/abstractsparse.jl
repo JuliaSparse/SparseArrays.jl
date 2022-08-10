@@ -75,13 +75,13 @@ end
 
 # The following two methods should be overloaded by concrete types to avoid
 # allocating the I = findall(...)
-_sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(!iszero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)
-_sparse_findprevnz(v::AbstractSparseArray, i) = (I = findall(!iszero, v); n = searchsortedlast(I, i);  !iszero(n)   ? I[n] : nothing)
+_sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)
+_sparse_findprevnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedlast(I, i);  _isnotzero(n) ? I[n] : nothing)
 
 function findnext(f::Function, v::AbstractSparseArray, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
-    if nnz(v) == length(v) || (f != (!iszero) && f(zero(eltype(v))))
+    if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
         return invoke(findnext, Tuple{Function,Any,Any}, f, v, i)
     end
     j = _sparse_findnextnz(v, i)
@@ -94,7 +94,7 @@ end
 function findprev(f::Function, v::AbstractSparseArray, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
-    if nnz(v) == length(v) || (f != (!iszero) && f(zero(eltype(v))))
+    if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
         return invoke(findprev, Tuple{Function,Any,Any}, f, v, i)
     end
     j = _sparse_findprevnz(v, i)
@@ -133,3 +133,54 @@ Equivalent to `zip(findnz(A)...)` but does not allocated
 function iternz end
 
 widelength(x::AbstractSparseArray) = prod(Int64.(size(x)))
+
+
+const _restore_scalar_indexing = Expr[]
+const _destroy_scalar_indexing = Expr[]
+"""
+    @RCI f
+
+records the function `f` to be overwritten (and restored) with `allowscalar(::Bool)`. This is an
+experimental feature.
+
+Note that it will evaluate the function in the top level of the package. The original code for `f`
+is stored in `_restore_scalar_indexing` and a function that has the same definition as `f` but 
+returns an error is stored in `_destroy_scalar_indexing`.
+"""
+macro RCI(exp)
+    # evaluate to not push any broken code in the arrays when developping this package. 
+    # also ensures that restore has the exact same effect.
+    @eval $exp
+    if length(exp.args) == 2 && exp.head ∈ (:function, :(=))
+        push!(_restore_scalar_indexing, exp)
+        push!(_destroy_scalar_indexing,
+            Expr(exp.head,
+            exp.args[1],
+            :(error("scalar indexing was turned off"))))
+    else
+        error("can't parse expression")
+    end
+    return
+end
+
+"""
+    allowscalar(::Bool)
+
+An experimental function that allows one to disable and re-enable scalar indexing for sparse matrices and vectors. 
+
+`allowscalar(false)` will disable scalar indexing for sparse matrices and vectors. 
+`allowscalar(true)` will restore the original scalar indexing functionality.
+
+Since this function overwrites existing definitions, it will lead to recompilation. It is useful mainly when testing
+code for devices such as [GPUs](https://cuda.juliagpu.org/stable/usage/workflow/), where the presence of scalar indexing can lead to substantial slowdowns. 
+Disabling scalar indexing during such tests can help identify performance bottlenecks quickly.
+"""
+allowscalar(p::Bool) = if p
+    for i in _restore_scalar_indexing
+        @eval $i
+    end
+else
+    for i in _destroy_scalar_indexing
+        @eval $i
+    end
+end

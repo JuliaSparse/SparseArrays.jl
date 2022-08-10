@@ -9,6 +9,28 @@ using InteractiveUtils: @which
 include("forbidproperties.jl")
 include("simplesmatrix.jl")
 
+
+@testset "Issue #15" begin
+    s = sparse([1, 2], [1, 2], [10, missing])
+    d = Matrix(s)
+    
+    s2 = sparse(d)
+
+    @test s2[1, 1] == 10
+    @test s2[2, 1] == 0
+    @test s2[1, 2] == 0
+    @test s2[2, 2] === missing
+    @test typeof(s2) == typeof(s)
+
+    x = spzeros(3)
+    y = similar(x, Union{Int, Missing})
+    y[1] = missing
+    y[2] = 10
+    @test y[1] === missing
+    @test y[2] == 10
+    @test y[3] == 0
+end
+
 @testset "Issue #33169" begin
     m21 = sparse([1, 2], [2, 2], SimpleSMatrix{2,1}.([rand(2, 1), rand(2, 1)]), 2, 2)
     m12 = sparse([1, 2], [2, 2], SimpleSMatrix{1,2}.([rand(1, 2), rand(1, 2)]), 2, 2)
@@ -718,6 +740,18 @@ f12063(tt, g, p, c, b, v, cu::T, d::AbstractArray{T, 2}, ve) where {T} = 1
 f12063(args...) = 2
 g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
 @test g12063() == 1
+
+@testset "Issue #210" begin
+    io = IOBuffer()
+    show(io, sparse([1 2; 3 4]))
+    @test String(take!(io)) == "sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2)"
+    io = IOBuffer()
+    show(io, sparse([1 2; 3 4])')
+    @test String(take!(io)) == "adjoint(sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2))"
+    io = IOBuffer()
+    show(io, transpose(sparse([1 2; 3 4])))
+    @test String(take!(io)) == "transpose(sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2))"
+end
 
 end
 

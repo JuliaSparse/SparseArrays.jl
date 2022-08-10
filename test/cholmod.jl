@@ -4,7 +4,6 @@ module CHOLMODTests
 
 using Test
 using SparseArrays.CHOLMOD
-using DelimitedFiles
 using Random
 using Serialization
 using LinearAlgebra:
@@ -216,20 +215,29 @@ end
 end
 
 @testset "test Sparse constructor and read_sparse" begin
+    # avoid dependenting on delimited files
+    function writedlm(fn, title="", xs...)
+        open(fn, "w") do file
+            println(file, title)
+            for i in xs
+                println(file, i)
+            end
+        end
+    end
     mktempdir() do temp_dir
         testfile = joinpath(temp_dir, "tmp.mtx")
 
-        writedlm(testfile, ["%%MatrixMarket matrix coordinate real symmetric","3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1"])
+        writedlm(testfile, "%%MatrixMarket matrix coordinate real symmetric","3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1")
         @test sparse(CHOLMOD.Sparse(testfile)) == [1 0 0;0 1 0.5;0 0.5 1]
         rm(testfile)
 
-        writedlm(testfile, ["%%MatrixMarket matrix coordinate complex Hermitian",
-                        "3 3 4","1 1 1.0 0.0","2 2 1.0 0.0","3 2 0.5 0.5","3 3 1.0 0.0"])
+        writedlm(testfile, "%%MatrixMarket matrix coordinate complex Hermitian",
+                        "3 3 4","1 1 1.0 0.0","2 2 1.0 0.0","3 2 0.5 0.5","3 3 1.0 0.0")
         @test sparse(CHOLMOD.Sparse(testfile)) == [1 0 0;0 1 0.5-0.5im;0 0.5+0.5im 1]
         rm(testfile)
 
         # this also tests that the error message is correctly retrieved from the library
-        writedlm(testfile, ["%%MatrixMarket matrix coordinate real symmetric","%3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1"])
+        writedlm(testfile, "%%MatrixMarket matrix coordinate real symmetric","%3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1")
         @test_throws CHOLMOD.CHOLMODException("indices out of range") sparse(CHOLMOD.Sparse(testfile))
         rm(testfile)
     end
@@ -237,35 +245,35 @@ end
 
 ## The struct pointer must be constructed by the library constructor and then modified afterwards to checks that the method throws
 @testset "illegal dtype (for now but should be supported at some point)" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint, CHOLMOD_SINGLE, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal dtype" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint, 5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal xtype" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 3)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal itype I" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint, CHOLMOD_INTLONG, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal itype II" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     puint = convert(Ptr{UInt32}, p)
     unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
@@ -314,7 +322,7 @@ end
 
 # Test Sparse and Factor
 @testset "test free!" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.COMMONS[Threads.threadid()])
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
     @test CHOLMOD.free!(p)
 end
 
@@ -904,7 +912,7 @@ end
 
 @testset "Check common is still in default state" begin
     # This test intentially depends on all the above tests!
-    current_common = CHOLMOD.COMMONS[Threads.threadid()]
+    current_common = CHOLMOD.getcommon()
     default_common = Ref(cholmod_common())
     result = cholmod_l_start(default_common)
     @test result == CHOLMOD.TRUE
