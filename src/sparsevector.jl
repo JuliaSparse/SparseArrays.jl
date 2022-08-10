@@ -149,7 +149,7 @@ function _sparsesimilar(S::SparseVector, ::Type{TvNew}, ::Type{TiNew}, dims::Dim
     return sizehint!(S1, min(widelength(S1), length(nonzeroinds(S))))
 end
 
-_sparsesimilar(S::FixedSparseVector, x...) = fixed(_sparsesimilar(_unsafe_nofix(S), x...))
+_sparsesimilar(S::FixedSparseVector, x...) = fixed(_sparsesimilar(_unsafe_unfix(S), x...))
 
 # The following methods hook into the AbstractArray similar hierarchy. The first method
 # covers similar(A[, Tv]) calls, which preserve stored-entry structure, and the latter
