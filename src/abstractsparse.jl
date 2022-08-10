@@ -16,6 +16,24 @@ Supertype for one-dimensional sparse arrays (or array-like types) with elements
 of type `Tv` and index type `Ti`. Alias for `AbstractSparseArray{Tv,Ti,1}`.
 """
 const AbstractSparseVector{Tv,Ti} = AbstractSparseArray{Tv,Ti,1}
+
+"""
+    AbstractSparseVectorC{Tv,Ti}
+
+Supertype for vectors stored using a compressed map.
+"""
+abstract type AbstractSparseVectorC{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
+
+
+"""
+    AbstractFixedSparseVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti}
+
+Supertype for one-dimension sparse arrays (or array-like types) which the sparsity structure
+is fixed.
+see `AbstractSparseVector{Tv,Ti}`
+"""
+abstract type AbstractFixedSparseVector{Tv,Ti} <: AbstractSparseVectorC{Tv,Ti} end
+
 """
     AbstractSparseMatrix{Tv,Ti}
 

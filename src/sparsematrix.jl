@@ -43,31 +43,6 @@ function SparseMatrixCSC(m::Integer, n::Integer, colptr::Vector, rowval::Vector,
     length(nzval) > maxlen && resize!(nzval, maxlen)
     SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
-struct ReadOnly{T,V<:AbstractVector{T}} <: AbstractVector{T}
-    x::V
-end
-@inline inner(x::ReadOnly) = x.x
-@inline getindex(x::ReadOnly, v...) = getindex(inner(x), v...)
-for i in [:length, :lastindex]
-    @eval Base.$i(x::ReadOnly) = Base.$i(inner(x))
-end
-Base.setindex!(x::ReadOnly, v, ind...) = if v == getindex(inner(x), ind...)
-    v
-else
-    error("can't change $(typeof(x))")
-end
-Base.resize!(x::ReadOnly, l) = if l == length(x.x)
-    x
-else
-    error("can't resize $(typeof(x))")
-end
-Base.copy(x::ReadOnly) = ReadOnly(copy(inner(x)))
-(==)(x::ReadOnly, y) = inner(x) == y
-(==)(x, y::ReadOnly) = x == inner(y)
-(==)(x::ReadOnly, y::ReadOnly) = inner(x) == inner(y)
-size(x::ReadOnly) = size(inner(x))
-size(x::ReadOnly, i) = size(inner(x), i)
-
 
 struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractFixedCSC{Tv,Ti}
     m::Int                  # Number of rows
@@ -76,9 +51,9 @@ struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractFixedCSC{Tv,Ti}
     rowval::ReadOnly{Ti,Vector{Ti}} # Row indices of stored values
     nzval::Vector{Tv}       # Stored values, typically nonzeros
 
-    function FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer, 
+    function FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer,
                             colptr::ReadOnly{Ti,Vector{Ti}},
-                            rowval::ReadOnly{Ti,Vector{Ti}}, 
+                            rowval::ReadOnly{Ti,Vector{Ti}},
                             nzval::Vector{Tv}) where {Tv,Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
         _goodbuffers(Int(m), Int(n), colptr.x, rowval.x, nzval) ||
@@ -86,20 +61,24 @@ struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractFixedCSC{Tv,Ti}
         new(Int(m), Int(n), colptr, rowval, nzval)
     end
 end
-FixedSparseCSC(m::Integer, n::Integer, 
+FixedSparseCSC(m::Integer, n::Integer,
     colptr::ReadOnly{Ti, Vector{Ti}},
-    rowval::ReadOnly{Ti, Vector{Ti}}, 
-    nzval::Vector{Tv}) where {Tv,Ti<:Integer} = 
+    rowval::ReadOnly{Ti, Vector{Ti}},
+    nzval::Vector{Tv}) where {Tv,Ti<:Integer} =
     FixedSparseCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
-FixedSparseCSC(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} = 
+FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
     FixedSparseCSC{Tv,Ti}(m, n, ReadOnly(colptr), ReadOnly(rowval), nzval)
-FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = 
-    FixedSparseCSC(size(x, 1), size(x, 2), 
-        convert(Vector{Ti}, getcolptr(x)), 
-        convert(Vector{Ti}, rowvals(x)), 
-        convert(Vector{Tv}, nonzeros(x)))
-fixed(x...) = FixedSparseCSC(sparse(x...))
+FixedSparseCSC(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
+    FixedSparseCSC{Tv,Ti}(m, n, ReadOnly(colptr), ReadOnly(rowval), nzval)
+FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
+    FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
+        getcolptr(x), rowvals(x), nonzeros(x))
+FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
+    FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
+        getcolptr(x), rowvals(x), nonzeros(x))
+fixed(x...) = fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
+_unsafe_nofix(s::FixedSparseCSC) = SparseMatrixCSC(size(s)..., inner(getcolptr(s)), inner(rowvals(s)), nonzeros(s))
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
 """
     SparseMatrixCSC(x::FixedSparseCSC)
@@ -603,8 +582,11 @@ _sparsesimilar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, dims::D
 # methods cover similar(A[, Tv], shape...) calls, which partially preserve
 # storage space when the shape calls for a two-dimensional result.
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = _sparsesimilar(S, TvNew, Ti)
+similar(S::AbstractFixedCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = fixed(_sparsesimilar(S, TvNew, Ti))
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
     _sparsesimilar(S, TvNew, Ti, dims)
+similar(S::AbstractFixedCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
+    fixed(_sparsesimilar(S, TvNew, Ti, dims))
 # The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
 # result's index type in addition to its entry type, and aren't covered by the hooks above.
 # The calls without shape again preserve stored-entry structure, whereas those with shape
@@ -1202,9 +1184,9 @@ end
 """
     ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::Function) where {Tv,Ti}
 
-Transpose `A` and store it in `X` while applying the function `f` to the non-zero elements. 
+Transpose `A` and store it in `X` while applying the function `f` to the non-zero elements.
 Does not remove the zeros created by `f`. `size(X)` must be equal to `size(transpose(A))`.
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -1223,9 +1205,9 @@ end
 """
     transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
-Transpose the matrix `A` and stores it in the matrix `X`. 
+Transpose the matrix `A` and stores it in the matrix `X`.
 `size(X)` must be equal to `size(transpose(A))`.
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -1235,8 +1217,8 @@ transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti})
     adjoint!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
 Transpose the matrix `A` and stores the adjoint of the elements in the matrix `X`.
-`size(X)` must be equal to `size(transpose(A))`. 
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed. 
+`size(X)` must be equal to `size(transpose(A))`.
+No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -3947,13 +3929,13 @@ end
 
 ## Uniform matrix arithmetic
 
-(+)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} = 
+(+)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} =
     A + sparse(T, Ti, J, size(A)...)
-(+)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} = 
+(+)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} =
     sparse(T, Ti, J, size(A)...) + A
-(-)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} = 
+(-)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} =
     A - sparse(T, Ti, J, size(A)...)
-(-)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} = 
+(-)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} =
     sparse(T, Ti, J, size(A)...) - A
 
 
