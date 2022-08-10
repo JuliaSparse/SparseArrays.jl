@@ -579,8 +579,6 @@ output matrix are different from the output.
 
 The output matrix has zeros in the same locations as the input, but
 unititialized values for the nonzero locations.
-
-# Examples
 """
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}) where{TvNew,TiNew} =
     _sparsesimilar(S, TvNew, TiNew)
