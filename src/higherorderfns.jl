@@ -155,25 +155,37 @@ map!(f::Tf, C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, Bs::Vararg{S
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, A, Bs...))
 map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, A, Bs...))
-function _noshapecheck_map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
-    haszeros = _haszeros(C) && _haszeros(A) && all(_haszeros, Bs)
-    # Avoid calculating f(zero) unless necessary (it may fail)
-    fofzeros = haszeros ? f(_zeros_eltypes(A, Bs...)...) : nothing
-    fpreszeros = !haszeros || _iszero(fofzeros)
-    return fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
-                        _map_notzeropres!(f, fofzeros, C, A, Bs...)
-end
+ _noshapecheck_map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
+    # Avoid calculating f(zero) unless necessary as it may fail.
+    if _haszeros(A) && all(_haszeros, Bs)
+        fofzeros = f(_zeros_eltypes(A, Bs...)...)
+        if _iszero(fofzeros)
+            _map_zeropres!(f, C, A, Bs...)
+        else
+            _map_notzeropres!(f, fofzeros, C, A, Bs...)
+        end
+    else
+        _map_zeropres!(f, C, A, Bs...)
+    end
+
+
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
-    haszeros = _haszeros(A) && all(_haszeros, Bs)
-    # Avoid calculating f(zero) unless necessary (it may fail)
-    fofzeros = haszeros ? f(_zeros_eltypes(A, Bs...)...) : nothing
-    fpreszeros = !haszeros || _iszero(fofzeros)
-    maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
+    # Avoid calculating f(zero) unless necessary as it may fail.
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     indextypeC = _promote_indtype(A, Bs...)
-    C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
-    return fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
+
+    if _haszeros(A) && all(_haszeros, Bs)
+        fofzeros = f(_zeros_eltypes(A, Bs...)...)
+        fpreszeros = _iszero(fofzeros)
+        maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
+        C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
+        return fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
                         _map_notzeropres!(f, fofzeros, C, A, Bs...)
+    else
+        maxnnzC = Int(widelength(A))
+        C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
+        return _map_zeropres!(f, C, A, Bs...)
+    end
 end
 # (3) broadcast[!] entry points
 copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
