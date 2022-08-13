@@ -14,7 +14,7 @@ using ..SparseArrays: SparseVector, FixedSparseVector, SparseMatrixCSC, FixedSpa
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
                       SorF, indtype, fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
-                      _iszero, _isnotzero, _is_fixed
+                      _iszero, _isnotzero, _can_insert
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 
@@ -164,7 +164,7 @@ function _noshapecheck_map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Var
     fpreszeros = _iszero(fofzeros)
     r = fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
                         _map_notzeropres!(f, fofzeros, C, A, Bs...)
-    return _is_fixed(A, Bs...) ? fixed(r) : r
+    return _can_insert(A, Bs...) ? fixed(r) : r
 end
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
     fofzeros = f(_zeros_eltypes(A, Bs...)...)
@@ -176,7 +176,7 @@ function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N
 
     r = fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
                         _map_notzeropres!(f, fofzeros, C, A, Bs...)
-    return _is_fixed(A, Bs...) ? fixed(r) : r
+    return _can_insert(A, Bs...) ? fixed(r) : r
 end
 # (3) broadcast[!] entry points
 copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
@@ -207,7 +207,7 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
     C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
     r = fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
                         _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
-    return _is_fixed(A, Bs...) ? fixed(r) : r
+    return _can_insert(A, Bs...) ? fixed(r) : r
 end
 # helper functions for map[!]/broadcast[!] entry points (and related methods below)
 @inline _sumnnzs(A) = nnz(A)
@@ -246,7 +246,7 @@ end
 "Stores only the nonzero entries of `map(f, Array(A))` in `C`."
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     spaceC::Int = length(nonzeros(C))
-    isfixed = _is_fixed(C, A)
+    isfixed = _can_insert(C, A)
     Ck = 1
     @inbounds for j in columns(C)
         setcolptr!(C, j, Ck)
@@ -305,7 +305,7 @@ end
 
 # (5) _map_zeropres!/_map_notzeropres! specialized for a pair of sparse vectors/matrices
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
-    isfixed = _is_fixed(C, A, B)
+    isfixed = _can_insert(C, A, B)
     spaceC::Int = length(nonzeros(C))
     rowsentinelA = convert(indtype(A), numrows(C) + 1)
     rowsentinelB = convert(indtype(B), numrows(C) + 1)
@@ -384,7 +384,7 @@ end
 # (6) _map_zeropres!/_map_notzeropres! for more than two sparse matrices / vectors
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     spaceC::Int = length(nonzeros(C))
-    isfixed = _is_fixed(As)
+    isfixed = _can_insert(As)
     rowsentinel = numrows(C) + 1
     Ck = 1
     stopks = _colstartind_all(1, As)
@@ -472,7 +472,7 @@ end
 # (7) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a single (input) sparse vector/matrix
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(C, A)
+    isfixed = _can_insert(C, A)
     spaceC::Int = length(nonzeros(C))
     # C and A cannot have the same shape, as we directed that case to map in broadcast's
     # entry point; here we need efficiently handle only heterogeneous C-A combinations where
@@ -558,7 +558,7 @@ end
 # (8) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a pair of (input) sparse vectors/matrices
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(C, A, B)
+    isfixed = _can_insert(C, A, B)
     spaceC::Int = length(nonzeros(C))
     rowsentinelA = convert(indtype(A), numrows(C) + 1)
     rowsentinelB = convert(indtype(B), numrows(C) + 1)
@@ -881,7 +881,7 @@ end
 # (9) _broadcast_zeropres!/_broadcast_notzeropres! for more than two (input) sparse vectors/matrices
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(C, As)
+    isfixed = _can_insert(C, As)
     spaceC::Int = length(nonzeros(C))
     expandsverts = _expandsvert_all(C, As)
     expandshorzs = _expandshorz_all(C, As)
