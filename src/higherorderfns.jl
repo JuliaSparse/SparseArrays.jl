@@ -9,7 +9,7 @@ import Base: map, map!, broadcast, copy, copyto!
 using Base: front, tail, to_shape
 
 using ..SparseArrays: SparseVector, FixedSparseVector, SparseMatrixCSC, FixedSparseCSC,
-                      AbstractSparseVectorC, AbstractSparseVector, AbstractSparseMatrixCSC,
+                      AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray, AbstractFixedCSC, AbstractFixedSparseVector,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
                       SorF, indtype, fixed, nnz, nzrange, spzeros,
@@ -38,12 +38,12 @@ using LinearAlgebra
 
 # (0) BroadcastStyle rules and convenience types for dispatch
 
-SparseVecOrMat = Union{AbstractSparseVectorC,AbstractSparseMatrixCSC}
+SparseVecOrMat = Union{AbstractCompressedVector,AbstractSparseMatrixCSC}
 
 # broadcast container type promotion for combinations of sparse arrays and other types
 struct SparseVecStyle <: Broadcast.AbstractArrayStyle{1} end
 struct SparseMatStyle <: Broadcast.AbstractArrayStyle{2} end
-Broadcast.BroadcastStyle(::Type{<:AbstractSparseVectorC}) = SparseVecStyle()
+Broadcast.BroadcastStyle(::Type{<:AbstractCompressedVector}) = SparseVecStyle()
 Broadcast.BroadcastStyle(::Type{<:AbstractSparseMatrixCSC}) = SparseMatStyle()
 const SPVM = Union{SparseVecStyle,SparseMatStyle}
 
@@ -72,8 +72,8 @@ PromoteToSparse(::Val{2}) = PromoteToSparse()
 PromoteToSparse(::Val{N}) where N = Broadcast.DefaultArrayStyle{N}()
 
 const StructuredMatrix = Union{Diagonal,Bidiagonal,Tridiagonal,SymTridiagonal}
-Broadcast.BroadcastStyle(::Type{<:Adjoint{T,<:Union{AbstractSparseVectorC,AbstractSparseMatrixCSC}} where T}) = PromoteToSparse()
-Broadcast.BroadcastStyle(::Type{<:Transpose{T,<:Union{AbstractSparseVectorC,AbstractSparseMatrixCSC}} where T}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::Type{<:Adjoint{T,<:Union{AbstractCompressedVector,AbstractSparseMatrixCSC}} where T}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::Type{<:Transpose{T,<:Union{AbstractCompressedVector,AbstractSparseMatrixCSC}} where T}) = PromoteToSparse()
 
 Broadcast.BroadcastStyle(s::SPVM, ::Broadcast.AbstractArrayStyle{0}) = s
 Broadcast.BroadcastStyle(s::SPVM, ::Broadcast.DefaultArrayStyle{0}) = s
@@ -113,23 +113,23 @@ const SpBroadcasted2{Style<:SPVM,Axes,F,Args<:Tuple{SparseVecOrMat,SparseVecOrMa
 # sufficient for the purposes of map[!]/broadcast[!]. This interface treats sparse vectors
 # as n-by-one sparse matrices which, though technically incorrect, is how broacast[!] views
 # sparse vectors in practice.
-@inline numrows(A::AbstractSparseVectorC) = length(A)
+@inline numrows(A::AbstractCompressedVector) = length(A)
 @inline numrows(A::AbstractSparseMatrixCSC) = size(A, 1)
-@inline numcols(A::AbstractSparseVectorC) = 1
+@inline numcols(A::AbstractCompressedVector) = 1
 @inline numcols(A::AbstractSparseMatrixCSC) = size(A, 2)
 # numrows and numcols respectively yield size(A, 1) and size(A, 2), but avoid a branch
-@inline columns(A::AbstractSparseVectorC) = 1
+@inline columns(A::AbstractCompressedVector) = 1
 @inline columns(A::AbstractSparseMatrixCSC) = 1:size(A, 2)
-@inline colrange(A::AbstractSparseVectorC, j) = 1:length(nonzeroinds(A))
+@inline colrange(A::AbstractCompressedVector, j) = 1:length(nonzeroinds(A))
 @inline colrange(A::AbstractSparseMatrixCSC, j) = nzrange(A, j)
-@inline colstartind(A::AbstractSparseVectorC, j) = one(indtype(A))
-@inline colboundind(A::AbstractSparseVectorC, j) = convert(indtype(A), length(nonzeroinds(A)) + 1)
+@inline colstartind(A::AbstractCompressedVector, j) = one(indtype(A))
+@inline colboundind(A::AbstractCompressedVector, j) = convert(indtype(A), length(nonzeroinds(A)) + 1)
 @inline colstartind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j]
 @inline colboundind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j + 1]
-@inline storedinds(A::AbstractSparseVectorC) = nonzeroinds(A)
+@inline storedinds(A::AbstractCompressedVector) = nonzeroinds(A)
 @inline storedinds(A::AbstractSparseMatrixCSC) = rowvals(A)
 @inline storedvals(A::SparseVecOrMat) = nonzeros(A)
-@inline setcolptr!(A::AbstractSparseVectorC, j, val) = val
+@inline setcolptr!(A::AbstractCompressedVector, j, val) = val
 @inline setcolptr!(A::AbstractSparseMatrixCSC, j, val) = getcolptr(A)[j] = val
 function trimstorage!(A::SparseVecOrMat, maxstored)
     resize!(storedinds(A), maxstored)
@@ -146,10 +146,10 @@ function expandstorage!(A::SparseVecOrMat, maxstored)
 end
 
 _checkbuffers(S::AbstractSparseMatrixCSC) = (@assert length(getcolptr(S)) == size(S, 2) + 1 && getcolptr(S)[end] - 1 == length(rowvals(S)) == length(nonzeros(S)); S)
-_checkbuffers(S::AbstractSparseVectorC) = (@assert length(storedvals(S)) == length(storedinds(S)); S)
+_checkbuffers(S::AbstractCompressedVector) = (@assert length(storedvals(S)) == length(storedinds(S)); S)
 
 # (2) map[!] entry points
-map(f::Tf, A::AbstractSparseVectorC) where {Tf} = _noshapecheck_map(f, A)
+map(f::Tf, A::AbstractCompressedVector) where {Tf} = _noshapecheck_map(f, A)
 map(f::Tf, A::AbstractSparseMatrixCSC) where {Tf} = _noshapecheck_map(f, A)
 map(f::Tf, A::AbstractSparseMatrixCSC, Bs::Vararg{SparseMatrixCSC,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
@@ -226,8 +226,8 @@ end
 @inline _all_args_isa(t::Tuple{Broadcasted,Vararg{Any}}, ::Type{T}) where T = _all_args_isa(t[1].args, T) & _all_args_isa(tail(t), T)
 @inline _densennz(shape::NTuple{1}) = shape[1]
 @inline _densennz(shape::NTuple{2}) = shape[1] * shape[2]
-_maxnnzfrom(shape::NTuple{1}, A::AbstractSparseVectorC) = nnz(A) * div(shape[1], length(A))
-_maxnnzfrom(shape::NTuple{2}, A::AbstractSparseVectorC) = nnz(A) * div(shape[1], length(A)) * shape[2]
+_maxnnzfrom(shape::NTuple{1}, A::AbstractCompressedVector) = nnz(A) * div(shape[1], length(A))
+_maxnnzfrom(shape::NTuple{2}, A::AbstractCompressedVector) = nnz(A) * div(shape[1], length(A)) * shape[2]
 _maxnnzfrom(shape::NTuple{2}, A::AbstractSparseMatrixCSC) = nnz(A) * div(shape[1], size(A, 1)) * div(shape[2], size(A, 2))
 @inline _maxnnzfrom_each(shape, ::Tuple{}) = ()
 @inline _maxnnzfrom_each(shape, As) = (_maxnnzfrom(shape, first(As)), _maxnnzfrom_each(shape, tail(As))...)
@@ -285,9 +285,9 @@ function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMa
     return _checkbuffers(C)
 end
 # helper functions for these methods and some of those below
-@inline _densecoloffsets(A::AbstractSparseVectorC) = 0
+@inline _densecoloffsets(A::AbstractCompressedVector) = 0
 @inline _densecoloffsets(A::AbstractSparseMatrixCSC) = 0:size(A, 1):(size(A, 1)*(size(A, 2) - 1))
-function _densestructure!(A::AbstractSparseVectorC)
+function _densestructure!(A::AbstractCompressedVector)
     expandstorage!(A, length(A))
     copyto!(nonzeroinds(A), 1:length(A))
     return A
@@ -824,7 +824,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
     end
     return _checkbuffers(C)
 end
-_finishempty!(C::AbstractSparseVectorC) = C
+_finishempty!(C::AbstractCompressedVector) = C
 _finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)
 
 # special case - vector outer product
@@ -1033,7 +1033,7 @@ end
     return _copy(bcf.f, bcf.args...)
 end
 
-_copy(f, args::AbstractSparseVectorC...) = _shapecheckbc(f, args...)
+_copy(f, args::AbstractCompressedVector...) = _shapecheckbc(f, args...)
 _copy(f, args::AbstractSparseMatrixCSC...) = _shapecheckbc(f, args...)
 _copy(f, args::SparseVecOrMat...) = _diffshape_broadcast(f, args...)
 # Otherwise, we incorporate scalars into the function and re-dispatch

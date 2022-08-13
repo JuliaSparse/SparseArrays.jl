@@ -33,7 +33,7 @@ sparse([5, 6, 0, 7])
 
 yields the same sparse vector.
 """
-struct SparseVector{Tv,Ti<:Integer} <: AbstractSparseVectorC{Tv,Ti}
+struct SparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
     nzind::Vector{Ti}   # Indices of stored values
     nzval::Vector{Tv}   # Stored values, typically nonzeros
@@ -84,11 +84,11 @@ const SVorFSV{Tv,Ti} = Union{SparseVector{Tv,Ti},FixedSparseVector{Tv,Ti}}
 
 length(x::SVorFSV)   = getfield(x, :n)
 size(x::SVorFSV)     = (getfield(x, :n),)
-count(f, x::AbstractSparseVectorC) = count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x))
+count(f, x::AbstractCompressedVector) = count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x))
 
 # implement the nnz - nzrange - nonzeros - rowvals interface for sparse vectors
 
-nnz(x::AbstractSparseVectorC) = length(nonzeros(x))
+nnz(x::AbstractCompressedVector) = length(nonzeros(x))
 function nnz(x::SparseColumnView)
     rowidx, colidx = parentindices(x)
     return length(nzrange(parent(x), colidx))
@@ -155,20 +155,20 @@ _sparsesimilar(S::FixedSparseVector, x...) = fixed(_sparsesimilar(_unsafe_unfix(
 # covers similar(A[, Tv]) calls, which preserve stored-entry structure, and the latter
 # methods cover similar(A[, Tv], shape...) calls, which preserve nothing if the dims
 # specify a SparseVector or a SparseMatrixCSC result.
-similar(S::AbstractSparseVectorC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
+similar(S::AbstractCompressedVector{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
     _sparsesimilar(S, TvNew, Ti)
-similar(S::AbstractSparseVectorC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
+similar(S::AbstractCompressedVector{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
     _sparsesimilar(S, TvNew, Ti, dims)
 # The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
 # result's index type in addition to its entry type, and aren't covered by the hooks above.
 # The calls without shape again preserve stored-entry structure but no storage space.
-similar(S::AbstractSparseVectorC, ::Type{TvNew}, ::Type{TiNew}) where{TvNew,TiNew} =
+similar(S::AbstractCompressedVector, ::Type{TvNew}, ::Type{TiNew}) where{TvNew,TiNew} =
     _sparsesimilar(S, TvNew, TiNew)
-similar(S::AbstractSparseVectorC, ::Type{TvNew}, ::Type{TiNew}, dims::Union{Dims{1},Dims{2}}) where {TvNew,TiNew} =
+similar(S::AbstractCompressedVector, ::Type{TvNew}, ::Type{TiNew}, dims::Union{Dims{1},Dims{2}}) where {TvNew,TiNew} =
     _sparsesimilar(S, TvNew, TiNew, dims)
-similar(S::AbstractSparseVectorC, ::Type{TvNew}, ::Type{TiNew}, m::Integer) where {TvNew,TiNew} =
+similar(S::AbstractCompressedVector, ::Type{TvNew}, ::Type{TiNew}, m::Integer) where {TvNew,TiNew} =
     _sparsesimilar(S, TvNew, TiNew, (m,))
-similar(S::AbstractSparseVectorC, ::Type{TvNew}, ::Type{TiNew}, m::Integer, n::Integer) where {TvNew,TiNew} =
+similar(S::AbstractCompressedVector, ::Type{TvNew}, ::Type{TiNew}, m::Integer, n::Integer) where {TvNew,TiNew} =
     _sparsesimilar(S, TvNew, TiNew, (m, n))
 
 ## Alias detection and prevention
@@ -185,7 +185,7 @@ spzeros(::Type{T}, dims::Tuple{<:Integer}) where {T} = spzeros(T, dims[1])
 spzeros(::Type{Tv}, ::Type{Ti}, len::Integer) where {Tv,Ti<:Integer} = SparseVector(len, Ti[], Tv[])
 spzeros(::Type{Tv}, ::Type{Ti}, dims::Tuple{<:Integer}) where {Tv,Ti<:Integer} = spzeros(Tv, Ti, dims[1])
 fixed(x::AbstractSparseVector) = FixedSparseVector(x)
-LinearAlgebra.fillstored!(x::AbstractSparseVectorC, y) = (fill!(nonzeros(x), y); x)
+LinearAlgebra.fillstored!(x::AbstractCompressedVector, y) = (fill!(nonzeros(x), y); x)
 
 ### Construction from lists of indices and values
 
@@ -367,7 +367,7 @@ end
 ### Element access
 
 
-@RCI function setindex!(x::AbstractSparseVectorC{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
+@RCI function setindex!(x::AbstractCompressedVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
     checkbounds(x, i)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
@@ -385,7 +385,7 @@ end
     x
 end
 
-@RCI setindex!(x::AbstractSparseVectorC{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
+@RCI setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
     setindex!(x, convert(Tv, v), convert(Ti, i))
 
 
@@ -502,8 +502,8 @@ SparseVector{Tv}(s::AbstractVector{Tv}) where {Tv} = SparseVector{Tv,Int}(s)
 SparseVector(s::AbstractVector{Tv}) where {Tv} = SparseVector{Tv,Int}(s)
 
 # copy-constructors
-SparseVector(s::AbstractSparseVectorC{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
-SparseVector{Tv}(s::AbstractSparseVectorC{<:Any,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
+SparseVector(s::AbstractCompressedVector{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
+SparseVector{Tv}(s::AbstractCompressedVector{<:Any,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
 function SparseVector{Tv,Ti}(s::SparseVector) where {Tv,Ti}
     copyind = Vector{Ti}(nonzeroinds(s))
     copynz = Vector{Tv}(nonzeros(s))
@@ -513,10 +513,10 @@ end
 # convert between different types of SparseVector
 convert(T::Type{<:SparseVector}, m::AbstractVector) = m isa T ? m : T(m)
 convert(T::Type{<:SparseVector}, m::AbstractSparseMatrixCSC) = T(m)
-convert(T::Type{<:AbstractSparseMatrixCSC}, v::AbstractSparseVectorC) = T(v)
+convert(T::Type{<:AbstractSparseMatrixCSC}, v::AbstractCompressedVector) = T(v)
 
 ### copying
-function prep_sparsevec_copy_dest!(A::AbstractSparseVectorC, lB, nnzB)
+function prep_sparsevec_copy_dest!(A::AbstractCompressedVector, lB, nnzB)
     lA = length(A)
     lA >= lB || throw(BoundsError())
     # If the two vectors have the same length then all the elements in A will be overwritten.
@@ -541,16 +541,16 @@ function prep_sparsevec_copy_dest!(A::AbstractSparseVectorC, lB, nnzB)
     end
 end
 
-function copyto!(A::AbstractSparseVectorC, B::AbstractSparseVectorC)
+function copyto!(A::AbstractCompressedVector, B::AbstractCompressedVector)
     prep_sparsevec_copy_dest!(A, length(B), nnz(B))
     copyto!(nonzeroinds(A), nonzeroinds(B))
     copyto!(nonzeros(A), nonzeros(B))
     return A
 end
 
-copyto!(A::AbstractSparseVectorC, B::AbstractVector) = copyto!(A, sparsevec(B))
+copyto!(A::AbstractCompressedVector, B::AbstractVector) = copyto!(A, sparsevec(B))
 
-function copyto!(A::AbstractSparseVectorC, B::AbstractSparseMatrixCSC)
+function copyto!(A::AbstractCompressedVector, B::AbstractSparseMatrixCSC)
     prep_sparsevec_copy_dest!(A, length(B), nnz(B))
 
     ptr = 1
@@ -567,7 +567,7 @@ function copyto!(A::AbstractSparseVectorC, B::AbstractSparseMatrixCSC)
     return A
 end
 
-copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseVectorC{TvB,TiB}) where {TvB,TiB} =
+copyto!(A::AbstractSparseMatrixCSC, B::AbstractCompressedVector{TvB,TiB}) where {TvB,TiB} =
     copyto!(A, SparseMatrixCSC{TvB,TiB}(length(B), 1, TiB[1, length(nonzeroinds(B))+1], nonzeroinds(B), nonzeros(B)))
 
 
@@ -809,7 +809,7 @@ function findall(p::F, x::SparseVectorUnion{<:Any,Ti}) where {Ti,F<:Function}
 
     return I
 end
-findall(p::Base.Fix2{typeof(in)}, x::AbstractSparseVectorC{<:Any,Ti}) where {Ti} =
+findall(p::Base.Fix2{typeof(in)}, x::AbstractCompressedVector{<:Any,Ti}) where {Ti} =
     invoke(findall, Tuple{Base.Fix2{typeof(in)}, AbstractArray}, p, x)
 
 """
@@ -848,7 +848,7 @@ function findnz(x::SparseVectorUnion{Tv,Ti}) where {Tv,Ti}
     return (I, V)
 end
 
-function _sparse_findnextnz(v::AbstractSparseVectorC, i::Integer)
+function _sparse_findnextnz(v::AbstractCompressedVector, i::Integer)
     n = searchsortedfirst(nonzeroinds(v), i)
     if n > length(nonzeroinds(v))
         return nothing
@@ -857,7 +857,7 @@ function _sparse_findnextnz(v::AbstractSparseVectorC, i::Integer)
     end
 end
 
-function _sparse_findprevnz(v::AbstractSparseVectorC, i::Integer)
+function _sparse_findprevnz(v::AbstractCompressedVector, i::Integer)
     n = searchsortedlast(nonzeroinds(v), i)
     if iszero(n)
         return nothing
@@ -1113,7 +1113,7 @@ vcat(Xin::Union{Vector, AbstractSparseVector}...) = vcat(map(sparse, Xin)...)
 # sparse/special/dense matrix/vector types concatenate to SparseMatrixCSCs (because
 # the vcat method immediately above is less specific, being defined in AbstractSparseVector
 # rather than SparseVector).
-vcat(X::Union{Vector,AbstractSparseVectorC}...) = vcat(map(sparse, X)...)
+vcat(X::Union{Vector,AbstractCompressedVector}...) = vcat(map(sparse, X)...)
 
 
 ### Concatenation of un/annotated sparse/special/dense vectors/matrices
@@ -1258,7 +1258,7 @@ end
 
 # the rest of real, conj, imag are handled correctly via AbstractArray methods
 @unarymap_nz2z_z2z real Complex
-conj(x::AbstractSparseVectorC{<:Complex}) = typeof(x)(length(x), copy(nonzeroinds(x)), conj(nonzeros(x)))
+conj(x::AbstractCompressedVector{<:Complex}) = typeof(x)(length(x), copy(nonzeroinds(x)), conj(nonzeros(x)))
 imag(x::AbstractSparseVector{Tv,Ti}) where {Tv<:Real,Ti<:Integer} = SparseVector(length(x), Ti[], Tv[])
 @unarymap_nz2z_z2z imag Complex
 
@@ -1450,11 +1450,11 @@ for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
     @eval begin
         map(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
             _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
-        map(::typeof($fun), x::AbstractSparseVectorC{Tx}, y::AbstractSparseVectorC{Ty}) where {Tx, Ty} =
+        map(::typeof($fun), x::AbstractCompressedVector{Tx}, y::AbstractCompressedVector{Ty}) where {Tx, Ty} =
             _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
         broadcast(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
             _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
-        broadcast(::typeof($fun), x::AbstractSparseVectorC{Tx}, y::AbstractSparseVectorC{Ty}) where {Tx, Ty} =
+        broadcast(::typeof($fun), x::AbstractCompressedVector{Tx}, y::AbstractCompressedVector{Ty}) where {Tx, Ty} =
             _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
     end
 end
@@ -1518,8 +1518,8 @@ norm(x::SparseVectorUnion, p::Real=2) = norm(nonzeros(x), p)
 
 # Transpose
 # (The only sparse matrix structure in base is CSC, so a one-row sparse matrix is worse than dense)
-transpose(sv::AbstractSparseVectorC) = Transpose(sv)
-adjoint(sv::AbstractSparseVectorC) = Adjoint(sv)
+transpose(sv::AbstractCompressedVector) = Transpose(sv)
+adjoint(sv::AbstractCompressedVector) = Adjoint(sv)
 
 ### BLAS Level-1
 
@@ -1927,14 +1927,14 @@ for isunittri in (true, false), islowertri in (true, false)
 
     # build out-of-place left-division operations
     # broad method where elements are Numbers
-    @eval function \(A::$tritype{<:TA,<:AbstractMatrix}, b::AbstractSparseVectorC{Tb}) where {TA<:Number,Tb<:Number}
+    @eval function \(A::$tritype{<:TA,<:AbstractMatrix}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
         TAb = $(isunittri ?
             :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
             :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
         LinearAlgebra.ldiv!(convert(AbstractArray{TAb}, A), convert(Array{TAb}, b))
     end
     # fallback where elements are not Numbers
-    @eval function \(A::$tritype, b::AbstractSparseVectorC)
+    @eval function \(A::$tritype, b::AbstractCompressedVector)
         LinearAlgebra.ldiv!(A, copy(b))
     end
 
@@ -1947,7 +1947,7 @@ for isunittri in (true, false), islowertri in (true, false)
 
         xformtritype = applyxform ? :($tritype{<:TA,<:$xformtype{<:Any,<:StridedMatrix}}) :
                                     :($tritype{<:TA,<:StridedMatrix})
-        @eval function \(xA::$xformtritype, b::AbstractSparseVectorC{Tb}) where {TA<:Number,Tb<:Number}
+        @eval function \(xA::$xformtritype, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
             TAb = $( isunittri ?
                 :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
                 :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
@@ -1958,7 +1958,7 @@ for isunittri in (true, false), islowertri in (true, false)
             A = $( applyxform ? :(parent(parent(xA))) : :(parent(xA)) )
             if nnz(b) != 0
                 nzrange = $( islowertri ?
-                    :(nonzeroinds(b)[1]:length(b::AbstractSparseVectorC)) :
+                    :(nonzeroinds(b)[1]:length(b::AbstractCompressedVector)) :
                     :(1:nonzeroinds(b)[end]) )
                 nzrangeviewr = view(r, nzrange)
                 nzrangeviewA = $tritype($xformop(view(A, nzrange, nzrange)))
@@ -1974,7 +1974,7 @@ for isunittri in (true, false), islowertri in (true, false)
         # the generic in-place left-division methods handle these cases, but
         # we can achieve greater efficiency where the triangular matrix provides
         # good view support, hence the StridedMatrix restriction.
-        @eval function ldiv!(xA::$xformtritype, b::AbstractSparseVectorC)
+        @eval function ldiv!(xA::$xformtritype, b::AbstractCompressedVector)
             A = $( applyxform ? :(parent(parent(xA))) : :(parent(xA)) )
             # If b has no nonzero entries, the result is necessarily zero and this call
             # reduces to a no-op. If b has nonzero entries, then...
@@ -2049,7 +2049,7 @@ function _densifystarttolastnz!(x::SparseVector)
 end
 
 #sorting
-function sort(x::AbstractSparseVectorC{Tv,Ti}; kws...) where {Tv,Ti}
+function sort(x::AbstractCompressedVector{Tv,Ti}; kws...) where {Tv,Ti}
     allvals = push!(copy(nonzeros(x)),zero(Tv))
     sinds = sortperm(allvals;kws...)
     n,k = length(x),length(allvals)
@@ -2146,14 +2146,14 @@ julia> dropzeros(A)
 """
 dropzeros(x::SparseVector) = dropzeros!(copy(x))
 
-function copy!(dst::AbstractSparseVectorC, src::AbstractSparseVectorC)
+function copy!(dst::AbstractCompressedVector, src::AbstractCompressedVector)
     length(dst) == length(src) || throw(ArgumentError("Sparse vectors should have the same length for copy!"))
     copy!(nonzeros(dst), nonzeros(src))
     copy!(nonzeroinds(dst), nonzeroinds(src))
     return dst
 end
 
-function copy!(dst::AbstractSparseVectorC, src::AbstractVector)
+function copy!(dst::AbstractCompressedVector, src::AbstractVector)
     length(dst) == length(src) || throw(ArgumentError("Sparse vector should have the same length as source for copy!"))
     _dense2indval!(nonzeroinds(dst), nonzeros(dst), src)
     return dst
@@ -2176,7 +2176,7 @@ function _fillnonzero!(arr::AbstractSparseMatrixCSC{Tv, Ti}, val) where {Tv,Ti}
     arr
 end
 
-function _fillnonzero!(arr::AbstractSparseVectorC{Tv,Ti}, val) where {Tv,Ti}
+function _fillnonzero!(arr::AbstractCompressedVector{Tv,Ti}, val) where {Tv,Ti}
     n = length(arr)
     resize!(nonzeroinds(arr), n)
     resize!(nonzeros(arr), n)

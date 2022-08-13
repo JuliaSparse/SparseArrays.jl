@@ -18,11 +18,11 @@ of type `Tv` and index type `Ti`. Alias for `AbstractSparseArray{Tv,Ti,1}`.
 const AbstractSparseVector{Tv,Ti} = AbstractSparseArray{Tv,Ti,1}
 
 """
-    AbstractSparseVectorC{Tv,Ti}
+    AbstractCompressedVector{Tv,Ti}
 
 Supertype for vectors stored using a compressed map.
 """
-abstract type AbstractSparseVectorC{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
+abstract type AbstractCompressedVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
 
 
 """
@@ -32,7 +32,7 @@ Supertype for one-dimension sparse arrays (or array-like types) which the sparsi
 is fixed.
 see `AbstractSparseVector{Tv,Ti}`
 """
-abstract type AbstractFixedSparseVector{Tv,Ti} <: AbstractSparseVectorC{Tv,Ti} end
+abstract type AbstractFixedSparseVector{Tv,Ti} <: AbstractCompressedVector{Tv,Ti} end
 
 """
     AbstractSparseMatrix{Tv,Ti}
@@ -161,11 +161,11 @@ records the function `f` to be overwritten (and restored) with `allowscalar(::Bo
 experimental feature.
 
 Note that it will evaluate the function in the top level of the package. The original code for `f`
-is stored in `_restore_scalar_indexing` and a function that has the same definition as `f` but 
+is stored in `_restore_scalar_indexing` and a function that has the same definition as `f` but
 returns an error is stored in `_destroy_scalar_indexing`.
 """
 macro RCI(exp)
-    # evaluate to not push any broken code in the arrays when developping this package. 
+    # evaluate to not push any broken code in the arrays when developping this package.
     # also ensures that restore has the exact same effect.
     @eval $exp
     if length(exp.args) == 2 && exp.head ∈ (:function, :(=))
@@ -183,13 +183,13 @@ end
 """
     allowscalar(::Bool)
 
-An experimental function that allows one to disable and re-enable scalar indexing for sparse matrices and vectors. 
+An experimental function that allows one to disable and re-enable scalar indexing for sparse matrices and vectors.
 
-`allowscalar(false)` will disable scalar indexing for sparse matrices and vectors. 
+`allowscalar(false)` will disable scalar indexing for sparse matrices and vectors.
 `allowscalar(true)` will restore the original scalar indexing functionality.
 
 Since this function overwrites existing definitions, it will lead to recompilation. It is useful mainly when testing
-code for devices such as [GPUs](https://cuda.juliagpu.org/stable/usage/workflow/), where the presence of scalar indexing can lead to substantial slowdowns. 
+code for devices such as [GPUs](https://cuda.juliagpu.org/stable/usage/workflow/), where the presence of scalar indexing can lead to substantial slowdowns.
 Disabling scalar indexing during such tests can help identify performance bottlenecks quickly.
 """
 allowscalar(p::Bool) = if p
