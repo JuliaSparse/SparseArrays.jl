@@ -56,7 +56,7 @@ struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractFixedCSC{Tv,Ti}
                             rowval::ReadOnly{Ti,Vector{Ti}},
                             nzval::Vector{Tv}) where {Tv,Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
-        _goodbuffers(Int(m), Int(n), colptr.x, rowval.x, nzval) ||
+        _goodbuffers(Int(m), Int(n), parent(colptr), parent(rowval), nzval) ||
             throw(ArgumentError("Invalid buffers for FixedSparseCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
         new(Int(m), Int(n), colptr, rowval, nzval)
     end
