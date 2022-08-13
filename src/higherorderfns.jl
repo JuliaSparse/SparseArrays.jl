@@ -156,14 +156,18 @@ map!(f::Tf, C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, Bs::Vararg{S
 map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, A, Bs...))
 function _noshapecheck_map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
-    fofzeros = f(_zeros_eltypes(A, Bs...)...)
-    fpreszeros = _iszero(fofzeros)
+    haszeros = _haszeros(C) && _haszeros(A) && all(_haszeros, Bs)
+    # Avoid calculating f(zero) unless necessary (it may fail)
+    fofzeros = haszeros ? f(_zeros_eltypes(A, Bs...)...) : nothing
+    fpreszeros = !haszeros || _iszero(fofzeros)
     return fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
                         _map_notzeropres!(f, fofzeros, C, A, Bs...)
 end
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
-    fofzeros = f(_zeros_eltypes(A, Bs...)...)
-    fpreszeros = _iszero(fofzeros)
+    haszeros = _haszeros(A) && all(_haszeros, Bs)
+    # Avoid calculating f(zero) unless necessary (it may fail)
+    fofzeros = haszeros ? f(_zeros_eltypes(A, Bs...)...) : nothing
+    fpreszeros = !haszeros || _iszero(fofzeros)
     maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
     entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
     indextypeC = _promote_indtype(A, Bs...)
@@ -201,6 +205,7 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
                         _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
 end
 # helper functions for map[!]/broadcast[!] entry points (and related methods below)
+@inline _haszeros(A) = nnz(A) ≠ length(A)
 @inline _sumnnzs(A) = nnz(A)
 @inline _sumnnzs(A, Bs...) = nnz(A) + _sumnnzs(Bs...)
 @inline _zeros_eltypes(A) = (zero(eltype(A)),)

@@ -768,4 +768,11 @@ end
     @test A * C == B * C == spzeros(Int, 4, 6)
 end
 
+@testset "issue #46337 - error in sparsevec map" begin
+    x = sparsevec([1], [1//1+0im])
+    @test inv.(x) == [1//1+0im]
+    y = spzeros(Int, 1)
+    @test y ./ x == y
+end
+
 end # module
