@@ -212,7 +212,7 @@ SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
 SparseArrays.sparsevec
-SparseArrays.similar
+Base.similar
 SparseArrays.issparse
 SparseArrays.nnz
 SparseArrays.findnz
