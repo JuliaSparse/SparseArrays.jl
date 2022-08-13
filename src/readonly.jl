@@ -10,7 +10,7 @@ For instance resizing a vector to its original length will not throw an error as
 struct ReadOnly{T,V<:AbstractVector{T}} <: AbstractVector{T}
     parent::V
 end
-Base.getproperty(::ReadOnly, ::Any) = error("Use parent instead.")
+Base.getproperty(::ReadOnly, ::Symbol) = error("Use parent instead.")
 @inline Base.parent(x::ReadOnly) = getfield(x, :parent)
 getindex(x::ReadOnly, v...) = getindex(parent(x), v...)
 for i in [:length, :lastindex]
