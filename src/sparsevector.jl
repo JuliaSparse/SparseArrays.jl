@@ -71,7 +71,7 @@ FixedSparseVector(s::AbstractSparseVector) = FixedSparseVector(length(s), nonzer
 """
 inverse of fixed, should not allocate
 """
-_unsafe_unfix(s::FixedSparseVector) = SparseVector(length(s), inner(nonzeroinds(s)), nonzeros(s))
+_unsafe_unfix(s::FixedSparseVector) = SparseVector(length(s), parent(nonzeroinds(s)), nonzeros(s))
 _unsafe_unfix(s::SparseVector) = s
 # Define an alias for a view of a whole column of a SparseMatrixCSC. Many methods can be written for the
 # union of such a view and a SparseVector so we define an alias for such a union as well

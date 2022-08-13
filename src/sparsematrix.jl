@@ -78,7 +78,7 @@ FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
         getcolptr(x), rowvals(x), nonzeros(x))
 fixed(x...) = fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
-_unsafe_unfix(s::FixedSparseCSC) = SparseMatrixCSC(size(s)..., inner(getcolptr(s)), inner(rowvals(s)), nonzeros(s))
+_unsafe_unfix(s::FixedSparseCSC) = SparseMatrixCSC(size(s)..., parent(getcolptr(s)), parent(rowvals(s)), nonzeros(s))
 _unsafe_unfix(s::SparseMatrixCSC) = s
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
 """
@@ -86,7 +86,10 @@ const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
 
 Get a non read-only view of x. get a copy for the sake of safety.
 """
-SparseMatrixCSC(x::FixedSparseCSC) = SparseMatrixCSC(size(x, 1), size(x, 2), getcolptr(x).x, rowval(x).x, nonzeros(x))
+SparseMatrixCSC(x::FixedSparseCSC) = SparseMatrixCSC(size(x, 1), size(x, 2),
+    copy(parent(getcolptr(x))),
+    copy(parent(rowval(x))),
+    copy(nonzeros(x)))
 
 function sparse_check_Ti(m::Integer, n::Integer, Ti::Type)
         @noinline throwTi(str, lbl, k) =
