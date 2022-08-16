@@ -237,11 +237,14 @@ A shallow copy of UmfpackLU to use in multithreaded applications. This function 
 It can also take transposed or adjoint `UmfpackLU`s.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = 
+Base.copy(F::UmfpackLU, ws=UmfpackWS(F); copypointers = false) = 
     finalizer(umfpack_free_symbolic_nl,
     UmfpackLU(
-    C_NULL, # symbolic and numeric are writeable, so must be copied.
-    C_NULL,
+    # symbolic and numeric are writeable, so must be copied.
+    # This may be disadvantageous when we're solving. 
+    # In that case both are only read from as far as I know.
+    copypointers ? F.symbolic : C_NULL, 
+    copypointers ? F.numeric  : C_NULL,
     F.m, F.n,
     F.colptr,
     F.rowval,
@@ -251,7 +254,8 @@ Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) =
     copy(F.control),
     copy(F.info),
     ReentrantLock()))
-Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = T(copy(F.parent, ws))
+Base.copy(F::T, ws=UmfpackWS(F); copypointers = false) where {T <: ATLU} = 
+    T(copy(F.parent, ws; copypointers))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
