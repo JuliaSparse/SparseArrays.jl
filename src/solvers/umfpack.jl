@@ -12,7 +12,8 @@ using SparseArrays
 using SparseArrays: getcolptr, AbstractSparseMatrixCSC
 import SparseArrays: nnz
 
-import Serialization: AbstractSerializer, deserialize
+import Serialization: AbstractSerializer, deserialize, serialize
+using Serialization
 
 import ..increment, ..increment!, ..decrement, ..decrement!
 
@@ -179,6 +180,9 @@ struct UmfpackWS{T<:UMFITypes}
     W::Vector{Float64}
 end
 
+UmfpackWS{T}(Wisize::Integer, Wsize::Integer) where {T<:UMFITypes} = 
+    UmfpackWS{T}(Vector{T}(undef, Wisize), Vector{Float64}(undef, Wsize))
+
 UmfpackWS(S::AbstractSparseMatrixCSC{Tv,Ti}, refinement::Bool) where {Tv,Ti} = UmfpackWS{Ti}(
     Vector{Ti}(undef, size(S, 2)),
     Vector{Float64}(undef, workspace_W_size(S, refinement)))
@@ -187,7 +191,7 @@ function Base.resize!(W::UmfpackWS, S, refinement::Bool; expand_only=false)
     (!expand_only || length(W.Wi) < size(S, 2)) && resize!(W.Wi, size(S, 2))
     ws = workspace_W_size(S, refinement)
     (!expand_only || length(W.W) < ws) && resize!(W.W, ws)
-    return 
+    return W
 end
 
 Base.similar(w::UmfpackWS) = UmfpackWS(similar(w.Wi), similar(w.W))
@@ -219,8 +223,7 @@ has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
 # auto magick resize, should this only expand and not shrink?
 getworkspace(F::UmfpackLU) = @lock F.lock begin
-        resize!(F.workspace, F, has_refinement(F); expand_only=true)
-        F.workspace
+    return resize!(F.workspace, F, has_refinement(F); expand_only=true)
     end
 
 UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
@@ -234,9 +237,11 @@ A shallow copy of UmfpackLU to use in multithreaded applications. This function 
 It can also take transposed or adjoint `UmfpackLU`s.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
-    F.symbolic,
-    F.numeric,
+Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = 
+    finalizer(umfpack_free_symbolic_nl,
+    UmfpackLU(
+    C_NULL, # symbolic and numeric are writeable, so must be copied.
+    C_NULL,
     F.m, F.n,
     F.colptr,
     F.rowval,
@@ -245,7 +250,7 @@ Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = UmfpackLU(
     ws,
     copy(F.control),
     copy(F.info),
-    ReentrantLock())
+    ReentrantLock()))
 Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = T(copy(F.parent, ws))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
@@ -334,15 +339,14 @@ function lu(S::AbstractSparseMatrixCSC{Tv, Ti};
     {Tv<:UMFVTypes,Ti<:UMFITypes}
 
     zerobased = getcolptr(S)[1] == 0
-    res = UmfpackLU(C_NULL, C_NULL, size(S, 1), size(S, 2),
+    res = finalizer(umfpack_free_symbolic_nl, 
+            UmfpackLU(C_NULL, C_NULL, size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
                     zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
                     copy(nonzeros(S)), 0, UmfpackWS(S, has_refinement(control)),
                     copy(control),
                     Vector{Float64}(undef, UMFPACK_INFO),
-                    ReentrantLock())
-
-    finalizer(umfpack_free_symbolic_nl, res)
+                    ReentrantLock()))
     umfpack_numeric!(res; q)
     check && (issuccess(res) || throw(LinearAlgebra.SingularException(0)))
     return res
@@ -448,6 +452,12 @@ function lu!(F::UmfpackLU, S::AbstractSparseMatrixCSC;
     return F
 end
 
+function lu!(F::UmfpackLU; check::Bool=true, q=nothing)
+    umfpack_numeric!(F; q)
+    check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
+    return F
+end
+
 size(F::UmfpackLU) = (F.m, F.n)
 function size(F::UmfpackLU, dim::Integer)
     if dim < 1
@@ -475,26 +485,37 @@ function show(io::IO, mime::MIME{Symbol("text/plain")}, F::UmfpackLU)
     end
 end
 
+function serialize(s::AbstractSerializer, L::UmfpackLU{Tv, Ti}) where {Tv, Ti}
+    # TODO: If we can get a C FILE handle we can serialize umfpack_numeric and
+    # umfpack_symbolic. using the save_{numeric | symbolic} functions.
+    Serialization.serialize_type(s, typeof(L))
+    serialize(s, L.m)
+    serialize(s, L.n)
+    serialize(s, L.colptr)
+    serialize(s, L.rowval)
+    serialize(s, L.nzval)
+    serialize(s, length(L.workspace.Wi))
+    serialize(s, length(L.workspace.W))
+    serialize(s, L.control)
+    serialize(s, L.info)
+end
 function deserialize(s::AbstractSerializer, ::Type{UmfpackLU{Tv,Ti}}) where {Tv,Ti}
-    symbolic = deserialize(s)
-    numeric  = deserialize(s)
+    # TODO: If we can get a C FILE handle we can deserialize umfpack_numeric and
+    # umfpack_symbolic. using the load_{numeric | symbolic} functions.
     m        = deserialize(s)
     n        = deserialize(s)
     colptr   = deserialize(s)
     rowval   = deserialize(s)
     nzval    = deserialize(s)
-    status   = deserialize(s)
-    workspace= deserialize(s)
+    Wisize   = deserialize(s)
+    Wsize    = deserialize(s)
     control  = deserialize(s)
     info     = deserialize(s)
-    lock     = deserialize(s)
-    obj      = UmfpackLU{Tv,Ti}(symbolic, numeric, m, n,
-        colptr, rowval, nzval, status,
-        workspace, control, info, lock)
-
-    finalizer(umfpack_free_symbolic_nl, obj)
-
-    return obj
+    return finalizer(
+        umfpack_free_symbolic_nl,
+        UmfpackLU{Tv,Ti}(C_NULL, C_NULL, m, n,
+        colptr, rowval, nzval, 0,
+        UmfpackWS{Ti}(Wisize, Wsize), control, info, ReentrantLock()))
 end
 
 # compute the sign/parity of a permutation

@@ -114,7 +114,7 @@ end
             @test i == x
         end
         umfpack_report(Af)
-        Af1 = copy(Af)
+        Af1 = lu!(copy(Af))
         umfpack_report(Af1)
         @test trylock(Af)
         @test trylock(Af1)
@@ -132,7 +132,7 @@ end
         umfpack_report(Af)
     end
     function test_ws_dup(Af, Af1)
-        for i in [:symbolic, :numeric, :colptr, :rowval, :nzval]
+        for i in [:colptr, :rowval, :nzval]
             @test getproperty(Af, i) === getproperty(Af1, i)
         end
         for i in [:n, :m]
@@ -375,18 +375,20 @@ end
             @test getfield(F1, nm) == getfield(F2, nm)
         end
         for nm in (:W, :Wi)
-            @test getfield(F1.workspace, nm) == getfield(F2.workspace, nm)
+            @test size(getfield(F1.workspace, nm)) == size(getfield(F2.workspace, nm))
         end
         b1 = IOBuffer()
         serialize(b1, (a=F1, b=F2))
         seekstart(b1)
         x = deserialize(b1)
+        lu!(x.a)
+        lu!(x.b)
         for nm in (:colptr, :m, :n, :nzval, :rowval, :status)
             @test getfield(F1, nm) == getfield(x.a, nm) == getfield(x.b, nm)
         end
         for nm in (:W, :Wi)
-            @test getfield(x.a.workspace, nm) == getfield(F1.workspace, nm)
-            @test getfield(x.b.workspace, nm) == getfield(F2.workspace, nm)
+            @test size(getfield(x.a.workspace, nm)) == size(getfield(F1.workspace, nm))
+            @test size(getfield(x.b.workspace, nm)) == size(getfield(F2.workspace, nm))
         end
 
         umfpack_report(F1)
