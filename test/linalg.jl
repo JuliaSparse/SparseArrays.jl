@@ -693,6 +693,19 @@ end
     end
 end
 
+@testset "Adding sparse-backed SymTridiagonal (#46355)" begin
+    a = SymTridiagonal(sparsevec(Int[1]), sparsevec(Int[]))
+    @test a + a == Matrix(a) + Matrix(a)
+
+    # symtridiagonal with non-empty off-diagonal
+    b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
+    @test b + b == Matrix(b) + Matrix(b)
+
+    # a symtridiagonal with an additional off-diagonal element
+    c = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2, 3]))
+    @test c + c == Matrix(c) + Matrix(c)
+end
+
 @testset "kronecker product" begin
     for (m,n) in ((5,10), (13,8), (14,10))
         a = sprand(m, 5, 0.4); a_d = Matrix(a)

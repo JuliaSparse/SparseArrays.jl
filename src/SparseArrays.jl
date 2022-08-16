@@ -80,4 +80,12 @@ zero(a::AbstractSparseArray) = spzeros(eltype(a), size(a)...)
 LinearAlgebra.diagzero(D::Diagonal{<:AbstractSparseMatrix{T}},i,j) where {T} =
     spzeros(T, size(D.diag[i], 1), size(D.diag[j], 2))
 
+# A fix for #46355
+# Adding two views of sparse arrays results in a dense array. `_eview is used
+# by LinearAlgebra to make sure that only the real off-diagonal entries of a
+# SymTridiagonal matrix are accessed operating on such matrices. We usually use
+# a view to avoid copying the off-diagonal when slicing it, but for sparse arrays
+# we will just do the normal slice for now.
+# See also: #42472
+LinearAlgebra._evview(S::SymTridiagonal{T, V}) where {T, V <: AbstractSparseArray{T}} = S.ev[begin:length(S.dv) - 1]
 end
