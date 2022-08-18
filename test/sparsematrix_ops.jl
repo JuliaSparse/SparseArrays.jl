@@ -492,20 +492,20 @@ end
     @test f() == 0
 end
 
-@testset "Comparisons to adjoints are efficient" for A in Any[sparse(Diagonal(ones(10000))),
+@testset "Comparisons to adjoints are efficient" for A in Any[sparse(I(10000)),
                                                               sprandn(10000, 10000, 0.00001),
-                                                              sprandn(100, 100, 0.9)]
+                                                              sprandn(ComplexF64, 100, 100, 0.9)]
     # Run each test twice to ignore compile times
     t1 = @elapsed A == A
     t1 = @elapsed A == A
     t2 = max((@elapsed A == A'), (@elapsed A' == A),
              (@elapsed A == transpose(A)), (@elapsed transpose(A) == A),
              (@elapsed A == transpose(A')), (@elapsed transpose(A') == A),
-             (@elapsed A' == transpose(A)), (@elapsed transpose(A) == A')),
+             (@elapsed A' == transpose(A)), (@elapsed transpose(A) == A'))
     t2 = max((@elapsed A == A'), (@elapsed A' == A),
              (@elapsed A == transpose(A)), (@elapsed transpose(A) == A),
              (@elapsed A == transpose(A')), (@elapsed transpose(A') == A),
-             (@elapsed A' == transpose(A)), (@elapsed transpose(A) == A')),
+             (@elapsed A' == transpose(A)), (@elapsed transpose(A) == A'))
     # If it's inefficient, it's really so -- the O(n²) algorithm will stick out
     @test t2 ≤ 10*t1
 end
