@@ -1135,6 +1135,29 @@ sparse(I,J,V::AbstractVector{Bool},m,n) = sparse(I, J, V, Int(m), Int(n), |)
 
 sparse(I,J,v::Number,m,n,combine::Function) = sparse(I, J, fill(v,length(I)), Int(m), Int(n), combine)
 
+## Explicit comparisons with transposed arrays
+
+# Check whether all nonzero elements of A are equal to the respective elements in B
+function nzeq(A::SparseMatrixCSC, B::Union{Adjoint{<:Any,<:SparseArrays.AbstractSparseMatrixCSC},
+                                           Transpose{<:Any,<:SparseArrays.AbstractSparseMatrixCSC}})
+    for col in 1:A.n
+        for colptr in A.colptr[col]:A.colptr[col+1]-1
+            row = A.rowval[colptr]
+            val = A.nzval[colptr]
+            val ≠ B[row,col] && return false
+        end
+    end
+    return true
+end
+
+# Compare by walking both matrices
+Base.:(==)(A::AbstractSparseMatrixCSC,
+           B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},
+                    Transpose{<:Any,<:AbstractSparseMatrixCSC}}) = nzeq(A, B) && nzeq(B, A)
+# Peel off `Adjoint` and `Transpose` from first argument
+Base.:(==)(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC) = A' == B'
+Base.:(==)(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC) = transpose(A) == tranpose(B)
+
 ## Transposition and permutation methods
 
 """
