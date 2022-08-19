@@ -492,17 +492,20 @@ end
     @test f() == 0
 end
 
-@testset "Comparisons to adjoints are efficient" for A in Any[sparse(I(10000)),
-                                                              sprandn(10000, 10000, 0.00001),
-                                                              sprandn(ComplexF64, 100, 100, 0.9)]
-    # Run each test twice to ignore compile times
-    t1 = @elapsed A == A
-    t1 = @elapsed A == A
-    As = Any[A, A', transpose(A), transpose(A'), transpose(A)']
-    t2 = maximum([(@elapsed B == C) for B in As, C in As])
-    t2 = maximum([(@elapsed B == C) for B in As, C in As])
-    # If it's inefficient, it's really so -- the O(n²) algorithm will stick out
-    @test t2 ≤ 10*t1
+@testset "Comparisons to adjoints are efficient" for
+    A in Any[sparse(I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)],
+    B in Any[sparse(I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)]
+    if size(A) == size(B)
+        # Run each test twice to ignore compile times
+        t1 = @elapsed A == B
+        t1 = @elapsed A == B
+        As = Any[A, A', transpose(A), transpose(A'), transpose(A)']
+        Bs = Any[B, B', transpose(B), transpose(B'), transpose(B)']
+        t2 = maximum([(@elapsed A′ == B′) for A′ in As, B′ in Bs])
+        t2 = maximum([(@elapsed A′ == B′) for A′ in As, B′ in Bs])
+        # If it's inefficient, it's really so -- the O(n²) algorithm will stick out
+        @test t2 ≤ 100*t1
+    end
 end
 
 end # module
