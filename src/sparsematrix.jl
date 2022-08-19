@@ -1138,25 +1138,33 @@ sparse(I,J,v::Number,m,n,combine::Function) = sparse(I, J, fill(v,length(I)), In
 ## Explicit comparisons with transposed arrays
 
 # Check whether all nonzero elements of A are equal to the respective elements in B
-function nzeq(A::SparseMatrixCSC, B::Union{Adjoint{<:Any,<:SparseArrays.AbstractSparseMatrixCSC},
-                                           Transpose{<:Any,<:SparseArrays.AbstractSparseMatrixCSC}})
-    for col in 1:A.n
-        for colptr in A.colptr[col]:A.colptr[col+1]-1
-            row = A.rowval[colptr]
-            val = A.nzval[colptr]
-            val ≠ B[row,col] && return false
+function nzeq(A::SparseMatrixCSC, B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},Transpose{<:Any,<:AbstractSparseMatrixCSC}})
+    @inbounds for j in 1:size(A, 2)
+        for k in nzrange(A, j)
+            i = rowvals(A)[k]
+            val = nonzeros(A)[k]
+            val ≠ B[i,j] && return false
         end
     end
     return true
 end
+# Peel off `Adjoint` and `Transpose` from first argument
+nzeq(A::Adjoint{<:Any,<:SparseMatrixCSC}, B::AbstractSparseMatrixCSC) = nzeq(A', B')
+nzeq(A::Transpose{<:Any,<:SparseMatrixCSC}, B::AbstractSparseMatrixCSC) = nzeq(transpose(A), transpose(B))
 
 # Compare by walking both matrices
 Base.:(==)(A::AbstractSparseMatrixCSC,
            B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},
                     Transpose{<:Any,<:AbstractSparseMatrixCSC}}) = nzeq(A, B) && nzeq(B, A)
 # Peel off `Adjoint` and `Transpose` from first argument
-Base.:(==)(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC) = A' == B'
-Base.:(==)(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC) = transpose(A) == tranpose(B)
+Base.:(==)(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC},
+           B::Union{AbstractSparseMatrixCSC,
+                    Adjoint{<:Any,<:AbstractSparseMatrixCSC},
+                    Transpose{<:Any,<:AbstractSparseMatrixCSC}}) = A' == B'
+Base.:(==)(A::Transpose{<:Any,<:AbstractSparseMatrixCSC},
+           B::Union{AbstractSparseMatrixCSC,
+                    Adjoint{<:Any,<:AbstractSparseMatrixCSC},
+                    Transpose{<:Any,<:AbstractSparseMatrixCSC}}) = transpose(A) == transpose(B)
 
 ## Transposition and permutation methods
 

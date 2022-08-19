@@ -498,14 +498,9 @@ end
     # Run each test twice to ignore compile times
     t1 = @elapsed A == A
     t1 = @elapsed A == A
-    t2 = max((@elapsed A == A'), (@elapsed A' == A),
-             (@elapsed A == transpose(A)), (@elapsed transpose(A) == A),
-             (@elapsed A == transpose(A')), (@elapsed transpose(A') == A),
-             (@elapsed A' == transpose(A)), (@elapsed transpose(A) == A'))
-    t2 = max((@elapsed A == A'), (@elapsed A' == A),
-             (@elapsed A == transpose(A)), (@elapsed transpose(A) == A),
-             (@elapsed A == transpose(A')), (@elapsed transpose(A') == A),
-             (@elapsed A' == transpose(A)), (@elapsed transpose(A) == A'))
+    As = Any[A, A', transpose(A), transpose(A'), transpose(A)']
+    t2 = maximum([(@elapsed B == C) for B in As, C in As])
+    t2 = maximum([(@elapsed B == C) for B in As, C in As])
     # If it's inefficient, it's really so -- the O(n²) algorithm will stick out
     @test t2 ≤ 10*t1
 end
