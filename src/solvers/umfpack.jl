@@ -277,7 +277,7 @@ show_umf_info(F::UmfpackLU, level::Real=2.0) =
 
 
 """
-    lu(A::AbstractSparseMatrixCSC; check = true, q = nothing, control = get_umfpack_control) -> F::UmfpackLU
+    lu(A::AbstractSparseMatrixCSC; check = true, q = nothing, control = get_umfpack_control()) -> F::UmfpackLU
 
 Compute the LU factorization of a sparse matrix `A`.
 

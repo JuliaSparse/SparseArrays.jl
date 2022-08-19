@@ -35,10 +35,13 @@ one place over.
 All operations on sparse matrices are carefully implemented to exploit the CSC data structure
 for performance, and to avoid expensive operations.
 
-If you have data in CSC format from a different application or library, and wish to import it
-in Julia, make sure that you use 1-based indexing. The row indices in every column need to be
-sorted. If your `SparseMatrixCSC` object contains unsorted row indices, one quick way to sort
-them is by doing a double transpose.
+If you have data in CSC format from a different application or
+library, and wish to import it in Julia, make sure that you use
+1-based indexing. The row indices in every column need to be sorted,
+and if they are not, the matrix will display incorrectly.  If your
+`SparseMatrixCSC` object contains unsorted row indices, one quick way
+to sort them is by doing a double transpose. Since the transpose operation
+is lazy, make a copy to materialize each transpose.
 
 In some applications, it is convenient to store explicit zero values in a `SparseMatrixCSC`. These
 *are* accepted by functions in `Base` (but there is no guarantee that they will be preserved in
@@ -199,7 +202,7 @@ section of the standard library reference.
 | [`sprandn(m,n,d)`](@ref)   | [`randn(m,n)`](@ref)   | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed according to the standard normal (Gaussian) distribution.                  |
 | [`sprandn(rng,m,n,d)`](@ref) | [`randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator                                   |
 
-# [Sparse Arrays](@id stdlib-sparse-arrays)
+# [SparseArrays API](@id stdlib-sparse-arrays)
 
 ```@docs
 SparseArrays.AbstractSparseArray
@@ -209,6 +212,7 @@ SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
 SparseArrays.sparsevec
+Base.similar
 SparseArrays.issparse
 SparseArrays.nnz
 SparseArrays.findnz
@@ -242,7 +246,7 @@ Several other Julia packages provide sparse matrix implementations that should b
 
 1. [SuiteSparseGraphBLAS.jl](https://github.com/JuliaSparse/SuiteSparseGraphBLAS.jl) is a wrapper over the fast, multithreaded SuiteSparse:GraphBLAS C library. On CPU this is typically the fastest option, often significantly outperforming MKLSparse.
 
-2. [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl) exposes the [CUSPARSE](https://docs.nvidia.com/cuda/cusparse/index.html) library for GPU sparse matrix operations. 
+2. [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl) exposes the [CUSPARSE](https://docs.nvidia.com/cuda/cusparse/index.html) library for GPU sparse matrix operations.
 
 3. [SparseMatricesCSR.jl](https://github.com/gridap/SparseMatricesCSR.jl) provides a Julia native implementation of the Compressed Sparse Rows (CSR) format.
 
