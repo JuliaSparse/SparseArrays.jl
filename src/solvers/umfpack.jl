@@ -294,7 +294,7 @@ Base.deepcopy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
     copy(F.info),
     ReentrantLock())
 Base.deepcopy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = 
-    T(deepcopy(parent(F), ws; copypointers))
+    T(deepcopy(parent(F), ws))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
