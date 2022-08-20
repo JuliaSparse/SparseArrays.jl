@@ -146,9 +146,17 @@ end
         Af = lu(A0)
         umfpack_report(Af)
         test_ws_dup(Af, copy(Af))
-        test_ws_dup(Af, copy(transpose(Af)).parent)
-        test_ws_dup(Af, copy(adjoint(Af)).parent)
+        test_ws_dup(Af, copy(parent(transpose(Af))))
+        test_ws_dup(Af, copy(parent(adjoint(Af))))
         umfpack_report(Af)
+
+        Afcopy = copy(Af)
+        @test Afcopy.numeric === Af.numeric
+        @test Afcopy.symbolic === Af.symbolic
+
+        Afcopy = deepcopy(Af)
+        @test Afcopy.numeric !== Af.numeric
+        @test Afcopy.symbolic !== Af.symbolic
     end
 end
 
@@ -429,7 +437,6 @@ end
             end
         end
     end
-
 end
 
 @testset "REPL printing of UmfpackLU" begin
