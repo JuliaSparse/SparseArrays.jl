@@ -219,6 +219,7 @@ LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
     "sparse floating point QR using SPQR or qr(Array(A)) for generic ",
     "dense QR.")))
 LinearAlgebra.qr(A::SparseMatrixCSC; tol=_default_tol(A)) = qr(float(A); tol=tol)
+LinearAlgebra.qr(::SparseMatrixCSC, ::LinearAlgebra.PivotingStrategy) = error("Pivoting Strategies are not supported by `SparseMatrixCSC`s")
 
 function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
     if size(A, 1) != size(Q, 1)
@@ -325,7 +326,18 @@ end
 _ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
 _ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
+"""
+    rank(::QRSparse{Tv,Ti}) -> Ti
+
+Return the rank of the QR factorization
+"""
 LinearAlgebra.rank(F::QRSparse) = reduce(max, view(rowvals(F.R), 1:nnz(F.R)), init = eltype(rowvals(F.R))(0))
+
+"""
+    rank(S::SparseMatrixCSC{Tv,Ti}; [tol::Real]) -> Ti
+
+Calculate rank of `S` by calculating its QR factorization. Values smaller than `tol` are considered as zero. See SPQR's manual.
+"""
 LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 
 function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
