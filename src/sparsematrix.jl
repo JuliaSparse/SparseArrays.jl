@@ -1138,7 +1138,7 @@ sparse(I,J,v::Number,m,n,combine::Function) = sparse(I, J, fill(v,length(I)), In
 ## Explicit comparisons with transposed arrays
 
 # Check whether all nonzero elements of A are equal to the respective elements in B
-function nzeq(A::SparseMatrixCSC, B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},Transpose{<:Any,<:AbstractSparseMatrixCSC}})
+function nzeq(A::AbstractSparseMatrixCSC, B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},Transpose{<:Any,<:AbstractSparseMatrixCSC}})
     @inbounds for j in 1:size(A, 2)
         for k in nzrange(A, j)
             i = rowvals(A)[k]
