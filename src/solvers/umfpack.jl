@@ -241,19 +241,19 @@ doing so may lead to race-conditions.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
 Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = 
-    finalizer(umfpack_free_symbolic_nl,
     UmfpackLU(
-    F.symbolic,
-    F.numeric,
-    F.m, F.n,
-    F.colptr,
-    F.rowval,
-    F.nzval,
-    F.status,
-    ws,
-    copy(F.control),
-    copy(F.info),
-    ReentrantLock()))
+        F.symbolic,
+        F.numeric,
+        F.m, F.n,
+        F.colptr,
+        F.rowval,
+        F.nzval,
+        F.status,
+        ws,
+        copy(F.control),
+        copy(F.info),
+        ReentrantLock()
+    )
 Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = 
     T(copy(parent(F), ws))
 
