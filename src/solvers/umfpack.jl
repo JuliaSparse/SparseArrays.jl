@@ -233,18 +233,18 @@ UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, ref
     
 """
     copy(F::UmfpackLU, [ws::UmfpackWS]) -> UmfpackLU
-A shallow copy of UmfpackLU to use in multithreaded applications. This function duplicates the working space, control and locks.
-It can also take transposed or adjoint `UmfpackLU`s.
+A shallow copy of UmfpackLU to use in multithreaded solve applications. 
+This function duplicates the working space, control, info and lock fields.
+
+Warning: This shallow copy should not be used for parallel factorizations or re-factorizations,
+doing so may lead to race-conditions.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-Base.copy(F::UmfpackLU, ws=UmfpackWS(F); copypointers = false) = 
+Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = 
     finalizer(umfpack_free_symbolic_nl,
     UmfpackLU(
-    # symbolic and numeric are writeable, so must be copied.
-    # This may be disadvantageous when we're solving. 
-    # In that case both are only read from as far as I know.
-    copypointers ? F.symbolic : C_NULL, 
-    copypointers ? F.numeric  : C_NULL,
+    F.symbolic,
+    F.numeric,
     F.m, F.n,
     F.colptr,
     F.rowval,
@@ -254,8 +254,25 @@ Base.copy(F::UmfpackLU, ws=UmfpackWS(F); copypointers = false) =
     copy(F.control),
     copy(F.info),
     ReentrantLock()))
-Base.copy(F::T, ws=UmfpackWS(F); copypointers = false) where {T <: ATLU} = 
-    T(copy(F.parent, ws; copypointers))
+Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = 
+    T(copy(parent(F), ws))
+
+Base.deepcopy(F::UmfpackLU, ws=UmfpackWS(F)) = 
+    finalizer(umfpack_free_symbolic_nl,
+    UmfpackLU(
+    C_NULL, # TODO: switch to a copy when upstream is available
+    C_NULL, # TODO: switch to a copy when upstream is available
+    F.m, F.n,
+    F.colptr,
+    F.rowval,
+    F.nzval,
+    F.status,
+    ws,
+    copy(F.control),
+    copy(F.info),
+    ReentrantLock()))
+Base.deepcopy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = 
+    T(deepcopy(F.parent, ws; copypointers))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
