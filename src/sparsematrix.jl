@@ -1154,9 +1154,16 @@ nzeq(A::Adjoint{<:Any,<:SparseMatrixCSC}, B::AbstractSparseMatrixCSC) = nzeq(A',
 nzeq(A::Transpose{<:Any,<:SparseMatrixCSC}, B::AbstractSparseMatrixCSC) = nzeq(transpose(A), transpose(B))
 
 # Compare by walking both matrices
-Base.:(==)(A::AbstractSparseMatrixCSC,
-           B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},
-                    Transpose{<:Any,<:AbstractSparseMatrixCSC}}) = nzeq(A, B) && nzeq(B, A)
+function Base.:(==)(A::AbstractSparseMatrixCSC,
+                    B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},
+                             Transpose{<:Any,<:AbstractSparseMatrixCSC}})
+    # Different sizes are always different
+    size(A) ≠ size(B) && return false
+    # Check whether the structural zeros differ
+    nnz(A) ≠ length(A) && nnz(B) ≠ length(B) && zero(A) ≠ zero(B) && return false
+    # Compare nonzero elements
+    nzeq(A, B) && nzeq(B, A)
+end
 # Peel off `Adjoint` and `Transpose` from first argument
 Base.:(==)(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) = A' == B'
 Base.:(==)(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
