@@ -185,7 +185,7 @@ spzeros(::Type{T}, dims::Tuple{<:Integer}) where {T} = spzeros(T, dims[1])
 spzeros(::Type{Tv}, ::Type{Ti}, len::Integer) where {Tv,Ti<:Integer} = SparseVector(len, Ti[], Tv[])
 spzeros(::Type{Tv}, ::Type{Ti}, dims::Tuple{<:Integer}) where {Tv,Ti<:Integer} = spzeros(Tv, Ti, dims[1])
 fixed(x::AbstractSparseVector) = FixedSparseVector(x)
-move_fixed(x::AbstractSparseVector) = FixedSparseVector(lenght(x), nonzeroinds(x), nonzeros(x))
+move_fixed(x::AbstractSparseVector) = FixedSparseVector(length(x), nonzeroinds(x), nonzeros(x))
 LinearAlgebra.fillstored!(x::AbstractCompressedVector, y) = (fill!(nonzeros(x), y); x)
 
 ### Construction from lists of indices and values
