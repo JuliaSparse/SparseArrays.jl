@@ -12,7 +12,7 @@ using ..SparseArrays: SparseVector, FixedSparseVector, SparseMatrixCSC, FixedSpa
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray, AbstractFixedCSC, AbstractFixedSparseVector,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
-                      SorF, indtype, fixed, nnz, nzrange, spzeros,
+                      SorF, indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
                       _iszero, _isnotzero, _is_fixed
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
