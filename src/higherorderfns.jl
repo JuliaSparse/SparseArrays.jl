@@ -184,12 +184,12 @@ function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N
         fpreszeros = _iszero(fofzeros)
         maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
         C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
-        return fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
+        fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
                         _map_notzeropres!(f, fofzeros, C, A, Bs...)
     else
         maxnnzC = Int(widelength(A))
         C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
-        return _map_zeropres!(f, C, A, Bs...)
+        _map_zeropres!(f, C, A, Bs...)
     end
     return _can_insert(A, Bs...) ? fixed(r) : r
 end
