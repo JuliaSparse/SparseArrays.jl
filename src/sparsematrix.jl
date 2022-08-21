@@ -609,6 +609,19 @@ _sparsesimilar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, dims::D
 # covers similar(A[, Tv]) calls, which preserve stored-entry structure, and the latter
 # methods cover similar(A[, Tv], shape...) calls, which partially preserve
 # storage space when the shape calls for a two-dimensional result.
+
+"""
+    similar(A::AbstractSparseMatrixCSC{Tv,Ti}, [::Type{TvNew}, ::Type{TiNew}, m::Integer, n::Integer]) where {Tv,Ti}
+
+Create an uninitialized mutable array with the given element type,
+index type, and size, based upon the given source
+`SparseMatrixCSC`. The new sparse matrix maintains the structure of
+the original sparse matrix, except in the case where dimensions of the
+output matrix are different from the output.
+
+The output matrix has zeros in the same locations as the input, but
+unititialized values for the nonzero locations.
+"""
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = _sparsesimilar(S, TvNew, Ti)
 similar(S::AbstractFixedCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = fixed(_sparsesimilar(S, TvNew, Ti))
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
