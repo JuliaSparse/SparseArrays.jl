@@ -41,8 +41,6 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
 @inline _isnotzero(x) = iszero(x) !== true # like `!iszero(x)`, but handles `x::Missing`
 @inline _isnotzero(x::Number) = !iszero(x)
 @inline _isnotzero(x::AbstractArray) = !iszero(x)
-@inline _is_fixed(A) = isa(A, AbstractFixedCSC) || isa(A, AbstractFixedSparseVector)
-@inline _is_fixed(A, Bs::Vararg{Any,N}) where N = _is_fixed(A) || _is_fixed(Bs)
 
 include("readonly.jl")
 include("abstractsparse.jl")

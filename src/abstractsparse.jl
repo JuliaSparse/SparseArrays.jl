@@ -201,3 +201,8 @@ else
         @eval $i
     end
 end
+
+@inline _is_fixed(::AbstractArray) = false
+@inline _is_fixed(A::AbstractFixedCSC) = true
+@inline _is_fixed(A::AbstractFixedSparseVector) = true
+@inline _is_fixed(A::Any, Bs::Vararg{Any,N}) where N = _is_fixed(A) || _is_fixed(Bs...)
