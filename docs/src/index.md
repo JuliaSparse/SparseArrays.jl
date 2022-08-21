@@ -212,7 +212,7 @@ SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
 SparseArrays.sparsevec
-Base.similar
+Base.similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew})
 SparseArrays.issparse
 SparseArrays.nnz
 SparseArrays.findnz
