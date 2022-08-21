@@ -149,7 +149,7 @@ function _sparsesimilar(S::SparseVector, ::Type{TvNew}, ::Type{TiNew}, dims::Dim
     return sizehint!(S1, min(widelength(S1), length(nonzeroinds(S))))
 end
 
-_sparsesimilar(S::FixedSparseVector, x...) = fixed(_sparsesimilar(_unsafe_unfix(S), x...))
+_sparsesimilar(S::FixedSparseVector, x...) = move_fixed(_sparsesimilar(_unsafe_unfix(S), x...))
 
 # The following methods hook into the AbstractArray similar hierarchy. The first method
 # covers similar(A[, Tv]) calls, which preserve stored-entry structure, and the latter
@@ -440,7 +440,7 @@ SparseVector{Tv}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = SparseVector
 
 SparseVector(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
 
-FixedSparseVector(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = fixed(SparseVector(s))
+FixedSparseVector(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = move_fixed(SparseVector(s))
 
 # convert Vector to SparseVector
 
@@ -1060,7 +1060,7 @@ function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     end
     colptr[n+1] = roff
     r = SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
-    return any(_can_insert, X) ? fixed(r) : r
+    return _is_fixed(X) ? move_fixed(r) : r
 end
 
 # Without the first of these methods, vertical concatenations of SparseVectors fall
@@ -1076,7 +1076,7 @@ function vcat(X::SparseVector...)
 end
 function vcat(X::SVorFSV...)
     r = vcat(map(_unsafe_unfix, X)...)
-    return any(_can_insert, X) ? fixed(r) : r
+    return _is_fixed(X) ? move_fixed(r) : r
 end
 function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     # check sizes

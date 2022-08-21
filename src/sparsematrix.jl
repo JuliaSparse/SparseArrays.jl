@@ -76,8 +76,9 @@ FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
 FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
     FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
         getcolptr(x), rowvals(x), nonzeros(x))
-fixed(x...) = fixed(sparse(x...))
+fixed(x...) = move_fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
+move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x), rowvals(x), nonzeros(x))
 _unsafe_unfix(s::FixedSparseCSC) = SparseMatrixCSC(size(s)..., parent(getcolptr(s)), parent(rowvals(s)), nonzeros(s))
 _unsafe_unfix(s::SparseMatrixCSC) = s
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
@@ -623,11 +624,11 @@ The output matrix has zeros in the same locations as the input, but
 unititialized values for the nonzero locations.
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = _sparsesimilar(S, TvNew, Ti)
-similar(S::AbstractFixedCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = fixed(_sparsesimilar(S, TvNew, Ti))
+similar(S::AbstractFixedCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = move_fixed(_sparsesimilar(S, TvNew, Ti))
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
     _sparsesimilar(S, TvNew, Ti, dims)
 similar(S::AbstractFixedCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
-    fixed(_sparsesimilar(S, TvNew, Ti, dims))
+    move_fixed(_sparsesimilar(S, TvNew, Ti, dims))
 # The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
 # result's index type in addition to its entry type, and aren't covered by the hooks above.
 # The calls without shape again preserve stored-entry structure, whereas those with shape

@@ -86,14 +86,14 @@ end
 end
 
 @testset "Issue #190" begin
-    J = fixed(sparse(Diagonal(ones(4))))
-    W = fixed(sparse(Diagonal(ones(4))))
+    J = move_fixed(sparse(Diagonal(ones(4))))
+    W = move_fixed(sparse(Diagonal(ones(4))))
     J[4, 4] = 0
     gamma = 1.0
     W .= gamma .* J
     @test W == J
 
-    x = fixed(sprandn(10, 10, 0.1))
+    x = move_fixed(sprandn(10, 10, 0.1))
     @test (x .= x .* 0; true)
     @test (x .= 0; true)
     @test (fill!(x, false); true)
