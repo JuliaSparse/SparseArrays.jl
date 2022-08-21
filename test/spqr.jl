@@ -5,7 +5,7 @@ module SPQRTests
 using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
-using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose
+using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: sparse, sprandn, spzeros, SparseMatrixCSC
 
 if Base.USE_GPL_LIBS
@@ -152,6 +152,12 @@ end
     @test perm * (transpose(f) .* sQ) ≈ sparse(Dq.Q)
 end
 
+@testset "no strategies" begin
+    A = I + sprandn(10, 10, 0.1)
+    for i in [ColumnNorm, RowMaximum, NoPivot]
+        @test_throws ErrorException qr(A, i())
+    end
+end
 end
 
 end # Base.USE_GPL_LIBS

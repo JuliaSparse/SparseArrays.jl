@@ -202,7 +202,7 @@ section of the standard library reference.
 | [`sprandn(m,n,d)`](@ref)   | [`randn(m,n)`](@ref)   | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed according to the standard normal (Gaussian) distribution.                  |
 | [`sprandn(rng,m,n,d)`](@ref) | [`randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator                                   |
 
-# [Sparse Arrays](@id stdlib-sparse-arrays)
+# [SparseArrays API](@id stdlib-sparse-arrays)
 
 ```@docs
 SparseArrays.AbstractSparseArray
@@ -212,6 +212,7 @@ SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
 SparseArrays.sparsevec
+Base.similar
 SparseArrays.issparse
 SparseArrays.nnz
 SparseArrays.findnz
