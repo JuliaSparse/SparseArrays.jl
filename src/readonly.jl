@@ -12,11 +12,11 @@ struct ReadOnly{T,V<:AbstractVector{T}} <: AbstractVector{T}
 end
 Base.getproperty(::ReadOnly, ::Symbol) = error("Use parent instead.")
 @inline Base.parent(x::ReadOnly) = getfield(x, :parent)
-getindex(x::ReadOnly, v...) = getindex(parent(x), v...)
+Base.@propagate_inbounds getindex(x::ReadOnly, v...) = getindex(parent(x), v...)
 for i in [:length, :lastindex]
-    @eval Base.$i(x::ReadOnly) = Base.$i(parent(x))
+    Base.@propagate_inbounds @eval Base.$i(x::ReadOnly) = Base.$i(parent(x))
 end
-Base.setindex!(x::ReadOnly, v, ind...) = if v == getindex(parent(x), ind...)
+Base.@propagate_inbounds Base.setindex!(x::ReadOnly, v, ind...) = if v == getindex(parent(x), ind...)
     v
 else
     error("Can't change $(typeof(x)).")
