@@ -203,6 +203,6 @@ else
 end
 
 @inline _is_fixed(::AbstractArray) = false
-@inline _is_fixed(A::AbstractFixedCSC) = true
-@inline _is_fixed(A::AbstractFixedSparseVector) = true
-@inline _is_fixed(A::Any, Bs::Vararg{Any,N}) where N = _is_fixed(A) || _is_fixed(Bs...)
+@inline _is_fixed(::AbstractFixedCSC) = true
+@inline _is_fixed(::AbstractFixedSparseVector) = true
+@inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
