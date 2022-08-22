@@ -1954,7 +1954,7 @@ imag(A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, si
 ## full equality
 function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
     size(A1) != size(A2) && return false
-    @inbounds for i = 1:size(A1, 1)
+    @inbounds for i = 1:size(A1, 2)
         nz1, nz2 = nzrange(A1,i), nzrange(A2,i)
         j1, j2 = first(nz1), first(nz2)
         # step through the rows of both matrices at once:
@@ -1964,14 +1964,12 @@ function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
                 nonzeros(A1)[j1] != nonzeros(A2)[j2] && return false
                 j1 += 1
                 j2 += 1
-            else
-                if r1 < r2
-                    !iszero(nonzeros(A1)[j1]) && return false
-                    j1 += 1
-                else
-                    !iszero(nonzeros(A2)[j2]) && return false
-                    j2 += 1
-                end
+            elseif r1 < r2
+                !iszero(nonzeros(A1)[j1]) && return false
+                j1 += 1
+            else # r1 > r2
+                !iszero(nonzeros(A2)[j2]) && return false
+                j2 += 1
             end
         end
         # finish off any left-overs:
