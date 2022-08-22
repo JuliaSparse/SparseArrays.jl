@@ -503,8 +503,10 @@ end
         Bs = Any[B, B', transpose(B), transpose(B'), transpose(B)']
         t2 = maximum([(@elapsed A′ == B′) for A′ in As, B′ in Bs])
         t2 = maximum([(@elapsed A′ == B′) for A′ in As, B′ in Bs])
-        # If it's inefficient, it's really so -- the O(n²) algorithm will stick out
-        @test t2 ≤ 100*t1
+        if size(A,1) ≥ 10000
+            # If it's inefficient, it's really so -- the O(n²) algorithm will stick out
+            @test t2 ≤ 100*t1
+        end
     end
 end
 
