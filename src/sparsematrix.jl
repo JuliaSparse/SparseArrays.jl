@@ -1135,40 +1135,6 @@ sparse(I,J,V::AbstractVector{Bool},m,n) = sparse(I, J, V, Int(m), Int(n), |)
 
 sparse(I,J,v::Number,m,n,combine::Function) = sparse(I, J, fill(v,length(I)), Int(m), Int(n), combine)
 
-## Explicit comparisons with transposed arrays
-
-# Check whether all nonzero elements of A are equal to the respective elements in B
-function nzeq(A::AbstractSparseMatrixCSC,
-              B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},Transpose{<:Any,<:AbstractSparseMatrixCSC}})
-    @inbounds for j in 1:size(A, 2)
-        for k in nzrange(A, j)
-            i = rowvals(A)[k]
-            val = nonzeros(A)[k]
-            val ≠ B[i,j] && return false
-        end
-    end
-    return true
-end
-# Peel off `Adjoint` and `Transpose` from first argument
-nzeq(A::Adjoint{<:Any,<:SparseMatrixCSC}, B::AbstractSparseMatrixCSC) = nzeq(A', B')
-nzeq(A::Transpose{<:Any,<:SparseMatrixCSC}, B::AbstractSparseMatrixCSC) = nzeq(transpose(A), transpose(B))
-
-# Compare by walking both matrices
-function Base.:(==)(A::AbstractSparseMatrixCSC,
-                    B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},
-                             Transpose{<:Any,<:AbstractSparseMatrixCSC}})
-    # Different sizes are always different
-    size(A) ≠ size(B) && return false
-    # Check whether the structural zeros differ
-    nnz(A) ≠ length(A) && nnz(B) ≠ length(B) && zero(eltype(A)) ≠ zero(eltype(B)) && return false
-    # Compare nonzero elements
-    nzeq(A, B) && nzeq(B, A)
-end
-# Peel off `Adjoint` and `Transpose` from first argument
-Base.:(==)(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) = A' == B'
-Base.:(==)(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
-    transpose(A) == transpose(B)
-
 ## Transposition and permutation methods
 
 """
@@ -2003,24 +1969,66 @@ function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
                 j2+=1
             else
                 if r1<r2
-                    vals1[j1]!=0 && return false
+                    !iszero(vals1[j1]) && return false
                     j1+=1
                 else
-                    vals2[j2]!=0 && return false
+                    !iszero(vals2[j2]) && return false
                     j2+=1
                 end
             end
         end
         # finish off any left-overs:
         for j = j1:last(nz1)
-            vals1[j]!=0 && return false
+            !iszero(vals1[j]) && return false
         end
         for j = j2:last(nz2)
-            vals2[j]!=0 && return false
+            !iszero(vals2[j]) && return false
         end
     end
     return true
 end
+
+## Explicit efficient comparisons with transposed arrays
+
+# Check whether all nonzero elements of A are equal to the respective elements in B
+function nzeq(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+    @inbounds for j in 1:size(A, 2)
+        for k in nzrange(A, j)
+            i = rowvals(A)[k]
+            val = nonzeros(A)[k]
+            val ≠ B[i,j] && return false
+        end
+    end
+    return true
+end
+# Peel off `Adjoint` and `Transpose` from first argument
+nzeq(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+     B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    nzeq(A', B')
+nzeq(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+     B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    nzeq(transpose(A), transpose(B))
+
+# Compare by walking both matrices
+# (We could further optimize the case `AbstractSparseMatrixCSC ==
+# Adjoint(Transpose(AbstractSparseMatrixCSC))` more efficiently, i.e.
+# the case where the RHS is both adjoint and transposed, i.e. where it
+# is in CSC format again.)
+function ==(A::AbstractSparseMatrixCSC,
+            B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+                     Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}})
+    # Different sizes are always different
+    size(A) ≠ size(B) && return false
+    # Check whether the structural zeros differ
+    nnz(A) ≠ length(A) && nnz(B) ≠ length(B) && zero(eltype(A)) ≠ zero(eltype(B)) && return false
+    # Compare nonzero elements
+    nzeq(A, B) && nzeq(B, A)
+end
+# Peel off `Adjoint` and `Transpose` from first argument
+==(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    A' == B'
+==(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    transpose(A) == transpose(B)
 
 ## Reductions
 

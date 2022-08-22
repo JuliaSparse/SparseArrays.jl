@@ -492,20 +492,42 @@ end
     @test f() == 0
 end
 
+struct Counting{T} <: Number
+    elt::T
+end
+@static if VERSION ≥ v"1.8"
+    counter::Int = 0
+    resetcounter() = (global counter; counter=0)
+    stepcounter() = (global counter; counter+=1)
+    getcounter() = (global counter; counter)
+else
+    const counter = Ref(0)
+    resetcounter() = (global counter; counter[]=0)
+    stepcounter() = (global counter; counter[]+=1)
+    getcounter() = (global counter; counter[])
+end
+Base.:(==)(x::Counting, y::Counting) = (stepcounter(); x.elt==y.elt)
+Base.promote_rule(::Type{Counting{T}}, ::Type{Counting{U}}) where {T,U} = Counting{promote_rule(T, U)}
+Base.iszero(x::Counting) = iszero(x.elt)
+Base.zero(::Type{Counting{T}}) where {T} = Counting(zero(T))
+Base.zero(x::Counting) = Counting(zero(x.elt))
+Base.adjoint(x::Counting) = Counting(adjoint(x.elt))
+Base.transpose(x::Counting) = Counting(transpose(x.elt))
+
 @testset "Comparisons to adjoints are efficient" for
-    A in Any[sparse(I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)],
-    B in Any[sparse(I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)]
+    A in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)],
+    B in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)]
     if size(A) == size(B)
-        # Run each test twice to ignore compile times
-        t1 = @elapsed A == B
-        t1 = @elapsed A == B
-        As = Any[A, A', transpose(A), transpose(A'), transpose(A)']
-        Bs = Any[B, B', transpose(B), transpose(B'), transpose(B)']
-        t2 = maximum([(@elapsed A′ == B′) for A′ in As, B′ in Bs])
-        t2 = maximum([(@elapsed A′ == B′) for A′ in As, B′ in Bs])
-        if size(A,1) ≥ 10000
+        A = Counting.(A)
+        B = Counting.(B)
+        As = Any[A, A', transpose(A)]
+        Bs = Any[B, B', transpose(B)]
+        for A′ in As, B′ in Bs
+            # skip adjoints of transposes; these are not really supported
+            ((A′ isa Adjoint && B′ isa Transpose) || (A′ isa Transpose && B′ isa Adjoint)) && continue
+            c = (resetcounter(); A′ == B′; getcounter())
             # If it's inefficient, it's really so -- the O(n²) algorithm will stick out
-            @test t2 ≤ 100*t1
+            @test c ≤ 10 * (nnz(A′) + nnz(B′))
         end
     end
 end
