@@ -1160,7 +1160,7 @@ function Base.:(==)(A::AbstractSparseMatrixCSC,
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # Check whether the structural zeros differ
-    nnz(A) ≠ length(A) && nnz(B) ≠ length(B) && zero(A) ≠ zero(B) && return false
+    nnz(A) ≠ length(A) && nnz(B) ≠ length(B) && zero(eltype(A)) ≠ zero(eltype(B)) && return false
     # Compare nonzero elements
     nzeq(A, B) && nzeq(B, A)
 end
