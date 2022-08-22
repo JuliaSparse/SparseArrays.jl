@@ -14,7 +14,6 @@ using Dates
 include("forbidproperties.jl")
 include("simplesmatrix.jl")
 
-
 @testset "_isnotzero" begin
     @test !_isnotzero(0::Int)
     @test _isnotzero(1::Int)
@@ -127,7 +126,7 @@ do33 = fill(1.,3)
             @test collect(skipmissing(Array(broadcast(fun, C, B)))) == collect(skipmissing(broadcast(fun, CA, BA)))
         end
     end
-    
+
 end
 
 let
@@ -526,8 +525,7 @@ Base.transpose(x::Counting) = Counting(transpose(x.elt))
             # skip adjoints of transposes; these are not really supported
             ((A′ isa Adjoint && B′ isa Transpose) || (A′ isa Transpose && B′ isa Adjoint)) && continue
             c = (resetcounter(); A′ == B′; getcounter())
-            # If it's inefficient, it's really so -- the O(n²) algorithm will stick out
-            @test c ≤ 10 * (nnz(A′) + nnz(B′))
+            @test c ≤ 1 + (nnz(A′) + nnz(B′))
         end
     end
 end
