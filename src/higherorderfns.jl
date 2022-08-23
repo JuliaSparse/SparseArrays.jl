@@ -895,7 +895,7 @@ end
 # (9) _broadcast_zeropres!/_broadcast_notzeropres! for more than two (input) sparse vectors/matrices
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(C, As...)
+    isfixed = _is_fixed(As...)
     spaceC::Int = length(nonzeros(C))
     expandsverts = _expandsvert_all(C, As)
     expandshorzs = _expandshorz_all(C, As)
