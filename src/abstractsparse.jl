@@ -190,9 +190,7 @@ end
 @inline _is_fixed(::AbstractArray) = false
 @inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
 macro if_move_fixed(a...)
-    if length(a) <= 1
-        error("@if_move_fixed has no condition")
-    else
-        :(_is_fixed($(a[1:end-1]...)) ? move_fixed(a[2]) : a[2])
-    end
+    length(a) <= 1 && error("@if_move_fixed needs at least two arguments")
+    h, v = esc.(a[1:end - 1]), esc(a[end])
+    :(_is_fixed($(h...)) ? move_fixed($v) : $v)
 end
