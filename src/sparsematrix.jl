@@ -1711,7 +1711,7 @@ function _fkeep!_fixed(A::AbstractSparseMatrixCSC, f::F) where F
     return A
 end
 
-fkeep!(A::AbstractSparseMatrixCSC, f) = _is_fixed(A) ? _fkeep!_fixed(A, f) : _fkeep!(A, f)
+fkeep!(A::AbstractSparseMatrixCSC, f::F) where F= _is_fixed(A) ? _fkeep!_fixed(A, f) : _fkeep!(A, f)
 
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
     fkeep!(A, (i, j, x) -> i + k >= j)
