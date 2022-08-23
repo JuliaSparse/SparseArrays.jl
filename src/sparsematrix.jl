@@ -1662,7 +1662,7 @@ julia> SparseArrays.fkeep!(A, (i, j, v) -> isodd(v))
  ⋅  ⋅  ⋅  ⋅
 ```
 """
-function _fkeep!(A::AbstractSparseMatrixCSC, f)
+function _fkeep!(A::AbstractSparseMatrixCSC, f::F) where F
     An = size(A, 2)
     Acolptr = getcolptr(A)
     Arowval = rowvals(A)
