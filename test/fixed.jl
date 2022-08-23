@@ -14,7 +14,7 @@ using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCS
     @test (r[1] = r[1]; true)
 end
 
-
+struct_eq(A, B, C...) = struct_eq(A, B) && struct_eq(B, C...)
 struct_eq(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) =
     getcolptr(A) == getcolptr(B) && rowvals(A) == rowvals(B)
 struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
@@ -32,20 +32,20 @@ struct_eq(x, y, z...) = struct_eq(x, y) && (length(z) == 0 || struct_eq(y, z...)
     @test struct_eq(F, A)
     H = F ./ 1
     @test typeof(H) == typeof(F)
-    @test struct_eq(F, H)
+    @test struct_eq(F, H, A)
     H = map!(zero, copy(F), F)
-    @test struct_eq(F, H)
+    @test struct_eq(F, H, A)
     F .= false
-    @test struct_eq(F, H)
+    @test struct_eq(F, H, A)
     F .= A .+ A
     @test F == A .+ A
-    @test struct_eq(F, H)
+    @test struct_eq(F, H, A)
     F .= A .- A
     @test F == A .- A
-    @test struct_eq(F, H)
+    @test struct_eq(F, H, A)
     F .= H .* A
     @test F == H .* A
-    @test struct_eq(F, H)
+    @test struct_eq(F, H, A)
 
     f1(F, A) = @allocated(F .= A .+ A)
     f1(F, A)
@@ -56,7 +56,10 @@ struct_eq(x, y, z...) = struct_eq(x, y) && (length(z) == 0 || struct_eq(y, z...)
     @test f2(F, A) == 0
 
     f3(F, A, H) = @allocated(F .= H .* A)
-    f3(F, A, H)
+    @show f3(F, A, H)
+    @show f3(F, A, H)
+    @show f3(F, A, H)
+
     @test f3(F, A, H) == 0
 
     B = similar(F)

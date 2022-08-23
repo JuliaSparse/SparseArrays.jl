@@ -8,7 +8,7 @@ import Base: map, map!, broadcast, copy, copyto!
 
 using Base: front, tail, to_shape
 
-using ..SparseArrays: SparseVector, FixedSparseVector, SparseMatrixCSC, FixedSparseCSC,
+using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC,
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
@@ -1177,8 +1177,6 @@ end
 
 _sparsifystructured(M::AbstractMatrix) = SparseMatrixCSC(M)
 _sparsifystructured(V::AbstractVector) = SparseVector(V)
-_sparsifystructured(M::AbstractSparseMatrix) = _is_fixed(M) ? FixedSparseCSC(M) : SparseMatrixCSC(M)
-_sparsifystructured(V::AbstractSparseVector) = _is_fixed(M) ? FixedSparseVector(M) : SparseVector(V)
 _sparsifystructured(S::SparseVecOrMat) = S
 _sparsifystructured(x) = x
 

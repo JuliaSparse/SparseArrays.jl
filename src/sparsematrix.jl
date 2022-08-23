@@ -490,8 +490,11 @@ end
 
 ## Alias detection and prevention
 using Base: dataids, unaliascopy
-Base.dataids(S::AbstractSparseMatrixCSC) = (dataids(getcolptr(S))..., dataids(rowvals(S))..., dataids(nonzeros(S))...)
-Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2), unaliascopy(getcolptr(S)), unaliascopy(rowvals(S)), unaliascopy(nonzeros(S)))
+Base.dataids(S::AbstractSparseMatrixCSC) = _is_fixed(S) ? dataids(nonzeros(S)) : (dataids(getcolptr(S))..., dataids(rowvals(S))..., dataids(nonzeros(S))...)
+Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2),
+    _is_fixed(S) ? getcolptr(S) : unaliascopy(getcolptr(S)),
+    _is_fixed(S) ? getcolptr(S) : unaliascopy(rowvals(S)),
+    unaliascopy(nonzeros(S)))
 
 ## Constructors
 
@@ -628,15 +631,17 @@ The output matrix has zeros in the same locations as the input, but
 unititialized values for the nonzero locations.
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
-    let r = _sparsesimilar(S, TvNew, Ti)
-        _is_fixed(S) ? move_fixed(r) : r
-    end
-similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
-    let r = _sparsesimilar(S, TvNew, Ti, dims)
-        _is_fixed(S) ? move_fixed(r) : r
+    if _is_fixed(S)
+        println("here")
+        move_fixed(_sparsesimilar(S, TvNew, Ti))
+    else
+        _sparsesimilar(S, TvNew, Ti)
     end
 
-    # The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
+similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
+    @if_move_fixed S _sparsesimilar(S, TvNew, Ti, dims)
+
+# The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
 # result's index type in addition to its entry type, and aren't covered by the hooks above.
 # The calls without shape again preserve stored-entry structure, whereas those with shape
 # preserve storage space when the shape calls for a two-dimensional result.
@@ -1315,8 +1320,7 @@ function ftranspose(A::AbstractSparseMatrixCSC{TvA,Ti}, f::Function, eltype::Typ
                         Vector{Ti}(undef, 0),
                         Vector{Tv}(undef, 0))
     sizehint!(X, nnz(A))
-    r = halfperm!(X, A, 1:size(A, 2), f)
-    return _is_fixed(A) ? move_fixed(r) : r
+    return @if_move_fixed A halfperm!(X, A, 1:size(A, 2), f)
 end
 
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)

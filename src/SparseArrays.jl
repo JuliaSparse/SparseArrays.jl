@@ -27,7 +27,7 @@ import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Com
 using Random: default_rng, AbstractRNG, randsubseq, randsubseq!
 
 export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
-    FixedSparseCSC, SparseMatrixCSC, SparseVector, blockdiag, droptol!, dropzeros!, dropzeros,
+    SparseMatrixCSC, SparseVector, blockdiag, droptol!, dropzeros!, dropzeros,
     fixed, move_fixed, issparse, nonzeros, nzrange, rowvals, sparse, sparsevec, spdiagm,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
