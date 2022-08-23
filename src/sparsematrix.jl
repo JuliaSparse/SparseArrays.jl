@@ -493,7 +493,7 @@ using Base: dataids, unaliascopy
 Base.dataids(S::AbstractSparseMatrixCSC) = _is_fixed(S) ? dataids(nonzeros(S)) : (dataids(getcolptr(S))..., dataids(rowvals(S))..., dataids(nonzeros(S))...)
 Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2),
     _is_fixed(S) ? getcolptr(S) : unaliascopy(getcolptr(S)),
-    _is_fixed(S) ? getcolptr(S) : unaliascopy(rowvals(S)),
+    _is_fixed(S) ? rowvals(S) : unaliascopy(rowvals(S)),
     unaliascopy(nonzeros(S)))
 
 ## Constructors
