@@ -1954,39 +1954,74 @@ imag(A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, si
 ## full equality
 function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
     size(A1) != size(A2) && return false
-    vals1, vals2 = nonzeros(A1), nonzeros(A2)
-    rows1, rows2 = rowvals(A1), rowvals(A2)
-    m, n = size(A1)
-    @inbounds for i = 1:n
-        nz1,nz2 = nzrange(A1,i), nzrange(A2,i)
-        j1,j2 = first(nz1), first(nz2)
+    @inbounds for i = 1:size(A1, 2)
+        nz1, nz2 = nzrange(A1,i), nzrange(A2,i)
+        j1, j2 = first(nz1), first(nz2)
         # step through the rows of both matrices at once:
         while j1 <= last(nz1) && j2 <= last(nz2)
-            r1,r2 = rows1[j1], rows2[j2]
-            if r1==r2
-                vals1[j1]!=vals2[j2] && return false
-                j1+=1
-                j2+=1
-            else
-                if r1<r2
-                    vals1[j1]!=0 && return false
-                    j1+=1
-                else
-                    vals2[j2]!=0 && return false
-                    j2+=1
-                end
+            r1, r2 = rowvals(A1)[j1], rowvals(A2)[j2]
+            if r1 == r2
+                nonzeros(A1)[j1] != nonzeros(A2)[j2] && return false
+                j1 += 1
+                j2 += 1
+            elseif r1 < r2
+                !iszero(nonzeros(A1)[j1]) && return false
+                j1 += 1
+            else # r1 > r2
+                !iszero(nonzeros(A2)[j2]) && return false
+                j2 += 1
             end
         end
         # finish off any left-overs:
         for j = j1:last(nz1)
-            vals1[j]!=0 && return false
+            !iszero(nonzeros(A1)[j]) && return false
         end
         for j = j2:last(nz2)
-            vals2[j]!=0 && return false
+            !iszero(nonzeros(A2)[j]) && return false
         end
     end
     return true
 end
+
+## Explicit efficient comparisons with transposed arrays
+
+# Check whether all nonzero elements of A are equal to the respective elements in B
+function nzeq(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+    @inbounds for j in 1:size(A, 2)
+        for k in nzrange(A, j)
+            i = rowvals(A)[k]
+            val = nonzeros(A)[k]
+            val ≠ B[i,j] && return false
+        end
+    end
+    return true
+end
+# Peel off `Adjoint` and `Transpose` from first argument
+nzeq(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+     B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    nzeq(A', B')
+nzeq(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+     B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    nzeq(transpose(A), transpose(B))
+
+# Compare by walking both matrices
+# (We could further optimize the case `AbstractSparseMatrixCSC ==
+# Adjoint(Transpose(AbstractSparseMatrixCSC))` more efficiently, i.e.
+# the case where the RHS is both adjoint and transposed, i.e. where it
+# is in CSC format again.)
+function ==(A::AbstractSparseMatrixCSC,
+            B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+                     Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}})
+    # Different sizes are always different
+    size(A) ≠ size(B) && return false
+    # Compare nonzero elements
+    return nzeq(A, B) && nzeq(B, A)
+end
+# Peel off `Adjoint` and `Transpose` from first argument
+==(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    A' == B'
+==(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    transpose(A) == transpose(B)
 
 ## Reductions
 
