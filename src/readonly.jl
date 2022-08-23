@@ -14,7 +14,7 @@ Base.getproperty(::ReadOnly, ::Symbol) = error("Use parent instead.")
 @inline Base.parent(x::ReadOnly) = getfield(x, :parent)
 Base.@propagate_inbounds @inline getindex(x::ReadOnly, v...) = getindex(parent(x), v...)
 for i in [:length, :lastindex]
-    Base.@propagate_inbounds @eval Base.$i(x::ReadOnly) = Base.$i(parent(x))
+    @eval Base.@propagate_inbounds @inline Base.$i(x::ReadOnly) = Base.$i(parent(x))
 end
 Base.@propagate_inbounds @inline Base.setindex!(x::ReadOnly, v, ind...) = if v == getindex(parent(x), ind...)
     v
