@@ -572,7 +572,7 @@ end
 # (8) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a pair of (input) sparse vectors/matrices
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(C, A, B)
+    isfixed = _is_fixed(A, B)
     spaceC::Int = length(nonzeros(C))
     rowsentinelA = convert(indtype(A), numrows(C) + 1)
     rowsentinelB = convert(indtype(B), numrows(C) + 1)
