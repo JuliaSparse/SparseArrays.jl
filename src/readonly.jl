@@ -18,9 +18,10 @@ Base.getproperty(::ReadOnly, ::Symbol) = error("Use parent instead.")
 for i in [:length, :first, :last, :eachindex, :firstindex, :lastindex, :eltype]
     @eval Base.@propagate_inbounds @inline Base.$i(x::ReadOnly) = Base.$i(parent(x))
 end
-for i in [:iterate, :axes, :getindex, :similar, :size, :strides]
+for i in [:iterate, :axes, :getindex, :size, :strides]
     @eval(Base.@propagate_inbounds @inline Base.$i(x::ReadOnly, y...) = Base.$i(parent(x), y...))
 end
+
 Base.unsafe_convert(x::Type{Ptr{T}}, A::ReadOnly) where T = Base.unsafe_convert(x, parent(A))
 Base.elsize(::Type{ReadOnly{T,V}}) where {T,V} = Base.elsize(V)
 Base.@propagate_inbounds @inline Base.setindex!(x::ReadOnly, v, ind...) = if v == getindex(parent(x), ind...)
