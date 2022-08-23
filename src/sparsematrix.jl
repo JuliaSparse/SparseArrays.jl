@@ -1697,7 +1697,7 @@ function _fkeep!(A::AbstractSparseMatrixCSC, f)
     return A
 end
 
-function _fkeep!_fixed(A::AbstractSparseMatrixCSC, f) where S
+function _fkeep!_fixed(A::AbstractSparseMatrixCSC, f::F) where F
     @inbounds for j in axes(A, 2)
         for k in getcolptr(A)[j]:getcolptr(A)[j+1]-1
             i = rowvals(A)[k]
