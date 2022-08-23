@@ -44,7 +44,10 @@ function SparseMatrixCSC(m::Integer, n::Integer, colptr::Vector, rowval::Vector,
     SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
 
-struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractFixedCSC{Tv,Ti}
+SparseMatrixCSC(m, n, colptr::ReadOnly, rowval::ReadOnly, nzval::Vector) =
+    SparseMatrixCSC(m, n, copy(parent(colptr)), copy(parent(rowval)), nzval)
+
+struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     m::Int                  # Number of rows
     n::Int                  # Number of columns
     colptr::ReadOnly{Ti,Vector{Ti}} # Column i is in colptr[i]:(colptr[i+1]-1)
@@ -61,6 +64,7 @@ struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractFixedCSC{Tv,Ti}
         new(Int(m), Int(n), colptr, rowval, nzval)
     end
 end
+@inline _is_fixed(::FixedSparseCSC) = true
 FixedSparseCSC(m::Integer, n::Integer,
     colptr::ReadOnly{Ti, Vector{Ti}},
     rowval::ReadOnly{Ti, Vector{Ti}},
@@ -493,8 +497,8 @@ Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2),
 
 copy(S::AbstractSparseMatrixCSC) =
     SparseMatrixCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(rowvals(S)), copy(nonzeros(S)))
-copy(S::AbstractFixedCSC) =
-    FixedSparseCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(rowvals(S)), copy(nonzeros(S)))
+copy(S::FixedSparseCSC) =
+    FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), copy(nonzeros(S)))
 function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     # If the two matrices have the same length then all the
     # elements in A will be overwritten.
@@ -623,13 +627,16 @@ output matrix are different from the output.
 The output matrix has zeros in the same locations as the input, but
 unititialized values for the nonzero locations.
 """
-similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = _sparsesimilar(S, TvNew, Ti)
-similar(S::AbstractFixedCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = move_fixed(_sparsesimilar(S, TvNew, Ti))
+similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
+    let r = _sparsesimilar(S, TvNew, Ti)
+        _is_fixed(S) ? move_fixed(r) : r
+    end
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
-    _sparsesimilar(S, TvNew, Ti, dims)
-similar(S::AbstractFixedCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
-    move_fixed(_sparsesimilar(S, TvNew, Ti, dims))
-# The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
+    let r = _sparsesimilar(S, TvNew, Ti, dims)
+        _is_fixed(S) ? move_fixed(r) : r
+    end
+
+    # The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
 # result's index type in addition to its entry type, and aren't covered by the hooks above.
 # The calls without shape again preserve stored-entry structure, whereas those with shape
 # preserve storage space when the shape calls for a two-dimensional result.
@@ -1308,11 +1315,10 @@ function ftranspose(A::AbstractSparseMatrixCSC{TvA,Ti}, f::Function, eltype::Typ
                         Vector{Ti}(undef, 0),
                         Vector{Tv}(undef, 0))
     sizehint!(X, nnz(A))
-    return halfperm!(X, A, 1:size(A, 2), f)
+    r = halfperm!(X, A, 1:size(A, 2), f)
+    return _is_fixed(A) ? move_fixed(r) : r
 end
-function ftranspose(A::AbstractFixedCSC{TvA,Ti}, f::Function, eltype::Type{Tv} = TvA) where {Tv,TvA,Ti}
-    return FixedSparseCSC(ftranspose(A, f, eltype))
-end
+
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)
 transpose(A::AbstractSparseMatrixCSC) = Transpose(A)
 Base.copy(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
@@ -1652,7 +1658,7 @@ julia> SparseArrays.fkeep!(A, (i, j, v) -> isodd(v))
  ⋅  ⋅  ⋅  ⋅
 ```
 """
-function fkeep!(A::AbstractSparseMatrixCSC, f)
+function _fkeep!(A::AbstractSparseMatrixCSC, f)
     An = size(A, 2)
     Acolptr = getcolptr(A)
     Arowval = rowvals(A)
@@ -1687,7 +1693,7 @@ function fkeep!(A::AbstractSparseMatrixCSC, f)
     return A
 end
 
-function fkeep!(A::AbstractFixedCSC, f) where S
+function _fkeep!_fixed(A::AbstractSparseMatrixCSC, f) where S
     @inbounds for j in axes(A, 2)
         for k in getcolptr(A)[j]:getcolptr(A)[j+1]-1
             i = rowvals(A)[k]
@@ -1701,6 +1707,7 @@ function fkeep!(A::AbstractFixedCSC, f) where S
     return A
 end
 
+fkeep!(A::AbstractSparseMatrixCSC, f) = _is_fixed(A) ? _fkeep!_fixed(A, f) : _fkeep!(A, f)
 
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
     fkeep!(A, (i, j, x) -> i + k >= j)
@@ -1724,8 +1731,7 @@ For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
 
-dropzeros!(A::AbstractSparseMatrixCSC) = fkeep!(A, (i, j, x) -> _isnotzero(x))
-dropzeros!(A::AbstractFixedCSC) = A
+dropzeros!(A::AbstractSparseMatrixCSC) = _is_fixed(A) ? A : fkeep!(A, (i, j, x) -> _isnotzero(x))
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)

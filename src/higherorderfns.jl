@@ -10,7 +10,7 @@ using Base: front, tail, to_shape
 
 using ..SparseArrays: SparseVector, FixedSparseVector, SparseMatrixCSC, FixedSparseCSC,
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
-                      AbstractSparseMatrix, AbstractSparseArray, AbstractFixedCSC, AbstractFixedSparseVector,
+                      AbstractSparseMatrix, AbstractSparseArray,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
                       SorF, indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
@@ -1177,9 +1177,8 @@ end
 
 _sparsifystructured(M::AbstractMatrix) = SparseMatrixCSC(M)
 _sparsifystructured(V::AbstractVector) = SparseVector(V)
-_sparsifystructured(M::AbstractSparseMatrix) = SparseMatrixCSC(M)
-_sparsifystructured(M::AbstractFixedCSC) = FixedSparseCSC(M)
-_sparsifystructured(V::AbstractSparseVector) = SparseVector(V)
+_sparsifystructured(M::AbstractSparseMatrix) = _is_fixed(M) ? FixedSparseCSC(M) : SparseMatrixCSC(M)
+_sparsifystructured(V::AbstractSparseVector) = _is_fixed(M) ? FixedSparseVector(M) : SparseVector(V)
 _sparsifystructured(S::SparseVecOrMat) = S
 _sparsifystructured(x) = x
 

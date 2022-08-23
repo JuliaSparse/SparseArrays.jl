@@ -26,15 +26,6 @@ abstract type AbstractCompressedVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
 
 
 """
-    AbstractFixedSparseVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti}
-
-Supertype for one-dimension sparse arrays (or array-like types) which the sparsity structure
-is fixed.
-see `AbstractSparseVector{Tv,Ti}`
-"""
-abstract type AbstractFixedSparseVector{Tv,Ti} <: AbstractCompressedVector{Tv,Ti} end
-
-"""
     AbstractSparseMatrix{Tv,Ti}
 
 Supertype for two-dimensional sparse arrays (or array-like types) with elements
@@ -49,12 +40,6 @@ Supertype for matrix with compressed sparse column (CSC).
 """
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
-"""
-    AbstractFixedCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
-
-Supertype for compressed sparse column (CSC) matrices who have constant entries.
-"""
-abstract type AbstractFixedCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti} end
 
 """
     issparse(S)
@@ -203,6 +188,11 @@ else
 end
 
 @inline _is_fixed(::AbstractArray) = false
-@inline _is_fixed(::AbstractFixedCSC) = true
-@inline _is_fixed(::AbstractFixedSparseVector) = true
 @inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
+macro if_move_fixed(a...)
+    if length(a) <= 1
+        error("@if_move_fixed has no condition")
+    else
+        :(_is_fixed($(a[1:end-1]...)) ? move_fixed(a[2]) : a[2])
+    end
+end
