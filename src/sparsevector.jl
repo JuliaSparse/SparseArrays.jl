@@ -385,7 +385,7 @@ end
             insert!(nzval, k, v)
         end
     end
-    x
+    return x
 end
 
 @RCI setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
