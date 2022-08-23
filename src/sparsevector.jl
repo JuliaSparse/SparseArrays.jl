@@ -370,7 +370,6 @@ end
 
 ### Element access
 
-
 @RCI function setindex!(x::AbstractCompressedVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
     checkbounds(x, i)
     nzind = nonzeroinds(x)
