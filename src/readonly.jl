@@ -16,7 +16,7 @@ Base.@propagate_inbounds @inline getindex(x::ReadOnly, v...) = getindex(parent(x
 for i in [:length, :lastindex]
     Base.@propagate_inbounds @eval Base.$i(x::ReadOnly) = Base.$i(parent(x))
 end
-Base.@propagate_inbounds Base.setindex!(x::ReadOnly, v, ind...) = if v == getindex(parent(x), ind...)
+Base.@propagate_inbounds @inline Base.setindex!(x::ReadOnly, v, ind...) = if v == getindex(parent(x), ind...)
     v
 else
     error("Can't change $(typeof(x)).")
