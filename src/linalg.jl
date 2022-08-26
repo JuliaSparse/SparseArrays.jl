@@ -1436,18 +1436,17 @@ kron(A::VecOrMat, B::Union{SparseVector,AbstractSparseMatrixCSC,AdjOrTrans{<:Any
     kron(sparse(A), B)
 
 # sparse vec/mat ⊗ Diagonal etc. and vice versa
-const MorallySparse1{T} = Union{Bidiagonal{T}, Diagonal{T}, SymTridiagonal{T}, Tridiagonal{T}}
-const MorallySparse{T} = Union{MorallySparse1{T}, Adjoint{T, <:MorallySparse1}, Transpose{T, <:MorallySparse1}}
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::MorallySparse{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}}) where {T<:Number, S<:Number} =
+const StructuredMatrix{T} = Union{Bidiagonal{T}, Diagonal{T}, SymTridiagonal{T}, Tridiagonal{T}}
+Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::StructuredMatrix{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}}) where {T<:Number, S<:Number} =
     kron!(C, sparse(A), B)
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}, B::MorallySparse{S}) where {T<:Number, S<:Number} =
+Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}, B::StructuredMatrix{S}) where {T<:Number, S<:Number} =
     kron!(C, A, sparse(B))
 
 Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}, B::Diagonal{S}) where {T<:Number, S<:Number} = kron!(C, A, sparse(B))
 
-kron(A::MorallySparse{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}, AdjOrTrans{S,<:SparseVector}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}) where {T<:Number, S<:Number} =
+kron(A::StructuredMatrix{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}, AdjOrTrans{S,<:SparseVector}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}) where {T<:Number, S<:Number} =
     kron(sparse(A), B)
-kron(A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}, AdjOrTrans{S,<:SparseVector}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}, B::MorallySparse{S}) where {T<:Number, S<:Number} =
+kron(A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}, AdjOrTrans{S,<:SparseVector}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}, B::StructuredMatrix{S}) where {T<:Number, S<:Number} =
     kron(A, sparse(B))
 
 # sparse outer product
