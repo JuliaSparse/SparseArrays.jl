@@ -1435,13 +1435,18 @@ kron(A::Union{SparseVector,AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSp
 kron(A::VecOrMat, B::Union{SparseVector,AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) =
     kron(sparse(A), B)
 
-# sparse vec/mat ⊗ Diagonal and vice versa
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Diagonal{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}}) where {T<:Number, S<:Number} = kron!(C, sparse(A), B)
+# sparse vec/mat ⊗ Diagonal etc. and vice versa
+const StructuredMatrix{T} = Union{Bidiagonal{T}, Diagonal{T}, SymTridiagonal{T}, Tridiagonal{T}}
+Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::StructuredMatrix{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}}) where {T<:Number, S<:Number} =
+    kron!(C, sparse(A), B)
+Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}, B::StructuredMatrix{S}) where {T<:Number, S<:Number} =
+    kron!(C, A, sparse(B))
+
 Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}, B::Diagonal{S}) where {T<:Number, S<:Number} = kron!(C, A, sparse(B))
 
-kron(A::Diagonal{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}) where {T<:Number, S<:Number} =
+kron(A::StructuredMatrix{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}, AdjOrTrans{S,<:SparseVector}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}) where {T<:Number, S<:Number} =
     kron(sparse(A), B)
-kron(A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}, B::Diagonal{S}) where {T<:Number, S<:Number} =
+kron(A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}, AdjOrTrans{S,<:SparseVector}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}, B::StructuredMatrix{S}) where {T<:Number, S<:Number} =
     kron(A, sparse(B))
 
 # sparse outer product

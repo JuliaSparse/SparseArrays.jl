@@ -700,23 +700,35 @@ end
         v = view(a, :, 1); v_d = Vector(v)
         x = sprand(m, 0.4); x_d = Vector(x)
         y = sprand(n, 0.3); y_d = Vector(y)
-        c_di = Diagonal(rand(m)); c = sparse(c_di); c_d = Array(c_di)
-        d_di = Diagonal(rand(n)); d = sparse(d_di); d_d = Array(d_di)
-        # mat ⊗ mat
-        for t in (identity, adjoint, transpose)
-            @test Array(kron(t(a), b)::SparseMatrixCSC) == kron(t(a_d), b_d)
-            @test Array(kron(a, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
-            @test Array(kron(t(a), t(b))::SparseMatrixCSC) == kron(t(a_d), t(b_d))
-            @test Array(kron(a_d, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
-            @test Array(kron(t(a), b_d)::SparseMatrixCSC) == kron(t(a_d), b_d)
-            @test issparse(kron(c, d_di))
-            @test Array(kron(c, d_di)) == kron(c_d, d_d)
-            @test issparse(kron(c_di, d))
-            @test Array(kron(c_di, d)) == kron(c_d, d_d)
-            @test issparse(kron(c_di, y))
-            @test Array(kron(c_di, y)) == kron(c_di, y_d)
-            @test issparse(kron(x, d_di))
-            @test Array(kron(x, d_di)) == kron(x_d, d_di)
+        c_dis = Any[Bidiagonal(rand(m), rand(m-1), :U),
+                    Bidiagonal(rand(m), rand(m-1), :L),
+                    Diagonal(rand(m)),
+                    SymTridiagonal(rand(m), rand(m-1)),
+                    Tridiagonal(rand(m-1), rand(m), rand(m-1))]
+        d_dis = Any[Bidiagonal(rand(n), rand(n-1), :U),
+                    Bidiagonal(rand(n), rand(n-1), :L),
+                    Diagonal(rand(n)),
+                    SymTridiagonal(rand(n), rand(n-1)),
+                    Tridiagonal(rand(n-1), rand(n), rand(n-1))]
+        for (c_di, d_di) in Iterators.product(c_dis, d_dis)
+            c = sparse(c_di); c_d = Array(c_di)
+            d = sparse(d_di); d_d = Array(d_di)
+            # mat ⊗ mat
+            for t in (identity, adjoint, transpose)
+                @test Array(kron(t(a), b)::SparseMatrixCSC) == kron(t(a_d), b_d)
+                @test Array(kron(a, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
+                @test Array(kron(t(a), t(b))::SparseMatrixCSC) == kron(t(a_d), t(b_d))
+                @test Array(kron(a_d, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
+                @test Array(kron(t(a), b_d)::SparseMatrixCSC) == kron(t(a_d), b_d)
+                @test issparse(kron(c, d_di))
+                @test Array(kron(c, d_di)) == kron(c_d, d_d)
+                @test issparse(kron(c_di, d))
+                @test Array(kron(c_di, d)) == kron(c_d, d_d)
+                @test issparse(kron(c_di, y))
+                @test Array(kron(c_di, y)) == kron(c_di, y_d)
+                @test issparse(kron(x, d_di))
+                @test Array(kron(x, d_di)) == kron(x_d, d_di)
+            end
         end
         # vec ⊗ vec
         @test Vector(kron(x, y)) == kron(x_d, y_d)
