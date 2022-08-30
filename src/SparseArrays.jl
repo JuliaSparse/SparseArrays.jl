@@ -49,7 +49,12 @@ function decrement!(A::AbstractArray{T}) where T<:Integer
     for i in eachindex(A); A[i] -= oneunit(T) end
     A
 end
-decrement(A::AbstractArray{<:Integer}) = decrement!(copy(A))
+decrement(A::AbstractVector{T}) where T<:Integer = let x = Vector{T}(undef, length(A))
+    for (i, j) in zip(eachindex(A), eachindex(x))
+        x[j] = A[i] - oneunit(T)
+    end
+    x
+end
 
 
 include("readonly.jl")
