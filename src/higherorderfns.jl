@@ -169,7 +169,7 @@ map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) 
         else
             _map_zeropres!(f, C, A, Bs...)
         end
-    return _is_fixed(A, Bs...) ? move_fixed(r) : r
+    return @if_move_fixed A Bs... r
 end
 
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
@@ -188,7 +188,7 @@ function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N
             C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
             _map_zeropres!(f, C, A, Bs...)
         end
-    return _is_fixed(A, Bs...) ? move_fixed(r) : r
+    return @if_move_fixed A Bs... r
 end
 
 # (3) broadcast[!] entry points
@@ -220,7 +220,7 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
     C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
     r = fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
                         _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
-    return _is_fixed(A, Bs...) ? move_fixed(r) : r
+    return @if_move_fixed A Bs... r
 end
 # helper functions for map[!]/broadcast[!] entry points (and related methods below)
 @inline _haszeros(A) = nnz(A) ≠ length(A)

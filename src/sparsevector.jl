@@ -1073,7 +1073,7 @@ function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     end
     colptr[n+1] = roff
     r = SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
-    return _is_fixed(X...) ? move_fixed(r) : r
+    return @if_move_fixed X... r
 end
 
 # Without the first of these methods, vertical concatenations of SparseVectors fall
