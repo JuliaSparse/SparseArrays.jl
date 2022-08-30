@@ -102,10 +102,15 @@ end
 
 @testset "getindex should return type with same _is_fixed" begin
     for A in [sprandn(10, 10, 0.1), fixed(sprandn(10, 10, 0.1))]
+        @test _is_fixed(A) == _is_fixed(A[:, :])
         @test _is_fixed(A) == _is_fixed(A[:, 1])
         @test _is_fixed(A) == _is_fixed(A[1, :])
         @test _is_fixed(A) == _is_fixed(A[1:2, 1:2])
         @test _is_fixed(A) == _is_fixed(A[2:4, 2:3])
+    end
+    for A in [sprandn(10, 0.1), fixed(sprandn(10, 0.1))]
+        @test _is_fixed(A) == _is_fixed(A[:])
+        @test _is_fixed(A) == _is_fixed(A[1:3])
     end
 end
 

@@ -55,13 +55,13 @@ Experimental AbstractSparseMatrixCSC whose non-zero index are fixed.
 struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     m::Int                  # Number of rows
     n::Int                  # Number of columns
-    colptr::ReadOnly{Ti,Vector{Ti}} # Column i is in colptr[i]:(colptr[i+1]-1)
-    rowval::ReadOnly{Ti,Vector{Ti}} # Row indices of stored values
+    colptr::ReadOnly{Ti,1,Vector{Ti}} # Column i is in colptr[i]:(colptr[i+1]-1)
+    rowval::ReadOnly{Ti,1,Vector{Ti}} # Row indices of stored values
     nzval::Vector{Tv}       # Stored values, typically nonzeros
 
     function FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer,
-                            colptr::ReadOnly{Ti,Vector{Ti}},
-                            rowval::ReadOnly{Ti,Vector{Ti}},
+                            colptr::ReadOnly{Ti,1,Vector{Ti}},
+                            rowval::ReadOnly{Ti,1,Vector{Ti}},
                             nzval::Vector{Tv}) where {Tv,Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
         _goodbuffers(Int(m), Int(n), parent(colptr), parent(rowval), nzval) ||
@@ -71,8 +71,8 @@ struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
 end
 @inline _is_fixed(::FixedSparseCSC) = true
 FixedSparseCSC(m::Integer, n::Integer,
-    colptr::ReadOnly{Ti, Vector{Ti}},
-    rowval::ReadOnly{Ti, Vector{Ti}},
+    colptr::ReadOnly{Ti,1,Vector{Ti}},
+    rowval::ReadOnly{Ti,1,Vector{Ti}},
     nzval::Vector{Tv}) where {Tv,Ti<:Integer} =
     FixedSparseCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =

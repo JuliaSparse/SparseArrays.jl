@@ -56,10 +56,10 @@ Experimental AbstractCompressedVector whose non-zero index are fixed.
 """
 struct FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
-    nzind::ReadOnly{Ti,Vector{Ti}}   # Indices of stored values
+    nzind::ReadOnly{Ti,1,Vector{Ti}}   # Indices of stored values
     nzval::Vector{Tv}   # Stored values, typically nonzeros
 
-    function FixedSparseVector{Tv,Ti}(n::Integer, nzind::ReadOnly{Ti,Vector{Ti}}, nzval::Vector{Tv}) where {Tv,Ti<:Integer}
+    function FixedSparseVector{Tv,Ti}(n::Integer, nzind::ReadOnly{Ti,1,Vector{Ti}}, nzval::Vector{Tv}) where {Tv,Ti<:Integer}
         n >= 0 || throw(ArgumentError("The number of elements must be non-negative."))
         length(nzind) == length(nzval) ||
             throw(ArgumentError("index and value vectors must be the same length"))
@@ -67,7 +67,7 @@ struct FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     end
 end
 @inline _is_fixed(::FixedSparseVector) = true
-FixedSparseVector(n::Integer, nzind::ReadOnly{Ti,Vector{Ti}}, nzval::Vector{Tv}) where {Tv,Ti<:Integer} =
+FixedSparseVector(n::Integer, nzind::ReadOnly{Ti,1,Vector{Ti}}, nzval::Vector{Tv}) where {Tv,Ti<:Integer} =
     FixedSparseVector{Tv,Ti}(n, nzind, nzval)
 
 FixedSparseVector(n::Integer, nzind::Vector{<:Integer}, nzval::Vector) =
