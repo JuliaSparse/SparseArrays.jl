@@ -24,7 +24,6 @@ Supertype for vectors stored using a compressed map.
 """
 abstract type AbstractCompressedVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
 
-
 """
     AbstractSparseMatrix{Tv,Ti}
 
