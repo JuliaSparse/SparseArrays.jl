@@ -114,9 +114,13 @@ end
     end
 end
 
-@testset "Test lu" begin
-    a = fixed(sprandn(10, 10, 0.99) + I)
+@testset "Test factorization" begin
+    b = sprandn(10, 10, 0.99) + I
+    a = fixed(b)
+
     @test (lu(a) \ randn(10); true)
+    @test b == a
     @test (qr(a + a') \ randn(10); true)
+    @test b == a
 end
 

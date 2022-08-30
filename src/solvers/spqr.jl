@@ -28,7 +28,7 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr
+using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -139,7 +139,7 @@ Base.axes(Q::QRSparseQ) = map(Base.OneTo, size(Q))
 Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
 
 # From SPQR manual p. 6
-_default_tol(A::SparseMatrixCSC) =
+_default_tol(A::AbstractSparseMatrixCSC) =
     20*sum(size(A))*eps(real(eltype(A)))*maximum(norm(view(A, :, i)) for i in 1:size(A, 2))
 
 """
@@ -220,7 +220,10 @@ LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
     "dense QR.")))
 LinearAlgebra.qr(A::SparseMatrixCSC; tol=_default_tol(A)) = qr(float(A); tol=tol)
 LinearAlgebra.qr(::SparseMatrixCSC, ::LinearAlgebra.PivotingStrategy) = error("Pivoting Strategies are not supported by `SparseMatrixCSC`s")
-
+LinearAlgebra.qr(A::FixedSparseCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) =
+    let B=A
+        qr(_unsafe_unfix(B); tol, ordering)
+    end
 function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
