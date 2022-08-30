@@ -1716,7 +1716,7 @@ function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F
     return A
 end
 
-function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F
+function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     @inbounds for j in axes(A, 2)
         for k in getcolptr(A)[j]:getcolptr(A)[j+1]-1
             # If this element should be kept, rewrite in new position
