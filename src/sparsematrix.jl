@@ -47,6 +47,11 @@ end
 SparseMatrixCSC(m, n, colptr::ReadOnly, rowval::ReadOnly, nzval::Vector) =
     SparseMatrixCSC(m, n, copy(parent(colptr)), copy(parent(rowval)), nzval)
 
+"""
+    `FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}`
+
+Experimental AbstractSparseMatrixCSC whose non-zero index are fixed.
+"""
 struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     m::Int                  # Number of rows
     n::Int                  # Number of columns
@@ -80,16 +85,35 @@ FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
 FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
     FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
         getcolptr(x), rowvals(x), nonzeros(x))
+
+"""
+    `fixed(x...)`
+
+Experimental. Like `sparse` but returns a sparse array whose `_is_fixed` is `true`.
+"""
 fixed(x...) = move_fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
+
+"""
+    `move_fixed(x::AbstractSparseMatrixCSC)`
+
+Experimental, unsafe. Make a `FixedSparseCSC` by reusing the colptr, rowvals and nonzeros of `x`.
+"""
 move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x), rowvals(x), nonzeros(x))
-_unsafe_unfix(s::FixedSparseCSC) = SparseMatrixCSC(size(s)..., parent(getcolptr(s)), parent(rowvals(s)), nonzeros(s))
-_unsafe_unfix(s::SparseMatrixCSC) = s
+"""
+    `_unsafe_unfix(x)`
+
+Experimental, unsafe. Returns a modifyable version of `x` for compatibility with this codebase.
+"""
+_unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(x)), parent(rowvals(x)), nonzeros(x))
+_unsafe_unfix(x::SparseMatrixCSC) = x
+
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
+
 """
     SparseMatrixCSC(x::FixedSparseCSC)
 
-Get a non read-only view of x. get a copy for the sake of safety.
+Get a writable copy of x. See `_unsafe_unfix(x)`
 """
 SparseMatrixCSC(x::FixedSparseCSC) = SparseMatrixCSC(size(x, 1), size(x, 2),
     copy(parent(getcolptr(x))),
@@ -2462,7 +2486,7 @@ function getindex_cols(A::AbstractSparseMatrixCSC{Tv,Ti}, J::AbstractVector) whe
             nzvalS[ptrS] = nzvalA[k]
         end
     end
-    return SparseMatrixCSC(m, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(m, nJ, colptrS, rowvalS, nzvalS)
 end
 
 getindex_traverse_col(::AbstractUnitRange, lo::Integer, hi::Integer) = lo:hi
@@ -2513,7 +2537,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::Abstra
         end
     end
 
-    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -2534,7 +2558,7 @@ function getindex_I_sorted(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector,
 
     (alg == 0) ? getindex_I_sorted_bsearch_A(A, I, J) :
     (alg == 1) ? getindex_I_sorted_bsearch_I(A, I, J) :
-    getindex_I_sorted_linear(A, I, J)
+    return getindex_I_sorted_linear(A, I, J)
 end
 
 function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -2594,7 +2618,7 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
             end
         end
     end
-    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted_linear(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -2654,7 +2678,7 @@ function getindex_I_sorted_linear(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstract
             ptrA += 1
         end
     end
-    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -2724,7 +2748,7 @@ function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
         end
         colptrS[j+1] = ptrS
     end
-    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function permute_rows!(S::AbstractSparseMatrixCSC{Tv,Ti}, pI::Vector{Int}) where {Tv,Ti}
@@ -2777,7 +2801,7 @@ function getindex_general(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Abst
     require_one_based_indexing(A, I, J)
     pI = sortperm(I)
     @inbounds Is = I[pI]
-    permute_rows!(getindex_I_sorted(A, Is, J), pI)
+    return permute_rows!(getindex_I_sorted(A, Is, J), pI)
 end
 
 # the general case:
@@ -2846,7 +2870,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
         deleteat!(nzvalB, idxB:n)
         deleteat!(rowvalB, idxB:n)
     end
-    SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
+    @if_move_fixed A SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
 end
 
 # logical getindex

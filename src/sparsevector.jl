@@ -49,6 +49,11 @@ end
 SparseVector(n::Integer, nzind::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
     SparseVector{Tv,Ti}(n, nzind, nzval)
 
+"""
+    `FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}`
+
+Experimental AbstractCompressedVector whose non-zero index are fixed.
+"""
 struct FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
     nzind::ReadOnly{Ti,Vector{Ti}}   # Indices of stored values
