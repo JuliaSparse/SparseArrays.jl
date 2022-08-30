@@ -49,8 +49,9 @@ function decrement!(A::AbstractArray{T}) where T<:Integer
     for i in eachindex(A); A[i] -= oneunit(T) end
     A
 end
-decrement(A::AbstractVector) = decrement!(Vector(A))
-
+decrement(A::AbstractArray) = let y = Array(A)
+    y .= y .- oneunit(eltype(A))
+end
 
 include("readonly.jl")
 include("abstractsparse.jl")
