@@ -44,6 +44,82 @@ function SparseMatrixCSC(m::Integer, n::Integer, colptr::Vector, rowval::Vector,
     SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
 
+SparseMatrixCSC(m, n, colptr::ReadOnly, rowval::ReadOnly, nzval::Vector) =
+    SparseMatrixCSC(m, n, copy(parent(colptr)), copy(parent(rowval)), nzval)
+
+"""
+    `FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}`
+
+Experimental AbstractSparseMatrixCSC whose non-zero index are fixed.
+"""
+struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
+    m::Int                  # Number of rows
+    n::Int                  # Number of columns
+    colptr::ReadOnly{Ti,1,Vector{Ti}} # Column i is in colptr[i]:(colptr[i+1]-1)
+    rowval::ReadOnly{Ti,1,Vector{Ti}} # Row indices of stored values
+    nzval::Vector{Tv}       # Stored values, typically nonzeros
+
+    function FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer,
+                            colptr::ReadOnly{Ti,1,Vector{Ti}},
+                            rowval::ReadOnly{Ti,1,Vector{Ti}},
+                            nzval::Vector{Tv}) where {Tv,Ti<:Integer}
+        sparse_check_Ti(m, n, Ti)
+        _goodbuffers(Int(m), Int(n), parent(colptr), parent(rowval), nzval) ||
+            throw(ArgumentError("Invalid buffers for FixedSparseCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
+        new(Int(m), Int(n), colptr, rowval, nzval)
+    end
+end
+@inline _is_fixed(::FixedSparseCSC) = true
+FixedSparseCSC(m::Integer, n::Integer,
+    colptr::ReadOnly{Ti,1,Vector{Ti}},
+    rowval::ReadOnly{Ti,1,Vector{Ti}},
+    nzval::Vector{Tv}) where {Tv,Ti<:Integer} =
+    FixedSparseCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
+FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
+    FixedSparseCSC{Tv,Ti}(m, n, ReadOnly(colptr), ReadOnly(rowval), nzval)
+FixedSparseCSC(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
+    FixedSparseCSC{Tv,Ti}(m, n, ReadOnly(colptr), ReadOnly(rowval), nzval)
+FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
+    FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
+        getcolptr(x), rowvals(x), nonzeros(x))
+FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
+    FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
+        getcolptr(x), rowvals(x), nonzeros(x))
+
+"""
+    `fixed(x...)`
+
+Experimental. Like `sparse` but returns a sparse array whose `_is_fixed` is `true`.
+"""
+fixed(x...) = move_fixed(sparse(x...))
+fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
+
+"""
+    `move_fixed(x::AbstractSparseMatrixCSC)`
+
+Experimental, unsafe. Make a `FixedSparseCSC` by reusing the colptr, rowvals and nonzeros of `x`.
+"""
+move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x), rowvals(x), nonzeros(x))
+"""
+    `_unsafe_unfix(x)`
+
+Experimental, unsafe. Returns a modifyable version of `x` for compatibility with this codebase.
+"""
+_unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(x)), parent(rowvals(x)), nonzeros(x))
+_unsafe_unfix(x::SparseMatrixCSC) = x
+
+const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
+
+"""
+    `SparseMatrixCSC(x::FixedSparseCSC)`
+
+Get a writable copy of x. See `_unsafe_unfix(x)`
+"""
+SparseMatrixCSC(x::FixedSparseCSC) = SparseMatrixCSC(size(x, 1), size(x, 2),
+    copy(parent(getcolptr(x))),
+    copy(parent(rowval(x))),
+    copy(nonzeros(x)))
+
 function sparse_check_Ti(m::Integer, n::Integer, Ti::Type)
         @noinline throwTi(str, lbl, k) =
             throw(ArgumentError("$str ($lbl = $k) does not fit in Ti = $(Ti)"))
@@ -77,7 +153,7 @@ function sparse_check_length(rowstr, rowval, minlen, Ti)
     !isbitstype(Ti) || len < typemax(Ti) || throwmax(len, typemax(Ti), rowstr)
 end
 
-size(S::SparseMatrixCSC) = (getfield(S, :m), getfield(S, :n))
+size(S::SorF) = (getfield(S, :m), getfield(S, :n))
 
 _goodbuffers(S::AbstractSparseMatrixCSC) = _goodbuffers(size(S)..., getcolptr(S), getrowval(S), nonzeros(S))
 _checkbuffers(S::AbstractSparseMatrixCSC) = (@assert _goodbuffers(S); S)
@@ -99,7 +175,7 @@ const SparseMatrixCSCView{Tv,Ti} =
         Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange}
 const SparseMatrixCSCUnion{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
 
-getcolptr(S::SparseMatrixCSC)     = getfield(S, :colptr)
+getcolptr(S::SorF)     = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(axes(S, 2)):(last(axes(S, 2)) + 1))
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
 getrowval(S::SparseMatrixCSCView) = rowvals(parent(S))
@@ -161,7 +237,7 @@ julia> nonzeros(A)
  2
 ```
 """
-nonzeros(S::SparseMatrixCSC) = getfield(S, :nzval)
+nonzeros(S::SorF) = getfield(S, :nzval)
 nonzeros(S::SparseMatrixCSCView)  = nonzeros(S.parent)
 nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
@@ -189,7 +265,7 @@ julia> rowvals(A)
  3
 ```
 """
-rowvals(S::SparseMatrixCSC) = getfield(S, :rowval)
+rowvals(S::SorF) = getfield(S, :rowval)
 rowvals(S::SparseMatrixCSCView) = rowvals(S.parent)
 rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
@@ -438,14 +514,18 @@ end
 
 ## Alias detection and prevention
 using Base: dataids, unaliascopy
-Base.dataids(S::AbstractSparseMatrixCSC) = (dataids(getcolptr(S))..., dataids(rowvals(S))..., dataids(nonzeros(S))...)
-Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2), unaliascopy(getcolptr(S)), unaliascopy(rowvals(S)), unaliascopy(nonzeros(S)))
+Base.dataids(S::AbstractSparseMatrixCSC) = _is_fixed(S) ? dataids(nonzeros(S)) : (dataids(getcolptr(S))..., dataids(rowvals(S))..., dataids(nonzeros(S))...)
+Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2),
+    _is_fixed(S) ? getcolptr(S) : unaliascopy(getcolptr(S)),
+    _is_fixed(S) ? rowvals(S) : unaliascopy(rowvals(S)),
+    unaliascopy(nonzeros(S)))
 
 ## Constructors
 
 copy(S::AbstractSparseMatrixCSC) =
     SparseMatrixCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(rowvals(S)), copy(nonzeros(S)))
-
+copy(S::FixedSparseCSC) =
+    FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), copy(nonzeros(S)))
 function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     # If the two matrices have the same length then all the
     # elements in A will be overwritten.
@@ -574,9 +654,12 @@ output matrix are different from the output.
 The output matrix has zeros in the same locations as the input, but
 unititialized values for the nonzero locations.
 """
-similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} = _sparsesimilar(S, TvNew, Ti)
+similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
+    @if_move_fixed S _sparsesimilar(S, TvNew, Ti)
+
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
-    _sparsesimilar(S, TvNew, Ti, dims)
+    @if_move_fixed S _sparsesimilar(S, TvNew, Ti, dims)
+
 # The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
 # result's index type in addition to its entry type, and aren't covered by the hooks above.
 # The calls without shape again preserve stored-entry structure, whereas those with shape
@@ -1256,8 +1339,9 @@ function ftranspose(A::AbstractSparseMatrixCSC{TvA,Ti}, f::Function, eltype::Typ
                         Vector{Ti}(undef, 0),
                         Vector{Tv}(undef, 0))
     sizehint!(X, nnz(A))
-    halfperm!(X, A, 1:size(A, 2), f)
+    return @if_move_fixed A halfperm!(X, A, 1:size(A, 2), f)
 end
+
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)
 transpose(A::AbstractSparseMatrixCSC) = Transpose(A)
 Base.copy(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
@@ -1597,7 +1681,7 @@ julia> SparseArrays.fkeep!(A, (i, j, v) -> isodd(v))
  ⋅  ⋅  ⋅  ⋅
 ```
 """
-function fkeep!(A::AbstractSparseMatrixCSC, f, trim::Bool = true)
+function _fkeep!(A::AbstractSparseMatrixCSC, f::F) where F
     An = size(A, 2)
     Acolptr = getcolptr(A)
     Arowval = rowvals(A)
@@ -1632,6 +1716,22 @@ function fkeep!(A::AbstractSparseMatrixCSC, f, trim::Bool = true)
     return A
 end
 
+function _fkeep!_fixed(A::AbstractSparseMatrixCSC, f::F) where F
+    @inbounds for j in axes(A, 2)
+        for k in getcolptr(A)[j]:getcolptr(A)[j+1]-1
+            i = rowvals(A)[k]
+            x = nonzeros(A)[k]
+            # If this element should be kept, rewrite in new position
+            if f(Ai, Aj, Ax)
+                nonzeros(A)[k] = zero(eltype(A))
+            end
+        end
+    end
+    return A
+end
+
+fkeep!(A::AbstractSparseMatrixCSC, f::F) where F= _is_fixed(A) ? _fkeep!_fixed(A, f) : _fkeep!(A, f)
+
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
     fkeep!(A, (i, j, x) -> i + k >= j)
 triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
@@ -1653,7 +1753,8 @@ Removes stored numerical zeros from `A`.
 For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
-dropzeros!(A::AbstractSparseMatrixCSC) = fkeep!(A, (i, j, x) -> _isnotzero(x))
+
+dropzeros!(A::AbstractSparseMatrixCSC) = _is_fixed(A) ? A : fkeep!(A, (i, j, x) -> _isnotzero(x))
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)
@@ -2415,7 +2516,7 @@ function getindex_cols(A::AbstractSparseMatrixCSC{Tv,Ti}, J::AbstractVector) whe
             nzvalS[ptrS] = nzvalA[k]
         end
     end
-    return SparseMatrixCSC(m, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(m, nJ, colptrS, rowvalS, nzvalS)
 end
 
 getindex_traverse_col(::AbstractUnitRange, lo::Integer, hi::Integer) = lo:hi
@@ -2466,7 +2567,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::Abstra
         end
     end
 
-    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -2487,7 +2588,7 @@ function getindex_I_sorted(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector,
 
     (alg == 0) ? getindex_I_sorted_bsearch_A(A, I, J) :
     (alg == 1) ? getindex_I_sorted_bsearch_I(A, I, J) :
-    getindex_I_sorted_linear(A, I, J)
+    return getindex_I_sorted_linear(A, I, J)
 end
 
 function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -2547,7 +2648,7 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
             end
         end
     end
-    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted_linear(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -2607,7 +2708,7 @@ function getindex_I_sorted_linear(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstract
             ptrA += 1
         end
     end
-    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -2677,7 +2778,7 @@ function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
         end
         colptrS[j+1] = ptrS
     end
-    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function permute_rows!(S::AbstractSparseMatrixCSC{Tv,Ti}, pI::Vector{Int}) where {Tv,Ti}
@@ -2730,7 +2831,7 @@ function getindex_general(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Abst
     require_one_based_indexing(A, I, J)
     pI = sortperm(I)
     @inbounds Is = I[pI]
-    permute_rows!(getindex_I_sorted(A, Is, J), pI)
+    return permute_rows!(getindex_I_sorted(A, Is, J), pI)
 end
 
 # the general case:
@@ -2799,7 +2900,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
         deleteat!(nzvalB, idxB:n)
         deleteat!(rowvalB, idxB:n)
     end
-    SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
+    @if_move_fixed A SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
 end
 
 # logical getindex

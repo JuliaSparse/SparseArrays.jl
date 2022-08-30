@@ -42,14 +42,6 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
 @inline _isnotzero(x::Number) = !iszero(x)
 @inline _isnotzero(x::AbstractArray) = !iszero(x)
 
-include("abstractsparse.jl")
-include("sparsematrix.jl")
-include("sparseconvert.jl")
-include("sparsevector.jl")
-include("higherorderfns.jl")
-include("linalg.jl")
-include("deprecated.jl")
-
 ## Functions to switch to 0-based indexing to call external sparse solvers
 
 # Convert from 1-based to 0-based indices
@@ -58,6 +50,18 @@ function decrement!(A::AbstractArray{T}) where T<:Integer
     A
 end
 decrement(A::AbstractArray{<:Integer}) = decrement!(copy(A))
+
+
+include("readonly.jl")
+include("abstractsparse.jl")
+include("sparsematrix.jl")
+include("sparseconvert.jl")
+include("sparsevector.jl")
+include("higherorderfns.jl")
+include("linalg.jl")
+include("deprecated.jl")
+
+
 
 # Convert from 0-based to 1-based indices
 function increment!(A::AbstractArray{T}) where T<:Integer
