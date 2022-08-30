@@ -203,7 +203,7 @@ struct UmfpackWS{T<:UMFITypes}
     W::Vector{Float64}
 end
 
-UmfpackWS{T}(Wisize::Integer, Wsize::Integer) where {T<:UMFITypes} = 
+UmfpackWS{T}(Wisize::Integer, Wsize::Integer) where {T<:UMFITypes} =
     UmfpackWS{T}(Vector{T}(undef, Wisize), Vector{Float64}(undef, Wsize))
 
 UmfpackWS(S::AbstractSparseMatrixCSC{Tv,Ti}, refinement::Bool) where {Tv,Ti} = UmfpackWS{Ti}(
@@ -253,17 +253,17 @@ UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, T
         Vector{Ti}(undef, size(F, 2)),
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
 UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
-    
+
 """
     copy(F::UmfpackLU, [ws::UmfpackWS]) -> UmfpackLU
-A shallow copy of UmfpackLU to use in multithreaded solve applications. 
+A shallow copy of UmfpackLU to use in multithreaded solve applications.
 This function duplicates the working space, control, info and lock fields.
 
 Warning: This shallow copy should not be used for parallel factorizations or re-factorizations,
 doing so may lead to race-conditions.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) = 
+Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) =
     UmfpackLU(
         F.symbolic,
         F.numeric,
@@ -277,10 +277,10 @@ Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) =
         copy(F.info),
         ReentrantLock()
     )
-Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = 
+Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
     T(copy(parent(F), ws))
 
-Base.deepcopy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} = 
+Base.deepcopy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
     UmfpackLU(
     Symbolic{Tv, Ti}(C_NULL), # TODO: switch to a copy when upstream is available
     Numeric{Tv, Ti}(C_NULL), # TODO: switch to a copy when upstream is available
@@ -293,7 +293,7 @@ Base.deepcopy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
     copy(F.control),
     copy(F.info),
     ReentrantLock())
-Base.deepcopy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} = 
+Base.deepcopy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
     T(deepcopy(parent(F), ws))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
@@ -360,7 +360,7 @@ The individual components of the factorization `F` can be accessed by indexing:
 The relation between `F` and `A` is
 
 `F.L*F.U == (F.Rs .* A)[F.p, F.q]`
- 
+
 `F` further supports the following functions:
 
 - [`\\`](@ref)
@@ -382,7 +382,7 @@ function lu(S::AbstractSparseMatrixCSC{Tv, Ti};
     {Tv<:UMFVTypes,Ti<:UMFITypes}
 
     zerobased = getcolptr(S)[1] == 0
-    res = UmfpackLU(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL), 
+    res = UmfpackLU(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL),
                     size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
                     zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
@@ -553,7 +553,7 @@ function deserialize(s::AbstractSerializer, ::Type{UmfpackLU{Tv,Ti}}) where {Tv,
     Wsize    = deserialize(s)
     control  = deserialize(s)
     info     = deserialize(s)
-    return UmfpackLU{Tv,Ti}(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL), 
+    return UmfpackLU{Tv,Ti}(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL),
         m, n, colptr, rowval, nzval, 0,
         UmfpackWS{Ti}(Wisize, Wsize), control, info, ReentrantLock())
 end

@@ -30,7 +30,7 @@ export
 
 import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spzeros, nnz
 
-import ..increment, ..increment!, ..decrement, ..decrement!
+import ..increment, ..increment!
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse: SuiteSparse_long, TRUE, FALSE

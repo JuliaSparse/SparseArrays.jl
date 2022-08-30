@@ -1,6 +1,6 @@
 using Test, SparseArrays, LinearAlgebra
 using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCSC, FixedSparseVector, ReadOnly,
-    getcolptr, rowvals, nonzeros, nonzeroinds, _is_fixed
+    getcolptr, rowvals, nonzeros, nonzeroinds, _is_fixed, fixed, move_fixed
 
 @testset "ReadOnly" begin
     v = randn(100)
@@ -100,7 +100,7 @@ end
     @test (fill!(x, false); true)
 end
 
-@testset "getindex should return type with same _is_fixed" begin
+@testset "`getindex`` should return type with same `_is_fixed`" begin
     for A in [sprandn(10, 10, 0.1), fixed(sprandn(10, 10, 0.1))]
         @test _is_fixed(A) == _is_fixed(A[:, :])
         @test _is_fixed(A) == _is_fixed(A[:, 1])
@@ -112,5 +112,9 @@ end
         @test _is_fixed(A) == _is_fixed(A[:])
         @test _is_fixed(A) == _is_fixed(A[1:3])
     end
+end
+
+@testset "Test lu" begin
+    @test (lu(fixed(sprandn(10, 10, 0.99) + I)) \ randn(10); true)
 end
 
