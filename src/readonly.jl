@@ -10,7 +10,7 @@ struct ReadOnly{T,N,V<:AbstractArray{T,N}} <: AbstractArray{T,N}
 end
 # ReadOnly of ReadOnly is meaningless
 ReadOnly(x::ReadOnly) = x
-Base.getproperty(x::ReadOnly, ::Symbol) = Base.getproperty(parent(x), ::Symbol)
+Base.getproperty(x::ReadOnly, s) = Base.getproperty(parent(x), s)
 @inline Base.parent(x::ReadOnly) = getfield(x, :parent)
 
 for i in [:length, :first, :last, :eachindex, :firstindex, :lastindex, :eltype]
