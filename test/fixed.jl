@@ -115,6 +115,8 @@ end
 end
 
 @testset "Test lu" begin
-    @test (lu(fixed(sprandn(10, 10, 0.99) + I)) \ randn(10); true)
+    a = fixed(sprandn(10, 10, 0.99) + I)
+    @test (lu(a) \ randn(10); true)
+    @test (qr(a + a') \ randn(10); true)
 end
 
