@@ -1731,7 +1731,7 @@ end
 fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
 
 # deprecated syntax
-function fkeep!(x::Union{AbstractSparseMatrixCSC,AbstractCompressedVector},f::Function)
+function fkeep!(x::Union{AbstractSparseMatrixCSC,AbstractCompressedVector},f::F) where F<:Function
     Base.depwarn("`fkeep!(x, f::Function)` is deprecated, use `fkeep!(f::Function, x)` instead.", :fkeep!)
     return fkeep!(f, x)
 end
