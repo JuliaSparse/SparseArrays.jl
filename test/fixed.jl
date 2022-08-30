@@ -56,10 +56,8 @@ struct_eq(x, y, z...) = struct_eq(x, y) && (length(z) == 0 || struct_eq(y, z...)
     @test f2(F, A) == 0
 
     f3(F, A, H) = @allocated(F .= H .* A)
-    @show f3(F, A, H)
-    @show f3(F, A, H)
-    @show f3(F, A, H)
-
+    f3(F, A, H)
+    f3(F, A, H)
     @test f3(F, A, H) == 0
 
     B = similar(F)

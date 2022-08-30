@@ -655,12 +655,7 @@ The output matrix has zeros in the same locations as the input, but
 unititialized values for the nonzero locations.
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
-    if _is_fixed(S)
-        println("here")
-        move_fixed(_sparsesimilar(S, TvNew, Ti))
-    else
-        _sparsesimilar(S, TvNew, Ti)
-    end
+    @if_move_fixed S _sparsesimilar(S, TvNew, Ti)
 
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
     @if_move_fixed S _sparsesimilar(S, TvNew, Ti, dims)
