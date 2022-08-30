@@ -14,7 +14,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
                       SorF, indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
-                      _iszero, _isnotzero, _is_fixed
+                      _iszero, _isnotzero, _is_fixed, @if_move_fixed
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 
