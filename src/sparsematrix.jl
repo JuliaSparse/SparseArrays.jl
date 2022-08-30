@@ -1653,7 +1653,7 @@ end
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
 """
-    fkeep!(A::AbstractSparseArray, f)
+    fkeep!(f, A::AbstractSparseArray)
 
 Keep elements of `A` for which test `f` returns `true`. `f`'s signature should be
 
@@ -1673,7 +1673,7 @@ julia> A = sparse(Diagonal([1, 2, 3, 4]))
  ⋅  ⋅  3  ⋅
  ⋅  ⋅  ⋅  4
 
-julia> SparseArrays.fkeep!(A, (i, j, v) -> isodd(v))
+julia> SparseArrays.fkeep!((i, j, v) -> isodd(v), A)
 4×4 SparseMatrixCSC{Int64, Int64} with 2 stored entries:
  1  ⋅  ⋅  ⋅
  ⋅  ⋅  ⋅  ⋅
@@ -1681,7 +1681,7 @@ julia> SparseArrays.fkeep!(A, (i, j, v) -> isodd(v))
  ⋅  ⋅  ⋅  ⋅
 ```
 """
-function _fkeep!(A::AbstractSparseMatrixCSC, f::F) where F
+function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     An = size(A, 2)
     Acolptr = getcolptr(A)
     Arowval = rowvals(A)
@@ -1716,13 +1716,11 @@ function _fkeep!(A::AbstractSparseMatrixCSC, f::F) where F
     return A
 end
 
-function _fkeep!_fixed(A::AbstractSparseMatrixCSC, f::F) where F
+function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     @inbounds for j in axes(A, 2)
         for k in getcolptr(A)[j]:getcolptr(A)[j+1]-1
-            i = rowvals(A)[k]
-            x = nonzeros(A)[k]
             # If this element should be kept, rewrite in new position
-            if f(Ai, Aj, Ax)
+            if !f(rowvals(A)[k], j, nonzeros(A)[k])
                 nonzeros(A)[k] = zero(eltype(A))
             end
         end
@@ -1730,12 +1728,19 @@ function _fkeep!_fixed(A::AbstractSparseMatrixCSC, f::F) where F
     return A
 end
 
-fkeep!(A::AbstractSparseMatrixCSC, f::F) where F= _is_fixed(A) ? _fkeep!_fixed(A, f) : _fkeep!(A, f)
+fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
+
+# deprecated syntax
+function fkeep!(x::Union{AbstractSparseMatrixCSC,AbstractCompressedVector},f::F) where F<:Function
+    Base.depwarn("`fkeep!(x, f::Function)` is deprecated, use `fkeep!(f::Function, x)` instead.", :fkeep!)
+    return fkeep!(f, x)
+end
+
 
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    fkeep!(A, (i, j, x) -> i + k >= j)
+    fkeep!((i, j, x) -> i + k >= j, A)
 triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    fkeep!(A, (i, j, x) -> j >= i + k)
+    fkeep!((i, j, x) -> j >= i + k, A)
 
 """
     droptol!(A::AbstractSparseMatrixCSC, tol)
@@ -1743,7 +1748,7 @@ triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
 Removes stored values from `A` whose absolute value is less than or equal to `tol`.
 """
 droptol!(A::AbstractSparseMatrixCSC, tol) =
-    fkeep!(A, (i, j, x) -> abs(x) > tol)
+    fkeep!((i, j, x) -> abs(x) > tol, A)
 
 """
     dropzeros!(A::AbstractSparseMatrixCSC;)
@@ -1754,7 +1759,7 @@ For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
 
-dropzeros!(A::AbstractSparseMatrixCSC) = _is_fixed(A) ? A : fkeep!(A, (i, j, x) -> _isnotzero(x))
+dropzeros!(A::AbstractSparseMatrixCSC) = _is_fixed(A) ? A : fkeep!((i, j, x) -> _isnotzero(x), A)
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)
