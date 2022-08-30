@@ -1300,6 +1300,7 @@ end
     f_drop(i, x) = (abs(x) == 1.) || (i in [1, 7])
     SparseArrays.fkeep!(f_drop, xdrop)
     @test exact_equal(xdrop, SparseVector(7, [1, 3, 4, 7], [3., -1., 1., 3.]))
+    @test_deprecated SparseArrays.fkeep!(xdrop, f_drop)
 end
 
 @testset "dropzeros[!] with length=$m" for m in (10, 20, 30)

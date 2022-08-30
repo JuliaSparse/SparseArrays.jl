@@ -1719,10 +1719,8 @@ end
 function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F
     @inbounds for j in axes(A, 2)
         for k in getcolptr(A)[j]:getcolptr(A)[j+1]-1
-            i = rowvals(A)[k]
-            x = nonzeros(A)[k]
             # If this element should be kept, rewrite in new position
-            if f(Ai, Aj, Ax)
+            if !f(rowvals(A)[k], j, nonzeros(A)[k])
                 nonzeros(A)[k] = zero(eltype(A))
             end
         end
@@ -1731,6 +1729,13 @@ function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F
 end
 
 fkeep!(f::F, A::AbstractSparseMatrixCSC) where F= _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
+
+# deprecated syntax
+function fkeep!(x::Union{AbstractSparseMatrixCSC,AbstractCompressedVector},f::Function)
+    Base.depwarn("`fkeep!(x, f::Function)` is deprecated, use `fkeep!(f::Function, x)` instead.", :fkeep!)
+    return fkeep!(f, x)
+end
+
 
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
     fkeep!((i, j, x) -> i + k >= j, A)

@@ -1,6 +1,6 @@
 using Test, SparseArrays, LinearAlgebra
 using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCSC, FixedSparseVector, ReadOnly,
-    getcolptr, rowvals, nonzeros, nonzeroinds, _is_fixed, fixed, move_fixed
+    getcolptr, rowvals, nonzeros, nonzeroinds, _is_fixed, fixed, move_fixed, fkeep!
 
 @testset "ReadOnly" begin
     v = randn(100)
@@ -124,3 +124,14 @@ end
     @test b == a
 end
 
+always_false(x...) = false
+@testset "Test fkeep!" begin
+    for a in [sprandn(10, 10, 0.99) + I, sprandn(10, 0.1) .+ 1]
+        a = fixed(a)
+        b = copy(a)
+        fkeep!(always_false, b)
+        @test nnz(a) == nnz(b)
+        @test all(iszero, nonzeros(b))
+
+    end
+end
