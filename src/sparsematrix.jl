@@ -111,7 +111,7 @@ _unsafe_unfix(x::SparseMatrixCSC) = x
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
 
 """
-    SparseMatrixCSC(x::FixedSparseCSC)
+    `SparseMatrixCSC(x::FixedSparseCSC)`
 
 Get a writable copy of x. See `_unsafe_unfix(x)`
 """

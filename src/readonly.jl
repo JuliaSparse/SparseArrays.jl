@@ -1,5 +1,5 @@
 """
-   `ReadOnly{T,N<:AbstractArray{T,N}} <: AbstractArray{T,N}`
+   `ReadOnly{T,N<:AbstractArray{T,N,V<:AbstractArray{T,N}}} <: AbstractArray{T,N}`
 
 Internal. Wrapper around an abstract vector, blocks changing elements.
 `setindex!(x, getindex(x, i...), i...) ` does not error. Resizing
