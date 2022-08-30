@@ -1089,7 +1089,7 @@ function vcat(X::SparseVector...)
 end
 function vcat(X::SVorFSV...)
     r = vcat(map(_unsafe_unfix, X)...)
-    return _is_fixed(X) ? move_fixed(r) : r
+    return @if_move_fixed X r
 end
 function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     # check sizes
