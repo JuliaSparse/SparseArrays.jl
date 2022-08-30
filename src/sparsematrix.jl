@@ -1728,7 +1728,7 @@ function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F
     return A
 end
 
-fkeep!(f::F, A::AbstractSparseMatrixCSC) where F= _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
+fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
 
 # deprecated syntax
 function fkeep!(x::Union{AbstractSparseMatrixCSC,AbstractCompressedVector},f::Function)
