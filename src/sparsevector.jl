@@ -2074,31 +2074,36 @@ function sort(x::AbstractCompressedVector{Tv,Ti}; kws...) where {Tv,Ti}
     typeof(x)(n,newnzind,newnzvals)
 end
 
-function fkeep!(x::AbstractCompressedVector, f)
-    _is_fixed(x) && return x
-
-    nzind = nonzeroinds(x)
-    nzval = nonzeros(x)
-
-    x_writepos = 1
-    @inbounds for xk in 1:nnz(x)
-        xi = nzind[xk]
-        xv = nzval[xk]
-        # If this element should be kept, rewrite in new position
-        if f(xi, xv)
-            if x_writepos != xk
-                nzind[x_writepos] = xi
-                nzval[x_writepos] = xv
+function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
+    if _is_fixed(x)
+        for i in 1:nnz(x)
+            if !f(nonzeroinds(x)[i], nonzeros(x)[i])
+                nonzeros(x)[i] = zero(Tv)
             end
-            x_writepos += 1
         end
+    else
+        nzind = nonzeroinds(x)
+        nzval = nonzeros(x)
+
+        x_writepos = 1
+        @inbounds for xk in 1:nnz(x)
+            xi = nzind[xk]
+            xv = nzval[xk]
+            # If this element should be kept, rewrite in new position
+            if f(xi, xv)
+                if x_writepos != xk
+                    nzind[x_writepos] = xi
+                    nzval[x_writepos] = xv
+                end
+                x_writepos += 1
+            end
+        end
+
+        # Trim x's storage if necessary
+        x_nnz = x_writepos - 1
+        resize!(nzval, x_nnz)
+        resize!(nzind, x_nnz)
     end
-
-    # Trim x's storage if necessary
-    x_nnz = x_writepos - 1
-    resize!(nzval, x_nnz)
-    resize!(nzind, x_nnz)
-
     return x
 end
 
@@ -2109,7 +2114,7 @@ end
 
 Removes stored values from `x` whose absolute value is less than or equal to `tol`.
 """
-droptol!(x::AbstractCompressedVector, tol) = fkeep!(x, (i, x) -> abs(x) > tol)
+droptol!(x::AbstractCompressedVector, tol) = fkeep!((i, x) -> abs(x) > tol, x)
 
 """
     dropzeros!(x::AbstractCompressedVector)
@@ -2119,7 +2124,7 @@ Removes stored numerical zeros from `x`.
 For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
-dropzeros!(x::AbstractCompressedVector) = _is_fixed(x) ? x : fkeep!(x, (i, x) -> _isnotzero(x))
+dropzeros!(x::AbstractCompressedVector) = _is_fixed(x) ? x : fkeep!((i, x) -> _isnotzero(x), x)
 
 
 """
