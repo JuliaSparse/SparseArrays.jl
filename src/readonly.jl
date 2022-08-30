@@ -1,16 +1,16 @@
 """
-   `ReadOnly{T,N<:AbstractArray{T,N,V<:AbstractArray{T,N}}} <: AbstractArray{T,N}`
+   `ReadOnly{T,N,<:AbstractArray{T,N,V<:AbstractArray{T,N}}} <: AbstractArray{T,N}`
 
-Internal. Wrapper around an abstract vector, blocks changing elements.
-`setindex!(x, getindex(x, i...), i...) ` does not error. Resizing
-a vector to its original length will not throw an error either.
+Internal. Wrapper around an `AbstractArray` that blocks change. Practically no-op operations
+are not blocked. For instance, `setindex!(x, getindex(x, i...), i...)` or `resize!(x, length(x))`
+for `x isa ReadOnly`.
 """
 struct ReadOnly{T,N,V<:AbstractArray{T,N}} <: AbstractArray{T,N}
     parent::V
 end
 # ReadOnly of ReadOnly is meaningless
 ReadOnly(x::ReadOnly) = x
-Base.getproperty(::ReadOnly, ::Symbol) = error("Use parent instead.")
+Base.getproperty(x::ReadOnly, ::Symbol) = Base.getproperty(parent(x), ::Symbol)
 @inline Base.parent(x::ReadOnly) = getfield(x, :parent)
 
 for i in [:length, :first, :last, :eachindex, :firstindex, :lastindex, :eltype]
