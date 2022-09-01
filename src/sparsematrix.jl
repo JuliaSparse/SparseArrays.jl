@@ -212,7 +212,9 @@ nnz1(S) = sum(length.(nzrange.(Ref(S), axes(S, 2))))
 function count(pred, S::AbstractSparseMatrixCSC)
     count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S))
 end
-count(S::AbstractSparseMatrixCSC{Bool}) = count(identity, S)
+Base._count(f, A::AbstractSparseMatrixCSC, ::Colon, _) = count(f, A)
+Base._count(f, A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, ::Colon, _) = count(f∘adjoint, parent(A))
+Base._count(f, A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, ::Colon, _) = count(f∘transpose, parent(A))
 
 """
     nonzeros(A)
