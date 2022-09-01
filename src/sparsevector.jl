@@ -93,6 +93,7 @@ const SVorFSV{Tv,Ti} = Union{SparseVector{Tv,Ti},FixedSparseVector{Tv,Ti}}
 length(x::SVorFSV)   = getfield(x, :n)
 size(x::SVorFSV)     = (getfield(x, :n),)
 count(f, x::AbstractCompressedVector) = count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x))
+count(x::AbstractCompressedVector{Bool}) = count(identity, x)
 
 # implement the nnz - nzrange - nonzeros - rowvals interface for sparse vectors
 
