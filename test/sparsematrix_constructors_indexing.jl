@@ -450,6 +450,8 @@ end
     @test count(!iszero, transpose(a)) == count(transpose((!iszero).(a))) == 0
     a[1,:] .= 1
     @test count(!iszero, a) == count((!iszero).(a)) == 10
+    @test count(!iszero, a, init=2) == count((!iszero).(a), init=2) == 12
+    @test count(!iszero, a, init=Int128(2))::Int128 == 12
     @test count(!iszero, a') == count(((!iszero).(a))') == 10
     @test count(!iszero, transpose(a)) == count(transpose((!iszero).(a))) == 10
     @test a[1,:] == sparse(fill(1,10))

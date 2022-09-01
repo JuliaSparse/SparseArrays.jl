@@ -92,10 +92,15 @@ const SVorFSV{Tv,Ti} = Union{SparseVector{Tv,Ti},FixedSparseVector{Tv,Ti}}
 
 length(x::SVorFSV)   = getfield(x, :n)
 size(x::SVorFSV)     = (getfield(x, :n),)
-count(f, x::AbstractCompressedVector) = count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x))
-Base._count(f, x::AbstractCompressedVector, ::Colon, _) = count(f, x)
-Base._count(f, x::Adjoint{<:Any, <:AbstractCompressedVector}, ::Colon, _) = count(f∘adjoint, parent(x))
-Base._count(f, x::Transpose{<:Any, <:AbstractCompressedVector}, ::Colon, _) = count(f∘transpose, x)
+
+function Base._simple_count(f, x::AbstractCompressedVector, init::T) where T
+    init + T(count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x)))
+end
+
+Base._count(f, x::Adjoint{<:Any,<:AbstractCompressedVector}, ::Colon, init) =
+    Base._simple_count(f∘adjoint, parent(x), init)
+Base._count(f, x::Transpose{<:Any,<:AbstractCompressedVector}, ::Colon, init) =
+    Base._simple_count(f∘transpose, parent(x), init)
 
 # implement the nnz - nzrange - nonzeros - rowvals interface for sparse vectors
 

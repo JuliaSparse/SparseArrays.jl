@@ -209,12 +209,14 @@ nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::SparseMatrixCSCView) = nnz1(S)
 nnz1(S) = sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
-function count(pred, S::AbstractSparseMatrixCSC)
-    count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S))
+Base._count(f, A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, ::Colon, init) =
+    Base._simple_count(f∘adjoint, parent(A), init)
+Base._count(f, A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, ::Colon, init) =
+    Base._simple_count(f∘transpose, parent(A), init)
+
+function Base._simple_count(pred, S::AbstractSparseMatrixCSC, init::T) where T
+    init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
 end
-Base._count(f, A::AbstractSparseMatrixCSC, ::Colon, _) = count(f, A)
-Base._count(f, A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, ::Colon, _) = count(f∘adjoint, parent(A))
-Base._count(f, A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, ::Colon, _) = count(f∘transpose, parent(A))
 
 """
     nonzeros(A)
