@@ -193,3 +193,5 @@ macro if_move_fixed(a...)
     h, v = esc.(a[1:end - 1]), esc(a[end])
     :(_is_fixed($(h...)) ? move_fixed($v) : $v)
 end
+
+const SparseVecOrMat = Union{AbstractCompressedVector,AbstractSparseMatrixCSC}

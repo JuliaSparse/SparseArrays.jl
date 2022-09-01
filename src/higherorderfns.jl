@@ -14,7 +14,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
                       SorF, indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
-                      _iszero, _isnotzero, _is_fixed, @if_move_fixed
+                      _iszero, _isnotzero, _is_fixed, @if_move_fixed, SparseVecOrMat
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 
@@ -38,7 +38,6 @@ using LinearAlgebra
 
 # (0) BroadcastStyle rules and convenience types for dispatch
 
-SparseVecOrMat = Union{AbstractCompressedVector,AbstractSparseMatrixCSC}
 
 # broadcast container type promotion for combinations of sparse arrays and other types
 struct SparseVecStyle <: Broadcast.AbstractArrayStyle{1} end
