@@ -2225,7 +2225,10 @@ circshift!(O::SparseVector, X::SparseVector, r::Real,) = circshift!(O, X, (Integ
 
 
 Base.sum(x::SparseVecOrMat) = sum(nonzeros(x))
-Base.sum(f::F, x::SparseVecOrMat) where F<:Function = sum(f, nonzeros(x))
+Base.sum(f::F, x::SparseVecOrMat) where F<:Function =
+    let s = sum(f, nonzeros(x))
+        length(x) == nnz(x) ? s : s + (length(x) - nnz(x)) * f(zero(eltype(x)))
+    end
 
 Base.any(x::SparseVecOrMat) = (length(x) == nnz(x) ? false : zeros(eltype(x))) || any(nonzeros(x))
 Base.any(f::F, x::SparseVecOrMat) where F<:Function = (length(x) == nnz(x) ? false : f(zeros(eltype(x)))) || any(f, nonzeros(x))
