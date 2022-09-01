@@ -1027,6 +1027,8 @@ function Vector(x::AbstractSparseVector{Tv}) where Tv
 end
 Array(x::AbstractSparseVector) = Vector(x)
 
+Base.iszero(x::AbstractSparseVector) = iszero(nonzeros(x))
+
 ### Array manipulation
 
 vec(x::AbstractSparseVector) = x
