@@ -1501,6 +1501,11 @@ Base._mapreduce(f, op, ::Base.IndexCartesian, A::Adjoint{<:Any,<:SparseVectorUni
 Base._mapreduce(f, op, ::Base.IndexCartesian, A::Transpose{<:Any,<:SparseVectorUnion}) =
     Base._mapreduce(f∘transpose, op, IndexCartesian(), parent(A))
 
+Base._any(f, A::Union{SparseVectorUnion, AdjOrTransSparseVectorUnion}, ::Colon) =
+    Base._mapreduce(f, |, IndexCartesian(), A)
+Base._all(f, A::Union{SparseVectorUnion, AdjOrTransSparseVectorUnion}, ::Colon) =
+    Base._mapreduce(f, &, IndexCartesian(), A)
+
 function Base.mapreducedim!(f, op, R::AbstractVector, A::SparseVectorUnion)
     # dim1 reduction could be safely replaced with a mapreduce
     if length(R) == 1

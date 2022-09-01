@@ -309,7 +309,7 @@ function Base.isstored(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     return false
 end
 
-function Base.isstored(A::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},Transpose{<:Any,<:AbstractSparseMatrixCSC}}, i::Integer, j::Integer)
+function Base.isstored(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Integer, j::Integer)
     @boundscheck checkbounds(A, i, j)
     cols = rowvals(parent(A))
     for istored in nzrange(parent(A), i)
@@ -2121,8 +2121,7 @@ nzeq(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
 # the case where the RHS is both adjoint and transposed, i.e. where it
 # is in CSC format again.)
 function ==(A::AbstractSparseMatrixCSC,
-            B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
-                     Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}})
+            B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose})
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # Compare nonzero elements
@@ -2190,6 +2189,12 @@ _mapreducezeros(f, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Intege
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
+
+# Specialized mapreduce for any and all
+Base._any(f, A::AbstractSparseMatrixCSCInclAdjointAndTranspose, ::Colon) =
+    Base._mapreduce(f, |, IndexCartesian(), A)
+Base._all(f, A::AbstractSparseMatrixCSCInclAdjointAndTranspose, ::Colon) =
+    Base._mapreduce(f, &, IndexCartesian(), A)
 
 function Base._mapreduce(f, op::typeof(*), ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
     nzeros = widelength(A)-nnz(A)
