@@ -2224,14 +2224,18 @@ end
 circshift!(O::SparseVector, X::SparseVector, r::Real,) = circshift!(O, X, (Integer(r),))
 
 
-Base.sum(f::F, x::SparseVecOrMat) where F<:Function = (length(x) - nnz(x)) * f(zero(eltype(x))) + sum(f, nonzeros(x))
+Base.sum(x::SparseVecOrMat) = sum(nonzeros(x))
+Base.sum(f::F, x::SparseVecOrMat) where F<:Function = sum(f, nonzeros(x))
+
+Base.any(x::SparseVecOrMat) = (length(x) == nnz(x) ? false : zeros(eltype(x))) || any(nonzeros(x))
 Base.any(f::F, x::SparseVecOrMat) where F<:Function = (length(x) == nnz(x) ? false : f(zeros(eltype(x)))) || any(f, nonzeros(x))
+
+Base.all(x::SparseVecOrMat) = (length(x) == nnz(x) ? true : zeros(eltype(x))) && any(nonzeros(x))
 Base.all(f::F, x::SparseVecOrMat) where F<:Function = (length(x) == nnz(x) ? true : f(zeros(eltype(x)))) && any(f, nonzeros(x))
 
 
 for i in [:sum, :any, :all]
     @eval begin
-        Base.$i(x::SparseVecOrMat) = $i(identity, nonzeros(x))
         Base.$i(f::F, x::Transpose{<:Any,<:SparseVecOrMat}) where F<:Function = $i(f∘transpose, parent(x))
         Base.$i(f::F, x::Adjoint{<:Any,<:SparseVecOrMat}) where F<:Function = $i(f∘adjoint, parent(x))
     end
