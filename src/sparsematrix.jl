@@ -2176,6 +2176,10 @@ function Base._mapreduce(f, op, ::Base.IndexCartesian, A::AbstractSparseMatrixCS
         _mapreducezeros(f, op, T, n-z, Base._mapreduce(f, op, nzvalview(A)))
     end
 end
+Base._mapreduce(f, op, ::Base.IndexCartesian, A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
+    Base._mapreduce(f∘adjoint, op, IndexCartesian(), parent(A))
+Base._mapreduce(f, op, ::Base.IndexCartesian, A::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
+    Base._mapreduce(f∘transpose, op, IndexCartesian(), parent(A))
 
 # Specialized mapreduce for +/*/min/max/_extrema_rf
 _mapreducezeros(f, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {T} =
