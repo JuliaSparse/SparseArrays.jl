@@ -97,11 +97,6 @@ function Base._simple_count(f, x::AbstractCompressedVector, init::T) where T
     init + T(count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x)))
 end
 
-Base._count(f, x::Adjoint{<:Any,<:AbstractCompressedVector}, ::Colon, init) =
-    Base._simple_count(f∘adjoint, parent(x), init)
-Base._count(f, x::Transpose{<:Any,<:AbstractCompressedVector}, ::Colon, init) =
-    Base._simple_count(f∘transpose, parent(x), init)
-
 # implement the nnz - nzrange - nonzeros - rowvals interface for sparse vectors
 
 nnz(x::AbstractCompressedVector) = length(nonzeros(x))
@@ -1496,10 +1491,6 @@ function Base._mapreduce(f, op, ::IndexCartesian, A::SparseVectorUnion{T}) where
     end
     _mapreducezeros(f, op, T, rest, ini)
 end
-Base._mapreduce(f, op, ::Base.IndexCartesian, A::Adjoint{<:Any,<:SparseVectorUnion}) =
-    Base._mapreduce(f∘adjoint, op, IndexCartesian(), parent(A))
-Base._mapreduce(f, op, ::Base.IndexCartesian, A::Transpose{<:Any,<:SparseVectorUnion}) =
-    Base._mapreduce(f∘transpose, op, IndexCartesian(), parent(A))
 
 Base._any(f, A::Union{SparseVectorUnion, AdjOrTransSparseVectorUnion}, ::Colon) =
     Base._mapreduce(f, |, IndexCartesian(), A)

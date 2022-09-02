@@ -209,11 +209,6 @@ nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::SparseMatrixCSCView) = nnz1(S)
 nnz1(S) = sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
-Base._count(f, A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, ::Colon, init) =
-    Base._simple_count(f∘adjoint, parent(A), init)
-Base._count(f, A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, ::Colon, init) =
-    Base._simple_count(f∘transpose, parent(A), init)
-
 function Base._simple_count(pred, S::AbstractSparseMatrixCSC, init::T) where T
     init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
 end
@@ -2175,10 +2170,6 @@ function Base._mapreduce(f, op, ::Base.IndexCartesian, A::AbstractSparseMatrixCS
         _mapreducezeros(f, op, T, n-z, Base._mapreduce(f, op, nzvalview(A)))
     end
 end
-Base._mapreduce(f, op, ::Base.IndexCartesian, A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
-    Base._mapreduce(f∘adjoint, op, IndexCartesian(), parent(A))
-Base._mapreduce(f, op, ::Base.IndexCartesian, A::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
-    Base._mapreduce(f∘transpose, op, IndexCartesian(), parent(A))
 
 # Specialized mapreduce for +/*/min/max/_extrema_rf
 _mapreducezeros(f, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {T} =
