@@ -932,6 +932,27 @@ end
         v[3] = 2
         @test argmax(v) == 3
     end
+
+    let
+        v = spzeros(Bool, 5)
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v = SparseVector(5, [1], [false])
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v[2] = true
+        @test any(v)
+        @test !all(v)
+        @test count(v) == 1
+        v .= true
+        @test any(v)
+        @test all(v)
+        @test count(v) == length(v)
+    end
 end
 
 ### linalg

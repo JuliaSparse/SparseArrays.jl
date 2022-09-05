@@ -199,6 +199,29 @@ dA = Array(sA)
         # @test f(x->sqrt(x-1), pA .+ 1, dims=3) ≈ f(pA)
     end
 
+    @testset "logical reductions" begin
+        v = spzeros(Bool, 5, 2)
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v = SparseMatrixCSC(5, 2, [1, 2, 2], [1], [false])
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v[2,1] = true
+        @test any(v)
+        @test !all(v)
+        @test !iszero(v)
+        @test count(v) == 1
+        v .= true
+        @test any(v)
+        @test all(v)
+        @test !iszero(v)
+        @test count(v) == length(v)
+    end
+
     @testset "empty cases" begin
         errchecker(str) = occursin("reducing over an empty collection is not allowed", str) ||
                           occursin("collection slices must be non-empty", str)
