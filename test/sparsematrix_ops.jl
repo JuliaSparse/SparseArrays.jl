@@ -216,15 +216,15 @@ dA = Array(sA)
         @test iszero(v)
         @test count(v) == 0
         v = SparseMatrixCSC(5, 2, [1, 2, 2], [1], [true])
-        @test !any(v)
+        @test any(v)
         @test !all(v)
-        @test iszero(v)
+        @test !iszero(v)
         @test count(v) == 1
         v[2,1] = true
         @test any(v)
         @test !all(v)
         @test !iszero(v)
-        @test count(v) == 1
+        @test count(v) == 2
         v .= true
         @test any(v)
         @test all(v)
