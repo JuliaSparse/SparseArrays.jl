@@ -2188,14 +2188,15 @@ Base._all(f, A::AbstractSparseMatrixCSC, ::Colon) =
     Base._mapreduce(f, &, IndexCartesian(), A)
 
 function Base._mapreduce(f, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
-    nzeros = widelength(A)-nnz(A)
+    nnzA = nnz(A)
+    nzeros = widelength(A) - nnzA
     if nzeros == 0
         # No zeros, so don't compute f(0) since it might throw
         Base._mapreduce(f, op, nzvalview(A))
     else
         v = f(zero(T))^(nzeros)
-        # Bail out early if initial reduction value is zero
-        v == zero(T) ? v : v*Base._mapreduce(f, op, nzvalview(A))
+        # Bail out early if initial reduction value is zero or if there are no stored elements
+        (v == zero(T) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
     end
 end
 
