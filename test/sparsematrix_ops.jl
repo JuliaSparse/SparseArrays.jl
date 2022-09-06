@@ -183,7 +183,7 @@ dA = Array(sA)
             @test f(arr, dims=(1, 2)) ≈ [f(farr)]
             @test isequal(f(arr, dims=3), f(farr, dims=3))
         end
-        for f in (+, *, minimum, maximum)
+        for f in (+, *, min, max)
             farr = Array(arr)
             @test mapreduce(identity, f, arr) ≈ mapreduce(identity, f, farr)
             @test mapreduce(x -> x + 1, f, arr) ≈ mapreduce(x -> x + 1, f, farr)
