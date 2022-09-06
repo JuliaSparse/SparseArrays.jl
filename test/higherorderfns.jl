@@ -653,6 +653,7 @@ end
     @test ((_, _, x) -> x).(Int, Int, spzeros(3)) == spzeros(3)
     @test ((_, _, _, x) -> x).(Int, Int, Int, spzeros(3)) == spzeros(3)
     @test ((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3)) == spzeros(3)
+    @test_broken typeof(((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3))) == typeof(spzeros(3))
 end
 
 using SparseArrays.HigherOrderFns: SparseVecStyle, SparseMatStyle
