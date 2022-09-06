@@ -174,7 +174,7 @@ dA = Array(sA)
     pA = sparse(rand(3, 7))
     p28227 = sparse(Real[0 0.5])
 
-    for arr in (se33, sA, pA, p28227)
+    for arr in (se33, sA, pA, p28227, spzeros(3, 3))
         for f in (sum, prod, minimum, maximum)
             farr = Array(arr)
             @test f(arr) ≈ f(farr)
@@ -182,6 +182,11 @@ dA = Array(sA)
             @test f(arr, dims=2) ≈ f(farr, dims=2)
             @test f(arr, dims=(1, 2)) ≈ [f(farr)]
             @test isequal(f(arr, dims=3), f(farr, dims=3))
+        end
+        for f in (+, *, minimum, maximum)
+            farr = Array(arr)
+            @test mapreduce(identity, f, arr) ≈ mapreduce(identity, f, farr)
+            @test mapreduce(x -> x + 1, f, arr) ≈ mapreduce(x -> x + 1, f, farr)
         end
     end
 
@@ -210,6 +215,11 @@ dA = Array(sA)
         @test !all(v)
         @test iszero(v)
         @test count(v) == 0
+        v = SparseMatrixCSC(5, 2, [1, 2, 2], [1], [true])
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 1
         v[2,1] = true
         @test any(v)
         @test !all(v)

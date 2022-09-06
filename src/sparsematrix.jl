@@ -2187,7 +2187,7 @@ Base._any(f, A::AbstractSparseMatrixCSC, ::Colon) =
 Base._all(f, A::AbstractSparseMatrixCSC, ::Colon) =
     Base._mapreduce(f, &, IndexCartesian(), A)
 
-function Base._mapreduce(f, op::typeof(*), ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
+function Base._mapreduce(f, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
     nzeros = widelength(A)-nnz(A)
     if nzeros == 0
         # No zeros, so don't compute f(0) since it might throw
