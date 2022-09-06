@@ -530,4 +530,20 @@ Base.transpose(x::Counting) = Counting(transpose(x.elt))
     end
 end
 
+
+@testset "Issue #246" begin
+    for t in [Int, UInt8, Float64]
+        a = Counting.(sprand(t, 100, 0.5))
+        b = Counting.(sprand(t, 100, 0.5))
+        for m in [identity, transpose, adjoint]
+            ma = m(a)
+            mb = m(b)
+
+            resetcounter()
+            ma == mb
+            @test getcounter() <= nnz(a) + nnz(b)
+        end
+    end
+end
+
 end # module
