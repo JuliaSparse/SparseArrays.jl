@@ -652,7 +652,7 @@ end
     @test ((_, x) -> x).(Int, spzeros(3)) == spzeros(3)
     @test ((_, _, x) -> x).(Int, Int, spzeros(3)) == spzeros(3)
     @test ((_, _, _, x) -> x).(Int, Int, Int, spzeros(3)) == spzeros(3)
-    @test_broken ((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3)) == spzeros(3)
+    @test ((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3)) == spzeros(3)
 end
 
 using SparseArrays.HigherOrderFns: SparseVecStyle, SparseMatStyle
