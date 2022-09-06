@@ -37,5 +37,3 @@ Base.copy(x::ReadOnly) = ReadOnly(copy(parent(x)))
 (==)(x::ReadOnly, y::ReadOnly) = parent(x) == parent(y)
 
 Base.dataids(::ReadOnly) = tuple()
-# Convert from 1-based to 0-based indices
-decrement(A::ReadOnly) = decrement!(copy(parent(A)))
