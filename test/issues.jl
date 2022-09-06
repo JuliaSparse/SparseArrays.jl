@@ -13,7 +13,7 @@ include("simplesmatrix.jl")
 @testset "Issue #15" begin
     s = sparse([1, 2], [1, 2], [10, missing])
     d = Matrix(s)
-    
+
     s2 = sparse(d)
 
     @test s2[1, 1] == 10
