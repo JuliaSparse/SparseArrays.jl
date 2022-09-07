@@ -4,7 +4,7 @@ module SparseTests
 
 using Test
 using SparseArrays
-using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero
+using SparseArrays: getcolptr, nonzeros, nonzeroinds, _show_with_braille_patterns, _isnotzero
 using LinearAlgebra
 using Printf: @printf # for debug
 using Random
@@ -535,13 +535,27 @@ end
     for t in [Int, UInt8, Float64]
         a = Counting.(sprand(t, 100, 0.5))
         b = Counting.(sprand(t, 100, 0.5))
+
+        c = if nnz(a) != 0
+            c = copy(a)
+            nonzeros(c)[1] = 0
+            c
+        else
+            c = copy(a)
+            push!(nonzeros(c), zero(t))
+            push!(nonzerosinds(c), 1)
+            c
+        end
+        d = dropzeros(c)
+
         for m in [identity, transpose, adjoint]
-            ma = m(a)
-            mb = m(b)
+            ma, mb, mc, md = m.([a, b, c, d])
 
             resetcounter()
             ma == mb
             @test getcounter() <= nnz(a) + nnz(b)
+
+            @test (mc == md) == (Array(mc) == Array(md))
         end
     end
 end
