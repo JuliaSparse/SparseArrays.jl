@@ -1144,7 +1144,8 @@ const _SparseConcatGroup = Union{_DenseConcatGroup, _SparseConcatArrays, _Annota
 
 # Concatenations involving un/annotated sparse/special matrices/vectors should yield sparse arrays
 _makesparse(x::Number) = x
-_makesparse(x::AbstractArray) = SparseMatrixCSC(issparse(x) ? x : sparse(x))
+_makesparse(x::AbstractVector) = convert(SparseVector, issparse(x) ? x : sparse(x))::SparseVector
+_makesparse(x::AbstractMatrix) = convert(SparseMatrixCSC, issparse(x) ? x : sparse(x))::SparseMatrixCSC
 
 # `@constprop :aggressive` allows `dims` to be propagated as constant improving return type inference
 Base.@constprop :aggressive function Base._cat(dims, Xin::_SparseConcatGroup...)

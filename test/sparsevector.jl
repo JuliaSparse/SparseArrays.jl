@@ -544,6 +544,10 @@ end
         @test length(V) == m * n
         Vr = vec(Hr)
         @test Array(V) == Vr
+        Vnum = vcat(zero(Float64), A...)
+        @test Vnum isa SparseVector{Float64,Int}
+        @test length(Vnum) == m*n + 1
+        @test Array(Vnum) == [0; Vr]
     end
 
     @testset "concatenation of sparse vectors with other types" begin
