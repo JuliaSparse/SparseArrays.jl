@@ -1039,6 +1039,9 @@ complex(x::AbstractSparseVector) =
 
 ### Concatenation
 
+_nnz(x::Number) = iszero(x) ? 0 : 1
+_nonzeroinds(x::Number, Ti) = iszero(x) ? Ti[] : Ti[1]
+_nonzeros(x::Number) = 
 # Without the first of these methods, horizontal concatenations of SparseVectors fall
 # back to the horizontal concatenation method that ensures that combinations of
 # sparse/special/dense matrix/vector types concatenate to SparseMatrixCSCs, instead
@@ -1143,22 +1146,28 @@ const _Annotated_SparseConcatArrays = Union{_Triangular_SparseConcatArrays, _Sym
 const _SparseConcatGroup = Union{_DenseConcatGroup, _SparseConcatArrays, _Annotated_SparseConcatArrays}
 
 # Concatenations involving un/annotated sparse/special matrices/vectors should yield sparse arrays
+
+# the output array type is determined by the first element of the to be concatenated objects
+# if this is a Number, the output would be dense by the fallback abstractarray.jl code (see cat_similar)
+# so make sure that if that happens, the "array" is sparse (if more sparse arrays are involved, of course)
+_sparse(x::Number) = sparse([1], [x], 1)
+_sparse(A) = _makesparse(A)
 _makesparse(x::Number) = x
 _makesparse(x::AbstractVector) = convert(SparseVector, issparse(x) ? x : sparse(x))::SparseVector
 _makesparse(x::AbstractMatrix) = convert(SparseMatrixCSC, issparse(x) ? x : sparse(x))::SparseMatrixCSC
 
 # `@constprop :aggressive` allows `dims` to be propagated as constant improving return type inference
 Base.@constprop :aggressive function Base._cat(dims, Xin::_SparseConcatGroup...)
-    X = map(_makesparse, Xin)
+    X = (_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))...)
     T = promote_eltype(Xin...)
     return Base._cat_t(dims, T, X...)
 end
 function hcat(Xin::_SparseConcatGroup...)
-    X = map(_makesparse, Xin)
+    X = (_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))...)
     return cat(X..., dims=Val(2))
 end
 function vcat(Xin::_SparseConcatGroup...)
-    X = map(_makesparse, Xin)
+    X = (_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))...)
     return cat(X..., dims=Val(1))
 end
 hvcat(rows::Tuple{Vararg{Int}}, X::_SparseConcatGroup...) =
@@ -1171,8 +1180,10 @@ function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup.
     T = eltype(X::Tuple{Any,Vararg{Any}})
     # inference of `getindex` may be imprecise in case `row1` is not const-propagated up
     # to here, so help inference with the following type-assertions
+    Xrow = X[1 : row1]::Tuple{typeof(X[1]),Vararg{T}}
+    Xsrow = (_sparse(first(Xrow)), map(_makesparse, Base.tail(Xrow))...)
     return (
-        hcat(X[1 : row1]::Tuple{typeof(X[1]),Vararg{T}}...),
+        hcat(Xsrow...),
         _hvcat_rows(rows, X[row1+1:end]::Tuple{Vararg{T}}...)...
     )
 end
@@ -1192,9 +1203,9 @@ Concatenate along dimension 2. Return a SparseMatrixCSC object.
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
-sparse_hcat(Xin::Union{AbstractVecOrMat,Number}...) = cat(map(_makesparse, Xin)..., dims=Val(2))
+sparse_hcat(Xin::Union{AbstractVecOrMat,Number}...) = cat(_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))..., dims=Val(2))
 function sparse_hcat(X::Union{AbstractVecOrMat,UniformScaling,Number}...)
-    LinearAlgebra._hcat(X...; array_type = SparseMatrixCSC)
+    LinearAlgebra._hcat(_sparse(first(X)), map(_makesparse, Base.tail(X))...; array_type = SparseMatrixCSC)
 end
 
 """
@@ -1207,9 +1218,9 @@ Concatenate along dimension 1. Return a SparseMatrixCSC object.
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
-sparse_vcat(Xin::Union{AbstractVecOrMat,Number}...) = cat(map(_makesparse, Xin)..., dims=Val(1))
+sparse_vcat(Xin::Union{AbstractVecOrMat,Number}...) = cat(_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))..., dims=Val(1))
 function sparse_vcat(X::Union{AbstractVecOrMat,UniformScaling,Number}...)
-    LinearAlgebra._vcat(X...; array_type = SparseMatrixCSC)
+    LinearAlgebra._vcat(_sparse(first(X)), map(_makesparse, Base.tail(X))...; array_type = SparseMatrixCSC)
 end
 
 """
@@ -1225,10 +1236,10 @@ arguments to concatenate in each block row.
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
 function sparse_hvcat(rows::Tuple{Vararg{Int}}, Xin::Union{AbstractVecOrMat,Number}...)
-    hvcat(rows, map(_makesparse, Xin)...)
+    hvcat(rows, _sparse(first(Xin)), map(_makesparse, Base.tail(Xin))...)
 end
 function sparse_hvcat(rows::Tuple{Vararg{Int}}, X::Union{AbstractVecOrMat,UniformScaling,Number}...)
-    LinearAlgebra._hvcat(rows, X...; array_type = SparseMatrixCSC)
+    LinearAlgebra._hvcat(rows, _sparse(first(X)), map(_makesparse, Base.tail(X))...; array_type = SparseMatrixCSC)
 end
 
 ### math functions

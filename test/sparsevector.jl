@@ -545,13 +545,17 @@ end
         Vr = vec(Hr)
         @test Array(V) == Vr
         Vnum = vcat(A..., zero(Float64))
+        Vnum2 = sparse_vcat(map(Array, A)..., zero(Float64))
         @test Vnum isa SparseVector{Float64,Int}
-        @test length(Vnum) == m*n + 1
-        @test Array(Vnum) == [Vr; 0]
+        @test Vnum2 isa SparseVector{Float64,Int}
+        @test length(Vnum) == length(Vnum2) == m*n + 1
+        @test Array(Vnum) == Array(Vnum2) == [Vr; 0]
         Vnum = vcat(zero(Float64), A...)
+        Vnum = sparse_vcat(zero(Float64), map(Array, A)...)
         @test Vnum isa SparseVector{Float64,Int}
-        @test length(Vnum) == m*n + 1
-        @test Array(Vnum) == [0; Vr]
+        @test Vnum2 isa SparseVector{Float64,Int}
+        @test length(Vnum) == length(Vnum2) == m*n + 1
+        @test Array(Vnum) == Array(Vnum2) == [0; Vr]
     end
 
     @testset "concatenation of sparse vectors with other types" begin
