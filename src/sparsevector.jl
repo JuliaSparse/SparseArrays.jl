@@ -1039,9 +1039,6 @@ complex(x::AbstractSparseVector) =
 
 ### Concatenation
 
-_nnz(x::Number) = iszero(x) ? 0 : 1
-_nonzeroinds(x::Number, Ti) = iszero(x) ? Ti[] : Ti[1]
-_nonzeros(x::Number) = 
 # Without the first of these methods, horizontal concatenations of SparseVectors fall
 # back to the horizontal concatenation method that ensures that combinations of
 # sparse/special/dense matrix/vector types concatenate to SparseMatrixCSCs, instead
@@ -1150,7 +1147,7 @@ const _SparseConcatGroup = Union{_DenseConcatGroup, _SparseConcatArrays, _Annota
 # the output array type is determined by the first element of the to be concatenated objects
 # if this is a Number, the output would be dense by the fallback abstractarray.jl code (see cat_similar)
 # so make sure that if that happens, the "array" is sparse (if more sparse arrays are involved, of course)
-_sparse(x::Number) = sparse([1], [x], 1)
+_sparse(x::Number) = sparsevec([1], [x], 1)
 _sparse(A) = _makesparse(A)
 _makesparse(x::Number) = x
 _makesparse(x::AbstractVector) = convert(SparseVector, issparse(x) ? x : sparse(x))::SparseVector
