@@ -1177,10 +1177,8 @@ function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup.
     T = eltype(X::Tuple{Any,Vararg{Any}})
     # inference of `getindex` may be imprecise in case `row1` is not const-propagated up
     # to here, so help inference with the following type-assertions
-    Xrow = X[1 : row1]::Tuple{typeof(X[1]),Vararg{T}}
-    Xsrow = (_sparse(first(Xrow)), map(_makesparse, Base.tail(Xrow))...)
     return (
-        hcat(Xsrow...),
+        hcat(X[1 : row1]::Tuple{typeof(X[1]),Vararg{T}}...),
         _hvcat_rows(rows, X[row1+1:end]::Tuple{Vararg{T}}...)...
     )
 end
