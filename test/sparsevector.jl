@@ -556,6 +556,10 @@ end
         @test Vnum2 isa SparseVector{Float64,Int}
         @test length(Vnum) == length(Vnum2) == m*n + 1
         @test Array(Vnum) == Array(Vnum2) == [0; Vr]
+        # case with rowwise a Number as first element, should still yield a sparse matrix
+        x = sparsevec([1], [3.0], 1)
+        X = [3.0 x; 3.0 x]
+        @test issparse(X)
     end
 
     @testset "concatenation of sparse vectors with other types" begin
