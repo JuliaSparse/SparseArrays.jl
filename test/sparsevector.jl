@@ -551,7 +551,7 @@ end
         @test length(Vnum) == length(Vnum2) == m*n + 1
         @test Array(Vnum) == Array(Vnum2) == [Vr; 0]
         Vnum = vcat(zero(Float64), A...)
-        Vnum = sparse_vcat(zero(Float64), map(Array, A)...)
+        Vnum2 = sparse_vcat(zero(Float64), map(Array, A)...)
         @test Vnum isa SparseVector{Float64,Int}
         @test Vnum2 isa SparseVector{Float64,Int}
         @test length(Vnum) == length(Vnum2) == m*n + 1
