@@ -544,6 +544,10 @@ end
         @test length(V) == m * n
         Vr = vec(Hr)
         @test Array(V) == Vr
+        Vnum = vcat(A..., zero(Float64))
+        @test Vnum isa SparseVector{Float64,Int}
+        @test length(Vnum) == m*n + 1
+        @test Array(Vnum) == [Vr; 0]
         Vnum = vcat(zero(Float64), A...)
         @test Vnum isa SparseVector{Float64,Int}
         @test length(Vnum) == m*n + 1
