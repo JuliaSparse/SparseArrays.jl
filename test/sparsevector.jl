@@ -544,6 +544,22 @@ end
         @test length(V) == m * n
         Vr = vec(Hr)
         @test Array(V) == Vr
+        Vnum = vcat(A..., zero(Float64))
+        Vnum2 = sparse_vcat(map(Array, A)..., zero(Float64))
+        @test Vnum isa SparseVector{Float64,Int}
+        @test Vnum2 isa SparseVector{Float64,Int}
+        @test length(Vnum) == length(Vnum2) == m*n + 1
+        @test Array(Vnum) == Array(Vnum2) == [Vr; 0]
+        Vnum = vcat(zero(Float64), A...)
+        Vnum2 = sparse_vcat(zero(Float64), map(Array, A)...)
+        @test Vnum isa SparseVector{Float64,Int}
+        @test Vnum2 isa SparseVector{Float64,Int}
+        @test length(Vnum) == length(Vnum2) == m*n + 1
+        @test Array(Vnum) == Array(Vnum2) == [0; Vr]
+        # case with rowwise a Number as first element, should still yield a sparse matrix
+        x = sparsevec([1], [3.0], 1)
+        X = [3.0 x; 3.0 x]
+        @test issparse(X)
     end
 
     @testset "concatenation of sparse vectors with other types" begin
