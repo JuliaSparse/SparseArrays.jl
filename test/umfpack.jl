@@ -154,7 +154,7 @@ end
         @test Afcopy.numeric === Af.numeric
         @test Afcopy.symbolic === Af.symbolic
 
-        Afcopy = deepcopy(Af)
+        Afcopy = copy(Af; safecopy = true)
         @test Afcopy.numeric !== Af.numeric
         @test Afcopy.symbolic !== Af.symbolic
     end

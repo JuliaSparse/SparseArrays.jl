@@ -255,18 +255,20 @@ UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, T
 UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
 
 """
-    copy(F::UmfpackLU, [ws::UmfpackWS]) -> UmfpackLU
+    copy(F::UmfpackLU, [ws::UmfpackWS]; safecopy = false) -> UmfpackLU
 A shallow copy of UmfpackLU to use in multithreaded solve applications.
 This function duplicates the working space, control, info and lock fields.
 
-Warning: This shallow copy should not be used for parallel factorizations or re-factorizations,
-doing so may lead to race-conditions.
+If `safecopy = true` is passed, then the internal Symbolic and Numeric
+factorization objects will be duplicated as well. This must be done if
+multiple threads may call factorization or refactorization functions
+on the copy and original simultaneously.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) =
+Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F); safecopy = false) where {Tv, Ti} =
     UmfpackLU(
-        F.symbolic,
-        F.numeric,
+        safecopy ? Symbolic{Tv, Ti}(C_NULL) : F.symbolic,
+        safecopy ? Numeric{Tv, TI}(C_NULL) : F.numeric,
         F.m, F.n,
         F.colptr,
         F.rowval,
@@ -279,22 +281,6 @@ Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) =
     )
 Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
     T(copy(parent(F), ws))
-
-Base.deepcopy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
-    UmfpackLU(
-    Symbolic{Tv, Ti}(C_NULL), # TODO: switch to a copy when upstream is available
-    Numeric{Tv, Ti}(C_NULL), # TODO: switch to a copy when upstream is available
-    F.m, F.n,
-    F.colptr,
-    F.rowval,
-    F.nzval,
-    F.status,
-    ws,
-    copy(F.control),
-    copy(F.info),
-    ReentrantLock())
-Base.deepcopy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
-    T(deepcopy(parent(F), ws))
 
 Base.adjoint(F::UmfpackLU) = Adjoint(F)
 Base.transpose(F::UmfpackLU) = Transpose(F)
