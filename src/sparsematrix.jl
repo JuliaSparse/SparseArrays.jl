@@ -209,8 +209,8 @@ nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::SparseMatrixCSCView) = nnz1(S)
 nnz1(S) = sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
-function count(pred, S::AbstractSparseMatrixCSC)
-    count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S))
+function Base._simple_count(pred, S::AbstractSparseMatrixCSC, init::T) where T
+    init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
 end
 
 """
@@ -304,7 +304,7 @@ function Base.isstored(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     return false
 end
 
-function Base.isstored(A::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSC},Transpose{<:Any,<:AbstractSparseMatrixCSC}}, i::Integer, j::Integer)
+function Base.isstored(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Integer, j::Integer)
     @boundscheck checkbounds(A, i, j)
     cols = rowvals(parent(A))
     for istored in nzrange(parent(A), i)
@@ -2116,8 +2116,7 @@ nzeq(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
 # the case where the RHS is both adjoint and transposed, i.e. where it
 # is in CSC format again.)
 function ==(A::AbstractSparseMatrixCSC,
-            B::Union{Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
-                     Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}})
+            B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose})
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # Compare nonzero elements
@@ -2182,15 +2181,22 @@ _mapreducezeros(f, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Intege
 _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 
-function Base._mapreduce(f, op::typeof(*), ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
-    nzeros = widelength(A)-nnz(A)
+# Specialized mapreduce for any and all
+Base._any(f, A::AbstractSparseMatrixCSC, ::Colon) =
+    Base._mapreduce(f, |, IndexCartesian(), A)
+Base._all(f, A::AbstractSparseMatrixCSC, ::Colon) =
+    Base._mapreduce(f, &, IndexCartesian(), A)
+
+function Base._mapreduce(f, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
+    nnzA = nnz(A)
+    nzeros = widelength(A) - nnzA
     if nzeros == 0
         # No zeros, so don't compute f(0) since it might throw
         Base._mapreduce(f, op, nzvalview(A))
     else
         v = f(zero(T))^(nzeros)
-        # Bail out early if initial reduction value is zero
-        v == zero(T) ? v : v*Base._mapreduce(f, op, nzvalview(A))
+        # Bail out early if initial reduction value is zero or if there are no stored elements
+        (v == zero(T) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
     end
 end
 
