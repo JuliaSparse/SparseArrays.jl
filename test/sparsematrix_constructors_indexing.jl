@@ -51,6 +51,11 @@ end
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], 1.0, 2, 2, +) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [1.0, 1.0, 1.0, 2.0], 2, 2)
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], -1.0, 2, 2, *) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [-1.0, -1.0, -1.0, 1.0], 2, 2)
     @test sparse(sparse(Int32.(1:5), Int32.(1:5), trues(5))') isa SparseMatrixCSC{Bool,Int32}
+    # undef initializer
+    m = SparseMatrixCSC{Float32, Int16}(undef, 3, 4)
+    @test size(m) == (3, 4)
+    @test eltype(m) === Float32
+    @test m == spzeros(3, 4)
 end
 
 @testset "concatenation tests" begin
