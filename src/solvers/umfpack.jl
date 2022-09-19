@@ -672,7 +672,7 @@ for itype in UmfpackIndexTypes
                 throw(ArgumentError("Wi should be larger than `size(Af, 2)`"))
             end
             if workspace_W_size(lu) > length(workspace.W)
-                throw(ArguementError("W should be larger than `workspace_W_size(Af)`"))
+                throw(ArgumentError("W should be larger than `workspace_W_size(Af)`"))
             end
             @lock lu begin
                 umfpack_numeric!(lu)
@@ -697,7 +697,7 @@ for itype in UmfpackIndexTypes
                 throw(ArgumentError("Wi should be at least larger than `size(Af, 2)`"))
             end
             if workspace_W_size(lu) > length(workspace.W)
-                throw(ArguementError("W should be larger than `workspace_W_size(Af)`"))
+                throw(ArgumentError("W should be larger than `workspace_W_size(Af)`"))
             end
             @lock lu begin
                 umfpack_numeric!(lu)
