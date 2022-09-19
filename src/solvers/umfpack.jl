@@ -268,7 +268,7 @@ on the copy and original simultaneously.
 Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F); safecopy = false) where {Tv, Ti} =
     UmfpackLU(
         safecopy ? Symbolic{Tv, Ti}(C_NULL) : F.symbolic,
-        safecopy ? Numeric{Tv, TI}(C_NULL) : F.numeric,
+        safecopy ? Numeric{Tv, Ti}(C_NULL) : F.numeric,
         F.m, F.n,
         F.colptr,
         F.rowval,
