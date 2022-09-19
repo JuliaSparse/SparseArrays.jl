@@ -47,6 +47,11 @@ end
 SparseMatrixCSC(m, n, colptr::ReadOnly, rowval::ReadOnly, nzval::Vector) =
     SparseMatrixCSC(m, n, copy(parent(colptr)), copy(parent(rowval)), nzval)
 
+"""
+    SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer)
+
+Creates an empty sparse matrix with element type `Tv` and integer type `Ti` of size `m × n`.
+"""
 SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer) where {Tv, Ti} = spzeros(Tv, Ti, m, n)
 
 """

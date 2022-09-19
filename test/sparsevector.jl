@@ -216,6 +216,13 @@ end
             end
         end
     end
+
+    @testset "Undef initializer" begin
+        v = SparseVector{Float32, Int16}(undef, 4)
+        @test size(v) == (4, )
+        @test eltype(v) === Float32
+        @test v == spzeros(Float32, 4)
+    end
 end
 ### Element access
 
