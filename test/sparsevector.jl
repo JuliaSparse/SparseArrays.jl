@@ -33,6 +33,7 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
     @test SparseArrays.nonzeroinds(x) == [2, 5, 6]
     @test nonzeros(x) == [1.25, -0.75, 3.5]
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
+    @test count(SparseVector(8, [2, 5, 6], [true,false,true]), init=Int16(2))::Int16 == 4
     y = SparseVector(8, Int128[4], [5])
     @test y isa SparseVector{Int,Int128}
     @test @inferred size(y) == (@inferred(length(y))::Int128,)
@@ -946,6 +947,27 @@ end
     let v = spzeros(3) #Julia #44978
         v[3] = 2
         @test argmax(v) == 3
+    end
+
+    let
+        v = spzeros(Bool, 5)
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v = SparseVector(5, [1], [false])
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v[2] = true
+        @test any(v)
+        @test !all(v)
+        @test count(v) == 1
+        v .= true
+        @test any(v)
+        @test all(v)
+        @test count(v) == length(v)
     end
 end
 

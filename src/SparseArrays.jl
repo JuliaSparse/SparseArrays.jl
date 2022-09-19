@@ -11,6 +11,9 @@ using Base.Sort: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, matprod
 
+# Temporary workaround for simplifying SparseArrays.jl upgrade in JuliaLang/julia
+# to workaround circshift! bug, see https://github.com/JuliaLang/julia/pull/46759
+const CIRCSHIFT_WRONG_DIRECTION = circshift!([1, 2, 3], 1) != circshift([1, 2, 3], 1)
 
 
 import Base: +, -, *, \, /, &, |, xor, ==, zero

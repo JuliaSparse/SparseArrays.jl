@@ -234,7 +234,6 @@ SparseArrays.permute
 permute!{Tv, Ti, Tp <: Integer, Tq <: Integer}(::SparseMatrixCSC{Tv,Ti}, ::SparseMatrixCSC{Tv,Ti}, ::AbstractArray{Tp,1}, ::AbstractArray{Tq,1})
 SparseArrays.halfperm!
 SparseArrays.ftranspose!
-SparseArrays.fkeep!
 ```
 
 ```@meta

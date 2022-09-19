@@ -92,7 +92,10 @@ const SVorFSV{Tv,Ti} = Union{SparseVector{Tv,Ti},FixedSparseVector{Tv,Ti}}
 
 length(x::SVorFSV)   = getfield(x, :n)
 size(x::SVorFSV)     = (getfield(x, :n),)
-count(f, x::AbstractCompressedVector) = count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x))
+
+function Base._simple_count(f, x::AbstractCompressedVector, init::T) where T
+    init + T(count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x)))
+end
 
 # implement the nnz - nzrange - nonzeros - rowvals interface for sparse vectors
 
@@ -1019,6 +1022,8 @@ function Vector(x::AbstractSparseVector{Tv}) where Tv
 end
 Array(x::AbstractSparseVector) = Vector(x)
 
+Base.iszero(x::AbstractSparseVector) = iszero(nonzeros(x))
+
 ### Array manipulation
 
 vec(x::AbstractSparseVector) = x
@@ -1493,6 +1498,9 @@ function Base._mapreduce(f, op, ::IndexCartesian, A::SparseVectorUnion{T}) where
     end
     _mapreducezeros(f, op, T, rest, ini)
 end
+
+Base._any(f, A::SparseVectorUnion, ::Colon) = Base._mapreduce(f, |, IndexCartesian(), A)
+Base._all(f, A::SparseVectorUnion, ::Colon) = Base._mapreduce(f, &, IndexCartesian(), A)
 
 function Base.mapreducedim!(f, op, R::AbstractVector, A::SparseVectorUnion)
     # dim1 reduction could be safely replaced with a mapreduce
@@ -2223,8 +2231,8 @@ function subvector_shifter!(R::AbstractVector, V::AbstractVector, start::Integer
         end
     end
     # ...but rowval should be sorted within columns
-    circshift!(@view(R[start:fin]), split-start+1)
-    circshift!(@view(V[start:fin]), split-start+1)
+    circshift!(@view(R[start:fin]), (CIRCSHIFT_WRONG_DIRECTION ? (+) : (-))(split-start+1))
+    circshift!(@view(V[start:fin]), (CIRCSHIFT_WRONG_DIRECTION ? (+) : (-))(split-start+1))
 end
 
 function circshift!(O::SparseVector, X::SparseVector, (r,)::Base.DimsInteger{1})
