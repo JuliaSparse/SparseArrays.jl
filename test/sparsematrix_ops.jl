@@ -4,7 +4,7 @@ module SparseTests
 
 using Test
 using SparseArrays
-using SparseArrays: getcolptr, nonzeros, nonzeroinds, _show_with_braille_patterns, _isnotzero
+using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero
 using LinearAlgebra
 using Printf: @printf # for debug
 using Random
