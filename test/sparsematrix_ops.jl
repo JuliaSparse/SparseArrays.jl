@@ -14,7 +14,6 @@ using Dates
 include("forbidproperties.jl")
 include("simplesmatrix.jl")
 
-
 @testset "_isnotzero" begin
     @test !_isnotzero(0::Int)
     @test _isnotzero(1::Int)
@@ -127,7 +126,7 @@ do33 = fill(1.,3)
             @test collect(skipmissing(Array(broadcast(fun, C, B)))) == collect(skipmissing(broadcast(fun, CA, BA)))
         end
     end
-    
+
 end
 
 let
@@ -175,7 +174,7 @@ dA = Array(sA)
     pA = sparse(rand(3, 7))
     p28227 = sparse(Real[0 0.5])
 
-    for arr in (se33, sA, pA, p28227)
+    for arr in (se33, sA, pA, p28227, spzeros(3, 3))
         for f in (sum, prod, minimum, maximum)
             farr = Array(arr)
             @test f(arr) ≈ f(farr)
@@ -183,6 +182,11 @@ dA = Array(sA)
             @test f(arr, dims=2) ≈ f(farr, dims=2)
             @test f(arr, dims=(1, 2)) ≈ [f(farr)]
             @test isequal(f(arr, dims=3), f(farr, dims=3))
+        end
+        for f in (+, *, min, max)
+            farr = Array(arr)
+            @test mapreduce(identity, f, arr) ≈ mapreduce(identity, f, farr)
+            @test mapreduce(x -> x + 1, f, arr) ≈ mapreduce(x -> x + 1, f, farr)
         end
     end
 
@@ -198,6 +202,34 @@ dA = Array(sA)
         # @test f(x->sqrt(x-1), pA .+ 1, dims=1) ≈ f(sqrt(pA), dims=1)
         # @test f(x->sqrt(x-1), pA .+ 1, dims=2) ≈ f(sqrt(pA), dims=2)
         # @test f(x->sqrt(x-1), pA .+ 1, dims=3) ≈ f(pA)
+    end
+
+    @testset "logical reductions" begin
+        v = spzeros(Bool, 5, 2)
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v = SparseMatrixCSC(5, 2, [1, 2, 2], [1], [false])
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v = SparseMatrixCSC(5, 2, [1, 2, 2], [1], [true])
+        @test any(v)
+        @test !all(v)
+        @test !iszero(v)
+        @test count(v) == 1
+        v[2,1] = true
+        @test any(v)
+        @test !all(v)
+        @test !iszero(v)
+        @test count(v) == 2
+        v .= true
+        @test any(v)
+        @test all(v)
+        @test !iszero(v)
+        @test count(v) == length(v)
     end
 
     @testset "empty cases" begin
@@ -491,4 +523,44 @@ end
     f()
     @test f() == 0
 end
+
+struct Counting{T} <: Number
+    elt::T
+end
+@static if VERSION ≥ v"1.8"
+    counter::Int = 0
+    resetcounter() = (global counter; counter=0)
+    stepcounter() = (global counter; counter+=1)
+    getcounter() = (global counter; counter)
+else
+    const counter = Ref(0)
+    resetcounter() = (global counter; counter[]=0)
+    stepcounter() = (global counter; counter[]+=1)
+    getcounter() = (global counter; counter[])
+end
+Base.:(==)(x::Counting, y::Counting) = (stepcounter(); x.elt==y.elt)
+Base.promote_rule(::Type{Counting{T}}, ::Type{Counting{U}}) where {T,U} = Counting{promote_rule(T, U)}
+Base.iszero(x::Counting) = iszero(x.elt)
+Base.zero(::Type{Counting{T}}) where {T} = Counting(zero(T))
+Base.zero(x::Counting) = Counting(zero(x.elt))
+Base.adjoint(x::Counting) = Counting(adjoint(x.elt))
+Base.transpose(x::Counting) = Counting(transpose(x.elt))
+
+@testset "Comparisons to adjoints are efficient" for
+    A in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)],
+    B in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)]
+    if size(A) == size(B)
+        A = Counting.(A)
+        B = Counting.(B)
+        As = Any[A, A', transpose(A)]
+        Bs = Any[B, B', transpose(B)]
+        for A′ in As, B′ in Bs
+            # skip adjoints of transposes; these are not really supported
+            ((A′ isa Adjoint && B′ isa Transpose) || (A′ isa Transpose && B′ isa Adjoint)) && continue
+            c = (resetcounter(); A′ == B′; getcounter())
+            @test c ≤ 1 + (nnz(A′) + nnz(B′))
+        end
+    end
+end
+
 end # module

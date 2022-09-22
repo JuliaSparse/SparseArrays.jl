@@ -33,6 +33,7 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
     @test SparseArrays.nonzeroinds(x) == [2, 5, 6]
     @test nonzeros(x) == [1.25, -0.75, 3.5]
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
+    @test count(SparseVector(8, [2, 5, 6], [true,false,true]), init=Int16(2))::Int16 == 4
     y = SparseVector(8, Int128[4], [5])
     @test y isa SparseVector{Int,Int128}
     @test @inferred size(y) == (@inferred(length(y))::Int128,)
@@ -214,6 +215,13 @@ end
                 @test all(nonzeros(xr) .> 0.0)
             end
         end
+    end
+
+    @testset "Undef initializer" begin
+        v = SparseVector{Float32, Int16}(undef, 4)
+        @test size(v) == (4, )
+        @test eltype(v) === Float32
+        @test v == spzeros(Float32, 4)
     end
 end
 ### Element access
@@ -544,6 +552,22 @@ end
         @test length(V) == m * n
         Vr = vec(Hr)
         @test Array(V) == Vr
+        Vnum = vcat(A..., zero(Float64))
+        Vnum2 = sparse_vcat(map(Array, A)..., zero(Float64))
+        @test Vnum isa SparseVector{Float64,Int}
+        @test Vnum2 isa SparseVector{Float64,Int}
+        @test length(Vnum) == length(Vnum2) == m*n + 1
+        @test Array(Vnum) == Array(Vnum2) == [Vr; 0]
+        Vnum = vcat(zero(Float64), A...)
+        Vnum2 = sparse_vcat(zero(Float64), map(Array, A)...)
+        @test Vnum isa SparseVector{Float64,Int}
+        @test Vnum2 isa SparseVector{Float64,Int}
+        @test length(Vnum) == length(Vnum2) == m*n + 1
+        @test Array(Vnum) == Array(Vnum2) == [0; Vr]
+        # case with rowwise a Number as first element, should still yield a sparse matrix
+        x = sparsevec([1], [3.0], 1)
+        X = [3.0 x; 3.0 x]
+        @test issparse(X)
     end
 
     @testset "concatenation of sparse vectors with other types" begin
@@ -913,7 +937,7 @@ end
         @test_throws ArgumentError findmin(x)
         @test_throws ArgumentError findmax(x)
     end
-    
+
     let v = spzeros(3) #Julia #44978
         v[1] = 2
         @test argmin(v) == 2
@@ -930,6 +954,27 @@ end
     let v = spzeros(3) #Julia #44978
         v[3] = 2
         @test argmax(v) == 3
+    end
+
+    let
+        v = spzeros(Bool, 5)
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v = SparseVector(5, [1], [false])
+        @test !any(v)
+        @test !all(v)
+        @test iszero(v)
+        @test count(v) == 0
+        v[2] = true
+        @test any(v)
+        @test !all(v)
+        @test count(v) == 1
+        v .= true
+        @test any(v)
+        @test all(v)
+        @test count(v) == length(v)
     end
 end
 
@@ -1298,8 +1343,9 @@ end
     xdrop = copy(x)
     # This will keep index 1, 3, 4, 7 in xdrop
     f_drop(i, x) = (abs(x) == 1.) || (i in [1, 7])
-    SparseArrays.fkeep!(xdrop, f_drop)
+    SparseArrays.fkeep!(f_drop, xdrop)
     @test exact_equal(xdrop, SparseVector(7, [1, 3, 4, 7], [3., -1., 1., 3.]))
+    @test_deprecated SparseArrays.fkeep!(xdrop, f_drop)
 end
 
 @testset "dropzeros[!] with length=$m" for m in (10, 20, 30)

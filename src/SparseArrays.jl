@@ -11,6 +11,9 @@ using Base.Sort: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, matprod
 
+# Temporary workaround for simplifying SparseArrays.jl upgrade in JuliaLang/julia
+# to workaround circshift! bug, see https://github.com/JuliaLang/julia/pull/46759
+const CIRCSHIFT_WRONG_DIRECTION = circshift!([1, 2, 3], 1) != circshift([1, 2, 3], 1)
 
 
 import Base: +, -, *, \, /, &, |, xor, ==, zero
@@ -42,6 +45,18 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
 @inline _isnotzero(x::Number) = !iszero(x)
 @inline _isnotzero(x::AbstractArray) = !iszero(x)
 
+## Functions to switch to 0-based indexing to call external sparse solvers
+
+# Convert from 1-based to 0-based indices
+function decrement!(A::AbstractArray{T}) where T<:Integer
+    for i in eachindex(A); A[i] -= oneunit(T) end
+    A
+end
+decrement(A::AbstractArray) = let y = Array(A)
+    y .= y .- oneunit(eltype(A))
+end
+
+include("readonly.jl")
 include("abstractsparse.jl")
 include("sparsematrix.jl")
 include("sparseconvert.jl")
@@ -50,14 +65,7 @@ include("higherorderfns.jl")
 include("linalg.jl")
 include("deprecated.jl")
 
-## Functions to switch to 0-based indexing to call external sparse solvers
 
-# Convert from 1-based to 0-based indices
-function decrement!(A::AbstractArray{T}) where T<:Integer
-    for i in eachindex(A); A[i] -= oneunit(T) end
-    A
-end
-decrement(A::AbstractArray{<:Integer}) = decrement!(copy(A))
 
 # Convert from 0-based to 1-based indices
 function increment!(A::AbstractArray{T}) where T<:Integer
