@@ -825,7 +825,7 @@ function findall(p::F, x::SparseVectorUnion{<:Any,Ti}) where {Ti,F<:Function}
 
     return I
 end
-findall(p::Base.Fix2{typeof(in)}, x::AbstractCompressedVector{<:Any,Ti}) where {Ti} =
+findall(p::Base.Fix2{typeof(in)}, x::SparseVectorUnion{<:Any,Ti}) where {Ti} =
     invoke(findall, Tuple{Base.Fix2{typeof(in)}, AbstractArray}, p, x)
 
 """
