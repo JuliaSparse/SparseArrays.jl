@@ -1361,16 +1361,6 @@ end
     @test_throws MethodError sprandn(T, 5, 5, 0.5)
 end
 
-# TODO: Re-enable after completing the SparseArrays.jl migration
-#
-# @testset "method ambiguity" begin
-#     # Ambiguity test is run inside a clean process.
-#     # https://github.com/JuliaLang/julia/issues/28804
-#     script = joinpath(@__DIR__, "ambiguous_exec.jl")
-#     cmd = `$(Base.julia_cmd()) --startup-file=no $script`
-#     @test success(pipeline(cmd; stdout=stdout, stderr=stderr))
-# end
-
 @testset "count specializations" begin
     # count should throw for sparse arrays for which zero(eltype) does not exist
     @test_throws MethodError count(SparseMatrixCSC(2, 2, Int[1, 2, 3], Int[1, 2], Any[true, true]))
