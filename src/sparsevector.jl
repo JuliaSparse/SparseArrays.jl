@@ -884,6 +884,45 @@ end
 
 ### Generic functions operating on AbstractSparseVector
 
+## Explicit efficient comparisons with vectors
+
+function ==(A::AbstractCompressedVector,
+            B::AbstractCompressedVector)
+    # Different sizes are always different
+    size(A) ≠ size(B) && return false
+    # Compare nonzero elements
+    i, j = 1, 1
+    @inbounds while i <= nnz(A) && j <= nnz(B)
+        if nonzeroinds(A)[i] == nonzeroinds(B)[j]
+            nonzeros(A)[i] == nonzeros(B)[j] || return false
+            i += 1
+            j += 1
+        elseif nonzeroinds(A)[i] <= nonzeroinds(B)[j]
+            iszero(nonzeros(A)[i]) || return false
+            i += 1
+        else # nonzeroinds(A)[i] >= nonzeroinds(B)[j]
+            iszero(nonzeros(B)[j]) || return false
+            j += 1
+        end
+    end
+
+    @inbounds for k in i:nnz(A)
+        iszero(nonzeros(A)[k]) || return false
+    end
+
+    @inbounds for k in j:nnz(B)
+        iszero(nonzeros(B)[k]) || return false
+    end
+
+    return true
+end
+
+==(A::Transpose{<:Any,<:AbstractCompressedVector},
+    B::Transpose{<:Any,<:AbstractCompressedVector}) = transpose(A) == transpose(B)
+
+==(A::Adjoint{<:Any,<:AbstractCompressedVector},
+    B::Adjoint{<:Any,<:AbstractCompressedVector}) = adjoint(A) == adjoint(B)
+
 ### getindex
 
 function _spgetindex(m::Int, nzind::AbstractVector{Ti}, nzval::AbstractVector{Tv}, i::Integer) where {Tv,Ti}
