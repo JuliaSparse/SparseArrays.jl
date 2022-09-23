@@ -265,7 +265,7 @@ This must be done if multiple threads may call factorization or refactorization 
 on the copy and original simultaneously.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F); copynumeric = false, copysymbolic) where {Tv, Ti} =
+Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F); copynumeric = false, copysymbolic = false) where {Tv, Ti} =
     UmfpackLU(
         copysymbolic ? Symbolic{Tv, Ti}(C_NULL) : F.symbolic,
         copynumeric ? Numeric{Tv, Ti}(C_NULL) : F.numeric,
