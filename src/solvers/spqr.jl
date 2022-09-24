@@ -28,7 +28,7 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix
+using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix, AdjQType
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
