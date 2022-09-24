@@ -253,7 +253,7 @@ function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
     return A
 end
 
-function LinearAlgebra.lmul!(adjQ::AdjointQ{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
+function LinearAlgebra.lmul!(adjQ::AdjQType{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
     Q = parent(adjQ)
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
@@ -269,7 +269,7 @@ function LinearAlgebra.lmul!(adjQ::AdjointQ{<:Any,<:QRSparseQ}, A::StridedVecOrM
     return A
 end
 
-function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
+function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ})
     Q = parent(adjQ)
     if size(A, 2) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))

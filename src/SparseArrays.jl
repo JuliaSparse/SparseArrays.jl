@@ -56,6 +56,8 @@ decrement(A::AbstractArray) = let y = Array(A)
     y .= y .- oneunit(eltype(A))
 end
 
+AdjQType = isdefined(LinearAlgebra, :AdjointQ) ? LinearAlgebra.AdjointQ : Adjoint
+
 include("readonly.jl")
 include("abstractsparse.jl")
 include("sparsematrix.jl")
