@@ -309,6 +309,11 @@ Base.deepcopy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
 Base.deepcopy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
     T(deepcopy(parent(F), ws))
 
+if !isdefined(LinearAlgebra, :AdjointFactorization)
+    Base.adjoint(F::UmfpackLU) = Adjoint(F)
+    Base.transpose(F::UmfpackLU) = Transpose(F)
+end
+
 function Base.lock(f::Function, F::UmfpackLU)
     lock(F)
     try

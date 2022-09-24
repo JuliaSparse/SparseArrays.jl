@@ -334,6 +334,10 @@ mutable struct Factor{Tv<:VTypes} <: Factorization{Tv}
     end
 end
 
+if !isdefined(LinearAlgebra, :AdjointFactorization)
+    Base.adjoint(F::Factor) = Adjoint(F)
+    Base.transpose(F::Factor) = Transpose(F)
+end
 
 const SuiteSparseStruct = Union{cholmod_dense, cholmod_sparse, cholmod_factor}
 
