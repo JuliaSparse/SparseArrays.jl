@@ -2190,9 +2190,9 @@ _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nze
 
 # Specialized mapreduce for any and all
 Base._any(f, A::AbstractSparseMatrixCSC, ::Colon) =
-    Base._mapreduce(f, |, IndexCartesian(), A)
+    iszero(widelength(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)
 Base._all(f, A::AbstractSparseMatrixCSC, ::Colon) =
-    Base._mapreduce(f, &, IndexCartesian(), A)
+    iszero(widelength(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
 function Base._mapreduce(f, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
     nnzA = nnz(A)
