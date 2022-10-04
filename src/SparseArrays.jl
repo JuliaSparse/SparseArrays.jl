@@ -9,7 +9,7 @@ using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
     require_one_based_indexing, promote_eltype
 using Base.Sort: Forward
 using LinearAlgebra
-using LinearAlgebra: AdjOrTrans, matprod
+using LinearAlgebra: AdjOrTrans, matprod, AbstractQ
 
 # Temporary workaround for simplifying SparseArrays.jl upgrade in JuliaLang/julia
 # to workaround circshift! bug, see https://github.com/JuliaLang/julia/pull/46759

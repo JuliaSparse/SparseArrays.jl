@@ -5,6 +5,7 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
+using LinearAlgebra: AbstractQ, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C
 
 # ordering options */
@@ -127,7 +128,7 @@ function Base.size(F::QRSparse, i::Integer)
 end
 Base.axes(F::QRSparse) = map(Base.OneTo, size(F))
 
-struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: LinearAlgebra.AbstractQ{Tv}
+struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
     n::Int # Number of columns in original matrix
@@ -282,6 +283,44 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}
         LinearAlgebra.lowrankupdate!(A, tmp, h, τl')
     end
     return A
+end
+
+function (*)(Q::QRSparseQ, b::AbstractVector)
+    TQb = promote_type(eltype(Q), eltype(b))
+    QQ = convert(AbstractQ{TQb}, Q)
+    if size(Q.factors, 1) == length(b)
+        bnew = copy_similar(b, TQb)
+    elseif size(Q.factors, 2) == length(b)
+        bnew = [b; zeros(TQb, size(Q.factors, 1) - length(b))]
+    else
+        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+    end
+    lmul!(QQ, bnew)
+end
+function (*)(Q::QRSparseQ, B::AbstractMatrix)
+    TQB = promote_type(eltype(Q), eltype(B))
+    QQ = convert(LinearAlgebra.AbstractQ{TQB}, Q)
+    if size(Q.factors, 1) == size(B, 1)
+        Bnew = copy_similar(B, TQB)
+    elseif size(Q.factors, 2) == size(B, 1)
+        Bnew = [B; zeros(TQB, size(Q.factors, 1) - size(B,1), size(B, 2))]
+    else
+        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+    end
+    lmul!(QQ, Bnew)
+end
+function (*)(A::AbstractMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ})
+    Q = adjQ.Q
+    TAQ = promote_type(eltype(A), eltype(adjQ))
+    adjQQ = convert(AbstractQ{TAQ}, adjQ)
+    if size(A,2) == size(Q.factors, 1)
+        AA = copy_similar(A, TAQ)
+        return rmul!(AA, adjQQ)
+    elseif size(A,2) == size(Q.factors,2)
+        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - size(Q.factors, 2))], adjQQ)
+    else
+        throw(DimensionMismatch("matrix A has dimensions $(size(A)) but Q-matrix has dimensions $(size(adjQ))"))
+    end
 end
 
 (*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
