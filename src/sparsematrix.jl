@@ -2495,7 +2495,7 @@ end
     r2 = Int(@inbounds getcolptr(A)[i1+1]-1)
     (r1 > r2) && return zero(T)
     r1 = searchsortedfirst(rowvals(A), i0, r1, r2, Forward)
-    ((r1 > r2) || (@inbounds rowvals(A)[r1] != i0)) ? zero(T) : @inbounds nonzeros(A)[r1]
+    ((r1 > r2) || (rowvals(A)[r1] != i0)) ? zero(T) : nonzeros(A)[r1]
 end
 
 # Colon translation
