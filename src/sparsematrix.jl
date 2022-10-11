@@ -2489,7 +2489,7 @@ end
 
 @RCI getindex(A::AbstractSparseMatrixCSC, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
 
-@RCI function getindex(A::AbstractSparseMatrixCSC{T}, i0::Integer, i1::Integer) where T
+@RCI Base.@propagate_inbounds function getindex(A::AbstractSparseMatrixCSC{T}, i0::Integer, i1::Integer) where T
     @boundscheck checkbounds(A, i0, i1)
     r1 = Int(@inbounds getcolptr(A)[i1])
     r2 = Int(@inbounds getcolptr(A)[i1+1]-1)
