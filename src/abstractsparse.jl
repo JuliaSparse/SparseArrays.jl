@@ -149,8 +149,10 @@ is stored in `_restore_scalar_indexing` and a function that has the same definit
 returns an error is stored in `_destroy_scalar_indexing`.
 """
 macro RCI(exp)
-    # evaluate to not push any broken code in the arrays when developping this package.
-    # also ensures that restore has the exact same effect.
+    # Evaluate to not push any broken code in the arrays when developping this package.
+    # Ensures that restore has the exact same effect.
+    # Expand macro so we can chain macros. Save the expanded version for speed
+    exp = macroexpand(@__MODULE__, exp)
     @eval $exp
     if length(exp.args) == 2 && exp.head ∈ (:function, :(=))
         push!(_restore_scalar_indexing, exp)
