@@ -152,8 +152,8 @@ macro RCI(exp)
     # Evaluate to not push any broken code in the arrays when developping this package.
     # Ensures that restore has the exact same effect.
     # Expand macro so we can chain macros. Save the expanded version for speed
-    exp = macroexpand(@__MODULE__, exp)
-    @eval $exp
+    exp = macroexpand(__module__, exp)
+    @eval __module__ $exp
     if length(exp.args) == 2 && exp.head ∈ (:function, :(=))
         push!(_restore_scalar_indexing, exp)
         push!(_destroy_scalar_indexing,
