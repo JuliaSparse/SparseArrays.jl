@@ -380,8 +380,8 @@ end
 
 ### Element access
 
-@RCI function setindex!(x::AbstractCompressedVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
-    checkbounds(x, i)
+@RCI @propagate_inbounds function setindex!(x::AbstractCompressedVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
+    @boundscheck checkbounds(x, i)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
 
@@ -398,7 +398,7 @@ end
     return x
 end
 
-@RCI setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
+@RCI @propagate_inbounds setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
     setindex!(x, convert(Tv, v), convert(Ti, i))
 
 
@@ -930,8 +930,8 @@ function _spgetindex(m::Int, nzind::AbstractVector{Ti}, nzval::AbstractVector{Tv
     (ii <= m && nzind[ii] == i) ? nzval[ii] : zero(Tv)
 end
 
-@RCI function getindex(x::AbstractSparseVector, i::Integer)
-    checkbounds(x, i)
+@RCI @propagate_inbounds function getindex(x::AbstractSparseVector, i::Integer)
+    @boundscheck checkbounds(x, i)
     _spgetindex(nnz(x), nonzeroinds(x), nonzeros(x), i)
 end
 
