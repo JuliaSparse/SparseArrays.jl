@@ -150,7 +150,7 @@ end
         test_ws_dup(Af, copy(parent(adjoint(Af))))
         umfpack_report(Af)
 
-        Afcopy = copy(Af)
+        Afcopy = copy(Af; copynumeric = false, copysymbolic = false)
         @test Afcopy.numeric === Af.numeric
         @test Afcopy.symbolic === Af.symbolic
 
