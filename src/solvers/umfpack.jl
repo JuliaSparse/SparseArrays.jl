@@ -235,6 +235,21 @@ mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
     lock::ReentrantLock
 end
 
+function UmfpackLU(S::AbstractSparseMatrixCSC{Tv, Ti};
+    control=get_umfpack_control(Tv, Ti)) where
+    {Tv<:UMFVTypes,Ti<:UMFITypes}
+
+    zerobased = getcolptr(S)[1] == 0
+    return UmfpackLU(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL),
+                    size(S, 1), size(S, 2),
+                    zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
+                    zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
+                    copy(nonzeros(S)), 0, UmfpackWS(S, has_refinement(control)),
+                    copy(control), Vector{Float64}(undef, UMFPACK_INFO),
+                    ReentrantLock()
+    )
+end
+
 workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
@@ -380,16 +395,7 @@ See also [`lu!`](@ref)
 function lu(S::AbstractSparseMatrixCSC{Tv, Ti};
     check::Bool = true, q=nothing, control=get_umfpack_control(Tv, Ti)) where
     {Tv<:UMFVTypes,Ti<:UMFITypes}
-
-    zerobased = getcolptr(S)[1] == 0
-    res = UmfpackLU(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL),
-                    size(S, 1), size(S, 2),
-                    zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
-                    zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
-                    copy(nonzeros(S)), 0, UmfpackWS(S, has_refinement(control)),
-                    copy(control), Vector{Float64}(undef, UMFPACK_INFO),
-                    ReentrantLock()
-    )
+    res = UmfpackLU(S; control)
     umfpack_numeric!(res; q)
     check && (issuccess(res) || throw(LinearAlgebra.SingularException(0)))
     return res
@@ -457,6 +463,14 @@ julia> F \\ ones(2)
  1.0
 ```
 """
+function lu!(F::UmfpackLU; check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
+    if !reuse_symbolic && _isnotnull(F.symbolic)
+        F.symbolic = Symbolic{Tv, Ti}(C_NULL)
+    end
+    umfpack_numeric!(F; reuse_numeric = false, q)
+    check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
+    return F
+end
 function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
   check::Bool=true, reuse_symbolic::Bool=true, q=nothing) where {Tv, Ti}
     zerobased = getcolptr(S)[1] == 0
@@ -483,15 +497,7 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
 
     resize!(F.nzval, length(nonzeros(S)))
     F.nzval .= nonzeros(S)
-
-    if !reuse_symbolic && _isnotnull(F.symbolic)
-        F.symbolic = Symbolic{Tv, Ti}(C_NULL)
-    end
-
-    umfpack_numeric!(F; reuse_numeric=false, q)
-
-    check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
-    return F
+    return lu!(F)
 end
 
 function lu!(F::UmfpackLU; check::Bool=true, q=nothing)
