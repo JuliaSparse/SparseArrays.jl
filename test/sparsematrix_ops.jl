@@ -230,6 +230,8 @@ dA = Array(sA)
         @test all(v)
         @test !iszero(v)
         @test count(v) == length(v)
+        @test all(!iszero, spzeros(0, 0))
+        @test !any(iszero, spzeros(0, 0))
     end
 
     @testset "empty cases" begin
@@ -559,6 +561,36 @@ Base.transpose(x::Counting) = Counting(transpose(x.elt))
             ((A′ isa Adjoint && B′ isa Transpose) || (A′ isa Transpose && B′ isa Adjoint)) && continue
             c = (resetcounter(); A′ == B′; getcounter())
             @test c ≤ 1 + (nnz(A′) + nnz(B′))
+        end
+    end
+end
+
+
+@testset "Issue #246" begin
+    for t in [Int, UInt8, Float64]
+        a = Counting.(sprand(t, 100, 0.5))
+        b = Counting.(sprand(t, 100, 0.5))
+
+        c = if nnz(a) != 0
+            c = copy(a)
+            nonzeros(c)[1] = 0
+            c
+        else
+            c = copy(a)
+            push!(nonzeros(c), zero(t))
+            push!(nonzerosinds(c), 1)
+            c
+        end
+        d = dropzeros(c)
+
+        for m in [identity, transpose, adjoint]
+            ma, mb, mc, md = m.([a, b, c, d])
+
+            resetcounter()
+            ma == mb
+            @test getcounter() <= nnz(a) + nnz(b)
+
+            @test (mc == md) == (Array(mc) == Array(md))
         end
     end
 end

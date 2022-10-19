@@ -49,6 +49,8 @@ end
 SparseVector(n::Integer, nzind::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
     SparseVector{Tv,Ti}(n, nzind, nzval)
 
+SparseVector{Tv, Ti}(::UndefInitializer, n::Integer) where {Tv, Ti}  = SparseVector{Tv, Ti}(n, Ti[], Tv[])
+
 """
     `FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}`
 
@@ -378,8 +380,8 @@ end
 
 ### Element access
 
-@RCI function setindex!(x::AbstractCompressedVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
-    checkbounds(x, i)
+@RCI @propagate_inbounds function setindex!(x::AbstractCompressedVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
+    @boundscheck checkbounds(x, i)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
 
@@ -396,7 +398,7 @@ end
     return x
 end
 
-@RCI setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
+@RCI @propagate_inbounds setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
     setindex!(x, convert(Tv, v), convert(Ti, i))
 
 
@@ -823,7 +825,7 @@ function findall(p::F, x::SparseVectorUnion{<:Any,Ti}) where {Ti,F<:Function}
 
     return I
 end
-findall(p::Base.Fix2{typeof(in)}, x::AbstractCompressedVector{<:Any,Ti}) where {Ti} =
+findall(p::Base.Fix2{typeof(in)}, x::SparseVectorUnion{<:Any,Ti}) where {Ti} =
     invoke(findall, Tuple{Base.Fix2{typeof(in)}, AbstractArray}, p, x)
 
 """
@@ -882,6 +884,45 @@ end
 
 ### Generic functions operating on AbstractSparseVector
 
+## Explicit efficient comparisons with vectors
+
+function ==(A::AbstractCompressedVector,
+            B::AbstractCompressedVector)
+    # Different sizes are always different
+    size(A) ≠ size(B) && return false
+    # Compare nonzero elements
+    i, j = 1, 1
+    @inbounds while i <= nnz(A) && j <= nnz(B)
+        if nonzeroinds(A)[i] == nonzeroinds(B)[j]
+            nonzeros(A)[i] == nonzeros(B)[j] || return false
+            i += 1
+            j += 1
+        elseif nonzeroinds(A)[i] <= nonzeroinds(B)[j]
+            iszero(nonzeros(A)[i]) || return false
+            i += 1
+        else # nonzeroinds(A)[i] >= nonzeroinds(B)[j]
+            iszero(nonzeros(B)[j]) || return false
+            j += 1
+        end
+    end
+
+    @inbounds for k in i:nnz(A)
+        iszero(nonzeros(A)[k]) || return false
+    end
+
+    @inbounds for k in j:nnz(B)
+        iszero(nonzeros(B)[k]) || return false
+    end
+
+    return true
+end
+
+==(A::Transpose{<:Any,<:AbstractCompressedVector},
+    B::Transpose{<:Any,<:AbstractCompressedVector}) = transpose(A) == transpose(B)
+
+==(A::Adjoint{<:Any,<:AbstractCompressedVector},
+    B::Adjoint{<:Any,<:AbstractCompressedVector}) = adjoint(A) == adjoint(B)
+
 ### getindex
 
 function _spgetindex(m::Int, nzind::AbstractVector{Ti}, nzval::AbstractVector{Tv}, i::Integer) where {Tv,Ti}
@@ -889,8 +930,8 @@ function _spgetindex(m::Int, nzind::AbstractVector{Ti}, nzval::AbstractVector{Tv
     (ii <= m && nzind[ii] == i) ? nzval[ii] : zero(Tv)
 end
 
-@RCI function getindex(x::AbstractSparseVector, i::Integer)
-    checkbounds(x, i)
+@RCI @propagate_inbounds function getindex(x::AbstractSparseVector, i::Integer)
+    @boundscheck checkbounds(x, i)
     _spgetindex(nnz(x), nonzeroinds(x), nonzeros(x), i)
 end
 
@@ -1499,8 +1540,10 @@ function Base._mapreduce(f, op, ::IndexCartesian, A::SparseVectorUnion{T}) where
     _mapreducezeros(f, op, T, rest, ini)
 end
 
-Base._any(f, A::SparseVectorUnion, ::Colon) = Base._mapreduce(f, |, IndexCartesian(), A)
-Base._all(f, A::SparseVectorUnion, ::Colon) = Base._mapreduce(f, &, IndexCartesian(), A)
+Base._any(f, A::SparseVectorUnion, ::Colon) =
+    iszero(length(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)
+Base._all(f, A::SparseVectorUnion, ::Colon) =
+    iszero(length(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
 function Base.mapreducedim!(f, op, R::AbstractVector, A::SparseVectorUnion)
     # dim1 reduction could be safely replaced with a mapreduce

@@ -48,6 +48,13 @@ SparseMatrixCSC(m, n, colptr::ReadOnly, rowval::ReadOnly, nzval::Vector) =
     SparseMatrixCSC(m, n, copy(parent(colptr)), copy(parent(rowval)), nzval)
 
 """
+    SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer)
+
+Creates an empty sparse matrix with element type `Tv` and integer type `Ti` of size `m × n`.
+"""
+SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer) where {Tv, Ti} = spzeros(Tv, Ti, m, n)
+
+"""
     `FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}`
 
 Experimental AbstractSparseMatrixCSC whose non-zero index are fixed.
@@ -2183,9 +2190,9 @@ _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nze
 
 # Specialized mapreduce for any and all
 Base._any(f, A::AbstractSparseMatrixCSC, ::Colon) =
-    Base._mapreduce(f, |, IndexCartesian(), A)
+    iszero(widelength(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)
 Base._all(f, A::AbstractSparseMatrixCSC, ::Colon) =
-    Base._mapreduce(f, &, IndexCartesian(), A)
+    iszero(widelength(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
 function Base._mapreduce(f, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
     nnzA = nnz(A)
@@ -2480,12 +2487,12 @@ function rangesearch(haystack::AbstractRange, needle)
     (rem==0 && 1<=i+1<=length(haystack)) ? i+1 : 0
 end
 
-@RCI getindex(A::AbstractSparseMatrixCSC, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
+@RCI @propagate_inbounds getindex(A::AbstractSparseMatrixCSC, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
 
-@RCI function getindex(A::AbstractSparseMatrixCSC{T}, i0::Integer, i1::Integer) where T
+@RCI @propagate_inbounds function getindex(A::AbstractSparseMatrixCSC{T}, i0::Integer, i1::Integer) where T
     @boundscheck checkbounds(A, i0, i1)
-    r1 = Int(getcolptr(A)[i1])
-    r2 = Int(getcolptr(A)[i1+1]-1)
+    r1 = Int(@inbounds getcolptr(A)[i1])
+    r2 = Int(@inbounds getcolptr(A)[i1+1]-1)
     (r1 > r2) && return zero(T)
     r1 = searchsortedfirst(rowvals(A), i0, r1, r2, Forward)
     ((r1 > r2) || (rowvals(A)[r1] != i0)) ? zero(T) : nonzeros(A)[r1]

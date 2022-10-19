@@ -16,7 +16,7 @@ using LinearAlgebra: AdjOrTrans, matprod
 const CIRCSHIFT_WRONG_DIRECTION = circshift!([1, 2, 3], 1) != circshift([1, 2, 3], 1)
 
 
-import Base: +, -, *, \, /, &, |, xor, ==, zero
+import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
     issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded,
     cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu
