@@ -497,7 +497,7 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
 
     resize!(F.nzval, length(nonzeros(S)))
     F.nzval .= nonzeros(S)
-    return lu!(F)
+    return lu!(F; reuse_symbolic, check, q)
 end
 
 function lu!(F::UmfpackLU; check::Bool=true, q=nothing)
