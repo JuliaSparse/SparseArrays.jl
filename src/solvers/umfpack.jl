@@ -449,14 +449,6 @@ julia> F \\ ones(2)
  1.0
 ```
 """
-function lu!(F::UmfpackLU; check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
-    if !reuse_symbolic && _isnotnull(F.symbolic)
-        F.symbolic = Symbolic{Tv, Ti}(C_NULL)
-    end
-    umfpack_numeric!(F; reuse_numeric = false, q)
-    check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
-    return F
-end
 function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
   check::Bool=true, reuse_symbolic::Bool=true, q=nothing) where {Tv, Ti}
     zerobased = getcolptr(S)[1] == 0
@@ -486,8 +478,11 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
     return lu!(F; reuse_symbolic, check, q)
 end
 
-function lu!(F::UmfpackLU; check::Bool=true, q=nothing)
-    umfpack_numeric!(F; q)
+function lu!(F::UmfpackLU; check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
+    if !reuse_symbolic && _isnotnull(F.symbolic)
+        F.symbolic = Symbolic{Tv, Ti}(C_NULL)
+    end
+    umfpack_numeric!(F; reuse_numeric = false, q)
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
 end
