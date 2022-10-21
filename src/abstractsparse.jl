@@ -159,7 +159,7 @@ macro RCI(exp)
         push!(_destroy_scalar_indexing,
             Expr(exp.head,
             exp.args[1],
-            :(error("scalar indexing was turned off"))))
+            :(error("scalar indexing is turned off. Use SparseArrays.allowscalar(true) to re-enable."))))
     else
         error("can't parse expression")
     end

@@ -270,14 +270,17 @@ UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, T
 UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
 
 """
-    copy(F::UmfpackLU, [ws::UmfpackWS]; copynumeric = false, copysymbolic)::UmfpackLU
+    copy(F::UmfpackLU, [ws::UmfpackWS]; copynumeric = true, copysymbolic = true)::UmfpackLU
 A shallow copy of UmfpackLU to use in multithreaded solve applications.
 This function duplicates the working space, control, info and lock fields.
 
-If `copynumeric = true` or `copysymbolic` are passed, 
-then the internal Symbolic and Numeric factorization objects will be duplicated as well. 
-This must be done if multiple threads may call factorization or refactorization functions
-on the copy and original simultaneously.
+If the default `true` is passed for `copynumeric` and `copysymbolic` then the internal numeric
+and symbolic factorization objects will be copied.
+This must be done if multiple threads will call factorization or refactorization functions
+on the copy and original simultaneously. 
+
+If only `ldiv!` will be called on the factorization object then it is more efficient to pass
+`false` for both arguments, since solving with a factorization object is thread safe.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
 Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F); copynumeric = true, copysymbolic = true) where {Tv, Ti} =
