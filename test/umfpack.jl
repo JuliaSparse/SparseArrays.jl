@@ -497,6 +497,14 @@ end
 end
 
 
+@testset "copy should keep the numeric/symbolic by default" begin
+    A = lu(sprandn(10, 10, 0.1) + I)
+    B = copy(A)
+    @test A.numeric === B.numeric
+    @test A.symbolic === B.symbolic
+end
+
+
 for Ti in Base.uniontypes(UMFPACK.UMFITypes)
     A = I + sprandn(100, 100, 0.01)
     Af = lu(A)
