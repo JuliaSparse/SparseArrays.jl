@@ -150,13 +150,9 @@ end
         test_ws_dup(Af, copy(parent(adjoint(Af))))
         umfpack_report(Af)
 
-        Afcopy = copy(Af; copynumeric = false, copysymbolic = false)
+        Afcopy = copy(Af)
         @test Afcopy.numeric === Af.numeric
         @test Afcopy.symbolic === Af.symbolic
-
-        Afcopy = copy(Af; copynumeric = true, copysymbolic = true)
-        @test Afcopy.numeric !== Af.numeric
-        @test Afcopy.symbolic !== Af.symbolic
     end
 end
 
@@ -494,6 +490,14 @@ end
     @test length(A.workspace.Wi) == 100
     @test length(A.workspace.W) == 500
     umfpack_report(A)
+end
+
+
+@testset "copy should keep the numeric/symbolic by default" begin
+    A = lu(sprandn(10, 10, 0.1) + I)
+    B = copy(A)
+    @test A.numeric === B.numeric
+    @test A.symbolic === B.symbolic
 end
 
 
