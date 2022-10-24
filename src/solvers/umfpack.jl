@@ -641,7 +641,7 @@ for itype in UmfpackIndexTypes
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
-                U.numeric = Numeric{Float64, $itype}(tmp[])
+                U.numeric = Numeric{ComplexF64, $itype}(tmp[])
             end
             return U
         end
