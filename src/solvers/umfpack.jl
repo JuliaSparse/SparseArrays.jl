@@ -166,7 +166,6 @@ function show_umf_info(control::Vector{Float64}, info::Vector{Float64}, level::R
     control[1] = old_prt
 end
 
-
 mutable struct Numeric{Tv,Ti}
     p::Ptr{Cvoid}
     function Numeric{Tv, Ti}(p) where {Tv<:UMFVTypes, Ti<:UMFITypes}
@@ -194,9 +193,11 @@ _isnotnull(x::Union{Symbolic, Numeric}) = x.p != C_NULL
 """
 Working space for Umfpack so `ldiv!` doesn't allocate.
 
-To use multiple threads, each thread should have their own workspace this can be done using  `copy(::UmfpackLU)`
-The constructor is overloaded so to create appropriate sized working space given the lu
-factorization or the sparse matrix and if refinement is on.
+To use multiple threads, each thread should have their own workspace this can be done using`copy(::UmfpackLU)`
+
+
+The constructor is overloaded so to create appropriate sized working space based on the lu
+factorization or the sparse matrix and the refinement setting.
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
@@ -270,20 +271,15 @@ UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, T
 UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
 
 """
-    copy(F::UmfpackLU, [ws::UmfpackWS]; copynumeric=false, copysymbolic=false)::UmfpackLU
+    copy(F::UmfpackLU, [ws::UmfpackWS])::UmfpackLU
 A shallow copy of UmfpackLU to use in multithreaded solve applications.
 This function duplicates the working space, control, info and lock fields.
-
-If `copynumeric=true` or `copysymbolic=true` are passed,
-then the internal Symbolic and Numeric factorization objects will be duplicated as well.
-This must be done if multiple threads may call factorization or refactorization functions
-on the copy and original simultaneously.
 """
 # Not using simlar helps if the actual needed size has changed as it would need to be resized again
-Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F); copynumeric=false, copysymbolic=false) where {Tv, Ti} =
+Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
     UmfpackLU(
-        copysymbolic ? Symbolic{Tv, Ti}(C_NULL) : F.symbolic,
-        copynumeric ? Numeric{Tv, Ti}(C_NULL) : F.numeric,
+        F.symbolic,
+        F.numeric,
         F.m, F.n,
         F.colptr,
         F.rowval,
@@ -598,11 +594,8 @@ for itype in UmfpackIndexTypes
                     qq = minimum(q) == 1 ? q .- one(eltype(q)) : q
                     @isok $symq_r(U.m, U.n, U.colptr, U.rowval, U.nzval, qq, tmp, U.control, U.info)
                 end
-                if _isnull(U.symbolic)
-                    U.symbolic.p = tmp[]
-                else
-                    U.symbolic = Symbolic{Float64, $itype}(tmp[])
-                end
+                U.symbolic = Symbolic{Float64, $itype}(tmp[])
+
             end
             return U
         end
@@ -617,11 +610,7 @@ for itype in UmfpackIndexTypes
                     qq = minimum(q) == 1 ? q .- one(eltype(q)) : q
                     @isok $symq_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), qq, tmp, U.control, U.info)
                 end
-                if _isnull(U.symbolic)
-                    U.symbolic.p = tmp[]
-                else
-                    U.symbolic = Symbolic{ComplexF64, $itype}(tmp[])
-                end
+                U.symbolic = Symbolic{ComplexF64, $itype}(tmp[])
             end
             return U
         end
@@ -637,11 +626,7 @@ for itype in UmfpackIndexTypes
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
-                if _isnull(U.numeric)
-                    U.numeric.p = tmp[]
-                else
-                    U.numeric = Numeric{Float64, $itype}(tmp[])
-                end
+                U.numeric = Numeric{Float64, $itype}(tmp[])
             end
             return U
         end
@@ -656,7 +641,7 @@ for itype in UmfpackIndexTypes
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
-                U.numeric.p = tmp[]
+                U.numeric = Numeric{Float64, $itype}(tmp[])
             end
             return U
         end
