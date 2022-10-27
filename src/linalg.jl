@@ -424,20 +424,20 @@ const LowerTriangularPlain{T} = Union{
             UnitLowerTriangular{T,<:SparseMatrixCSCUnion{T}}}
 
 const LowerTriangularWrapped{T} = Union{
-            Adjoint{T,<:UpperTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Adjoint{T,<:UnitUpperTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Transpose{T,<:UpperTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Transpose{T,<:UnitUpperTriangular{T,<:SparseMatrixCSCUnion{T}}}} where T
+            LowerTriangular{T,<:Adjoint{T,<:SparseMatrixCSCUnion{T}}},
+            UnitLowerTriangular{T,<:Adjoint{T,<:SparseMatrixCSCUnion{T}}},
+            LowerTriangular{T,<:Transpose{T,<:SparseMatrixCSCUnion{T}}},
+            UnitLowerTriangular{T,<:Transpose{T,<:SparseMatrixCSCUnion{T}}}} where T
 
 const UpperTriangularPlain{T} = Union{
             UpperTriangular{T,<:SparseMatrixCSCUnion{T}},
             UnitUpperTriangular{T,<:SparseMatrixCSCUnion{T}}}
 
 const UpperTriangularWrapped{T} = Union{
-            Adjoint{T,<:LowerTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Adjoint{T,<:UnitLowerTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Transpose{T,<:LowerTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Transpose{T,<:UnitLowerTriangular{T,<:SparseMatrixCSCUnion{T}}}} where T
+            UpperTriangular{T,<:Adjoint{T,<:SparseMatrixCSCUnion{T}}},
+            UnitUpperTriangular{T,<:Adjoint{T,<:SparseMatrixCSCUnion{T}}},
+            UpperTriangular{T,<:Transpose{T,<:SparseMatrixCSCUnion{T}}},
+            UnitUpperTriangular{T,<:Transpose{T,<:SparseMatrixCSCUnion{T}}}} where T
 
 const UpperTriangularSparse{T} = Union{
             UpperTriangularWrapped{T}, UpperTriangularPlain{T}} where T
@@ -1582,10 +1582,10 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
                     if istriu(A)
                         return \(Diagonal(($xformop.(diag(A)))), B)
                     else
-                        return \($xformop(LowerTriangular(A)), B)
+                        return \(UpperTriangular($xformop(A)), B)
                     end
                 elseif istriu(A)
-                    return \($xformop(UpperTriangular(A)), B)
+                    return \(LowerTriangular($xformop(A)), B)
                 end
                 if ishermitian(A)
                     return \($xformop(Hermitian(A)), B)
