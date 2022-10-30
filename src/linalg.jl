@@ -543,9 +543,9 @@ end
 
 # forward multiplication for adjoint and transpose of LowerTriangular CSC matrices
 function _lmul!(U::UpperTriangularWrapped, B::StridedVecOrMat)
-    A = U.parent.data
+    A = parent(parent(U))
     unit = U.parent isa UnitDiagonalTriangular
-    adj = U isa Adjoint
+    adj = parent(U) isa Adjoint
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -583,9 +583,9 @@ end
 
 # backward multiplication with adjoint and transpose of LowerTriangular CSC matrices
 function _lmul!(L::LowerTriangularWrapped, B::StridedVecOrMat)
-    A = L.parent.data
-    unit = L.parent isa UnitDiagonalTriangular
-    adj = L isa Adjoint
+    A = parent(parent(L))
+    unit = L isa UnitDiagonalTriangular
+    adj = parent(L) isa Adjoint
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
