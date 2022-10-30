@@ -718,9 +718,9 @@ end
 
 # forward substitution for adjoint and transpose of UpperTriangular CSC matrices
 function _ldiv!(L::LowerTriangularWrapped, B::StridedVecOrMat)
-    A = L.parent.data
-    unit = L.parent isa UnitDiagonalTriangular
-    adj = L isa Adjoint
+    A = parent(parent(L))
+    unit = L isa UnitDiagonalTriangular
+    adj = parent(L) isa Adjoint
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -764,9 +764,9 @@ end
 
 # backward substitution for adjoint and transpose of LowerTriangular CSC matrices
 function _ldiv!(U::UpperTriangularWrapped, B::StridedVecOrMat)
-    A = U.parent.data
-    unit = U.parent isa UnitDiagonalTriangular
-    adj = U isa Adjoint
+    A = parent(parent(U))
+    unit = U isa UnitDiagonalTriangular
+    adj = parent(U) isa Adjoint
 
     nrowB, ncolB = size(B, 1), size(B, 2)
     aa = getnzval(A)
