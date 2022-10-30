@@ -230,6 +230,8 @@ dA = Array(sA)
         @test all(v)
         @test !iszero(v)
         @test count(v) == length(v)
+        @test all(!iszero, spzeros(0, 0))
+        @test !any(iszero, spzeros(0, 0))
     end
 
     @testset "empty cases" begin

@@ -976,6 +976,11 @@ end
         @test all(v)
         @test count(v) == length(v)
     end
+
+    let v = spzeros(0)
+        @test all(!iszero, v)
+        @test !any(iszero, v)
+    end
 end
 
 ### linalg
