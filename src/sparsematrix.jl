@@ -1036,7 +1036,7 @@ function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstra
     end
 end
 
-#sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine) = sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
+sparse(I::AbstractVector, J::AbstractVector, V::Union{Number,AbstractVector}, m::Integer, n::Integer, combine) = sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
 
 """
     sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
@@ -1202,7 +1202,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
     SparseMatrixCSC(m, n, csccolptr, cscrowval, cscnzval)
 end
 function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
-        V::AbstractVector{Tv}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
+        V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         csccolptr::Vector{Ti}) where {Tv,Ti<:Integer,Tj<:Integer}
     sparse!(I, J, V, m, n, combine, klasttouch,
@@ -1210,7 +1210,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
             csccolptr, Vector{Ti}(), Vector{Tv}())
 end
 function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
-        V::AbstractVector{Tv}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
+        V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
     sparse!(I, J, V, m, n, combine, klasttouch,
             csrrowptr, csrcolval, csrnzval,
