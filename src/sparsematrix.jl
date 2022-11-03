@@ -997,11 +997,17 @@ julia> sparse(Is, Js, Vs)
  ⋅  ⋅  3
 ```
 """
-function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
-    require_one_based_indexing(I, J, V)
+sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer} =
+    _sparse(I, J, V, m, n, combine)
+sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, v::Tv, m::Integer, n::Integer, combine) where {Tv<:Number,Ti<:Integer} = 
+    _sparse(I, J, iszero(v) ? 0.0 : fill(v,length(I)), Int(m), Int(n), combine)
+
+function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
+    require_one_based_indexing(I, J, (V isa Type) ? 0 : V)
     coolen = length(I)
     length(J) == coolen || throw(ArgumentError("J (= $(length(J))) need length == length(I) = $coolen"))
-    V isa Number || length(V) == coolen || throw(ArgumentError("V (= $(length(V))) need length == length(I) = $coolen"))
+    only_sparsity_pattern = (V isa Number && iszero(V)) # We can use a optimsed version if only care about the sparsity pattern (and not the values)
+    only_sparsity_pattern || length(V) == coolen || throw(ArgumentError("V (= $(length(V))) need length == length(I) = $coolen"))
     
     if Base.hastypemax(Ti) && coolen >= typemax(Ti)
         throw(ArgumentError("the index type $Ti cannot hold $coolen elements; use a larger index type"))
@@ -1019,7 +1025,7 @@ function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstra
         # Allocate storage for CSR form
         csrrowptr = Vector{Ti}(undef, m+1)
         csrcolval = Vector{Ti}(undef, coolen)
-        csrnzval = Vector{Tv}(undef, V isa Number ? 0 : coolen)
+        csrnzval = Vector{Tv}(undef, only_sparsity_pattern ? 0 : coolen)
         
         # Allocate storage for the CSC form's column pointers and a necessary workspace
         csccolptr = Vector{Ti}(undef, n+1)
@@ -1036,7 +1042,8 @@ function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstra
     end
 end
 
-sparse(I::AbstractVector, J::AbstractVector, V::Union{Number,AbstractVector}, m::Integer, n::Integer, combine) = sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
+sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine)  = 
+    sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
 
 """
     sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
@@ -1086,19 +1093,20 @@ F. Gustavson, "Two fast algorithms for sparse matrices: multiplication and permu
 transposition," ACM TOMS 4(3), 250-269 (1978) inspired this method's use of a pair of
 counting sorts.
 """
-function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
-        V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
+function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Type{Tv},AbstractVector{Tv}}, 
+        m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         csccolptr::Vector{Ti}, cscrowval::Vector{Ti}, cscnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
 
-    require_one_based_indexing(I, J, V)
+    require_one_based_indexing(I, J, (V isa Type) ? 0 : V)
     sparse_check_Ti(m, n, Ti)
     sparse_check_length("I", I, 0, Tj)
+    only_sparsity_pattern = (V isa Number && iszero(V)) # We can use a optimsed version if only care about the sparsity pattern (and not the values)
     # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
     fill!(csrrowptr, Tj(0))
     coolen = length(I)
     length(J) >= coolen || throw(ArgumentError("J need length >= length(I) = $coolen"))
-    V isa Number || length(V) >= coolen || throw(ArgumentError("V need length >= length(I) = $coolen"))
+    only_sparsity_pattern || length(V) >= coolen || throw(ArgumentError("V need length >= length(I) = $coolen"))
 
     @inbounds for k in 1:coolen
         Ik = I[k]
@@ -1128,7 +1136,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
         @assert csrk >= Tj(1) "index into csrcolval exceeds typemax(Ti)"
         csrrowptr[Ik+1] = csrk + Tj(1)
         csrcolval[csrk] = Jk
-        if !(V isa Number)
+        if !only_sparsity_pattern
             csrnzval[csrk] = V[k]
         end
     end
@@ -1153,7 +1161,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
                 klasttouch[j] = writek
                 if writek != readk
                     csrcolval[writek] = j
-                    if !(V isa Number)
+                    if !only_sparsity_pattern
                         csrnzval[writek] = csrnzval[readk]
                     end
                 end
@@ -1161,7 +1169,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
                 csccolptr[j+1] += Ti(1)
             else
                 klt = klasttouch[j]
-                if !(V isa Number)
+                if !only_sparsity_pattern
                     csrnzval[klt] = combine(csrnzval[klt], csrnzval[readk])
                 end
             end
@@ -1195,14 +1203,14 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
             csck = csccolptr[j+1]
             csccolptr[j+1] = csck + Ti(1)
             cscrowval[csck] = i
-            cscnzval[csck] = (V isa Number) ? V : csrnzval[csrk]
+            cscnzval[csck] = only_sparsity_pattern ? zero(Tv) : csrnzval[csrk]
         end
     end
 
     SparseMatrixCSC(m, n, csccolptr, cscrowval, cscnzval)
 end
 function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
-        V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
+        V::AbstractVector{Tv}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         csccolptr::Vector{Ti}) where {Tv,Ti<:Integer,Tj<:Integer}
     sparse!(I, J, V, m, n, combine, klasttouch,
@@ -1210,20 +1218,26 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
             csccolptr, Vector{Ti}(), Vector{Tv}())
 end
 function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
-        V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
+        V::AbstractVector{Tv}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
     sparse!(I, J, V, m, n, combine, klasttouch,
             csrrowptr, csrcolval, csrnzval,
             Vector{Ti}(undef, n+1), Vector{Ti}(), Vector{Tv}())
 end
 
+
 dimlub(I) = isempty(I) ? 0 : Int(maximum(I)) #least upper bound on required sparse matrix dimension
 
-sparse(I,J,V::Union{Number,AbstractVector}) = sparse(I, J, V, dimlub(I), dimlub(J))
+sparse(I,J,v::Number) = sparse(I, J, fill(v,length(I)))
 
-sparse(I,J,V::Union{Number,AbstractVector},m,n) = sparse(I, J, V, Int(m), Int(n), +)
+sparse(I,J,V::AbstractVector) = sparse(I, J, V, dimlub(I), dimlub(J))
+
+sparse(I,J,v::Number,m,n) = sparse(I, J, v, Int(m), Int(n), +)
+
+sparse(I,J,V::AbstractVector,m,n) = sparse(I, J, V, Int(m), Int(n), +)
 
 sparse(I,J,V::AbstractVector{Bool},m,n) = sparse(I, J, V, Int(m), Int(n), |)
+
 
 ## Transposition and permutation methods
 
