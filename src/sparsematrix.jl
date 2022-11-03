@@ -1003,7 +1003,7 @@ sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, v::Tv, m::Integer, n::Integ
     _sparse(I, J, iszero(v) ? 0.0 : fill(v,length(I)), Int(m), Int(n), combine)
 
 function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
-    require_one_based_indexing(I, J, (V isa Type) ? 0 : V)
+    require_one_based_indexing(I, J, V)
     coolen = length(I)
     length(J) == coolen || throw(ArgumentError("J (= $(length(J))) need length == length(I) = $coolen"))
     only_sparsity_pattern = (V isa Number && iszero(V)) # We can use a optimsed version if only care about the sparsity pattern (and not the values)
@@ -1026,7 +1026,7 @@ function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
         csrrowptr = Vector{Ti}(undef, m+1)
         csrcolval = Vector{Ti}(undef, coolen)
         csrnzval = Vector{Tv}(undef, only_sparsity_pattern ? 0 : coolen)
-        
+
         # Allocate storage for the CSC form's column pointers and a necessary workspace
         csccolptr = Vector{Ti}(undef, n+1)
         klasttouch = Vector{Ti}(undef, n)
@@ -1124,7 +1124,6 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Type{Tv}
         csrrowptr[i] = countsum
         countsum += overwritten
     end
-
     # Counting-sort the column and nonzero values from J and V into csrcolval and csrnzval
     # Tracking write positions in csrrowptr corrects the row pointers
     @inbounds for k in 1:coolen
