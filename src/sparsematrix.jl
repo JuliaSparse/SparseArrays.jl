@@ -1000,7 +1000,7 @@ julia> sparse(Is, Js, Vs)
 sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer} =
     _sparse(I, J, V, m, n, combine)
 sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, v::Tv, m::Integer, n::Integer, combine) where {Tv<:Number,Ti<:Integer} = 
-    _sparse(I, J, iszero(v) ? 0.0 : fill(v,length(I)), Int(m), Int(n), combine)
+    _sparse(I, J, iszero(v) ? v : fill(v,length(I)), Int(m), Int(n), combine)
 
 function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
     require_one_based_indexing(I, J, V)
