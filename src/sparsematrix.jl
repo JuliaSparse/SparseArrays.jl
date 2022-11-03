@@ -1093,7 +1093,7 @@ F. Gustavson, "Two fast algorithms for sparse matrices: multiplication and permu
 transposition," ACM TOMS 4(3), 250-269 (1978) inspired this method's use of a pair of
 counting sorts.
 """
-function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Type{Tv},AbstractVector{Tv}}, 
+function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, 
         m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         csccolptr::Vector{Ti}, cscrowval::Vector{Ti}, cscnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
@@ -1227,7 +1227,7 @@ end
 
 dimlub(I) = isempty(I) ? 0 : Int(maximum(I)) #least upper bound on required sparse matrix dimension
 
-sparse(I,J,v::Number) = sparse(I, J, fill(v,length(I)))
+sparse(I,J,v::Number) = sparse(I, J, v, dimlub(I), dimlub(J))
 
 sparse(I,J,V::AbstractVector) = sparse(I, J, V, dimlub(I), dimlub(J))
 
