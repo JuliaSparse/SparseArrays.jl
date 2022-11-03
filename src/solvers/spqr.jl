@@ -8,6 +8,8 @@ using LinearAlgebra
 using LinearAlgebra: AbstractQ, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C
 
+const AdjQType = isdefined(LinearAlgebra, :AdjointQ) ? LinearAlgebra.AdjointQ : Adjoint
+
 # ordering options */
 const ORDERING_FIXED   = Int32(0)
 const ORDERING_NATURAL = Int32(1)
@@ -29,7 +31,7 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix, AdjQType
+using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
