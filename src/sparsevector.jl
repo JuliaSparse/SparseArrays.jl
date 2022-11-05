@@ -2133,8 +2133,8 @@ function subvector_shifter!(R::AbstractVector, V::AbstractVector, start::Integer
         end
     end
     # ...but rowval should be sorted within columns
-    circshift!(@view(R[start:fin]), (CIRCSHIFT_WRONG_DIRECTION ? (+) : (-))(split-start+1))
-    circshift!(@view(V[start:fin]), (CIRCSHIFT_WRONG_DIRECTION ? (+) : (-))(split-start+1))
+    circshift!(@view(R[start:fin]), -split+start-1)
+    circshift!(@view(V[start:fin]), -split+start-1)
 end
 
 function circshift!(O::SparseVector, X::SparseVector, (r,)::Base.DimsInteger{1})
