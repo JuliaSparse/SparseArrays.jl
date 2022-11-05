@@ -9,6 +9,7 @@ using LinearAlgebra: AbstractQ, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C
 
 const AdjQType = isdefined(LinearAlgebra, :AdjointQ) ? LinearAlgebra.AdjointQ : Adjoint
+const AbstractQType = isdefined(LinearAlgebra, :AdjointQ) ? AbstractQ : AbstractMatrix
 
 # ordering options */
 const ORDERING_FIXED   = Int32(0)
@@ -289,7 +290,7 @@ end
 
 function (*)(Q::QRSparseQ, b::AbstractVector)
     TQb = promote_type(eltype(Q), eltype(b))
-    QQ = convert(AbstractQ{TQb}, Q)
+    QQ = convert(AbstractQType{TQb}, Q)
     if size(Q.factors, 1) == length(b)
         bnew = copy_similar(b, TQb)
     elseif size(Q.factors, 2) == length(b)
@@ -314,7 +315,7 @@ end
 function (*)(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}) # TODO: Generalize to AbstractMatrix
     Q = parent(adjQ)
     TAQ = promote_type(eltype(A), eltype(adjQ))
-    adjQQ = convert(AbstractQ{TAQ}, adjQ)
+    adjQQ = convert(AbstractQType{TAQ}, adjQ)
     if size(A,2) == size(Q.factors, 1)
         AA = copy_similar(A, TAQ)
         return rmul!(AA, adjQQ)
