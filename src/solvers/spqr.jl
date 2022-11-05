@@ -312,7 +312,7 @@ function (*)(Q::QRSparseQ, B::StridedMatrix) # TODO: Generalize to AbstractMatri
     lmul!(QQ, Bnew)
 end
 function (*)(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}) # TODO: Generalize to AbstractMatrix
-    Q = adjQ.Q
+    Q = parent(adjQ)
     TAQ = promote_type(eltype(A), eltype(adjQ))
     adjQQ = convert(AbstractQ{TAQ}, adjQ)
     if size(A,2) == size(Q.factors, 1)
