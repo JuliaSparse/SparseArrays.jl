@@ -133,6 +133,14 @@ julia> findnz(A)
 """
 function findnz end
 
+"""
+    iternz(A::AbstractSparseArray)
+
+Equivalent to `zip(findnz(A)...)` but does not allocated
+```
+"""
+function iternz end
+
 widelength(x::AbstractSparseArray) = prod(Int64.(size(x)))
 
 
