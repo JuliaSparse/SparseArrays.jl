@@ -446,6 +446,15 @@ end
         @test isa(r1, SparseVector{Int64,UInt8})
         @test isa(r2, SparseMatrixCSC{Int64,UInt8})
     # end
+
+    @testset "empty sparse matrix indexing" begin
+        for k = 0:3
+            @test issparse(spzeros(k,0)[:])
+            @test isempty(spzeros(k,0)[:])
+            @test issparse(spzeros(0,k)[:])
+            @test isempty(spzeros(0,k)[:])
+        end
+    end
 end
 
 @testset "setindex" begin
