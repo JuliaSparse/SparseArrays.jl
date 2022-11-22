@@ -670,7 +670,7 @@ using SparseArrays.HigherOrderFns: SparseVecStyle, SparseMatStyle
     end
     @test err isa MethodError
     @test !occursin("is ambiguous", sprint(showerror, err))
-    @test occursin("no method matching for call to _copy(::typeof(rand))", sprint(showerror, err))
+    @test err.f === SparseArrays.HigherOrderFns._copy
 end
 
 @testset "Sparse outer product, for type $T and vector $op" for
