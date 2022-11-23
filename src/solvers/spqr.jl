@@ -300,7 +300,7 @@ function (*)(Q::QRSparseQ, b::AbstractVector)
     end
     lmul!(QQ, bnew)
 end
-function (*)(Q::QRSparseQ, B::StridedMatrix) # TODO: Generalize to AbstractMatrix
+function (*)(Q::QRSparseQ, B::AbstractMatrix)
     TQB = promote_type(eltype(Q), eltype(B))
     QQ = convert(LinearAlgebra.AbstractQ{TQB}, Q)
     if size(Q.factors, 1) == size(B, 1)
@@ -312,7 +312,7 @@ function (*)(Q::QRSparseQ, B::StridedMatrix) # TODO: Generalize to AbstractMatri
     end
     lmul!(QQ, Bnew)
 end
-function (*)(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}) # TODO: Generalize to AbstractMatrix
+function (*)(A::AbstractMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ})
     Q = parent(adjQ)
     TAQ = promote_type(eltype(A), eltype(adjQ))
     adjQQ = convert(AbstractQType{TAQ}, adjQ)
