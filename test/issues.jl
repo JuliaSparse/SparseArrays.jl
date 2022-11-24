@@ -628,6 +628,16 @@ end
     @test A[1,1] == 2
 end
 
+@testset "-0.0 (issue #294, pr #???)" begin
+    v = spzeros(1)
+    v[1] = -0.0
+    @test v[1] === -0.0
+
+    m = spzeros(1, 1)
+    m[1, 1] = -0.0
+    @test m[1, 1] === -0.0
+end
+
 # As part of the migration of SparseArrays.jl into its own repo,
 # these tests have been moved from other files in julia tests to
 # the SparseArrays.jl repo
