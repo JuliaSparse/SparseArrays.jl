@@ -643,13 +643,13 @@ end
     r = reinterpret(Int64, s)
     @test r == s
 
-    r[1] = 12
-    @test r[1] === 12
-    @test s[1] === reinterpret(Float64, 12)
+    r[1] = Int64(12)
+    @test r[1] === Int64(12)
+    @test s[1] === reinterpret(Float64, Int64(12))
     @test r != s
 
-    r[2] = 0
-    @test r[2] === 0
+    r[2] = Int64(0)
+    @test r[2] === Int64(0)
     @test s[2] === 0.0
 
     z = reinterpret(Int64, -0.0)
