@@ -638,6 +638,26 @@ end
     @test m[1, 1] === -0.0
 end
 
+@testset "reinterpret (issue #289, pr #???)" begin
+    s = spzeros(3)
+    r = reinterpret(Int64, s)
+    @test r == s
+
+    r[1] = 12
+    @test r[1] === 12
+    @test s[1] === reinterpret(Float64, 12)
+    @test r != s
+
+    r[2] = 0
+    @test r[2] === 0
+    @test s[2] === 0.0
+
+    z = reinterpret(Int64, -0.0)
+    r[3] = z
+    @test r[3] === z
+    @test s[3] === -0.0
+end
+
 # As part of the migration of SparseArrays.jl into its own repo,
 # these tests have been moved from other files in julia tests to
 # the SparseArrays.jl repo
@@ -763,6 +783,6 @@ g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
     @test String(take!(io)) == "transpose(sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2))"
 end
 
-end
+end # SparseTestsBase
 
 end # module
