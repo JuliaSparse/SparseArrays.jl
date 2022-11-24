@@ -628,7 +628,7 @@ end
     @test A[1,1] == 2
 end
 
-@testset "-0.0 (issue #294, pr #???)" begin
+@testset "-0.0 (issue #294, pr #296)" begin
     v = spzeros(1)
     v[1] = -0.0
     @test v[1] === -0.0
@@ -638,7 +638,7 @@ end
     @test m[1, 1] === -0.0
 end
 
-@testset "reinterpret (issue #289, pr #???)" begin
+@testset "reinterpret (issue #289, pr #296)" begin
     s = spzeros(3)
     r = reinterpret(Int64, s)
     @test r == s
