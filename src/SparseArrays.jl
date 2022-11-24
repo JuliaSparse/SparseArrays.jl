@@ -7,7 +7,7 @@ module SparseArrays
 
 using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
     require_one_based_indexing, promote_eltype
-using Base.Sort: Forward
+using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, matprod
 
