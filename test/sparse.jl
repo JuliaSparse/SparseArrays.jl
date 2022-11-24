@@ -1120,6 +1120,15 @@ end
     # end
 end
 
+@testset "empty sparse matrix indexing" begin
+    for k = 0:3
+        @test issparse(spzeros(k,0)[:])
+        @test isempty(spzeros(k,0)[:])
+        @test issparse(spzeros(0,k)[:])
+        @test isempty(spzeros(0,k)[:])
+    end
+end
+
 @testset "setindex" begin
     a = spzeros(Int, 10, 10)
     @test count(!iszero, a) == 0

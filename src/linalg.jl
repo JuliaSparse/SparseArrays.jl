@@ -141,19 +141,6 @@ end
 *(X::AdjOrTransDenseMatrix, tA::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
     (T = promote_op(matprod, eltype(X), eltype(tA)); mul!(similar(X, T, (size(X, 1), size(tA, 2))), X, tA, true, false))
 
-function (*)(D::Diagonal, A::AbstractSparseMatrixCSC)
-    T = Base.promote_op(*, eltype(D), eltype(A))
-    mul!(LinearAlgebra.copy_oftype(A, T), D, A)
-end
-function (*)(A::AbstractSparseMatrixCSC, D::Diagonal)
-    T = Base.promote_op(*, eltype(D), eltype(A))
-    mul!(LinearAlgebra.copy_oftype(A, T), A, D)
-end
-function (/)(A::AbstractSparseMatrixCSC, D::Diagonal)
-    T = typeof(oneunit(eltype(A))/oneunit(eltype(D)))
-    rdiv!(LinearAlgebra.copy_oftype(A, T), D)
-end
-
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
@@ -424,20 +411,20 @@ const LowerTriangularPlain{T} = Union{
             UnitLowerTriangular{T,<:SparseMatrixCSCUnion{T}}}
 
 const LowerTriangularWrapped{T} = Union{
-            Adjoint{T,<:UpperTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Adjoint{T,<:UnitUpperTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Transpose{T,<:UpperTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Transpose{T,<:UnitUpperTriangular{T,<:SparseMatrixCSCUnion{T}}}} where T
+            LowerTriangular{T,<:Adjoint{T,<:SparseMatrixCSCUnion{T}}},
+            UnitLowerTriangular{T,<:Adjoint{T,<:SparseMatrixCSCUnion{T}}},
+            LowerTriangular{T,<:Transpose{T,<:SparseMatrixCSCUnion{T}}},
+            UnitLowerTriangular{T,<:Transpose{T,<:SparseMatrixCSCUnion{T}}}} where T
 
 const UpperTriangularPlain{T} = Union{
             UpperTriangular{T,<:SparseMatrixCSCUnion{T}},
             UnitUpperTriangular{T,<:SparseMatrixCSCUnion{T}}}
 
 const UpperTriangularWrapped{T} = Union{
-            Adjoint{T,<:LowerTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Adjoint{T,<:UnitLowerTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Transpose{T,<:LowerTriangular{T,<:SparseMatrixCSCUnion{T}}},
-            Transpose{T,<:UnitLowerTriangular{T,<:SparseMatrixCSCUnion{T}}}} where T
+            UpperTriangular{T,<:Adjoint{T,<:SparseMatrixCSCUnion{T}}},
+            UnitUpperTriangular{T,<:Adjoint{T,<:SparseMatrixCSCUnion{T}}},
+            UpperTriangular{T,<:Transpose{T,<:SparseMatrixCSCUnion{T}}},
+            UnitUpperTriangular{T,<:Transpose{T,<:SparseMatrixCSCUnion{T}}}} where T
 
 const UpperTriangularSparse{T} = Union{
             UpperTriangularWrapped{T}, UpperTriangularPlain{T}} where T
@@ -543,9 +530,9 @@ end
 
 # forward multiplication for adjoint and transpose of LowerTriangular CSC matrices
 function _lmul!(U::UpperTriangularWrapped, B::StridedVecOrMat)
-    A = U.parent.data
-    unit = U.parent isa UnitDiagonalTriangular
-    adj = U isa Adjoint
+    A = parent(parent(U))
+    unit = U isa UnitDiagonalTriangular
+    adj = parent(U) isa Adjoint
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -583,9 +570,9 @@ end
 
 # backward multiplication with adjoint and transpose of LowerTriangular CSC matrices
 function _lmul!(L::LowerTriangularWrapped, B::StridedVecOrMat)
-    A = L.parent.data
-    unit = L.parent isa UnitDiagonalTriangular
-    adj = L isa Adjoint
+    A = parent(parent(L))
+    unit = L isa UnitDiagonalTriangular
+    adj = parent(L) isa Adjoint
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -718,9 +705,9 @@ end
 
 # forward substitution for adjoint and transpose of UpperTriangular CSC matrices
 function _ldiv!(L::LowerTriangularWrapped, B::StridedVecOrMat)
-    A = L.parent.data
-    unit = L.parent isa UnitDiagonalTriangular
-    adj = L isa Adjoint
+    A = parent(parent(L))
+    unit = L isa UnitDiagonalTriangular
+    adj = parent(L) isa Adjoint
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -764,9 +751,9 @@ end
 
 # backward substitution for adjoint and transpose of LowerTriangular CSC matrices
 function _ldiv!(U::UpperTriangularWrapped, B::StridedVecOrMat)
-    A = U.parent.data
-    unit = U.parent isa UnitDiagonalTriangular
-    adj = U isa Adjoint
+    A = parent(parent(U))
+    unit = U isa UnitDiagonalTriangular
+    adj = parent(U) isa Adjoint
 
     nrowB, ncolB = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -1545,6 +1532,35 @@ function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
     return A
 end
 
+function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
+    m, n = size(A)
+    b    = D.diag
+    (m==length(b) && size(A)==size(C)) || throw(DimensionMismatch())
+    copyinds!(C, A)
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
+    Arowval = rowvals(A)
+    resize!(Cnzval, length(Anzval))
+    for col in 1:n, p in nzrange(A, col)
+        @inbounds Cnzval[p] = b[Arowval[p]] \ Anzval[p]
+    end
+    C
+end
+
+function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
+    m, n = size(A)
+    b    = D.diag
+    (n==length(b) && size(A)==size(C)) || throw(DimensionMismatch())
+    copyinds!(C, A)
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
+    resize!(Cnzval, length(Anzval))
+    for col in 1:n, p in nzrange(A, col)
+        @inbounds Cnzval[p] = Anzval[p] / b[col]
+    end
+    C
+end
+
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
     m, n = size(A)
@@ -1577,10 +1593,10 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
                     if istriu(A)
                         return \(Diagonal(($xformop.(diag(A)))), B)
                     else
-                        return \($xformop(LowerTriangular(A)), B)
+                        return \(UpperTriangular($xformop(A)), B)
                     end
                 elseif istriu(A)
-                    return \($xformop(UpperTriangular(A)), B)
+                    return \(LowerTriangular($xformop(A)), B)
                 end
                 if ishermitian(A)
                     return \($xformop(Hermitian(A)), B)
