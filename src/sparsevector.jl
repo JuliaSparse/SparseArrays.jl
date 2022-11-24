@@ -733,25 +733,27 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
     rowvalB = Vector{Int}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
 
-    rowstart,colstart = Base._ind2sub(szA, first(I))
-    rowend,colend = Base._ind2sub(szA, last(I))
+    if nnzB > 0
+        rowstart,colstart = Base._ind2sub(szA, first(I))
+        rowend,colend = Base._ind2sub(szA, last(I))
 
-    idxB = 1
-    @inbounds for col in colstart:colend
-        minrow = (col == colstart ? rowstart : 1)
-        maxrow = (col == colend ? rowend : szA[1])
-        for r in colptrA[col]:(colptrA[col+1]-1)
-            rowA = rowvalA[r]
-            if minrow <= rowA <= maxrow
-                rowvalB[idxB] = Base._sub2ind(szA, rowA, col) - first(I) + 1
-                nzvalB[idxB] = nzvalA[r]
-                idxB += 1
+        idxB = 1
+        @inbounds for col in colstart:colend
+            minrow = (col == colstart ? rowstart : 1)
+            maxrow = (col == colend ? rowend : szA[1])
+            for r in colptrA[col]:(colptrA[col+1]-1)
+                rowA = rowvalA[r]
+                if minrow <= rowA <= maxrow
+                    rowvalB[idxB] = Base._sub2ind(szA, rowA, col) - first(I) + 1
+                    nzvalB[idxB] = nzvalA[r]
+                    idxB += 1
+                end
             end
         end
-    end
-    if nnzB > (idxB-1)
-        deleteat!(nzvalB, idxB:nnzB)
-        deleteat!(rowvalB, idxB:nnzB)
+        if nnzB > (idxB-1)
+            deleteat!(nzvalB, idxB:nnzB)
+            deleteat!(rowvalB, idxB:nnzB)
+        end
     end
     @if_move_fixed A SparseVector(n, rowvalB, nzvalB)
 end

@@ -290,6 +290,10 @@ end
             @test Array(r) == Array(x)[bIv]
         end
     end
+    @testset "index with colon" begin
+        @test issparse(spzeros(0)[:])
+        @test isempty(spzeros(0)[:])
+    end
 end
 @testset "setindex" begin
     let xc = spzeros(Float64, 8)
