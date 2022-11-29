@@ -237,7 +237,7 @@ function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
         h = view(Q.factors, :, l)
         for j in 1:size(A, 2)
             a = view(A, :, j)
-            LinearAlgebra.axpy!(τl*dot(h, a), h, a)
+            axpy!(τl*dot(h, a), h, a)
         end
     end
     return A
@@ -251,8 +251,8 @@ function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
     for l in 1:size(Q.factors, 2)
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
-        LinearAlgebra.mul!(tmp, A, h)
-        LinearAlgebra.lowrankupdate!(A, tmp, h, τl)
+        mul!(tmp, A, h)
+        lowrankupdate!(A, tmp, h, τl)
     end
     return A
 end
@@ -282,8 +282,8 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}
     for l in size(Q.factors, 2):-1:1
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
-        LinearAlgebra.mul!(tmp, A, h)
-        LinearAlgebra.lowrankupdate!(A, tmp, h, τl')
+        mul!(tmp, A, h)
+        lowrankupdate!(A, tmp, h, τl')
     end
     return A
 end
@@ -302,7 +302,7 @@ function (*)(Q::QRSparseQ, b::AbstractVector)
 end
 function (*)(Q::QRSparseQ, B::StridedMatrix) # TODO: relax to AbstractMatrix
     TQB = promote_type(eltype(Q), eltype(B))
-    QQ = convert(LinearAlgebra.AbstractQ{TQB}, Q)
+    QQ = convert(AbstractQType{TQB}, Q)
     if size(Q.factors, 1) == size(B, 1)
         Bnew = copy_similar(B, TQB)
     elseif size(Q.factors, 2) == size(B, 1)
@@ -426,13 +426,13 @@ function _ldiv_basic(F::QRSparse, B::StridedVecOrMat)
     X0 = view(X, 1:size(B, 1), :)
 
     # Apply Q' to B
-    LinearAlgebra.lmul!(adjoint(F.Q), X0)
+    lmul!(adjoint(F.Q), X0)
 
     # Zero out to get basic solution
     X[rnk + 1:end, :] .= 0
 
     # Solve R*X = B
-    LinearAlgebra.ldiv!(UpperTriangular(F.R[Base.OneTo(rnk), Base.OneTo(rnk)]),
+    ldiv!(UpperTriangular(F.R[Base.OneTo(rnk), Base.OneTo(rnk)]),
                         view(X0, Base.OneTo(rnk), :))
 
     # Apply right permutation and extract solution from X
