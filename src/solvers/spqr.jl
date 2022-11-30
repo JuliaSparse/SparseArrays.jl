@@ -288,7 +288,7 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}
     return A
 end
 
-function (*)(Q::QRSparseQ, b::AbstractVector)
+function (*)(Q::QRSparseQ, b::StridedVector) # TODO: relax to AbstractVector
     TQb = promote_type(eltype(Q), eltype(b))
     QQ = convert(AbstractQType{TQb}, Q)
     if size(Q.factors, 1) == length(b)
