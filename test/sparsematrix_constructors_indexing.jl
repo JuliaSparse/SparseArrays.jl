@@ -60,7 +60,7 @@ end
 
 @testset "spzeros for pattern creation (structural zeros)" begin
     function same_structure(A, B)
-        A.m == B.m && A.n == B.n && A.colptr == B.colptr && A.rowval == B.rowval
+        return all(getfield(A, f) == getfield(B, f) for f in (:m, :n, :colptr, :rowval))
     end
     I = [1, 2, 3]
     J = [1, 3, 4]
