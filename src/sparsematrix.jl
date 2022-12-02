@@ -999,8 +999,6 @@ julia> sparse(Is, Js, Vs)
 """
 sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer} =
     _sparse(I, J, V, m, n, combine)
-sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, v::Tv, m::Integer, n::Integer, combine) where {Tv<:Number,Ti<:Integer} = 
-    _sparse(I, J, iszero(v) ? v : fill(v,length(I)), Int(m), Int(n), combine)
 
 function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
     require_one_based_indexing(I, J, V)
@@ -1042,7 +1040,7 @@ function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
     end
 end
 
-sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine)  = 
+sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine) =
     sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
 
 """
@@ -1224,19 +1222,19 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
             Vector{Ti}(undef, n+1), Vector{Ti}(), Vector{Tv}())
 end
 
-
 dimlub(I) = isempty(I) ? 0 : Int(maximum(I)) #least upper bound on required sparse matrix dimension
 
-sparse(I,J,v::Number) = sparse(I, J, v, dimlub(I), dimlub(J))
+sparse(I,J,v::Number) = sparse(I, J, fill(v,length(I)))
 
 sparse(I,J,V::AbstractVector) = sparse(I, J, V, dimlub(I), dimlub(J))
 
-sparse(I,J,v::Number,m,n) = sparse(I, J, v, Int(m), Int(n), +)
+sparse(I,J,v::Number,m,n) = sparse(I, J, fill(v,length(I)), Int(m), Int(n))
 
 sparse(I,J,V::AbstractVector,m,n) = sparse(I, J, V, Int(m), Int(n), +)
 
 sparse(I,J,V::AbstractVector{Bool},m,n) = sparse(I, J, V, Int(m), Int(n), |)
 
+sparse(I,J,v::Number,m,n,combine::Function) = sparse(I, J, fill(v,length(I)), Int(m), Int(n), combine)
 
 ## Transposition and permutation methods
 
@@ -1996,9 +1994,17 @@ julia> spzeros(Float32, 4)
 ```
 """
 spzeros(m::Integer, n::Integer) = spzeros(Float64, m, n)
-spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J, dimlub(I), dimlub(J))
+
+"""
+    spzeros([type], I::AbstractVector, J::AbstractVector, [m, n])
+
+Create a sparse matrix `S` of dimensions `m x n` with structural zeros at `S[I[k], J[k]]`. This
+method can be used to construct the sparsity pattern of the matrix, and is more efficient 
+than calling `sparse(I, J, 0.0)`.
+"""
+spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J)
 spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector) where {Tv} = spzeros(Tv, Int, dimlub(I), dimlub(J))
-spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m, n) where {Tv} = sparse(I, J, zero(Tv), Int(m), Int(n), +)
+spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m, n) where {Tv} = _sparse(I, J, zero(Tv), Int(m), Int(n), +)
 spzeros(::Type{Tv}, m::Integer, n::Integer) where {Tv} = spzeros(Tv, Int, m, n)
 function spzeros(::Type{Tv}, ::Type{Ti}, m::Integer, n::Integer) where {Tv, Ti}
     ((m < 0) || (n < 0)) && throw(ArgumentError("invalid Array dimensions"))
