@@ -58,6 +58,33 @@ end
     @test m == spzeros(3, 4)
 end
 
+@testset "spzeros for pattern creation (structural zeros)" begin
+    function same_structure(A, B)
+        return all(getfield(A, f) == getfield(B, f) for f in (:m, :n, :colptr, :rowval))
+    end
+    I = [1, 2, 3]
+    J = [1, 3, 4]
+    V = zeros(length(I))
+    S = spzeros(I, J)
+    S′ = sparse(I, J, V)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float64
+    S = spzeros(Float32, I, J)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float32
+    S = spzeros(I, J, 4, 5)
+    S′ = sparse(I, J, V, 4, 5)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float64
+    S = spzeros(Float32, I, J, 4, 5)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float32
+end
+
 @testset "concatenation tests" begin
     sp33 = sparse(1.0I, 3, 3)
     se33 = SparseMatrixCSC{Float64}(I, 3, 3)

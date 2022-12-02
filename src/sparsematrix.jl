@@ -997,14 +997,16 @@ julia> sparse(Is, Js, Vs)
  ⋅  ⋅  3
 ```
 """
-function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
+sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer} =
+    _sparse(I, J, V, m, n, combine)
+
+function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
     require_one_based_indexing(I, J, V)
     coolen = length(I)
-    if length(J) != coolen || length(V) != coolen
-        throw(ArgumentError(string("the first three arguments' lengths must match, ",
-              "length(I) (=$(length(I))) == length(J) (= $(length(J))) == length(V) (= ",
-              "$(length(V)))")))
-    end
+    length(J) == coolen || throw(ArgumentError("J (= $(length(J))) need length == length(I) = $coolen"))
+    only_sparsity_pattern = (V isa Tv && iszero(V)) # We can use an optimised version if we only care about the sparsity pattern (and not the values)
+    only_sparsity_pattern || length(V) == coolen || throw(ArgumentError("V (= $(length(V))) need length == length(I) = $coolen"))
+
     if Base.hastypemax(Ti) && coolen >= typemax(Ti)
         throw(ArgumentError("the index type $Ti cannot hold $coolen elements; use a larger index type"))
     end
@@ -1021,7 +1023,7 @@ function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{
         # Allocate storage for CSR form
         csrrowptr = Vector{Ti}(undef, m+1)
         csrcolval = Vector{Ti}(undef, coolen)
-        csrnzval = Vector{Tv}(undef, coolen)
+        csrnzval = Vector{Tv}(undef, only_sparsity_pattern ? 0 : coolen)
 
         # Allocate storage for the CSC form's column pointers and a necessary workspace
         csccolptr = Vector{Ti}(undef, n+1)
@@ -1089,18 +1091,21 @@ F. Gustavson, "Two fast algorithms for sparse matrices: multiplication and permu
 transposition," ACM TOMS 4(3), 250-269 (1978) inspired this method's use of a pair of
 counting sorts.
 """
-function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
-        V::AbstractVector{Tv}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
+function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, 
+        m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         csccolptr::Vector{Ti}, cscrowval::Vector{Ti}, cscnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
 
     require_one_based_indexing(I, J, V)
     sparse_check_Ti(m, n, Ti)
     sparse_check_length("I", I, 0, Tj)
+    only_sparsity_pattern = (V isa Tv && iszero(V)) # We can use an optimised version if we only care about the sparsity pattern (and not the values)
     # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
     fill!(csrrowptr, Tj(0))
     coolen = length(I)
-    min(length(J), length(V)) >= coolen || throw(ArgumentError("J and V need length >= length(I) = $coolen"))
+    length(J) >= coolen || throw(ArgumentError("J need length >= length(I) = $coolen"))
+    only_sparsity_pattern || length(V) >= coolen || throw(ArgumentError("V need length >= length(I) = $coolen"))
+
     @inbounds for k in 1:coolen
         Ik = I[k]
         if 1 > Ik || m < Ik
@@ -1129,7 +1134,9 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
         @assert csrk >= Tj(1) "index into csrcolval exceeds typemax(Ti)"
         csrrowptr[Ik+1] = csrk + Tj(1)
         csrcolval[csrk] = Jk
-        csrnzval[csrk] = V[k]
+        if !only_sparsity_pattern
+            csrnzval[csrk] = V[k]
+        end
     end
     # This completes the unsorted-row, has-repeats CSR form's construction
 
@@ -1152,13 +1159,17 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
                 klasttouch[j] = writek
                 if writek != readk
                     csrcolval[writek] = j
-                    csrnzval[writek] = csrnzval[readk]
+                    if !only_sparsity_pattern
+                        csrnzval[writek] = csrnzval[readk]
+                    end
                 end
                 writek += Tj(1)
                 csccolptr[j+1] += Ti(1)
             else
                 klt = klasttouch[j]
-                csrnzval[klt] = combine(csrnzval[klt], csrnzval[readk])
+                if !only_sparsity_pattern
+                    csrnzval[klt] = combine(csrnzval[klt], csrnzval[readk])
+                end
             end
         end
         newcsrrowptri = writek
@@ -1187,11 +1198,10 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
     @inbounds for i in 1:m
         for csrk in csrrowptr[i]:(csrrowptr[i+1]-Tj(1))
             j = csrcolval[csrk]
-            x = csrnzval[csrk]
             csck = csccolptr[j+1]
             csccolptr[j+1] = csck + Ti(1)
             cscrowval[csck] = i
-            cscnzval[csck] = x
+            cscnzval[csck] = only_sparsity_pattern ? zero(Tv) : csrnzval[csrk]
         end
     end
 
@@ -1996,6 +2006,20 @@ function spzeros(::Type{Tv}, ::Type{Ti}, sz::Tuple{Integer,Integer}) where {Tv, 
 end
 spzeros(::Type{Tv}, sz::Tuple{Integer,Integer}) where {Tv} = spzeros(Tv, Int, sz[1], sz[2])
 spzeros(sz::Tuple{Integer,Integer}) = spzeros(Float64, Int, sz[1], sz[2])
+
+"""
+    spzeros([type], I::AbstractVector, J::AbstractVector, [m, n])
+
+Create a sparse matrix `S` of dimensions `m x n` with structural zeros at `S[I[k], J[k]]`.
+
+This method can be used to construct the sparsity pattern of the matrix, and is more
+efficient than using e.g. `sparse(I, J, zeros(length(I)))`.
+"""
+spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J)
+spzeros(I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) = spzeros(Float64, I, J, m, n)
+spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector) where {Tv} = spzeros(Tv, I, J, dimlub(I), dimlub(J))
+spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) where {Tv} =
+    _sparse(I, J, zero(Tv), Int(m), Int(n), +)
 
 import Base._one
 function Base._one(unit::T, S::AbstractSparseMatrixCSC) where T
