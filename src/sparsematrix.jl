@@ -1004,9 +1004,9 @@ function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
     require_one_based_indexing(I, J, V)
     coolen = length(I)
     length(J) == coolen || throw(ArgumentError("J (= $(length(J))) need length == length(I) = $coolen"))
-    only_sparsity_pattern = (V isa Number && iszero(V)) # We can use a optimsed version if only care about the sparsity pattern (and not the values)
+    only_sparsity_pattern = (V isa Tv && iszero(V)) # We can use an optimised version if we only care about the sparsity pattern (and not the values)
     only_sparsity_pattern || length(V) == coolen || throw(ArgumentError("V (= $(length(V))) need length == length(I) = $coolen"))
-    
+
     if Base.hastypemax(Ti) && coolen >= typemax(Ti)
         throw(ArgumentError("the index type $Ti cannot hold $coolen elements; use a larger index type"))
     end
@@ -1099,7 +1099,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
     require_one_based_indexing(I, J, V)
     sparse_check_Ti(m, n, Ti)
     sparse_check_length("I", I, 0, Tj)
-    only_sparsity_pattern = (V isa Number && iszero(V)) # We can use a optimsed version if only care about the sparsity pattern (and not the values)
+    only_sparsity_pattern = (V isa Tv && iszero(V)) # We can use an optimised version if we only care about the sparsity pattern (and not the values)
     # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
     fill!(csrrowptr, Tj(0))
     coolen = length(I)
@@ -1122,6 +1122,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
         csrrowptr[i] = countsum
         countsum += overwritten
     end
+
     # Counting-sort the column and nonzero values from J and V into csrcolval and csrnzval
     # Tracking write positions in csrrowptr corrects the row pointers
     @inbounds for k in 1:coolen
@@ -1994,17 +1995,6 @@ julia> spzeros(Float32, 4)
 ```
 """
 spzeros(m::Integer, n::Integer) = spzeros(Float64, m, n)
-
-"""
-    spzeros([type], I::AbstractVector, J::AbstractVector, [m, n])
-
-Create a sparse matrix `S` of dimensions `m x n` with structural zeros at `S[I[k], J[k]]`. This
-method can be used to construct the sparsity pattern of the matrix, and is more efficient 
-than calling `sparse(I, J, 0.0)`.
-"""
-spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J)
-spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector) where {Tv} = spzeros(Tv, Int, dimlub(I), dimlub(J))
-spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m, n) where {Tv} = _sparse(I, J, zero(Tv), Int(m), Int(n), +)
 spzeros(::Type{Tv}, m::Integer, n::Integer) where {Tv} = spzeros(Tv, Int, m, n)
 function spzeros(::Type{Tv}, ::Type{Ti}, m::Integer, n::Integer) where {Tv, Ti}
     ((m < 0) || (n < 0)) && throw(ArgumentError("invalid Array dimensions"))
@@ -2016,6 +2006,20 @@ function spzeros(::Type{Tv}, ::Type{Ti}, sz::Tuple{Integer,Integer}) where {Tv, 
 end
 spzeros(::Type{Tv}, sz::Tuple{Integer,Integer}) where {Tv} = spzeros(Tv, Int, sz[1], sz[2])
 spzeros(sz::Tuple{Integer,Integer}) = spzeros(Float64, Int, sz[1], sz[2])
+
+"""
+    spzeros([type], I::AbstractVector, J::AbstractVector, [m, n])
+
+Create a sparse matrix `S` of dimensions `m x n` with structural zeros at `S[I[k], J[k]]`.
+
+This method can be used to construct the sparsity pattern of the matrix, and is more
+efficient than using e.g. `sparse(I, J, zeros(length(I)))`.
+"""
+spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J)
+spzeros(I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) = spzeros(Float64, I, J, m, n)
+spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector) where {Tv} = spzeros(Tv, I, J, dimlub(I), dimlub(J))
+spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) where {Tv} =
+    _sparse(I, J, zero(Tv), Int(m), Int(n), +)
 
 import Base._one
 function Base._one(unit::T, S::AbstractSparseMatrixCSC) where T

@@ -56,9 +56,33 @@ end
     @test size(m) == (3, 4)
     @test eltype(m) === Float32
     @test m == spzeros(3, 4)
-    @test spzeros([1, 2, 3], [1, 2, 3]) == sparse([1, 2, 3], [1, 2, 3], 0.0, 3, 3, +)
-    @test spzeros(Float32, [1, 2, 3], [1, 2, 3]) == sparse([1, 2, 3], [1, 2, 3], Float32(0.0), 3, 3, +)
-    @test spzeros(Float64, [1, 2, 3], [1, 2, 3], 3, 3) == sparse([1, 2, 3], [1, 2, 3], 0.0, 3, 3, +)
+end
+
+@testset "spzeros for pattern creation (structural zeros)" begin
+    function same_structure(A, B)
+        A.m == B.m && A.n == B.n && A.colptr == B.colptr && A.rowval == B.rowval
+    end
+    I = [1, 2, 3]
+    J = [1, 3, 4]
+    V = zeros(length(I))
+    S = spzeros(I, J)
+    S′ = sparse(I, J, V)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float64
+    S = spzeros(Float32, I, J)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float32
+    S = spzeros(I, J, 4, 5)
+    S′ = sparse(I, J, V, 4, 5)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float64
+    S = spzeros(Float32, I, J, 4, 5)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float32
 end
 
 @testset "concatenation tests" begin
