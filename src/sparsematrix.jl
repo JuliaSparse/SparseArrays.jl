@@ -1903,9 +1903,9 @@ is supplied; for the default `T=Float64`, this corresponds to nonzero values
 sampled uniformly in `[0,1)`.
 
 You can sample nonzero values from a different distribution by passing a
-custom `rfn` function instead of `rand`.   This should be a function `rfn(n)`
-that returns an array of `n` random numbers sampled from the desired distribution;
-alternatively, if `rng` is supplied, it should be a function `rfn(rng, n)`.
+custom `rfn` function instead of `rand`.   This should be a function `rfn(k)`
+that returns an array of `k` random numbers sampled from the desired distribution;
+alternatively, if `rng` is supplied, it should instead be a function `rfn(rng, k)`.
 
 # Examples
 ```jldoctest; setup = :(using Random; Random.seed!(1234))
