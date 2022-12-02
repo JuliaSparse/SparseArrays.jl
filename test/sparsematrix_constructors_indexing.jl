@@ -56,6 +56,9 @@ end
     @test size(m) == (3, 4)
     @test eltype(m) === Float32
     @test m == spzeros(3, 4)
+    @test spzeros([1, 2, 3], [1, 2, 3]) == sparse([1, 2, 3], [1, 2, 3], 0.0, 3, 3, +)
+    @test spzeros(Float32, [1, 2, 3], [1, 2, 3]) == sparse([1, 2, 3], [1, 2, 3], Float32(0.0), 3, 3, +)
+    @test spzeros(Float64, [1, 2, 3], [1, 2, 3], 3, 3) == sparse([1, 2, 3], [1, 2, 3], 0.0, 3, 3, +)
 end
 
 @testset "concatenation tests" begin

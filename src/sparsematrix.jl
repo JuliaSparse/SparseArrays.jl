@@ -1098,7 +1098,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         csccolptr::Vector{Ti}, cscrowval::Vector{Ti}, cscnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
 
-    require_one_based_indexing(I, J, (V isa Type) ? 0 : V)
+    require_one_based_indexing(I, J, V)
     sparse_check_Ti(m, n, Ti)
     sparse_check_length("I", I, 0, Tj)
     only_sparsity_pattern = (V isa Number && iszero(V)) # We can use a optimsed version if only care about the sparsity pattern (and not the values)
@@ -1996,6 +1996,9 @@ julia> spzeros(Float32, 4)
 ```
 """
 spzeros(m::Integer, n::Integer) = spzeros(Float64, m, n)
+spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J, dimlub(I), dimlub(J))
+spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector) where {Tv} = spzeros(Tv, Int, dimlub(I), dimlub(J))
+spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m, n) where {Tv} = sparse(I, J, zero(Tv), Int(m), Int(n), +)
 spzeros(::Type{Tv}, m::Integer, n::Integer) where {Tv} = spzeros(Tv, Int, m, n)
 function spzeros(::Type{Tv}, ::Type{Ti}, m::Integer, n::Integer) where {Tv, Ti}
     ((m < 0) || (n < 0)) && throw(ArgumentError("invalid Array dimensions"))
