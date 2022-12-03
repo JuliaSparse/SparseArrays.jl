@@ -358,8 +358,10 @@ function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     show(io, mime, F.pcol)
 end
 # TODO: remove once the AdjointQ PR is merged
-function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
-    print(io, Base.dims2string(size(Q)), ' ', summary(Q))
+if QRSparseQ <: AbstractMatrix
+    function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
+        summary(io, Q)
+    end
 end
 
 """
