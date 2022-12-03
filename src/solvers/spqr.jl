@@ -357,19 +357,10 @@ function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     println(io, "\nColumn permutation:")
     show(io, mime, F.pcol)
 end
+# TODO: remove once the AdjointQ PR is merged
 function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
-    summary(io, Q)
+    print(io, Base.dims2string(size(Q)), ' ', summary(Q))
 end
-
-# With a real lhs and complex rhs with the same precision, we can reinterpret
-# the complex rhs as a real rhs with twice the number of columns
-#
-# This definition is similar to the definition in factorization.jl except that
-# here we have to use \ instead of ldiv! because of limitations in SPQR
-
-## Two helper methods
-_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
-_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 """
     rank(::QRSparse{Tv,Ti}) -> Ti
@@ -384,6 +375,16 @@ LinearAlgebra.rank(F::QRSparse) = reduce(max, view(rowvals(F.R), 1:nnz(F.R)), in
 Calculate rank of `S` by calculating its QR factorization. Values smaller than `tol` are considered as zero. See SPQR's manual.
 """
 LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
+
+# With a real lhs and complex rhs with the same precision, we can reinterpret
+# the complex rhs as a real rhs with twice the number of columns
+#
+# This definition is similar to the definition in factorization.jl except that
+# here we have to use \ instead of ldiv! because of limitations in SPQR
+
+## Two helper methods
+_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
+_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
 # |z1|z3|  reinterpret  |x1|x2|x3|x4|  transpose  |x1|y1|  reshape  |x1|y1|x3|y3|
