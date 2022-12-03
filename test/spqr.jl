@@ -6,7 +6,7 @@ using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
-using SparseArrays: sparse, sprandn, spzeros, SparseMatrixCSC
+using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 
 if Base.USE_GPL_LIBS
 
