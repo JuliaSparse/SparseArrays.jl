@@ -16,6 +16,8 @@ nn = 100
 
 @test size(qr(sprandn(m, n, 0.1)).Q) == (m, m)
 
+@test repr("text/plain", qr(sprandn(4, 4, 0.5)).Q) == "4×4 $(SparseArrays.SPQR.QRSparseQ{Float64, Int})"
+
 @testset "element type of A: $eltyA" for eltyA in (Float64, ComplexF64)
     if eltyA <: Real
         A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
