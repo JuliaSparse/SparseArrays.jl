@@ -1064,6 +1064,14 @@ function Vector(x::AbstractSparseVector{Tv}) where Tv
     return r
 end
 Array(x::AbstractSparseVector) = Vector(x)
+    
+function Base.collect(x::Union{AbstractSparseVector,AbstractSparseMatrix})
+   if Base.has_offset_axes(x)
+       return Base._collect_indices(axes(x), x)
+   else
+       return Array(x)
+   end
+end
 
 Base.iszero(x::AbstractSparseVector) = iszero(nonzeros(x))
 
