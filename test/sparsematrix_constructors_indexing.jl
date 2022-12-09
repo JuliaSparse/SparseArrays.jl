@@ -1626,8 +1626,8 @@ end
     @test_throws ArgumentError SparseArrays.expandptr([2; 3])
 end
 
-@testset "sparse!" begin
-    using SparseArrays: sparse!, getcolptr, getrowval, nonzeros
+@testset "sparse! and spzeros!" begin
+    using SparseArrays: sparse!, spzeros!, getcolptr, getrowval, nonzeros
 
     function allocate_arrays(m, n)
         N = round(Int, 0.5 * m * n)
@@ -1653,11 +1653,26 @@ end
         @test S == S!
         @test same_structure(S, S!)
 
+        I, J, _, klasttouch, csrrowptr, csrcolval = allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval)
+        @test S == S!
+        @test iszero(S!)
+        @test same_structure(S, S!)
+
         # Passing csr vectors + csccolptr
         I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr = allocate_arrays(m, n)
         S  = sparse(I, J, V, m, n)
         S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr)
         @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+
+        I, J, _, klasttouch, csrrowptr, csrcolval, _, csccolptr = allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval, csccolptr)
+        @test S == S!
+        @test iszero(S!)
         @test same_structure(S, S!)
         @test getcolptr(S!) === csccolptr
 
@@ -1668,6 +1683,18 @@ end
         S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval,
                      csccolptr, cscrowval, cscnzval)
         @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+        @test getrowval(S!) === cscrowval
+        @test nonzeros(S!) === cscnzval
+
+        I, J, _, klasttouch, csrrowptr, csrcolval, _, csccolptr, cscrowval, cscnzval =
+            allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval,
+                      csccolptr, cscrowval, cscnzval)
+        @test S == S!
+        @test iszero(S!)
         @test same_structure(S, S!)
         @test getcolptr(S!) === csccolptr
         @test getrowval(S!) === cscrowval
@@ -1685,11 +1712,33 @@ end
         @test getrowval(S!) === cscrowval
         @test nonzeros(S!) === cscnzval
 
+        I, J, _, klasttouch, csrrowptr, csrcolval, _, csccolptr, cscrowval, cscnzval =
+            allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval,
+                      resize!(csccolptr, 0), resize!(cscrowval, 0), resize!(cscnzval, 0))
+        @test S == S!
+        @test iszero(S!)
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+        @test getrowval(S!) === cscrowval
+        @test nonzeros(S!) === cscnzval
+
         # Passing csr vectors, and csc vectors aliased with I, J, V
         I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval = allocate_arrays(m, n)
         S  = sparse(I, J, V, m, n)
         S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval, I, J, V)
         @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+
+        I, J, V, klasttouch, csrrowptr, csrcolval = allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval, I, J, V)
+        @test S == S!
+        @test iszero(S!)
         @test same_structure(S, S!)
         @test getcolptr(S!) === I
         @test getrowval(S!) === J
