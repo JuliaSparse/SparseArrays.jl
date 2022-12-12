@@ -1064,9 +1064,8 @@ intermediate CSR forms and require `length(csrrowptr) >= m + 1`,
 `length(csrcolval) >= length(I)`, and `length(csrnzval >= length(I))`. Input
 array `klasttouch`, workspace for the second stage, requires `length(klasttouch) >= n`.
 Optional input arrays `csccolptr`, `cscrowval`, and `cscnzval` constitute storage for the
-returned CSC form `S`. `csccolptr` requires `length(csccolptr) >= n + 1`. If necessary,
-`cscrowval` and `cscnzval` are automatically resized to satisfy
-`length(cscrowval) >= nnz(S)` and `length(cscnzval) >= nnz(S)`; hence, if `nnz(S)` is
+returned CSC form `S`. If necessary, these are resized automatically to satisfy
+`length(csccolptr) = n + 1`, `length(cscrowval) = nnz(S)` and `length(cscnzval) = nnz(S)`; hence, if `nnz(S)` is
 unknown at the outset, passing in empty vectors of the appropriate type (`Vector{Ti}()`
 and `Vector{Tv}()` respectively) suffices, or calling the `sparse!` method
 neglecting `cscrowval` and `cscnzval`.
@@ -1077,6 +1076,7 @@ representation of the result's transpose.
 You may reuse the input arrays' storage (`I`, `J`, `V`) for the output arrays
 (`csccolptr`, `cscrowval`, `cscnzval`). For example, you may call
 `sparse!(I, J, V, csrrowptr, csrcolval, csrnzval, I, J, V)`.
+Note that they will be resized to satisfy the conditions above.
 
 For the sake of efficiency, this method performs no argument checking beyond
 `1 <= I[k] <= m` and `1 <= J[k] <= n`. Use with care. Testing with `--check-bounds=yes`
@@ -1131,6 +1131,9 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
     end
     # This completes the unsorted-row, has-repeats CSR form's construction
 
+    # The output array csccolptr can now be resized safely even if aliased with I
+    resize!(csccolptr, n + 1)
+
     # Sweep through the CSR form, simultaneously (1) calculating the CSC form's column
     # counts and storing them shifted forward by one in csccolptr; (2) detecting repeated
     # entries; and (3) repacking the CSR form with the repeated entries combined.
@@ -1175,10 +1178,13 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
         Base.hastypemax(Ti) && (countsum <= typemax(Ti) || throw(ArgumentError("more than typemax(Ti)-1 == $(typemax(Ti)-1) entries")))
     end
 
-    # Now knowing the CSC form's entry count, resize cscrowval and cscnzval if necessary
+    # Now knowing the CSC form's entry count, resize cscrowval and cscnzval
+    # Note: This is done unconditionally to appease the buffer checks in the SparseMatrixCSC
+    #       constructor. If these checks are lifted this resizing is only needed if the
+    #       buffers are too short. csccolptr is resized above.
     cscnnz = countsum - Tj(1)
-    length(cscrowval) < cscnnz && resize!(cscrowval, cscnnz)
-    length(cscnzval) < cscnnz && resize!(cscnzval, cscnnz)
+    resize!(cscrowval, cscnnz)
+    resize!(cscnzval, cscnnz)
 
     # Finally counting-sort the row and nonzero values from the CSR form into cscrowval and
     # cscnzval. Tracking write positions in csccolptr corrects the column pointers.
