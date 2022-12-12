@@ -997,16 +997,14 @@ julia> sparse(Is, Js, Vs)
  ⋅  ⋅  3
 ```
 """
-sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer} =
-    _sparse(I, J, V, m, n, combine)
-
-function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
+function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
     require_one_based_indexing(I, J, V)
     coolen = length(I)
-    length(J) == coolen || throw(ArgumentError("J (= $(length(J))) need length == length(I) = $coolen"))
-    only_sparsity_pattern = (V isa Tv && iszero(V)) # We can use an optimised version if we only care about the sparsity pattern (and not the values)
-    only_sparsity_pattern || length(V) == coolen || throw(ArgumentError("V (= $(length(V))) need length == length(I) = $coolen"))
-
+    if length(J) != coolen || length(V) != coolen
+        throw(ArgumentError(string("the first three arguments' lengths must match, ",
+              "length(I) (=$(length(I))) == length(J) (= $(length(J))) == length(V) (= ",
+              "$(length(V)))")))
+    end
     if Base.hastypemax(Ti) && coolen >= typemax(Ti)
         throw(ArgumentError("the index type $Ti cannot hold $coolen elements; use a larger index type"))
     end
@@ -1023,7 +1021,7 @@ function _sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
         # Allocate storage for CSR form
         csrrowptr = Vector{Ti}(undef, m+1)
         csrcolval = Vector{Ti}(undef, coolen)
-        csrnzval = Vector{Tv}(undef, only_sparsity_pattern ? 0 : coolen)
+        csrnzval = Vector{Tv}(undef, coolen)
 
         # Allocate storage for the CSC form's column pointers and a necessary workspace
         csccolptr = Vector{Ti}(undef, n+1)
@@ -1091,7 +1089,7 @@ F. Gustavson, "Two fast algorithms for sparse matrices: multiplication and permu
 transposition," ACM TOMS 4(3), 250-269 (1978) inspired this method's use of a pair of
 counting sorts.
 """
-function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,AbstractVector{Tv}}, 
+function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
         m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         csccolptr::Vector{Ti}, cscrowval::Vector{Ti}, cscnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
@@ -1099,7 +1097,13 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
     require_one_based_indexing(I, J, V)
     sparse_check_Ti(m, n, Ti)
     sparse_check_length("I", I, 0, Tj)
-    only_sparsity_pattern = (V isa Tv && iszero(V)) # We can use an optimised version if we only care about the sparsity pattern (and not the values)
+
+    # This method is also used internally by spzeros! to build the sparsity pattern without
+    # caring about the values. This is communicated by passing combine=nothing and in this
+    # case V and csrnzval should *not* be accessed. When called from spzeros! they will both
+    # alias cscnzval, which will be resized and filled with zero(Tv).
+    only_sparsity_pattern = combine === nothing
+
     # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
     fill!(csrrowptr, Tj(0))
     coolen = length(I)
@@ -1168,11 +1172,9 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::Union{Tv,Abstr
                 end
                 writek += Tj(1)
                 csccolptr[j+1] += Ti(1)
-            else
+            elseif !only_sparsity_pattern
                 klt = klasttouch[j]
-                if !only_sparsity_pattern
-                    csrnzval[klt] = combine(csrnzval[klt], csrnzval[readk])
-                end
+                csrnzval[klt] = combine(csrnzval[klt], csrnzval[readk])
             end
         end
         newcsrrowptri = writek
@@ -2031,14 +2033,49 @@ Create a sparse matrix `S` of dimensions `m x n` with structural zeros at `S[I[k
 This method can be used to construct the sparsity pattern of the matrix, and is more
 efficient than using e.g. `sparse(I, J, zeros(length(I)))`.
 
+For additional documentation and an expert driver, see `SparseArrays.spzeros!`.
+
 !!! compat "Julia 1.10"
     This methods requires Julia version 1.10 or later.
 """
 spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J)
 spzeros(I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) = spzeros(Float64, I, J, m, n)
 spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector) where {Tv} = spzeros(Tv, I, J, dimlub(I), dimlub(J))
-spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) where {Tv} =
-    _sparse(I, J, zero(Tv), Int(m), Int(n), +)
+function spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) where {Tv}
+    return spzeros(Tv, AbstractVector{Int}(I), AbstractVector{Int}(J), m, n)
+end
+function spzeros(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer) where {Tv, Ti<:Integer}
+    if length(I) != length(J)
+        throw(ArgumentError("length(I) = $(length(I)) does not match length(J) = $(length(J))"))
+    end
+    klasttouch = Vector{Ti}(undef, n)
+    csrrowptr = Vector{Ti}(undef, m+1)
+    csrcolval = Vector{Ti}(undef, length(I))
+    return spzeros!(Tv, I, J, m, n, klasttouch, csrrowptr, csrcolval)
+end
+
+"""
+    spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer,
+             klasttouch::Vector{Ti}, csrrowptr::Vector{Ti}, csrcolval::Vector{Ti},
+             [csccolptr::Vector{Ti}], [cscrowval::Vector{Ti}, cscnzval::Vector{Tv}]) where {Tv,Ti<:Integer}
+
+Parent of and expert driver for `spzeros(I, J)` allowing user to provide preallocated
+storage for intermediate objects. This method is to `spzeros` what `SparseArrays.sparse!` is
+to `sparse`. See documentation for `SparseArrays.sparse!` for details and required buffer
+lengths.
+
+!!! compat "Julia 1.10"
+    This methods requires Julia version 1.10 or later.
+"""
+function spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer,
+        klasttouch::Vector{Ti}, csrrowptr::Vector{Ti}, csrcolval::Vector{Ti},
+        csccolptr::Vector{Ti}=Ti[], cscrowval::Vector{Ti}=Ti[], cscnzval::Vector{Tv}=Tv[]
+    ) where {Tv, Ti<:Integer}
+    # We can pass V = csrnzval = cscnzval since V and csrnzval are unused in sparse! if used
+    # to only build the sparsity pattern (which is indicated by passing combine=nothing).
+    return sparse!(I, J, cscnzval, m, n, nothing, klasttouch,
+                   csrrowptr, csrcolval, cscnzval, csccolptr, cscrowval, cscnzval)
+end
 
 import Base._one
 function Base._one(unit::T, S::AbstractSparseMatrixCSC) where T
