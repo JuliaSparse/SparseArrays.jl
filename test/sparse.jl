@@ -3398,4 +3398,79 @@ using Base: swaprows!, swapcols!
     end
 end
 
+@testset "sparse!" begin
+    using SparseArrays: sparse!, getcolptr, getrowval, nonzeros
+
+    function same_structure(A, B)
+        return all(getfield(A, f) == getfield(B, f) for f in (:m, :n, :colptr, :rowval))
+    end
+
+    function allocate_arrays(m, n)
+        N = round(Int, 0.5 * m * n)
+        Tv, Ti = Float64, Int
+        I = Ti[rand(1:m) for _ in 1:N]; I = Ti[I; I]
+        J = Ti[rand(1:n) for _ in 1:N]; J = Ti[J; J]
+        V = Tv.(I)
+        csrrowptr = Vector{Ti}(undef, m + 1)
+        csrcolval = Vector{Ti}(undef, length(I))
+        csrnzval = Vector{Tv}(undef, length(I))
+        klasttouch = Vector{Ti}(undef, n)
+        csccolptr = Vector{Ti}(undef, n + 1)
+        cscrowval = Vector{Ti}()
+        cscnzval = Vector{Tv}()
+        return I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr, cscrowval, cscnzval
+    end
+
+    for (m, n) in ((10, 5), (5, 10), (10, 10))
+        # Passing csr vectors
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval = allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval)
+        @test S == S!
+        @test same_structure(S, S!)
+
+        # Passing csr vectors + csccolptr
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr = allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+
+        # Passing csr vectors, and csc vectors
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr, cscrowval, cscnzval =
+            allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval,
+                     csccolptr, cscrowval, cscnzval)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+        @test getrowval(S!) === cscrowval
+        @test nonzeros(S!) === cscnzval
+
+        # Passing csr vectors, and csc vectors of insufficient lengths
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr, cscrowval, cscnzval =
+            allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval,
+                     resize!(csccolptr, 0), resize!(cscrowval, 0), resize!(cscnzval, 0))
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+        @test getrowval(S!) === cscrowval
+        @test nonzeros(S!) === cscnzval
+
+        # Passing csr vectors, and csc vectors aliased with I, J, V
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval = allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval, I, J, V)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+    end
+end
+
 end # module
