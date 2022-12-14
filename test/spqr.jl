@@ -6,7 +6,7 @@ using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
-using SparseArrays: sparse, sprandn, spzeros, SparseMatrixCSC
+using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 
 if Base.USE_GPL_LIBS
 
@@ -15,6 +15,8 @@ m, n = 100, 10
 nn = 100
 
 @test size(qr(sprandn(m, n, 0.1)).Q) == (m, m)
+
+@test repr("text/plain", qr(sprandn(4, 4, 0.5)).Q) == "4×4 $(SparseArrays.SPQR.QRSparseQ{Float64, Int})"
 
 @testset "element type of A: $eltyA" for eltyA in (Float64, ComplexF64)
     if eltyA <: Real
