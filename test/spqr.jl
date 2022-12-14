@@ -152,6 +152,12 @@ end
     perm = inv(Matrix(I, size(A)...)[q.prow, :])
     f = sum(q.R; dims=2) ./ sum(Dq.R; dims=2)
     @test perm * (transpose(f) .* sQ) ≈ sparse(Dq.Q)
+    v, V = sprandn(100, 0.01), sprandn(100, 100, 0.01)
+    @test Dq.Q * v ≈ Matrix(Dq.Q) * v
+    @test Dq.Q * V ≈ Matrix(Dq.Q) * V
+    @test Dq.Q * V' ≈ Matrix(Dq.Q) * V'
+    @test V * Dq.Q ≈ V * Matrix(Dq.Q)
+    @test V' * Dq.Q ≈ V' * Matrix(Dq.Q)
 end
 
 @testset "no strategies" begin

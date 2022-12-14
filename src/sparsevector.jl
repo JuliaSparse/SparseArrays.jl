@@ -1292,6 +1292,9 @@ end
 # zero-preserving functions (z->z, nz->nz)
 -(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
 
+(*)(Q::AbstractQ, B::AbstractSparseVector) = Q * Vector(B)
+(*)(A::AbstractSparseVector, Q::AbstractQ) = Vector(A) * Q
+
 # functions f, such that
 #   f(x) can be zero or non-zero when x != 0
 #   f(x) = 0 when x == 0
