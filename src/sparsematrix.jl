@@ -469,6 +469,11 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
     foreach(c -> print(io, Char(c)), @view brailleGrid[1:end-1])
 end
 
+(*)(Q::AbstractQ, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
+(*)(Q::AbstractQ, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
+(*)(A::AbstractSparseMatrixCSC, Q::AbstractQ) = Matrix(A) * Q
+(*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::AbstractQ) = copy(A) * Q
+
 ## Reshape
 
 function sparse_compute_reshaped_colptr_and_rowval!(colptrS::Vector{Ti}, rowvalS::Vector{Ti},
