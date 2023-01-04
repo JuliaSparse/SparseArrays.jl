@@ -907,10 +907,10 @@ function Hermitian{Tv,SparseMatrixCSC{Tv,SuiteSparse_long}}(A::Sparse{Tv}) where
 end
 convert(T::Type{Hermitian{Tv,SparseMatrixCSC{Tv,SuiteSparse_long}}}, A::Sparse{Tv}) where {Tv<:VTypes} = T(A)
 
-function sparsevec(A::Sparse{Float64})
+function sparsevec(A::Sparse{Tv}) where {Tv}
     s = unsafe_load(pointer(A))
     @assert s.stype == 0
-    return SparseVector{Float64,SuiteSparse_long}(A)
+    return SparseVector{Tv,SuiteSparse_long}(A)
 end
 
 function sparse(A::Sparse{Float64}) # Notice! Cannot be type stable because of stype
