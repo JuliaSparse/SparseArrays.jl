@@ -15,12 +15,13 @@ import Base: (*), convert, copy, eltype, getindex, getproperty, show, size,
 using Base: require_one_based_indexing
 
 using LinearAlgebra
+using LinearAlgebra: RealHermSymComplexHerm
 import LinearAlgebra: (\),
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
                  issuccess, issymmetric, ldlt, ldlt!, logdet
 
 using SparseArrays
-using SparseArrays: getcolptr
+using SparseArrays: getcolptr, AbstractSparseVecOrMat
 import Libdl
 
 export
@@ -1585,6 +1586,12 @@ function \(A::RealHermSymComplexHermF64SSL, B::StridedVecOrMatInclAdjAndTrans)
         end
     end
 end
+
+const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, Adjoint{<:Any, <:AbstractSparseVecOrMat}, Transpose{<:Any, <:AbstractSparseVecOrMat}}
+\(A::RealHermSymComplexHermF64SSL, B::AbstractSparseVecOrMatInclAdjAndTrans) =
+    \(A, Array(B)) # or throw and suggest to densify lhs?
+\(::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrix}, ::Union{AbstractSparseVector,AbstractSparseMatrix}) =
+    throw(ArgumentError("linear system solving not implemented, try to promote the system's eltype to Float64 or ComplexF64"))
 
 ## Other convenience methods
 function diag(F::Factor{Tv}) where Tv
