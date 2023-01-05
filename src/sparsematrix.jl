@@ -469,6 +469,11 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
     foreach(c -> print(io, Char(c)), @view brailleGrid[1:end-1])
 end
 
+(*)(Q::AbstractQ, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
+(*)(Q::AbstractQ, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
+(*)(A::AbstractSparseMatrixCSC, Q::AbstractQ) = Matrix(A) * Q
+(*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::AbstractQ) = copy(A) * Q
+
 ## Reshape
 
 function sparse_compute_reshaped_colptr_and_rowval!(colptrS::Vector{Ti}, rowvalS::Vector{Ti},
@@ -876,7 +881,7 @@ SparseMatrixCSC{Tv,Ti}(M::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti
 SparseMatrixCSC{Tv,Ti}(M::Transpose{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(copy(M))
 
 # we can only view AbstractQs as columns
-SparseMatrixCSC{Tv,Ti}(Q::LinearAlgebra.AbstractQ) where {Tv,Ti} = sparse_with_lmul(Tv, Ti, Q)
+SparseMatrixCSC{Tv,Ti}(Q::AbstractQ) where {Tv,Ti} = sparse_with_lmul(Tv, Ti, Q)
 
 """
     sparse_with_lmul(Tv, Ti, Q) -> SparseMatrixCSC
@@ -958,6 +963,8 @@ julia> sparse(A)
 sparse(A::AbstractMatrix{Tv}) where {Tv} = convert(SparseMatrixCSC{Tv}, A)
 
 sparse(S::AbstractSparseMatrixCSC) = copy(S)
+
+sparse(Q::AbstractQ{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(Q)
 
 sparse(T::SymTridiagonal) = SparseMatrixCSC(T)
 
@@ -1064,9 +1071,8 @@ intermediate CSR forms and require `length(csrrowptr) >= m + 1`,
 `length(csrcolval) >= length(I)`, and `length(csrnzval >= length(I))`. Input
 array `klasttouch`, workspace for the second stage, requires `length(klasttouch) >= n`.
 Optional input arrays `csccolptr`, `cscrowval`, and `cscnzval` constitute storage for the
-returned CSC form `S`. `csccolptr` requires `length(csccolptr) >= n + 1`. If necessary,
-`cscrowval` and `cscnzval` are automatically resized to satisfy
-`length(cscrowval) >= nnz(S)` and `length(cscnzval) >= nnz(S)`; hence, if `nnz(S)` is
+returned CSC form `S`. If necessary, these are resized automatically to satisfy
+`length(csccolptr) = n + 1`, `length(cscrowval) = nnz(S)` and `length(cscnzval) = nnz(S)`; hence, if `nnz(S)` is
 unknown at the outset, passing in empty vectors of the appropriate type (`Vector{Ti}()`
 and `Vector{Tv}()` respectively) suffices, or calling the `sparse!` method
 neglecting `cscrowval` and `cscnzval`.
@@ -1077,6 +1083,7 @@ representation of the result's transpose.
 You may reuse the input arrays' storage (`I`, `J`, `V`) for the output arrays
 (`csccolptr`, `cscrowval`, `cscnzval`). For example, you may call
 `sparse!(I, J, V, csrrowptr, csrcolval, csrnzval, I, J, V)`.
+Note that they will be resized to satisfy the conditions above.
 
 For the sake of efficiency, this method performs no argument checking beyond
 `1 <= I[k] <= m` and `1 <= J[k] <= n`. Use with care. Testing with `--check-bounds=yes`
@@ -1087,18 +1094,27 @@ F. Gustavson, "Two fast algorithms for sparse matrices: multiplication and permu
 transposition," ACM TOMS 4(3), 250-269 (1978) inspired this method's use of a pair of
 counting sorts.
 """
-function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
-        V::AbstractVector{Tv}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
+function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
+        m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         csccolptr::Vector{Ti}, cscrowval::Vector{Ti}, cscnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
 
     require_one_based_indexing(I, J, V)
     sparse_check_Ti(m, n, Ti)
     sparse_check_length("I", I, 0, Tj)
+
+    # This method is also used internally by spzeros! to build the sparsity pattern without
+    # caring about the values. This is communicated by passing combine=nothing and in this
+    # case V and csrnzval should *not* be accessed. When called from spzeros! they will both
+    # alias cscnzval, which will be resized and filled with zero(Tv).
+    only_sparsity_pattern = combine === nothing
+
     # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
     fill!(csrrowptr, Tj(0))
     coolen = length(I)
-    min(length(J), length(V)) >= coolen || throw(ArgumentError("J and V need length >= length(I) = $coolen"))
+    length(J) >= coolen || throw(ArgumentError("J need length >= length(I) = $coolen"))
+    only_sparsity_pattern || length(V) >= coolen || throw(ArgumentError("V need length >= length(I) = $coolen"))
+
     @inbounds for k in 1:coolen
         Ik = I[k]
         if 1 > Ik || m < Ik
@@ -1127,9 +1143,14 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
         @assert csrk >= Tj(1) "index into csrcolval exceeds typemax(Ti)"
         csrrowptr[Ik+1] = csrk + Tj(1)
         csrcolval[csrk] = Jk
-        csrnzval[csrk] = V[k]
+        if !only_sparsity_pattern
+            csrnzval[csrk] = V[k]
+        end
     end
     # This completes the unsorted-row, has-repeats CSR form's construction
+
+    # The output array csccolptr can now be resized safely even if aliased with I
+    resize!(csccolptr, n + 1)
 
     # Sweep through the CSR form, simultaneously (1) calculating the CSC form's column
     # counts and storing them shifted forward by one in csccolptr; (2) detecting repeated
@@ -1150,11 +1171,13 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
                 klasttouch[j] = writek
                 if writek != readk
                     csrcolval[writek] = j
-                    csrnzval[writek] = csrnzval[readk]
+                    if !only_sparsity_pattern
+                        csrnzval[writek] = csrnzval[readk]
+                    end
                 end
                 writek += Tj(1)
                 csccolptr[j+1] += Ti(1)
-            else
+            elseif !only_sparsity_pattern
                 klt = klasttouch[j]
                 csrnzval[klt] = combine(csrnzval[klt], csrnzval[readk])
             end
@@ -1175,21 +1198,23 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
         Base.hastypemax(Ti) && (countsum <= typemax(Ti) || throw(ArgumentError("more than typemax(Ti)-1 == $(typemax(Ti)-1) entries")))
     end
 
-    # Now knowing the CSC form's entry count, resize cscrowval and cscnzval if necessary
+    # Now knowing the CSC form's entry count, resize cscrowval and cscnzval
+    # Note: This is done unconditionally to appease the buffer checks in the SparseMatrixCSC
+    #       constructor. If these checks are lifted this resizing is only needed if the
+    #       buffers are too short. csccolptr is resized above.
     cscnnz = countsum - Tj(1)
-    length(cscrowval) < cscnnz && resize!(cscrowval, cscnnz)
-    length(cscnzval) < cscnnz && resize!(cscnzval, cscnnz)
+    resize!(cscrowval, cscnnz)
+    resize!(cscnzval, cscnnz)
 
     # Finally counting-sort the row and nonzero values from the CSR form into cscrowval and
     # cscnzval. Tracking write positions in csccolptr corrects the column pointers.
     @inbounds for i in 1:m
         for csrk in csrrowptr[i]:(csrrowptr[i+1]-Tj(1))
             j = csrcolval[csrk]
-            x = csrnzval[csrk]
             csck = csccolptr[j+1]
             csccolptr[j+1] = csck + Ti(1)
             cscrowval[csck] = i
-            cscnzval[csck] = x
+            cscnzval[csck] = only_sparsity_pattern ? zero(Tv) : csrnzval[csrk]
         end
     end
 
@@ -1886,14 +1911,24 @@ function sparse_sortedlinearindices!(I::Vector{Ti}, V::Vector, m::Int, n::Int) w
 end
 
 """
-    sprand([rng],[type],m,[n],p::AbstractFloat,[rfn])
+    sprand([rng],[T::Type],m,[n],p::AbstractFloat)
+    sprand([rng],m,[n],p::AbstractFloat,[rfn=rand])
 
 Create a random length `m` sparse vector or `m` by `n` sparse matrix, in
 which the probability of any element being nonzero is independently given by
-`p` (and hence the mean density of nonzeros is also exactly `p`). Nonzero
-values are sampled from the distribution specified by `rfn` and have the type `type`. The uniform
-distribution is used in case `rfn` is not specified. The optional `rng`
-argument specifies a random number generator, see [Random Numbers](@ref).
+`p` (and hence the mean density of nonzeros is also exactly `p`).
+The optional `rng` argument specifies a random number generator, see [Random Numbers](@ref).
+The optional `T` argument specifies the element type, which defaults to `Float64`.
+
+By default, nonzero values are sampled from a uniform distribution using
+the [`rand`](@ref) function, i.e. by `rand(T)`, or `rand(rng, T)` if `rng`
+is supplied; for the default `T=Float64`, this corresponds to nonzero values
+sampled uniformly in `[0,1)`.
+
+You can sample nonzero values from a different distribution by passing a
+custom `rfn` function instead of `rand`.   This should be a function `rfn(k)`
+that returns an array of `k` random numbers sampled from the desired distribution;
+alternatively, if `rng` is supplied, it should instead be a function `rfn(rng, k)`.
 
 # Examples
 ```jldoctest; setup = :(using Random; Random.seed!(1234))
@@ -1994,6 +2029,58 @@ function spzeros(::Type{Tv}, ::Type{Ti}, sz::Tuple{Integer,Integer}) where {Tv, 
 end
 spzeros(::Type{Tv}, sz::Tuple{Integer,Integer}) where {Tv} = spzeros(Tv, Int, sz[1], sz[2])
 spzeros(sz::Tuple{Integer,Integer}) = spzeros(Float64, Int, sz[1], sz[2])
+
+"""
+    spzeros([type], I::AbstractVector, J::AbstractVector, [m, n])
+
+Create a sparse matrix `S` of dimensions `m x n` with structural zeros at `S[I[k], J[k]]`.
+
+This method can be used to construct the sparsity pattern of the matrix, and is more
+efficient than using e.g. `sparse(I, J, zeros(length(I)))`.
+
+For additional documentation and an expert driver, see `SparseArrays.spzeros!`.
+
+!!! compat "Julia 1.10"
+    This methods requires Julia version 1.10 or later.
+"""
+spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J)
+spzeros(I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) = spzeros(Float64, I, J, m, n)
+spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector) where {Tv} = spzeros(Tv, I, J, dimlub(I), dimlub(J))
+function spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) where {Tv}
+    return spzeros(Tv, AbstractVector{Int}(I), AbstractVector{Int}(J), m, n)
+end
+function spzeros(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer) where {Tv, Ti<:Integer}
+    if length(I) != length(J)
+        throw(ArgumentError("length(I) = $(length(I)) does not match length(J) = $(length(J))"))
+    end
+    klasttouch = Vector{Ti}(undef, n)
+    csrrowptr = Vector{Ti}(undef, m+1)
+    csrcolval = Vector{Ti}(undef, length(I))
+    return spzeros!(Tv, I, J, m, n, klasttouch, csrrowptr, csrcolval)
+end
+
+"""
+    spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer,
+             klasttouch::Vector{Ti}, csrrowptr::Vector{Ti}, csrcolval::Vector{Ti},
+             [csccolptr::Vector{Ti}], [cscrowval::Vector{Ti}, cscnzval::Vector{Tv}]) where {Tv,Ti<:Integer}
+
+Parent of and expert driver for `spzeros(I, J)` allowing user to provide preallocated
+storage for intermediate objects. This method is to `spzeros` what `SparseArrays.sparse!` is
+to `sparse`. See documentation for `SparseArrays.sparse!` for details and required buffer
+lengths.
+
+!!! compat "Julia 1.10"
+    This methods requires Julia version 1.10 or later.
+"""
+function spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer,
+        klasttouch::Vector{Ti}, csrrowptr::Vector{Ti}, csrcolval::Vector{Ti},
+        csccolptr::Vector{Ti}=Ti[], cscrowval::Vector{Ti}=Ti[], cscnzval::Vector{Tv}=Tv[]
+    ) where {Tv, Ti<:Integer}
+    # We can pass V = csrnzval = cscnzval since V and csrnzval are unused in sparse! if used
+    # to only build the sparsity pattern (which is indicated by passing combine=nothing).
+    return sparse!(I, J, cscnzval, m, n, nothing, klasttouch,
+                   csrrowptr, csrcolval, cscnzval, csccolptr, cscrowval, cscnzval)
+end
 
 import Base._one
 function Base._one(unit::T, S::AbstractSparseMatrixCSC) where T

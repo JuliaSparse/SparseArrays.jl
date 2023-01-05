@@ -2,7 +2,7 @@
 
 ### Common definitions
 
-import Base: sort, findall, copy!
+import Base: sort!, findall, copy!
 import LinearAlgebra: promote_to_array_type, promote_to_arrays_
 using LinearAlgebra: _SpecialArrays, _DenseConcatGroup
 
@@ -1292,6 +1292,9 @@ end
 # zero-preserving functions (z->z, nz->nz)
 -(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
 
+(*)(Q::AbstractQ, B::AbstractSparseVector) = Q * Vector(B)
+(*)(A::AbstractSparseVector, Q::AbstractQ) = Vector(A) * Q
+
 # functions f, such that
 #   f(x) can be zero or non-zero when x != 0
 #   f(x) = 0 when x == 0
@@ -2123,15 +2126,15 @@ function _densifystarttolastnz!(x::SparseVector)
 end
 
 #sorting
-function sort(x::AbstractCompressedVector{Tv,Ti}; kws...) where {Tv,Ti}
-    allvals = push!(copy(nonzeros(x)),zero(Tv))
-    sinds = sortperm(allvals;kws...)
-    n,k = length(x),length(allvals)
-    z = findfirst(isequal(k),sinds)::Int
-    newnzind = Vector{Ti}(1:k-1)
-    newnzind[z:end] .+= n-k+1
-    newnzvals = allvals[deleteat!(sinds[1:k],z)]
-    typeof(x)(n,newnzind,newnzvals)
+function sort!(x::AbstractCompressedVector; kws...)
+    nz = nonzeros(x)
+    sort!(nz; kws...)
+    i = searchsortedfirst(nz, zero(eltype(x)); kws...)
+    I = nonzeroinds(x)
+    Base.require_one_based_indexing(x, nz, I)
+    I[1:i-1] .= 1:i-1
+    I[i:end] .= i+length(x)-length(nz):length(x)
+    x
 end
 
 function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv

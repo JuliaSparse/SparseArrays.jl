@@ -5,7 +5,11 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
+using LinearAlgebra: AbstractQ, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C
+
+const AdjQType = isdefined(LinearAlgebra, :AdjointQ) ? LinearAlgebra.AdjointQ : Adjoint
+const AbstractQType = isdefined(LinearAlgebra, :AdjointQ) ? AbstractQ : AbstractMatrix
 
 # ordering options */
 const ORDERING_FIXED   = Int32(0)
@@ -127,7 +131,7 @@ function Base.size(F::QRSparse, i::Integer)
 end
 Base.axes(F::QRSparse) = map(Base.OneTo, size(F))
 
-struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: LinearAlgebra.AbstractQ{Tv}
+struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
     n::Int # Number of columns in original matrix
@@ -233,7 +237,7 @@ function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
         h = view(Q.factors, :, l)
         for j in 1:size(A, 2)
             a = view(A, :, j)
-            LinearAlgebra.axpy!(τl*dot(h, a), h, a)
+            axpy!(τl*dot(h, a), h, a)
         end
     end
     return A
@@ -247,14 +251,14 @@ function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
     for l in 1:size(Q.factors, 2)
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
-        LinearAlgebra.mul!(tmp, A, h)
-        LinearAlgebra.lowrankupdate!(A, tmp, h, τl)
+        mul!(tmp, A, h)
+        lowrankupdate!(A, tmp, h, τl)
     end
     return A
 end
 
-function LinearAlgebra.lmul!(adjQ::Adjoint{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
-    Q = adjQ.parent
+function LinearAlgebra.lmul!(adjQ::AdjQType{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
+    Q = parent(adjQ)
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
@@ -269,8 +273,8 @@ function LinearAlgebra.lmul!(adjQ::Adjoint{<:Any,<:QRSparseQ}, A::StridedVecOrMa
     return A
 end
 
-function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::Adjoint{<:Any,<:QRSparseQ})
-    Q = adjQ.parent
+function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ})
+    Q = parent(adjQ)
     if size(A, 2) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
@@ -278,10 +282,48 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::Adjoint{<:Any,<:QRSparseQ})
     for l in size(Q.factors, 2):-1:1
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
-        LinearAlgebra.mul!(tmp, A, h)
-        LinearAlgebra.lowrankupdate!(A, tmp, h, τl')
+        mul!(tmp, A, h)
+        lowrankupdate!(A, tmp, h, τl')
     end
     return A
+end
+
+function (*)(Q::QRSparseQ, b::StridedVector) # TODO: relax to AbstractVector
+    TQb = promote_type(eltype(Q), eltype(b))
+    QQ = convert(AbstractQType{TQb}, Q)
+    if size(Q.factors, 1) == length(b)
+        bnew = copy_similar(b, TQb)
+    elseif size(Q.factors, 2) == length(b)
+        bnew = [b; zeros(TQb, size(Q.factors, 1) - length(b))]
+    else
+        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+    end
+    lmul!(QQ, bnew)
+end
+function (*)(Q::QRSparseQ, B::StridedMatrix) # TODO: relax to AbstractMatrix
+    TQB = promote_type(eltype(Q), eltype(B))
+    QQ = convert(AbstractQType{TQB}, Q)
+    if size(Q.factors, 1) == size(B, 1)
+        Bnew = copy_similar(B, TQB)
+    elseif size(Q.factors, 2) == size(B, 1)
+        Bnew = [B; zeros(TQB, size(Q.factors, 1) - size(B,1), size(B, 2))]
+    else
+        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+    end
+    lmul!(QQ, Bnew)
+end
+function (*)(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}) # TODO: relax to AbstractMatrix
+    Q = parent(adjQ)
+    TAQ = promote_type(eltype(A), eltype(adjQ))
+    adjQQ = convert(AbstractQType{TAQ}, adjQ)
+    if size(A,2) == size(Q.factors, 1)
+        AA = copy_similar(A, TAQ)
+        return rmul!(AA, adjQQ)
+    elseif size(A,2) == size(Q.factors,2)
+        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - size(Q.factors, 2))], adjQQ)
+    else
+        throw(DimensionMismatch("matrix A has dimensions $(size(A)) but Q-matrix has dimensions $(size(adjQ))"))
+    end
 end
 
 (*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
@@ -315,19 +357,12 @@ function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     println(io, "\nColumn permutation:")
     show(io, mime, F.pcol)
 end
-function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
-    summary(io, Q)
+# TODO: remove once the AdjointQ PR is merged
+if QRSparseQ <: AbstractMatrix
+    function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
+        summary(io, Q)
+    end
 end
-
-# With a real lhs and complex rhs with the same precision, we can reinterpret
-# the complex rhs as a real rhs with twice the number of columns
-#
-# This definition is similar to the definition in factorization.jl except that
-# here we have to use \ instead of ldiv! because of limitations in SPQR
-
-## Two helper methods
-_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
-_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 """
     rank(::QRSparse{Tv,Ti}) -> Ti
@@ -342,6 +377,16 @@ LinearAlgebra.rank(F::QRSparse) = reduce(max, view(rowvals(F.R), 1:nnz(F.R)), in
 Calculate rank of `S` by calculating its QR factorization. Values smaller than `tol` are considered as zero. See SPQR's manual.
 """
 LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
+
+# With a real lhs and complex rhs with the same precision, we can reinterpret
+# the complex rhs as a real rhs with twice the number of columns
+#
+# This definition is similar to the definition in factorization.jl except that
+# here we have to use \ instead of ldiv! because of limitations in SPQR
+
+## Two helper methods
+_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
+_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
 # |z1|z3|  reinterpret  |x1|x2|x3|x4|  transpose  |x1|y1|  reshape  |x1|y1|x3|y3|
@@ -384,13 +429,13 @@ function _ldiv_basic(F::QRSparse, B::StridedVecOrMat)
     X0 = view(X, 1:size(B, 1), :)
 
     # Apply Q' to B
-    LinearAlgebra.lmul!(adjoint(F.Q), X0)
+    lmul!(adjoint(F.Q), X0)
 
     # Zero out to get basic solution
     X[rnk + 1:end, :] .= 0
 
     # Solve R*X = B
-    LinearAlgebra.ldiv!(UpperTriangular(F.R[Base.OneTo(rnk), Base.OneTo(rnk)]),
+    ldiv!(UpperTriangular(F.R[Base.OneTo(rnk), Base.OneTo(rnk)]),
                         view(X0, Base.OneTo(rnk), :))
 
     # Apply right permutation and extract solution from X
