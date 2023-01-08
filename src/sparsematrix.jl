@@ -469,10 +469,17 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
     foreach(c -> print(io, Char(c)), @view brailleGrid[1:end-1])
 end
 
-(*)(Q::AbstractQ, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
-(*)(Q::AbstractQ, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
-(*)(A::AbstractSparseMatrixCSC, Q::AbstractQ) = Matrix(A) * Q
-(*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::AbstractQ) = copy(A) * Q
+for QT in (:LinAlgLeftQs, :LQPackedQ)
+    @eval (*)(Q::$QT, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
+    @eval (*)(Q::$QT, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
+    @eval (*)(A::AbstractSparseMatrixCSC, Q::$QT) = Matrix(A) * Q
+    @eval (*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::$QT) = copy(A) * Q
+
+    @eval (*)(Q::AdjQType{<:Any,<:$QT}, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
+    @eval (*)(Q::AdjQType{<:Any,<:$QT}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
+    @eval (*)(A::AbstractSparseMatrixCSC, Q::AdjQType{<:Any,<:$QT}) = Matrix(A) * Q
+    @eval (*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::AdjQType{<:Any,<:$QT}) = copy(A) * Q
+end
 
 ## Reshape
 

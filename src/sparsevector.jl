@@ -1292,8 +1292,13 @@ end
 # zero-preserving functions (z->z, nz->nz)
 -(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
 
-(*)(Q::AbstractQ, B::AbstractSparseVector) = Q * Vector(B)
-(*)(A::AbstractSparseVector, Q::AbstractQ) = Vector(A) * Q
+for QT in (:LinAlgLeftQs, :LQPackedQ)
+    @eval (*)(Q::$QT, B::AbstractSparseVector) = Q * Vector(B)
+    @eval (*)(Q::AdjQType{<:Any,<:$QT}, B::AbstractSparseVector) = Q * Vector(B)
+
+    @eval (*)(A::AbstractSparseVector, Q::$QT) = Vector(A) * Q
+    @eval (*)(A::AbstractSparseVector, Q::AdjQType{<:Any,<:$QT}) = Vector(A) * Q
+end
 
 # functions f, such that
 #   f(x) can be zero or non-zero when x != 0
