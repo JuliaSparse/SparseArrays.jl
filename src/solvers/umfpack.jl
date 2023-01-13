@@ -293,22 +293,6 @@ Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
 Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
     T(copy(parent(F), ws))
 
-Base.deepcopy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
-    UmfpackLU(
-    Symbolic{Tv, Ti}(C_NULL), # TODO: switch to a copy when upstream is available
-    Numeric{Tv, Ti}(C_NULL), # TODO: switch to a copy when upstream is available
-    F.m, F.n,
-    F.colptr,
-    F.rowval,
-    F.nzval,
-    F.status,
-    ws,
-    copy(F.control),
-    copy(F.info),
-    ReentrantLock())
-Base.deepcopy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
-    T(deepcopy(parent(F), ws))
-
 if !isdefined(LinearAlgebra, :AdjointFactorization)
     Base.adjoint(F::UmfpackLU) = Adjoint(F)
     Base.transpose(F::UmfpackLU) = Transpose(F)
