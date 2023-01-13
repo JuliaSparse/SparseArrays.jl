@@ -275,14 +275,16 @@ function estimate_mulsize(m::Integer, nnzA::Integer, n::Integer, nnzB::Integer, 
     p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0 # (1-(1-p)^n)*m*k
 end
 
+if VERSION < v"1.10.0-DEV.299"
+    top_set_bit(x::Base.BitInteger) = 8 * sizeof(x) - leading_zeros(x)
+else
+    top_set_bit(x::Base.BitInteger) = Base.top_set_bit(x)
+end
 # determine if sort! shall be used or the whole column be scanned
 # based on empirical data on i7-3610QM CPU
 # measuring runtimes of the scanning and sorting loops of the algorithm.
 # The parameters 6 and 3 might be modified for different architectures.
-prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * ilog2(nz) * nz < m
-
-# minimal number of bits required to represent integer; ilog2(n) >= log2(n)
-ilog2(n::Integer) = sizeof(n)<<3 - leading_zeros(n)
+prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * top_set_bit(nz) * nz < m
 
 # Frobenius dot/inner product: trace(A'B)
 function dot(A::AbstractSparseMatrixCSC{T1,S1},B::AbstractSparseMatrixCSC{T2,S2}) where {T1,T2,S1,S2}
