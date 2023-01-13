@@ -927,6 +927,30 @@ end
     end
 end
 
+@testset "sym indefinite poly alg" begin
+    K = open(joinpath(@__DIR__, "matrices", "stiffness_sym_indef")) do io
+        ml = readline(io)
+        m = parse(Int, split(ml, "m = ")[2])
+        nl = readline(io)
+        n = parse(Int, split(nl, "n = ")[2])
+
+        colptrl = readline(io)
+        rowvall = readline(io)
+        nzvall = readline(io)
+
+        colptr = parse.(Int,     split(strip(split(colptrl, "colptr = ")[2], [']', '[']), ','))
+        rowval = parse.(Int,     split(strip(split(rowvall, "rowval = ")[2], [']', '[']), ','))
+        nzval =  parse.(Float64, split(strip(split(nzvall, "nzval = ")[2], [']', '[']), ','))
+
+        SparseMatrixCSC(m, n, colptr, rowval, nzval)
+    end
+
+    f = ones(size(K, 1))
+    u = K \ f
+    residual = norm(f - K * u) / norm(f)
+    @test residual < 1e-6 
+end
+
 end # Base.USE_GPL_LIBS
 
 end # module
