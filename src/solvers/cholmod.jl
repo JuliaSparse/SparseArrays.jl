@@ -1577,12 +1577,7 @@ function \(A::RealHermSymComplexHermF64SSL, B::StridedVecOrMatInclAdjAndTrans)
     if issuccess(F)
         return \(F, B)
     else
-        ldlt!(F, A; check = false)
-        if issuccess(F)
-            return \(F, B)
-        else
-            return \(lu(SparseMatrixCSC{eltype(A), SuiteSparse_long}(A)), B)
-        end
+        return \(lu(SparseMatrixCSC{eltype(A), SuiteSparse_long}(A)), B)
     end
 end
 
