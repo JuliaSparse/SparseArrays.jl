@@ -15,7 +15,7 @@ import Base: (*), convert, copy, eltype, getindex, getproperty, show, size,
 using Base: require_one_based_indexing
 
 using LinearAlgebra
-using LinearAlgebra: RealHermSymComplexHerm
+using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans
 import LinearAlgebra: (\),
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
                  issuccess, issymmetric, ldlt, ldlt!, logdet
@@ -1587,7 +1587,7 @@ function \(A::RealHermSymComplexHermF64SSL, B::StridedVecOrMatInclAdjAndTrans)
     end
 end
 
-const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, Adjoint{<:Any, <:AbstractSparseVecOrMat}, Transpose{<:Any, <:AbstractSparseVecOrMat}}
+const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjOrTrans{<:Any, <:AbstractSparseVecOrMat}}
 \(A::RealHermSymComplexHermF64SSL, B::AbstractSparseVecOrMatInclAdjAndTrans) =
     throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs's, try to convert B to dense array"))
 
