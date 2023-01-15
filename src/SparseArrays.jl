@@ -57,6 +57,13 @@ decrement(A::AbstractArray) = let y = Array(A)
     y .= y .- oneunit(eltype(A))
 end
 
+AdjType = isdefined(LinearAlgebra, :AdjointFactorization) ?
+    LinearAlgebra.AdjointFactorization :
+    Adjoint
+TransType = isdefined(LinearAlgebra, :TransposeFactorization) ?
+    LinearAlgebra.TransposeFactorization :
+    Transpose
+
 include("readonly.jl")
 include("abstractsparse.jl")
 include("sparsematrix.jl")

@@ -30,7 +30,7 @@ export
 
 import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spzeros, nnz
 
-import ..increment, ..increment!
+import ..increment, ..increment!, ..AdjType, ..TransType
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse: SuiteSparse_long, TRUE, FALSE
@@ -334,9 +334,10 @@ mutable struct Factor{Tv<:VTypes} <: Factorization{Tv}
     end
 end
 
-Base.adjoint(F::Factor) = Adjoint(F)
-Base.transpose(F::Factor) = Transpose(F)
-
+if !isdefined(LinearAlgebra, :AdjointFactorization)
+    Base.adjoint(F::Factor) = Adjoint(F)
+    Base.transpose(F::Factor) = Transpose(F)
+end
 
 const SuiteSparseStruct = Union{cholmod_dense, cholmod_sparse, cholmod_factor}
 
@@ -1554,15 +1555,15 @@ end
 (\)(L::Factor, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::Factor, B::SparseVector) = sparse(spsolve(CHOLMOD_A, L, Sparse(B)))
 
-\(adjL::Adjoint{<:Any,<:Factor}, B::Dense) = (L = adjL.parent; solve(CHOLMOD_A, L, B))
-\(adjL::Adjoint{<:Any,<:Factor}, B::Sparse) = (L = adjL.parent; spsolve(CHOLMOD_A, L, B))
-\(adjL::Adjoint{<:Any,<:Factor}, B::SparseVecOrMat) = (L = adjL.parent; \(adjoint(L), Sparse(B)))
+\(adjL::AdjType{<:Any,<:Factor}, B::Dense) = (L = adjL.parent; solve(CHOLMOD_A, L, B))
+\(adjL::AdjType{<:Any,<:Factor}, B::Sparse) = (L = adjL.parent; spsolve(CHOLMOD_A, L, B))
+\(adjL::AdjType{<:Any,<:Factor}, B::SparseVecOrMat) = (L = adjL.parent; \(adjoint(L), Sparse(B)))
 
-function \(adjL::Adjoint{<:Any,<:Factor}, b::StridedVector)
+function \(adjL::AdjType{<:Any,<:Factor}, b::StridedVector)
     L = adjL.parent
     return Vector(solve(CHOLMOD_A, L, Dense(b)))
 end
-function \(adjL::Adjoint{<:Any,<:Factor}, B::StridedMatrix)
+function \(adjL::AdjType{<:Any,<:Factor}, B::StridedMatrix)
     L = adjL.parent
     return Matrix(solve(CHOLMOD_A, L, Dense(B)))
 end
