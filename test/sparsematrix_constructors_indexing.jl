@@ -36,7 +36,7 @@ end
     @test SparseMatrixCSC{eltype(a), Int}(a) == a
     @test SparseMatrixCSC{eltype(a)}(Array(a)) == a
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
-    @test convert(a) == a
+    @test collect(a) == a
 end
 
 @testset "sparse matrix construction" begin
