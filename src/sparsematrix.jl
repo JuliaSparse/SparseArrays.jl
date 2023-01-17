@@ -922,7 +922,7 @@ function sparse_with_lmul(Tv, Ti, Q)
     return SparseMatrixCSC{Tv,Ti}(size(Q)..., colptr, rowval, nzval)
 end
 
-# converting from SparseMatrixCSC to other matrix types
+# converting from AbstractSparseMatrixCSC to other matrix types
 function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
     _checkbuffers(S)
     A = Matrix{Tv}(undef, size(S, 1), size(S, 2))
@@ -930,6 +930,24 @@ function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
     return A
 end
 Array(S::AbstractSparseMatrixCSC) = Matrix(S)
+
+# Faster version for SparseMatrixCSC
+function Matrix(S::SparseMatrixCSC{Tv}) where Tv
+    n, m = size(S)
+    M = zeros(Tv, n, m);
+    isempty(M) && return M
+    colptr = getcolptr(S)
+    rowval = getrowval(S)
+    nzval = getnzval(S)
+    for col in 1:length(colptr)-1
+        for i in colptr[col]:(colptr[col+1]-1)
+            row = rowval[i]
+            val = nzval[i]
+            M[row,col] = val
+        end
+    end
+    return M
+end
 
 convert(T::Type{<:AbstractSparseMatrixCSC}, m::AbstractMatrix) = m isa T ? m : T(m)
 
