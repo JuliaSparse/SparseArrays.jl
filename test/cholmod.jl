@@ -719,8 +719,16 @@ end
 
 @testset "Real factorization and complex rhs" begin
     A = sprandn(5, 5, 0.4) |> t -> t't + I
-    B = complex.(randn(5, 2), randn(5, 2))
+    B = complex.(randn(5, 5), randn(5, 5))
+    b = B[:,1]
+    @test cholesky(A)\b ≈ A\b
     @test cholesky(A)\B ≈ A\B
+    @test cholesky(A)\B' ≈ A\B'
+    @test cholesky(A)\transpose(B) ≈ A\transpose(B)
+    @test cholesky(A)'\b ≈ copy(A')\b
+    @test cholesky(A)'\B ≈ copy(A')\B
+    @test cholesky(A)'\B' ≈ copy(A')\B'
+    @test cholesky(A)'\transpose(B) ≈ copy(A')\transpose(B)
 end
 
 @testset "Make sure that ldlt performs an LDLt (Issue #19032)" begin
