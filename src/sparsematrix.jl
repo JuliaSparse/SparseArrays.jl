@@ -931,10 +931,8 @@ function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
 end
 Array(S::AbstractSparseMatrixCSC) = Matrix(S)
 
-# Faster version for SparseMatrixCSC
-function Matrix(S::SparseMatrixCSC{Tv}) where Tv
-    n, m = size(S)
-    M = zeros(Tv, n, m);
+# Copy the structural nonzeros from S to M
+function _copy_nonzeros_to!(M::Matrix, S::SparseMatrixCSC)
     isempty(M) && return M
     colptr = getcolptr(S)
     rowval = getrowval(S)
@@ -947,6 +945,18 @@ function Matrix(S::SparseMatrixCSC{Tv}) where Tv
         end
     end
     return M
+end
+
+function Base.copyto!(M::Matrix, S::SparseMatrixCSC{T}) where T
+    if size(M) == size(S)
+        fill!(M, 0)
+    elseif size(M,1) >= size(S,1) && size(M,2) >= size(S,2)
+        m_view = view(M, 1:size(S,1), 1:size(S,2))
+        fill!(m_view, zero(T))
+    else
+        throw(BoundsError)
+    end
+    return _copy_nonzeros_to!(M, S)
 end
 
 convert(T::Type{<:AbstractSparseMatrixCSC}, m::AbstractMatrix) = m isa T ? m : T(m)
