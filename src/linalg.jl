@@ -369,7 +369,7 @@ const WrapperMatrixTypes{T,MT} = Union{
     SubArray{T,2,MT},
     Adjoint{T,MT},
     Transpose{T,MT},
-    AbstractTriangular{T,MT},
+    UpperOrLowerTriangular{T,MT},
     UpperHessenberg{T,MT},
     Symmetric{T,MT},
     Hermitian{T,MT},

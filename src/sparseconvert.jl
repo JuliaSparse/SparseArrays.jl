@@ -1,7 +1,5 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-import LinearAlgebra: AbstractTriangular
-
 """
     SparseMatrixCSCSymmHerm
 
@@ -10,10 +8,10 @@ import LinearAlgebra: AbstractTriangular
 const SparseMatrixCSCSymmHerm{Tv,Ti} = Union{Symmetric{Tv,<:SparseMatrixCSCUnion{Tv,Ti}},
                                             Hermitian{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}}
 
-const AbstractTriangularSparse{Tv,Ti} = AbstractTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
+const AbstractTriangularSparse{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
 
-# converting Symmetric/Hermitian/AbstractTriangular/SubArray of SparseMatrixCSC
-# and Transpose/Adjoint of AbstractTriangular of SparseMatrixCSC to SparseMatrixCSC
+# converting Symmetric/Hermitian/Triangular/SubArray of SparseMatrixCSC
+# and Transpose/Adjoint of Triangular of SparseMatrixCSC to SparseMatrixCSC
 for wr in (Symmetric, Hermitian, Transpose, Adjoint,
            UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular,
            SubArray)

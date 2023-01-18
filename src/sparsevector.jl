@@ -1192,7 +1192,7 @@ const _SparseConcatArrays = Union{_SpecialArrays, _SparseArrays}
 
 const _Symmetric_SparseConcatArrays{T,A<:_SparseConcatArrays} = Symmetric{T,A}
 const _Hermitian_SparseConcatArrays{T,A<:_SparseConcatArrays} = Hermitian{T,A}
-const _Triangular_SparseConcatArrays{T,A<:_SparseConcatArrays} = LinearAlgebra.AbstractTriangular{T,A}
+const _Triangular_SparseConcatArrays{T,A<:_SparseConcatArrays} = UpperOrLowerTriangular{T,A}
 const _Annotated_SparseConcatArrays = Union{_Triangular_SparseConcatArrays, _Symmetric_SparseConcatArrays, _Hermitian_SparseConcatArrays}
 # It's important that _SparseConcatGroup is a larger union than _DenseConcatGroup to make
 # sparse cat-methods less specific and to kick in only if there is some sparse array present
