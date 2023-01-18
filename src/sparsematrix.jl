@@ -933,7 +933,6 @@ Array(S::AbstractSparseMatrixCSC) = Matrix(S)
 
 # Copy the structural nonzeros from S to M
 function _copy_nonzeros_to!(M::Matrix, S::SparseMatrixCSC)
-    isempty(M) && return M
     colptr = getcolptr(S)
     rowval = getrowval(S)
     nzval = getnzval(S)
@@ -947,16 +946,18 @@ function _copy_nonzeros_to!(M::Matrix, S::SparseMatrixCSC)
     return M
 end
 
-function Base.copyto!(M::Matrix, S::SparseMatrixCSC{T}) where T
+function Base.copyto!(M::Matrix{<:Number}, S::SparseMatrixCSC{T}) where T<:Number
+    isempty(S) && return M
     if size(M) == size(S)
         fill!(M, zero(T))
-    elseif size(M,1) >= size(S,1) && size(M,2) >= size(S,2)
-        m_view = view(M, 1:size(S,1), 1:size(S,2))
-        fill!(m_view, zero(T))
+        _copy_nonzeros_to!(M, S)
+    elseif length(M) >= length(S)
+        m_view = view(M, 1:length(S))
+        copyto!(m_view, S)
+        return m_view
     else
         throw(BoundsError())
     end
-    return _copy_nonzeros_to!(M, S)
 end
 
 convert(T::Type{<:AbstractSparseMatrixCSC}, m::AbstractMatrix) = m isa T ? m : T(m)
