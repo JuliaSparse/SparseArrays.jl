@@ -949,12 +949,12 @@ end
 
 function Base.copyto!(M::Matrix, S::SparseMatrixCSC{T}) where T
     if size(M) == size(S)
-        fill!(M, 0)
+        fill!(M, zero(T))
     elseif size(M,1) >= size(S,1) && size(M,2) >= size(S,2)
         m_view = view(M, 1:size(S,1), 1:size(S,2))
         fill!(m_view, zero(T))
     else
-        throw(BoundsError)
+        throw(BoundsError())
     end
     return _copy_nonzeros_to!(M, S)
 end
