@@ -954,7 +954,7 @@ function Base.copyto!(M::Matrix{<:Number}, S::SparseMatrixCSC{T}) where T<:Numbe
     elseif length(M) >= length(S)
         m_view = view(M, 1:length(S))
         copyto!(m_view, S)
-        return m_view
+        return M
     else
         throw(BoundsError())
     end
