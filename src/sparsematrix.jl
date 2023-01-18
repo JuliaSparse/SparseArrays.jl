@@ -950,7 +950,7 @@ function Base.copyto!(M::Matrix{<:Number}, S::SparseMatrixCSC{T}) where T<:Numbe
     isempty(S) && return M
     if size(M) == size(S)
         fill!(M, zero(T))
-        _copy_nonzeros_to!(M, S)
+        return _copy_nonzeros_to!(M, S)
     elseif length(M) >= length(S)
         m_view = view(M, 1:length(S))
         copyto!(m_view, S)
