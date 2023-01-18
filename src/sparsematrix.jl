@@ -950,7 +950,7 @@ function _copy_nonzeros_to!(A::Array, S::SparseMatrixCSC)
 end
 
 function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
-    isempty(S) && return M
+    isempty(S) && return A
     length(A) < length(S) && throw(BoundsError())
     
     # Zero elements that are also in S, don't change rest of A 
