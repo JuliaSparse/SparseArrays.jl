@@ -1365,6 +1365,7 @@ end
 @inline function kron!(z::SparseVector, x::SparseVector, y::SparseVector)
     @boundscheck length(z) == length(x)*length(y) || throw(DimensionMismatch("length of " *
         "target vector needs to be $(length(x)*length(y)), but has length $(length(z))"))
+    nnzx = nnz(x); nnzy = nnz(y);
     nzind = nonzeroinds(z)
     nzval = nonzeros(z)
 
