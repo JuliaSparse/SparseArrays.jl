@@ -10,7 +10,7 @@ using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
 using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, matprod, AbstractQ, HessenbergQ, QRCompactWYQ, QRPackedQ,
-    LQPackedQ
+    LQPackedQ, UpperOrLowerTriangular
 
 
 import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
