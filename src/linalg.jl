@@ -613,10 +613,10 @@ end
 ## triangular solvers
 function ldiv!(A::TriangularSparse{T}, B::StridedVecOrMat{T}) where T
     require_one_based_indexing(A, B)
-    nrowB, ncolB  = size(B, 1), size(B, 2)
+    nrowB = size(B, 1)
     ncol = LinearAlgebra.checksquare(A)
     if nrowB != ncol
-        throw(DimensionMismatch("A is $(ncol) columns and B has $(nrowB) rows"))
+        throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowB) rows"))
     end
     _ldiv!(A, B)
 end
