@@ -753,6 +753,10 @@ end
         @test Vector(kron(x, z)) == kron(x_d, z_d)
         @test Array(kron(a, z)) == kron(a_d, z_d)
         @test Array(kron(z, b)) == kron(z_d, b_d)
+        # test bounds checks
+        @test_throws DimensionMismatch kron!(copy(a), a, b)
+        @test_throws DimensionMismatch kron!(copy(x), x, y)
+        @test_throws DimensionMismatch kron!(spzeros(2,2), x, y')
     end
 end
 
