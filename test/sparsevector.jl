@@ -463,7 +463,7 @@ end
         @test Vector(x1) == collect(x)
     end
 end
-@testset "vec/reinterpret/float/complex" begin
+@testset "vec/float/complex" begin
     a = SparseVector(8, [2, 5, 6], Int32[12, 35, 72])
     # vec
     @test vec(a) == a
