@@ -1316,7 +1316,8 @@ end
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
     mC, nC = mA*mB, nA*nB
-
+    @boundscheck size(C) == (mC, nC) || throw(DimensionMismatch("target matrix needs to have size ($mC, $nC)," * 
+        " but has size $(size(C))"))
     rowvalC = rowvals(C)
     nzvalC = nonzeros(C)
     colptrC = getcolptr(C)
@@ -1360,6 +1361,8 @@ end
     return kron!(C, copy(A), copy(B))
 end
 @inline function kron!(z::SparseVector, x::SparseVector, y::SparseVector)
+    @boundscheck length(z) == length(x)*length(y) || throw(DimensionMismatch("length of " *
+        "target vector needs to be $(length(x)*length(y)), but has length $(length(z))"))
     nnzx = nnz(x); nnzy = nnz(y);
     nzind = nonzeroinds(z)
     nzval = nonzeros(z)
