@@ -515,16 +515,17 @@ end
         @test sparse(Fs.L) ≈ Lf
         @test sparse(Fs) ≈ As
         b = rand(3)
-        @test Fs\b ≈ Af\b
+        bs = sparse(b)
+        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ Lf\b
-        @test Fs.U\b ≈ Lf'\b
-        @test Fs.L'\b ≈ Lf'\b
-        @test Fs.U'\b ≈ Lf\b
-        @test Fs.PtL\b ≈ Lf\b
-        @test Fs.UP\b ≈ Lf'\b
-        @test Fs.PtL'\b ≈ Lf'\b
-        @test Fs.UP'\b ≈ Lf\b
+        @test Fs.L\b ≈ Lf\b ≈ (Fs.L\bs)::SparseVector
+        @test Fs.U\b ≈ Lf'\b ≈ (Fs.U\bs)::SparseVector
+        @test Fs.L'\b ≈ Lf'\b ≈ (Fs.L'\bs)::SparseVector
+        @test Fs.U'\b ≈ Lf\b ≈ (Fs.U'\bs)::SparseVector
+        @test Fs.PtL\b ≈ Lf\b ≈ (Fs.PtL\bs)::SparseVector
+        @test Fs.UP\b ≈ Lf'\b ≈ (Fs.UP\bs)::SparseVector
+        @test Fs.PtL'\b ≈ Lf'\b ≈ (Fs.PtL'\bs)::SparseVector
+        @test Fs.UP'\b ≈ Lf\b ≈ (Fs.UP'\bs)::SparseVector
         @test_throws CHOLMOD.CHOLMODException Fs.D
         @test_throws CHOLMOD.CHOLMODException Fs.LD
         @test_throws CHOLMOD.CHOLMODException Fs.DU
@@ -544,16 +545,17 @@ end
         @test P' * Ls * Ls' * P ≈ As
         @test sparse(Fs) ≈ As
         b = rand(3)
-        @test Fs\b ≈ Af\b
+        bs = sparse(b)
+        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ Lfp\b
-        @test Fs.U'\b ≈ Lfp\b
-        @test Fs.U\b ≈ Lfp'\b
-        @test Fs.L'\b ≈ Lfp'\b
-        @test Fs.PtL\b ≈ Lfp\b[p]
-        @test Fs.UP\b ≈ (Lfp'\b)[p_inv]
-        @test Fs.PtL'\b ≈ (Lfp'\b)[p_inv]
-        @test Fs.UP'\b ≈ Lfp\b[p]
+        @test Fs.L\b ≈ Lfp\b ≈ (Fs.L\bs)::SparseVector
+        @test Fs.U'\b ≈ Lfp\b ≈ (Fs.U'\bs)::SparseVector
+        @test Fs.U\b ≈ Lfp'\b ≈ (Fs.U\bs)::SparseVector
+        @test Fs.L'\b ≈ Lfp'\b ≈ (Fs.L'\bs)::SparseVector
+        @test Fs.PtL\b ≈ Lfp\b[p] ≈ (Fs.PtL\bs)::SparseVector
+        @test Fs.UP\b ≈ (Lfp'\b)[p_inv] ≈ (Fs.UP\bs)::SparseVector
+        @test Fs.PtL'\b ≈ (Lfp'\b)[p_inv] ≈ (Fs.PtL'\bs)::SparseVector
+        @test Fs.UP'\b ≈ Lfp\b[p] ≈ (Fs.UP'\bs)::SparseVector
         @test_throws CHOLMOD.CHOLMODException Fs.PL
         @test_throws CHOLMOD.CHOLMODException Fs.UPt
         @test_throws CHOLMOD.CHOLMODException Fs.D
@@ -569,14 +571,15 @@ end
         @test sparse(Fs.LD) ≈ LDf
         @test sparse(Fs) ≈ As
         b = rand(3)
-        @test Fs\b ≈ Af\b
+        bs = sparse(b)
+        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtLD\b) ≈ Af\b
         @test Fs.DUP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ L_f\b
-        @test Fs.U\b ≈ L_f'\b
+        @test Fs.L\b ≈ L_f\b ≈ (Fs.L\bs)::SparseVector
+        @test Fs.U\b ≈ L_f'\b ≈ (Fs.U\bs)::SparseVector
         @test Fs.L'\b ≈ L_f'\b
         @test Fs.U'\b ≈ L_f\b
-        @test Fs.PtL\b ≈ L_f\b
+        @test Fs.PtL\b ≈ L_f\b ≈ (Fs.PtL\bs)::SparseVector
         @test Fs.UP\b ≈ L_f'\b
         @test Fs.PtL'\b ≈ L_f'\b
         @test Fs.UP'\b ≈ L_f\b
@@ -597,19 +600,20 @@ end
         @test Fs.p == p
         @test sparse(Fs) ≈ As
         b = rand(3)
+        bs = sparse(b)
         Asp = As[p,p]
         LDp = sparse(ldlt(Asp, perm=[1,2,3]).LD)
         # LDp = sparse(Fs.LD)
         Lp, dp = CHOLMOD.getLd!(copy(LDp))
         Dp = sparse(Diagonal(dp))
-        @test Fs\b ≈ Af\b
+        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtLD\b) ≈ Af\b
         @test Fs.DUP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ Lp\b
-        @test Fs.U\b ≈ Lp'\b
+        @test Fs.L\b ≈ Lp\b ≈ (Fs.L\bs)::SparseVector
+        @test Fs.U\b ≈ Lp'\b ≈ (Fs.U\bs)::SparseVector
         @test Fs.L'\b ≈ Lp'\b
         @test Fs.U'\b ≈ Lp\b
-        @test Fs.PtL\b ≈ Lp\b[p]
+        @test Fs.PtL\b ≈ Lp\b[p] ≈ (Fs.PtL\bs)::SparseVector
         @test Fs.UP\b ≈ (Lp'\b)[p_inv]
         @test Fs.PtL'\b ≈ (Lp'\b)[p_inv]
         @test Fs.UP'\b ≈ Lp\b[p]
@@ -925,6 +929,30 @@ end
     )
         @test getproperty(current_common[], name) == getproperty(default_common[], name)
     end
+end
+
+@testset "sym indefinite poly alg" begin
+    K = open(joinpath(@__DIR__, "matrices", "stiffness_sym_indef")) do io
+        ml = readline(io)
+        m = parse(Int, split(ml, "m = ")[2])
+        nl = readline(io)
+        n = parse(Int, split(nl, "n = ")[2])
+
+        colptrl = readline(io)
+        rowvall = readline(io)
+        nzvall = readline(io)
+
+        colptr = parse.(Int,     split(strip(split(colptrl, "colptr = ")[2], [']', '[']), ','))
+        rowval = parse.(Int,     split(strip(split(rowvall, "rowval = ")[2], [']', '[']), ','))
+        nzval =  parse.(Float64, split(strip(split(nzvall, "nzval = ")[2], [']', '[']), ','))
+
+        SparseMatrixCSC(m, n, colptr, rowval, nzval)
+    end
+
+    f = ones(size(K, 1))
+    u = K \ f
+    residual = norm(f - K * u) / norm(f)
+    @test residual < 1e-6 
 end
 
 end # Base.USE_GPL_LIBS

@@ -9,7 +9,8 @@ using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
     require_one_based_indexing, promote_eltype
 using Base.Order: Forward
 using LinearAlgebra
-using LinearAlgebra: AdjOrTrans, matprod, AbstractQ
+using LinearAlgebra: AdjOrTrans, matprod, AbstractQ, HessenbergQ, QRCompactWYQ, QRPackedQ,
+    LQPackedQ
 
 
 import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
@@ -31,6 +32,10 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
 
+const AdjQType = isdefined(LinearAlgebra, :AdjointQ) ? LinearAlgebra.AdjointQ : Adjoint
+
+const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
+
 # helper function needed in sparsematrix, sparsevector and higherorderfns
 # `iszero` and `!iszero` don't guarantee to return a boolean but we need one that does
 # to remove the handle the structure of the array.
@@ -51,6 +56,13 @@ end
 decrement(A::AbstractArray) = let y = Array(A)
     y .= y .- oneunit(eltype(A))
 end
+
+AdjType = isdefined(LinearAlgebra, :AdjointFactorization) ?
+    LinearAlgebra.AdjointFactorization :
+    Adjoint
+TransType = isdefined(LinearAlgebra, :TransposeFactorization) ?
+    LinearAlgebra.TransposeFactorization :
+    Transpose
 
 include("readonly.jl")
 include("abstractsparse.jl")
