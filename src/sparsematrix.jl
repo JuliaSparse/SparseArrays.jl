@@ -945,8 +945,8 @@ function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Numbe
     colptr = getcolptr(S)
     rowval = getrowval(S)
     nzval = getnzval(S)
-    for col in 1:length(colptr)-1
-        for i in colptr[col]:(colptr[col+1]-1)
+    for col in 1:size(S, 2)
+        for i in nzrange(S, col)
             row = rowval[i]
             val = nzval[i]
             linear_index = num_rows*(col-1)+row
