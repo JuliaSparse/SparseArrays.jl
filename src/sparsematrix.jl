@@ -641,6 +641,32 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
     return dest
 end
 
+# Faster version for non-abstract Array and SparseMatrixCSC 
+function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
+    isempty(S) && return A
+    length(A) < length(S) && throw(BoundsError())
+    
+    # Zero elements that are also in S, don't change rest of A 
+    @inbounds for i in 1:length(S)
+        A[i] = zero(T)
+    end
+    # Copy the structural nonzeros from S to A using 
+    # the linear indices (to work when size(A)!=size(S))
+    num_rows = size(S,1)
+    rowval = getrowval(S)
+    nzval = getnzval(S)
+    linear_index_col0 = 0   # Linear index before column (linear index = linear_index_col0 + row)
+    for col in 1:size(S, 2)
+        for i in nzrange(S, col)
+            row = rowval[i]
+            val = nzval[i]
+            A[linear_index_col0+row] = val
+        end
+        linear_index_col0 += num_rows
+    end
+    return A
+end
+
 ## similar
 #
 # parent method for similar that preserves stored-entry structure (for when new and old dims match)
@@ -930,31 +956,6 @@ function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
     return A
 end
 Array(S::AbstractSparseMatrixCSC) = Matrix(S)
-
-function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
-    isempty(S) && return A
-    length(A) < length(S) && throw(BoundsError())
-    
-    # Zero elements that are also in S, don't change rest of A 
-    @inbounds for i in 1:length(S)
-        A[i] = zero(T)
-    end
-    # Copy the structural nonzeros from S to M using 
-    # the linear indices (to work when size(M)!=size(S))
-    num_rows = size(S,1)
-    colptr = getcolptr(S)
-    rowval = getrowval(S)
-    nzval = getnzval(S)
-    for col in 1:size(S, 2)
-        for i in nzrange(S, col)
-            row = rowval[i]
-            val = nzval[i]
-            linear_index = num_rows*(col-1)+row
-            A[linear_index] = val
-        end
-    end
-    return A
-end
 
 convert(T::Type{<:AbstractSparseMatrixCSC}, m::AbstractMatrix) = m isa T ? m : T(m)
 
