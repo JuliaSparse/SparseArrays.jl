@@ -1559,10 +1559,10 @@ end
 (\)(L::Factor{T}, B::Dense{T}) where {T<:VTypes} = solve(CHOLMOD_A, L, B)
 # Explicit typevars are necessary to avoid ambiguities with defs in linalg/factorizations.jl
 # Likewise the two following explicit Vector and Matrix defs (rather than a single VecOrMat)
-(\)(L::Factor{Float64}, B::Vector{Complex{Float64}}) = complex.(L\real(B), L\imag(B))
-(\)(L::Factor{Float64}, B::Matrix{Complex{Float64}}) = complex.(L\real(B), L\imag(B))
-(\)(L::Factor{Float64}, B::Adjoint{<:Any,Matrix{Complex{Float64}}}) = complex.(L\real(B), L\imag(B))
-(\)(L::Factor{Float64}, B::Transpose{<:Any,Matrix{Complex{Float64}}}) = complex.(L\real(B), L\imag(B))
+(\)(L::Factor{T}, B::Vector{Complex{T}}) where {T<:Float64} = complex.(L\real(B), L\imag(B))
+(\)(L::Factor{T}, B::Matrix{Complex{T}}) where {T<:Float64} = complex.(L\real(B), L\imag(B))
+(\)(L::Factor{T}, B::Adjoint{<:Any, <:Matrix{Complex{T}}}) where {T<:Float64} = complex.(L\real(B), L\imag(B))
+(\)(L::Factor{T}, B::Transpose{<:Any, <:Matrix{Complex{T}}}) where {T<:Float64} = complex.(L\real(B), L\imag(B))
 
 (\)(L::Factor{T}, b::StridedVector) where {T<:VTypes} = Vector(L\Dense{T}(b))
 (\)(L::Factor{T}, B::StridedMatrix) where {T<:VTypes} = Matrix(L\Dense{T}(B))
