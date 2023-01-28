@@ -783,6 +783,11 @@ g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
     @test String(take!(io)) == "transpose(sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2))"
 end
 
+@testset "Issue #334" begin
+    x = sprand(10, .3);
+    @test issorted(sort!(x; alg=Base.DEFAULT_STABLE));
+end
+
 end # SparseTestsBase
 
 end # module
