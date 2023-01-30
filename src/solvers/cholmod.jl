@@ -1588,8 +1588,9 @@ function \(A::RealHermSymComplexHermF64SSL, B::StridedVecOrMatInclAdjAndTrans)
 end
 
 const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjOrTrans{<:Any, <:AbstractSparseVecOrMat}}
-\(A::RealHermSymComplexHermF64SSL, B::AbstractSparseVecOrMatInclAdjAndTrans) =
-    throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs's, try to convert B to dense array"))
+\(::RealHermSymComplexHermF64SSL, ::AbstractSparseVecOrMatInclAdjAndTrans) =
+    throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
+        " consider to convert B to a dense array"))
 
 ## Other convenience methods
 function diag(F::Factor{Tv}) where Tv
