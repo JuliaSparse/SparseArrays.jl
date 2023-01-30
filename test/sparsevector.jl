@@ -59,6 +59,7 @@ end
         @test isa(Array(x), Vector{Float64})
         @test Array(x) == xf
         @test Vector(x) == xf
+        @test collect(x) == xf
     end
 end
 @testset "show" begin
