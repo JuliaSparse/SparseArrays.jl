@@ -1086,11 +1086,11 @@ copy(x::AbstractSparseVector) = if _is_fixed(x)
 
 float(x::AbstractSparseVector{<:AbstractFloat}) = x
 float(x::AbstractSparseVector) =
-    SparseVector(length(x), copy(nonzeroinds(x)), float(nonzeros(x)))
+    SparseVector(length(x), nonzeroinds(x), float(nonzeros(x)))
 
 complex(x::AbstractSparseVector{<:Complex}) = x
 complex(x::AbstractSparseVector) =
-    SparseVector(length(x), copy(nonzeroinds(x)), complex(nonzeros(x)))
+    SparseVector(length(x), nonzeroinds(x), complex(nonzeros(x)))
 
 
 ### Concatenation
