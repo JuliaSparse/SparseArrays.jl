@@ -1316,7 +1316,7 @@ end
 
 ## kron
 const _SparseArraysCSC{T} = Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}
-const _SparseKronArrays = Union{_SpecialArrays, _SparseArrays, AdjOrTrans{<:Any,<:_SparseArraysCSC}}
+const _SparseKronArrays = Union{_SparseArrays, AdjOrTrans{<:Any,<:_SparseArraysCSC}}
 
 const _Symmetric_SparseKronArrays{T,A<:_SparseKronArrays} = Symmetric{T,A}
 const _Hermitian_SparseKronArrays{T,A<:_SparseKronArrays} = Hermitian{T,A}
