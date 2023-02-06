@@ -2,6 +2,7 @@
 using Test, LinearAlgebra, SparseArrays
 @testset "detect_ambiguities" begin
     @test_nowarn detect_ambiguities(SparseArrays; recursive=true, ambiguous_bottom=false)
+    @test_nowarn detect_ambiguities(LinearAlgebra; recursive=true, ambiguous_bottom=false)
 end
 
 ## This was the older version that was disabled
