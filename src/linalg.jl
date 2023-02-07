@@ -1380,23 +1380,19 @@ end
     end
     return z
 end
-@inline function kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseConcatGroup)
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseConcatGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-end
-@inline function kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) # disambiguation
+kron!(C::SparseMatrixCSC, A::_DenseConcatGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-end
-@inline function kron!(C::SparseMatrixCSC, A::_DenseConcatGroup, B::_SparseKronGroup)
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-end
-@inline function kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup)
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-end
-kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) = broadcast!(*, C, A, B)
+kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) =
+    broadcast!(*, C, A, B)
 # disambiguation
-@inline function kron!(C::SparseMatrixCSC, A::Diagonal, B::_SparseKronGroup)
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-end
+kron!(C::SparseMatrixCSC, A::Diagonal, B::_SparseKronGroup) =
+    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(c::SparseMatrixCSC, a::Number, b::_SparseKronGroup) = mul!(c, a, b)
 kron!(c::SparseMatrixCSC, a::_SparseKronGroup, b::Number) = mul!(c, a, b)
 
