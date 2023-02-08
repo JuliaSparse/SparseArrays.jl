@@ -29,9 +29,10 @@ export
     Factor,
     Sparse
 
-import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spzeros, nnz
+import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spzeros, nnz,
+    sparsevec
 
-import ..increment, ..increment!
+import ..increment, ..increment!, ..AdjType, ..TransType
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse: SuiteSparse_long, TRUE, FALSE
@@ -335,9 +336,10 @@ mutable struct Factor{Tv<:VTypes} <: Factorization{Tv}
     end
 end
 
-Base.adjoint(F::Factor) = Adjoint(F)
-Base.transpose(F::Factor) = Transpose(F)
-
+if !isdefined(LinearAlgebra, :AdjointFactorization)
+    Base.adjoint(F::Factor) = Adjoint(F)
+    Base.transpose(F::Factor) = Transpose(F)
+end
 
 const SuiteSparseStruct = Union{cholmod_dense, cholmod_sparse, cholmod_factor}
 
@@ -864,7 +866,18 @@ function _trim_nz_builder!(m, n, colptr, rowval, nzval)
     l = colptr[end] - 1
     resize!(rowval, l)
     resize!(nzval, l)
-    SparseMatrixCSC(m, n, colptr, rowval, nzval)
+    return (m, n, colptr, rowval, nzval)
+end
+
+function SparseVector{Tv,SuiteSparse_long}(A::Sparse{Tv}) where Tv
+    s = unsafe_load(pointer(A))
+    if s.stype != 0
+        throw(ArgumentError("matrix has stype != 0. Convert to matrix " *
+            "with stype == 0 before converting to SparseVector"))
+    end
+    args = _extract_args(s, Tv)
+    s.sorted == 0 && _sort_buffers!(args...);
+    return SparseVector(args[1], args[4], args[5])
 end
 
 function SparseMatrixCSC{Tv,SuiteSparse_long}(A::Sparse{Tv}) where Tv
@@ -875,7 +888,7 @@ function SparseMatrixCSC{Tv,SuiteSparse_long}(A::Sparse{Tv}) where Tv
     end
     args = _extract_args(s, Tv)
     s.sorted == 0 && _sort_buffers!(args...);
-    return _trim_nz_builder!(args...)
+    return SparseMatrixCSC(_trim_nz_builder!(args...)...)
 end
 
 function Symmetric{Float64,SparseMatrixCSC{Float64,SuiteSparse_long}}(A::Sparse{Float64})
@@ -883,7 +896,7 @@ function Symmetric{Float64,SparseMatrixCSC{Float64,SuiteSparse_long}}(A::Sparse{
     issymmetric(A) || throw(ArgumentError("matrix is not symmetric"))
     args = _extract_args(s, Float64)
     s.sorted == 0 && _sort_buffers!(args...)
-    Symmetric(_trim_nz_builder!(args...), s.stype > 0 ? :U : :L)
+    Symmetric(SparseMatrixCSC(_trim_nz_builder!(args...)...), s.stype > 0 ? :U : :L)
 end
 convert(T::Type{Symmetric{Float64,SparseMatrixCSC{Float64,SuiteSparse_long}}}, A::Sparse{Float64}) = T(A)
 
@@ -892,9 +905,15 @@ function Hermitian{Tv,SparseMatrixCSC{Tv,SuiteSparse_long}}(A::Sparse{Tv}) where
     ishermitian(A) || throw(ArgumentError("matrix is not Hermitian"))
     args = _extract_args(s, Tv)
     s.sorted == 0 && _sort_buffers!(args...)
-    Hermitian(_trim_nz_builder!(args...), s.stype > 0 ? :U : :L)
+    Hermitian(SparseMatrixCSC(_trim_nz_builder!(args...)...), s.stype > 0 ? :U : :L)
 end
 convert(T::Type{Hermitian{Tv,SparseMatrixCSC{Tv,SuiteSparse_long}}}, A::Sparse{Tv}) where {Tv<:VTypes} = T(A)
+
+function sparsevec(A::Sparse{Tv}) where {Tv}
+    s = unsafe_load(pointer(A))
+    @assert s.stype == 0
+    return SparseVector{Tv,SuiteSparse_long}(A)
+end
 
 function sparse(A::Sparse{Float64}) # Notice! Cannot be type stable because of stype
     s = unsafe_load(pointer(A))
@@ -1527,7 +1546,10 @@ end
 function (\)(L::FactorComponent, B::Matrix)
     Matrix(L\Dense(B))
 end
-function (\)(L::FactorComponent, B::SparseVecOrMat)
+function (\)(L::FactorComponent, B::SparseVector)
+    sparsevec(L\Sparse(B))
+end
+function (\)(L::FactorComponent, B::SparseMatrixCSC)
     sparse(L\Sparse(B,0))
 end
 (\)(L::FactorComponent, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
@@ -1553,17 +1575,23 @@ end
 (\)(L::Factor, B::SparseMatrixCSC) = sparse(spsolve(CHOLMOD_A, L, Sparse(B, 0)))
 (\)(L::Factor, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::Factor, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
-(\)(L::Factor, B::SparseVector) = sparse(spsolve(CHOLMOD_A, L, Sparse(B)))
+(\)(L::Factor, B::SparseVector) = sparsevec(spsolve(CHOLMOD_A, L, Sparse(B)))
 
-\(adjL::Adjoint{<:Any,<:Factor}, B::Dense) = (L = adjL.parent; solve(CHOLMOD_A, L, B))
-\(adjL::Adjoint{<:Any,<:Factor}, B::Sparse) = (L = adjL.parent; spsolve(CHOLMOD_A, L, B))
-\(adjL::Adjoint{<:Any,<:Factor}, B::SparseVecOrMat) = (L = adjL.parent; \(adjoint(L), Sparse(B)))
+\(adjL::AdjType{<:Any,<:Factor}, B::Dense) = (L = adjL.parent; solve(CHOLMOD_A, L, B))
+\(adjL::AdjType{<:Any,<:Factor}, B::Sparse) = (L = adjL.parent; spsolve(CHOLMOD_A, L, B))
+\(adjL::AdjType{<:Any,<:Factor}, B::SparseVecOrMat) = (L = adjL.parent; \(adjoint(L), Sparse(B)))
 
-function \(adjL::Adjoint{<:Any,<:Factor}, b::StridedVector)
+# Explicit typevars are necessary to avoid ambiguities with defs in LinearAlgebra/factorizations.jl
+# Likewise the two following explicit Vector and Matrix defs (rather than a single VecOrMat)
+(\)(adjL::AdjType{T,<:Factor}, B::Vector{Complex{T}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjType{T,<:Factor}, B::Matrix{Complex{T}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjType{T,<:Factor}, B::Adjoint{<:Any,Matrix{Complex{T}}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjType{T,<:Factor}, B::Transpose{<:Any,Matrix{Complex{T}}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
+function \(adjL::AdjType{<:VTypes,<:Factor}, b::StridedVector)
     L = adjL.parent
     return Vector(solve(CHOLMOD_A, L, Dense(b)))
 end
-function \(adjL::Adjoint{<:Any,<:Factor}, B::StridedMatrix)
+function \(adjL::AdjType{<:VTypes,<:Factor}, B::StridedMatrix)
     L = adjL.parent
     return Matrix(solve(CHOLMOD_A, L, Dense(B)))
 end
@@ -1578,12 +1606,7 @@ function \(A::RealHermSymComplexHermF64SSL, B::StridedVecOrMatInclAdjAndTrans)
     if issuccess(F)
         return \(F, B)
     else
-        ldlt!(F, A; check = false)
-        if issuccess(F)
-            return \(F, B)
-        else
-            return \(lu(SparseMatrixCSC{eltype(A), SuiteSparse_long}(A)), B)
-        end
+        return \(lu(SparseMatrixCSC{eltype(A), SuiteSparse_long}(A)), B)
     end
 end
 

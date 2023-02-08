@@ -36,6 +36,7 @@ end
     @test SparseMatrixCSC{eltype(a), Int}(a) == a
     @test SparseMatrixCSC{eltype(a)}(Array(a)) == a
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
+    @test collect(a) == a
 end
 
 @testset "sparse matrix construction" begin
@@ -301,7 +302,8 @@ end
 @testset "copyto!" begin
     A = sprand(5, 5, 0.2)
     B = sprand(5, 5, 0.2)
-    copyto!(A, B)
+    Ar = copyto!(A, B)
+    @test Ar === A
     @test A == B
     @test pointer(nonzeros(A)) != pointer(nonzeros(B))
     @test pointer(rowvals(A)) != pointer(rowvals(B))
@@ -339,7 +341,9 @@ end
     B = sprand(5, 5, 1.0)
     A = rand(5,5)
     A´ = similar(A)
-    @test copyto!(A, B) == copyto!(A´, Matrix(B))
+    Ac = copyto!(A, B)
+    @test Ac === A 
+    @test A == copyto!(A´, Matrix(B))
     # Test copyto!(dense, Rdest, sparse, Rsrc)
     A = rand(5,5)
     A´ = similar(A)
@@ -354,11 +358,15 @@ end
     @test Matrix(B´)[Rdest] == Matrix(B)[Rsrc]
     # Test that only elements at overlapping linear indices are overwritten
     A = sprand(3, 3, 1.0); B = ones(4, 4)
-    copyto!(B, A)
+    Bc = copyto!(B, A)
     @test B[4, :] != B[:, 4] == ones(4)
+    @test Bc === B
     # Allow no-op copyto! with empty source even for incompatible eltypes
     A = sparse(fill("", 0, 0))
     @test copyto!(B, A) == B
+
+    # Test correct error for too small destination array
+    @test_throws BoundsError copyto!(rand(2,2), sprand(3,3,0.2))
 end
 
 @testset "getindex" begin

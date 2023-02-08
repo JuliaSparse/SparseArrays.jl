@@ -16,7 +16,7 @@ import SparseArrays: nnz
 import Serialization: AbstractSerializer, deserialize, serialize
 using Serialization
 
-import ..increment, ..increment!, ..decrement, ..decrement!
+import ..increment, ..increment!, ..decrement, ..decrement!, ..AdjType, ..TransType
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse:
@@ -256,7 +256,7 @@ workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
-const ATLU = Union{Transpose{<:Any, <:UmfpackLU}, Adjoint{<:Any, <:UmfpackLU}}
+const ATLU = Union{TransType{<:Any, <:UmfpackLU}, AdjType{<:Any, <:UmfpackLU}}
 has_refinement(F::ATLU) = has_refinement(F.parent)
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
@@ -294,8 +294,10 @@ Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
 Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
     T(copy(parent(F), ws))
 
-Base.adjoint(F::UmfpackLU) = Adjoint(F)
-Base.transpose(F::UmfpackLU) = Transpose(F)
+if !isdefined(LinearAlgebra, :AdjointFactorization)
+    Base.adjoint(F::UmfpackLU) = Adjoint(F)
+    Base.transpose(F::UmfpackLU) = Transpose(F)
+end
 
 function Base.lock(f::Function, F::UmfpackLU)
     lock(F)
@@ -937,28 +939,28 @@ import LinearAlgebra.ldiv!
 
 ldiv!(lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     ldiv!(B, lu, copy(B))
-ldiv!(translu::Transpose{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = translu.parent; ldiv!(B, transpose(lu), copy(B)))
-ldiv!(adjlu::Adjoint{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = adjlu.parent; ldiv!(B, adjoint(lu), copy(B)))
+ldiv!(translu::TransType{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+    ldiv!(B, translu, copy(B))
+ldiv!(adjlu::AdjType{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+    ldiv!(B, adjlu, copy(B))
 ldiv!(lu::UmfpackLU{Float64}, B::StridedVecOrMat{<:Complex}) =
     ldiv!(B, lu, copy(B))
-ldiv!(translu::Transpose{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
-    (lu = translu.parent; ldiv!(B, transpose(lu), copy(B)))
-ldiv!(adjlu::Adjoint{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
-    (lu = adjlu.parent; ldiv!(B, adjoint(lu), copy(B)))
+ldiv!(translu::TransType{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
+    ldiv!(B, translu, copy(B))
+ldiv!(adjlu::AdjType{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
+    ldiv!(B, adjlu, copy(B))
 
 ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
-ldiv!(X::StridedVecOrMat{T}, translu::Transpose{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+ldiv!(X::StridedVecOrMat{T}, translu::TransType{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
-ldiv!(X::StridedVecOrMat{T}, adjlu::Adjoint{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+ldiv!(X::StridedVecOrMat{T}, adjlu::AdjType{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
-ldiv!(X::StridedVecOrMat{Tb}, translu::Transpose{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
+ldiv!(X::StridedVecOrMat{Tb}, translu::TransType{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
-ldiv!(X::StridedVecOrMat{Tb}, adjlu::Adjoint{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
+ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjType{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype)

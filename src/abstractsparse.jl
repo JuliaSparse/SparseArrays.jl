@@ -77,13 +77,6 @@ issparse(S::AbstractSparseArray) = true
 
 indtype(S::AbstractSparseArray{<:Any,Ti}) where {Ti} = Ti
 
-function Base.reinterpret(::Type, A::AbstractSparseArray)
-    error("""
-          `reinterpret` on sparse arrays is discontinued.
-          Try reinterpreting the value itself instead.
-          """)
-end
-
 # The following two methods should be overloaded by concrete types to avoid
 # allocating the I = findall(...)
 _sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)

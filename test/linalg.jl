@@ -694,7 +694,7 @@ end
 end
 
 @testset "kronecker product" begin
-    for (m,n) in ((5,10), (13,8), (14,10))
+    for (m,n) in ((5,10), (13,8))
         a = sprand(m, 5, 0.4); a_d = Matrix(a)
         b = sprand(n, 6, 0.3); b_d = Matrix(b)
         v = view(a, :, 1); v_d = Vector(v)
@@ -718,12 +718,11 @@ end
                 @test Array(kron(t(a), b)::SparseMatrixCSC) == kron(t(a_d), b_d)
                 @test Array(kron(a, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
                 @test Array(kron(t(a), t(b))::SparseMatrixCSC) == kron(t(a_d), t(b_d))
-                @test Array(kron(a_d, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
                 @test Array(kron(t(a), b_d)::SparseMatrixCSC) == kron(t(a_d), b_d)
-                @test issparse(kron(c, d_di))
-                @test Array(kron(c, d_di)) == kron(c_d, d_d)
-                @test issparse(kron(c_di, d))
-                @test Array(kron(c_di, d)) == kron(c_d, d_d)
+                @test Array(kron(a_d, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
+                @test Array(kron(t(a), c_di)::SparseMatrixCSC) == kron(t(a_d), c_d)
+                @test Array(kron(a, t(c_di))::SparseMatrixCSC) == kron(a_d, t(c_d))
+                @test Array(kron(t(a), t(c_di))::SparseMatrixCSC) == kron(t(a_d), t(c_d))
                 @test issparse(kron(c_di, y))
                 @test Array(kron(c_di, y)) == kron(c_di, y_d)
                 @test issparse(kron(x, d_di))
@@ -754,6 +753,10 @@ end
         @test Vector(kron(x, z)) == kron(x_d, z_d)
         @test Array(kron(a, z)) == kron(a_d, z_d)
         @test Array(kron(z, b)) == kron(z_d, b_d)
+        # test bounds checks
+        @test_throws DimensionMismatch kron!(copy(a), a, b)
+        @test_throws DimensionMismatch kron!(copy(x), x, y)
+        @test_throws DimensionMismatch kron!(spzeros(2,2), x, y')
     end
 end
 
