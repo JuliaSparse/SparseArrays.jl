@@ -1380,11 +1380,21 @@ end
     end
     return z
 end
-# due to the sparse result type, there is no risk to override dense ⊗ dense here
-@inline function kron!(C::SparseMatrixCSC, A::Union{_SparseKronGroup,_DenseConcatGroup}, B::Union{_SparseKronGroup,_DenseConcatGroup})
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseConcatGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-end
-kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) = broadcast!(*, C, A, B)
+kron!(C::SparseMatrixCSC, A::_DenseConcatGroup, B::_SparseKronGroup) =
+    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
+    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) =
+    broadcast!(*, C, A, B)
+# disambiguation
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) =
+    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+kron!(C::SparseMatrixCSC, A::Diagonal, B::_SparseKronGroup) =
+    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+kron!(c::SparseMatrixCSC, a::Number, b::_SparseKronGroup) = mul!(c, a, b)
+kron!(c::SparseMatrixCSC, a::_SparseKronGroup, b::Number) = mul!(c, a, b)
 
 function kron(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A)
@@ -1410,6 +1420,9 @@ kron(A::_SparseKronGroup, B::_SparseKronGroup) =
 kron(A::_SparseKronGroup, B::_DenseConcatGroup) = kron(A, sparse(B))
 kron(A::_DenseConcatGroup, B::_SparseKronGroup) = kron(sparse(A), B)
 kron(A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) = A .* B
+# disambiguation
+kron(a::Number, b::_SparseKronGroup) = a * b
+kron(a::_SparseKronGroup, b::Number) = a * b
 
 ## det, inv, cond
 
