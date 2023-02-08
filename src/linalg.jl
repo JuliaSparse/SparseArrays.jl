@@ -613,10 +613,10 @@ end
 ## triangular solvers
 function ldiv!(A::TriangularSparse{T}, B::StridedVecOrMat{T}) where T
     require_one_based_indexing(A, B)
-    nrowB, ncolB  = size(B, 1), size(B, 2)
+    nrowB = size(B, 1)
     ncol = LinearAlgebra.checksquare(A)
     if nrowB != ncol
-        throw(DimensionMismatch("A is $(ncol) columns and B has $(nrowB) rows"))
+        throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowB) rows"))
     end
     _ldiv!(A, B)
 end
@@ -1315,10 +1315,20 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
 end
 
 ## kron
+const _SparseArraysCSC{T} = Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}
+const _SparseKronArrays = Union{_SparseArrays, AdjOrTrans{<:Any,<:_SparseArraysCSC}}
+
+const _Symmetric_SparseKronArrays{T,A<:_SparseKronArrays} = Symmetric{T,A}
+const _Hermitian_SparseKronArrays{T,A<:_SparseKronArrays} = Hermitian{T,A}
+const _Triangular_SparseKronArrays{T,A<:_SparseKronArrays} = UpperOrLowerTriangular{T,A}
+const _Annotated_SparseKronArrays = Union{_Triangular_SparseKronArrays, _Symmetric_SparseKronArrays, _Hermitian_SparseKronArrays}
+const _SparseKronGroup = Union{_SparseKronArrays, _Annotated_SparseKronArrays}
+
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
     mC, nC = mA*mB, nA*nB
-
+    @boundscheck size(C) == (mC, nC) || throw(DimensionMismatch("target matrix needs to have size ($mC, $nC)," * 
+        " but has size $(size(C))"))
     rowvalC = rowvals(C)
     nzvalC = nonzeros(C)
     colptrC = getcolptr(C)
@@ -1352,17 +1362,10 @@ end
     end
     return C
 end
-@inline function kron!(C::SparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC)
-    return kron!(C, copy(A), B)
-end
-@inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
-    return kron!(C, A, copy(B))
-end
-@inline function kron!(C::SparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
-    return kron!(C, copy(A), copy(B))
-end
 @inline function kron!(z::SparseVector, x::SparseVector, y::SparseVector)
-    nnzx = nnz(x); nnzy = nnz(y);
+    @boundscheck length(z) == length(x)*length(y) || throw(DimensionMismatch("length of " *
+        "target vector needs to be $(length(x)*length(y)), but has length $(length(z))"))
+    nnzx, nnzy = nnz(x), nnz(y)
     nzind = nonzeroinds(z)
     nzval = nonzeros(z)
 
@@ -1377,69 +1380,35 @@ end
     end
     return z
 end
+# due to the sparse result type, there is no risk to override dense ⊗ dense here
+@inline function kron!(C::SparseMatrixCSC, A::Union{_SparseKronGroup,_DenseConcatGroup}, B::Union{_SparseKronGroup,_DenseConcatGroup})
+    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+end
+kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) = broadcast!(*, C, A, B)
 
-# sparse matrix ⊗ sparse matrix
-function kron(A::AbstractSparseMatrixCSC{T1,S1}, B::AbstractSparseMatrixCSC{T2,S2}) where {T1,S1,T2,S2}
-    mA, nA = size(A); mB, nB = size(B)
+function kron(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
+    mA, nA = size(A)
+    mB, nB = size(B)
     mC, nC = mA*mB, nA*nB
-    Tv = typeof(one(T1)*one(T2))
-    Ti = promote_type(S1,S2)
+    Tv = typeof(oneunit(eltype(A))*oneunit(eltype(B)))
+    Ti = promote_type(indtype(A), indtype(B))
     C = spzeros(Tv, Ti, mC, nC)
     sizehint!(C, nnz(A)*nnz(B))
     return @inbounds kron!(C, A, B)
 end
-kron(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC) = kron(copy(A), B)
-kron(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = kron(A, copy(B))
-function kron(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
-    return kron(copy(A), copy(B))
-end
-
-# sparse vector ⊗ sparse vector
-function kron(x::SparseVector{T1,S1}, y::SparseVector{T2,S2}) where {T1,S1,T2,S2}
-    nnzx = nnz(x); nnzy = nnz(y)
+function kron(x::SparseVector, y::SparseVector)
+    nnzx, nnzy = nnz(x), nnz(y)
     nnzz = nnzx*nnzy # number of nonzeros in new vector
-    nzind = Vector{promote_type(S1,S2)}(undef, nnzz) # the indices of nonzeros
-    nzval = Vector{typeof(one(T1)*one(T2))}(undef, nnzz) # the values of nonzeros
+    nzind = Vector{promote_type(indtype(x), indtype(y))}(undef, nnzz) # the indices of nonzeros
+    nzval = Vector{typeof(oneunit(eltype(x))*oneunit(eltype(y)))}(undef, nnzz) # the values of nonzeros
     z = SparseVector(length(x)*length(y), nzind, nzval)
     return @inbounds kron!(z, x, y)
 end
-
-# sparse matrix ⊗ sparse vector & vice versa
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, x::SparseVector) = kron!(C, A, SparseMatrixCSC(x))
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, x::SparseVector, A::AbstractSparseMatrixCSC) = kron!(C, SparseMatrixCSC(x), A)
-
-kron(A::AbstractSparseMatrixCSC, x::SparseVector) = kron(A, SparseMatrixCSC(x))
-kron(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::SparseVector) =
-    kron(copy(A), x)
-kron(x::SparseVector, A::AbstractSparseMatrixCSC) = kron(SparseMatrixCSC(x), A)
-kron(x::SparseVector, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
-    kron(x, copy(A))
-
-# sparse vec/mat ⊗ vec/mat and vice versa
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Union{SparseVector,AbstractSparseMatrixCSC}, B::VecOrMat) = kron!(C, A, sparse(B))
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::VecOrMat, B::Union{SparseVector,AbstractSparseMatrixCSC}) = kron!(C, sparse(A), B)
-
-kron(A::Union{SparseVector,AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::VecOrMat) =
-    kron(A, sparse(B))
-kron(A::VecOrMat, B::Union{SparseVector,AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) =
-    kron(sparse(A), B)
-
-# sparse vec/mat ⊗ Diagonal etc. and vice versa
-const StructuredMatrix{T} = Union{Bidiagonal{T}, Diagonal{T}, SymTridiagonal{T}, Tridiagonal{T}}
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::StructuredMatrix{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}}) where {T<:Number, S<:Number} =
-    kron!(C, sparse(A), B)
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}, B::StructuredMatrix{S}) where {T<:Number, S<:Number} =
-    kron!(C, A, sparse(B))
-
-Base.@propagate_inbounds kron!(C::SparseMatrixCSC, A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}, B::Diagonal{S}) where {T<:Number, S<:Number} = kron!(C, A, sparse(B))
-
-kron(A::StructuredMatrix{T}, B::Union{SparseVector{S}, AbstractSparseMatrixCSC{S}, AdjOrTrans{S,<:SparseVector}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}) where {T<:Number, S<:Number} =
-    kron(sparse(A), B)
-kron(A::Union{SparseVector{T}, AbstractSparseMatrixCSC{T}, AdjOrTrans{S,<:SparseVector}, AdjOrTrans{S,<:AbstractSparseMatrixCSC}}, B::StructuredMatrix{S}) where {T<:Number, S<:Number} =
-    kron(A, sparse(B))
-
-# sparse outer product
-kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) = broadcast!(*, C, A, B)
+# extend to annotated sparse arrays, but leave out the (dense ⊗ dense)-case
+kron(A::_SparseKronGroup, B::_SparseKronGroup) =
+    kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+kron(A::_SparseKronGroup, B::_DenseConcatGroup) = kron(A, sparse(B))
+kron(A::_DenseConcatGroup, B::_SparseKronGroup) = kron(sparse(A), B)
 kron(A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) = A .* B
 
 ## det, inv, cond

@@ -515,16 +515,17 @@ end
         @test sparse(Fs.L) ≈ Lf
         @test sparse(Fs) ≈ As
         b = rand(3)
-        @test Fs\b ≈ Af\b
+        bs = sparse(b)
+        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ Lf\b
-        @test Fs.U\b ≈ Lf'\b
-        @test Fs.L'\b ≈ Lf'\b
-        @test Fs.U'\b ≈ Lf\b
-        @test Fs.PtL\b ≈ Lf\b
-        @test Fs.UP\b ≈ Lf'\b
-        @test Fs.PtL'\b ≈ Lf'\b
-        @test Fs.UP'\b ≈ Lf\b
+        @test Fs.L\b ≈ Lf\b ≈ (Fs.L\bs)::SparseVector
+        @test Fs.U\b ≈ Lf'\b ≈ (Fs.U\bs)::SparseVector
+        @test Fs.L'\b ≈ Lf'\b ≈ (Fs.L'\bs)::SparseVector
+        @test Fs.U'\b ≈ Lf\b ≈ (Fs.U'\bs)::SparseVector
+        @test Fs.PtL\b ≈ Lf\b ≈ (Fs.PtL\bs)::SparseVector
+        @test Fs.UP\b ≈ Lf'\b ≈ (Fs.UP\bs)::SparseVector
+        @test Fs.PtL'\b ≈ Lf'\b ≈ (Fs.PtL'\bs)::SparseVector
+        @test Fs.UP'\b ≈ Lf\b ≈ (Fs.UP'\bs)::SparseVector
         @test_throws CHOLMOD.CHOLMODException Fs.D
         @test_throws CHOLMOD.CHOLMODException Fs.LD
         @test_throws CHOLMOD.CHOLMODException Fs.DU
@@ -544,16 +545,17 @@ end
         @test P' * Ls * Ls' * P ≈ As
         @test sparse(Fs) ≈ As
         b = rand(3)
-        @test Fs\b ≈ Af\b
+        bs = sparse(b)
+        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ Lfp\b
-        @test Fs.U'\b ≈ Lfp\b
-        @test Fs.U\b ≈ Lfp'\b
-        @test Fs.L'\b ≈ Lfp'\b
-        @test Fs.PtL\b ≈ Lfp\b[p]
-        @test Fs.UP\b ≈ (Lfp'\b)[p_inv]
-        @test Fs.PtL'\b ≈ (Lfp'\b)[p_inv]
-        @test Fs.UP'\b ≈ Lfp\b[p]
+        @test Fs.L\b ≈ Lfp\b ≈ (Fs.L\bs)::SparseVector
+        @test Fs.U'\b ≈ Lfp\b ≈ (Fs.U'\bs)::SparseVector
+        @test Fs.U\b ≈ Lfp'\b ≈ (Fs.U\bs)::SparseVector
+        @test Fs.L'\b ≈ Lfp'\b ≈ (Fs.L'\bs)::SparseVector
+        @test Fs.PtL\b ≈ Lfp\b[p] ≈ (Fs.PtL\bs)::SparseVector
+        @test Fs.UP\b ≈ (Lfp'\b)[p_inv] ≈ (Fs.UP\bs)::SparseVector
+        @test Fs.PtL'\b ≈ (Lfp'\b)[p_inv] ≈ (Fs.PtL'\bs)::SparseVector
+        @test Fs.UP'\b ≈ Lfp\b[p] ≈ (Fs.UP'\bs)::SparseVector
         @test_throws CHOLMOD.CHOLMODException Fs.PL
         @test_throws CHOLMOD.CHOLMODException Fs.UPt
         @test_throws CHOLMOD.CHOLMODException Fs.D
@@ -569,14 +571,15 @@ end
         @test sparse(Fs.LD) ≈ LDf
         @test sparse(Fs) ≈ As
         b = rand(3)
-        @test Fs\b ≈ Af\b
+        bs = sparse(b)
+        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtLD\b) ≈ Af\b
         @test Fs.DUP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ L_f\b
-        @test Fs.U\b ≈ L_f'\b
+        @test Fs.L\b ≈ L_f\b ≈ (Fs.L\bs)::SparseVector
+        @test Fs.U\b ≈ L_f'\b ≈ (Fs.U\bs)::SparseVector
         @test Fs.L'\b ≈ L_f'\b
         @test Fs.U'\b ≈ L_f\b
-        @test Fs.PtL\b ≈ L_f\b
+        @test Fs.PtL\b ≈ L_f\b ≈ (Fs.PtL\bs)::SparseVector
         @test Fs.UP\b ≈ L_f'\b
         @test Fs.PtL'\b ≈ L_f'\b
         @test Fs.UP'\b ≈ L_f\b
@@ -597,19 +600,20 @@ end
         @test Fs.p == p
         @test sparse(Fs) ≈ As
         b = rand(3)
+        bs = sparse(b)
         Asp = As[p,p]
         LDp = sparse(ldlt(Asp, perm=[1,2,3]).LD)
         # LDp = sparse(Fs.LD)
         Lp, dp = CHOLMOD.getLd!(copy(LDp))
         Dp = sparse(Diagonal(dp))
-        @test Fs\b ≈ Af\b
+        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtLD\b) ≈ Af\b
         @test Fs.DUP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ Lp\b
-        @test Fs.U\b ≈ Lp'\b
+        @test Fs.L\b ≈ Lp\b ≈ (Fs.L\bs)::SparseVector
+        @test Fs.U\b ≈ Lp'\b ≈ (Fs.U\bs)::SparseVector
         @test Fs.L'\b ≈ Lp'\b
         @test Fs.U'\b ≈ Lp\b
-        @test Fs.PtL\b ≈ Lp\b[p]
+        @test Fs.PtL\b ≈ Lp\b[p] ≈ (Fs.PtL\bs)::SparseVector
         @test Fs.UP\b ≈ (Lp'\b)[p_inv]
         @test Fs.PtL'\b ≈ (Lp'\b)[p_inv]
         @test Fs.UP'\b ≈ Lp\b[p]
@@ -719,8 +723,16 @@ end
 
 @testset "Real factorization and complex rhs" begin
     A = sprandn(5, 5, 0.4) |> t -> t't + I
-    B = complex.(randn(5, 2), randn(5, 2))
+    B = complex.(randn(5, 5), randn(5, 5))
+    b = B[:,1]
+    @test cholesky(A)\b ≈ A\b
     @test cholesky(A)\B ≈ A\B
+    @test cholesky(A)\B' ≈ A\B'
+    @test cholesky(A)\transpose(B) ≈ A\transpose(B)
+    @test cholesky(A)'\b ≈ copy(A')\b
+    @test cholesky(A)'\B ≈ copy(A')\B
+    @test cholesky(A)'\B' ≈ copy(A')\B'
+    @test cholesky(A)'\transpose(B) ≈ copy(A')\transpose(B)
 end
 
 @testset "Make sure that ldlt performs an LDLt (Issue #19032)" begin

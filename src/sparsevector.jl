@@ -390,7 +390,7 @@ end
     if 1 <= k <= m && nzind[k] == i  # i found
         nzval[k] = v
     else  # i not found
-        if _isnotzero(v)
+        if v isa AbstractArray || v !== zero(eltype(x)) # stricter than iszero to support v[i] = -0.0
             insert!(nzind, k, i)
             insert!(nzval, k, v)
         end

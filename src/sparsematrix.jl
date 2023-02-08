@@ -641,6 +641,32 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
     return dest
 end
 
+# Faster version for non-abstract Array and SparseMatrixCSC 
+function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
+    isempty(S) && return A
+    length(A) < length(S) && throw(BoundsError())
+    
+    # Zero elements that are also in S, don't change rest of A 
+    @inbounds for i in 1:length(S)
+        A[i] = zero(T)
+    end
+    # Copy the structural nonzeros from S to A using 
+    # the linear indices (to work when size(A)!=size(S))
+    num_rows = size(S,1)
+    rowval = getrowval(S)
+    nzval = getnzval(S)
+    linear_index_col0 = 0   # Linear index before column (linear index = linear_index_col0 + row)
+    for col in 1:size(S, 2)
+        for i in nzrange(S, col)
+            row = rowval[i]
+            val = nzval[i]
+            A[linear_index_col0+row] = val
+        end
+        linear_index_col0 += num_rows
+    end
+    return A
+end
+
 ## similar
 #
 # parent method for similar that preserves stored-entry structure (for when new and old dims match)
@@ -922,7 +948,7 @@ function sparse_with_lmul(Tv, Ti, Q)
     return SparseMatrixCSC{Tv,Ti}(size(Q)..., colptr, rowval, nzval)
 end
 
-# converting from SparseMatrixCSC to other matrix types
+# converting from AbstractSparseMatrixCSC to other matrix types
 function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
     _checkbuffers(S)
     A = Matrix{Tv}(undef, size(S, 1), size(S, 2))
@@ -3048,7 +3074,7 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
     end
     # Column j does not contain entry A[i,j]. If v is nonzero, insert entry A[i,j] = v
     # and return. If to the contrary v is zero, then simply return.
-    if _isnotzero(v)
+    if v isa AbstractArray || v !== zero(eltype(A)) # stricter than iszero to support A[i] = -0.0
         nz = getcolptr(A)[size(A, 2)+1]
         # throw exception before state is partially modified
         !isbitstype(Ti) || nz < typemax(Ti) ||
