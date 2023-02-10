@@ -296,6 +296,9 @@ Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
 if !isdefined(LinearAlgebra, :AdjointFactorization)
     Base.adjoint(F::UmfpackLU) = Adjoint(F)
     Base.transpose(F::UmfpackLU) = Transpose(F)
+else
+    # overwrite generic fallback yielding AdjointFactorization
+    Base.transpose(F::UmfpackLU{<:Real}) = TransposeFactorization(F)
 end
 
 function Base.lock(f::Function, F::UmfpackLU)
