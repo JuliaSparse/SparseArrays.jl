@@ -914,6 +914,8 @@ SparseMatrixCSC{Tv,Ti}(M::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti
 SparseMatrixCSC{Tv,Ti}(M::Transpose{<:Any,<:AbstractSparseMatrixCSC}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(copy(M))
 
 # we can only view AbstractQs as columns
+SparseMatrixCSC(Q::AbstractQ{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(Q)
+SparseMatrixCSC{Tv}(Q::AbstractQ{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(Q)
 SparseMatrixCSC{Tv,Ti}(Q::AbstractQ) where {Tv,Ti} = sparse_with_lmul(Tv, Ti, Q)
 
 """
@@ -997,7 +999,7 @@ sparse(A::AbstractMatrix{Tv}) where {Tv} = convert(SparseMatrixCSC{Tv}, A)
 
 sparse(S::AbstractSparseMatrixCSC) = copy(S)
 
-sparse(Q::AbstractQ{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(Q)
+sparse(Q::AbstractQ) = SparseMatrixCSC(Q)
 
 sparse(T::SymTridiagonal) = SparseMatrixCSC(T)
 
