@@ -57,10 +57,10 @@ decrement(A::AbstractArray) = let y = Array(A)
     y .= y .- oneunit(eltype(A))
 end
 
-AdjType = isdefined(LinearAlgebra, :AdjointFactorization) ?
+AdjointFact = isdefined(LinearAlgebra, :AdjointFactorization) ?
     LinearAlgebra.AdjointFactorization :
     Adjoint
-TransType = isdefined(LinearAlgebra, :TransposeFactorization) ?
+TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
     LinearAlgebra.TransposeFactorization :
     Transpose
 
