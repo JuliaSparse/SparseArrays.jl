@@ -7,7 +7,7 @@ using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
-    I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal, logabsdet
+    LinearAlgebra, I, det, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
 if Base.USE_GPL_LIBS
 function umfpack_report(l::UMFPACK.UmfpackLU)
