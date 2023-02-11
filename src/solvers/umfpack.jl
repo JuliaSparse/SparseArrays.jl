@@ -297,8 +297,8 @@ if !isdefined(LinearAlgebra, :AdjointFactorization)
     Base.adjoint(F::UmfpackLU) = Adjoint(F)
     Base.transpose(F::UmfpackLU) = Transpose(F)
 else
-    # overwrite generic fallback yielding AdjointFactorization
-    Base.transpose(F::UmfpackLU{<:Real}) = TransposeFactorization(F)
+    # overwrite generic fallback, use fallback for Base.adjoint
+    Base.transpose(F::UmfpackLU) = TransposeFactorization(F)
 end
 
 function Base.lock(f::Function, F::UmfpackLU)
