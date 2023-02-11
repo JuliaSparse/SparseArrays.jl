@@ -16,6 +16,10 @@ function umfpack_report(l::UMFPACK.UmfpackLU)
     return
 end
 
+const TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
+    LinearAlgebra.TransposeFactorization :
+    Transpose
+
 for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
     sol_c = Symbol(UMFPACK.umf_nm("solve", :ComplexF64, itype))
@@ -218,6 +222,7 @@ end
             @test y ≈ x
 
             @test A'*x ≈ b
+            @test transpose(lua) isa TransposeFact
             x = transpose(lua) \ b
             @test x ≈ float([1:5;])
 
