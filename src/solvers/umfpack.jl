@@ -15,7 +15,7 @@ import SparseArrays: nnz
 import Serialization: AbstractSerializer, deserialize, serialize
 using Serialization
 
-import ..increment, ..increment!, ..decrement, ..decrement!, ..AdjType, ..TransType
+import ..increment, ..increment!, ..decrement, ..decrement!, ..AdjointFact, ..TransposeFact
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse:
@@ -255,7 +255,7 @@ workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
-const ATLU = Union{TransType{<:Any, <:UmfpackLU}, AdjType{<:Any, <:UmfpackLU}}
+const ATLU = Union{TransposeFact{<:Any, <:UmfpackLU}, AdjointFact{<:Any, <:UmfpackLU}}
 has_refinement(F::ATLU) = has_refinement(F.parent)
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
@@ -295,8 +295,8 @@ Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
 
 if !isdefined(LinearAlgebra, :AdjointFactorization)
     Base.adjoint(F::UmfpackLU) = Adjoint(F)
-    Base.transpose(F::UmfpackLU) = Transpose(F)
 end
+Base.transpose(F::UmfpackLU) = TransposeFact(F)
 
 function Base.lock(f::Function, F::UmfpackLU)
     lock(F)
@@ -938,28 +938,28 @@ import LinearAlgebra.ldiv!
 
 ldiv!(lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     ldiv!(B, lu, copy(B))
-ldiv!(translu::TransType{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+ldiv!(translu::TransposeFact{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     ldiv!(B, translu, copy(B))
-ldiv!(adjlu::AdjType{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+ldiv!(adjlu::AdjointFact{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     ldiv!(B, adjlu, copy(B))
 ldiv!(lu::UmfpackLU{Float64}, B::StridedVecOrMat{<:Complex}) =
     ldiv!(B, lu, copy(B))
-ldiv!(translu::TransType{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
+ldiv!(translu::TransposeFact{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
     ldiv!(B, translu, copy(B))
-ldiv!(adjlu::AdjType{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
+ldiv!(adjlu::AdjointFact{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
     ldiv!(B, adjlu, copy(B))
 
 ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
-ldiv!(X::StridedVecOrMat{T}, translu::TransType{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+ldiv!(X::StridedVecOrMat{T}, translu::TransposeFact{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
-ldiv!(X::StridedVecOrMat{T}, adjlu::AdjType{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+ldiv!(X::StridedVecOrMat{T}, adjlu::AdjointFact{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
-ldiv!(X::StridedVecOrMat{Tb}, translu::TransType{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
+ldiv!(X::StridedVecOrMat{Tb}, translu::TransposeFact{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
-ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjType{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
+ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFact{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype)

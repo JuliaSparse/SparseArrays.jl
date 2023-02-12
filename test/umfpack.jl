@@ -7,7 +7,7 @@ using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
-    I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal, logabsdet
+    LinearAlgebra, I, det, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
 if Base.USE_GPL_LIBS
 function umfpack_report(l::UMFPACK.UmfpackLU)
@@ -15,6 +15,10 @@ function umfpack_report(l::UMFPACK.UmfpackLU)
     UMFPACK.umfpack_report_symbolic(l, 0)
     return
 end
+
+const TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
+    LinearAlgebra.TransposeFactorization :
+    Transpose
 
 for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
@@ -218,6 +222,7 @@ end
             @test y ≈ x
 
             @test A'*x ≈ b
+            @test transpose(lua) isa TransposeFact
             x = transpose(lua) \ b
             @test x ≈ float([1:5;])
 
