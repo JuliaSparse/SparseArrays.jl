@@ -32,6 +32,8 @@ of type `Tv` and index type `Ti`. Alias for `AbstractSparseArray{Tv,Ti,2}`.
 """
 const AbstractSparseMatrix{Tv,Ti} = AbstractSparseArray{Tv,Ti,2}
 
+const AbstractSparseVecOrMat = Union{AbstractSparseVector,AbstractSparseMatrix}
+
 """
     AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
 
