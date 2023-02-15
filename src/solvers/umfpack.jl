@@ -6,6 +6,7 @@ export UmfpackLU
 
 import Base: (\), getproperty, show, size
 using LinearAlgebra
+using LinearAlgebra: AdjOrTrans
 import LinearAlgebra: Factorization, checksquare, det, logabsdet, lu, lu!, ldiv!
 
 using SparseArrays
@@ -399,8 +400,8 @@ lu(A::Union{AbstractSparseMatrixCSC{T},AbstractSparseMatrixCSC{Complex{T}}};
 lu(A::AbstractSparseMatrixCSC; check::Bool = true) = lu(float(A); check = check)
 
 # We could do this as lu(A') = lu(A)' with UMFPACK, but the user could want to do one over the other
-lu(A::Union{Adjoint{T, S}, Transpose{T, S}}; check::Bool = true) where {T<:UMFVTypes, S<:AbstractSparseMatrixCSC{T}} =
-lu(copy(A); check)
+lu(A::AdjOrTrans{T,S}; check::Bool = true) where {T<:UMFVTypes, S<:AbstractSparseMatrixCSC{T}} =
+    lu(copy(A); check)
 
 """
     lu!(F::UmfpackLU, A::AbstractSparseMatrixCSC; check=true, reuse_symbolic=true, q=nothing) -> F::UmfpackLU
