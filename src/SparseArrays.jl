@@ -9,8 +9,8 @@ using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
     require_one_based_indexing, promote_eltype
 using Base.Order: Forward
 using LinearAlgebra
-using LinearAlgebra: AdjOrTrans, matprod, AbstractQ, HessenbergQ, QRCompactWYQ, QRPackedQ,
-    LQPackedQ, UpperOrLowerTriangular
+using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
+    AbstractQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, UpperOrLowerTriangular
 
 
 import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
@@ -56,13 +56,6 @@ end
 decrement(A::AbstractArray) = let y = Array(A)
     y .= y .- oneunit(eltype(A))
 end
-
-AdjointFact = isdefined(LinearAlgebra, :AdjointFactorization) ?
-    LinearAlgebra.AdjointFactorization :
-    Adjoint
-TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
-    LinearAlgebra.TransposeFactorization :
-    Transpose
 
 include("readonly.jl")
 include("abstractsparse.jl")
