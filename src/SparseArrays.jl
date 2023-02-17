@@ -10,7 +10,8 @@ using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
 using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
-    AbstractQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, UpperOrLowerTriangular
+    AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ,
+    UpperOrLowerTriangular
 
 
 import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
@@ -31,8 +32,6 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     issparse, nonzeros, nzrange, rowvals, sparse, sparsevec, spdiagm,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
-
-const AdjQType = isdefined(LinearAlgebra, :AdjointQ) ? LinearAlgebra.AdjointQ : Adjoint
 
 const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 
