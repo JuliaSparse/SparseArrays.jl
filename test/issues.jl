@@ -786,6 +786,7 @@ end
 @testset "Issue #334" begin
     x = sprand(10, .3);
     @test issorted(sort!(x; alg=Base.DEFAULT_STABLE));
+    @test_throws MethodError sort!(x; banana=:blue); # From discussion at #335
 end
 
 end # SparseTestsBase
