@@ -2122,16 +2122,19 @@ function _densifystarttolastnz!(x::SparseVector)
     x
 end
 
-#sorting
-function sort(x::AbstractCompressedVector{Tv,Ti}; kws...) where {Tv,Ti}
-    allvals = push!(copy(nonzeros(x)),zero(Tv))
-    sinds = sortperm(allvals;kws...)
-    n,k = length(x),length(allvals)
-    z = findfirst(isequal(k),sinds)::Int
-    newnzind = Vector{Ti}(1:k-1)
-    newnzind[z:end] .+= n-k+1
-    newnzvals = allvals[deleteat!(sinds[1:k],z)]
-    typeof(x)(n,newnzind,newnzvals)
+#sorting TODO: integrate with `Base.Sort.IEEEFloatOptimization`'s partitioning by zero
+searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
+    rev::Union{Bool,Nothing}=nothing, order::Base.Order.Ordering=Forward, kws...) =
+        searchsortedfirst(v,x,Base.Order.ord(lt,by,rev,order))
+function sort!(x::AbstractCompressedVector; kws...)
+    nz = nonzeros(x)
+    sort!(nz; kws...)
+    i = searchsortedfirst_discard_keywords(nz, zero(eltype(x)); kws...)
+    I = nonzeroinds(x)
+    Base.require_one_based_indexing(x, nz, I)
+    I[1:i-1] .= 1:i-1
+    I[i:end] .= i+length(x)-length(nz):length(x)
+    x
 end
 
 function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
