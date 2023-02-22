@@ -1064,7 +1064,7 @@ function Vector(x::AbstractSparseVector{Tv}) where Tv
     return r
 end
 Array(x::AbstractSparseVector) = Vector(x)
-    
+
 function Base.collect(x::Union{AbstractSparseVector,AbstractSparseMatrix})
    if Base.has_offset_axes(x)
        return Base._collect_indices(axes(x), x)
@@ -2138,11 +2138,14 @@ function _densifystarttolastnz!(x::SparseVector)
     x
 end
 
-#sorting
+#sorting TODO: integrate with `Base.Sort.IEEEFloatOptimization`'s partitioning by zero
+searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
+    rev::Union{Bool,Nothing}=nothing, order::Base.Order.Ordering=Forward, kws...) =
+        searchsortedfirst(v,x,Base.Order.ord(lt,by,rev,order))
 function sort!(x::AbstractCompressedVector; kws...)
     nz = nonzeros(x)
     sort!(nz; kws...)
-    i = searchsortedfirst(nz, zero(eltype(x)); kws...)
+    i = searchsortedfirst_discard_keywords(nz, zero(eltype(x)); kws...)
     I = nonzeroinds(x)
     Base.require_one_based_indexing(x, nz, I)
     I[1:i-1] .= 1:i-1
