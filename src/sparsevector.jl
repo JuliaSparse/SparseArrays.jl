@@ -1380,6 +1380,7 @@ function _binarymap(f::Function,
                     mode::Int) where {Tx,Ty}
     0 <= mode <= 2 || throw(ArgumentError("Incorrect mode $mode."))
     R = Base.Broadcast.combine_eltypes(f, (x, y))
+    I = promote_type(eltype(nonzeroinds(x)), eltype(nonzeroinds(y)))
     n = length(x)
     length(y) == n || throw(DimensionMismatch())
 
@@ -1391,7 +1392,7 @@ function _binarymap(f::Function,
     my = length(ynzind)
     cap = (mode == 0 ? min(mx, my) : mx + my)::Int
 
-    rind = Vector{Int}(undef, cap)
+    rind = Vector{I}(undef, cap)
     rval = Vector{R}(undef, cap)
     ir = 0
     ir = (
