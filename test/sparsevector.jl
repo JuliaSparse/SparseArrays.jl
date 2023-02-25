@@ -1601,6 +1601,12 @@ end
     @test length(nonzeros(simA)) == 0
 end
 
+@testset "map preserves index types" begin
+    v1 = spzeros(Float32, Int16, 10)
+    v2 = spzeros(Float32, Int32, 10)
+    @test eltype(typeof(SparseArrays.nonzeroinds(map(max, v1, v2)))) == Int32
+end
+
 @testset "Fast operations on full column views" begin
     n = 1000
     A = sprandn(n, n, 0.01)
