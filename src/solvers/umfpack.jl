@@ -338,13 +338,12 @@ When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
-is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
-zero based copy is made.
+is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero-based, a
+zero-based copy is made.
 
-The `control` vector default to the package's default configs for umfpacks but can be changed passing a
+The `control` vector defaults to the package's default configuration for UMFPACK, but can be changed by passing a
 vector of length `UMFPACK_CONTROL`. See the UMFPACK manual for possible configurations. The corresponding
-variables are named `JL_UMFPACK_` since julia uses one based indexing.
-
+variables are named `JL_UMFPACK_` since Julia uses one-based indexing.
 
 The individual components of the factorization `F` can be accessed by indexing:
 
