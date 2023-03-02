@@ -16,7 +16,7 @@ using Base: require_one_based_indexing
 
 using LinearAlgebra
 using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans
-import LinearAlgebra: (\),
+import LinearAlgebra: (\), AdjointFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
                  issuccess, issymmetric, ldlt, ldlt!, logdet
 
@@ -32,7 +32,7 @@ export
 import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spzeros, nnz,
     sparsevec
 
-import ..increment, ..increment!, ..AdjointFact, ..TransposeFact
+import ..increment, ..increment!
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse: SuiteSparse_long, TRUE, FALSE
@@ -334,11 +334,6 @@ mutable struct Factor{Tv<:VTypes} <: Factorization{Tv}
         end
         return F
     end
-end
-
-if !isdefined(LinearAlgebra, :AdjointFactorization)
-    Base.adjoint(F::Factor) = Adjoint(F)
-    Base.transpose(F::Factor) = Transpose(F)
 end
 
 const SuiteSparseStruct = Union{cholmod_dense, cholmod_sparse, cholmod_factor}
@@ -1578,21 +1573,21 @@ end
 (\)(L::Factor, B::SparseVector) = sparsevec(spsolve(CHOLMOD_A, L, Sparse(B)))
 
 # the eltype restriction is necessary for disambiguation with the B::StridedMatrix below
-\(adjL::AdjointFact{<:VTypes,<:Factor}, B::Dense) = (L = adjL.parent; solve(CHOLMOD_A, L, B))
-\(adjL::AdjointFact{<:Any,<:Factor}, B::Sparse) = (L = adjL.parent; spsolve(CHOLMOD_A, L, B))
-\(adjL::AdjointFact{<:Any,<:Factor}, B::SparseVecOrMat) = (L = adjL.parent; \(adjoint(L), Sparse(B)))
+\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::Dense) = (L = adjL.parent; solve(CHOLMOD_A, L, B))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = adjL.parent; spsolve(CHOLMOD_A, L, B))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = adjL.parent; \(adjoint(L), Sparse(B)))
 
 # Explicit typevars are necessary to avoid ambiguities with defs in LinearAlgebra/factorizations.jl
 # Likewise the two following explicit Vector and Matrix defs (rather than a single VecOrMat)
-(\)(adjL::AdjointFact{T,<:Factor}, B::Vector{Complex{T}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
-(\)(adjL::AdjointFact{T,<:Factor}, B::Matrix{Complex{T}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
-(\)(adjL::AdjointFact{T,<:Factor}, B::Adjoint{<:Any,Matrix{Complex{T}}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
-(\)(adjL::AdjointFact{T,<:Factor}, B::Transpose{<:Any,Matrix{Complex{T}}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
-function \(adjL::AdjointFact{<:VTypes,<:Factor}, b::StridedVector)
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::Vector{Complex{T}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::Matrix{Complex{T}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::Adjoint{<:Any,Matrix{Complex{T}}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::Transpose{<:Any,Matrix{Complex{T}}}) where {T<:Float64} = complex.(adjL\real(B), adjL\imag(B))
+function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, b::StridedVector)
     L = adjL.parent
     return Vector(solve(CHOLMOD_A, L, Dense(b)))
 end
-function \(adjL::AdjointFact{<:VTypes,<:Factor}, B::StridedMatrix)
+function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedMatrix)
     L = adjL.parent
     return Matrix(solve(CHOLMOD_A, L, Dense(B)))
 end

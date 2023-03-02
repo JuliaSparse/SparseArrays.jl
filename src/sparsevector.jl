@@ -1302,10 +1302,10 @@ end
 
 for QT in (:LinAlgLeftQs, :LQPackedQ)
     @eval (*)(Q::$QT, B::AbstractSparseVector) = Q * Vector(B)
-    @eval (*)(Q::AdjQType{<:Any,<:$QT}, B::AbstractSparseVector) = Q * Vector(B)
+    @eval (*)(Q::AdjointQ{<:Any,<:$QT}, B::AbstractSparseVector) = Q * Vector(B)
 
     @eval (*)(A::AbstractSparseVector, Q::$QT) = Vector(A) * Q
-    @eval (*)(A::AbstractSparseVector, Q::AdjQType{<:Any,<:$QT}) = Vector(A) * Q
+    @eval (*)(A::AbstractSparseVector, Q::AdjointQ{<:Any,<:$QT}) = Vector(A) * Q
 end
 
 # functions f, such that

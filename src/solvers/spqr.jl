@@ -5,10 +5,8 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
-using LinearAlgebra: AbstractQ, copy_similar
+using LinearAlgebra: AbstractQ, AdjointQ, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C
-
-const AbstractQType = isdefined(LinearAlgebra, :AdjointQ) ? AbstractQ : AbstractMatrix
 
 # ordering options */
 const ORDERING_FIXED   = Int32(0)
@@ -31,7 +29,7 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix, AdjQType
+using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -256,7 +254,7 @@ function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
     return A
 end
 
-function LinearAlgebra.lmul!(adjQ::AdjQType{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
+function LinearAlgebra.lmul!(adjQ::AdjointQ{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
     Q = parent(adjQ)
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
@@ -272,7 +270,7 @@ function LinearAlgebra.lmul!(adjQ::AdjQType{<:Any,<:QRSparseQ}, A::StridedVecOrM
     return A
 end
 
-function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ})
+function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
     Q = parent(adjQ)
     if size(A, 2) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
@@ -287,9 +285,9 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}
     return A
 end
 
-function (*)(Q::QRSparseQ, b::StridedVector) # TODO: relax to AbstractVector
+function (*)(Q::QRSparseQ, b::AbstractVector)
     TQb = promote_type(eltype(Q), eltype(b))
-    QQ = convert(AbstractQType{TQb}, Q)
+    QQ = convert(AbstractQ{TQb}, Q)
     if size(Q.factors, 1) == length(b)
         bnew = copy_similar(b, TQb)
     elseif size(Q.factors, 2) == length(b)
@@ -299,9 +297,9 @@ function (*)(Q::QRSparseQ, b::StridedVector) # TODO: relax to AbstractVector
     end
     lmul!(QQ, bnew)
 end
-function (*)(Q::QRSparseQ, B::StridedMatrix) # TODO: relax to AbstractMatrix
+function (*)(Q::QRSparseQ, B::AbstractMatrix)
     TQB = promote_type(eltype(Q), eltype(B))
-    QQ = convert(AbstractQType{TQB}, Q)
+    QQ = convert(AbstractQ{TQB}, Q)
     if size(Q.factors, 1) == size(B, 1)
         Bnew = copy_similar(B, TQB)
     elseif size(Q.factors, 2) == size(B, 1)
@@ -311,10 +309,10 @@ function (*)(Q::QRSparseQ, B::StridedMatrix) # TODO: relax to AbstractMatrix
     end
     lmul!(QQ, Bnew)
 end
-function (*)(A::StridedMatrix, adjQ::AdjQType{<:Any,<:QRSparseQ}) # TODO: relax to AbstractMatrix
+function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
     Q = parent(adjQ)
     TAQ = promote_type(eltype(A), eltype(adjQ))
-    adjQQ = convert(AbstractQType{TAQ}, adjQ)
+    adjQQ = convert(AbstractQ{TAQ}, adjQ)
     if size(A,2) == size(Q.factors, 1)
         AA = copy_similar(A, TAQ)
         return rmul!(AA, adjQQ)
@@ -355,12 +353,6 @@ function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     show(io, mime, F.prow)
     println(io, "\nColumn permutation:")
     show(io, mime, F.pcol)
-end
-# TODO: remove once the AdjointQ PR is merged
-if QRSparseQ <: AbstractMatrix
-    function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
-        summary(io, Q)
-    end
 end
 
 """

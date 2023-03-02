@@ -475,10 +475,10 @@ for QT in (:LinAlgLeftQs, :LQPackedQ)
     @eval (*)(A::AbstractSparseMatrixCSC, Q::$QT) = Matrix(A) * Q
     @eval (*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::$QT) = copy(A) * Q
 
-    @eval (*)(Q::AdjQType{<:Any,<:$QT}, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
-    @eval (*)(Q::AdjQType{<:Any,<:$QT}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
-    @eval (*)(A::AbstractSparseMatrixCSC, Q::AdjQType{<:Any,<:$QT}) = Matrix(A) * Q
-    @eval (*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::AdjQType{<:Any,<:$QT}) = copy(A) * Q
+    @eval (*)(Q::AdjointQ{<:Any,<:$QT}, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
+    @eval (*)(Q::AdjointQ{<:Any,<:$QT}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
+    @eval (*)(A::AbstractSparseMatrixCSC, Q::AdjointQ{<:Any,<:$QT}) = Matrix(A) * Q
+    @eval (*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::AdjointQ{<:Any,<:$QT}) = copy(A) * Q
 end
 
 ## Reshape
