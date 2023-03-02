@@ -64,6 +64,11 @@ TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
     LinearAlgebra.TransposeFactorization :
     Transpose
 
+struct SparseStorage{T} <: LinearAlgebra.AbstractStorageTrait{T}
+    data::T
+    SparseStorage(x::T) where T = new{T}(x)
+end
+
 include("readonly.jl")
 include("abstractsparse.jl")
 include("sparsematrix.jl")
@@ -73,6 +78,7 @@ include("higherorderfns.jl")
 include("linalg.jl")
 include("deprecated.jl")
 
+LinearAlgebra.storage_trait(::Type{<:AbstractSparseArray}) = SparseStorage
 
 
 # Convert from 0-based to 1-based indices
