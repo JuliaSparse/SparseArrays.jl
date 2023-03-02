@@ -232,7 +232,16 @@ function __init__()
         end
 
         # Register gc tracked allocator if CHOLMOD is new enough
-        if current_version >= v"3.0.0"
+        if current_version >= v"4.0.3"
+            ccall((:SuiteSparse_config_malloc_func_set, :libsuitesparseconfig),
+                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_malloc, Ptr{Cvoid}))
+            ccall((:SuiteSparse_config_calloc_func_set, :libsuitesparseconfig),
+                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_calloc, Ptr{Cvoid}))
+            ccall((:SuiteSparse_config_realloc_func_set, :libsuitesparseconfig),
+                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_realloc, Ptr{Cvoid}))
+            ccall((:SuiteSparse_config_free_func_set, :libsuitesparseconfig),
+                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_free, Ptr{Cvoid}))
+        elseif current_version >= v"3.0.0"
             cnfg = cglobal((:SuiteSparse_config, :libsuitesparseconfig), Ptr{Cvoid})
             unsafe_store!(cnfg, cglobal(:jl_malloc, Ptr{Cvoid}), 1)
             unsafe_store!(cnfg, cglobal(:jl_calloc, Ptr{Cvoid}), 2)
