@@ -1,5 +1,33 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
-using Test, LinearAlgebra, SparseArrays
+using Test, LinearAlgebra, SparseArrays, Aqua
+
+@testset "code quality" begin
+    @testset "Method ambiguity" begin
+        # Aqua.test_ambiguities([SparseArrays, Base, Core])
+    end
+    @testset "Unbound type parameters" begin
+        @test_broken Aqua.detect_unbound_args_recursively(SparseArrays) == []
+    end
+    @testset "Undefined exports" begin
+        Aqua.test_undefined_exports(SparseArrays) == []
+    end
+    @testset "Compare Project.toml and test/Project.toml" begin
+        Aqua.test_project_extras(SparseArrays)
+    end
+    @testset "Stale dependencies" begin
+        Aqua.test_stale_deps(SparseArrays)
+    end
+    @testset "Compat bounds" begin
+        Aqua.test_deps_compat(SparseArrays)
+    end
+    @testset "Project.toml formatting" begin
+        Aqua.test_project_toml_formatting(SparseArrays)
+    end
+    @testset "Piracy" begin
+        @test_broken Aqua.Piracy.hunt(SparseArrays) == Method[]
+    end
+end
+
 @testset "detect_ambiguities" begin
     @test_nowarn detect_ambiguities(SparseArrays; recursive=true, ambiguous_bottom=false)
 end

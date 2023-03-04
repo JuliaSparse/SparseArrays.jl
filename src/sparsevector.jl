@@ -88,12 +88,20 @@ _unsafe_unfix(s::FixedSparseVector) = SparseVector(length(s), parent(nonzeroinds
 const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
 const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
 const SparseVectorUnion{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
-const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
-const SVorFSV{Tv,Ti} = Union{SparseVector{Tv,Ti},FixedSparseVector{Tv,Ti}}
+const AdjOrTransSparseVectorUnion{Tv,Ti} = AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
+const SVorFSV{Tv,Ti} = Union{SparseVector{Tv,Ti},FixedSparseVector{Tv,Ti}} # TODO: remove?
+# untyped aliases, necessary for effective multiple dispatch
+const _SparseColumnView = SubArray{<:Any,1,<:AbstractSparseMatrixCSC,Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
+const _SparseVectorView = SubArray{<:Any,1,<:AbstractSparseVector,Tuple{Base.Slice{Base.OneTo{Int}}},false}
+const _SparseVectorUnion = Union{AbstractCompressedVector, _SparseColumnView, _SparseVectorView}
+const _AdjOrTransSparseVectorUnion = AdjOrTrans{<:Any,<:SparseVectorUnion}
+
 ### Basic properties
 
-length(x::SVorFSV)   = getfield(x, :n)
-size(x::SVorFSV)     = (getfield(x, :n),)
+length(x::SparseVector) = getfield(x, :n)
+length(x::FixedSparseVector) = getfield(x, :n)
+size(x::SparseVector) = (getfield(x, :n),)
+size(x::FixedSparseVector) = (getfield(x, :n),)
 
 function Base._simple_count(f, x::AbstractCompressedVector, init::T) where T
     init + T(count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x)))
@@ -118,7 +126,8 @@ function nzrange(x::SparseVectorUnion, j::Integer)
     j == 1 ? (1:nnz(x)) : throw(BoundsError(x, (":", j)))
 end
 
-nonzeros(x::SVorFSV) = getfield(x, :nzval)
+nonzeros(x::SparseVector) = getfield(x, :nzval)
+nonzeros(x::FixedSparseVector) = getfield(x, :nzval)
 function nonzeros(x::SparseColumnView)
     rowidx, colidx = parentindices(x)
     A = parent(x)
@@ -127,7 +136,8 @@ function nonzeros(x::SparseColumnView)
 end
 nonzeros(x::SparseVectorView) = nonzeros(parent(x))
 
-nonzeroinds(x::SVorFSV) = getfield(x, :nzind)
+nonzeroinds(x::SparseVector) = getfield(x, :nzind)
+nonzeroinds(x::FixedSparseVector) = getfield(x, :nzind)
 function nonzeroinds(x::SparseColumnView)
     rowidx, colidx = parentindices(x)
     A = parent(x)
@@ -1095,13 +1105,13 @@ complex(x::AbstractSparseVector) =
 
 ### Concatenation
 
-# Without the first of these methods, horizontal concatenations of SparseVectors fall
-# back to the horizontal concatenation method that ensures that combinations of
-# sparse/special/dense matrix/vector types concatenate to SparseMatrixCSCs, instead
-# of _absspvec_hcat below. The <:Integer qualifications are necessary for correct dispatch.
-hcat(X::SparseVector{Tv,Ti}...) where {Tv,Ti<:Integer} = _absspvec_hcat(X...)
-hcat(X::FixedSparseVector{Tv,Ti}...) where {Tv,Ti<:Integer} = _absspvec_hcat(X...)
-hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti<:Integer} = _absspvec_hcat(X...)
+function hcat(Xin::AbstractSparseVector...)
+    X = map(_unsafe_unfix, Xin)
+    Tv = promote_type(map(eltype, X)...)
+    Ti = promote_type(map(indtype, X)...)
+    r = _absspvec_hcat(map(x -> convert(SparseVector{Tv,Ti}, x), X)...)
+    return @if_move_fixed Xin... r
+end
 function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     # check sizes
     n = length(X)
@@ -1128,24 +1138,15 @@ function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
         roff += length(xnzind)
     end
     colptr[n+1] = roff
-    r = SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
-    return @if_move_fixed X... r
+    return SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
 end
 
-# Without the first of these methods, vertical concatenations of SparseVectors fall
-# back to the vertical concatenation method that ensures that combinations of
-# sparse/special/dense matrix/vector types concatenate to SparseMatrixCSCs, instead
-# of _absspvec_vcat below. The <:Integer qualifications are necessary for correct dispatch.
-vcat(X::SparseVector{Tv,Ti}...) where {Tv,Ti<:Integer} = _absspvec_vcat(X...)
-vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti<:Integer} = _absspvec_vcat(X...)
-function vcat(X::SparseVector...)
-    commeltype = promote_type(map(eltype, X)...)
-    commindtype = promote_type(map(indtype, X)...)
-    return vcat(map(x -> SparseVector{commeltype,commindtype}(x), X)...)
-end
-function vcat(X::SVorFSV...)
-    r = vcat(map(_unsafe_unfix, X)...)
-    return @if_move_fixed X r
+function vcat(Xin::AbstractSparseVector...)
+    X = map(_unsafe_unfix, Xin)
+    Tv = promote_type(map(eltype, X)...)
+    Ti = promote_type(map(indtype, X)...)
+    r = _absspvec_vcat(map(x -> convert(SparseVector{Tv,Ti}, x), X)...)
+    return @if_move_fixed Xin... r
 end
 function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     # check sizes
@@ -1177,22 +1178,18 @@ end
 
 hcat(Xin::Union{Vector, AbstractSparseVector}...) = hcat(map(sparse, Xin)...)
 vcat(Xin::Union{Vector, AbstractSparseVector}...) = vcat(map(sparse, Xin)...)
-# Without the following method, vertical concatenations of SparseVectors with Vectors
-# fall back to the vertical concatenation method that ensures that combinations of
-# sparse/special/dense matrix/vector types concatenate to SparseMatrixCSCs (because
-# the vcat method immediately above is less specific, being defined in AbstractSparseVector
-# rather than SparseVector).
-vcat(X::Union{Vector,AbstractCompressedVector}...) = vcat(map(sparse, X)...)
-
 
 ### Concatenation of un/annotated sparse/special/dense vectors/matrices
 
-const _SparseArrays = Union{SparseVector, AbstractSparseMatrixCSC, Adjoint{<:Any,<:SparseVector}, Transpose{<:Any,<:SparseVector}}
+const _SparseArrays = Union{AbstractSparseVector,
+                            AbstractSparseMatrixCSC,
+                            Adjoint{<:Any,<:AbstractSparseVector},
+                            Transpose{<:Any,<:AbstractSparseVector}}
 const _SparseConcatArrays = Union{_SpecialArrays, _SparseArrays}
 
-const _Symmetric_SparseConcatArrays{T,A<:_SparseConcatArrays} = Symmetric{T,A}
-const _Hermitian_SparseConcatArrays{T,A<:_SparseConcatArrays} = Hermitian{T,A}
-const _Triangular_SparseConcatArrays{T,A<:_SparseConcatArrays} = UpperOrLowerTriangular{T,A}
+const _Symmetric_SparseConcatArrays = Symmetric{<:Any,<:_SparseConcatArrays}
+const _Hermitian_SparseConcatArrays = Hermitian{<:Any,<:_SparseConcatArrays}
+const _Triangular_SparseConcatArrays = UpperOrLowerTriangular{<:Any,<:_SparseConcatArrays}
 const _Annotated_SparseConcatArrays = Union{_Triangular_SparseConcatArrays, _Symmetric_SparseConcatArrays, _Hermitian_SparseConcatArrays}
 # It's important that _SparseConcatGroup is a larger union than _DenseConcatGroup to make
 # sparse cat-methods less specific and to kick in only if there is some sparse array present

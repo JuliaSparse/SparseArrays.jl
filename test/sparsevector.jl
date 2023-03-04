@@ -623,6 +623,12 @@ end
             @test isa(vcat(spv6464, SparseVector(0, Int32[], Int64[])), SparseVector{Int64,Int64})
             @test isa(vcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseVector{Int64,Int64})
         end
+        @testset "horizontal concatenation of SparseVectors with different el- and ind-type (#22225)" begin
+            spv6464 = SparseVector(0, Int64[], Int64[])
+            @test isa(hcat(spv6464, SparseVector(0, Int64[], Int32[])), SparseMatrixCSC{Int64,Int64})
+            @test isa(hcat(spv6464, SparseVector(0, Int32[], Int64[])), SparseMatrixCSC{Int64,Int64})
+            @test isa(hcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseMatrixCSC{Int64,Int64})
+        end
     end
 end
 @testset "sparsemat: combinations with sparse matrix" begin

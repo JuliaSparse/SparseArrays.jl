@@ -1315,12 +1315,12 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
 end
 
 ## kron
-const _SparseArraysCSC{T} = Union{SparseVector{T}, AbstractSparseMatrixCSC{T}}
-const _SparseKronArrays = Union{_SparseArrays, AdjOrTrans{<:Any,<:_SparseArraysCSC}}
+const _SparseArraysCSC = Union{AbstractCompressedVector, AbstractSparseMatrixCSC}
+const _SparseKronArrays = Union{_SparseArraysCSC, AdjOrTrans{<:Any,<:_SparseArraysCSC}}
 
-const _Symmetric_SparseKronArrays{T,A<:_SparseKronArrays} = Symmetric{T,A}
-const _Hermitian_SparseKronArrays{T,A<:_SparseKronArrays} = Hermitian{T,A}
-const _Triangular_SparseKronArrays{T,A<:_SparseKronArrays} = UpperOrLowerTriangular{T,A}
+const _Symmetric_SparseKronArrays = Symmetric{<:Any,<:_SparseKronArrays}
+const _Hermitian_SparseKronArrays = Hermitian{<:Any,<:_SparseKronArrays}
+const _Triangular_SparseKronArrays = UpperOrLowerTriangular{<:Any,<:_SparseKronArrays}
 const _Annotated_SparseKronArrays = Union{_Triangular_SparseKronArrays, _Symmetric_SparseKronArrays, _Hermitian_SparseKronArrays}
 const _SparseKronGroup = Union{_SparseKronArrays, _Annotated_SparseKronArrays}
 
@@ -1386,13 +1386,15 @@ kron!(C::SparseMatrixCSC, A::_DenseConcatGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) =
+kron!(C::SparseMatrixCSC, A::_SparseVectorUnion, B::_AdjOrTransSparseVectorUnion) =
     broadcast!(*, C, A, B)
 # disambiguation
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::Diagonal, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+kron!(C::SparseMatrixCSC, A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) =
+    broadcast!(*, C, A, B)
 kron!(c::SparseMatrixCSC, a::Number, b::_SparseKronGroup) = mul!(c, a, b)
 kron!(c::SparseMatrixCSC, a::_SparseKronGroup, b::Number) = mul!(c, a, b)
 
@@ -1406,7 +1408,7 @@ function kron(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     sizehint!(C, nnz(A)*nnz(B))
     return @inbounds kron!(C, A, B)
 end
-function kron(x::SparseVector, y::SparseVector)
+function kron(x::AbstractCompressedVector, y::AbstractCompressedVector)
     nnzx, nnzy = nnz(x), nnz(y)
     nnzz = nnzx*nnzy # number of nonzeros in new vector
     nzind = Vector{promote_type(indtype(x), indtype(y))}(undef, nnzz) # the indices of nonzeros
@@ -1419,8 +1421,9 @@ kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron(A::_SparseKronGroup, B::_DenseConcatGroup) = kron(A, sparse(B))
 kron(A::_DenseConcatGroup, B::_SparseKronGroup) = kron(sparse(A), B)
-kron(A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) = A .* B
+kron(A::_SparseVectorUnion, B::_AdjOrTransSparseVectorUnion) = A .* B
 # disambiguation
+kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
 kron(a::Number, b::_SparseKronGroup) = a * b
 kron(a::_SparseKronGroup, b::Number) = a * b
 
