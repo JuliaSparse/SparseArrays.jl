@@ -85,16 +85,10 @@ _unsafe_unfix(s::FixedSparseVector) = SparseVector(length(s), parent(nonzeroinds
 
 # Define an alias for a view of a whole column of a SparseMatrixCSC. Many methods can be written for the
 # union of such a view and a SparseVector so we define an alias for such a union as well
-const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
-const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const SparseVectorUnion{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
-const AdjOrTransSparseVectorUnion{Tv,Ti} = AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
-const SVorFSV{Tv,Ti} = Union{SparseVector{Tv,Ti},FixedSparseVector{Tv,Ti}} # TODO: remove?
-# untyped aliases, necessary for effective multiple dispatch
-const _SparseColumnView = SubArray{<:Any,1,<:AbstractSparseMatrixCSC,Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
-const _SparseVectorView = SubArray{<:Any,1,<:AbstractSparseVector,Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const _SparseVectorUnion = Union{AbstractCompressedVector, _SparseColumnView, _SparseVectorView}
-const _AdjOrTransSparseVectorUnion = AdjOrTrans{<:Any,<:SparseVectorUnion}
+const SparseColumnView = SubArray{<:Any,1,<:AbstractSparseMatrixCSC,Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
+const SparseVectorView = SubArray{<:Any,1,<:AbstractSparseVector,Tuple{Base.Slice{Base.OneTo{Int}}},false}
+const SparseVectorUnion = Union{AbstractCompressedVector, SparseColumnView, SparseVectorView}
+const AdjOrTransSparseVectorUnion = AdjOrTrans{<:Any,<:SparseVectorUnion}
 
 ### Basic properties
 
@@ -812,12 +806,12 @@ function findall(x::SparseVectorUnion)
     return findall(identity, x)
 end
 
-function findall(p::F, x::SparseVectorUnion{<:Any,Ti}) where {Ti,F<:Function}
+function findall(p::F, x::SparseVectorUnion) where {F<:Function}
     if p(zero(eltype(x)))
         return invoke(findall, Tuple{Function, Any}, p, x)
     end
     numnz = nnz(x)
-    I = Vector{Ti}(undef, numnz)
+    I = Vector{indtype(x)}(undef, numnz)
 
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
@@ -837,7 +831,7 @@ function findall(p::F, x::SparseVectorUnion{<:Any,Ti}) where {Ti,F<:Function}
 
     return I
 end
-findall(p::Base.Fix2{typeof(in)}, x::SparseVectorUnion{<:Any,Ti}) where {Ti} =
+findall(p::Base.Fix2{typeof(in)}, x::SparseVectorUnion) =
     invoke(findall, Tuple{Base.Fix2{typeof(in)}, AbstractArray}, p, x)
 
 """
@@ -859,11 +853,11 @@ julia> findnz(x)
 ([1, 4, 6, 8], [1, 2, 4, 3])
 ```
 """
-function findnz(x::SparseVectorUnion{Tv,Ti}) where {Tv,Ti}
+function findnz(x::SparseVectorUnion)
     numnz = nnz(x)
 
-    I = Vector{Ti}(undef, numnz)
-    V = Vector{Tv}(undef, numnz)
+    I = Vector{indtype(x)}(undef, numnz)
+    V = Vector{eltype(x)}(undef, numnz)
 
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
@@ -1545,7 +1539,8 @@ end
 Base.reducedim_initarray(A::SparseVectorUnion, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 
-function Base._mapreduce(f, op, ::IndexCartesian, A::SparseVectorUnion{T}) where {T}
+function Base._mapreduce(f, op, ::IndexCartesian, A::SparseVectorUnion)
+    T = eltype(A)
     isempty(A) && return Base.mapreduce_empty(f, op, T)
     z = nnz(A)
     rest, ini = if z == 0
@@ -1668,26 +1663,26 @@ end
 (/)(x::SparseVectorUnion, a::Number) =
     @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), nonzeros(x) / a)
 # dot
-function dot(x::AbstractVector{Tx}, y::SparseVectorUnion{Ty}) where {Tx<:Number,Ty<:Number}
+function dot(x::AbstractVector, y::SparseVectorUnion)
     require_one_based_indexing(x, y)
     n = length(x)
     length(y) == n || throw(DimensionMismatch())
     nzind = nonzeroinds(y)
     nzval = nonzeros(y)
-    s = dot(zero(Tx), zero(Ty))
+    s = dot(zero(eltype(x)), zero(eltype(y)))
     @inbounds for i = 1:length(nzind)
         s += dot(x[nzind[i]], nzval[i])
     end
     return s
 end
 
-function dot(x::SparseVectorUnion{Tx}, y::AbstractVector{Ty}) where {Tx<:Number,Ty<:Number}
+function dot(x::SparseVectorUnion, y::AbstractVector)
     require_one_based_indexing(x, y)
     n = length(y)
     length(x) == n || throw(DimensionMismatch())
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
-    s = dot(zero(Tx), zero(Ty))
+    s = dot(zero(eltype(x)), zero(eltype(y)))
     @inbounds for i = 1:length(nzind)
         s += dot(nzval[i], y[nzind[i]])
     end
@@ -1715,7 +1710,7 @@ function _spdot(f::Function,
     s
 end
 
-function dot(x::SparseVectorUnion{<:Number}, y::SparseVectorUnion{<:Number})
+function dot(x::SparseVectorUnion, y::SparseVectorUnion)
     x === y && return sum(abs2, x)
     n = length(x)
     length(y) == n || throw(DimensionMismatch())

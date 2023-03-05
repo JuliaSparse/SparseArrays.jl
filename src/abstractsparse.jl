@@ -76,6 +76,7 @@ issparse(A::DenseArray) = false
 issparse(S::AbstractSparseArray) = true
 
 indtype(S::AbstractSparseArray{<:Any,Ti}) where {Ti} = Ti
+indtype(T::UpperOrLowerTriangular{<:Any,<:AbstractSparseArray}) = indtype(parent(T))
 
 # The following two methods should be overloaded by concrete types to avoid
 # allocating the I = findall(...)

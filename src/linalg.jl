@@ -169,7 +169,11 @@ const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCUnion{Tv,Ti},SparseTriangular{Tv
 # done by a quicksort of the row indices or by a full scan of the dense result vector.
 # The last is faster, if more than ≈ 1/32 of the result column is nonzero.
 # TODO: extend to SparseMatrixCSCUnion to allow for SubArrays (view(X, :, r)).
-function spmatmul(A::SparseOrTri{TvA,TiA}, B::Union{SparseOrTri{TvB,TiB},SparseVectorUnion{TvB,TiB},SubArray{TvB,<:Any,<:AbstractSparseArray{TvB,TiB}}}) where {TvA,TiA,TvB,TiB}
+function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,SparseVectorUnion,SubArray{<:Any,<:Any,<:AbstractSparseArray}})
+    TvA = eltype(A)
+    TiA = indtype(A)
+    TvB = eltype(B)
+    TiB = indtype(B)
 
     Tv = promote_op(matprod, TvA, TvB)
     Ti = promote_type(TiA, TiB)
@@ -375,8 +379,8 @@ const WrapperMatrixTypes{T,MT} = Union{
     Hermitian{T,MT},
 }
 
-function dot(A::MA, B::AbstractSparseMatrixCSC{TB}) where {MA<:Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}},TB}
-    T = promote_type(eltype(A), TB)
+function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
+    T = promote_type(eltype(A), eltype(B))
     (m, n) = size(A)
     if (m, n) != size(B)
         throw(DimensionMismatch())
@@ -397,7 +401,7 @@ function dot(A::MA, B::AbstractSparseMatrixCSC{TB}) where {MA<:Union{DenseMatrix
     return s
 end
 
-function dot(A::AbstractSparseMatrixCSC{TA}, B::MB) where {TA,MB<:Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}}}
+function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}})
     return conj(dot(B, A))
 end
 
@@ -1386,7 +1390,7 @@ kron!(C::SparseMatrixCSC, A::_DenseConcatGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron!(C::SparseMatrixCSC, A::_SparseVectorUnion, B::_AdjOrTransSparseVectorUnion) =
+kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) =
     broadcast!(*, C, A, B)
 # disambiguation
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) =
@@ -1421,7 +1425,7 @@ kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron(A::_SparseKronGroup, B::_DenseConcatGroup) = kron(A, sparse(B))
 kron(A::_DenseConcatGroup, B::_SparseKronGroup) = kron(sparse(A), B)
-kron(A::_SparseVectorUnion, B::_AdjOrTransSparseVectorUnion) = A .* B
+kron(A::SparseVectorUnion, B::AdjOrTransSparseVectorUnion) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
 kron(a::Number, b::_SparseKronGroup) = a * b
