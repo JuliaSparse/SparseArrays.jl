@@ -44,6 +44,7 @@ nn = 100
         Imm = Matrix{Float64}(I, m, m)
         @test Q' * (Q*Imm) ≈ Imm
         @test (Imm*Q) * Q' ≈ Imm
+        @test ((Imm[:,1])' * Q')::Adjoint ≈ Q[:,1]'
 
         # test that Q'Pl*A*Pr = R
         R0 = Q'*Array(A[F.prow, F.pcol])

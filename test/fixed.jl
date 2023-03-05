@@ -9,6 +9,9 @@ using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCS
     @test r == v
     @test v == r
     @test r == r
+    @test ReadOnly([v v]) == ReadOnly([v r])
+    @test copy(r)::ReadOnly == r
+    @test ReadOnly(r) === r
     @test (resize!(r, length(r)); true)
     @test_throws ErrorException resize!(r, length(r) - 1)
     @test_throws ErrorException resize!(r, length(r) + 1)
