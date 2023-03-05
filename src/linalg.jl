@@ -170,13 +170,8 @@ const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCUnion{Tv,Ti},SparseTriangular{Tv
 # The last is faster, if more than ≈ 1/32 of the result column is nonzero.
 # TODO: extend to SparseMatrixCSCUnion to allow for SubArrays (view(X, :, r)).
 function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,SparseVectorUnion,SubArray{<:Any,<:Any,<:AbstractSparseArray}})
-    TvA = eltype(A)
-    TiA = indtype(A)
-    TvB = eltype(B)
-    TiB = indtype(B)
-
-    Tv = promote_op(matprod, TvA, TvB)
-    Ti = promote_type(TiA, TiB)
+    Tv = promote_op(matprod, eltype(A), eltype(B))
+    Ti = promote_type(indtype(A), indtype(B))
     mA, nA = size(A)
     nB = size(B, 2)
     nA == size(B, 1) || throw(DimensionMismatch())
@@ -1331,7 +1326,7 @@ const _SparseKronGroup = Union{_SparseKronArrays, _Annotated_SparseKronArrays}
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
     mC, nC = mA*mB, nA*nB
-    @boundscheck size(C) == (mC, nC) || throw(DimensionMismatch("target matrix needs to have size ($mC, $nC)," * 
+    @boundscheck size(C) == (mC, nC) || throw(DimensionMismatch("target matrix needs to have size ($mC, $nC)," *
         " but has size $(size(C))"))
     rowvalC = rowvals(C)
     nzvalC = nonzeros(C)
