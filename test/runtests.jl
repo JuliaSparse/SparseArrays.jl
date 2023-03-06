@@ -1,18 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 using Test, LinearAlgebra, SparseArrays
 
-# Because julia CI doesn't run stdlib tests via `Pkg.test` test deps must be manually installed if missing
-if Base.find_package("Aqua") === nothing
-    @debug "Installing Aqua.jl for SparseArrays.jl tests"
-    iob = IOBuffer()
-    try
-        Pkg.add("Aqua", io=iob) # Needed for custom julia version resolve tests
-    catch
-        println(String(take!(iob)))
-        rethrow()
-    end
-end
-
 for file in readlines(joinpath(@__DIR__, "testgroups"))
     file == "" && continue # skip empty lines
     include(file * ".jl")
