@@ -6,6 +6,12 @@ using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCS
     v = randn(100)
     r = ReadOnly(v)
     @test length(r) == length(v)
+    @test r == v
+    @test v == r
+    @test r == r
+    @test ReadOnly([v v]) == ReadOnly([v r])
+    @test copy(r)::ReadOnly == r
+    @test ReadOnly(r) === r
     @test (resize!(r, length(r)); true)
     @test_throws ErrorException resize!(r, length(r) - 1)
     @test_throws ErrorException resize!(r, length(r) + 1)
@@ -19,7 +25,6 @@ struct_eq(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) =
     getcolptr(A) == getcolptr(B) && rowvals(A) == rowvals(B)
 struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
     nonzeroinds(A) == nonzeroinds(B)
-struct_eq(x, y, z...) = struct_eq(x, y) && (length(z) == 0 || struct_eq(y, z...))
 
 @testset "FixedSparseCSC" begin
     A = sprandn(10, 10, 0.3)

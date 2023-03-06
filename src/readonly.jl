@@ -35,5 +35,8 @@ Base.copy(x::ReadOnly) = ReadOnly(copy(parent(x)))
 (==)(x::ReadOnly, y::AbstractVector) = parent(x) == y
 (==)(x::AbstractVector, y::ReadOnly) = x == parent(y)
 (==)(x::ReadOnly, y::ReadOnly) = parent(x) == parent(y)
+# disambiguation
+(==)(x::ReadOnly{T,1,<:AbstractVector{T}}, y::ReadOnly{S,1,<:AbstractVector{S}}) where {T,S} =
+    parent(x) == parent(y)
 
 Base.dataids(::ReadOnly) = tuple()

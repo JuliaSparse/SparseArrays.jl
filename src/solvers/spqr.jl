@@ -5,7 +5,7 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
-using LinearAlgebra: AbstractQ, AdjointQ, copy_similar
+using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C
 
 # ordering options */
@@ -322,6 +322,7 @@ function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
         throw(DimensionMismatch("matrix A has dimensions $(size(A)) but Q-matrix has dimensions $(size(adjQ))"))
     end
 end
+(*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
 (*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
 (*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
