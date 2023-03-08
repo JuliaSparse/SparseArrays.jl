@@ -1,5 +1,12 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
+###
+# We'll restore the original env at the end of this testgroup.
+original_depot_path = copy(Base.DEPOT_PATH)
+original_load_path = copy(Base.LOAD_PATH)
+original_env = copy(ENV)
+###
+
 import Pkg
 
 # Because julia CI doesn't run stdlib tests via `Pkg.test` test deps must be manually installed if missing
@@ -67,3 +74,18 @@ end
 #     @test isempty(expect)
 #     @test good
 # end
+
+###
+# Now we restore the original env, as promised
+empty!(Base.DEPOT_PATH)
+empty!(Base.LOAD_PATH)
+append!(Base.DEPOT_PATH, original_depot_path)
+append!(Base.LOAD_PATH, original_load_path)
+
+for k in setdiff(collect(keys(ENV)), collect(keys(original_env)))
+    delete!(ENV, k)
+end
+for (k, v) in pairs(original_env)
+    ENV[k] = v
+end
+###
