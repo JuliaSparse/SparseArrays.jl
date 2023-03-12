@@ -8,7 +8,7 @@ using SuiteSparse_jll
 cd(@__DIR__)
 
 # headers
-SuiteSparse_toml = joinpath(dirname(pathof(SuiteSparse_jll)), "..", "StdlibArtifacts.toml")
+SuiteSparse_toml = joinpath(dirname(pathof(SuiteSparse_jll)), "..", "Artifacts.toml")
 SuiteSparse_dir = Pkg.Artifacts.ensure_artifact_installed("SuiteSparse", SuiteSparse_toml)
 
 include_dir = joinpath(SuiteSparse_dir, "include") |> normpath
