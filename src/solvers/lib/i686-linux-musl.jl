@@ -1428,70 +1428,6 @@ function cholmod_l_rowdel_mark(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
     @ccall libcholmod.cholmod_l_rowdel_mark(arg1::Csize_t, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Ptr{Clong}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_common})::Cint
 end
 
-function dtrsv_(uplo, trans, diag, n, A, lda, X, incx)
-    @ccall libcholmod.dtrsv_(uplo::Ptr{Cchar}, trans::Ptr{Cchar}, diag::Ptr{Cchar}, n::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint}, X::Ptr{Cdouble}, incx::Ptr{Cint})::Cvoid
-end
-
-function dgemv_(trans, m, n, alpha, A, lda, X, incx, beta, Y, incy)
-    @ccall libcholmod.dgemv_(trans::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, X::Ptr{Cdouble}, incx::Ptr{Cint}, beta::Ptr{Cdouble}, Y::Ptr{Cdouble}, incy::Ptr{Cint})::Cvoid
-end
-
-function dtrsm_(side, uplo, transa, diag, m, n, alpha, A, lda, B, ldb)
-    @ccall libcholmod.dtrsm_(side::Ptr{Cchar}, uplo::Ptr{Cchar}, transa::Ptr{Cchar}, diag::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, B::Ptr{Cdouble}, ldb::Ptr{Cint})::Cvoid
-end
-
-function dgemm_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc)
-    @ccall libcholmod.dgemm_(transa::Ptr{Cchar}, transb::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, k::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, B::Ptr{Cdouble}, ldb::Ptr{Cint}, beta::Ptr{Cdouble}, C::Ptr{Cdouble}, ldc::Ptr{Cint})::Cvoid
-end
-
-function dsyrk_(uplo, trans, n, k, alpha, A, lda, beta, C, ldc)
-    @ccall libcholmod.dsyrk_(uplo::Ptr{Cchar}, trans::Ptr{Cchar}, n::Ptr{Cint}, k::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, beta::Ptr{Cdouble}, C::Ptr{Cdouble}, ldc::Ptr{Cint})::Cvoid
-end
-
-function dger_(m, n, alpha, X, incx, Y, incy, A, lda)
-    @ccall libcholmod.dger_(m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, X::Ptr{Cdouble}, incx::Ptr{Cint}, Y::Ptr{Cdouble}, incy::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint})::Cvoid
-end
-
-function dscal_(n, alpha, Y, incy)
-    @ccall libcholmod.dscal_(n::Ptr{Cint}, alpha::Ptr{Cdouble}, Y::Ptr{Cdouble}, incy::Ptr{Cint})::Cvoid
-end
-
-function dpotrf_(uplo, n, A, lda, info)
-    @ccall libcholmod.dpotrf_(uplo::Ptr{Cchar}, n::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint}, info::Ptr{Cint})::Cvoid
-end
-
-function ztrsv_(uplo, trans, diag, n, A, lda, X, incx)
-    @ccall libcholmod.ztrsv_(uplo::Ptr{Cchar}, trans::Ptr{Cchar}, diag::Ptr{Cchar}, n::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint}, X::Ptr{Cdouble}, incx::Ptr{Cint})::Cvoid
-end
-
-function zgemv_(trans, m, n, alpha, A, lda, X, incx, beta, Y, incy)
-    @ccall libcholmod.zgemv_(trans::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, X::Ptr{Cdouble}, incx::Ptr{Cint}, beta::Ptr{Cdouble}, Y::Ptr{Cdouble}, incy::Ptr{Cint})::Cvoid
-end
-
-function ztrsm_(side, uplo, transa, diag, m, n, alpha, A, lda, B, ldb)
-    @ccall libcholmod.ztrsm_(side::Ptr{Cchar}, uplo::Ptr{Cchar}, transa::Ptr{Cchar}, diag::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, B::Ptr{Cdouble}, ldb::Ptr{Cint})::Cvoid
-end
-
-function zgemm_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc)
-    @ccall libcholmod.zgemm_(transa::Ptr{Cchar}, transb::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, k::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, B::Ptr{Cdouble}, ldb::Ptr{Cint}, beta::Ptr{Cdouble}, C::Ptr{Cdouble}, ldc::Ptr{Cint})::Cvoid
-end
-
-function zherk_(uplo, trans, n, k, alpha, A, lda, beta, C, ldc)
-    @ccall libcholmod.zherk_(uplo::Ptr{Cchar}, trans::Ptr{Cchar}, n::Ptr{Cint}, k::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, beta::Ptr{Cdouble}, C::Ptr{Cdouble}, ldc::Ptr{Cint})::Cvoid
-end
-
-function zgeru_(m, n, alpha, X, incx, Y, incy, A, lda)
-    @ccall libcholmod.zgeru_(m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, X::Ptr{Cdouble}, incx::Ptr{Cint}, Y::Ptr{Cdouble}, incy::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint})::Cvoid
-end
-
-function zscal_(n, alpha, Y, incy)
-    @ccall libcholmod.zscal_(n::Ptr{Cint}, alpha::Ptr{Cdouble}, Y::Ptr{Cdouble}, incy::Ptr{Cint})::Cvoid
-end
-
-function zpotrf_(uplo, n, A, lda, info)
-    @ccall libcholmod.zpotrf_(uplo::Ptr{Cchar}, n::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint}, info::Ptr{Cint})::Cvoid
-end
-
 function SuiteSparseQR_C(ordering, tol, econ, getCTX, A, Bsparse, Bdense, Zsparse, Zdense, R, E, H, HPinv, HTau, cc)
     @ccall libspqr.SuiteSparseQR_C(ordering::Cint, tol::Cdouble, econ::Clong, getCTX::Cint, A::Ptr{cholmod_sparse}, Bsparse::Ptr{cholmod_sparse}, Bdense::Ptr{cholmod_dense}, Zsparse::Ptr{Ptr{cholmod_sparse}}, Zdense::Ptr{Ptr{cholmod_dense}}, R::Ptr{Ptr{cholmod_sparse}}, E::Ptr{Ptr{Clong}}, H::Ptr{Ptr{cholmod_sparse}}, HPinv::Ptr{Ptr{Clong}}, HTau::Ptr{Ptr{cholmod_dense}}, cc::Ptr{cholmod_common})::Clong
 end
@@ -2371,44 +2307,6 @@ const CHOLMOD_ROW = 1
 const CHOLMOD_COL = 2
 
 const CHOLMOD_SYM = 3
-
-const CHOLMOD_ARCHITECTURE = "Linux"
-
-const BLAS_DTRSV = dtrsv_
-
-const BLAS_DGEMV = dgemv_
-
-const BLAS_DTRSM = dtrsm_
-
-const BLAS_DGEMM = dgemm_
-
-const BLAS_DSYRK = dsyrk_
-
-const BLAS_DGER = dger_
-
-const BLAS_DSCAL = dscal_
-
-const LAPACK_DPOTRF = dpotrf_
-
-const BLAS_ZTRSV = ztrsv_
-
-const BLAS_ZGEMV = zgemv_
-
-const BLAS_ZTRSM = ztrsm_
-
-const BLAS_ZGEMM = zgemm_
-
-const BLAS_ZHERK = zherk_
-
-const BLAS_ZGER = zgeru_
-
-const BLAS_ZSCAL = zscal_
-
-const LAPACK_ZPOTRF = zpotrf_
-
-const BLAS_INT = Cint
-
-# Skipping MacroDefinition: CHECK_BLAS_INT ( sizeof ( BLAS_INT ) < sizeof ( Int ) )
 
 const SPQR_ORDERING_FIXED = 0
 
