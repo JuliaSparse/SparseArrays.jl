@@ -2373,7 +2373,7 @@ function Base._mapreducedim!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC
 
     if size(R, 1) == size(R, 2) == 1
         # Reduction along both columns and rows
-        R[1, 1] = mapreduce(f, op, A)
+        R[1, 1] = op(R[1, 1], mapreduce(f, op, A))
     elseif size(R, 1) == 1
         # Reduction along rows
         _mapreducerows!(f, op, R, A)
