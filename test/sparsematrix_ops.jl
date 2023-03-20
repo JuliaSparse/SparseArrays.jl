@@ -195,6 +195,8 @@ dA = Array(sA)
         for arr in (se33, sA, pA)
             @test f(x->x+1, arr) ≈ f(arr .+ 1)
         end
+        @test f(se33[1:1,:], dims=2, init=1.0) == f(Array(se33[1:1,:]), dims=2, init=1.0)
+        @test f(se33, dims=(1,2), init=1.0) == f(Array(se33), dims=(1,2), init=1.0)
 
         # case where f(0) would throw
         @test f(x->sqrt(x-1), pA .+ 1) ≈ f(sqrt.(pA))
