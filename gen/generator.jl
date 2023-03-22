@@ -8,10 +8,7 @@ using SuiteSparse_jll
 cd(@__DIR__)
 
 # headers
-SuiteSparse_toml = joinpath(dirname(pathof(SuiteSparse_jll)), "..", "Artifacts.toml")
-SuiteSparse_dir = Pkg.Artifacts.ensure_artifact_installed("SuiteSparse", SuiteSparse_toml)
-
-include_dir = joinpath(SuiteSparse_dir, "include") |> normpath
+include_dir = joinpath(SuiteSparse_jll.artifact_dir, "include") |> normpath
 cholmod_h = joinpath(include_dir, "cholmod.h")
 @assert isfile(cholmod_h)
 

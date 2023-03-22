@@ -15,11 +15,10 @@ else
     const LONG_MAX = typemax(Clong)
 end
 
-## CHOLMOD
 const TRUE  = Int32(1)
 const FALSE = Int32(0)
-
-CCOLAMD_VERSION_CODE(main, sub) = main * 1000 + sub
+const int64_t = Int64
+const INT64_MAX = typemax(Int64)
 
 const IS_LIBC_MUSL = occursin("musl", Base.BUILD_TRIPLET)
 if Sys.isapple() && Sys.ARCH === :aarch64
