@@ -6,7 +6,8 @@ using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
-using SparseArrays: sparse, sprandn, spzeros, SparseMatrixCSC
+using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
+using Random: seed!
 
 if Base.USE_GPL_LIBS
 
@@ -77,6 +78,7 @@ nn = 100
 end
 
 @testset "basic solution of rank deficient ls" begin
+    seed!(12345)
     A = sprandn(m, 5, 0.9)*sprandn(5, n, 0.9)
     b = randn(m)
     xs = A\b
