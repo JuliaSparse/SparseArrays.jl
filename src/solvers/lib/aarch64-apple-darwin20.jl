@@ -1,12 +1,81 @@
-mutable struct SuiteSparse_config_struct
-    malloc_func::Ptr{Cvoid}
-    calloc_func::Ptr{Cvoid}
-    realloc_func::Ptr{Cvoid}
-    free_func::Ptr{Cvoid}
-    printf_func::Ptr{Cvoid}
-    hypot_func::Ptr{Cvoid}
-    divcomplex_func::Ptr{Cvoid}
-    SuiteSparse_config_struct() = new()
+function SuiteSparse_config_printf_func_get()
+    @ccall libcholmod.SuiteSparse_config_printf_func_get()::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_malloc_func_get()
+    @ccall libcholmod.SuiteSparse_config_malloc_func_get()::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_calloc_func_get()
+    @ccall libcholmod.SuiteSparse_config_calloc_func_get()::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_realloc_func_get()
+    @ccall libcholmod.SuiteSparse_config_realloc_func_get()::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_free_func_get()
+    @ccall libcholmod.SuiteSparse_config_free_func_get()::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_hypot_func_get()
+    @ccall libcholmod.SuiteSparse_config_hypot_func_get()::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_divcomplex_func_get()
+    @ccall libcholmod.SuiteSparse_config_divcomplex_func_get()::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_malloc_func_set(malloc_func)
+    @ccall libcholmod.SuiteSparse_config_malloc_func_set(malloc_func::Ptr{Cvoid})::Cvoid
+end
+
+function SuiteSparse_config_calloc_func_set(calloc_func)
+    @ccall libcholmod.SuiteSparse_config_calloc_func_set(calloc_func::Ptr{Cvoid})::Cvoid
+end
+
+function SuiteSparse_config_realloc_func_set(realloc_func)
+    @ccall libcholmod.SuiteSparse_config_realloc_func_set(realloc_func::Ptr{Cvoid})::Cvoid
+end
+
+function SuiteSparse_config_free_func_set(free_func)
+    @ccall libcholmod.SuiteSparse_config_free_func_set(free_func::Ptr{Cvoid})::Cvoid
+end
+
+function SuiteSparse_config_printf_func_set(printf_func)
+    @ccall libcholmod.SuiteSparse_config_printf_func_set(printf_func::Ptr{Cvoid})::Cvoid
+end
+
+function SuiteSparse_config_hypot_func_set(hypot_func)
+    @ccall libcholmod.SuiteSparse_config_hypot_func_set(hypot_func::Ptr{Cvoid})::Cvoid
+end
+
+function SuiteSparse_config_divcomplex_func_set(divcomplex_func)
+    @ccall libcholmod.SuiteSparse_config_divcomplex_func_set(divcomplex_func::Ptr{Cvoid})::Cvoid
+end
+
+function SuiteSparse_config_malloc(s)
+    @ccall libcholmod.SuiteSparse_config_malloc(s::Csize_t)::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_calloc(n, s)
+    @ccall libcholmod.SuiteSparse_config_calloc(n::Csize_t, s::Csize_t)::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_realloc(arg1, s)
+    @ccall libcholmod.SuiteSparse_config_realloc(arg1::Ptr{Cvoid}, s::Csize_t)::Ptr{Cvoid}
+end
+
+function SuiteSparse_config_free(arg1)
+    @ccall libcholmod.SuiteSparse_config_free(arg1::Ptr{Cvoid})::Cvoid
+end
+
+function SuiteSparse_config_hypot(x, y)
+    @ccall libcholmod.SuiteSparse_config_hypot(x::Cdouble, y::Cdouble)::Cdouble
+end
+
+function SuiteSparse_config_divcomplex(xr, xi, yr, yi, zr, zi)
+    @ccall libcholmod.SuiteSparse_config_divcomplex(xr::Cdouble, xi::Cdouble, yr::Cdouble, yi::Cdouble, zr::Ptr{Cdouble}, zi::Ptr{Cdouble})::Cint
 end
 
 function SuiteSparse_start()
@@ -55,6 +124,14 @@ end
 
 function SuiteSparse_version(version)
     @ccall libcholmod.SuiteSparse_version(version::Ptr{Cint})::Cint
+end
+
+function SuiteSparse_BLAS_library()
+    @ccall libcholmod.SuiteSparse_BLAS_library()::Ptr{Cchar}
+end
+
+function SuiteSparse_BLAS_integer_size()
+    @ccall libcholmod.SuiteSparse_BLAS_integer_size()::Csize_t
 end
 
 struct cholmod_method_struct
@@ -109,7 +186,7 @@ mutable struct cholmod_common_struct
     metis_dswitch::Cdouble
     metis_nswitch::Csize_t
     nrow::Csize_t
-    mark::Clong
+    mark::Int64
     iworksize::Csize_t
     xworksize::Csize_t
     Flag::Ptr{Cvoid}
@@ -145,13 +222,13 @@ mutable struct cholmod_common_struct
     SPQR_flopcount_bound::Cdouble
     SPQR_tol_used::Cdouble
     SPQR_norm_E_fro::Cdouble
-    SPQR_istat::NTuple{10, Clong}
+    SPQR_istat::NTuple{10, Int64}
     useGPU::Cint
     maxGpuMemBytes::Csize_t
     maxGpuMemFraction::Cdouble
     gpuMemorySize::Csize_t
     gpuKernelTime::Cdouble
-    gpuFlops::Clong
+    gpuFlops::Int64
     gpuNumKernelLaunches::Cint
     cublasHandle::Ptr{Cvoid}
     gpuStream::NTuple{8, Ptr{Cvoid}}
@@ -183,6 +260,8 @@ mutable struct cholmod_common_struct
     cholmod_gpu_syrk_calls::Csize_t
     cholmod_gpu_trsm_calls::Csize_t
     cholmod_gpu_potrf_calls::Csize_t
+    chunk::Cdouble
+    nthreads_max::Cint
     cholmod_common_struct() = new()
 end
 
@@ -237,11 +316,11 @@ function cholmod_l_free_work(arg1)
 end
 
 function cholmod_clear_flag(Common)
-    @ccall libcholmod.cholmod_clear_flag(Common::Ptr{cholmod_common})::Clong
+    @ccall libcholmod.cholmod_clear_flag(Common::Ptr{cholmod_common})::Int64
 end
 
 function cholmod_l_clear_flag(arg1)
-    @ccall libcholmod.cholmod_l_clear_flag(arg1::Ptr{cholmod_common})::Clong
+    @ccall libcholmod.cholmod_l_clear_flag(arg1::Ptr{cholmod_common})::Int64
 end
 
 function cholmod_error(status, file, line, message, Common)
@@ -298,7 +377,7 @@ const cholmod_sparse = cholmod_sparse_struct
 
 mutable struct cholmod_descendant_score_t
     score::Cdouble
-    d::Clong
+    d::Int64
     cholmod_descendant_score_t() = new()
 end
 
@@ -337,11 +416,11 @@ function cholmod_l_reallocate_sparse(arg1, arg2, arg3)
 end
 
 function cholmod_nnz(A, Common)
-    @ccall libcholmod.cholmod_nnz(A::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Clong
+    @ccall libcholmod.cholmod_nnz(A::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Int64
 end
 
 function cholmod_l_nnz(arg1, arg2)
-    @ccall libcholmod.cholmod_l_nnz(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_common})::Clong
+    @ccall libcholmod.cholmod_l_nnz(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_common})::Int64
 end
 
 function cholmod_speye(nrow, ncol, xtype, Common)
@@ -369,27 +448,27 @@ function cholmod_l_transpose(arg1, arg2, arg3)
 end
 
 function cholmod_transpose_unsym(A, values, Perm, fset, fsize, F, Common)
-    @ccall libcholmod.cholmod_transpose_unsym(A::Ptr{cholmod_sparse}, values::Cint, Perm::Ptr{Cint}, fset::Ptr{Cint}, fsize::Csize_t, F::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_transpose_unsym(A::Ptr{cholmod_sparse}, values::Cint, Perm::Ptr{Int32}, fset::Ptr{Int32}, fsize::Csize_t, F::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_transpose_unsym(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-    @ccall libcholmod.cholmod_l_transpose_unsym(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Csize_t, arg6::Ptr{cholmod_sparse}, arg7::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_transpose_unsym(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Csize_t, arg6::Ptr{cholmod_sparse}, arg7::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_transpose_sym(A, values, Perm, F, Common)
-    @ccall libcholmod.cholmod_transpose_sym(A::Ptr{cholmod_sparse}, values::Cint, Perm::Ptr{Cint}, F::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_transpose_sym(A::Ptr{cholmod_sparse}, values::Cint, Perm::Ptr{Int32}, F::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_transpose_sym(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_transpose_sym(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Clong}, arg4::Ptr{cholmod_sparse}, arg5::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_transpose_sym(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Int64}, arg4::Ptr{cholmod_sparse}, arg5::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_ptranspose(A, values, Perm, fset, fsize, Common)
-    @ccall libcholmod.cholmod_ptranspose(A::Ptr{cholmod_sparse}, values::Cint, Perm::Ptr{Cint}, fset::Ptr{Cint}, fsize::Csize_t, Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
+    @ccall libcholmod.cholmod_ptranspose(A::Ptr{cholmod_sparse}, values::Cint, Perm::Ptr{Int32}, fset::Ptr{Int32}, fsize::Csize_t, Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
 function cholmod_l_ptranspose(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_ptranspose(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Csize_t, arg6::Ptr{cholmod_common})::Ptr{cholmod_sparse}
+    @ccall libcholmod.cholmod_l_ptranspose(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Csize_t, arg6::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
 function cholmod_sort(A, Common)
@@ -401,27 +480,27 @@ function cholmod_l_sort(arg1, arg2)
 end
 
 function cholmod_band(A, k1, k2, mode, Common)
-    @ccall libcholmod.cholmod_band(A::Ptr{cholmod_sparse}, k1::Clong, k2::Clong, mode::Cint, Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
+    @ccall libcholmod.cholmod_band(A::Ptr{cholmod_sparse}, k1::Int64, k2::Int64, mode::Cint, Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
 function cholmod_l_band(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_band(arg1::Ptr{cholmod_sparse}, arg2::Clong, arg3::Clong, arg4::Cint, arg5::Ptr{cholmod_common})::Ptr{cholmod_sparse}
+    @ccall libcholmod.cholmod_l_band(arg1::Ptr{cholmod_sparse}, arg2::Int64, arg3::Int64, arg4::Cint, arg5::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
 function cholmod_band_inplace(k1, k2, mode, A, Common)
-    @ccall libcholmod.cholmod_band_inplace(k1::Clong, k2::Clong, mode::Cint, A::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_band_inplace(k1::Int64, k2::Int64, mode::Cint, A::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_band_inplace(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_band_inplace(arg1::Clong, arg2::Clong, arg3::Cint, arg4::Ptr{cholmod_sparse}, arg5::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_band_inplace(arg1::Int64, arg2::Int64, arg3::Cint, arg4::Ptr{cholmod_sparse}, arg5::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_aat(A, fset, fsize, mode, Common)
-    @ccall libcholmod.cholmod_aat(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, mode::Cint, Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
+    @ccall libcholmod.cholmod_aat(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, mode::Cint, Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
 function cholmod_l_aat(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_aat(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Cint, arg5::Ptr{cholmod_common})::Ptr{cholmod_sparse}
+    @ccall libcholmod.cholmod_l_aat(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Cint, arg5::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
 function cholmod_copy_sparse(A, Common)
@@ -877,51 +956,51 @@ function cholmod_l_print_triplet(arg1, arg2, arg3)
 end
 
 function cholmod_check_subset(Set, len, n, Common)
-    @ccall libcholmod.cholmod_check_subset(Set::Ptr{Cint}, len::Clong, n::Csize_t, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_check_subset(Set::Ptr{Int32}, len::Int64, n::Csize_t, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_check_subset(arg1, arg2, arg3, arg4)
-    @ccall libcholmod.cholmod_l_check_subset(arg1::Ptr{Clong}, arg2::Clong, arg3::Csize_t, arg4::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_check_subset(arg1::Ptr{Int64}, arg2::Int64, arg3::Csize_t, arg4::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_print_subset(Set, len, n, name, Common)
-    @ccall libcholmod.cholmod_print_subset(Set::Ptr{Cint}, len::Clong, n::Csize_t, name::Ptr{Cchar}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_print_subset(Set::Ptr{Int32}, len::Int64, n::Csize_t, name::Ptr{Cchar}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_print_subset(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_print_subset(arg1::Ptr{Clong}, arg2::Clong, arg3::Csize_t, arg4::Ptr{Cchar}, arg5::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_print_subset(arg1::Ptr{Int64}, arg2::Int64, arg3::Csize_t, arg4::Ptr{Cchar}, arg5::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_check_perm(Perm, len, n, Common)
-    @ccall libcholmod.cholmod_check_perm(Perm::Ptr{Cint}, len::Csize_t, n::Csize_t, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_check_perm(Perm::Ptr{Int32}, len::Csize_t, n::Csize_t, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_check_perm(arg1, arg2, arg3, arg4)
-    @ccall libcholmod.cholmod_l_check_perm(arg1::Ptr{Clong}, arg2::Csize_t, arg3::Csize_t, arg4::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_check_perm(arg1::Ptr{Int64}, arg2::Csize_t, arg3::Csize_t, arg4::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_print_perm(Perm, len, n, name, Common)
-    @ccall libcholmod.cholmod_print_perm(Perm::Ptr{Cint}, len::Csize_t, n::Csize_t, name::Ptr{Cchar}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_print_perm(Perm::Ptr{Int32}, len::Csize_t, n::Csize_t, name::Ptr{Cchar}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_print_perm(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_print_perm(arg1::Ptr{Clong}, arg2::Csize_t, arg3::Csize_t, arg4::Ptr{Cchar}, arg5::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_print_perm(arg1::Ptr{Int64}, arg2::Csize_t, arg3::Csize_t, arg4::Ptr{Cchar}, arg5::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_check_parent(Parent, n, Common)
-    @ccall libcholmod.cholmod_check_parent(Parent::Ptr{Cint}, n::Csize_t, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_check_parent(Parent::Ptr{Int32}, n::Csize_t, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_check_parent(arg1, arg2, arg3)
-    @ccall libcholmod.cholmod_l_check_parent(arg1::Ptr{Clong}, arg2::Csize_t, arg3::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_check_parent(arg1::Ptr{Int64}, arg2::Csize_t, arg3::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_print_parent(Parent, n, name, Common)
-    @ccall libcholmod.cholmod_print_parent(Parent::Ptr{Cint}, n::Csize_t, name::Ptr{Cchar}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_print_parent(Parent::Ptr{Int32}, n::Csize_t, name::Ptr{Cchar}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_print_parent(arg1, arg2, arg3, arg4)
-    @ccall libcholmod.cholmod_l_print_parent(arg1::Ptr{Clong}, arg2::Csize_t, arg3::Ptr{Cchar}, arg4::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_print_parent(arg1::Ptr{Int64}, arg2::Csize_t, arg3::Ptr{Cchar}, arg4::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_read_sparse(f, Common)
@@ -972,110 +1051,6 @@ function cholmod_l_write_dense(arg1, arg2, arg3, arg4)
     @ccall libcholmod.cholmod_l_write_dense(arg1::Ptr{Libc.FILE}, arg2::Ptr{cholmod_dense}, arg3::Ptr{Cchar}, arg4::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_ccolamd(A, fset, fsize, Cmember, Perm, Common)
-    @ccall libcholmod.cholmod_ccolamd(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, Cmember::Ptr{Cint}, Perm::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_ccolamd(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_ccolamd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Ptr{Clong}, arg5::Ptr{Clong}, arg6::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_csymamd(A, Cmember, Perm, Common)
-    @ccall libcholmod.cholmod_csymamd(A::Ptr{cholmod_sparse}, Cmember::Ptr{Cint}, Perm::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_csymamd(arg1, arg2, arg3, arg4)
-    @ccall libcholmod.cholmod_l_csymamd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Ptr{Clong}, arg4::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_camd(A, fset, fsize, Cmember, Perm, Common)
-    @ccall libcholmod.cholmod_camd(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, Cmember::Ptr{Cint}, Perm::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_camd(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_camd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Ptr{Clong}, arg5::Ptr{Clong}, arg6::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_nested_dissection(A, fset, fsize, Perm, CParent, Cmember, Common)
-    @ccall libcholmod.cholmod_nested_dissection(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, Perm::Ptr{Cint}, CParent::Ptr{Cint}, Cmember::Ptr{Cint}, Common::Ptr{cholmod_common})::Clong
-end
-
-function cholmod_l_nested_dissection(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-    @ccall libcholmod.cholmod_l_nested_dissection(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Ptr{Clong}, arg5::Ptr{Clong}, arg6::Ptr{Clong}, arg7::Ptr{cholmod_common})::Clong
-end
-
-function cholmod_metis(A, fset, fsize, postorder, Perm, Common)
-    @ccall libcholmod.cholmod_metis(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, postorder::Cint, Perm::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_metis(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_metis(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Cint, arg5::Ptr{Clong}, arg6::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_bisect(A, fset, fsize, compress, Partition, Common)
-    @ccall libcholmod.cholmod_bisect(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, compress::Cint, Partition::Ptr{Cint}, Common::Ptr{cholmod_common})::Clong
-end
-
-function cholmod_l_bisect(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_bisect(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Cint, arg5::Ptr{Clong}, arg6::Ptr{cholmod_common})::Clong
-end
-
-function cholmod_metis_bisector(A, Anw, Aew, Partition, Common)
-    @ccall libcholmod.cholmod_metis_bisector(A::Ptr{cholmod_sparse}, Anw::Ptr{Cint}, Aew::Ptr{Cint}, Partition::Ptr{Cint}, Common::Ptr{cholmod_common})::Clong
-end
-
-function cholmod_l_metis_bisector(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_metis_bisector(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Ptr{cholmod_common})::Clong
-end
-
-function cholmod_collapse_septree(n, ncomponents, nd_oksep, nd_small, CParent, Cmember, Common)
-    @ccall libcholmod.cholmod_collapse_septree(n::Csize_t, ncomponents::Csize_t, nd_oksep::Cdouble, nd_small::Csize_t, CParent::Ptr{Cint}, Cmember::Ptr{Cint}, Common::Ptr{cholmod_common})::Clong
-end
-
-function cholmod_l_collapse_septree(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-    @ccall libcholmod.cholmod_l_collapse_septree(arg1::Csize_t, arg2::Csize_t, arg3::Cdouble, arg4::Csize_t, arg5::Ptr{Clong}, arg6::Ptr{Clong}, arg7::Ptr{cholmod_common})::Clong
-end
-
-function cholmod_super_symbolic(A, F, Parent, L, Common)
-    @ccall libcholmod.cholmod_super_symbolic(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, Parent::Ptr{Cint}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_super_symbolic(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_super_symbolic(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Clong}, arg4::Ptr{cholmod_factor}, arg5::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_super_symbolic2(for_whom, A, F, Parent, L, Common)
-    @ccall libcholmod.cholmod_super_symbolic2(for_whom::Cint, A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, Parent::Ptr{Cint}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_super_symbolic2(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_super_symbolic2(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{cholmod_sparse}, arg4::Ptr{Clong}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_super_numeric(A, F, beta, L, Common)
-    @ccall libcholmod.cholmod_super_numeric(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, beta::Ptr{Cdouble}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_super_numeric(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_super_numeric(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Ptr{cholmod_factor}, arg5::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_super_lsolve(L, X, E, Common)
-    @ccall libcholmod.cholmod_super_lsolve(L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, E::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_super_lsolve(arg1, arg2, arg3, arg4)
-    @ccall libcholmod.cholmod_l_super_lsolve(arg1::Ptr{cholmod_factor}, arg2::Ptr{cholmod_dense}, arg3::Ptr{cholmod_dense}, arg4::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_super_ltsolve(L, X, E, Common)
-    @ccall libcholmod.cholmod_super_ltsolve(L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, E::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_super_ltsolve(arg1, arg2, arg3, arg4)
-    @ccall libcholmod.cholmod_l_super_ltsolve(arg1::Ptr{cholmod_factor}, arg2::Ptr{cholmod_dense}, arg3::Ptr{cholmod_dense}, arg4::Ptr{cholmod_common})::Cint
-end
-
 function cholmod_analyze(A, Common)
     @ccall libcholmod.cholmod_analyze(A::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Ptr{cholmod_factor}
 end
@@ -1085,19 +1060,19 @@ function cholmod_l_analyze(arg1, arg2)
 end
 
 function cholmod_analyze_p(A, UserPerm, fset, fsize, Common)
-    @ccall libcholmod.cholmod_analyze_p(A::Ptr{cholmod_sparse}, UserPerm::Ptr{Cint}, fset::Ptr{Cint}, fsize::Csize_t, Common::Ptr{cholmod_common})::Ptr{cholmod_factor}
+    @ccall libcholmod.cholmod_analyze_p(A::Ptr{cholmod_sparse}, UserPerm::Ptr{Int32}, fset::Ptr{Int32}, fsize::Csize_t, Common::Ptr{cholmod_common})::Ptr{cholmod_factor}
 end
 
 function cholmod_l_analyze_p(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_analyze_p(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Ptr{Clong}, arg4::Csize_t, arg5::Ptr{cholmod_common})::Ptr{cholmod_factor}
+    @ccall libcholmod.cholmod_l_analyze_p(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Ptr{Int64}, arg4::Csize_t, arg5::Ptr{cholmod_common})::Ptr{cholmod_factor}
 end
 
 function cholmod_analyze_p2(for_whom, A, UserPerm, fset, fsize, Common)
-    @ccall libcholmod.cholmod_analyze_p2(for_whom::Cint, A::Ptr{cholmod_sparse}, UserPerm::Ptr{Cint}, fset::Ptr{Cint}, fsize::Csize_t, Common::Ptr{cholmod_common})::Ptr{cholmod_factor}
+    @ccall libcholmod.cholmod_analyze_p2(for_whom::Cint, A::Ptr{cholmod_sparse}, UserPerm::Ptr{Int32}, fset::Ptr{Int32}, fsize::Csize_t, Common::Ptr{cholmod_common})::Ptr{cholmod_factor}
 end
 
 function cholmod_l_analyze_p2(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_analyze_p2(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Csize_t, arg6::Ptr{cholmod_common})::Ptr{cholmod_factor}
+    @ccall libcholmod.cholmod_l_analyze_p2(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Csize_t, arg6::Ptr{cholmod_common})::Ptr{cholmod_factor}
 end
 
 function cholmod_factorize(A, L, Common)
@@ -1109,11 +1084,11 @@ function cholmod_l_factorize(arg1, arg2, arg3)
 end
 
 function cholmod_factorize_p(A, beta, fset, fsize, L, Common)
-    @ccall libcholmod.cholmod_factorize_p(A::Ptr{cholmod_sparse}, beta::Ptr{Cdouble}, fset::Ptr{Cint}, fsize::Csize_t, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_factorize_p(A::Ptr{cholmod_sparse}, beta::Ptr{Cdouble}, fset::Ptr{Int32}, fsize::Csize_t, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_factorize_p(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_factorize_p(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Cdouble}, arg3::Ptr{Clong}, arg4::Csize_t, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_factorize_p(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Cdouble}, arg3::Ptr{Int64}, arg4::Csize_t, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_solve(sys, L, B, Common)
@@ -1141,43 +1116,43 @@ function cholmod_l_spsolve(arg1, arg2, arg3, arg4)
 end
 
 function cholmod_etree(A, Parent, Common)
-    @ccall libcholmod.cholmod_etree(A::Ptr{cholmod_sparse}, Parent::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_etree(A::Ptr{cholmod_sparse}, Parent::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_etree(arg1, arg2, arg3)
-    @ccall libcholmod.cholmod_l_etree(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_etree(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_rowcolcounts(A, fset, fsize, Parent, Post, RowCount, ColCount, First, Level, Common)
-    @ccall libcholmod.cholmod_rowcolcounts(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, Parent::Ptr{Cint}, Post::Ptr{Cint}, RowCount::Ptr{Cint}, ColCount::Ptr{Cint}, First::Ptr{Cint}, Level::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_rowcolcounts(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, Parent::Ptr{Int32}, Post::Ptr{Int32}, RowCount::Ptr{Int32}, ColCount::Ptr{Int32}, First::Ptr{Int32}, Level::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_rowcolcounts(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10)
-    @ccall libcholmod.cholmod_l_rowcolcounts(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Ptr{Clong}, arg5::Ptr{Clong}, arg6::Ptr{Clong}, arg7::Ptr{Clong}, arg8::Ptr{Clong}, arg9::Ptr{Clong}, arg10::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_rowcolcounts(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Ptr{Int64}, arg5::Ptr{Int64}, arg6::Ptr{Int64}, arg7::Ptr{Int64}, arg8::Ptr{Int64}, arg9::Ptr{Int64}, arg10::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_analyze_ordering(A, ordering, Perm, fset, fsize, Parent, Post, ColCount, First, Level, Common)
-    @ccall libcholmod.cholmod_analyze_ordering(A::Ptr{cholmod_sparse}, ordering::Cint, Perm::Ptr{Cint}, fset::Ptr{Cint}, fsize::Csize_t, Parent::Ptr{Cint}, Post::Ptr{Cint}, ColCount::Ptr{Cint}, First::Ptr{Cint}, Level::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_analyze_ordering(A::Ptr{cholmod_sparse}, ordering::Cint, Perm::Ptr{Int32}, fset::Ptr{Int32}, fsize::Csize_t, Parent::Ptr{Int32}, Post::Ptr{Int32}, ColCount::Ptr{Int32}, First::Ptr{Int32}, Level::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_analyze_ordering(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11)
-    @ccall libcholmod.cholmod_l_analyze_ordering(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Csize_t, arg6::Ptr{Clong}, arg7::Ptr{Clong}, arg8::Ptr{Clong}, arg9::Ptr{Clong}, arg10::Ptr{Clong}, arg11::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_analyze_ordering(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Csize_t, arg6::Ptr{Int64}, arg7::Ptr{Int64}, arg8::Ptr{Int64}, arg9::Ptr{Int64}, arg10::Ptr{Int64}, arg11::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_amd(A, fset, fsize, Perm, Common)
-    @ccall libcholmod.cholmod_amd(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, Perm::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_amd(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, Perm::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_amd(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_amd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Ptr{Clong}, arg5::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_amd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Ptr{Int64}, arg5::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_colamd(A, fset, fsize, postorder, Perm, Common)
-    @ccall libcholmod.cholmod_colamd(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, postorder::Cint, Perm::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_colamd(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, postorder::Cint, Perm::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_colamd(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_colamd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Cint, arg5::Ptr{Clong}, arg6::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_colamd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Cint, arg5::Ptr{Int64}, arg6::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_rowfac(A, F, beta, kstart, kend, L, Common)
@@ -1189,27 +1164,27 @@ function cholmod_l_rowfac(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 end
 
 function cholmod_rowfac_mask(A, F, beta, kstart, kend, mask, RLinkUp, L, Common)
-    @ccall libcholmod.cholmod_rowfac_mask(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, beta::Ptr{Cdouble}, kstart::Csize_t, kend::Csize_t, mask::Ptr{Cint}, RLinkUp::Ptr{Cint}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_rowfac_mask(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, beta::Ptr{Cdouble}, kstart::Csize_t, kend::Csize_t, mask::Ptr{Int32}, RLinkUp::Ptr{Int32}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_rowfac_mask(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
-    @ccall libcholmod.cholmod_l_rowfac_mask(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Csize_t, arg5::Csize_t, arg6::Ptr{Clong}, arg7::Ptr{Clong}, arg8::Ptr{cholmod_factor}, arg9::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_rowfac_mask(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Csize_t, arg5::Csize_t, arg6::Ptr{Int64}, arg7::Ptr{Int64}, arg8::Ptr{cholmod_factor}, arg9::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_rowfac_mask2(A, F, beta, kstart, kend, mask, maskmark, RLinkUp, L, Common)
-    @ccall libcholmod.cholmod_rowfac_mask2(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, beta::Ptr{Cdouble}, kstart::Csize_t, kend::Csize_t, mask::Ptr{Cint}, maskmark::Cint, RLinkUp::Ptr{Cint}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_rowfac_mask2(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, beta::Ptr{Cdouble}, kstart::Csize_t, kend::Csize_t, mask::Ptr{Int32}, maskmark::Int32, RLinkUp::Ptr{Int32}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_rowfac_mask2(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10)
-    @ccall libcholmod.cholmod_l_rowfac_mask2(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Csize_t, arg5::Csize_t, arg6::Ptr{Clong}, arg7::Clong, arg8::Ptr{Clong}, arg9::Ptr{cholmod_factor}, arg10::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_rowfac_mask2(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Csize_t, arg5::Csize_t, arg6::Ptr{Int64}, arg7::Int64, arg8::Ptr{Int64}, arg9::Ptr{cholmod_factor}, arg10::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_row_subtree(A, F, k, Parent, R, Common)
-    @ccall libcholmod.cholmod_row_subtree(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, k::Csize_t, Parent::Ptr{Cint}, R::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_row_subtree(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, k::Csize_t, Parent::Ptr{Int32}, R::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_row_subtree(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_row_subtree(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Csize_t, arg4::Ptr{Clong}, arg5::Ptr{cholmod_sparse}, arg6::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_row_subtree(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Csize_t, arg4::Ptr{Int64}, arg5::Ptr{cholmod_sparse}, arg6::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_lsolve_pattern(B, L, X, Common)
@@ -1221,27 +1196,27 @@ function cholmod_l_lsolve_pattern(arg1, arg2, arg3, arg4)
 end
 
 function cholmod_row_lsubtree(A, Fi, fnz, k, L, R, Common)
-    @ccall libcholmod.cholmod_row_lsubtree(A::Ptr{cholmod_sparse}, Fi::Ptr{Cint}, fnz::Csize_t, k::Csize_t, L::Ptr{cholmod_factor}, R::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_row_lsubtree(A::Ptr{cholmod_sparse}, Fi::Ptr{Int32}, fnz::Csize_t, k::Csize_t, L::Ptr{cholmod_factor}, R::Ptr{cholmod_sparse}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_row_lsubtree(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-    @ccall libcholmod.cholmod_l_row_lsubtree(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Csize_t, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_sparse}, arg7::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_row_lsubtree(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Csize_t, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_sparse}, arg7::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_resymbol(A, fset, fsize, pack, L, Common)
-    @ccall libcholmod.cholmod_resymbol(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, pack::Cint, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_resymbol(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, pack::Cint, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_resymbol(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_resymbol(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Cint, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_resymbol(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Cint, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_resymbol_noperm(A, fset, fsize, pack, L, Common)
-    @ccall libcholmod.cholmod_resymbol_noperm(A::Ptr{cholmod_sparse}, fset::Ptr{Cint}, fsize::Csize_t, pack::Cint, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_resymbol_noperm(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, pack::Cint, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_resymbol_noperm(arg1, arg2, arg3, arg4, arg5, arg6)
-    @ccall libcholmod.cholmod_l_resymbol_noperm(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Csize_t, arg4::Cint, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_resymbol_noperm(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Cint, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_rcond(L, Common)
@@ -1253,11 +1228,11 @@ function cholmod_l_rcond(arg1, arg2)
 end
 
 function cholmod_postorder(Parent, n, Weight_p, Post, Common)
-    @ccall libcholmod.cholmod_postorder(Parent::Ptr{Cint}, n::Csize_t, Weight_p::Ptr{Cint}, Post::Ptr{Cint}, Common::Ptr{cholmod_common})::Clong
+    @ccall libcholmod.cholmod_postorder(Parent::Ptr{Int32}, n::Csize_t, Weight_p::Ptr{Int32}, Post::Ptr{Int32}, Common::Ptr{cholmod_common})::Int32
 end
 
 function cholmod_l_postorder(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_postorder(arg1::Ptr{Clong}, arg2::Csize_t, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Ptr{cholmod_common})::Clong
+    @ccall libcholmod.cholmod_l_postorder(arg1::Ptr{Int64}, arg2::Csize_t, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Ptr{cholmod_common})::Int64
 end
 
 function cholmod_drop(tol, A, Common)
@@ -1317,11 +1292,11 @@ function cholmod_l_ssmult(arg1, arg2, arg3, arg4, arg5, arg6)
 end
 
 function cholmod_submatrix(A, rset, rsize, cset, csize, values, sorted, Common)
-    @ccall libcholmod.cholmod_submatrix(A::Ptr{cholmod_sparse}, rset::Ptr{Cint}, rsize::Clong, cset::Ptr{Cint}, csize::Clong, values::Cint, sorted::Cint, Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
+    @ccall libcholmod.cholmod_submatrix(A::Ptr{cholmod_sparse}, rset::Ptr{Int32}, rsize::Int64, cset::Ptr{Int32}, csize::Int64, values::Cint, sorted::Cint, Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
 function cholmod_l_submatrix(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
-    @ccall libcholmod.cholmod_l_submatrix(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Clong}, arg3::Clong, arg4::Ptr{Clong}, arg5::Clong, arg6::Cint, arg7::Cint, arg8::Ptr{cholmod_common})::Ptr{cholmod_sparse}
+    @ccall libcholmod.cholmod_l_submatrix(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Int64, arg4::Ptr{Int64}, arg5::Int64, arg6::Cint, arg7::Cint, arg8::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
 function cholmod_vertcat(A, B, values, Common)
@@ -1333,11 +1308,11 @@ function cholmod_l_vertcat(arg1, arg2, arg3, arg4)
 end
 
 function cholmod_symmetry(A, option, xmatched, pmatched, nzoffdiag, nzdiag, Common)
-    @ccall libcholmod.cholmod_symmetry(A::Ptr{cholmod_sparse}, option::Cint, xmatched::Ptr{Cint}, pmatched::Ptr{Cint}, nzoffdiag::Ptr{Cint}, nzdiag::Ptr{Cint}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_symmetry(A::Ptr{cholmod_sparse}, option::Cint, xmatched::Ptr{Int32}, pmatched::Ptr{Int32}, nzoffdiag::Ptr{Int32}, nzdiag::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_symmetry(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-    @ccall libcholmod.cholmod_l_symmetry(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Ptr{Clong}, arg6::Ptr{Clong}, arg7::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_symmetry(arg1::Ptr{cholmod_sparse}, arg2::Cint, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Ptr{Int64}, arg6::Ptr{Int64}, arg7::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_updown(update, C, L, Common)
@@ -1357,27 +1332,27 @@ function cholmod_l_updown_solve(arg1, arg2, arg3, arg4, arg5, arg6)
 end
 
 function cholmod_updown_mark(update, C, colmark, L, X, DeltaB, Common)
-    @ccall libcholmod.cholmod_updown_mark(update::Cint, C::Ptr{cholmod_sparse}, colmark::Ptr{Cint}, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_updown_mark(update::Cint, C::Ptr{cholmod_sparse}, colmark::Ptr{Int32}, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_updown_mark(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-    @ccall libcholmod.cholmod_l_updown_mark(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Clong}, arg4::Ptr{cholmod_factor}, arg5::Ptr{cholmod_dense}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_updown_mark(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Int64}, arg4::Ptr{cholmod_factor}, arg5::Ptr{cholmod_dense}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_updown_mask(update, C, colmark, mask, L, X, DeltaB, Common)
-    @ccall libcholmod.cholmod_updown_mask(update::Cint, C::Ptr{cholmod_sparse}, colmark::Ptr{Cint}, mask::Ptr{Cint}, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_updown_mask(update::Cint, C::Ptr{cholmod_sparse}, colmark::Ptr{Int32}, mask::Ptr{Int32}, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_updown_mask(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
-    @ccall libcholmod.cholmod_l_updown_mask(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_updown_mask(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_updown_mask2(update, C, colmark, mask, maskmark, L, X, DeltaB, Common)
-    @ccall libcholmod.cholmod_updown_mask2(update::Cint, C::Ptr{cholmod_sparse}, colmark::Ptr{Cint}, mask::Ptr{Cint}, maskmark::Cint, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_updown_mask2(update::Cint, C::Ptr{cholmod_sparse}, colmark::Ptr{Int32}, mask::Ptr{Int32}, maskmark::Int32, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_updown_mask2(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
-    @ccall libcholmod.cholmod_l_updown_mask2(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Clong}, arg4::Ptr{Clong}, arg5::Clong, arg6::Ptr{cholmod_factor}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_dense}, arg9::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_updown_mask2(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Int64, arg6::Ptr{cholmod_factor}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_dense}, arg9::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_rowadd(k, R, L, Common)
@@ -1397,11 +1372,11 @@ function cholmod_l_rowadd_solve(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 end
 
 function cholmod_rowadd_mark(k, R, bk, colmark, L, X, DeltaB, Common)
-    @ccall libcholmod.cholmod_rowadd_mark(k::Csize_t, R::Ptr{cholmod_sparse}, bk::Ptr{Cdouble}, colmark::Ptr{Cint}, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_rowadd_mark(k::Csize_t, R::Ptr{cholmod_sparse}, bk::Ptr{Cdouble}, colmark::Ptr{Int32}, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_rowadd_mark(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
-    @ccall libcholmod.cholmod_l_rowadd_mark(arg1::Csize_t, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Ptr{Clong}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_rowadd_mark(arg1::Csize_t, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Ptr{Int64}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_rowdel(k, R, L, Common)
@@ -1421,83 +1396,123 @@ function cholmod_l_rowdel_solve(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 end
 
 function cholmod_rowdel_mark(k, R, yk, colmark, L, X, DeltaB, Common)
-    @ccall libcholmod.cholmod_rowdel_mark(k::Csize_t, R::Ptr{cholmod_sparse}, yk::Ptr{Cdouble}, colmark::Ptr{Cint}, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_rowdel_mark(k::Csize_t, R::Ptr{cholmod_sparse}, yk::Ptr{Cdouble}, colmark::Ptr{Int32}, L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, DeltaB::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
 end
 
 function cholmod_l_rowdel_mark(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
-    @ccall libcholmod.cholmod_l_rowdel_mark(arg1::Csize_t, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Ptr{Clong}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_common})::Cint
+    @ccall libcholmod.cholmod_l_rowdel_mark(arg1::Csize_t, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Ptr{Int64}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_dense}, arg7::Ptr{cholmod_dense}, arg8::Ptr{cholmod_common})::Cint
 end
 
-function dtrsv_64_(uplo, trans, diag, n, A, lda, X, incx)
-    @ccall libcholmod.dtrsv_64_(uplo::Ptr{Cchar}, trans::Ptr{Cchar}, diag::Ptr{Cchar}, n::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint}, X::Ptr{Cdouble}, incx::Ptr{Cint})::Cvoid
+function cholmod_ccolamd(A, fset, fsize, Cmember, Perm, Common)
+    @ccall libcholmod.cholmod_ccolamd(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, Cmember::Ptr{Int32}, Perm::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
-function dgemv_64_(trans, m, n, alpha, A, lda, X, incx, beta, Y, incy)
-    @ccall libcholmod.dgemv_64_(trans::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, X::Ptr{Cdouble}, incx::Ptr{Cint}, beta::Ptr{Cdouble}, Y::Ptr{Cdouble}, incy::Ptr{Cint})::Cvoid
+function cholmod_l_ccolamd(arg1, arg2, arg3, arg4, arg5, arg6)
+    @ccall libcholmod.cholmod_l_ccolamd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Ptr{Int64}, arg5::Ptr{Int64}, arg6::Ptr{cholmod_common})::Cint
 end
 
-function dtrsm_64_(side, uplo, transa, diag, m, n, alpha, A, lda, B, ldb)
-    @ccall libcholmod.dtrsm_64_(side::Ptr{Cchar}, uplo::Ptr{Cchar}, transa::Ptr{Cchar}, diag::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, B::Ptr{Cdouble}, ldb::Ptr{Cint})::Cvoid
+function cholmod_csymamd(A, Cmember, Perm, Common)
+    @ccall libcholmod.cholmod_csymamd(A::Ptr{cholmod_sparse}, Cmember::Ptr{Int32}, Perm::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
-function dgemm_64_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc)
-    @ccall libcholmod.dgemm_64_(transa::Ptr{Cchar}, transb::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, k::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, B::Ptr{Cdouble}, ldb::Ptr{Cint}, beta::Ptr{Cdouble}, C::Ptr{Cdouble}, ldc::Ptr{Cint})::Cvoid
+function cholmod_l_csymamd(arg1, arg2, arg3, arg4)
+    @ccall libcholmod.cholmod_l_csymamd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Ptr{Int64}, arg4::Ptr{cholmod_common})::Cint
 end
 
-function dsyrk_64_(uplo, trans, n, k, alpha, A, lda, beta, C, ldc)
-    @ccall libcholmod.dsyrk_64_(uplo::Ptr{Cchar}, trans::Ptr{Cchar}, n::Ptr{Cint}, k::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, beta::Ptr{Cdouble}, C::Ptr{Cdouble}, ldc::Ptr{Cint})::Cvoid
+function cholmod_camd(A, fset, fsize, Cmember, Perm, Common)
+    @ccall libcholmod.cholmod_camd(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, Cmember::Ptr{Int32}, Perm::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
-function dger_64_(m, n, alpha, X, incx, Y, incy, A, lda)
-    @ccall libcholmod.dger_64_(m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, X::Ptr{Cdouble}, incx::Ptr{Cint}, Y::Ptr{Cdouble}, incy::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint})::Cvoid
+function cholmod_l_camd(arg1, arg2, arg3, arg4, arg5, arg6)
+    @ccall libcholmod.cholmod_l_camd(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Ptr{Int64}, arg5::Ptr{Int64}, arg6::Ptr{cholmod_common})::Cint
 end
 
-function dscal_64_(n, alpha, Y, incy)
-    @ccall libcholmod.dscal_64_(n::Ptr{Cint}, alpha::Ptr{Cdouble}, Y::Ptr{Cdouble}, incy::Ptr{Cint})::Cvoid
+function cholmod_nested_dissection(A, fset, fsize, Perm, CParent, Cmember, Common)
+    @ccall libcholmod.cholmod_nested_dissection(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, Perm::Ptr{Int32}, CParent::Ptr{Int32}, Cmember::Ptr{Int32}, Common::Ptr{cholmod_common})::Int64
 end
 
-function dpotrf_64_(uplo, n, A, lda, info)
-    @ccall libcholmod.dpotrf_64_(uplo::Ptr{Cchar}, n::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint}, info::Ptr{Cint})::Cvoid
+function cholmod_l_nested_dissection(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+    @ccall libcholmod.cholmod_l_nested_dissection(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Ptr{Int64}, arg5::Ptr{Int64}, arg6::Ptr{Int64}, arg7::Ptr{cholmod_common})::Int64
 end
 
-function ztrsv_64_(uplo, trans, diag, n, A, lda, X, incx)
-    @ccall libcholmod.ztrsv_64_(uplo::Ptr{Cchar}, trans::Ptr{Cchar}, diag::Ptr{Cchar}, n::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint}, X::Ptr{Cdouble}, incx::Ptr{Cint})::Cvoid
+function cholmod_metis(A, fset, fsize, postorder, Perm, Common)
+    @ccall libcholmod.cholmod_metis(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, postorder::Cint, Perm::Ptr{Int32}, Common::Ptr{cholmod_common})::Cint
 end
 
-function zgemv_64_(trans, m, n, alpha, A, lda, X, incx, beta, Y, incy)
-    @ccall libcholmod.zgemv_64_(trans::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, X::Ptr{Cdouble}, incx::Ptr{Cint}, beta::Ptr{Cdouble}, Y::Ptr{Cdouble}, incy::Ptr{Cint})::Cvoid
+function cholmod_l_metis(arg1, arg2, arg3, arg4, arg5, arg6)
+    @ccall libcholmod.cholmod_l_metis(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Cint, arg5::Ptr{Int64}, arg6::Ptr{cholmod_common})::Cint
 end
 
-function ztrsm_64_(side, uplo, transa, diag, m, n, alpha, A, lda, B, ldb)
-    @ccall libcholmod.ztrsm_64_(side::Ptr{Cchar}, uplo::Ptr{Cchar}, transa::Ptr{Cchar}, diag::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, B::Ptr{Cdouble}, ldb::Ptr{Cint})::Cvoid
+function cholmod_bisect(A, fset, fsize, compress, Partition, Common)
+    @ccall libcholmod.cholmod_bisect(A::Ptr{cholmod_sparse}, fset::Ptr{Int32}, fsize::Csize_t, compress::Cint, Partition::Ptr{Int32}, Common::Ptr{cholmod_common})::Int64
 end
 
-function zgemm_64_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc)
-    @ccall libcholmod.zgemm_64_(transa::Ptr{Cchar}, transb::Ptr{Cchar}, m::Ptr{Cint}, n::Ptr{Cint}, k::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, B::Ptr{Cdouble}, ldb::Ptr{Cint}, beta::Ptr{Cdouble}, C::Ptr{Cdouble}, ldc::Ptr{Cint})::Cvoid
+function cholmod_l_bisect(arg1, arg2, arg3, arg4, arg5, arg6)
+    @ccall libcholmod.cholmod_l_bisect(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Csize_t, arg4::Cint, arg5::Ptr{Int64}, arg6::Ptr{cholmod_common})::Int64
 end
 
-function zherk_64_(uplo, trans, n, k, alpha, A, lda, beta, C, ldc)
-    @ccall libcholmod.zherk_64_(uplo::Ptr{Cchar}, trans::Ptr{Cchar}, n::Ptr{Cint}, k::Ptr{Cint}, alpha::Ptr{Cdouble}, A::Ptr{Cdouble}, lda::Ptr{Cint}, beta::Ptr{Cdouble}, C::Ptr{Cdouble}, ldc::Ptr{Cint})::Cvoid
+function cholmod_metis_bisector(A, Anw, Aew, Partition, Common)
+    @ccall libcholmod.cholmod_metis_bisector(A::Ptr{cholmod_sparse}, Anw::Ptr{Int32}, Aew::Ptr{Int32}, Partition::Ptr{Int32}, Common::Ptr{cholmod_common})::Int64
 end
 
-function zgeru_64_(m, n, alpha, X, incx, Y, incy, A, lda)
-    @ccall libcholmod.zgeru_64_(m::Ptr{Cint}, n::Ptr{Cint}, alpha::Ptr{Cdouble}, X::Ptr{Cdouble}, incx::Ptr{Cint}, Y::Ptr{Cdouble}, incy::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint})::Cvoid
+function cholmod_l_metis_bisector(arg1, arg2, arg3, arg4, arg5)
+    @ccall libcholmod.cholmod_l_metis_bisector(arg1::Ptr{cholmod_sparse}, arg2::Ptr{Int64}, arg3::Ptr{Int64}, arg4::Ptr{Int64}, arg5::Ptr{cholmod_common})::Int64
 end
 
-function zscal_64_(n, alpha, Y, incy)
-    @ccall libcholmod.zscal_64_(n::Ptr{Cint}, alpha::Ptr{Cdouble}, Y::Ptr{Cdouble}, incy::Ptr{Cint})::Cvoid
+function cholmod_collapse_septree(n, ncomponents, nd_oksep, nd_small, CParent, Cmember, Common)
+    @ccall libcholmod.cholmod_collapse_septree(n::Csize_t, ncomponents::Csize_t, nd_oksep::Cdouble, nd_small::Csize_t, CParent::Ptr{Int32}, Cmember::Ptr{Int32}, Common::Ptr{cholmod_common})::Int64
 end
 
-function zpotrf_64_(uplo, n, A, lda, info)
-    @ccall libcholmod.zpotrf_64_(uplo::Ptr{Cchar}, n::Ptr{Cint}, A::Ptr{Cdouble}, lda::Ptr{Cint}, info::Ptr{Cint})::Cvoid
+function cholmod_l_collapse_septree(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+    @ccall libcholmod.cholmod_l_collapse_septree(arg1::Csize_t, arg2::Csize_t, arg3::Cdouble, arg4::Csize_t, arg5::Ptr{Int64}, arg6::Ptr{Int64}, arg7::Ptr{cholmod_common})::Int64
+end
+
+function cholmod_super_symbolic(A, F, Parent, L, Common)
+    @ccall libcholmod.cholmod_super_symbolic(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, Parent::Ptr{Int32}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_l_super_symbolic(arg1, arg2, arg3, arg4, arg5)
+    @ccall libcholmod.cholmod_l_super_symbolic(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Int64}, arg4::Ptr{cholmod_factor}, arg5::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_super_symbolic2(for_whom, A, F, Parent, L, Common)
+    @ccall libcholmod.cholmod_super_symbolic2(for_whom::Cint, A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, Parent::Ptr{Int32}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_l_super_symbolic2(arg1, arg2, arg3, arg4, arg5, arg6)
+    @ccall libcholmod.cholmod_l_super_symbolic2(arg1::Cint, arg2::Ptr{cholmod_sparse}, arg3::Ptr{cholmod_sparse}, arg4::Ptr{Int64}, arg5::Ptr{cholmod_factor}, arg6::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_super_numeric(A, F, beta, L, Common)
+    @ccall libcholmod.cholmod_super_numeric(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse}, beta::Ptr{Cdouble}, L::Ptr{cholmod_factor}, Common::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_l_super_numeric(arg1, arg2, arg3, arg4, arg5)
+    @ccall libcholmod.cholmod_l_super_numeric(arg1::Ptr{cholmod_sparse}, arg2::Ptr{cholmod_sparse}, arg3::Ptr{Cdouble}, arg4::Ptr{cholmod_factor}, arg5::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_super_lsolve(L, X, E, Common)
+    @ccall libcholmod.cholmod_super_lsolve(L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, E::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_l_super_lsolve(arg1, arg2, arg3, arg4)
+    @ccall libcholmod.cholmod_l_super_lsolve(arg1::Ptr{cholmod_factor}, arg2::Ptr{cholmod_dense}, arg3::Ptr{cholmod_dense}, arg4::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_super_ltsolve(L, X, E, Common)
+    @ccall libcholmod.cholmod_super_ltsolve(L::Ptr{cholmod_factor}, X::Ptr{cholmod_dense}, E::Ptr{cholmod_dense}, Common::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_l_super_ltsolve(arg1, arg2, arg3, arg4)
+    @ccall libcholmod.cholmod_l_super_ltsolve(arg1::Ptr{cholmod_factor}, arg2::Ptr{cholmod_dense}, arg3::Ptr{cholmod_dense}, arg4::Ptr{cholmod_common})::Cint
 end
 
 function SuiteSparseQR_C(ordering, tol, econ, getCTX, A, Bsparse, Bdense, Zsparse, Zdense, R, E, H, HPinv, HTau, cc)
-    @ccall libspqr.SuiteSparseQR_C(ordering::Cint, tol::Cdouble, econ::Clong, getCTX::Cint, A::Ptr{cholmod_sparse}, Bsparse::Ptr{cholmod_sparse}, Bdense::Ptr{cholmod_dense}, Zsparse::Ptr{Ptr{cholmod_sparse}}, Zdense::Ptr{Ptr{cholmod_dense}}, R::Ptr{Ptr{cholmod_sparse}}, E::Ptr{Ptr{Clong}}, H::Ptr{Ptr{cholmod_sparse}}, HPinv::Ptr{Ptr{Clong}}, HTau::Ptr{Ptr{cholmod_dense}}, cc::Ptr{cholmod_common})::Clong
+    @ccall libspqr.SuiteSparseQR_C(ordering::Cint, tol::Cdouble, econ::Int64, getCTX::Cint, A::Ptr{cholmod_sparse}, Bsparse::Ptr{cholmod_sparse}, Bdense::Ptr{cholmod_dense}, Zsparse::Ptr{Ptr{cholmod_sparse}}, Zdense::Ptr{Ptr{cholmod_dense}}, R::Ptr{Ptr{cholmod_sparse}}, E::Ptr{Ptr{Int64}}, H::Ptr{Ptr{cholmod_sparse}}, HPinv::Ptr{Ptr{Int64}}, HTau::Ptr{Ptr{cholmod_dense}}, cc::Ptr{cholmod_common})::Int64
 end
 
 function SuiteSparseQR_C_QR(ordering, tol, econ, A, Q, R, E, cc)
-    @ccall libspqr.SuiteSparseQR_C_QR(ordering::Cint, tol::Cdouble, econ::Clong, A::Ptr{cholmod_sparse}, Q::Ptr{Ptr{cholmod_sparse}}, R::Ptr{Ptr{cholmod_sparse}}, E::Ptr{Ptr{Clong}}, cc::Ptr{cholmod_common})::Clong
+    @ccall libspqr.SuiteSparseQR_C_QR(ordering::Cint, tol::Cdouble, econ::Int64, A::Ptr{cholmod_sparse}, Q::Ptr{Ptr{cholmod_sparse}}, R::Ptr{Ptr{cholmod_sparse}}, E::Ptr{Ptr{Int64}}, cc::Ptr{cholmod_common})::Int64
 end
 
 function SuiteSparseQR_C_backslash(ordering, tol, A, B, cc)
@@ -1545,27 +1560,27 @@ function SuiteSparseQR_C_qmult(method, QR, X, cc)
 end
 
 function amd_order(n, Ap, Ai, P, Control, Info)
-    @ccall libamd.amd_order(n::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, P::Ptr{Cint}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libamd.amd_order(n::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, P::Ptr{Int32}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function amd_l_order(n, Ap, Ai, P, Control, Info)
-    @ccall libamd.amd_l_order(n::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, P::Ptr{Clong}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libamd.amd_l_order(n::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, P::Ptr{Int64}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function amd_2(n, Pe, Iw, Len, iwlen, pfree, Nv, Next, Last, Head, Elen, Degree, W, Control, Info)
-    @ccall libamd.amd_2(n::Cint, Pe::Ptr{Cint}, Iw::Ptr{Cint}, Len::Ptr{Cint}, iwlen::Cint, pfree::Cint, Nv::Ptr{Cint}, Next::Ptr{Cint}, Last::Ptr{Cint}, Head::Ptr{Cint}, Elen::Ptr{Cint}, Degree::Ptr{Cint}, W::Ptr{Cint}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cvoid
+    @ccall libamd.amd_2(n::Int32, Pe::Ptr{Int32}, Iw::Ptr{Int32}, Len::Ptr{Int32}, iwlen::Int32, pfree::Int32, Nv::Ptr{Int32}, Next::Ptr{Int32}, Last::Ptr{Int32}, Head::Ptr{Int32}, Elen::Ptr{Int32}, Degree::Ptr{Int32}, W::Ptr{Int32}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cvoid
 end
 
 function amd_l2(n, Pe, Iw, Len, iwlen, pfree, Nv, Next, Last, Head, Elen, Degree, W, Control, Info)
-    @ccall libamd.amd_l2(n::Clong, Pe::Ptr{Clong}, Iw::Ptr{Clong}, Len::Ptr{Clong}, iwlen::Clong, pfree::Clong, Nv::Ptr{Clong}, Next::Ptr{Clong}, Last::Ptr{Clong}, Head::Ptr{Clong}, Elen::Ptr{Clong}, Degree::Ptr{Clong}, W::Ptr{Clong}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cvoid
+    @ccall libamd.amd_l2(n::Int64, Pe::Ptr{Int64}, Iw::Ptr{Int64}, Len::Ptr{Int64}, iwlen::Int64, pfree::Int64, Nv::Ptr{Int64}, Next::Ptr{Int64}, Last::Ptr{Int64}, Head::Ptr{Int64}, Elen::Ptr{Int64}, Degree::Ptr{Int64}, W::Ptr{Int64}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cvoid
 end
 
 function amd_valid(n_row, n_col, Ap, Ai)
-    @ccall libamd.amd_valid(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint})::Cint
+    @ccall libamd.amd_valid(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32})::Cint
 end
 
 function amd_l_valid(n_row, n_col, Ap, Ai)
-    @ccall libamd.amd_l_valid(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong})::Clong
+    @ccall libamd.amd_l_valid(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64})::Cint
 end
 
 function amd_defaults(Control)
@@ -1593,11 +1608,11 @@ function amd_l_info(Info)
 end
 
 function colamd_recommended(nnz, n_row, n_col)
-    @ccall libcolamd.colamd_recommended(nnz::Cint, n_row::Cint, n_col::Cint)::Csize_t
+    @ccall libcolamd.colamd_recommended(nnz::Int32, n_row::Int32, n_col::Int32)::Csize_t
 end
 
 function colamd_l_recommended(nnz, n_row, n_col)
-    @ccall libcolamd.colamd_l_recommended(nnz::Clong, n_row::Clong, n_col::Clong)::Csize_t
+    @ccall libcolamd.colamd_l_recommended(nnz::Int64, n_row::Int64, n_col::Int64)::Csize_t
 end
 
 function colamd_set_defaults(knobs)
@@ -1609,35 +1624,35 @@ function colamd_l_set_defaults(knobs)
 end
 
 function colamd(n_row, n_col, Alen, A, p, knobs, stats)
-    @ccall libcolamd.colamd(n_row::Cint, n_col::Cint, Alen::Cint, A::Ptr{Cint}, p::Ptr{Cint}, knobs::Ptr{Cdouble}, stats::Ptr{Cint})::Cint
+    @ccall libcolamd.colamd(n_row::Int32, n_col::Int32, Alen::Int32, A::Ptr{Int32}, p::Ptr{Int32}, knobs::Ptr{Cdouble}, stats::Ptr{Int32})::Cint
 end
 
 function colamd_l(n_row, n_col, Alen, A, p, knobs, stats)
-    @ccall libcolamd.colamd_l(n_row::Clong, n_col::Clong, Alen::Clong, A::Ptr{Clong}, p::Ptr{Clong}, knobs::Ptr{Cdouble}, stats::Ptr{Clong})::Clong
+    @ccall libcolamd.colamd_l(n_row::Int64, n_col::Int64, Alen::Int64, A::Ptr{Int64}, p::Ptr{Int64}, knobs::Ptr{Cdouble}, stats::Ptr{Int64})::Cint
 end
 
 function symamd(n, A, p, perm, knobs, stats, allocate, release)
-    @ccall libcolamd.symamd(n::Cint, A::Ptr{Cint}, p::Ptr{Cint}, perm::Ptr{Cint}, knobs::Ptr{Cdouble}, stats::Ptr{Cint}, allocate::Ptr{Cvoid}, release::Ptr{Cvoid})::Cint
+    @ccall libcolamd.symamd(n::Int32, A::Ptr{Int32}, p::Ptr{Int32}, perm::Ptr{Int32}, knobs::Ptr{Cdouble}, stats::Ptr{Int32}, allocate::Ptr{Cvoid}, release::Ptr{Cvoid})::Cint
 end
 
 function symamd_l(n, A, p, perm, knobs, stats, allocate, release)
-    @ccall libcolamd.symamd_l(n::Clong, A::Ptr{Clong}, p::Ptr{Clong}, perm::Ptr{Clong}, knobs::Ptr{Cdouble}, stats::Ptr{Clong}, allocate::Ptr{Cvoid}, release::Ptr{Cvoid})::Clong
+    @ccall libcolamd.symamd_l(n::Int64, A::Ptr{Int64}, p::Ptr{Int64}, perm::Ptr{Int64}, knobs::Ptr{Cdouble}, stats::Ptr{Int64}, allocate::Ptr{Cvoid}, release::Ptr{Cvoid})::Cint
 end
 
 function colamd_report(stats)
-    @ccall libcolamd.colamd_report(stats::Ptr{Cint})::Cvoid
+    @ccall libcolamd.colamd_report(stats::Ptr{Int32})::Cvoid
 end
 
 function colamd_l_report(stats)
-    @ccall libcolamd.colamd_l_report(stats::Ptr{Clong})::Cvoid
+    @ccall libcolamd.colamd_l_report(stats::Ptr{Int64})::Cvoid
 end
 
 function symamd_report(stats)
-    @ccall libcolamd.symamd_report(stats::Ptr{Cint})::Cvoid
+    @ccall libcolamd.symamd_report(stats::Ptr{Int32})::Cvoid
 end
 
 function symamd_l_report(stats)
-    @ccall libcolamd.symamd_l_report(stats::Ptr{Clong})::Cvoid
+    @ccall libcolamd.symamd_l_report(stats::Ptr{Int64})::Cvoid
 end
 
 function ccolamd_recommended(nnz, n_row, n_col)
@@ -1645,7 +1660,7 @@ function ccolamd_recommended(nnz, n_row, n_col)
 end
 
 function ccolamd_l_recommended(nnz, n_row, n_col)
-    @ccall libcolamd.ccolamd_l_recommended(nnz::Clong, n_row::Clong, n_col::Clong)::Csize_t
+    @ccall libcolamd.ccolamd_l_recommended(nnz::Int64, n_row::Int64, n_col::Int64)::Csize_t
 end
 
 function ccolamd_set_defaults(knobs)
@@ -1661,7 +1676,7 @@ function ccolamd(n_row, n_col, Alen, A, p, knobs, stats, cmember)
 end
 
 function ccolamd_l(n_row, n_col, Alen, A, p, knobs, stats, cmember)
-    @ccall libcolamd.ccolamd_l(n_row::Clong, n_col::Clong, Alen::Clong, A::Ptr{Clong}, p::Ptr{Clong}, knobs::Ptr{Cdouble}, stats::Ptr{Clong}, cmember::Ptr{Clong})::Clong
+    @ccall libcolamd.ccolamd_l(n_row::Int64, n_col::Int64, Alen::Int64, A::Ptr{Int64}, p::Ptr{Int64}, knobs::Ptr{Cdouble}, stats::Ptr{Int64}, cmember::Ptr{Int64})::Cint
 end
 
 function csymamd(n, A, p, perm, knobs, stats, allocate, release, cmember, stype)
@@ -1669,7 +1684,7 @@ function csymamd(n, A, p, perm, knobs, stats, allocate, release, cmember, stype)
 end
 
 function csymamd_l(n, A, p, perm, knobs, stats, allocate, release, cmember, stype)
-    @ccall libcolamd.csymamd_l(n::Clong, A::Ptr{Clong}, p::Ptr{Clong}, perm::Ptr{Clong}, knobs::Ptr{Cdouble}, stats::Ptr{Clong}, allocate::Ptr{Cvoid}, release::Ptr{Cvoid}, cmember::Ptr{Clong}, stype::Clong)::Clong
+    @ccall libcolamd.csymamd_l(n::Int64, A::Ptr{Int64}, p::Ptr{Int64}, perm::Ptr{Int64}, knobs::Ptr{Cdouble}, stats::Ptr{Int64}, allocate::Ptr{Cvoid}, release::Ptr{Cvoid}, cmember::Ptr{Int64}, stype::Int64)::Cint
 end
 
 function ccolamd_report(stats)
@@ -1677,7 +1692,7 @@ function ccolamd_report(stats)
 end
 
 function ccolamd_l_report(stats)
-    @ccall libcolamd.ccolamd_l_report(stats::Ptr{Clong})::Cvoid
+    @ccall libcolamd.ccolamd_l_report(stats::Ptr{Int64})::Cvoid
 end
 
 function csymamd_report(stats)
@@ -1685,7 +1700,7 @@ function csymamd_report(stats)
 end
 
 function csymamd_l_report(stats)
-    @ccall libcolamd.csymamd_l_report(stats::Ptr{Clong})::Cvoid
+    @ccall libcolamd.csymamd_l_report(stats::Ptr{Int64})::Cvoid
 end
 
 function ccolamd2(n_row, n_col, Alen, A, p, knobs, stats, Front_npivcol, Front_nrows, Front_ncols, Front_parent, Front_cols, p_nfr, InFront, cmember)
@@ -1693,7 +1708,7 @@ function ccolamd2(n_row, n_col, Alen, A, p, knobs, stats, Front_npivcol, Front_n
 end
 
 function ccolamd2_l(n_row, n_col, Alen, A, p, knobs, stats, Front_npivcol, Front_nrows, Front_ncols, Front_parent, Front_cols, p_nfr, InFront, cmember)
-    @ccall libcolamd.ccolamd2_l(n_row::Clong, n_col::Clong, Alen::Clong, A::Ptr{Clong}, p::Ptr{Clong}, knobs::Ptr{Cdouble}, stats::Ptr{Clong}, Front_npivcol::Ptr{Clong}, Front_nrows::Ptr{Clong}, Front_ncols::Ptr{Clong}, Front_parent::Ptr{Clong}, Front_cols::Ptr{Clong}, p_nfr::Ptr{Clong}, InFront::Ptr{Clong}, cmember::Ptr{Clong})::Clong
+    @ccall libcolamd.ccolamd2_l(n_row::Int64, n_col::Int64, Alen::Int64, A::Ptr{Int64}, p::Ptr{Int64}, knobs::Ptr{Cdouble}, stats::Ptr{Int64}, Front_npivcol::Ptr{Int64}, Front_nrows::Ptr{Int64}, Front_ncols::Ptr{Int64}, Front_parent::Ptr{Int64}, Front_cols::Ptr{Int64}, p_nfr::Ptr{Int64}, InFront::Ptr{Int64}, cmember::Ptr{Int64})::Cint
 end
 
 function ccolamd_apply_order(Front, Order, Temp, nn, nfr)
@@ -1701,7 +1716,7 @@ function ccolamd_apply_order(Front, Order, Temp, nn, nfr)
 end
 
 function ccolamd_l_apply_order(Front, Order, Temp, nn, nfr)
-    @ccall libcolamd.ccolamd_l_apply_order(Front::Ptr{Clong}, Order::Ptr{Clong}, Temp::Ptr{Clong}, nn::Clong, nfr::Clong)::Cvoid
+    @ccall libcolamd.ccolamd_l_apply_order(Front::Ptr{Int64}, Order::Ptr{Int64}, Temp::Ptr{Int64}, nn::Int64, nfr::Int64)::Cvoid
 end
 
 function ccolamd_fsize(nn, MaxFsize, Fnrows, Fncols, Parent, Npiv)
@@ -1709,7 +1724,7 @@ function ccolamd_fsize(nn, MaxFsize, Fnrows, Fncols, Parent, Npiv)
 end
 
 function ccolamd_l_fsize(nn, MaxFsize, Fnrows, Fncols, Parent, Npiv)
-    @ccall libcolamd.ccolamd_l_fsize(nn::Clong, MaxFsize::Ptr{Clong}, Fnrows::Ptr{Clong}, Fncols::Ptr{Clong}, Parent::Ptr{Clong}, Npiv::Ptr{Clong})::Cvoid
+    @ccall libcolamd.ccolamd_l_fsize(nn::Int64, MaxFsize::Ptr{Int64}, Fnrows::Ptr{Int64}, Fncols::Ptr{Int64}, Parent::Ptr{Int64}, Npiv::Ptr{Int64})::Cvoid
 end
 
 function ccolamd_postorder(nn, Parent, Npiv, Fsize, Order, Child, Sibling, Stack, Front_cols, cmember)
@@ -1717,7 +1732,7 @@ function ccolamd_postorder(nn, Parent, Npiv, Fsize, Order, Child, Sibling, Stack
 end
 
 function ccolamd_l_postorder(nn, Parent, Npiv, Fsize, Order, Child, Sibling, Stack, Front_cols, cmember)
-    @ccall libcolamd.ccolamd_l_postorder(nn::Clong, Parent::Ptr{Clong}, Npiv::Ptr{Clong}, Fsize::Ptr{Clong}, Order::Ptr{Clong}, Child::Ptr{Clong}, Sibling::Ptr{Clong}, Stack::Ptr{Clong}, Front_cols::Ptr{Clong}, cmember::Ptr{Clong})::Cvoid
+    @ccall libcolamd.ccolamd_l_postorder(nn::Int64, Parent::Ptr{Int64}, Npiv::Ptr{Int64}, Fsize::Ptr{Int64}, Order::Ptr{Int64}, Child::Ptr{Int64}, Sibling::Ptr{Int64}, Stack::Ptr{Int64}, Front_cols::Ptr{Int64}, cmember::Ptr{Int64})::Cvoid
 end
 
 function ccolamd_post_tree(root, k, Child, Sibling, Order, Stack)
@@ -1725,55 +1740,55 @@ function ccolamd_post_tree(root, k, Child, Sibling, Order, Stack)
 end
 
 function ccolamd_l_post_tree(root, k, Child, Sibling, Order, Stack)
-    @ccall libcolamd.ccolamd_l_post_tree(root::Clong, k::Clong, Child::Ptr{Clong}, Sibling::Ptr{Clong}, Order::Ptr{Clong}, Stack::Ptr{Clong})::Clong
+    @ccall libcolamd.ccolamd_l_post_tree(root::Int64, k::Int64, Child::Ptr{Int64}, Sibling::Ptr{Int64}, Order::Ptr{Int64}, Stack::Ptr{Int64})::Int64
 end
 
 function umfpack_di_symbolic(n_row, n_col, Ap, Ai, Ax, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_di_symbolic(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_symbolic(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_symbolic(n_row, n_col, Ap, Ai, Ax, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_dl_symbolic(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_symbolic(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_symbolic(n_row, n_col, Ap, Ai, Ax, Az, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_zi_symbolic(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_symbolic(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_symbolic(n_row, n_col, Ap, Ai, Ax, Az, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_zl_symbolic(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_symbolic(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_numeric(Ap, Ai, Ax, Symbolic, Numeric, Control, Info)
-    @ccall libumfpack.umfpack_di_numeric(Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Symbolic::Ptr{Cvoid}, Numeric::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_numeric(Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Symbolic::Ptr{Cvoid}, Numeric::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_numeric(Ap, Ai, Ax, Symbolic, Numeric, Control, Info)
-    @ccall libumfpack.umfpack_dl_numeric(Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Symbolic::Ptr{Cvoid}, Numeric::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_numeric(Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Symbolic::Ptr{Cvoid}, Numeric::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_numeric(Ap, Ai, Ax, Az, Symbolic, Numeric, Control, Info)
-    @ccall libumfpack.umfpack_zi_numeric(Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Symbolic::Ptr{Cvoid}, Numeric::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_numeric(Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Symbolic::Ptr{Cvoid}, Numeric::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_numeric(Ap, Ai, Ax, Az, Symbolic, Numeric, Control, Info)
-    @ccall libumfpack.umfpack_zl_numeric(Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Symbolic::Ptr{Cvoid}, Numeric::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_numeric(Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Symbolic::Ptr{Cvoid}, Numeric::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_solve(sys, Ap, Ai, Ax, X, B, Numeric, Control, Info)
-    @ccall libumfpack.umfpack_di_solve(sys::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_solve(sys::Cint, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_solve(sys, Ap, Ai, Ax, X, B, Numeric, Control, Info)
-    @ccall libumfpack.umfpack_dl_solve(sys::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_solve(sys::Cint, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_solve(sys, Ap, Ai, Ax, Az, Xx, Xz, Bx, Bz, Numeric, Control, Info)
-    @ccall libumfpack.umfpack_zi_solve(sys::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_solve(sys::Cint, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_solve(sys, Ap, Ai, Ax, Az, Xx, Xz, Bx, Bz, Numeric, Control, Info)
-    @ccall libumfpack.umfpack_zl_solve(sys::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_solve(sys::Cint, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_free_symbolic(Symbolic)
@@ -1825,99 +1840,131 @@ function umfpack_zl_defaults(Control)
 end
 
 function umfpack_di_qsymbolic(n_row, n_col, Ap, Ai, Ax, Qinit, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_di_qsymbolic(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Qinit::Ptr{Cint}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_qsymbolic(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Qinit::Ptr{Int32}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_qsymbolic(n_row, n_col, Ap, Ai, Ax, Qinit, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_dl_qsymbolic(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Qinit::Ptr{Clong}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_qsymbolic(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Qinit::Ptr{Int64}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_qsymbolic(n_row, n_col, Ap, Ai, Ax, Az, Qinit, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_zi_qsymbolic(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Qinit::Ptr{Cint}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_qsymbolic(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Qinit::Ptr{Int32}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_qsymbolic(n_row, n_col, Ap, Ai, Ax, Az, Qinit, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_zl_qsymbolic(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Qinit::Ptr{Clong}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_qsymbolic(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Qinit::Ptr{Int64}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_fsymbolic(n_row, n_col, Ap, Ai, Ax, user_ordering, user_params, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_di_fsymbolic(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_fsymbolic(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_fsymbolic(n_row, n_col, Ap, Ai, Ax, user_ordering, user_params, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_dl_fsymbolic(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_fsymbolic(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_fsymbolic(n_row, n_col, Ap, Ai, Ax, Az, user_ordering, user_params, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_zi_fsymbolic(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_fsymbolic(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_fsymbolic(n_row, n_col, Ap, Ai, Ax, Az, user_ordering, user_params, Symbolic, Control, Info)
-    @ccall libumfpack.umfpack_zl_fsymbolic(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_fsymbolic(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+end
+
+function umfpack_di_paru_symbolic(n_row, n_col, Ap, Ai, Ax, Qinit, user_ordering, user_params, Symbolic, SW, Control, Info)
+    @ccall libumfpack.umfpack_di_paru_symbolic(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Qinit::Ptr{Int32}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, SW::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+end
+
+function umfpack_dl_paru_symbolic(n_row, n_col, Ap, Ai, Ax, Qinit, user_ordering, user_params, Symbolic, SW, Control, Info)
+    @ccall libumfpack.umfpack_dl_paru_symbolic(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Qinit::Ptr{Int64}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, SW::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+end
+
+function umfpack_zi_paru_symbolic(n_row, n_col, Ap, Ai, Ax, Az, Qinit, user_ordering, user_params, Symbolic, SW, Control, Info)
+    @ccall libumfpack.umfpack_zi_paru_symbolic(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Qinit::Ptr{Int32}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, SW::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+end
+
+function umfpack_zl_paru_symbolic(n_row, n_col, Ap, Ai, Ax, Az, Qinit, user_ordering, user_params, Symbolic, SW, Control, Info)
+    @ccall libumfpack.umfpack_zl_paru_symbolic(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Qinit::Ptr{Int64}, user_ordering::Ptr{Cvoid}, user_params::Ptr{Cvoid}, Symbolic::Ptr{Ptr{Cvoid}}, SW::Ptr{Ptr{Cvoid}}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
+end
+
+function umfpack_di_paru_free_sw(SW)
+    @ccall libumfpack.umfpack_di_paru_free_sw(SW::Ptr{Ptr{Cvoid}})::Cvoid
+end
+
+function umfpack_dl_paru_free_sw(SW)
+    @ccall libumfpack.umfpack_dl_paru_free_sw(SW::Ptr{Ptr{Cvoid}})::Cvoid
+end
+
+function umfpack_zi_paru_free_sw(SW)
+    @ccall libumfpack.umfpack_zi_paru_free_sw(SW::Ptr{Ptr{Cvoid}})::Cvoid
+end
+
+function umfpack_zl_paru_free_sw(SW)
+    @ccall libumfpack.umfpack_zl_paru_free_sw(SW::Ptr{Ptr{Cvoid}})::Cvoid
 end
 
 function umfpack_di_wsolve(sys, Ap, Ai, Ax, X, B, Numeric, Control, Info, Wi, W)
-    @ccall libumfpack.umfpack_di_wsolve(sys::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble}, Wi::Ptr{Cint}, W::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_wsolve(sys::Cint, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble}, Wi::Ptr{Int32}, W::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_wsolve(sys, Ap, Ai, Ax, X, B, Numeric, Control, Info, Wi, W)
-    @ccall libumfpack.umfpack_dl_wsolve(sys::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble}, Wi::Ptr{Clong}, W::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_wsolve(sys::Cint, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble}, Wi::Ptr{Int64}, W::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_wsolve(sys, Ap, Ai, Ax, Az, Xx, Xz, Bx, Bz, Numeric, Control, Info, Wi, W)
-    @ccall libumfpack.umfpack_zi_wsolve(sys::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble}, Wi::Ptr{Cint}, W::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_wsolve(sys::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble}, Wi::Ptr{Int32}, W::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_wsolve(sys, Ap, Ai, Ax, Az, Xx, Xz, Bx, Bz, Numeric, Control, Info, Wi, W)
-    @ccall libumfpack.umfpack_zl_wsolve(sys::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble}, Wi::Ptr{Clong}, W::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_wsolve(sys::Cint, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble}, Info::Ptr{Cdouble}, Wi::Ptr{Int64}, W::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_triplet_to_col(n_row, n_col, nz, Ti, Tj, Tx, Ap, Ai, Ax, Map)
-    @ccall libumfpack.umfpack_di_triplet_to_col(n_row::Cint, n_col::Cint, nz::Cint, Ti::Ptr{Cint}, Tj::Ptr{Cint}, Tx::Ptr{Cdouble}, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Map::Ptr{Cint})::Cint
+    @ccall libumfpack.umfpack_di_triplet_to_col(n_row::Int32, n_col::Int32, nz::Int32, Ti::Ptr{Int32}, Tj::Ptr{Int32}, Tx::Ptr{Cdouble}, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Map::Ptr{Int32})::Cint
 end
 
 function umfpack_dl_triplet_to_col(n_row, n_col, nz, Ti, Tj, Tx, Ap, Ai, Ax, Map)
-    @ccall libumfpack.umfpack_dl_triplet_to_col(n_row::Clong, n_col::Clong, nz::Clong, Ti::Ptr{Clong}, Tj::Ptr{Clong}, Tx::Ptr{Cdouble}, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Map::Ptr{Clong})::Clong
+    @ccall libumfpack.umfpack_dl_triplet_to_col(n_row::Int64, n_col::Int64, nz::Int64, Ti::Ptr{Int64}, Tj::Ptr{Int64}, Tx::Ptr{Cdouble}, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Map::Ptr{Int64})::Cint
 end
 
 function umfpack_zi_triplet_to_col(n_row, n_col, nz, Ti, Tj, Tx, Tz, Ap, Ai, Ax, Az, Map)
-    @ccall libumfpack.umfpack_zi_triplet_to_col(n_row::Cint, n_col::Cint, nz::Cint, Ti::Ptr{Cint}, Tj::Ptr{Cint}, Tx::Ptr{Cdouble}, Tz::Ptr{Cdouble}, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Map::Ptr{Cint})::Cint
+    @ccall libumfpack.umfpack_zi_triplet_to_col(n_row::Int32, n_col::Int32, nz::Int32, Ti::Ptr{Int32}, Tj::Ptr{Int32}, Tx::Ptr{Cdouble}, Tz::Ptr{Cdouble}, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Map::Ptr{Int32})::Cint
 end
 
 function umfpack_zl_triplet_to_col(n_row, n_col, nz, Ti, Tj, Tx, Tz, Ap, Ai, Ax, Az, Map)
-    @ccall libumfpack.umfpack_zl_triplet_to_col(n_row::Clong, n_col::Clong, nz::Clong, Ti::Ptr{Clong}, Tj::Ptr{Clong}, Tx::Ptr{Cdouble}, Tz::Ptr{Cdouble}, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Map::Ptr{Clong})::Clong
+    @ccall libumfpack.umfpack_zl_triplet_to_col(n_row::Int64, n_col::Int64, nz::Int64, Ti::Ptr{Int64}, Tj::Ptr{Int64}, Tx::Ptr{Cdouble}, Tz::Ptr{Cdouble}, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, Map::Ptr{Int64})::Cint
 end
 
 function umfpack_di_col_to_triplet(n_col, Ap, Tj)
-    @ccall libumfpack.umfpack_di_col_to_triplet(n_col::Cint, Ap::Ptr{Cint}, Tj::Ptr{Cint})::Cint
+    @ccall libumfpack.umfpack_di_col_to_triplet(n_col::Int32, Ap::Ptr{Int32}, Tj::Ptr{Int32})::Cint
 end
 
 function umfpack_dl_col_to_triplet(n_col, Ap, Tj)
-    @ccall libumfpack.umfpack_dl_col_to_triplet(n_col::Clong, Ap::Ptr{Clong}, Tj::Ptr{Clong})::Clong
+    @ccall libumfpack.umfpack_dl_col_to_triplet(n_col::Int64, Ap::Ptr{Int64}, Tj::Ptr{Int64})::Cint
 end
 
 function umfpack_zi_col_to_triplet(n_col, Ap, Tj)
-    @ccall libumfpack.umfpack_zi_col_to_triplet(n_col::Cint, Ap::Ptr{Cint}, Tj::Ptr{Cint})::Cint
+    @ccall libumfpack.umfpack_zi_col_to_triplet(n_col::Int32, Ap::Ptr{Int32}, Tj::Ptr{Int32})::Cint
 end
 
 function umfpack_zl_col_to_triplet(n_col, Ap, Tj)
-    @ccall libumfpack.umfpack_zl_col_to_triplet(n_col::Clong, Ap::Ptr{Clong}, Tj::Ptr{Clong})::Clong
+    @ccall libumfpack.umfpack_zl_col_to_triplet(n_col::Int64, Ap::Ptr{Int64}, Tj::Ptr{Int64})::Cint
 end
 
 function umfpack_di_transpose(n_row, n_col, Ap, Ai, Ax, P, Q, Rp, Ri, Rx)
-    @ccall libumfpack.umfpack_di_transpose(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, P::Ptr{Cint}, Q::Ptr{Cint}, Rp::Ptr{Cint}, Ri::Ptr{Cint}, Rx::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_transpose(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, P::Ptr{Int32}, Q::Ptr{Int32}, Rp::Ptr{Int32}, Ri::Ptr{Int32}, Rx::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_transpose(n_row, n_col, Ap, Ai, Ax, P, Q, Rp, Ri, Rx)
-    @ccall libumfpack.umfpack_dl_transpose(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, P::Ptr{Clong}, Q::Ptr{Clong}, Rp::Ptr{Clong}, Ri::Ptr{Clong}, Rx::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_transpose(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, P::Ptr{Int64}, Q::Ptr{Int64}, Rp::Ptr{Int64}, Ri::Ptr{Int64}, Rx::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_transpose(n_row, n_col, Ap, Ai, Ax, Az, P, Q, Rp, Ri, Rx, Rz, do_conjugate)
-    @ccall libumfpack.umfpack_zi_transpose(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, P::Ptr{Cint}, Q::Ptr{Cint}, Rp::Ptr{Cint}, Ri::Ptr{Cint}, Rx::Ptr{Cdouble}, Rz::Ptr{Cdouble}, do_conjugate::Cint)::Cint
+    @ccall libumfpack.umfpack_zi_transpose(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, P::Ptr{Int32}, Q::Ptr{Int32}, Rp::Ptr{Int32}, Ri::Ptr{Int32}, Rx::Ptr{Cdouble}, Rz::Ptr{Cdouble}, do_conjugate::Cint)::Cint
 end
 
 function umfpack_zl_transpose(n_row, n_col, Ap, Ai, Ax, Az, P, Q, Rp, Ri, Rx, Rz, do_conjugate)
-    @ccall libumfpack.umfpack_zl_transpose(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, P::Ptr{Clong}, Q::Ptr{Clong}, Rp::Ptr{Clong}, Ri::Ptr{Clong}, Rx::Ptr{Cdouble}, Rz::Ptr{Cdouble}, do_conjugate::Clong)::Clong
+    @ccall libumfpack.umfpack_zl_transpose(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, P::Ptr{Int64}, Q::Ptr{Int64}, Rp::Ptr{Int64}, Ri::Ptr{Int64}, Rx::Ptr{Cdouble}, Rz::Ptr{Cdouble}, do_conjugate::Cint)::Cint
 end
 
 function umfpack_di_scale(X, B, Numeric)
@@ -1925,7 +1972,7 @@ function umfpack_di_scale(X, B, Numeric)
 end
 
 function umfpack_dl_scale(X, B, Numeric)
-    @ccall libumfpack.umfpack_dl_scale(X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Clong
+    @ccall libumfpack.umfpack_dl_scale(X::Ptr{Cdouble}, B::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_zi_scale(Xx, Xz, Bx, Bz, Numeric)
@@ -1933,55 +1980,55 @@ function umfpack_zi_scale(Xx, Xz, Bx, Bz, Numeric)
 end
 
 function umfpack_zl_scale(Xx, Xz, Bx, Bz, Numeric)
-    @ccall libumfpack.umfpack_zl_scale(Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Clong
+    @ccall libumfpack.umfpack_zl_scale(Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Bx::Ptr{Cdouble}, Bz::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_di_get_lunz(lnz, unz, n_row, n_col, nz_udiag, Numeric)
-    @ccall libumfpack.umfpack_di_get_lunz(lnz::Ptr{Cint}, unz::Ptr{Cint}, n_row::Ptr{Cint}, n_col::Ptr{Cint}, nz_udiag::Ptr{Cint}, Numeric::Ptr{Cvoid})::Cint
+    @ccall libumfpack.umfpack_di_get_lunz(lnz::Ptr{Int32}, unz::Ptr{Int32}, n_row::Ptr{Int32}, n_col::Ptr{Int32}, nz_udiag::Ptr{Int32}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_dl_get_lunz(lnz, unz, n_row, n_col, nz_udiag, Numeric)
-    @ccall libumfpack.umfpack_dl_get_lunz(lnz::Ptr{Clong}, unz::Ptr{Clong}, n_row::Ptr{Clong}, n_col::Ptr{Clong}, nz_udiag::Ptr{Clong}, Numeric::Ptr{Cvoid})::Clong
+    @ccall libumfpack.umfpack_dl_get_lunz(lnz::Ptr{Int64}, unz::Ptr{Int64}, n_row::Ptr{Int64}, n_col::Ptr{Int64}, nz_udiag::Ptr{Int64}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_zi_get_lunz(lnz, unz, n_row, n_col, nz_udiag, Numeric)
-    @ccall libumfpack.umfpack_zi_get_lunz(lnz::Ptr{Cint}, unz::Ptr{Cint}, n_row::Ptr{Cint}, n_col::Ptr{Cint}, nz_udiag::Ptr{Cint}, Numeric::Ptr{Cvoid})::Cint
+    @ccall libumfpack.umfpack_zi_get_lunz(lnz::Ptr{Int32}, unz::Ptr{Int32}, n_row::Ptr{Int32}, n_col::Ptr{Int32}, nz_udiag::Ptr{Int32}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_zl_get_lunz(lnz, unz, n_row, n_col, nz_udiag, Numeric)
-    @ccall libumfpack.umfpack_zl_get_lunz(lnz::Ptr{Clong}, unz::Ptr{Clong}, n_row::Ptr{Clong}, n_col::Ptr{Clong}, nz_udiag::Ptr{Clong}, Numeric::Ptr{Cvoid})::Clong
+    @ccall libumfpack.umfpack_zl_get_lunz(lnz::Ptr{Int64}, unz::Ptr{Int64}, n_row::Ptr{Int64}, n_col::Ptr{Int64}, nz_udiag::Ptr{Int64}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_di_get_numeric(Lp, Lj, Lx, Up, Ui, Ux, P, Q, Dx, do_recip, Rs, Numeric)
-    @ccall libumfpack.umfpack_di_get_numeric(Lp::Ptr{Cint}, Lj::Ptr{Cint}, Lx::Ptr{Cdouble}, Up::Ptr{Cint}, Ui::Ptr{Cint}, Ux::Ptr{Cdouble}, P::Ptr{Cint}, Q::Ptr{Cint}, Dx::Ptr{Cdouble}, do_recip::Ptr{Cint}, Rs::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Cint
+    @ccall libumfpack.umfpack_di_get_numeric(Lp::Ptr{Int32}, Lj::Ptr{Int32}, Lx::Ptr{Cdouble}, Up::Ptr{Int32}, Ui::Ptr{Int32}, Ux::Ptr{Cdouble}, P::Ptr{Int32}, Q::Ptr{Int32}, Dx::Ptr{Cdouble}, do_recip::Ptr{Int32}, Rs::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_dl_get_numeric(Lp, Lj, Lx, Up, Ui, Ux, P, Q, Dx, do_recip, Rs, Numeric)
-    @ccall libumfpack.umfpack_dl_get_numeric(Lp::Ptr{Clong}, Lj::Ptr{Clong}, Lx::Ptr{Cdouble}, Up::Ptr{Clong}, Ui::Ptr{Clong}, Ux::Ptr{Cdouble}, P::Ptr{Clong}, Q::Ptr{Clong}, Dx::Ptr{Cdouble}, do_recip::Ptr{Clong}, Rs::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Clong
+    @ccall libumfpack.umfpack_dl_get_numeric(Lp::Ptr{Int64}, Lj::Ptr{Int64}, Lx::Ptr{Cdouble}, Up::Ptr{Int64}, Ui::Ptr{Int64}, Ux::Ptr{Cdouble}, P::Ptr{Int64}, Q::Ptr{Int64}, Dx::Ptr{Cdouble}, do_recip::Ptr{Int64}, Rs::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_zi_get_numeric(Lp, Lj, Lx, Lz, Up, Ui, Ux, Uz, P, Q, Dx, Dz, do_recip, Rs, Numeric)
-    @ccall libumfpack.umfpack_zi_get_numeric(Lp::Ptr{Cint}, Lj::Ptr{Cint}, Lx::Ptr{Cdouble}, Lz::Ptr{Cdouble}, Up::Ptr{Cint}, Ui::Ptr{Cint}, Ux::Ptr{Cdouble}, Uz::Ptr{Cdouble}, P::Ptr{Cint}, Q::Ptr{Cint}, Dx::Ptr{Cdouble}, Dz::Ptr{Cdouble}, do_recip::Ptr{Cint}, Rs::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Cint
+    @ccall libumfpack.umfpack_zi_get_numeric(Lp::Ptr{Int32}, Lj::Ptr{Int32}, Lx::Ptr{Cdouble}, Lz::Ptr{Cdouble}, Up::Ptr{Int32}, Ui::Ptr{Int32}, Ux::Ptr{Cdouble}, Uz::Ptr{Cdouble}, P::Ptr{Int32}, Q::Ptr{Int32}, Dx::Ptr{Cdouble}, Dz::Ptr{Cdouble}, do_recip::Ptr{Int32}, Rs::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Cint
 end
 
 function umfpack_zl_get_numeric(Lp, Lj, Lx, Lz, Up, Ui, Ux, Uz, P, Q, Dx, Dz, do_recip, Rs, Numeric)
-    @ccall libumfpack.umfpack_zl_get_numeric(Lp::Ptr{Clong}, Lj::Ptr{Clong}, Lx::Ptr{Cdouble}, Lz::Ptr{Cdouble}, Up::Ptr{Clong}, Ui::Ptr{Clong}, Ux::Ptr{Cdouble}, Uz::Ptr{Cdouble}, P::Ptr{Clong}, Q::Ptr{Clong}, Dx::Ptr{Cdouble}, Dz::Ptr{Cdouble}, do_recip::Ptr{Clong}, Rs::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Clong
+    @ccall libumfpack.umfpack_zl_get_numeric(Lp::Ptr{Int64}, Lj::Ptr{Int64}, Lx::Ptr{Cdouble}, Lz::Ptr{Cdouble}, Up::Ptr{Int64}, Ui::Ptr{Int64}, Ux::Ptr{Cdouble}, Uz::Ptr{Cdouble}, P::Ptr{Int64}, Q::Ptr{Int64}, Dx::Ptr{Cdouble}, Dz::Ptr{Cdouble}, do_recip::Ptr{Int64}, Rs::Ptr{Cdouble}, Numeric::Ptr{Cvoid})::Cint
 end
 
-function umfpack_di_get_symbolic(n_row, n_col, n1, nz, nfr, nchains, P, Q, Front_npivcol, Front_parent, Front_1strow, Front_leftmostdesc, Chain_start, Chain_maxrows, Chain_maxcols, Symbolic)
-    @ccall libumfpack.umfpack_di_get_symbolic(n_row::Ptr{Cint}, n_col::Ptr{Cint}, n1::Ptr{Cint}, nz::Ptr{Cint}, nfr::Ptr{Cint}, nchains::Ptr{Cint}, P::Ptr{Cint}, Q::Ptr{Cint}, Front_npivcol::Ptr{Cint}, Front_parent::Ptr{Cint}, Front_1strow::Ptr{Cint}, Front_leftmostdesc::Ptr{Cint}, Chain_start::Ptr{Cint}, Chain_maxrows::Ptr{Cint}, Chain_maxcols::Ptr{Cint}, Symbolic::Ptr{Cvoid})::Cint
+function umfpack_di_get_symbolic(n_row, n_col, n1, nz, nfr, nchains, P, Q, Front_npivcol, Front_parent, Front_1strow, Front_leftmostdesc, Chain_start, Chain_maxrows, Chain_maxcols, Dmap, Symbolic)
+    @ccall libumfpack.umfpack_di_get_symbolic(n_row::Ptr{Int32}, n_col::Ptr{Int32}, n1::Ptr{Int32}, nz::Ptr{Int32}, nfr::Ptr{Int32}, nchains::Ptr{Int32}, P::Ptr{Int32}, Q::Ptr{Int32}, Front_npivcol::Ptr{Int32}, Front_parent::Ptr{Int32}, Front_1strow::Ptr{Int32}, Front_leftmostdesc::Ptr{Int32}, Chain_start::Ptr{Int32}, Chain_maxrows::Ptr{Int32}, Chain_maxcols::Ptr{Int32}, Dmap::Ptr{Int32}, Symbolic::Ptr{Cvoid})::Cint
 end
 
-function umfpack_dl_get_symbolic(n_row, n_col, n1, nz, nfr, nchains, P, Q, Front_npivcol, Front_parent, Front_1strow, Front_leftmostdesc, Chain_start, Chain_maxrows, Chain_maxcols, Symbolic)
-    @ccall libumfpack.umfpack_dl_get_symbolic(n_row::Ptr{Clong}, n_col::Ptr{Clong}, n1::Ptr{Clong}, nz::Ptr{Clong}, nfr::Ptr{Clong}, nchains::Ptr{Clong}, P::Ptr{Clong}, Q::Ptr{Clong}, Front_npivcol::Ptr{Clong}, Front_parent::Ptr{Clong}, Front_1strow::Ptr{Clong}, Front_leftmostdesc::Ptr{Clong}, Chain_start::Ptr{Clong}, Chain_maxrows::Ptr{Clong}, Chain_maxcols::Ptr{Clong}, Symbolic::Ptr{Cvoid})::Clong
+function umfpack_dl_get_symbolic(n_row, n_col, n1, nz, nfr, nchains, P, Q, Front_npivcol, Front_parent, Front_1strow, Front_leftmostdesc, Chain_start, Chain_maxrows, Chain_maxcols, Dmap, Symbolic)
+    @ccall libumfpack.umfpack_dl_get_symbolic(n_row::Ptr{Int64}, n_col::Ptr{Int64}, n1::Ptr{Int64}, nz::Ptr{Int64}, nfr::Ptr{Int64}, nchains::Ptr{Int64}, P::Ptr{Int64}, Q::Ptr{Int64}, Front_npivcol::Ptr{Int64}, Front_parent::Ptr{Int64}, Front_1strow::Ptr{Int64}, Front_leftmostdesc::Ptr{Int64}, Chain_start::Ptr{Int64}, Chain_maxrows::Ptr{Int64}, Chain_maxcols::Ptr{Int64}, Dmap::Ptr{Int64}, Symbolic::Ptr{Cvoid})::Cint
 end
 
-function umfpack_zi_get_symbolic(n_row, n_col, n1, nz, nfr, nchains, P, Q, Front_npivcol, Front_parent, Front_1strow, Front_leftmostdesc, Chain_start, Chain_maxrows, Chain_maxcols, Symbolic)
-    @ccall libumfpack.umfpack_zi_get_symbolic(n_row::Ptr{Cint}, n_col::Ptr{Cint}, n1::Ptr{Cint}, nz::Ptr{Cint}, nfr::Ptr{Cint}, nchains::Ptr{Cint}, P::Ptr{Cint}, Q::Ptr{Cint}, Front_npivcol::Ptr{Cint}, Front_parent::Ptr{Cint}, Front_1strow::Ptr{Cint}, Front_leftmostdesc::Ptr{Cint}, Chain_start::Ptr{Cint}, Chain_maxrows::Ptr{Cint}, Chain_maxcols::Ptr{Cint}, Symbolic::Ptr{Cvoid})::Cint
+function umfpack_zi_get_symbolic(n_row, n_col, n1, nz, nfr, nchains, P, Q, Front_npivcol, Front_parent, Front_1strow, Front_leftmostdesc, Chain_start, Chain_maxrows, Chain_maxcols, Dmap, Symbolic)
+    @ccall libumfpack.umfpack_zi_get_symbolic(n_row::Ptr{Int32}, n_col::Ptr{Int32}, n1::Ptr{Int32}, nz::Ptr{Int32}, nfr::Ptr{Int32}, nchains::Ptr{Int32}, P::Ptr{Int32}, Q::Ptr{Int32}, Front_npivcol::Ptr{Int32}, Front_parent::Ptr{Int32}, Front_1strow::Ptr{Int32}, Front_leftmostdesc::Ptr{Int32}, Chain_start::Ptr{Int32}, Chain_maxrows::Ptr{Int32}, Chain_maxcols::Ptr{Int32}, Dmap::Ptr{Int32}, Symbolic::Ptr{Cvoid})::Cint
 end
 
-function umfpack_zl_get_symbolic(n_row, n_col, n1, nz, nfr, nchains, P, Q, Front_npivcol, Front_parent, Front_1strow, Front_leftmostdesc, Chain_start, Chain_maxrows, Chain_maxcols, Symbolic)
-    @ccall libumfpack.umfpack_zl_get_symbolic(n_row::Ptr{Clong}, n_col::Ptr{Clong}, n1::Ptr{Clong}, nz::Ptr{Clong}, nfr::Ptr{Clong}, nchains::Ptr{Clong}, P::Ptr{Clong}, Q::Ptr{Clong}, Front_npivcol::Ptr{Clong}, Front_parent::Ptr{Clong}, Front_1strow::Ptr{Clong}, Front_leftmostdesc::Ptr{Clong}, Chain_start::Ptr{Clong}, Chain_maxrows::Ptr{Clong}, Chain_maxcols::Ptr{Clong}, Symbolic::Ptr{Cvoid})::Clong
+function umfpack_zl_get_symbolic(n_row, n_col, n1, nz, nfr, nchains, P, Q, Front_npivcol, Front_parent, Front_1strow, Front_leftmostdesc, Chain_start, Chain_maxrows, Chain_maxcols, Dmap, Symbolic)
+    @ccall libumfpack.umfpack_zl_get_symbolic(n_row::Ptr{Int64}, n_col::Ptr{Int64}, n1::Ptr{Int64}, nz::Ptr{Int64}, nfr::Ptr{Int64}, nchains::Ptr{Int64}, P::Ptr{Int64}, Q::Ptr{Int64}, Front_npivcol::Ptr{Int64}, Front_parent::Ptr{Int64}, Front_1strow::Ptr{Int64}, Front_leftmostdesc::Ptr{Int64}, Chain_start::Ptr{Int64}, Chain_maxrows::Ptr{Int64}, Chain_maxcols::Ptr{Int64}, Dmap::Ptr{Int64}, Symbolic::Ptr{Cvoid})::Cint
 end
 
 function umfpack_di_save_numeric(Numeric, filename)
@@ -1989,7 +2036,7 @@ function umfpack_di_save_numeric(Numeric, filename)
 end
 
 function umfpack_dl_save_numeric(Numeric, filename)
-    @ccall libumfpack.umfpack_dl_save_numeric(Numeric::Ptr{Cvoid}, filename::Ptr{Cchar})::Clong
+    @ccall libumfpack.umfpack_dl_save_numeric(Numeric::Ptr{Cvoid}, filename::Ptr{Cchar})::Cint
 end
 
 function umfpack_zi_save_numeric(Numeric, filename)
@@ -1997,7 +2044,7 @@ function umfpack_zi_save_numeric(Numeric, filename)
 end
 
 function umfpack_zl_save_numeric(Numeric, filename)
-    @ccall libumfpack.umfpack_zl_save_numeric(Numeric::Ptr{Cvoid}, filename::Ptr{Cchar})::Clong
+    @ccall libumfpack.umfpack_zl_save_numeric(Numeric::Ptr{Cvoid}, filename::Ptr{Cchar})::Cint
 end
 
 function umfpack_di_load_numeric(Numeric, filename)
@@ -2005,7 +2052,7 @@ function umfpack_di_load_numeric(Numeric, filename)
 end
 
 function umfpack_dl_load_numeric(Numeric, filename)
-    @ccall libumfpack.umfpack_dl_load_numeric(Numeric::Ptr{Ptr{Cvoid}}, filename::Ptr{Cchar})::Clong
+    @ccall libumfpack.umfpack_dl_load_numeric(Numeric::Ptr{Ptr{Cvoid}}, filename::Ptr{Cchar})::Cint
 end
 
 function umfpack_zi_load_numeric(Numeric, filename)
@@ -2013,7 +2060,71 @@ function umfpack_zi_load_numeric(Numeric, filename)
 end
 
 function umfpack_zl_load_numeric(Numeric, filename)
-    @ccall libumfpack.umfpack_zl_load_numeric(Numeric::Ptr{Ptr{Cvoid}}, filename::Ptr{Cchar})::Clong
+    @ccall libumfpack.umfpack_zl_load_numeric(Numeric::Ptr{Ptr{Cvoid}}, filename::Ptr{Cchar})::Cint
+end
+
+function umfpack_di_copy_numeric(Numeric, Original)
+    @ccall libumfpack.umfpack_di_copy_numeric(Numeric::Ptr{Ptr{Cvoid}}, Original::Ptr{Cvoid})::Cint
+end
+
+function umfpack_dl_copy_numeric(Numeric, Original)
+    @ccall libumfpack.umfpack_dl_copy_numeric(Numeric::Ptr{Ptr{Cvoid}}, Original::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zi_copy_numeric(Numeric, Original)
+    @ccall libumfpack.umfpack_zi_copy_numeric(Numeric::Ptr{Ptr{Cvoid}}, Original::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zl_copy_numeric(Numeric, Original)
+    @ccall libumfpack.umfpack_zl_copy_numeric(Numeric::Ptr{Ptr{Cvoid}}, Original::Ptr{Cvoid})::Cint
+end
+
+function umfpack_di_serialize_numeric_size(blobsize, Numeric)
+    @ccall libumfpack.umfpack_di_serialize_numeric_size(blobsize::Ptr{Int64}, Numeric::Ptr{Cvoid})::Cint
+end
+
+function umfpack_dl_serialize_numeric_size(blobsize, Numeric)
+    @ccall libumfpack.umfpack_dl_serialize_numeric_size(blobsize::Ptr{Int64}, Numeric::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zi_serialize_numeric_size(blobsize, Numeric)
+    @ccall libumfpack.umfpack_zi_serialize_numeric_size(blobsize::Ptr{Int64}, Numeric::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zl_serialize_numeric_size(blobsize, Numeric)
+    @ccall libumfpack.umfpack_zl_serialize_numeric_size(blobsize::Ptr{Int64}, Numeric::Ptr{Cvoid})::Cint
+end
+
+function umfpack_di_serialize_numeric(blob, blobsize, Numeric)
+    @ccall libumfpack.umfpack_di_serialize_numeric(blob::Ptr{Int8}, blobsize::Int64, Numeric::Ptr{Cvoid})::Cint
+end
+
+function umfpack_dl_serialize_numeric(blob, blobsize, Numeric)
+    @ccall libumfpack.umfpack_dl_serialize_numeric(blob::Ptr{Int8}, blobsize::Int64, Numeric::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zi_serialize_numeric(blob, blobsize, Numeric)
+    @ccall libumfpack.umfpack_zi_serialize_numeric(blob::Ptr{Int8}, blobsize::Int64, Numeric::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zl_serialize_numeric(blob, blobsize, Numeric)
+    @ccall libumfpack.umfpack_zl_serialize_numeric(blob::Ptr{Int8}, blobsize::Int64, Numeric::Ptr{Cvoid})::Cint
+end
+
+function umfpack_di_deserialize_numeric(Numeric, blob, blobsize)
+    @ccall libumfpack.umfpack_di_deserialize_numeric(Numeric::Ptr{Ptr{Cvoid}}, blob::Ptr{Int8}, blobsize::Int64)::Cint
+end
+
+function umfpack_dl_deserialize_numeric(Numeric, blob, blobsize)
+    @ccall libumfpack.umfpack_dl_deserialize_numeric(Numeric::Ptr{Ptr{Cvoid}}, blob::Ptr{Int8}, blobsize::Int64)::Cint
+end
+
+function umfpack_zi_deserialize_numeric(Numeric, blob, blobsize)
+    @ccall libumfpack.umfpack_zi_deserialize_numeric(Numeric::Ptr{Ptr{Cvoid}}, blob::Ptr{Int8}, blobsize::Int64)::Cint
+end
+
+function umfpack_zl_deserialize_numeric(Numeric, blob, blobsize)
+    @ccall libumfpack.umfpack_zl_deserialize_numeric(Numeric::Ptr{Ptr{Cvoid}}, blob::Ptr{Int8}, blobsize::Int64)::Cint
 end
 
 function umfpack_di_save_symbolic(Symbolic, filename)
@@ -2021,7 +2132,7 @@ function umfpack_di_save_symbolic(Symbolic, filename)
 end
 
 function umfpack_dl_save_symbolic(Symbolic, filename)
-    @ccall libumfpack.umfpack_dl_save_symbolic(Symbolic::Ptr{Cvoid}, filename::Ptr{Cchar})::Clong
+    @ccall libumfpack.umfpack_dl_save_symbolic(Symbolic::Ptr{Cvoid}, filename::Ptr{Cchar})::Cint
 end
 
 function umfpack_zi_save_symbolic(Symbolic, filename)
@@ -2029,7 +2140,7 @@ function umfpack_zi_save_symbolic(Symbolic, filename)
 end
 
 function umfpack_zl_save_symbolic(Symbolic, filename)
-    @ccall libumfpack.umfpack_zl_save_symbolic(Symbolic::Ptr{Cvoid}, filename::Ptr{Cchar})::Clong
+    @ccall libumfpack.umfpack_zl_save_symbolic(Symbolic::Ptr{Cvoid}, filename::Ptr{Cchar})::Cint
 end
 
 function umfpack_di_load_symbolic(Symbolic, filename)
@@ -2037,7 +2148,7 @@ function umfpack_di_load_symbolic(Symbolic, filename)
 end
 
 function umfpack_dl_load_symbolic(Symbolic, filename)
-    @ccall libumfpack.umfpack_dl_load_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, filename::Ptr{Cchar})::Clong
+    @ccall libumfpack.umfpack_dl_load_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, filename::Ptr{Cchar})::Cint
 end
 
 function umfpack_zi_load_symbolic(Symbolic, filename)
@@ -2045,23 +2156,87 @@ function umfpack_zi_load_symbolic(Symbolic, filename)
 end
 
 function umfpack_zl_load_symbolic(Symbolic, filename)
-    @ccall libumfpack.umfpack_zl_load_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, filename::Ptr{Cchar})::Clong
+    @ccall libumfpack.umfpack_zl_load_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, filename::Ptr{Cchar})::Cint
 end
 
-function umfpack_di_get_determinant(Mx, Ex, NumericHandle, User_Info)
-    @ccall libumfpack.umfpack_di_get_determinant(Mx::Ptr{Cdouble}, Ex::Ptr{Cdouble}, NumericHandle::Ptr{Cvoid}, User_Info::Ptr{Cdouble})::Cint
+function umfpack_di_copy_symbolic(Symbolic, Original)
+    @ccall libumfpack.umfpack_di_copy_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, Original::Ptr{Cvoid})::Cint
 end
 
-function umfpack_dl_get_determinant(Mx, Ex, NumericHandle, User_Info)
-    @ccall libumfpack.umfpack_dl_get_determinant(Mx::Ptr{Cdouble}, Ex::Ptr{Cdouble}, NumericHandle::Ptr{Cvoid}, User_Info::Ptr{Cdouble})::Clong
+function umfpack_dl_copy_symbolic(Symbolic, Original)
+    @ccall libumfpack.umfpack_dl_copy_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, Original::Ptr{Cvoid})::Cint
 end
 
-function umfpack_zi_get_determinant(Mx, Mz, Ex, NumericHandle, User_Info)
-    @ccall libumfpack.umfpack_zi_get_determinant(Mx::Ptr{Cdouble}, Mz::Ptr{Cdouble}, Ex::Ptr{Cdouble}, NumericHandle::Ptr{Cvoid}, User_Info::Ptr{Cdouble})::Cint
+function umfpack_zi_copy_symbolic(Symbolic, Original)
+    @ccall libumfpack.umfpack_zi_copy_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, Original::Ptr{Cvoid})::Cint
 end
 
-function umfpack_zl_get_determinant(Mx, Mz, Ex, NumericHandle, User_Info)
-    @ccall libumfpack.umfpack_zl_get_determinant(Mx::Ptr{Cdouble}, Mz::Ptr{Cdouble}, Ex::Ptr{Cdouble}, NumericHandle::Ptr{Cvoid}, User_Info::Ptr{Cdouble})::Clong
+function umfpack_zl_copy_symbolic(Symbolic, Original)
+    @ccall libumfpack.umfpack_zl_copy_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, Original::Ptr{Cvoid})::Cint
+end
+
+function umfpack_di_serialize_symbolic_size(blobsize, Symbolic)
+    @ccall libumfpack.umfpack_di_serialize_symbolic_size(blobsize::Ptr{Int64}, Symbolic::Ptr{Cvoid})::Cint
+end
+
+function umfpack_dl_serialize_symbolic_size(blobsize, Symbolic)
+    @ccall libumfpack.umfpack_dl_serialize_symbolic_size(blobsize::Ptr{Int64}, Symbolic::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zi_serialize_symbolic_size(blobsize, Symbolic)
+    @ccall libumfpack.umfpack_zi_serialize_symbolic_size(blobsize::Ptr{Int64}, Symbolic::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zl_serialize_symbolic_size(blobsize, Symbolic)
+    @ccall libumfpack.umfpack_zl_serialize_symbolic_size(blobsize::Ptr{Int64}, Symbolic::Ptr{Cvoid})::Cint
+end
+
+function umfpack_di_serialize_symbolic(blob, blobsize, Symbolic)
+    @ccall libumfpack.umfpack_di_serialize_symbolic(blob::Ptr{Int8}, blobsize::Int64, Symbolic::Ptr{Cvoid})::Cint
+end
+
+function umfpack_dl_serialize_symbolic(blob, blobsize, Symbolic)
+    @ccall libumfpack.umfpack_dl_serialize_symbolic(blob::Ptr{Int8}, blobsize::Int64, Symbolic::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zi_serialize_symbolic(blob, blobsize, Symbolic)
+    @ccall libumfpack.umfpack_zi_serialize_symbolic(blob::Ptr{Int8}, blobsize::Int64, Symbolic::Ptr{Cvoid})::Cint
+end
+
+function umfpack_zl_serialize_symbolic(blob, blobsize, Symbolic)
+    @ccall libumfpack.umfpack_zl_serialize_symbolic(blob::Ptr{Int8}, blobsize::Int64, Symbolic::Ptr{Cvoid})::Cint
+end
+
+function umfpack_di_deserialize_symbolic(Symbolic, blob, blobsize)
+    @ccall libumfpack.umfpack_di_deserialize_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, blob::Ptr{Int8}, blobsize::Int64)::Cint
+end
+
+function umfpack_dl_deserialize_symbolic(Symbolic, blob, blobsize)
+    @ccall libumfpack.umfpack_dl_deserialize_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, blob::Ptr{Int8}, blobsize::Int64)::Cint
+end
+
+function umfpack_zi_deserialize_symbolic(Symbolic, blob, blobsize)
+    @ccall libumfpack.umfpack_zi_deserialize_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, blob::Ptr{Int8}, blobsize::Int64)::Cint
+end
+
+function umfpack_zl_deserialize_symbolic(Symbolic, blob, blobsize)
+    @ccall libumfpack.umfpack_zl_deserialize_symbolic(Symbolic::Ptr{Ptr{Cvoid}}, blob::Ptr{Int8}, blobsize::Int64)::Cint
+end
+
+function umfpack_di_get_determinant(Mx, Ex, Numeric, User_Info)
+    @ccall libumfpack.umfpack_di_get_determinant(Mx::Ptr{Cdouble}, Ex::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, User_Info::Ptr{Cdouble})::Cint
+end
+
+function umfpack_dl_get_determinant(Mx, Ex, Numeric, User_Info)
+    @ccall libumfpack.umfpack_dl_get_determinant(Mx::Ptr{Cdouble}, Ex::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, User_Info::Ptr{Cdouble})::Cint
+end
+
+function umfpack_zi_get_determinant(Mx, Mz, Ex, Numeric, User_Info)
+    @ccall libumfpack.umfpack_zi_get_determinant(Mx::Ptr{Cdouble}, Mz::Ptr{Cdouble}, Ex::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, User_Info::Ptr{Cdouble})::Cint
+end
+
+function umfpack_zl_get_determinant(Mx, Mz, Ex, Numeric, User_Info)
+    @ccall libumfpack.umfpack_zl_get_determinant(Mx::Ptr{Cdouble}, Mz::Ptr{Cdouble}, Ex::Ptr{Cdouble}, Numeric::Ptr{Cvoid}, User_Info::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_report_status(Control, status)
@@ -2069,7 +2244,7 @@ function umfpack_di_report_status(Control, status)
 end
 
 function umfpack_dl_report_status(Control, status)
-    @ccall libumfpack.umfpack_dl_report_status(Control::Ptr{Cdouble}, status::Clong)::Cvoid
+    @ccall libumfpack.umfpack_dl_report_status(Control::Ptr{Cdouble}, status::Cint)::Cvoid
 end
 
 function umfpack_zi_report_status(Control, status)
@@ -2077,7 +2252,7 @@ function umfpack_zi_report_status(Control, status)
 end
 
 function umfpack_zl_report_status(Control, status)
-    @ccall libumfpack.umfpack_zl_report_status(Control::Ptr{Cdouble}, status::Clong)::Cvoid
+    @ccall libumfpack.umfpack_zl_report_status(Control::Ptr{Cdouble}, status::Cint)::Cvoid
 end
 
 function umfpack_di_report_info(Control, Info)
@@ -2113,51 +2288,51 @@ function umfpack_zl_report_control(Control)
 end
 
 function umfpack_di_report_matrix(n_row, n_col, Ap, Ai, Ax, col_form, Control)
-    @ccall libumfpack.umfpack_di_report_matrix(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, col_form::Cint, Control::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_report_matrix(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, col_form::Cint, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_report_matrix(n_row, n_col, Ap, Ai, Ax, col_form, Control)
-    @ccall libumfpack.umfpack_dl_report_matrix(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, col_form::Clong, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_report_matrix(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, col_form::Cint, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_report_matrix(n_row, n_col, Ap, Ai, Ax, Az, col_form, Control)
-    @ccall libumfpack.umfpack_zi_report_matrix(n_row::Cint, n_col::Cint, Ap::Ptr{Cint}, Ai::Ptr{Cint}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, col_form::Cint, Control::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_report_matrix(n_row::Int32, n_col::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, col_form::Cint, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_report_matrix(n_row, n_col, Ap, Ai, Ax, Az, col_form, Control)
-    @ccall libumfpack.umfpack_zl_report_matrix(n_row::Clong, n_col::Clong, Ap::Ptr{Clong}, Ai::Ptr{Clong}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, col_form::Clong, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_report_matrix(n_row::Int64, n_col::Int64, Ap::Ptr{Int64}, Ai::Ptr{Int64}, Ax::Ptr{Cdouble}, Az::Ptr{Cdouble}, col_form::Cint, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_report_triplet(n_row, n_col, nz, Ti, Tj, Tx, Control)
-    @ccall libumfpack.umfpack_di_report_triplet(n_row::Cint, n_col::Cint, nz::Cint, Ti::Ptr{Cint}, Tj::Ptr{Cint}, Tx::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_report_triplet(n_row::Int32, n_col::Int32, nz::Int32, Ti::Ptr{Int32}, Tj::Ptr{Int32}, Tx::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_report_triplet(n_row, n_col, nz, Ti, Tj, Tx, Control)
-    @ccall libumfpack.umfpack_dl_report_triplet(n_row::Clong, n_col::Clong, nz::Clong, Ti::Ptr{Clong}, Tj::Ptr{Clong}, Tx::Ptr{Cdouble}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_report_triplet(n_row::Int64, n_col::Int64, nz::Int64, Ti::Ptr{Int64}, Tj::Ptr{Int64}, Tx::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_report_triplet(n_row, n_col, nz, Ti, Tj, Tx, Tz, Control)
-    @ccall libumfpack.umfpack_zi_report_triplet(n_row::Cint, n_col::Cint, nz::Cint, Ti::Ptr{Cint}, Tj::Ptr{Cint}, Tx::Ptr{Cdouble}, Tz::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_report_triplet(n_row::Int32, n_col::Int32, nz::Int32, Ti::Ptr{Int32}, Tj::Ptr{Int32}, Tx::Ptr{Cdouble}, Tz::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_report_triplet(n_row, n_col, nz, Ti, Tj, Tx, Tz, Control)
-    @ccall libumfpack.umfpack_zl_report_triplet(n_row::Clong, n_col::Clong, nz::Clong, Ti::Ptr{Clong}, Tj::Ptr{Clong}, Tx::Ptr{Cdouble}, Tz::Ptr{Cdouble}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_report_triplet(n_row::Int64, n_col::Int64, nz::Int64, Ti::Ptr{Int64}, Tj::Ptr{Int64}, Tx::Ptr{Cdouble}, Tz::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_report_vector(n, X, Control)
-    @ccall libumfpack.umfpack_di_report_vector(n::Cint, X::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_report_vector(n::Int32, X::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_report_vector(n, X, Control)
-    @ccall libumfpack.umfpack_dl_report_vector(n::Clong, X::Ptr{Cdouble}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_report_vector(n::Int64, X::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_report_vector(n, Xx, Xz, Control)
-    @ccall libumfpack.umfpack_zi_report_vector(n::Cint, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_report_vector(n::Int32, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_report_vector(n, Xx, Xz, Control)
-    @ccall libumfpack.umfpack_zl_report_vector(n::Clong, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_report_vector(n::Int64, Xx::Ptr{Cdouble}, Xz::Ptr{Cdouble}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_report_symbolic(Symbolic, Control)
@@ -2165,7 +2340,7 @@ function umfpack_di_report_symbolic(Symbolic, Control)
 end
 
 function umfpack_dl_report_symbolic(Symbolic, Control)
-    @ccall libumfpack.umfpack_dl_report_symbolic(Symbolic::Ptr{Cvoid}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_report_symbolic(Symbolic::Ptr{Cvoid}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_report_symbolic(Symbolic, Control)
@@ -2173,7 +2348,7 @@ function umfpack_zi_report_symbolic(Symbolic, Control)
 end
 
 function umfpack_zl_report_symbolic(Symbolic, Control)
-    @ccall libumfpack.umfpack_zl_report_symbolic(Symbolic::Ptr{Cvoid}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_report_symbolic(Symbolic::Ptr{Cvoid}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_report_numeric(Numeric, Control)
@@ -2181,7 +2356,7 @@ function umfpack_di_report_numeric(Numeric, Control)
 end
 
 function umfpack_dl_report_numeric(Numeric, Control)
-    @ccall libumfpack.umfpack_dl_report_numeric(Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_report_numeric(Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_report_numeric(Numeric, Control)
@@ -2189,23 +2364,23 @@ function umfpack_zi_report_numeric(Numeric, Control)
 end
 
 function umfpack_zl_report_numeric(Numeric, Control)
-    @ccall libumfpack.umfpack_zl_report_numeric(Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_report_numeric(Numeric::Ptr{Cvoid}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_di_report_perm(np, Perm, Control)
-    @ccall libumfpack.umfpack_di_report_perm(np::Cint, Perm::Ptr{Cint}, Control::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_di_report_perm(np::Int32, Perm::Ptr{Int32}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_dl_report_perm(np, Perm, Control)
-    @ccall libumfpack.umfpack_dl_report_perm(np::Clong, Perm::Ptr{Clong}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_dl_report_perm(np::Int64, Perm::Ptr{Int64}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zi_report_perm(np, Perm, Control)
-    @ccall libumfpack.umfpack_zi_report_perm(np::Cint, Perm::Ptr{Cint}, Control::Ptr{Cdouble})::Cint
+    @ccall libumfpack.umfpack_zi_report_perm(np::Int32, Perm::Ptr{Int32}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_zl_report_perm(np, Perm, Control)
-    @ccall libumfpack.umfpack_zl_report_perm(np::Clong, Perm::Ptr{Clong}, Control::Ptr{Cdouble})::Clong
+    @ccall libumfpack.umfpack_zl_report_perm(np::Int64, Perm::Ptr{Int64}, Control::Ptr{Cdouble})::Cint
 end
 
 function umfpack_timer()
@@ -2220,39 +2395,57 @@ function umfpack_toc(stats)
     @ccall libumfpack.umfpack_toc(stats::Ptr{Cdouble})::Cvoid
 end
 
-const _FILE_OFFSET_BITS = 64
+const CHOLMOD_DATE = "Jan 17, 2023"
 
-const SuiteSparse_long = Clong
-
-const SuiteSparse_long_max = LONG_MAX
-
-const SuiteSparse_long_idd = "ld"
-
-const SUITESPARSE_DATE = "May 17, 2021"
-
-SUITESPARSE_VER_CODE(main, sub) = main * 1000 + sub
-
-const SUITESPARSE_MAIN_VERSION = 5
-
-const SUITESPARSE_SUB_VERSION = 10
-
-const SUITESPARSE_SUBSUB_VERSION = 1
-
-const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(SUITESPARSE_MAIN_VERSION, SUITESPARSE_SUB_VERSION)
-
-const CHOLMOD_DATE = "Oct 22, 2019"
-
-CHOLMOD_VER_CODE(main, sub) = main * 1000 + sub
-
-const CHOLMOD_MAIN_VERSION = 3
+const CHOLMOD_MAIN_VERSION = 4
 
 const CHOLMOD_SUB_VERSION = 0
 
-const CHOLMOD_SUBSUB_VERSION = 14
+const CHOLMOD_SUBSUB_VERSION = 3
+
+const _FILE_OFFSET_BITS = 64
+
+const SuiteSparse_long = int64_t
+
+const SuiteSparse_long_max = INT64_MAX
+
+const SUITESPARSE_OPENMP_MAX_THREADS = 1
+
+const SUITESPARSE_OPENMP_GET_NUM_THREADS = 1
+
+const SUITESPARSE_OPENMP_GET_WTIME = 0
+
+const SUITESPARSE_OPENMP_GET_THREAD_ID = 0
+
+const SUITESPARSE_COMPILER_NVCC = 0
+
+const SUITESPARSE_COMPILER_ICX = 0
+
+const SUITESPARSE_COMPILER_ICC = 0
+
+const SUITESPARSE_COMPILER_CLANG = 0
+
+const SUITESPARSE_COMPILER_GCC = 0
+
+const SUITESPARSE_COMPILER_MSC = 0
+
+const SUITESPARSE_COMPILER_XLC = 0
+
+const SUITESPARSE_DATE = "Jan 20, 2023"
+
+const SUITESPARSE_MAIN_VERSION = 7
+
+const SUITESPARSE_SUB_VERSION = 0
+
+const SUITESPARSE_SUBSUB_VERSION = 1
+
+SUITESPARSE_VER_CODE(main, sub) = main * 1000 + sub
+
+const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(SUITESPARSE_MAIN_VERSION, SUITESPARSE_SUB_VERSION)
+
+CHOLMOD_VER_CODE(main, sub) = main * 1000 + sub
 
 const CHOLMOD_VERSION = CHOLMOD_VER_CODE(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION)
-
-const CHOLMOD_OMP_NUM_THREADS = 4
 
 const CHOLMOD_DEVICE_SUPERNODE_BUFFERS = 6
 
@@ -2372,44 +2565,6 @@ const CHOLMOD_COL = 2
 
 const CHOLMOD_SYM = 3
 
-const CHOLMOD_ARCHITECTURE = "Mac"
-
-const BLAS_DTRSV = dtrsv_64_
-
-const BLAS_DGEMV = dgemv_64_
-
-const BLAS_DTRSM = dtrsm_64_
-
-const BLAS_DGEMM = dgemm_64_
-
-const BLAS_DSYRK = dsyrk_64_
-
-const BLAS_DGER = dger_64_
-
-const BLAS_DSCAL = dscal_64_
-
-const LAPACK_DPOTRF = dpotrf_64_
-
-const BLAS_ZTRSV = ztrsv_64_
-
-const BLAS_ZGEMV = zgemv_64_
-
-const BLAS_ZTRSM = ztrsm_64_
-
-const BLAS_ZGEMM = zgemm_64_
-
-const BLAS_ZHERK = zherk_64_
-
-const BLAS_ZGER = zgeru_64_
-
-const BLAS_ZSCAL = zscal_64_
-
-const LAPACK_ZPOTRF = zpotrf_64_
-
-const BLAS_INT = Cint
-
-# Skipping MacroDefinition: CHECK_BLAS_INT ( sizeof ( BLAS_INT ) < sizeof ( Int ) )
-
 const SPQR_ORDERING_FIXED = 0
 
 const SPQR_ORDERING_NATURAL = 1
@@ -2450,15 +2605,15 @@ const SPQR_RTX_EQUALS_B = 2
 
 const SPQR_RTX_EQUALS_ETB = 3
 
-const SPQR_DATE = "Dec 28, 2018"
+const SPQR_DATE = "Jan 17, 2023"
 
-SPQR_VER_CODE(main, sub) = main * 1000 + sub
-
-const SPQR_MAIN_VERSION = 2
+const SPQR_MAIN_VERSION = 3
 
 const SPQR_SUB_VERSION = 0
 
-const SPQR_SUBSUB_VERSION = 9
+const SPQR_SUBSUB_VERSION = 3
+
+SPQR_VER_CODE(main, sub) = main * 1000 + sub
 
 const SPQR_VERSION = SPQR_VER_CODE(SPQR_MAIN_VERSION, SPQR_SUB_VERSION)
 
@@ -2512,27 +2667,27 @@ const AMD_INVALID = -2
 
 const AMD_OK_BUT_JUMBLED = 1
 
-const AMD_DATE = "May 4, 2016"
+const AMD_DATE = "Jan 17, 2023"
+
+const AMD_MAIN_VERSION = 3
+
+const AMD_SUB_VERSION = 0
+
+const AMD_SUBSUB_VERSION = 3
 
 AMD_VERSION_CODE(main, sub) = main * 1000 + sub
 
-const AMD_MAIN_VERSION = 2
-
-const AMD_SUB_VERSION = 4
-
-const AMD_SUBSUB_VERSION = 6
-
 const AMD_VERSION = AMD_VERSION_CODE(AMD_MAIN_VERSION, AMD_SUB_VERSION)
 
-const COLAMD_DATE = "May 4, 2016"
+const COLAMD_DATE = "Jan 17, 2023"
+
+const COLAMD_MAIN_VERSION = 3
+
+const COLAMD_SUB_VERSION = 0
+
+const COLAMD_SUBSUB_VERSION = 3
 
 COLAMD_VERSION_CODE(main, sub) = main * 1000 + sub
-
-const COLAMD_MAIN_VERSION = 2
-
-const COLAMD_SUB_VERSION = 9
-
-const COLAMD_SUBSUB_VERSION = 6
 
 const COLAMD_VERSION = COLAMD_VERSION_CODE(COLAMD_MAIN_VERSION, COLAMD_SUB_VERSION)
 
@@ -2582,13 +2737,15 @@ const COLAMD_ERROR_out_of_memory = -10
 
 const COLAMD_ERROR_internal_error = -999
 
-const CCOLAMD_DATE = "May 4, 2016"
+const CCOLAMD_DATE = "Jan 17, 2023"
 
-const CCOLAMD_MAIN_VERSION = 2
+const CCOLAMD_MAIN_VERSION = 3
 
-const CCOLAMD_SUB_VERSION = 9
+const CCOLAMD_SUB_VERSION = 0
 
-const CCOLAMD_SUBSUB_VERSION = 6
+const CCOLAMD_SUBSUB_VERSION = 3
+
+CCOLAMD_VERSION_CODE(main, sub) = main * 1000 + sub
 
 const CCOLAMD_VERSION = CCOLAMD_VERSION_CODE(CCOLAMD_MAIN_VERSION, CCOLAMD_SUB_VERSION)
 
@@ -2654,13 +2811,11 @@ const UMFPACK_INFO = 90
 
 const UMFPACK_CONTROL = 20
 
-const UMFPACK_VERSION = "UMFPACK V5.7.9 (Oct 20, 2019)"
-
 # Skipping MacroDefinition: UMFPACK_COPYRIGHT \
-#"UMFPACK:  Copyright (c) 2005-2013 by Timothy A. Davis.  All Rights Reserved.\n"
+#"UMFPACK:  Copyright (c) 2005-2023 by Timothy A. Davis.  All Rights Reserved.\n"
 
 # Skipping MacroDefinition: UMFPACK_LICENSE_PART1 \
-#"\nUMFPACK License:  refer to UMFPACK/Doc/License.txt for the license.\n" \
+#"\nUMFPACK License: SPDX-License-Identifier: GPL-2.0+\n" \
 #"   UMFPACK is available under alternate licenses,\n" \
 #"   contact T. Davis for details.\n"
 
@@ -2671,15 +2826,15 @@ const UMFPACK_LICENSE_PART2 = "\n"
 #"Availability: http://www.suitesparse.com" \
 #"\n"
 
-const UMFPACK_DATE = "Oct 20, 2019"
+const UMFPACK_DATE = "Jan 17, 2023"
+
+const UMFPACK_MAIN_VERSION = 6
+
+const UMFPACK_SUB_VERSION = 1
+
+const UMFPACK_SUBSUB_VERSION = 0
 
 UMFPACK_VER_CODE(main, sub) = main * 1000 + sub
-
-const UMFPACK_MAIN_VERSION = 5
-
-const UMFPACK_SUB_VERSION = 7
-
-const UMFPACK_SUBSUB_VERSION = 9
 
 const UMFPACK_VER = UMFPACK_VER_CODE(UMFPACK_MAIN_VERSION, UMFPACK_SUB_VERSION)
 
@@ -2883,6 +3038,10 @@ const UMFPACK_IRSTEP = 7
 
 const UMFPACK_COMPILED_WITH_BLAS = 8
 
+const UMFPACK_STRATEGY_THRESH_SYM = 9
+
+const UMFPACK_STRATEGY_THRESH_NNZDIAG = 12
+
 const UMFPACK_STRATEGY_AUTO = 0
 
 const UMFPACK_STRATEGY_UNSYMMETRIC = 1
@@ -2910,6 +3069,8 @@ const UMFPACK_ORDERING_BEST = 4
 const UMFPACK_ORDERING_NONE = 5
 
 const UMFPACK_ORDERING_USER = 6
+
+const UMFPACK_ORDERING_METIS_GUARD = 7
 
 const UMFPACK_DEFAULT_PRL = 1
 
@@ -2945,6 +3106,10 @@ const UMFPACK_DEFAULT_ORDERING = UMFPACK_ORDERING_AMD
 
 const UMFPACK_DEFAULT_SINGLETONS = TRUE
 
+const UMFPACK_DEFAULT_STRATEGY_THRESH_SYM = 0.3
+
+const UMFPACK_DEFAULT_STRATEGY_THRESH_NNZDIAG = 0.9
+
 const UMFPACK_OK = 0
 
 const UMFPACK_WARNING_singular_matrix = 1
@@ -2976,6 +3141,8 @@ const UMFPACK_ERROR_internal_error = -911
 const UMFPACK_ERROR_file_IO = -17
 
 const UMFPACK_ERROR_ordering_failed = -18
+
+const UMFPACK_ERROR_invalid_blob = -19
 
 const UMFPACK_A = 0
 

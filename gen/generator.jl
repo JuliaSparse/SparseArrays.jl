@@ -8,15 +8,9 @@ using SuiteSparse_jll
 cd(@__DIR__)
 
 # headers
-SuiteSparse_toml = joinpath(dirname(pathof(SuiteSparse_jll)), "..", "StdlibArtifacts.toml")
-SuiteSparse_dir = Pkg.Artifacts.ensure_artifact_installed("SuiteSparse", SuiteSparse_toml)
-
-include_dir = joinpath(SuiteSparse_dir, "include") |> normpath
+include_dir = joinpath(SuiteSparse_jll.artifact_dir, "include") |> normpath
 cholmod_h = joinpath(include_dir, "cholmod.h")
 @assert isfile(cholmod_h)
-
-cholmod_blas_h = joinpath(include_dir, "cholmod_blas.h")
-@assert isfile(cholmod_blas_h)
 
 SuiteSparseQR_C_h = joinpath(include_dir, "SuiteSparseQR_C.h")
 @assert isfile(SuiteSparseQR_C_h)
@@ -48,7 +42,7 @@ for target in JLLEnvs.JLL_ENV_TRIPLES
         push!(args, "-DSUN64 -DLONGBLAS='long long' -D'SuiteSparse_long_max=9223372036854775801'")
     end
 
-    header_files = [cholmod_h, cholmod_blas_h, SuiteSparseQR_C_h, amd_h, colamd_h, ccolamd_h, umfpack_h]
+    header_files = [cholmod_h, SuiteSparseQR_C_h, amd_h, colamd_h, ccolamd_h, umfpack_h]
 
     ctx = create_context(header_files, args, options)
 
