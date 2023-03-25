@@ -2405,10 +2405,6 @@ const CHOLMOD_SUBSUB_VERSION = 3
 
 const _FILE_OFFSET_BITS = 64
 
-const SuiteSparse_long = int64_t
-
-const SuiteSparse_long_max = INT64_MAX
-
 const SUITESPARSE_OPENMP_MAX_THREADS = 1
 
 const SUITESPARSE_OPENMP_GET_NUM_THREADS = 1

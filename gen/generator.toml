@@ -8,6 +8,8 @@ auto_mutability = true
 
 output_ignorelist = [
     # Clang.jl cannot handle these macro correctly, skip for now.
+    "SuiteSparse_long",
+    "SuiteSparse_long_max",
     "SuiteSparse_long_id",
     "CHOLMOD_CUBLAS_HANDLE",
     "CHOLMOD_CUDASTREAM",
