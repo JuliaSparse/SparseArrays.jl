@@ -5,16 +5,6 @@ const libumfpack = :libumfpack
 const libcholmod = :libcholmod
 const libspqr = :libspqr
 
-# Special treatment for Win64 since Clong is 32-bit on Win64
-# LONG_MAX is used everywhere, except on Win64
-# See discussion in https://github.com/DrTimothyAldenDavis/SuiteSparse/blob/master/SuiteSparse_config/SuiteSparse_config.h
-# if Sys.iswindows() && Sys.ARCH === :x86_64
-#     const __int64 = Clonglong
-#     const _I64_MAX = typemax(Clonglong)
-# else
-#     const LONG_MAX = typemax(Clong)
-# end
-
 if Sys.WORD_SIZE == 64
     const SuiteSparse_long = Clonglong
 else
