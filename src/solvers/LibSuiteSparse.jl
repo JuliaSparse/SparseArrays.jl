@@ -5,17 +5,8 @@ const libumfpack = :libumfpack
 const libcholmod = :libcholmod
 const libspqr = :libspqr
 
-if Sys.WORD_SIZE == 64
-    const SuiteSparse_long = Clonglong
-else
-    const SuiteSparse_long = Clong
-end
-const SuiteSparse_long_max = typemax(SuiteSparse_long)
-
 const TRUE  = Int32(1)
 const FALSE = Int32(0)
-const int64_t = Int64
-const INT64_MAX = typemax(Int64)
 
 const IS_LIBC_MUSL = occursin("musl", Base.BUILD_TRIPLET)
 if Sys.isapple() && Sys.ARCH === :aarch64

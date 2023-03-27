@@ -42,9 +42,9 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         Zsparse::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}  , Ptr{Cvoid}} = C_NULL,
         Zdense::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}  , Ptr{Cvoid}} = C_NULL,
         R::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
-        E::Union{Ref{Ptr{CHOLMOD.SuiteSparse_long}}    , Ptr{Cvoid}} = C_NULL,
+        E::Union{Ref{Ptr{CHOLMOD.Int64}}    , Ptr{Cvoid}} = C_NULL,
         H::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
-        HPinv::Union{Ref{Ptr{CHOLMOD.SuiteSparse_long}}, Ptr{Cvoid}} = C_NULL,
+        HPinv::Union{Ref{Ptr{CHOLMOD.Int64}}, Ptr{Cvoid}} = C_NULL,
         HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Tv<:CHOLMOD.VTypes}
 
     ordering ∈ ORDERINGS || error("unknown ordering $ordering")
@@ -75,29 +75,29 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
 
     e = E[]
     if e == C_NULL
-        _E = Vector{CHOLMOD.SuiteSparse_long}()
+        _E = Vector{CHOLMOD.Int64}()
     else
-        _E = Vector{CHOLMOD.SuiteSparse_long}(undef, n)
+        _E = Vector{CHOLMOD.Int64}(undef, n)
         for i in 1:n
             @inbounds _E[i] = unsafe_load(e, i) + 1
         end
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(n, sizeof(CHOLMOD.SuiteSparse_long), e, CHOLMOD.getcommon())
+        cholmod_l_free(n, sizeof(CHOLMOD.Int64), e, CHOLMOD.getcommon())
     end
     hpinv = HPinv[]
     if hpinv == C_NULL
-        _HPinv = Vector{CHOLMOD.SuiteSparse_long}()
+        _HPinv = Vector{CHOLMOD.Int64}()
     else
-        _HPinv = Vector{CHOLMOD.SuiteSparse_long}(undef, m)
+        _HPinv = Vector{CHOLMOD.Int64}(undef, m)
         for i in 1:m
             @inbounds _HPinv[i] = unsafe_load(hpinv, i) + 1
         end
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(m, sizeof(CHOLMOD.SuiteSparse_long), hpinv, CHOLMOD.getcommon())
+        cholmod_l_free(m, sizeof(CHOLMOD.Int64), hpinv, CHOLMOD.getcommon())
     end
 
     return rnk, _E, _HPinv
@@ -189,9 +189,9 @@ Column permutation:
 """
 function LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv <: CHOLMOD.VTypes}
     R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    E     = Ref{Ptr{CHOLMOD.SuiteSparse_long}}()
+    E     = Ref{Ptr{CHOLMOD.Int64}}()
     H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    HPinv = Ref{Ptr{CHOLMOD.SuiteSparse_long}}()
+    HPinv = Ref{Ptr{CHOLMOD.Int64}}()
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
     # SPQR doesn't accept symmetric matrices so we explicitly set the stype
