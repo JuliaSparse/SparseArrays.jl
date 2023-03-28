@@ -807,7 +807,7 @@ end
     end
 end
 
-@testset "Test sparse low rank update for cholesky decomposion" begin
+@testset "Test sparse low rank update for cholesky decomposition" begin
     A = SparseMatrixCSC{Float64,SuiteSparse_long}(10, 5, [1,3,6,8,10,13], [6,7,1,2,9,3,5,1,7,6,7,9],
         [-0.138843, 2.99571, -0.556814, 0.669704, -1.39252, 1.33814,
         1.02371, -0.502384, 1.10686, 0.262229, -1.6935, 0.525239])
@@ -923,7 +923,7 @@ end
 end
 
 @testset "Check common is still in default state" begin
-    # This test intentially depends on all the above tests!
+    # This test intentionally depends on all the above tests!
     current_common = CHOLMOD.getcommon()
     default_common = Ref(cholmod_common())
     result = cholmod_l_start(default_common)
