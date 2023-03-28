@@ -110,7 +110,7 @@ move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x)
 """
     `_unsafe_unfix(x)`
 
-Experimental, unsafe. Returns a modifyable version of `x` for compatibility with this codebase.
+Experimental, unsafe. Returns a modifiable version of `x` for compatibility with this codebase.
 """
 _unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(x)), parent(rowvals(x)), nonzeros(x))
 _unsafe_unfix(x::SparseMatrixCSC) = x
@@ -697,7 +697,7 @@ the original sparse matrix, except in the case where dimensions of the
 output matrix are different from the output.
 
 The output matrix has zeros in the same locations as the input, but
-unititialized values for the nonzero locations.
+uninitialized values for the nonzero locations.
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
     @if_move_fixed S _sparsesimilar(S, TvNew, Ti)
@@ -1361,7 +1361,7 @@ end
 
 Transpose `A` and store it in `X` while applying the function `f` to the non-zero elements.
 Does not remove the zeros created by `f`. `size(X)` must be equal to `size(transpose(A))`.
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
+No additional memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -1382,7 +1382,7 @@ end
 
 Transpose the matrix `A` and stores it in the matrix `X`.
 `size(X)` must be equal to `size(transpose(A))`.
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
+No additional memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -1393,7 +1393,7 @@ transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti})
 
 Transpose the matrix `A` and stores the adjoint of the elements in the matrix `X`.
 `size(X)` must be equal to `size(transpose(A))`.
-No additonal memory is allocated other than resizing the rowval and nzval of `X`, if needed.
+No additional memory is allocated other than resizing the rowval and nzval of `X`, if needed.
 
 See `halfperm!`
 """
@@ -4273,7 +4273,7 @@ end
 function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
     i == j && return
 
-    # For simplicitly, let i denote the smaller of the two columns
+    # For simplicity, let i denote the smaller of the two columns
     j < i && @swap(i, j)
 
     colptr = getcolptr(A)
@@ -4312,7 +4312,7 @@ function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
 end
 
 function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
-    # For simplicitly, let i denote the smaller of the two rows
+    # For simplicity, let i denote the smaller of the two rows
     j < i && @swap(i, j)
 
     rows = rowvals(A)

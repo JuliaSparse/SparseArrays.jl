@@ -1246,7 +1246,7 @@ promote_to_arrays_(n::Int, ::Type{SparseMatrixCSC}, J::UniformScaling) = sparse(
 Concatenate along dimension 2. Return a SparseMatrixCSC object.
 
 !!! compat "Julia 1.8"
-    This method was added in Julia 1.8. It mimicks previous concatenation behavior, where
+    This method was added in Julia 1.8. It mimics previous concatenation behavior, where
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
@@ -1261,7 +1261,7 @@ end
 Concatenate along dimension 1. Return a SparseMatrixCSC object.
 
 !!! compat "Julia 1.8"
-    This method was added in Julia 1.8. It mimicks previous concatenation behavior, where
+    This method was added in Julia 1.8. It mimics previous concatenation behavior, where
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
@@ -1278,7 +1278,7 @@ for block matrix syntax. The first argument specifies the number of
 arguments to concatenate in each block row.
 
 !!! compat "Julia 1.8"
-    This method was added in Julia 1.8. It mimicks previous concatenation behavior, where
+    This method was added in Julia 1.8. It mimics previous concatenation behavior, where
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
@@ -1919,7 +1919,7 @@ function mul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVe
     return y
 end
 
-# * and *(Tranpose(A), B)
+# * and *(Transpose(A), B)
 mul!(y::AbstractVector, tA::Transpose{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector, α::Number, β::Number) =
     _At_or_Ac_mul_B!((a,b) -> transpose(a) * b, y, tA.parent, x, α, β)
 

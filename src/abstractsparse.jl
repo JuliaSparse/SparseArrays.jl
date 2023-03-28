@@ -145,7 +145,7 @@ is stored in `_restore_scalar_indexing` and a function that has the same definit
 returns an error is stored in `_destroy_scalar_indexing`.
 """
 macro RCI(exp)
-    # Evaluate to not push any broken code in the arrays when developping this package.
+    # Evaluate to not push any broken code in the arrays when developing this package.
     # Ensures that restore has the exact same effect.
     # Expand macro so we can chain macros. Save the expanded version for speed
     exp = macroexpand(__module__, exp)
