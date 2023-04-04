@@ -488,7 +488,7 @@ eye(n::Integer) = eye(n, n, Float64)
 
 # Non-Dense wrappers
 
-for TI ∈ (:Int32, :Int64)
+for TI ∈ IndexTypes
 @eval begin
     mutable struct $(cholname(:sparse_struct_typed, TI))
         nrow::Csize_t
