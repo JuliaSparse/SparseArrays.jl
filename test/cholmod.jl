@@ -18,9 +18,11 @@ using SparseArrays.LibSuiteSparse: SuiteSparse_long
 if Base.USE_GPL_LIBS
 
 # CHOLMOD tests
+itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
+for Ti ∈ itypes
 Random.seed!(123)
 
-@testset "based on deps/SuiteSparse-4.0.2/CHOLMOD/Demo/" begin
+@testset "based on deps/SuiteSparse-4.0.2/CHOLMOD/Demo/ $Ti" begin
 
 # chm_rdsp(joinpath(Sys.BINDIR, "../../deps/SuiteSparse-4.0.2/CHOLMOD/Demo/Matrix/bcsstk01.tri"))
 # because the file may not exist in binary distributions and when a system suitesparse library
@@ -53,10 +55,10 @@ Random.seed!(123)
 
     n = 48
     A = CHOLMOD.Sparse(n, n,
-        SuiteSparse_long[0,1,2,3,6,9,12,15,18,20,25,30,34,36,39,43,47,52,58,
+        Ti[0,1,2,3,6,9,12,15,18,20,25,30,34,36,39,43,47,52,58,
         62,67,71,77,84,90,93,95,98,103,106,110,115,119,123,130,136,142,146,150,155,
         161,167,174,182,189,197,207,215,224], # zero-based column pointers
-        SuiteSparse_long[0,1,2,1,2,3,0,2,4,0,1,5,0,4,6,1,3,7,2,8,1,3,7,8,9,
+        Ti[0,1,2,1,2,3,0,2,4,0,1,5,0,4,6,1,3,7,2,8,1,3,7,8,9,
         0,4,6,8,10,5,6,7,11,6,12,7,11,13,8,10,13,14,9,13,14,15,8,10,12,14,16,7,11,
         12,13,16,17,0,12,16,18,1,5,13,15,19,2,4,14,20,3,13,15,19,20,21,2,4,12,16,18,
         20,22,1,5,17,18,19,23,0,5,24,1,25,2,3,26,2,3,25,26,27,4,24,28,0,5,24,29,6,
@@ -147,12 +149,12 @@ Random.seed!(123)
     end
 end
 
-@testset "lp_afiro example" begin
+@testset "lp_afiro example $Ti" begin
     afiro = CHOLMOD.Sparse(27, 51,
-        SuiteSparse_long[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
+        Ti[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
         23,25,27,29,33,37,41,45,47,49,51,53,55,57,59,63,65,67,69,71,75,79,83,87,89,
         91,93,95,97,99,101,102],
-        SuiteSparse_long[2,3,6,7,8,9,12,13,16,17,18,19,20,21,22,23,24,25,26,
+        Ti[2,3,6,7,8,9,12,13,16,17,18,19,20,21,22,23,24,25,26,
         0,1,2,23,0,3,0,21,1,25,4,5,6,24,4,5,7,24,4,5,8,24,4,5,9,24,6,20,7,20,8,20,9,
         20,3,4,4,22,5,26,10,11,12,21,10,13,10,23,10,20,11,25,14,15,16,22,14,15,17,
         22,14,15,18,22,14,15,19,22,16,20,17,20,18,20,19,20,13,15,15,24,14,26,15],
@@ -163,7 +165,7 @@ end
         0.109,1.0,-1.0,1.0,-1.0,1.0,-1.0,1.0,1.0,-0.43,1.0,1.0,0.109,-0.43,1.0,1.0,
         0.108,-0.39,1.0,1.0,0.108,-0.37,1.0,1.0,0.107,-1.0,2.191,-1.0,2.219,-1.0,
         2.249,-1.0,2.279,1.4,-1.0,1.0,-1.0,1.0,1.0,1.0], 0)
-    afiro2 = CHOLMOD.aat(afiro, SuiteSparse_long[0:50;], SuiteSparse_long(1))
+    afiro2 = CHOLMOD.aat(afiro, Ti[0:50;], Ti(1))
     CHOLMOD.change_stype!(afiro2, -1)
     chmaf = cholesky(afiro2)
     y = afiro'*fill(1., size(afiro,1))
@@ -173,14 +175,14 @@ end
     @test norm(afiro * (convert(Matrix, y) - convert(Matrix, pred))) < 1e-8
 end
 
-@testset "Issue 9160" begin
+@testset "Issue 9160 $Ti" begin
     local A, B
     A = sprand(10, 10, 0.1)
-    A = convert(SparseMatrixCSC{Float64,SuiteSparse_long}, A)
+    A = convert(SparseMatrixCSC{Float64,Ti}, A)
     cmA = CHOLMOD.Sparse(A)
 
     B = sprand(10, 10, 0.1)
-    B = convert(SparseMatrixCSC{Float64,SuiteSparse_long}, B)
+    B = convert(SparseMatrixCSC{Float64,Ti}, B)
     cmB = CHOLMOD.Sparse(B)
 
     # Ac_mul_B
@@ -200,6 +202,17 @@ end
     cmA = CHOLMOD.Sparse(A)
     @test sparse(cmA*cmA') ≈ A*A'
 end
+
+@testset "Check inputs to Sparse. Related to #20024" for t_ in (
+    (2, 2, [1, 2], Ti[], Float64[]),
+    (2, 2, [1, 2, 3], Ti[1], Float64[]),
+    (2, 2, [1, 2, 3], Ti[], Float64[1.0]),
+    (2, 2, [1, 2, 3], Ti[1], Float64[1.0]))
+    @test_throws ArgumentError SparseMatrixCSC(t_...)
+    @test_throws ArgumentError CHOLMOD.Sparse(t_[1], t_[2], t_[3] .- 1, t_[4] .- 1, t_[5])
+end
+
+end #end for Ti ∈ itypes
 
 @testset "Issue #9915" begin
     sparseI = sparse(1.0I, 2, 2)
@@ -321,9 +334,14 @@ end
 end
 
 # Test Sparse and Factor
-@testset "test free!" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
-    @test CHOLMOD.free!(p)
+@testset "test free! Int64" begin
+    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon(Int64))
+    @test CHOLMOD.free!(p, Int64)
+end
+
+@testset "test free! Int32" begin
+    p = cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon(Int32))
+    @test CHOLMOD.free!(p, Int32)
 end
 
 @testset "Core functionality" for elty in (Float64, ComplexF64)
@@ -655,10 +673,10 @@ end
 
 @testset "Issue 29367" begin
     if Int != Int32
-        @test_throws MethodError cholesky(sparse(Int32[1,2,3,4], Int32[1,2,3,4], Float64[1,4,16,64]))
-        @test_throws MethodError cholesky(sparse(Int32[1,2,3,4], Int32[1,2,3,4], Float32[1,4,16,64]))
-        @test_throws MethodError ldlt(sparse(Int32[1,2,3,4], Int32[1,2,3,4], Float64[1,4,16,64]))
-        @test_throws MethodError ldlt(sparse(Int32[1,2,3,4], Int32[1,2,3,4], Float32[1,4,16,64]))
+        @test_nowarn cholesky(sparse(Int32[1,2,3,4], Int32[1,2,3,4], Float64[1,4,16,64]))
+        @test_nowarn cholesky(sparse(Int32[1,2,3,4], Int32[1,2,3,4], Float32[1,4,16,64]))
+        @test_nowarn ldlt(sparse(Int32[1,2,3,4], Int32[1,2,3,4], Float64[1,4,16,64]))
+        @test_nowarn ldlt(sparse(Int32[1,2,3,4], Int32[1,2,3,4], Float32[1,4,16,64]))
     end
 end
 
@@ -786,15 +804,6 @@ end
         unsafe_store!(Ptr{Int8}(pointer(C)), uplo, Int(o) + 1)
         @test convert(Symmetric{Float64,SparseMatrixCSC{Float64,Int}}, C) ≈ Symmetric(A'A)
     end
-end
-
-@testset "Check inputs to Sparse. Related to #20024" for t_ in (
-    (2, 2, [1, 2], SuiteSparse_long[], Float64[]),
-    (2, 2, [1, 2, 3], SuiteSparse_long[1], Float64[]),
-    (2, 2, [1, 2, 3], SuiteSparse_long[], Float64[1.0]),
-    (2, 2, [1, 2, 3], SuiteSparse_long[1], Float64[1.0]))
-    @test_throws ArgumentError SparseMatrixCSC(t_...)
-    @test_throws ArgumentError CHOLMOD.Sparse(t_[1], t_[2], t_[3] .- 1, t_[4] .- 1, t_[5])
 end
 
 @testset "sparse right multiplication of Symmetric and Hermitian matrices #21431" begin
