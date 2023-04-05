@@ -4,6 +4,7 @@ module CHOLMODTests
 
 using Test
 using SparseArrays.CHOLMOD
+using SparseArrays.CHOLMOD: getcommon
 using Random
 using Serialization
 using LinearAlgebra:
@@ -13,7 +14,7 @@ using LinearAlgebra:
 using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
-using SparseArrays.LibSuiteSparse: SuiteSparse_long
+using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
 
 if Base.USE_GPL_LIBS
 
@@ -22,7 +23,7 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
 for Ti ∈ itypes
 Random.seed!(123)
 
-@testset "based on deps/SuiteSparse-4.0.2/CHOLMOD/Demo/ $Ti" begin
+@testset "based on deps/SuiteSparse-4.0.2/CHOLMOD/Demo/ index type $Ti" begin
 
 # chm_rdsp(joinpath(Sys.BINDIR, "../../deps/SuiteSparse-4.0.2/CHOLMOD/Demo/Matrix/bcsstk01.tri"))
 # because the file may not exist in binary distributions and when a system suitesparse library
@@ -212,6 +213,69 @@ end
     @test_throws ArgumentError CHOLMOD.Sparse(t_[1], t_[2], t_[3] .- 1, t_[4] .- 1, t_[5])
 end
 
+## The struct pointer must be constructed by the library constructor and then modified afterwards to checks that the method throws
+@testset "illegal dtype (for now but should be supported at some point)" begin
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti))
+    puint = convert(Ptr{UInt32}, p)
+    unsafe_store!(puint, CHOLMOD_SINGLE, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+end
+
+@testset "illegal dtype" begin
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti))
+    puint = convert(Ptr{UInt32}, p)
+    unsafe_store!(puint, 5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+end
+
+@testset "illegal xtype" begin
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti))
+    puint = convert(Ptr{UInt32}, p)
+    unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 3)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+end
+
+@testset "illegal itype I" begin
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti))
+    puint = convert(Ptr{UInt32}, p)
+    unsafe_store!(puint, CHOLMOD_INTLONG, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+end
+
+@testset "illegal itype II" begin
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti))
+    puint = convert(Ptr{UInt32}, p)
+    unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+end
+@testset "test free! $Ti" begin
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti))
+    @test CHOLMOD.free!(p, Ti)
+end
+
+@testset "Check common is still in default state" begin
+    # This test intentionally depends on all the above tests!
+    current_common = CHOLMOD.getcommon(Ti)
+    default_common = Ref(cholmod_common())
+    result = Ti === Int64 ? cholmod_l_start(default_common) : cholmod_start(default_common)
+    @test result == CHOLMOD.TRUE
+    @test current_common[].print == 0
+    for name in (
+        :nmethods,
+        :postorder,
+        :final_ll,
+        :supernodal,
+    )
+        @test getproperty(current_common[], name) == getproperty(default_common[], name)
+    end
+end
+
 end #end for Ti ∈ itypes
 
 @testset "Issue #9915" begin
@@ -256,42 +320,6 @@ end
     end
 end
 
-## The struct pointer must be constructed by the library constructor and then modified afterwards to checks that the method throws
-@testset "illegal dtype (for now but should be supported at some point)" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
-    puint = convert(Ptr{UInt32}, p)
-    unsafe_store!(puint, CHOLMOD_SINGLE, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
-    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
-end
-
-@testset "illegal dtype" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
-    puint = convert(Ptr{UInt32}, p)
-    unsafe_store!(puint, 5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
-    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
-end
-
-@testset "illegal xtype" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
-    puint = convert(Ptr{UInt32}, p)
-    unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 3)
-    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
-end
-
-@testset "illegal itype I" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
-    puint = convert(Ptr{UInt32}, p)
-    unsafe_store!(puint, CHOLMOD_INTLONG, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
-    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
-end
-
-@testset "illegal itype II" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon())
-    puint = convert(Ptr{UInt32}, p)
-    unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
-    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
-end
-
 # Test Dense wrappers (only Float64 supported a present)
 
 @testset "High level interface" for elty in (Float64, ComplexF64)
@@ -331,17 +359,6 @@ end
     @test isa(CHOLMOD.eye(3, 4), CHOLMOD.Dense{Float64})
     @test isa(CHOLMOD.eye(3), CHOLMOD.Dense{Float64})
     @test isa(copy(CHOLMOD.eye(3)), CHOLMOD.Dense{Float64})
-end
-
-# Test Sparse and Factor
-@testset "test free! Int64" begin
-    p = cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon(Int64))
-    @test CHOLMOD.free!(p, Int64)
-end
-
-@testset "test free! Int32" begin
-    p = cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, CHOLMOD.getcommon(Int32))
-    @test CHOLMOD.free!(p, Int32)
 end
 
 @testset "Core functionality" for elty in (Float64, ComplexF64)
@@ -817,7 +834,7 @@ end
 end
 
 @testset "Test sparse low rank update for cholesky decomposition" begin
-    A = SparseMatrixCSC{Float64,SuiteSparse_long}(10, 5, [1,3,6,8,10,13], [6,7,1,2,9,3,5,1,7,6,7,9],
+    A = SparseMatrixCSC{Float64,Int}(10, 5, [1,3,6,8,10,13], [6,7,1,2,9,3,5,1,7,6,7,9],
         [-0.138843, 2.99571, -0.556814, 0.669704, -1.39252, 1.33814,
         1.02371, -0.502384, 1.10686, 0.262229, -1.6935, 0.525239])
     AtA = A'*A
@@ -928,23 +945,6 @@ end
         n = 100
         A = sprand(n,n,5/n) |> t -> t't + I
         @test cholesky(A, perm=1:n).p == 1:n
-    end
-end
-
-@testset "Check common is still in default state" begin
-    # This test intentionally depends on all the above tests!
-    current_common = CHOLMOD.getcommon()
-    default_common = Ref(cholmod_common())
-    result = cholmod_l_start(default_common)
-    @test result == CHOLMOD.TRUE
-    @test current_common[].print == 0
-    for name in (
-        :nmethods,
-        :postorder,
-        :final_ll,
-        :supernodal,
-    )
-        @test getproperty(current_common[], name) == getproperty(default_common[], name)
     end
 end
 
