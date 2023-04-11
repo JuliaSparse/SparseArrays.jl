@@ -2,7 +2,7 @@
 
 ### Common definitions
 
-import Base: sort, findall, copy!
+import Base: sort!, findall, copy!
 import LinearAlgebra: promote_to_array_type, promote_to_arrays_
 using LinearAlgebra: _SpecialArrays, _DenseConcatGroup
 
@@ -390,7 +390,7 @@ end
     if 1 <= k <= m && nzind[k] == i  # i found
         nzval[k] = v
     else  # i not found
-        if _isnotzero(v)
+        if v isa AbstractArray || v !== zero(eltype(x)) # stricter than iszero to support v[i] = -0.0
             insert!(nzind, k, i)
             insert!(nzval, k, v)
         end
@@ -733,25 +733,27 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
     rowvalB = Vector{Int}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
 
-    rowstart,colstart = Base._ind2sub(szA, first(I))
-    rowend,colend = Base._ind2sub(szA, last(I))
+    if nnzB > 0
+        rowstart,colstart = Base._ind2sub(szA, first(I))
+        rowend,colend = Base._ind2sub(szA, last(I))
 
-    idxB = 1
-    @inbounds for col in colstart:colend
-        minrow = (col == colstart ? rowstart : 1)
-        maxrow = (col == colend ? rowend : szA[1])
-        for r in colptrA[col]:(colptrA[col+1]-1)
-            rowA = rowvalA[r]
-            if minrow <= rowA <= maxrow
-                rowvalB[idxB] = Base._sub2ind(szA, rowA, col) - first(I) + 1
-                nzvalB[idxB] = nzvalA[r]
-                idxB += 1
+        idxB = 1
+        @inbounds for col in colstart:colend
+            minrow = (col == colstart ? rowstart : 1)
+            maxrow = (col == colend ? rowend : szA[1])
+            for r in colptrA[col]:(colptrA[col+1]-1)
+                rowA = rowvalA[r]
+                if minrow <= rowA <= maxrow
+                    rowvalB[idxB] = Base._sub2ind(szA, rowA, col) - first(I) + 1
+                    nzvalB[idxB] = nzvalA[r]
+                    idxB += 1
+                end
             end
         end
-    end
-    if nnzB > (idxB-1)
-        deleteat!(nzvalB, idxB:nnzB)
-        deleteat!(rowvalB, idxB:nnzB)
+        if nnzB > (idxB-1)
+            deleteat!(nzvalB, idxB:nnzB)
+            deleteat!(rowvalB, idxB:nnzB)
+        end
     end
     @if_move_fixed A SparseVector(n, rowvalB, nzvalB)
 end
@@ -2120,16 +2122,19 @@ function _densifystarttolastnz!(x::SparseVector)
     x
 end
 
-#sorting
-function sort(x::AbstractCompressedVector{Tv,Ti}; kws...) where {Tv,Ti}
-    allvals = push!(copy(nonzeros(x)),zero(Tv))
-    sinds = sortperm(allvals;kws...)
-    n,k = length(x),length(allvals)
-    z = findfirst(isequal(k),sinds)::Int
-    newnzind = Vector{Ti}(1:k-1)
-    newnzind[z:end] .+= n-k+1
-    newnzvals = allvals[deleteat!(sinds[1:k],z)]
-    typeof(x)(n,newnzind,newnzvals)
+#sorting TODO: integrate with `Base.Sort.IEEEFloatOptimization`'s partitioning by zero
+searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
+    rev::Union{Bool,Nothing}=nothing, order::Base.Order.Ordering=Forward, kws...) =
+        searchsortedfirst(v,x,Base.Order.ord(lt,by,rev,order))
+function sort!(x::AbstractCompressedVector; kws...)
+    nz = nonzeros(x)
+    sort!(nz; kws...)
+    i = searchsortedfirst_discard_keywords(nz, zero(eltype(x)); kws...)
+    I = nonzeroinds(x)
+    Base.require_one_based_indexing(x, nz, I)
+    I[1:i-1] .= 1:i-1
+    I[i:end] .= i+length(x)-length(nz):length(x)
+    x
 end
 
 function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv

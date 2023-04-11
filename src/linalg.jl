@@ -141,19 +141,6 @@ end
 *(X::AdjOrTransDenseMatrix, tA::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
     (T = promote_op(matprod, eltype(X), eltype(tA)); mul!(similar(X, T, (size(X, 1), size(tA, 2))), X, tA, true, false))
 
-function (*)(D::Diagonal, A::AbstractSparseMatrixCSC)
-    T = Base.promote_op(*, eltype(D), eltype(A))
-    mul!(LinearAlgebra.copy_oftype(A, T), D, A)
-end
-function (*)(A::AbstractSparseMatrixCSC, D::Diagonal)
-    T = Base.promote_op(*, eltype(D), eltype(A))
-    mul!(LinearAlgebra.copy_oftype(A, T), A, D)
-end
-function (/)(A::AbstractSparseMatrixCSC, D::Diagonal)
-    T = typeof(oneunit(eltype(A))/oneunit(eltype(D)))
-    rdiv!(LinearAlgebra.copy_oftype(A, T), D)
-end
-
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
@@ -1329,7 +1316,8 @@ end
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
     mC, nC = mA*mB, nA*nB
-
+    @boundscheck size(C) == (mC, nC) || throw(DimensionMismatch("target matrix needs to have size ($mC, $nC)," * 
+        " but has size $(size(C))"))
     rowvalC = rowvals(C)
     nzvalC = nonzeros(C)
     colptrC = getcolptr(C)
@@ -1373,6 +1361,8 @@ end
     return kron!(C, copy(A), copy(B))
 end
 @inline function kron!(z::SparseVector, x::SparseVector, y::SparseVector)
+    @boundscheck length(z) == length(x)*length(y) || throw(DimensionMismatch("length of " *
+        "target vector needs to be $(length(x)*length(y)), but has length $(length(z))"))
     nnzx = nnz(x); nnzy = nnz(y);
     nzind = nonzeroinds(z)
     nzval = nonzeros(z)
@@ -1548,6 +1538,35 @@ function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
         Anzval[p] = D.diag[Arowval[p]] * Anzval[p]
     end
     return A
+end
+
+function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
+    m, n = size(A)
+    b    = D.diag
+    (m==length(b) && size(A)==size(C)) || throw(DimensionMismatch())
+    copyinds!(C, A)
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
+    Arowval = rowvals(A)
+    resize!(Cnzval, length(Anzval))
+    for col in 1:n, p in nzrange(A, col)
+        @inbounds Cnzval[p] = b[Arowval[p]] \ Anzval[p]
+    end
+    C
+end
+
+function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
+    m, n = size(A)
+    b    = D.diag
+    (n==length(b) && size(A)==size(C)) || throw(DimensionMismatch())
+    copyinds!(C, A)
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
+    resize!(Cnzval, length(Anzval))
+    for col in 1:n, p in nzrange(A, col)
+        @inbounds Cnzval[p] = Anzval[p] / b[col]
+    end
+    C
 end
 
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)

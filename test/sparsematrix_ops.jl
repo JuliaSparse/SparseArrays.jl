@@ -190,6 +190,10 @@ dA = Array(sA)
         end
     end
 
+    for s0 in (spzeros(3, 7), spzeros(1, 3), spzeros(3, 1)), d in (1, 2, 3, (1,2))
+        @test all(isone, sum(s0, dims=d, init=1.0))
+    end
+
     for f in (sum, prod, minimum, maximum)
         # Test with a map function that maps to non-zero
         for arr in (se33, sA, pA)

@@ -32,6 +32,8 @@ of type `Tv` and index type `Ti`. Alias for `AbstractSparseArray{Tv,Ti,2}`.
 """
 const AbstractSparseMatrix{Tv,Ti} = AbstractSparseArray{Tv,Ti,2}
 
+const AbstractSparseVecOrMat = Union{AbstractSparseVector,AbstractSparseMatrix}
+
 """
     AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
 
@@ -74,13 +76,6 @@ issparse(A::DenseArray) = false
 issparse(S::AbstractSparseArray) = true
 
 indtype(S::AbstractSparseArray{<:Any,Ti}) where {Ti} = Ti
-
-function Base.reinterpret(::Type, A::AbstractSparseArray)
-    error("""
-          `reinterpret` on sparse arrays is discontinued.
-          Try reinterpreting the value itself instead.
-          """)
-end
 
 # The following two methods should be overloaded by concrete types to avoid
 # allocating the I = findall(...)

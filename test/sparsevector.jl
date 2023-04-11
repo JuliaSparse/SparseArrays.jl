@@ -290,6 +290,10 @@ end
             @test Array(r) == Array(x)[bIv]
         end
     end
+    @testset "index with colon" begin
+        @test issparse(spzeros(0)[:])
+        @test isempty(spzeros(0)[:])
+    end
 end
 @testset "setindex" begin
     let xc = spzeros(Float64, 8)
@@ -459,7 +463,7 @@ end
         @test Vector(x1) == collect(x)
     end
 end
-@testset "vec/reinterpret/float/complex" begin
+@testset "vec/float/complex" begin
     a = SparseVector(8, [2, 5, 6], Int32[12, 35, 72])
     # vec
     @test vec(a) == a

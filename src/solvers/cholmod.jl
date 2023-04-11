@@ -15,12 +15,13 @@ import Base: (*), convert, copy, eltype, getindex, getproperty, show, size,
 using Base: require_one_based_indexing
 
 using LinearAlgebra
+using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans
 import LinearAlgebra: (\),
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
                  issuccess, issymmetric, ldlt, ldlt!, logdet
 
 using SparseArrays
-using SparseArrays: getcolptr
+using SparseArrays: getcolptr, AbstractSparseVecOrMat
 import Libdl
 
 export
@@ -1577,14 +1578,14 @@ function \(A::RealHermSymComplexHermF64SSL, B::StridedVecOrMatInclAdjAndTrans)
     if issuccess(F)
         return \(F, B)
     else
-        ldlt!(F, A; check = false)
-        if issuccess(F)
-            return \(F, B)
-        else
-            return \(lu(SparseMatrixCSC{eltype(A), SuiteSparse_long}(A)), B)
-        end
+        return \(lu(SparseMatrixCSC{eltype(A), SuiteSparse_long}(A)), B)
     end
 end
+
+const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjOrTrans{<:Any, <:AbstractSparseVecOrMat}}
+\(::RealHermSymComplexHermF64SSL, ::AbstractSparseVecOrMatInclAdjAndTrans) =
+    throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
+        " consider to convert B to a dense array"))
 
 ## Other convenience methods
 function diag(F::Factor{Tv}) where Tv
