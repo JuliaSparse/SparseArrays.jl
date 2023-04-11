@@ -1,6 +1,5 @@
 [general]
-library_name = "libcholmod"
-library_names = { "SuiteSparseQR_C.h" = "libspqr", "umfpack.*.h" = "libumfpack", "amd.h" = "libamd", "colamd.h" = "libcolamd", "ccolamd.h" = "libccolamd", "cholmod_camd.h" = "libcholmod"}
+library_names = {"SuiteSparse_config.h" = "libsuitesparseconfig", "SuiteSparseQR_C.h" = "libspqr", "umfpack.h" = "libumfpack", "cholmod.h" = "libcholmod"}
 
 use_julia_native_enum_type = true
 use_deterministic_symbol = true
@@ -8,6 +7,10 @@ auto_mutability = true
 
 output_ignorelist = [
     # Clang.jl cannot handle these macro correctly, skip for now.
+    "UMFPACK_COPYRIGHT",
+    "UMFPACK_LICENSE_PART1",
+    "UMFPACK_LICENSE_PART2",
+    "UMFPACK_LICENSE_PART3",
     "SuiteSparse_long",
     "SuiteSparse_long_max",
     "SuiteSparse_long_id",
