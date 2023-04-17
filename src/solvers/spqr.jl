@@ -45,7 +45,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         E::Union{Ref{Ptr{Ti}}    , Ptr{Cvoid}} = C_NULL,
         H::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
         HPinv::Union{Ref{Ptr{Ti}}, Ptr{Cvoid}} = C_NULL,
-        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:Int64, Tv<:CHOLMOD.VTypes}
+        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
 
     ordering ∈ ORDERINGS || error("unknown ordering $ordering")
 
@@ -193,22 +193,20 @@ Column permutation:
 """
 function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
     R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    E     = Ref{Ptr{Int64}}() # TODO: REMOVE IN SS7.1!!!
+    E     = Ref{Ptr{Ti}}()
     H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    HPinv = Ref{Ptr{Int64}}() # TODO: REMOVE IN SS7.1!!!
+    HPinv = Ref{Ptr{Ti}}()
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
-    # TODO: REMOVE IN SS7.1!!
-    # @Wimmerer just for passing tests for now in 1.10.
-    A = convert(SparseMatrixCSC{Tv, Int64}, A)
+
     # SPQR doesn't accept symmetric matrices so we explicitly set the stype
     r, p, hpinv = _qr!(ordering, tol, 0, 0, Sparse(A, 0),
         C_NULL, C_NULL, C_NULL, C_NULL,
         R, E, H, HPinv, HTau)
-    # REMOVE USAGES OF Int64 HERE TODO in SS7.1!!!
-    R_ = SparseMatrixCSC{Tv, Int64}(Sparse(R[]))
-    return QRSparse(SparseMatrixCSC{Tv, Int64}(Sparse(H[])),
+
+    R_ = SparseMatrixCSC(Sparse(R[]))
+    return QRSparse(SparseMatrixCSC(Sparse(H[])),
                     vec(Array(CHOLMOD.Dense{Tv}(HTau[]))),
-                    SparseMatrixCSC{Tv, Int64}(min(size(A)...),
+                    SparseMatrixCSC(min(size(A)...),
                                     size(R_, 2),
                                     getcolptr(R_),
                                     rowvals(R_),

@@ -9,8 +9,8 @@ using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
-if Base.USE_GPL_LIBS
-
+# TODO REMOVE SECOND PREDICATE WITH SS7.1
+if Base.USE_GPL_LIBS && Int === Int64
 @testset "Sparse QR" begin
 m, n = 100, 10
 nn = 100
