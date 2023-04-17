@@ -84,13 +84,13 @@ xtyp(::Type{ComplexF32}) = CHOLMOD_COMPLEX
 xtyp(::Type{ComplexF64}) = CHOLMOD_COMPLEX
 
 # check the size of SuiteSparse_long
-if sizeof(Int) == 4
-    const IndexTypes = (:Int32,)
-    const ITypes = Union{Int32}
-else
-    const IndexTypes = (:Int32, :Int64)
-    const ITypes = Union{Int32, Int64}
-end
+# if sizeof(Int) == 4
+#     const IndexTypes = (:Int32,)
+#     const ITypes = Union{Int32}
+# else
+const IndexTypes = (:Int32, :Int64)
+const ITypes = Union{Int32, Int64}
+# end
 ityp(::Type{Int32}) = CHOLMOD_INT
 ityp(::Type{Int64}) = CHOLMOD_LONG
 

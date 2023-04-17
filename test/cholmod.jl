@@ -19,7 +19,8 @@ using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_s
 if Base.USE_GPL_LIBS
 
 # CHOLMOD tests
-itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
+# itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
+(Int64, Int32)
 for Ti ∈ itypes
 Random.seed!(123)
 
