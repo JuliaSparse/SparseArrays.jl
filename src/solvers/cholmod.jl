@@ -1404,7 +1404,7 @@ julia> P' * L * L' * P ≈ A
 true
 
 julia> C = cholesky(sparse(A), perm=1:3)
-SparseArrays.CHOLMOD.Factor{Float64}
+SparseArrays.CHOLMOD.Factor{Float64, $(Int)}
 type:    LLt
 method:  simplicial
 maxnnz:  6
