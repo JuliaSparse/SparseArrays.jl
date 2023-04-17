@@ -20,7 +20,7 @@ if Base.USE_GPL_LIBS
 
 # CHOLMOD tests
 # itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
-(Int64, Int32)
+const itypes = (Int64, Int32)
 for Ti ∈ itypes
 Random.seed!(123)
 
