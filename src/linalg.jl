@@ -1323,6 +1323,13 @@ const _Triangular_SparseKronArrays = UpperOrLowerTriangular{<:Any,<:_SparseKronA
 const _Annotated_SparseKronArrays = Union{_Triangular_SparseKronArrays, _Symmetric_SparseKronArrays, _Hermitian_SparseKronArrays}
 const _SparseKronGroup = Union{_SparseKronArrays, _Annotated_SparseKronArrays}
 
+const _SpecialArrays = Union{Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal}
+const _Symmetric_DenseArrays{T,A<:Matrix} = Symmetric{T,A}
+const _Hermitian_DenseArrays{T,A<:Matrix} = Hermitian{T,A}
+const _Triangular_DenseArrays{T,A<:Matrix} = UpperOrLowerTriangular{<:Any,A} # AbstractTriangular{T,A}
+const _Annotated_DenseArrays = Union{_SpecialArrays, _Triangular_DenseArrays, _Symmetric_DenseArrays, _Hermitian_DenseArrays}
+const _DenseConcatGroup = Union{Number, Vector, Adjoint{<:Any,<:Vector}, Transpose{<:Any,<:Vector}, Matrix, _Annotated_DenseArrays}
+
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
     mC, nC = mA*mB, nA*nB
