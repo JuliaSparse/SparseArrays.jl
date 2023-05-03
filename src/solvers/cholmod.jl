@@ -980,10 +980,6 @@ free!(A::Dense)  = free!(pointer(A))
 free!(A::Sparse) = free!(pointer(A))
 free!(F::Factor) = free!(pointer(F))
 
-eltype(::Type{Dense{T}}) where {T<:VTypes} = T
-eltype(::Type{Factor{T}}) where {T<:VTypes} = T
-eltype(::Type{Sparse{T}}) where {T<:VTypes} = T
-
 nnz(F::Factor) = nnz(Sparse(F))
 
 function show(io::IO, F::Factor)
