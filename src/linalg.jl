@@ -27,15 +27,25 @@ for op ∈ (:+, :-)
     end
 end
 
-function mul!(C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, α::Number, β::Number)
+function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, _add)
+    transB = tB == 'N' ? identity : tB == 'T' ? transpose : adjoint
+    if tA == 'N'
+        _spmul!(C, A, transB(B), _add.alpha, _add.beta)
+    elseif tA == 'T'
+        _At_or_Ac_mul_B!(transpose, C, A, transB(B), _add.alpha, _add.beta)
+    else # tA == 'C'
+        _At_or_Ac_mul_B!(adjoint, C, A, transB(B), _add.alpha, _add.beta)
+    end
+    return C
+end
+
+function _spmul!(C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, α::Number, β::Number)
     size(A, 2) == size(B, 1) || throw(DimensionMismatch())
     size(A, 1) == size(C, 1) || throw(DimensionMismatch())
     size(B, 2) == size(C, 2) || throw(DimensionMismatch())
     nzv = nonzeros(A)
     rv = rowvals(A)
-    if β != 1
-        β != 0 ? rmul!(C, β) : fill!(C, zero(eltype(C)))
-    end
+    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
     for k in 1:size(C, 2)
         @inbounds for col in 1:size(A, 2)
             αxj = B[col,k] * α
@@ -52,57 +62,68 @@ end
 *(A::SparseMatrixCSCUnion{TA}, B::AdjOrTransDenseMatrix) where {TA} =
     (T = promote_op(matprod, TA, eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
-for (T, t) in ((Adjoint, adjoint), (Transpose, transpose))
-    @eval function mul!(C::StridedVecOrMat, xA::$T{<:Any,<:AbstractSparseMatrixCSC}, B::DenseInputVecOrMat, α::Number, β::Number)
-        A = xA.parent
-        size(A, 2) == size(C, 1) || throw(DimensionMismatch())
-        size(A, 1) == size(B, 1) || throw(DimensionMismatch())
-        size(B, 2) == size(C, 2) || throw(DimensionMismatch())
-        nzv = nonzeros(A)
-        rv = rowvals(A)
-        if β != 1
-            β != 0 ? rmul!(C, β) : fill!(C, zero(eltype(C)))
-        end
-        for k in 1:size(C, 2)
-            @inbounds for col in 1:size(A, 2)
-                tmp = zero(eltype(C))
-                for j in nzrange(A, col)
-                    tmp += $t(nzv[j])*B[rv[j],k]
-                end
-                C[col,k] += tmp * α
+function _At_or_Ac_mul_B!(tfun::Function, C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, α::Number, β::Number)
+    size(A, 2) == size(C, 1) || throw(DimensionMismatch())
+    size(A, 1) == size(B, 1) || throw(DimensionMismatch())
+    size(B, 2) == size(C, 2) || throw(DimensionMismatch())
+    nzv = nonzeros(A)
+    rv = rowvals(A)
+    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
+    for k in 1:size(C, 2)
+        @inbounds for col in 1:size(A, 2)
+            tmp = zero(eltype(C))
+            for j in nzrange(A, col)
+                tmp += tfun(nzv[j])*B[rv[j],k]
             end
+            C[col,k] += tmp * α
         end
-        C
     end
+    C
 end
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::DenseInputVector) =
     (T = promote_op(matprod, eltype(A), eltype(x)); mul!(similar(x, T, size(A, 1)), A, x, true, false))
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
     (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
-function mul!(C::StridedVecOrMat, X::AdjOrTransDenseMatrix, A::AbstractSparseMatrixCSC, α::Number, β::Number)
+function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, _add)
+    transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
+    if tB == 'N'
+        _spmul!(C, A, transB(B), _add.alpha, _add.beta)
+    elseif tB == 'T'
+        _A_mul_Bt_or_Bc!(transpose, C, transA(A), B, _add.alpha, _add.beta)
+    else # tB == 'C'
+        _A_mul_Bt_or_Bc!(adjoint, C, transaA(A), B, _add.alpha, _add.beta)
+    end
+    return C
+end
+function _spmul!(C::StridedVecOrMat, X::DenseMatrixUnion, A::AbstractSparseMatrixCSC, α::Number, β::Number)
     mX, nX = size(X)
     nX == size(A, 1) || throw(DimensionMismatch())
     mX == size(C, 1) || throw(DimensionMismatch())
     size(A, 2) == size(C, 2) || throw(DimensionMismatch())
     rv = rowvals(A)
     nzv = nonzeros(A)
-    if β != 1
-        β != 0 ? rmul!(C, β) : fill!(C, zero(eltype(C)))
-    end
-    if X isa DenseMatrixUnion
-        @inbounds for col in 1:size(A, 2), k in nzrange(A, col)
-            Aiα = nzv[k] * α
-            rvk = rv[k]
-            @simd for multivec_row in 1:mX
-                C[multivec_row, col] += X[multivec_row, rvk] * Aiα
-            end
+    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
+    @inbounds for col in 1:size(A, 2), k in nzrange(A, col)
+        Aiα = nzv[k] * α
+        rvk = rv[k]
+        @simd for multivec_row in 1:mX
+            C[multivec_row, col] += X[multivec_row, rvk] * Aiα
         end
-    else # X isa Adjoint or Transpose
-        for multivec_row in 1:mX, col in 1:size(A, 2)
-            @inbounds for k in nzrange(A, col)
-                C[multivec_row, col] += X[multivec_row, rv[k]] * nzv[k] * α
-            end
+    end
+    C
+end
+function _spmul!(C::StridedVecOrMat, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::AbstractSparseMatrixCSC, α::Number, β::Number)
+    mX, nX = size(X)
+    nX == size(A, 1) || throw(DimensionMismatch())
+    mX == size(C, 1) || throw(DimensionMismatch())
+    size(A, 2) == size(C, 2) || throw(DimensionMismatch())
+    rv = rowvals(A)
+    nzv = nonzeros(A)
+    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
+    for multivec_row in 1:mX, col in 1:size(A, 2)
+        @inbounds for k in nzrange(A, col)
+            C[multivec_row, col] += X[multivec_row, rv[k]] * nzv[k] * α
         end
     end
     C
@@ -110,27 +131,22 @@ end
 *(X::AdjOrTransDenseMatrix, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
     (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
-for (T, t) in ((Adjoint, adjoint), (Transpose, transpose))
-    @eval function mul!(C::StridedVecOrMat, X::AdjOrTransDenseMatrix, xA::$T{<:Any,<:AbstractSparseMatrixCSC}, α::Number, β::Number)
-        A = xA.parent
-        mX, nX = size(X)
-        nX == size(A, 2) || throw(DimensionMismatch())
-        mX == size(C, 1) || throw(DimensionMismatch())
-        size(A, 1) == size(C, 2) || throw(DimensionMismatch())
-        rv = rowvals(A)
-        nzv = nonzeros(A)
-        if β != 1
-            β != 0 ? rmul!(C, β) : fill!(C, zero(eltype(C)))
+function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedVecOrMat, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, α::Number, β::Number)
+    mA, nA = size(A)
+    nA == size(B, 2) || throw(DimensionMismatch())
+    mA == size(C, 1) || throw(DimensionMismatch())
+    size(B, 1) == size(C, 2) || throw(DimensionMismatch())
+    rv = rowvals(B)
+    nzv = nonzeros(B)
+    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
+    @inbounds for col in 1:size(B, 2), k in nzrange(B, col)
+        Biα = tfun(nzv[k]) * α
+        rvk = rv[k]
+        @simd for multivec_col in 1:mX
+            C[multivec_col, rvk] += A[multivec_col, col] * Biα
         end
-        @inbounds for col in 1:size(A, 2), k in nzrange(A, col)
-            Aiα = $t(nzv[k]) * α
-            rvk = rv[k]
-            @simd for multivec_col in 1:mX
-                C[multivec_col, rvk] += X[multivec_col, col] * Aiα
-            end
-        end
-        C
     end
+    C
 end
 *(X::AdjOrTransDenseMatrix, adjA::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
     (T = promote_op(matprod, eltype(X), eltype(adjA)); mul!(similar(X, T, (size(X, 1), size(adjA, 2))), X, adjA, true, false))

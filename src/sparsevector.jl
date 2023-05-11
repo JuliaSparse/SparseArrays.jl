@@ -1893,9 +1893,7 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
     m, n = size(A)
     length(x) == n && length(y) == m || throw(DimensionMismatch())
     m == 0 && return y
-    if β != one(β)
-        β == zero(β) ? fill!(y, zero(eltype(y))) : rmul!(y, β)
-    end
+    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
     α == zero(α) && return y
 
     xnzind = nonzeroinds(x)
@@ -1924,9 +1922,7 @@ function _At_or_Ac_mul_B!(tfun::Function,
     m, n = size(A)
     length(x) == m && length(y) == n || throw(DimensionMismatch())
     n == 0 && return y
-    if β != one(β)
-        β == zero(β) ? fill!(y, zero(eltype(y))) : rmul!(y, β)
-    end
+    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
     α == zero(α) && return y
 
     xnzind = nonzeroinds(x)
