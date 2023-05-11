@@ -75,14 +75,10 @@ for (T, t) in ((Adjoint, adjoint), (Transpose, transpose))
         C
     end
 end
-*(adjA::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, x::DenseInputVector) =
-    (T = promote_op(matprod, eltype(adjA), eltype(x)); mul!(similar(x, T, size(adjA, 1)), adjA, x, true, false))
-*(adjA::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
-    (T = promote_op(matprod, eltype(adjA), eltype(B)); mul!(similar(B, T, (size(adjA, 1), size(B, 2))), adjA, B, true, false))
-*(tA::Transpose{<:Any,<:AbstractSparseMatrixCSC}, x::DenseInputVector) =
-    (T = promote_op(matprod, eltype(tA), eltype(x)); mul!(similar(x, T, size(tA, 1)), tA, x, true, false))
-*(tA::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
-    (T = promote_op(matprod, eltype(tA), eltype(B)); mul!(similar(B, T, (size(tA, 1), size(B, 2))), tA, B, true, false))
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::DenseInputVector) =
+    (T = promote_op(matprod, eltype(A), eltype(x)); mul!(similar(x, T, size(A, 1)), A, x, true, false))
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
+    (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
 function mul!(C::StridedVecOrMat, X::AdjOrTransDenseMatrix, A::AbstractSparseMatrixCSC, α::Number, β::Number)
     mX, nX = size(X)
@@ -154,12 +150,9 @@ const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCUnion{Tv,Ti},SparseTriangular{Tv
 *(A::SparseTriangular, B::SparseMatrixCSCUnion) = spmatmul(A,B)
 *(A::SparseMatrixCSCUnion, B::SparseTriangular) = spmatmul(A,B)
 *(A::SparseTriangular, B::SparseTriangular) = spmatmul1(A,B)
-*(A::SparseOrTri, B::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(A, copy(B))
-*(A::SparseOrTri, B::Transpose{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(A, copy(B))
-*(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::SparseOrTri) = spmatmul(copy(A), B)
-*(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::SparseOrTri) = spmatmul(copy(A), B)
-*(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(copy(A), copy(B))
-*(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::Transpose{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(copy(A), copy(B))
+*(A::SparseOrTri, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(A, copy(B))
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::SparseOrTri) = spmatmul(copy(A), B)
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(copy(A), copy(B))
 
 # Gustavson's matrix multiplication algorithm revisited.
 # The result rowval vector is already sorted by construction.
@@ -801,14 +794,14 @@ end
 
 ## end of triangular
 
-# y .= A * x
-mul!(y::StridedVecOrMat, A::SparseMatrixCSCSymmHerm, x::StridedVecOrMat) = mul!(y,A,x,1,0)
-
 # C .= α * A * B + β * C
-function mul!(C::StridedVecOrMat{T}, sA::SparseMatrixCSCSymmHerm, B::StridedVecOrMat,
-              α::Number, β::Number) where T
-    fuplo = sA.uplo == 'U' ? nzrangeup : nzrangelo
-    _mul!(fuplo, C, sA, B, T(α), T(β))
+for Atype in (:StridedVector, :StridedMatrix), Wtype in (:Symmetric, :Hermitian)
+    @eval function mul!(C::$Atype{T}, sA::$Wtype{<:Any,<:SparseMatrixCSCUnion}, B::$Atype,
+              α::Number, β::Number) where {T}
+        fuplo = sA.uplo == 'U' ? nzrangeup : nzrangelo
+        _mul!(fuplo, C, sA, B, T(α), T(β))
+        return C
+    end
 end
 
 function _mul!(nzrang::Function, C::StridedVecOrMat{T}, sA, B, α, β) where T
