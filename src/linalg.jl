@@ -92,7 +92,7 @@ function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AdjOrTr
     elseif tB == 'T'
         _A_mul_Bt_or_Bc!(transpose, C, transA(A), B, _add.alpha, _add.beta)
     else # tB == 'C'
-        _A_mul_Bt_or_Bc!(adjoint, C, transaA(A), B, _add.alpha, _add.beta)
+        _A_mul_Bt_or_Bc!(adjoint, C, transA(A), B, _add.alpha, _add.beta)
     end
     return C
 end
