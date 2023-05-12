@@ -45,7 +45,7 @@ function _spmul!(C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVe
     size(B, 2) == size(C, 2) || throw(DimensionMismatch())
     nzv = nonzeros(A)
     rv = rowvals(A)
-    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
+    β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
     for k in 1:size(C, 2)
         @inbounds for col in 1:size(A, 2)
             αxj = B[col,k] * α
@@ -88,7 +88,7 @@ end
 function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
-        _spmul!(C, A, transB(B), _add.alpha, _add.beta)
+        _spmul!(C, transA(A), B, _add.alpha, _add.beta)
     elseif tB == 'T'
         _A_mul_Bt_or_Bc!(transpose, C, transA(A), B, _add.alpha, _add.beta)
     else # tB == 'C'
