@@ -142,7 +142,7 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedVecOrMat, A::AdjOrTransDense
     @inbounds for col in 1:size(B, 2), k in nzrange(B, col)
         Biα = tfun(nzv[k]) * α
         rvk = rv[k]
-        @simd for multivec_col in 1:mX
+        @simd for multivec_col in 1:mA
             C[multivec_col, rvk] += A[multivec_col, col] * Biα
         end
     end
