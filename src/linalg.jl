@@ -27,7 +27,7 @@ for op ∈ (:+, :-)
     end
 end
 
-function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, _add)
+function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, _add::MulAddMul)
     transB = tB == 'N' ? identity : tB == 'T' ? transpose : adjoint
     if tA == 'N'
         _spmul!(C, A, transB(B), _add.alpha, _add.beta)
@@ -85,7 +85,7 @@ end
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
     (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
-function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, _add)
+function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
         _spmul!(C, A, transB(B), _add.alpha, _add.beta)
