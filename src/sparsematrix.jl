@@ -641,16 +641,16 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
     return dest
 end
 
-# Faster version for non-abstract Array and SparseMatrixCSC 
+# Faster version for non-abstract Array and SparseMatrixCSC
 function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
     isempty(S) && return A
     length(A) < length(S) && throw(BoundsError())
-    
-    # Zero elements that are also in S, don't change rest of A 
+
+    # Zero elements that are also in S, don't change rest of A
     @inbounds for i in 1:length(S)
         A[i] = zero(T)
     end
-    # Copy the structural nonzeros from S to A using 
+    # Copy the structural nonzeros from S to A using
     # the linear indices (to work when size(A)!=size(S))
     num_rows = size(S,1)
     rowval = getrowval(S)
@@ -4283,7 +4283,7 @@ function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
     function rangeexchange!(arr, irow, jrow)
         if length(irow) == length(jrow)
             for (a, b) in zip(irow, jrow)
-                @inbounds @swap(arr[i], arr[j])
+                @inbounds @swap(arr[a], arr[b])
             end
             return
         end
