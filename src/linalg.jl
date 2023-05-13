@@ -624,13 +624,13 @@ end
 function ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
     A = L.data
     unit = L isa UnitDiagonalTriangular
+    C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(L)))
 
     nrowB = length(B)
     aa = getnzval(A)
     ja = getrowval(A)
     ia = getcolptr(A)
 
-    joff = 0
     for j = 1:nrowB
         i1 = ia[j]
         i2 = ia[j + 1] - one(eltype(ia))
@@ -639,12 +639,12 @@ function ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
         ii = searchsortedfirst(ja, j, i1, i2, Base.Order.Forward)
         jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
 
-        bj = B[joff + j]
+        bj = B[j]
         # check for zero pivot and divide with pivot
         if jai == j
             if !unit
                 bj /= aa[ii]
-                C[joff + j] = bj
+                C[j] = bj
             end
             ii += 1
         elseif !unit
@@ -653,7 +653,7 @@ function ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
 
         # update remaining part
         for i = ii:i2
-            C[joff + ja[i]] -= bj * aa[i]
+            C[ja[i]] -= bj * aa[i]
         end
     end
     C
@@ -663,6 +663,7 @@ end
 function ldiv!(C::StridedVector, U::UpperTriangularPlain, B::StridedVector)
     A = U.data
     unit = U isa UnitDiagonalTriangular
+    C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(U)))
 
     nrowB = length(B)
     aa = getnzval(A)
@@ -702,6 +703,7 @@ function ldiv!(C::StridedVector, L::LowerTriangularWrapped, B::StridedVector)
     A = parent(parent(L))
     unit = L isa UnitDiagonalTriangular
     adj = parent(L) isa Adjoint
+    C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(L)))
 
     nrowB = length(B)
     aa = getnzval(A)
@@ -744,6 +746,7 @@ function ldiv!(C::StridedVector, U::UpperTriangularWrapped, B::StridedVector)
     A = parent(parent(U))
     unit = U isa UnitDiagonalTriangular
     adj = parent(U) isa Adjoint
+    C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(U)))
 
     nrowB = length(B)
     aa = getnzval(A)
