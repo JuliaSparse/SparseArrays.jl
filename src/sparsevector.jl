@@ -1783,9 +1783,9 @@ function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::_StridedOrTr
     if tA == 'N'
         _spmul!(y, A, x, _add.alpha, _add.beta)
     elseif tA == 'T'
-        _At_or_Ac_mul_B!((a,b) -> transpose(a) * b, y, parent(A), x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(transpose, y, parent(A), x, _add.alpha, _add.beta)
     else # tA == 'C'
-        _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, parent(tA), x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(adjoint, y, parent(tA), x, _add.alpha, _add.beta)
     end
     return y
 end
