@@ -231,13 +231,14 @@ function __init__()
         end
 
         # Register gc tracked allocator if CHOLMOD is new enough
-        if current_version >= v"3.0.0"
-            cnfg = cglobal((:SuiteSparse_config, :libsuitesparseconfig), Ptr{Cvoid})
-            unsafe_store!(cnfg, cglobal(:jl_malloc, Ptr{Cvoid}), 1)
-            unsafe_store!(cnfg, cglobal(:jl_calloc, Ptr{Cvoid}), 2)
-            unsafe_store!(cnfg, cglobal(:jl_realloc, Ptr{Cvoid}), 3)
-            unsafe_store!(cnfg, cglobal(:jl_free, Ptr{Cvoid}), 4)
-        end
+        # temporarily rm for testing
+        # if current_version >= v"3.0.0"
+        #     cnfg = cglobal((:SuiteSparse_config, :libsuitesparseconfig), Ptr{Cvoid})
+        #     unsafe_store!(cnfg, cglobal(:jl_malloc, Ptr{Cvoid}), 1)
+        #     unsafe_store!(cnfg, cglobal(:jl_calloc, Ptr{Cvoid}), 2)
+        #     unsafe_store!(cnfg, cglobal(:jl_realloc, Ptr{Cvoid}), 3)
+        #     unsafe_store!(cnfg, cglobal(:jl_free, Ptr{Cvoid}), 4)
+        # end
 
     catch ex
         @error "Error during initialization of module CHOLMOD" exception=ex,catch_backtrace()
