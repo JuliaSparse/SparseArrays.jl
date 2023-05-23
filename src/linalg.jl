@@ -623,7 +623,7 @@ end
 # forward substitution for LowerTriangular CSC matrices
 function ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
     A = L.data
-    unit = L isa UnitDiagonalTriangular
+    unit = L isa UnitLowerTriangular
     C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(L)))
 
     nrowB = length(B)
@@ -639,12 +639,12 @@ function ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
         ii = searchsortedfirst(ja, j, i1, i2, Base.Order.Forward)
         jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
 
-        bj = B[j]
+        cj = C[j]
         # check for zero pivot and divide with pivot
         if jai == j
             if !unit
-                bj /= aa[ii]
-                C[j] = bj
+                cj /= LinearAlgebra._ustrip(aa[ii])
+                C[j] = cj
             end
             ii += 1
         elseif !unit
@@ -653,7 +653,7 @@ function ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
 
         # update remaining part
         for i = ii:i2
-            C[ja[i]] -= bj * aa[i]
+            C[ja[i]] -= cj * LinearAlgebra._ustrip(aa[i])
         end
     end
     C
@@ -662,7 +662,7 @@ end
 # backward substitution for UpperTriangular CSC matrices
 function ldiv!(C::StridedVector, U::UpperTriangularPlain, B::StridedVector)
     A = U.data
-    unit = U isa UnitDiagonalTriangular
+    unit = U isa UnitUpperTriangular
     C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(U)))
 
     nrowB = length(B)
@@ -678,12 +678,12 @@ function ldiv!(C::StridedVector, U::UpperTriangularPlain, B::StridedVector)
         ii = searchsortedlast(ja, j, i1, i2, Base.Order.Forward)
         jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
 
-        bj = B[j]
+        cj = C[j]
         # check for zero pivot and divide with pivot
         if jai == j
             if !unit
-                bj /= aa[ii]
-                C[j] = bj
+                cj /= LinearAlgebra._ustrip(aa[ii])
+                C[j] = cj
             end
             ii -= 1
         elseif !unit
@@ -692,7 +692,7 @@ function ldiv!(C::StridedVector, U::UpperTriangularPlain, B::StridedVector)
 
         # update remaining part
         for i = ii:-1:i1
-            C[ja[i]] -= bj * aa[i]
+            C[ja[i]] -= cj * LinearAlgebra._ustrip(aa[i])
         end
     end
     C
@@ -701,8 +701,8 @@ end
 # forward substitution for adjoint and transpose of UpperTriangular CSC matrices
 function ldiv!(C::StridedVector, L::LowerTriangularWrapped, B::StridedVector)
     A = parent(parent(L))
-    unit = L isa UnitDiagonalTriangular
-    adj = parent(L) isa Adjoint
+    unit = L isa UnitLowerTriangular
+    tfun = LinearAlgebra.adj_or_trans(parent(L))
     C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(L)))
 
     nrowB = length(B)
@@ -720,13 +720,9 @@ function ldiv!(C::StridedVector, L::LowerTriangularWrapped, B::StridedVector)
         for ii = i1:i2
             jai = ja[ii]
             if jai < j
-                aai = possible_adjoint(adj, aa[ii])
-                akku -= B[jai] * aai
+                akku -= C[jai] * tfun(aa[ii])
             elseif jai == j
-                if !unit
-                    aai = possible_adjoint(adj, aa[ii])
-                    akku /= aai
-                end
+                akku /= unit ? oneunit(eltype(L)) : tfun(aa[ii])
                 done = true
                 break
             else
@@ -744,7 +740,8 @@ end
 # backward substitution for adjoint and transpose of LowerTriangular CSC matrices
 function ldiv!(C::StridedVector, U::UpperTriangularWrapped, B::StridedVector)
     A = parent(parent(U))
-    unit = U isa UnitDiagonalTriangular
+    unit = U isa UnitUpperTriangular
+    tfun = LinearAlgebra.adj_or_trans(parent(U))
     adj = parent(U) isa Adjoint
     C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(U)))
 
@@ -763,13 +760,9 @@ function ldiv!(C::StridedVector, U::UpperTriangularWrapped, B::StridedVector)
         for ii = i2:-1:i1
             jai = ja[ii]
             if jai > j
-                aai = possible_adjoint(adj, aa[ii])
-                akku -= B[jai] * aai
+                akku -= C[jai] * tfun(aa[ii])
             elseif jai == j
-                if !unit
-                    aai = possible_adjoint(adj, aa[ii])
-                    akku /= aai
-                end
+                akku /= unit ? oneunit(eltype(U)) : tfun(aa[ii])
                 done = true
                 break
             else

@@ -1769,6 +1769,11 @@ end
 
 const _StridedOrTriangularMatrix{T} = Union{StridedMatrix{T}, LowerTriangular{T}, UnitLowerTriangular{T}, UpperTriangular{T}, UnitUpperTriangular{T}}
 
+_fliptri(A::UpperTriangular) = LowerTriangular(parent(parent(A)))
+_fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
+_fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
+_fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
+
 function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) where {Ta,Tx}
     require_one_based_indexing(A, x)
     m, n = size(A)
@@ -1778,18 +1783,30 @@ function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) whe
     mul!(y, A, x, true, false)
 end
 
-function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::_StridedOrTriangularMatrix, x::AbstractSparseVector,
-                            _add::MulAddMul = MulAddMul())
+function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
+                                            _add::MulAddMul = MulAddMul())
     if tA == 'N'
         _spmul!(y, A, x, _add.alpha, _add.beta)
     elseif tA == 'T'
-        _At_or_Ac_mul_B!(transpose, y, parent(A), x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(transpose, y, A, x, _add.alpha, _add.beta)
     else # tA == 'C'
-        _At_or_Ac_mul_B!(adjoint, y, parent(tA), x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(adjoint, y, A, x, _add.alpha, _add.beta)
     end
     return y
 end
-
+function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
+                                             _add::MulAddMul = MulAddMul())
+    @assert tA == 'N'
+    Adata = parent(A)
+    if Adata isa Transpose
+        _At_or_Ac_mul_B!(transpose, y, _fliptri(A), x, _add.alpha, _add.beta)
+    elseif Adata isa Adjoint
+        _At_or_Ac_mul_B!(adjoint, y, _fliptri(A), x, _add.alpha, _add.beta)
+    else # Adata is plain
+        _spmul!(y, A, x, _add.alpha, _add.beta)
+    end
+    return y
+end
 function _spmul!(y::AbstractVector, A::_StridedOrTriangularMatrix, x::AbstractSparseVector, α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     m, n = size(A)
@@ -1839,7 +1856,7 @@ function _At_or_Ac_mul_B!(tfun::Function,
     return y
 end
 
-function *(A::AdjOrTrans{<:Any,<:_StridedOrTriangularMatrix}, x::AbstractSparseVector)
+function *(A::AdjOrTrans{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
     require_one_based_indexing(A, x)
     m, n = size(A)
     length(x) == n || throw(DimensionMismatch())
