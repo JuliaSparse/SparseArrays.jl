@@ -85,7 +85,7 @@ end
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
     (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
-function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, _add::MulAddMul)
+function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
         _spmul!(C, transA(A), B, _add.alpha, _add.beta)
@@ -411,11 +411,6 @@ end
 
 ## triangular sparse handling
 
-possible_adjoint(adj::Bool, a::Real) = a
-possible_adjoint(adj::Bool, a) = adj ? adjoint(a) : a
-
-const UnitDiagonalTriangular = Union{UnitUpperTriangular,UnitLowerTriangular}
-
 const LowerTriangularPlain{T} = Union{
             LowerTriangular{T,<:SparseMatrixCSCUnion{T}},
             UnitLowerTriangular{T,<:SparseMatrixCSCUnion{T}}}
@@ -460,7 +455,7 @@ end
 # forward multiplication for UpperTriangular SparseCSC matrices
 function _lmul!(U::UpperTriangularPlain, B::StridedVecOrMat)
     A = U.data
-    unit = U isa UnitDiagonalTriangular
+    unit = U isa UnitUpperTriangular
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -501,7 +496,7 @@ end
 # backward multiplication for LowerTriangular SparseCSC matrices
 function _lmul!(L::LowerTriangularPlain, B::StridedVecOrMat)
     A = L.data
-    unit = L isa UnitDiagonalTriangular
+    unit = L isa UnitLowerTriangular
 
     nrowB, ncolB = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -542,8 +537,8 @@ end
 # forward multiplication for adjoint and transpose of LowerTriangular CSC matrices
 function _lmul!(U::UpperTriangularWrapped, B::StridedVecOrMat)
     A = parent(parent(U))
-    unit = U isa UnitDiagonalTriangular
-    adj = parent(U) isa Adjoint
+    unit = U isa UnitUpperTriangular
+    tfun = LinearAlgebra.adj_or_trans(parent(U))
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -563,7 +558,7 @@ function _lmul!(U::UpperTriangularWrapped, B::StridedVecOrMat)
             for ii = i2:-1:i1
                 jai = ja[ii]
                 if jai >= j0
-                    aai = possible_adjoint(adj, aa[ii])
+                    aai = tfun(aa[ii])
                     akku += B[joff + jai] * aai
                 else
                     break
@@ -582,8 +577,8 @@ end
 # backward multiplication with adjoint and transpose of LowerTriangular CSC matrices
 function _lmul!(L::LowerTriangularWrapped, B::StridedVecOrMat)
     A = parent(parent(L))
-    unit = L isa UnitDiagonalTriangular
-    adj = parent(L) isa Adjoint
+    unit = L isa UnitLowerTriangular
+    tfun = LinearAlgebra.adj_or_trans(parent(L))
 
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -603,7 +598,7 @@ function _lmul!(L::LowerTriangularWrapped, B::StridedVecOrMat)
             for ii = i1:i2
                 jai = ja[ii]
                 if jai <= j0
-                    aai = possible_adjoint(adj, aa[ii])
+                    aai = tfun(aa[ii])
                     akku += B[joff + jai] * aai
                 else
                     break
@@ -621,7 +616,7 @@ end
 
 ## triangular solvers
 # forward substitution for LowerTriangular CSC matrices
-function ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
+function LinearAlgebra._ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
     A = L.data
     unit = L isa UnitLowerTriangular
     C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(L)))
@@ -660,7 +655,7 @@ function ldiv!(C::StridedVector, L::LowerTriangularPlain, B::StridedVector)
 end
 
 # backward substitution for UpperTriangular CSC matrices
-function ldiv!(C::StridedVector, U::UpperTriangularPlain, B::StridedVector)
+function LinearAlgebra._ldiv!(C::StridedVector, U::UpperTriangularPlain, B::StridedVector)
     A = U.data
     unit = U isa UnitUpperTriangular
     C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(U)))
@@ -699,7 +694,7 @@ function ldiv!(C::StridedVector, U::UpperTriangularPlain, B::StridedVector)
 end
 
 # forward substitution for adjoint and transpose of UpperTriangular CSC matrices
-function ldiv!(C::StridedVector, L::LowerTriangularWrapped, B::StridedVector)
+function LinearAlgebra._ldiv!(C::StridedVector, L::LowerTriangularWrapped, B::StridedVector)
     A = parent(parent(L))
     unit = L isa UnitLowerTriangular
     tfun = LinearAlgebra.adj_or_trans(parent(L))
@@ -738,11 +733,10 @@ function ldiv!(C::StridedVector, L::LowerTriangularWrapped, B::StridedVector)
 end
 
 # backward substitution for adjoint and transpose of LowerTriangular CSC matrices
-function ldiv!(C::StridedVector, U::UpperTriangularWrapped, B::StridedVector)
+function LinearAlgebra._ldiv!(C::StridedVector, U::UpperTriangularWrapped, B::StridedVector)
     A = parent(parent(U))
     unit = U isa UnitUpperTriangular
     tfun = LinearAlgebra.adj_or_trans(parent(U))
-    adj = parent(U) isa Adjoint
     C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(U)))
 
     nrowB = length(B)
@@ -800,9 +794,7 @@ function _mul!(nzrang::Function, C::StridedVecOrMat{T}, sA, B, α, β) where T
     rv = rowvals(A)
     nzv = nonzeros(A)
     let z = T(0), sumcol=z, αxj=z, aarc=z, α = α
-        if β != 1
-            β != 0 ? rmul!(C, β) : fill!(C, z)
-        end
+        β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
         @inbounds for k = 1:m
             for col = 1:n
                 αxj = B[col,k] * α
