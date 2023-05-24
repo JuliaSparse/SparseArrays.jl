@@ -27,14 +27,17 @@ for op ∈ (:+, :-)
     end
 end
 
-function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, _add::MulAddMul)
-    transB = tB == 'N' ? identity : tB == 'T' ? transpose : adjoint
+function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::SparseMatrixCSCUnion, B::DenseInputVecOrMat, _add::MulAddMul)
     if tA == 'N'
-        _spmul!(C, A, transB(B), _add.alpha, _add.beta)
+        _spmul!(C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
     elseif tA == 'T'
-        _At_or_Ac_mul_B!(transpose, C, A, transB(B), _add.alpha, _add.beta)
-    else # tA == 'C'
-        _At_or_Ac_mul_B!(adjoint, C, A, transB(B), _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(transpose, C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
+    elseif tA == 'C'
+        _At_or_Ac_mul_B!(adjoint, C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
+    elseif tA in ('S', 's', 'H', 'h') && tB == 'N'
+        _mul!(isuppercase(tA) ? nzrangeup : nzrangelo, C, A, B, T(_add.alpha), T(_add.beta))
+    else
+        LinearAlgebra._generic_matmatmul!(C, tA, tB, A, B, _add)
     end
     return C
 end
@@ -776,15 +779,7 @@ end
 
 ## end of triangular
 
-# C .= α * A * B + β * C
-for Atype in (:StridedVector, :StridedMatrix), Wtype in (:Symmetric, :Hermitian)
-    @eval function mul!(C::$Atype{T}, sA::$Wtype{<:Any,<:SparseMatrixCSCUnion}, B::$Atype,
-              α::Number, β::Number) where {T}
-        fuplo = sA.uplo == 'U' ? nzrangeup : nzrangelo
-        _mul!(fuplo, C, sA, B, T(α), T(β))
-        return C
-    end
-end
+# symmetric/Hermitian
 
 function _mul!(nzrang::Function, C::StridedVecOrMat{T}, sA, B, α, β) where T
     A = sA.data
