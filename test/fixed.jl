@@ -76,7 +76,7 @@ end
     @assert A == B
 
     # fixed(x...)
-    @assert sparse(10, 10) == sparse(fixed(10, 10))
+    @assert sparse(2I, 3, 3) == sparse(fixed(2I, 3, 3))
     @assert _unsafe_unfix(A) == A
 end
 @testset "FixedSparseVector" begin
