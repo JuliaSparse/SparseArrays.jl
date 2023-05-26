@@ -76,8 +76,8 @@ end
     @test A == B
 
     # fixed(x...)
-    @assert sparse(2I, 3, 3) == sparse(fixed(2I, 3, 3))
-    @assert SparseArrays._unsafe_unfix(A) == A
+    @test sparse(2I, 3, 3) == sparse(fixed(2I, 3, 3))
+    @test SparseArrays._unsafe_unfix(A) == A
 end
 @testset "FixedSparseVector" begin
     y = sprandn(10, 0.3)
