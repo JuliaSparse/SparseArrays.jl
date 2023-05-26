@@ -73,7 +73,7 @@ end
     A = sprandn(10, 10, 0.3)
     F = fixed(copy(A))
     B = SparseMatrixCSC(F)
-    @assert A == B
+    @test A == B
 
     # fixed(x...)
     @assert sparse(2I, 3, 3) == sparse(fixed(2I, 3, 3))
