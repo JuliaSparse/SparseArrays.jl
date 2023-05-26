@@ -74,6 +74,10 @@ end
     F = fixed(copy(A))
     B = SparseMatrixCSC(F)
     @assert A == B
+
+    # fixed(x...)
+    @assert sparse(10, 10) == sparse(fixed(10, 10))
+    @assert _unsafe_unfix(A) == A
 end
 @testset "FixedSparseVector" begin
     y = sprandn(10, 0.3)
