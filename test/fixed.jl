@@ -69,7 +69,12 @@ struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
     @test typeof(B) == typeof(F)
     @test struct_eq(B, F)
 end
-
+@testset "SparseMatrixCSC conversions" begin
+    A = sprandn(10, 10, 0.3)
+    F = fixed(copy(A))
+    B = SparseMatrixCSC(F)
+    @assert A == B
+end
 @testset "FixedSparseVector" begin
     y = sprandn(10, 0.3)
     x = FixedSparseVector(copy(y))
