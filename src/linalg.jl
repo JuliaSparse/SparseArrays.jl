@@ -8,6 +8,7 @@ const DenseMatrixUnion = Union{StridedMatrix, LowerTriangular, UnitLowerTriangul
 const AdjOrTransDenseMatrix = Union{DenseMatrixUnion,Adjoint{<:Any,<:DenseMatrixUnion},Transpose{<:Any,<:DenseMatrixUnion}}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseInputVecOrMat = Union{AdjOrTransDenseMatrix, DenseInputVector}
+const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
     @eval begin
@@ -27,7 +28,7 @@ for op ∈ (:+, :-)
     end
 end
 
-function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::SparseMatrixCSCUnion, B::DenseInputVecOrMat, _add::MulAddMul)
+function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::SparseMatrixCSCUnion, B::DenseVecOrMat, _add::MulAddMul)
     if tA == 'N'
         _spmul!(C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
     elseif tA == 'T'
@@ -35,7 +36,11 @@ function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::SparseM
     elseif tA == 'C'
         _At_or_Ac_mul_B!(adjoint, C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
     elseif tA in ('S', 's', 'H', 'h') && tB == 'N'
-        _mul!(isuppercase(tA) ? nzrangeup : nzrangelo, C, A, B, T(_add.alpha), T(_add.beta))
+        rangefun = isuppercase(tA) ? nzrangeup : nzrangelo
+        diagop = tA in ('S', 's') ? identity : real
+        odiagop = tA in ('S', 's') ? transpose : adjoint
+        T = eltype(C)
+        _mul!(rangefun, diagop, odiagop, C, A, B, T(_add.alpha), T(_add.beta))
     else
         LinearAlgebra._generic_matmatmul!(C, tA, tB, A, B, _add)
     end
@@ -781,8 +786,7 @@ end
 
 # symmetric/Hermitian
 
-function _mul!(nzrang::Function, C::StridedVecOrMat{T}, sA, B, α, β) where T
-    A = sA.data
+function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::StridedVecOrMat{T}, A, B, α, β) where T
     n = size(A, 2)
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) || throw(DimensionMismatch())
@@ -798,10 +802,10 @@ function _mul!(nzrang::Function, C::StridedVecOrMat{T}, sA, B, α, β) where T
                     row = rv[j]
                     aarc = nzv[j]
                     if row == col
-                        sumcol += (sA isa Hermitian ? real : identity)(aarc) * B[row,k]
+                        sumcol += diagop(aarc) * B[row,k]
                     else
                         C[row,k] += aarc * αxj
-                        sumcol += (sA isa Hermitian ? adjoint : transpose)(aarc) * B[row,k]
+                        sumcol += odiagop(aarc) * B[row,k]
                     end
                 end
                 C[col,k] += α * sumcol
