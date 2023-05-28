@@ -42,7 +42,7 @@ function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::SparseM
         T = eltype(C)
         _mul!(rangefun, diagop, odiagop, C, A, B, T(_add.alpha), T(_add.beta))
     else
-        LinearAlgebra._generic_matmatmul!(C, tA, tB, A, B, _add)
+        LinearAlgebra._generic_matmatmul!(C, 'N', 'N', LinearAlgebra.wrap(A, tA), LinearAlgebra.wrap(B, tB), _add)
     end
     return C
 end
