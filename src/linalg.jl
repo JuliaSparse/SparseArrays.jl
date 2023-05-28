@@ -28,7 +28,12 @@ for op ∈ (:+, :-)
     end
 end
 
-function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::SparseMatrixCSCUnion, B::DenseVecOrMat, _add::MulAddMul)
+LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion, B::DenseMatrixUnion, _add::MulAddMul) =
+    LinearAlgebra._generic_matmatmul!(C, tA, tB, A, B, _add)
+LinearAlgebra.generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion, B::DenseInputVector, _add::MulAddMul) =
+    LinearAlgebra._generic_matmatmul!(C, tA, 'N', A, B, _add)
+
+function LinearAlgebra._generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::SparseMatrixCSCUnion, B::DenseVecOrMat, _add::MulAddMul)
     if tA == 'N'
         _spmul!(C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
     elseif tA == 'T'
@@ -93,7 +98,7 @@ end
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
     (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
-function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
+function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
         _spmul!(C, transA(A), B, _add.alpha, _add.beta)
@@ -104,7 +109,7 @@ function LinearAlgebra.generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::DenseMa
     end
     return C
 end
-function _spmul!(C::StridedVecOrMat, X::DenseMatrixUnion, A::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::AbstractSparseMatrixCSC, α::Number, β::Number)
     mX, nX = size(X)
     nX == size(A, 1) || throw(DimensionMismatch())
     mX == size(C, 1) || throw(DimensionMismatch())
@@ -121,7 +126,7 @@ function _spmul!(C::StridedVecOrMat, X::DenseMatrixUnion, A::AbstractSparseMatri
     end
     C
 end
-function _spmul!(C::StridedVecOrMat, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::AbstractSparseMatrixCSC, α::Number, β::Number)
     mX, nX = size(X)
     nX == size(A, 1) || throw(DimensionMismatch())
     mX == size(C, 1) || throw(DimensionMismatch())
@@ -139,7 +144,7 @@ end
 *(X::AdjOrTransDenseMatrix, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
     (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
-function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedVecOrMat, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, α::Number, β::Number)
     mA, nA = size(A)
     nA == size(B, 2) || throw(DimensionMismatch())
     mA == size(C, 1) || throw(DimensionMismatch())
