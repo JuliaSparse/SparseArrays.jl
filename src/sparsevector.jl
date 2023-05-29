@@ -1789,8 +1789,10 @@ function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::StridedMatri
         _spmul!(y, A, x, _add.alpha, _add.beta)
     elseif tA == 'T'
         _At_or_Ac_mul_B!(transpose, y, A, x, _add.alpha, _add.beta)
-    else # tA == 'C'
+    elseif tA == 'C'
         _At_or_Ac_mul_B!(adjoint, y, A, x, _add.alpha, _add.beta)
+    else
+        _spmul!(y, LinearAlgebra.wrap(A, tA), x, _add.alpha, _add.beta)
     end
     return y
 end
@@ -1807,7 +1809,7 @@ function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::UpperOrLower
     end
     return y
 end
-function _spmul!(y::AbstractVector, A::_StridedOrTriangularMatrix, x::AbstractSparseVector, α::Number, β::Number)
+function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == n && length(y) == m || throw(DimensionMismatch())
@@ -1864,6 +1866,14 @@ function *(A::AdjOrTrans{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
     y = Vector{Ty}(undef, m)
     mul!(y, A, x, true, false)
 end
+function *(A::LinearAlgebra.HermOrSym{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
+    require_one_based_indexing(A, x)
+    m, n = size(A)
+    length(x) == n || throw(DimensionMismatch())
+    Ty = promote_op(matprod, eltype(A), eltype(x))
+    y = Vector{Ty}(undef, m)
+    mul!(y, A, x, true, false)
+end
 
 
 ### BLAS-2 / sparse A * sparse x -> dense y
@@ -1899,8 +1909,10 @@ function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::AbstractSpar
         _spmul!(y, A, x, _add.alpha, _add.beta)
     elseif tA == 'T'
         _At_or_Ac_mul_B!((a,b) -> transpose(a) * b, y, A, x, _add.alpha, _add.beta)
-    else # tA == 'C'
+    elseif tA == 'C'
         _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, A, x, _add.alpha, _add.beta)
+    else
+        LinearAlgebra._generic_matvecmul!(y, 'N', LinearAlgebra.wrap(A, tA), x, _add)
     end
     return y
 end

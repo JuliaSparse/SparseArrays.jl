@@ -1098,6 +1098,22 @@ end
                 @test isa(y, Vector{T})
                 @test y ≈ *(adjoint(A), xf)
             end
+
+            let A = randn(TA, 16, 16), x = sprand(Tx, 16, 0.7)
+                xf = Array(x)
+                for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
+                        M -> Hermitian(M, :U), M -> Hermitian(M, :L))
+                    for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
+                        y = rand(T, 16)
+                        rr = α*wrap(A)*xf + β*y
+                        @test mul!(y, wrap(A), x, α, β) === y
+                        @test y ≈ rr
+                    end
+                    y = *(wrap(A), x)
+                    @test isa(y, Vector{T})
+                    @test y ≈ *(wrap(A), xf)
+                end
+            end
         end
     end
     @testset "sparse A * sparse x -> dense y" begin
@@ -1127,6 +1143,22 @@ end
             y = SparseArrays.densemv(A, x; trans='T')
             @test isa(y, Vector{Float64})
             @test y ≈ *(transpose(Af), xf)
+        end
+
+        let A = sprandn(16, 16, 0.5), x = sprand(16, 0.7)
+            Af = Array(A)
+            xf = Array(x)
+            for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
+                M -> Hermitian(M, :U), M -> Hermitian(M, :L))
+                for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
+                    y = rand(16)
+                    rr = α*wrap(Af)*xf + β*y
+                    @test mul!(y, wrap(A), x, α, β) === y
+                    @test y ≈ rr
+                end
+                y = wrap(A) * x
+                @test y ≈ *(wrap(Af), xf)
+            end
         end
 
         let A = complex.(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
