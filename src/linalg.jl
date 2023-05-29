@@ -70,6 +70,11 @@ function _spmul!(C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVe
     C
 end
 
+*(A::SparseMatrixCSCUnion{TA}, x::DenseInputVector) where {TA} =
+    (T = promote_op(matprod, TA, eltype(x)); mul!(similar(x, T, size(A, 1)), A, x, true, false))
+*(A::SparseMatrixCSCUnion{TA}, B::AdjOrTransDenseMatrix) where {TA} =
+    (T = promote_op(matprod, TA, eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
+
 function _At_or_Ac_mul_B!(tfun::Function, C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, α::Number, β::Number)
     size(A, 2) == size(C, 1) || throw(DimensionMismatch())
     size(A, 1) == size(B, 1) || throw(DimensionMismatch())
@@ -88,6 +93,11 @@ function _At_or_Ac_mul_B!(tfun::Function, C::StridedVecOrMat, A::AbstractSparseM
     end
     C
 end
+
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::DenseInputVector) =
+    (T = promote_op(matprod, eltype(A), eltype(x)); mul!(similar(x, T, size(A, 1)), A, x, true, false))
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
+    (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
 function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
