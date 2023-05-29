@@ -662,11 +662,14 @@ end
         @test Array(f*b) == f*Array(b)
         A = rand(2n, 2n)
         sA = view(A, 1:2:2n, 1:2:2n)
-        @test Array(sA*b) ≈ Array(sA)*Array(b)
-        @test Array(a*sA) ≈ Array(a)*Array(sA)
+        @test Array((sA*b)::Matrix) ≈ Array(sA)*Array(b)
+        @test Array((a*sA)::Matrix) ≈ Array(a)*Array(sA)
+        @test Array((sA'b)::Matrix) ≈ Array(sA')*Array(b)
         c = sprandn(ComplexF32, n, n, q)
-        @test Array(sA*c') ≈ Array(sA)*Array(c)'
-        @test Array(c'*sA) ≈ Array(c)'*Array(sA)
+        @test Array((sA*c')::Matrix) ≈ Array(sA)*Array(c)'
+        @test Array((c'*sA)::Matrix) ≈ Array(c)'*Array(sA)
+        @test Array((sA'c)::Matrix) ≈ Array(sA')*Array(c)
+        @test Array((sA'c')::Matrix) ≈ Array(sA')*Array(c)'
     end
 end
 
