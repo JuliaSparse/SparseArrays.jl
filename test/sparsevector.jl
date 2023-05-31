@@ -1149,7 +1149,14 @@ end
             Af = Array(A)
             xf = Array(x)
             for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
-                M -> Hermitian(M, :U), M -> Hermitian(M, :L))
+                M -> Hermitian(M, :U), M -> Hermitian(M, :L),
+                M -> UpperTriangular(M), M -> UnitUpperTriangular(M),
+                M -> LowerTriangular(M), M -> UnitLowerTriangular(M),
+                M -> UpperTriangular(tranpose(M)), M -> UnitUpperTriangular(tranpose(M)),
+                M -> LowerTriangular(tranpose(M)), M -> UnitLowerTriangular(tranpose(M)),
+                M -> UpperTriangular(adjoint(M)), M -> UnitUpperTriangular(adjoint(M)),
+                M -> LowerTriangular(adjoint(M)), M -> UnitLowerTriangular(adjoint(M)),
+                M -> UpperTriangular(Symmetric(M)))
                 for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
                     y = rand(16)
                     rr = α*wrap(Af)*xf + β*y
