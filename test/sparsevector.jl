@@ -1152,8 +1152,8 @@ end
                 M -> Hermitian(M, :U), M -> Hermitian(M, :L),
                 M -> UpperTriangular(M), M -> UnitUpperTriangular(M),
                 M -> LowerTriangular(M), M -> UnitLowerTriangular(M),
-                M -> UpperTriangular(tranpose(M)), M -> UnitUpperTriangular(tranpose(M)),
-                M -> LowerTriangular(tranpose(M)), M -> UnitLowerTriangular(tranpose(M)),
+                M -> UpperTriangular(transpose(M)), M -> UnitUpperTriangular(transpose(M)),
+                M -> LowerTriangular(transpose(M)), M -> UnitLowerTriangular(transpose(M)),
                 M -> UpperTriangular(adjoint(M)), M -> UnitUpperTriangular(adjoint(M)),
                 M -> LowerTriangular(adjoint(M)), M -> UnitLowerTriangular(adjoint(M)),
                 M -> UpperTriangular(Symmetric(M)))
