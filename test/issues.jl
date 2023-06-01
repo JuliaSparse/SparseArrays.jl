@@ -789,6 +789,16 @@ end
     @test_throws MethodError sort!(x; banana=:blue); # From discussion at #335
 end
 
+@testset "Issue #390" begin
+    x = sparse([9 1 8
+                0 3 72
+                7 4 16])
+    Base.swapcols!(x, 2, 3)
+    @test x == sparse([9 8 1
+                       0 72 3
+                       7 16 4])
+end
+
 end # SparseTestsBase
 
 end # module

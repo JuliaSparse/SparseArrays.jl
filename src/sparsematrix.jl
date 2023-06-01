@@ -182,6 +182,30 @@ const SparseMatrixCSCView{Tv,Ti} =
         Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange}
 const SparseMatrixCSCUnion{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
 
+"""
+    getcolptr(A::AbstractSparseMatrixCSC)
+
+Return a vector of column pointers of `A`. Any modifications to the returned
+vector will mutate `A` as well. Providing access to how the column pointers are
+stored internally can be useful in conjunction with  passing data to factorizations
+and preconditioners. See also [`rowvals`](@ref), [`nonzeros`](@ref) and [`nzrange`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse(2I, 3, 3)
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 2  ⋅  ⋅
+ ⋅  2  ⋅
+ ⋅  ⋅  2
+
+julia> getcolptr(A)
+4-element Vector{Int64}:
+ 1
+ 2
+ 3
+ 4
+```
+"""
 getcolptr(S::SorF)     = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(axes(S, 2)):(last(axes(S, 2)) + 1))
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
@@ -227,7 +251,7 @@ Return a vector of the structural nonzero values in sparse array `A`. This
 includes zeros that are explicitly stored in the sparse array. The returned
 vector points directly to the internal nonzero storage of `A`, and any
 modifications to the returned vector will mutate `A` as well. See
-[`rowvals`](@ref) and [`nzrange`](@ref).
+[`rowvals`](@ref), [`getcolptr`](@ref) and [`nzrange`](@ref).
 
 # Examples
 ```jldoctest
@@ -255,7 +279,7 @@ nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 Return a vector of the row indices of `A`. Any modifications to the returned
 vector will mutate `A` as well. Providing access to how the row indices are
 stored internally can be useful in conjunction with iterating over structural
-nonzero values. See also [`nonzeros`](@ref) and [`nzrange`](@ref).
+nonzero values. See also [`getcolptr`](@ref), [`nonzeros`](@ref) and [`nzrange`](@ref).
 
 # Examples
 ```jldoctest
@@ -641,16 +665,16 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
     return dest
 end
 
-# Faster version for non-abstract Array and SparseMatrixCSC 
+# Faster version for non-abstract Array and SparseMatrixCSC
 function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
     isempty(S) && return A
     length(A) < length(S) && throw(BoundsError())
-    
-    # Zero elements that are also in S, don't change rest of A 
+
+    # Zero elements that are also in S, don't change rest of A
     @inbounds for i in 1:length(S)
         A[i] = zero(T)
     end
-    # Copy the structural nonzeros from S to A using 
+    # Copy the structural nonzeros from S to A using
     # the linear indices (to work when size(A)!=size(S))
     num_rows = size(S,1)
     rowval = getrowval(S)
@@ -4283,7 +4307,7 @@ function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
     function rangeexchange!(arr, irow, jrow)
         if length(irow) == length(jrow)
             for (a, b) in zip(irow, jrow)
-                @inbounds @swap(arr[i], arr[j])
+                @inbounds @swap(arr[a], arr[b])
             end
             return
         end
