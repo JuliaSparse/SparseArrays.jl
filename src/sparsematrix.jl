@@ -752,8 +752,10 @@ end
 # converting between SparseMatrixCSC types
 
 AbstractMatrix{Tv}(A::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv}(A)
-SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC{Tv}) where {Tv} = copy(S)
+SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv}(S)
 SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv,eltype(getcolptr(S))}(S)
+SparseMatrixCSC(S::SparseMatrixCSC)=copy(S)
+
 
 function SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC) where {Tv,Ti}
     eltypeTicolptr = Vector{Ti}(getcolptr(S))
