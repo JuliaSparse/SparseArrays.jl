@@ -33,6 +33,9 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
 
+export AbstractSparseMatrixCSC, getcolptr, getrowval, nonzeros
+
+
 const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 
 # helper function needed in sparsematrix, sparsevector and higherorderfns
