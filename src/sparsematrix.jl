@@ -209,8 +209,7 @@ julia> nnz(A)
 """
 nnz(S::AbstractSparseMatrixCSC) = Int(getcolptr(S)[size(S, 2) + 1]) - 1
 nnz(S::ReshapedArray{<:Any,1,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
-nnz(S::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
-nnz(S::Transpose{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
+nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::SparseMatrixCSCView) = nnz1(S)

@@ -190,7 +190,7 @@ end
     @testset "symmetric/Hermitian sparse multiply with $S($U)" for S in (Symmetric, Hermitian), U in (:U, :L), (A, B) in ((Areal,Breal), (Acomplex,Bcomplex))
         Asym = S(A, U)
         As = sparse(Asym) # takes most time
-        @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
+        # @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
         @test norm(Asym * B - As * B, Inf) <= eps() * n * p * 10
     end
 end
@@ -207,7 +207,7 @@ end
     @testset "symmetric/Hermitian sparseview multiply with $S($U)" for S in (Symmetric, Hermitian), U in (:U, :L), (A, B) in ((Areal,Breal), (Acomplex,Bcomplex))
         Asym = S(A, U)
         As = sparse(Asym) # takes most time
-        @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
+        # @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
         @test norm(Asym * B - As * B, Inf) <= eps() * n * p * 10
     end
 end
@@ -662,11 +662,14 @@ end
         @test Array(f*b) == f*Array(b)
         A = rand(2n, 2n)
         sA = view(A, 1:2:2n, 1:2:2n)
-        @test Array(sA*b) ≈ Array(sA)*Array(b)
-        @test Array(a*sA) ≈ Array(a)*Array(sA)
+        @test Array((sA*b)::Matrix) ≈ Array(sA)*Array(b)
+        @test Array((a*sA)::Matrix) ≈ Array(a)*Array(sA)
+        @test Array((sA'b)::Matrix) ≈ Array(sA')*Array(b)
         c = sprandn(ComplexF32, n, n, q)
-        @test Array(sA*c') ≈ Array(sA)*Array(c)'
-        @test Array(c'*sA) ≈ Array(c)'*Array(sA)
+        @test Array((sA*c')::Matrix) ≈ Array(sA)*Array(c)'
+        @test Array((c'*sA)::Matrix) ≈ Array(c)'*Array(sA)
+        @test Array((sA'c)::Matrix) ≈ Array(sA')*Array(c)
+        @test Array((sA'c')::Matrix) ≈ Array(sA')*Array(c)'
     end
 end
 
