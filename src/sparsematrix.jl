@@ -750,11 +750,11 @@ function Base.sizehint!(S::SparseMatrixCSC, n::Integer)
 end
 
 # converting between SparseMatrixCSC types
-SparseMatrixCSC(S::AbstractSparseMatrixCSC) = copy(S)
+
 AbstractMatrix{Tv}(A::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv}(A)
 SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC{Tv}) where {Tv} = copy(S)
 SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv,eltype(getcolptr(S))}(S)
-SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = copy(S)
+
 function SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC) where {Tv,Ti}
     eltypeTicolptr = Vector{Ti}(getcolptr(S))
     eltypeTirowval = Vector{Ti}(rowvals(S))
