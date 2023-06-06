@@ -1780,7 +1780,7 @@ function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) whe
     length(x) == n || throw(DimensionMismatch())
     Ty = promote_op(matprod, eltype(A), eltype(x))
     y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
+    mul!(y, A, x)
 end
 
 function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
