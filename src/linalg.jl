@@ -1,10 +1,12 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, checksquare, sym_uplo
+using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, UpperOrLowerTriangular,
+    checksquare, sym_uplo
 using Random: rand!
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
 const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
+const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
 
@@ -70,8 +72,8 @@ function _spmatmul!(C, A, B, α, β)
     C
 end
 
-*(A::SparseMatrixCSCUnion{TA}, B::AbstractTriangular) where {TA} =
-    (T = promote_op(matprod, TA, eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
+*(A::SparseMatrixCSCUnion{TA}, B::DenseTriangular) where {TA} =
+    (T = promote_op(matprod, TA, eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B))
 
 function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     size(A, 2) == size(C, 1) || throw(DimensionMismatch())
@@ -92,8 +94,8 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     C
 end
 
-*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractTriangular) =
-    (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::DenseTriangular) =
+    (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B))
 
 function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
@@ -142,7 +144,7 @@ end
     (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 *(X::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
     (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::AbstractTriangular, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
+*(X::DenseTriangular, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
     (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
 function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::AbstractSparseMatrixCSC, α::Number, β::Number)
@@ -166,7 +168,7 @@ end
     (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 *(X::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
     (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::AbstractTriangular, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
+*(X::DenseTriangular, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
     (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
@@ -860,7 +862,7 @@ function (\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSpars
     TAB = LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))
     ldiv!(Matrix{TAB}(undef, size(B)), A, B)
 end
-# (*)(L::LinearAlgebra.AbstractTriangular, B::AbstractSparseMatrixCSC) = lmul!(L, Array(B))
+# (*)(L::DenseTriangular, B::AbstractSparseMatrixCSC) = lmul!(L, Array(B))
 
 ## end of triangular
 
