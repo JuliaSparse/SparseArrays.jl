@@ -848,8 +848,16 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
     C
 end
 
-(\)(A::Union{UpperTriangular,LowerTriangular}, B::AbstractSparseMatrixCSC) = A \ Array(B)
-(\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSparseMatrixCSC) = A \ Array(B)
+function (\)(A::Union{UpperTriangular,LowerTriangular}, B::AbstractSparseMatrixCSC)
+    require_one_based_indexing(B)
+    TAB = LinearAlgebra._init_eltype(\, eltype(A), eltype(B))
+    ldiv!(Matrix{TAB}(undef, size(B)), A, B)
+end
+function (\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSparseMatrixCSC)
+    require_one_based_indexing(B)
+    TAB = LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))
+    ldiv!(Matrix{TAB}(undef, size(B)), A, B)
+end
 # (*)(L::LinearAlgebra.AbstractTriangular, B::AbstractSparseMatrixCSC) = lmul!(L, Array(B))
 
 ## end of triangular
