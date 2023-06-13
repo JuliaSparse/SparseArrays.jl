@@ -1,13 +1,11 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-import LinearAlgebra: checksquare, sym_uplo
+using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, checksquare, sym_uplo
 using Random: rand!
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
-const DenseMatrixUnion = Union{StridedMatrix, LowerTriangular, UnitLowerTriangular, UpperTriangular, UnitUpperTriangular, BitMatrix}
-const AdjOrTransDenseMatrix = Union{DenseMatrixUnion,Adjoint{<:Any,<:DenseMatrixUnion},Transpose{<:Any,<:DenseMatrixUnion}}
+const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
 const DenseInputVector = Union{StridedVector, BitVector}
-const DenseInputVecOrMat = Union{AdjOrTransDenseMatrix, DenseInputVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
@@ -29,13 +27,15 @@ for op ∈ (:+, :-)
 end
 
 LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion, B::DenseMatrixUnion, _add::MulAddMul) =
-    LinearAlgebra._generic_matmatmul!(C, tA, tB, A, B, _add)
+    spdensemul!(C, tA, tB, A, B, _add)
+LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion, B::AbstractTriangular, _add::MulAddMul) =
+    spdensemul!(C, tA, tB, A, B, _add)
 LinearAlgebra.generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion, B::DenseInputVector, _add::MulAddMul) =
-    LinearAlgebra._generic_matmatmul!(C, tA, 'N', A, B, _add)
+    spdensemul!(C, tA, 'N', A, B, _add)
 
-function LinearAlgebra._generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::SparseMatrixCSCUnion, B::DenseVecOrMat, _add::MulAddMul)
+function spdensemul!(C, tA, tB, A, B, _add)
     if tA == 'N'
-        _spmul!(C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
+        _spmatmul!(C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
     elseif tA == 'T'
         _At_or_Ac_mul_B!(transpose, C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
     elseif tA == 'C'
@@ -52,7 +52,7 @@ function LinearAlgebra._generic_matmatmul!(C::StridedVecOrMat, tA, tB, A::Sparse
     return C
 end
 
-function _spmul!(C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, α::Number, β::Number)
+function _spmatmul!(C, A, B, α, β)
     size(A, 2) == size(B, 1) || throw(DimensionMismatch())
     size(A, 1) == size(C, 1) || throw(DimensionMismatch())
     size(B, 2) == size(C, 2) || throw(DimensionMismatch())
@@ -70,12 +70,10 @@ function _spmul!(C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVe
     C
 end
 
-*(A::SparseMatrixCSCUnion{TA}, x::DenseInputVector) where {TA} =
-    (T = promote_op(matprod, TA, eltype(x)); mul!(similar(x, T, size(A, 1)), A, x, true, false))
-*(A::SparseMatrixCSCUnion{TA}, B::AdjOrTransDenseMatrix) where {TA} =
+*(A::SparseMatrixCSCUnion{TA}, B::AbstractTriangular) where {TA} =
     (T = promote_op(matprod, TA, eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
-function _At_or_Ac_mul_B!(tfun::Function, C::StridedVecOrMat, A::AbstractSparseMatrixCSC, B::DenseInputVecOrMat, α::Number, β::Number)
+function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     size(A, 2) == size(C, 1) || throw(DimensionMismatch())
     size(A, 1) == size(B, 1) || throw(DimensionMismatch())
     size(B, 2) == size(C, 2) || throw(DimensionMismatch())
@@ -94,9 +92,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C::StridedVecOrMat, A::AbstractSparseM
     C
 end
 
-*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::DenseInputVector) =
-    (T = promote_op(matprod, eltype(A), eltype(x)); mul!(similar(x, T, size(A, 1)), A, x, true, false))
-*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTransDenseMatrix) =
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractTriangular) =
     (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B, true, false))
 
 function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
@@ -142,10 +138,14 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::A
     end
     C
 end
-*(X::AdjOrTransDenseMatrix, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
+*(X::StridedMaybeAdjOrTransMat, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
+    (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
+*(X::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
+    (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
+*(X::AbstractTriangular, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
     (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
-function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AdjOrTransDenseMatrix, B::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::AbstractSparseMatrixCSC, α::Number, β::Number)
     mA, nA = size(A)
     nA == size(B, 2) || throw(DimensionMismatch())
     mA == size(C, 1) || throw(DimensionMismatch())
@@ -162,10 +162,12 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AdjOrTransDenseMa
     end
     C
 end
-*(X::AdjOrTransDenseMatrix, adjA::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
-    (T = promote_op(matprod, eltype(X), eltype(adjA)); mul!(similar(X, T, (size(X, 1), size(adjA, 2))), X, adjA, true, false))
-*(X::AdjOrTransDenseMatrix, tA::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
-    (T = promote_op(matprod, eltype(X), eltype(tA)); mul!(similar(X, T, (size(X, 1), size(tA, 2))), X, tA, true, false))
+*(X::StridedMaybeAdjOrTransMat, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
+    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
+*(X::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
+    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
+*(X::AbstractTriangular, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
+    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
@@ -428,7 +430,7 @@ end
 function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCUnion, B::AbstractVecOrMat)
     require_one_based_indexing(A, C)
     nrowC = size(C, 1)
-    ncol = LinearAlgebra.checksquare(A)
+    ncol = checksquare(A)
     if nrowC != ncol
         throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
     end
@@ -559,7 +561,7 @@ end
 function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, _, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion}, B::AbstractVecOrMat)
     A = parent(xA)
     nrowC = size(C, 1)
-    ncol = LinearAlgebra.checksquare(A)
+    ncol = checksquare(A)
     if nrowC != ncol
         throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
     end
