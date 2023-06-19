@@ -867,7 +867,7 @@ function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, 
 end
 dot(x::SparseVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::SparseVector) =
     _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real)
-function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rangefun2::Function, diagop::Function)
+function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rangefun::Function, diagop::Function)
     m, n = size(A)
     length(x) == m && n == length(y) || throw(DimensionMismatch())
     if iszero(m) || iszero(n)
