@@ -821,17 +821,96 @@ function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::Strided
     C
 end
 
-# row range up to and including diagonal
-function nzrangeup(A, i)
+# row range up to (and including if excl=false) diagonal
+function nzrangeup(A, i, excl=false)
     r = nzrange(A, i); r1 = r.start; r2 = r.stop
     rv = rowvals(A)
-    @inbounds r2 < r1 || rv[r2] <= i ? r : r1:searchsortedlast(rv, i, r1, r2, Forward)
+    @inbounds r2 < r1 || rv[r2] <= i - excl ? r : r1:searchsortedlast(rv, i - excl, r1, r2, Forward)
 end
-# row range from diagonal (included) to end
-function nzrangelo(A, i)
+# row range from diagonal (included if excl=false) to end
+function nzrangelo(A, i, excl=false)
     r = nzrange(A, i); r1 = r.start; r2 = r.stop
     rv = rowvals(A)
-    @inbounds r2 < r1 || rv[r1] >= i ? r : searchsortedfirst(rv, i, r1, r2, Forward):r2
+    @inbounds r2 < r1 || rv[r1] >= i + excl ? r : searchsortedfirst(rv, i + excl, r1, r2, Forward):r2
+end
+
+dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
+    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, rangefun::Function, diagop::Function, odiagop::Function)
+    require_one_based_indexing(x, y)
+    m, n = size(A)
+    (length(x) == m && n == length(y)) || throw(DimensionMismatch())
+    if iszero(m) || iszero(n)
+        return dot(zero(eltype(x)), zero(eltype(A)), zero(eltype(y)))
+    end
+    T = promote_type(eltype(x), eltype(A), eltype(y))
+    r = zero(T)
+    rvals = getrowval(A)
+    nzvals = getnzval(A)
+    @inbounds for col in 1:n
+        ycol = y[col]
+        xcol = x[col]
+        if _isnotzero(ycol) && _isnotzero(xcol)
+            for k in rangefun(A, col)
+                i = rvals[k]
+                Aij = nzvals[k]
+                if i != col
+                    r += dot(x[i], Aij, ycol)
+                    r += dot(xcol, odiagop(Aij), y[i])
+                else
+                    r += dot(x[i], diagop(Aij), ycol)
+                end
+            end
+        end
+    end
+    return r
+end
+dot(x::SparseVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::SparseVector) =
+    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real)
+function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rangefun2::Function, diagop::Function)
+    m, n = size(A)
+    length(x) == m && n == length(y) || throw(DimensionMismatch())
+    if iszero(m) || iszero(n)
+        return dot(zero(eltype(x)), zero(eltype(A)), zero(eltype(y)))
+    end
+    r = zero(promote_type(eltype(x), eltype(A), eltype(y)))
+    xnzind = nonzeroinds(x)
+    xnzval = nonzeros(x)
+    ynzind = nonzeroinds(y)
+    ynzval = nonzeros(y)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
+    Acolptr = getcolptr(A)
+    isempty(Arowval) && return r
+    # plain triangle without diagonal
+    for (yi, yv) in zip(ynzind, ynzval)
+        A_ptr_lo = first(rangefun(A, yi, true))
+        A_ptr_hi = last(rangefun(A, yi, true))
+        if A_ptr_lo <= A_ptr_hi
+            # dot is conjugated in the first argument, so double conjugate a's
+            r += dot(_spdot((x, a) -> a'x, 1, length(xnzind), xnzind, xnzval,
+                                            A_ptr_lo, A_ptr_hi, Arowval, Anzval), yv)
+        end
+    end
+    # view triangle without diagonal
+    for (xi, xv) in zip(xnzind, xnzval)
+        A_ptr_lo = first(rangefun(A, xi, true))
+        A_ptr_hi = last(rangefun(A, xi, true))
+        if A_ptr_lo <= A_ptr_hi
+            r += dot(xv, _spdot((a, y) -> a'y, A_ptr_lo, A_ptr_hi, Arowval, Anzval,
+                                            1, length(ynzind), ynzind, ynzval))
+        end
+    end
+    # diagonal
+    for i in 1:m
+        r1 = Int(Acolptr[i])
+        r2 = Int(Acolptr[i+1]-1)
+        r1 > r2 && continue
+        r1 = searchsortedfirst(Arowval, i, r1, r2, Forward)
+        ((r1 > r2) || (Arowval[r1] != i)) && continue
+        r += dot(x[i], diagop(Anzval[r1]), y[i])
+    end
+    r
 end
 ## end of symmetric/Hermitian
 
