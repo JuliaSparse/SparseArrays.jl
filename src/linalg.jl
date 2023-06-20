@@ -637,6 +637,9 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, _,
 end
 
 ## triangular solvers
+_uconvert_copyto!(c, b, oA) = (c .= Ref(oA) .\ b)
+_uconvert_copyto!(c::AbstractArray{T}, b::AbstractArray{T}, _) where {T} = copyto!(c, b)
+
 function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCUnion, B::AbstractVecOrMat)
     mA, nA = size(A)
     nrowB, ncolB = size(B, 1), size(B, 2)
@@ -646,7 +649,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
     if size(C) != size(B)
         throw(DimensionMismatch("size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
     end
-    C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(A)))
+    C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
     aa = getnzval(A)
     ja = getrowval(A)
     ia = getcolptr(A)
@@ -783,7 +786,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
     if size(C) != size(B)
         throw(DimensionMismatch("size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
     end
-    C !== B && LinearAlgebra._uconvert_copyto!(C, B, oneunit(eltype(A)))
+    C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
 
     aa = getnzval(A)
     ja = getrowval(A)
