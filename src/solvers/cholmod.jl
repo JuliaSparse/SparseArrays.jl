@@ -1367,7 +1367,7 @@ julia> A = [2 1 1; 1 2 0; 1 0 2]
  1  0  2
 
 julia> C = cholesky(sparse(A))
-SparseArrays.CHOLMOD.Factor{Float64}
+SparseArrays.CHOLMOD.Factor{Float64, $(Int)}
 type:    LLt
 method:  simplicial
 maxnnz:  5
@@ -1375,7 +1375,7 @@ nnz:     5
 success: true
 
 julia> C.p
-3-element Vector{Int64}:
+3-element Vector{$(Int)}:
  3
  2
  1
@@ -1392,7 +1392,7 @@ julia> L * L' ≈ A[C.p, C.p]
 true
 
 julia> P = sparse(1:3, C.p, ones(3))
-3×3 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
+3×3 SparseMatrixCSC{Float64, $(Int)} with 3 stored entries:
   ⋅    ⋅   1.0
   ⋅   1.0   ⋅
  1.0   ⋅    ⋅
