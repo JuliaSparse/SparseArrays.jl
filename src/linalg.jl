@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-import LinearAlgebra: checksquare, sym_uplo
+import LinearAlgebra: checksquare, sym_uplo, adj_or_trans
 using Random: rand!
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
