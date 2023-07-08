@@ -19,13 +19,13 @@ nn = 100
 
 @test repr("text/plain", qr(sprandn(4, 4, 0.5)).Q) == "4×4 $(SparseArrays.SPQR.QRSparseQ{Float64, Int})"
 
-@testset "element type of A: $eltyA" for eltyA in (Float64, ComplexF64)
+@testset "element type of A: $eltyA" for eltyA in (Float64, ComplexF64), iltyA in (Int32, Int64)
     if eltyA <: Real
-        A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
+        A = sparse(iltyA[1:n; rand(1:m, nn - n)], iltyA[1:n; rand(1:n, nn - n)], randn(nn), m, n)
     else
-        A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], complex.(randn(nn), randn(nn)), m, n)
+        A = sparse(iltyA[1:n; rand(1:m, nn - n)], iltyA[1:n; rand(1:n, nn - n)], complex.(randn(nn), randn(nn)), m, n)
     end
-
+    
     F = qr(A)
     @test size(F) == (m,n)
     @test size(F, 1) == m

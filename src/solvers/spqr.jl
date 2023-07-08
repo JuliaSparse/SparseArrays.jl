@@ -6,7 +6,7 @@ import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
 using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, copy_similar
-using ..LibSuiteSparse: SuiteSparseQR_C
+using ..LibSuiteSparse: SuiteSparseQR_C, SuiteSparseQR_i_C
 
 # ordering options */
 const ORDERING_FIXED   = Int32(0)
@@ -33,7 +33,7 @@ using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsaf
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
-import ..LibSuiteSparse: cholmod_l_free
+import ..LibSuiteSparse: cholmod_l_free, cholmod_free
 
 function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         A::Sparse{Tv, Ti},
@@ -49,9 +49,10 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
 
     ordering ∈ ORDERINGS || error("unknown ordering $ordering")
 
+    spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = SuiteSparseQR_C(
+    rnk  = spqr_call(
         ordering,       # all, except 3:given treated as 0:fixed
         tol,            # columns with 2-norm <= tol treated as 0
         econ,           # e = max(min(m,econ),rank(A))
