@@ -5,7 +5,7 @@
 import Base: sort!, findall, copy!
 import LinearAlgebra: promote_to_array_type, promote_to_arrays_
 
-using LinearAlgebra: adj_or_trans
+using LinearAlgebra: adj_or_trans, _SpecialArrays, _DenseConcatGroup
 
 ### The SparseVector
 
