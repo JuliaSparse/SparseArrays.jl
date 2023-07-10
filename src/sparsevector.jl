@@ -1236,7 +1236,7 @@ function hvcat(rows::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
     if anysparse(X...)
         vcat(_hvcat_rows(rows, X...)...)
     else
-        typed_hvcat(promote_eltypeof(X...), rows, X...)
+        Base.typed_hvcat(promote_eltypeof(X...), rows, X...)
     end
 end
 function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
