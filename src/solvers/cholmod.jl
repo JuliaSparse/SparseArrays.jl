@@ -2,7 +2,7 @@
 
 # Theoretically CHOLMOD supports both Int32 and Int64 indices on 64-bit.
 # However experience suggests that using both in the same session causes memory
-# leaks, so we restrict indices to be `SuiteSparse_long`.
+# leaks, so we restrict indices to be Sys.WORD_SIZE
 # Ref: https://github.com/JuliaLang/julia/issues/12664
 
 # Additionally, only Float64/ComplexF64 are supported in practice.
@@ -39,8 +39,8 @@ import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_INTLONG, CHOLMOD_LONG
 
 # # itype defines the types of integer used:
 # CHOLMOD_INT,      # all integer arrays are int
-# CHOLMOD_INTLONG,  # most are int, some are SuiteSparse_long
-# CHOLMOD_LONG,     # all integer arrays are SuiteSparse_long
+# CHOLMOD_INTLONG,  # most are int, some are Sys.WORD_SIZE
+# CHOLMOD_LONG,     # all integer arrays are Sys.WORD_SIZE
 # # dtype defines what the numerical type is (double or float):
 # CHOLMOD_DOUBLE,   # all numerical values are double
 # CHOLMOD_SINGLE,   # all numerical values are float
@@ -83,22 +83,21 @@ xtyp(::Type{Float64})    = CHOLMOD_REAL
 xtyp(::Type{ComplexF32}) = CHOLMOD_COMPLEX
 xtyp(::Type{ComplexF64}) = CHOLMOD_COMPLEX
 
-# check the size of SuiteSparse_long
-if sizeof(Int) == 4
-    const IndexTypes = (:Int32,)
-    const ITypes = Union{Int32}
-else
+if Sys.WORD_SIZE == 64
     const IndexTypes = (:Int32, :Int64)
     const ITypes = Union{Int32, Int64}
+else
+    const IndexTypes = (:Int32,)
+    const ITypes = Union{Int32}
 end
-# end
+
 ityp(::Type{Int32}) = CHOLMOD_INT
 ityp(::Type{Int64}) = CHOLMOD_LONG
 
-jlitype(t) = t == CHOLMOD_INT ? Int32 : 
+jlitype(t) = t == CHOLMOD_INT ? Int32 :
     (t == CHOLMOD_LONG ? Int64 : throw(CHOLMODException("Unsupported itype $t")))
 
-cholname(name::Symbol, type) = type === :Int64 ? Symbol(:cholmod_l_, name) : 
+cholname(name::Symbol, type) = type === :Int64 ? Symbol(:cholmod_l_, name) :
     type === :Int32 ? Symbol(:cholmod_, name) : throw(ArgumentError("Unsupported type: $type"))
 
 const VTypes = Union{ComplexF64, Float64}
@@ -508,7 +507,7 @@ for TI ∈ IndexTypes
         packed::Cint
         cholmod_sparse_struct() = new()
     end
-    
+
     typedpointer(x::Sparse{<:Any, $TI}) = Ptr{$(cholname(:sparse_struct_typed, TI))}(pointer(x))
 
     mutable struct $(cholname(:factor_struct_typed, TI))
@@ -553,13 +552,13 @@ for TI ∈ IndexTypes
     end
     function allocate_sparse(nrow::Integer, ncol::Integer, nzmax::Integer,
         sorted::Bool, packed::Bool, stype::Integer, ::Type{Tv}, ::Type{$TI}) where {Tv<:VTypes}
-        Sparse{Tv, $TI}($(cholname(:allocate_sparse, TI))(nrow, ncol, nzmax, sorted, 
+        Sparse{Tv, $TI}($(cholname(:allocate_sparse, TI))(nrow, ncol, nzmax, sorted,
             packed, stype, xtyp(Tv), getcommon($TI)))
     end
     function free!(ptr::Ptr{cholmod_sparse}, ::Type{$TI})
         $(cholname(:free_sparse, TI))(Ref(ptr), getcommon($TI)) == TRUE
     end
-    
+
     function free!(ptr::Ptr{cholmod_factor}, ::Type{$TI})
         # Warning! Important that finalizer doesn't modify the global Common struct.
         $(cholname(:free_factor, TI))(Ref(ptr), getcommon($TI)) == TRUE
@@ -587,7 +586,7 @@ for TI ∈ IndexTypes
     function check_sparse(A::Sparse{Tv, $TI}) where Tv<:VTypes
         $(cholname(:check_sparse, TI))(A, getcommon($TI)) != 0
     end
-    
+
     function check_factor(F::Factor{Tv, $TI}) where Tv<:VTypes
         $(cholname(:check_factor, TI))(F, getcommon($TI)) != 0
     end
@@ -596,7 +595,7 @@ for TI ∈ IndexTypes
     function speye(m::Integer, n::Integer, ::Type{Tv}, ::Type{$TI}) where Tv<:VTypes
         Sparse{Tv, $TI}($(cholname(:speye, TI))(m, n, xtyp(Tv), getcommon($TI)))
     end
-    
+
     function spzeros(m::Integer, n::Integer, nzmax::Integer, ::Type{Tv}, ::Type{$TI}) where Tv<:VTypes
         Sparse{Tv, $TI}($(cholname(:spzeros, TI))(m, n, nzmax, xtyp(Tv), getcommon($TI)))
     end
