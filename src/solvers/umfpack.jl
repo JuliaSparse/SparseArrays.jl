@@ -21,7 +21,6 @@ import ..increment, ..increment!, ..decrement, ..decrement!
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse:
-    SuiteSparse_long,
     umfpack_dl_defaults,
     umfpack_dl_report_control,
     umfpack_dl_report_info,
@@ -141,13 +140,12 @@ macro isok(A)
     :(umferror($(esc(A))))
 end
 
-# check the size of SuiteSparse_long
-if sizeof(SuiteSparse_long) == 4
-    const UmfpackIndexTypes = (:Int32,)
-    const UMFITypes = Int32
-else
+if Sys.WORD_SIZE == 64
     const UmfpackIndexTypes = (:Int32, :Int64)
     const UMFITypes = Union{Int32, Int64}
+else
+    const UmfpackIndexTypes = (:Int32,)
+    const UMFITypes = Int32
 end
 
 const UMFVTypes = Union{Float64,ComplexF64}
