@@ -6,7 +6,7 @@ import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
 using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, copy_similar
-using ..LibSuiteSparse: SuiteSparseQR_C
+using ..LibSuiteSparse: SuiteSparseQR_C, SuiteSparseQR_i_C
 
 # ordering options */
 const ORDERING_FIXED   = Int32(0)
@@ -33,25 +33,26 @@ using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsaf
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
-import ..LibSuiteSparse: cholmod_l_free
+import ..LibSuiteSparse: cholmod_l_free, cholmod_free
 
 function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
-        A::Sparse{Tv},
-        Bsparse::Union{Sparse{Tv}                      , Ptr{Cvoid}} = C_NULL,
+        A::Sparse{Tv, Ti},
+        Bsparse::Union{Sparse{Tv, Ti}                      , Ptr{Cvoid}} = C_NULL,
         Bdense::Union{Dense{Tv}                        , Ptr{Cvoid}} = C_NULL,
         Zsparse::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}  , Ptr{Cvoid}} = C_NULL,
         Zdense::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}  , Ptr{Cvoid}} = C_NULL,
         R::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
-        E::Union{Ref{Ptr{CHOLMOD.SuiteSparse_long}}    , Ptr{Cvoid}} = C_NULL,
+        E::Union{Ref{Ptr{Ti}}    , Ptr{Cvoid}} = C_NULL,
         H::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
-        HPinv::Union{Ref{Ptr{CHOLMOD.SuiteSparse_long}}, Ptr{Cvoid}} = C_NULL,
-        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Tv<:CHOLMOD.VTypes}
+        HPinv::Union{Ref{Ptr{Ti}}, Ptr{Cvoid}} = C_NULL,
+        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
 
     ordering ∈ ORDERINGS || error("unknown ordering $ordering")
 
+    spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = SuiteSparseQR_C(
+    rnk  = spqr_call(
         ordering,       # all, except 3:given treated as 0:fixed
         tol,            # columns with 2-norm <= tol treated as 0
         econ,           # e = max(min(m,econ),rank(A))
@@ -67,7 +68,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         H,              # m-by-nh Householder vectors
         HPinv,          # size m row permutation
         HTau,           # 1-by-nh Householder coefficients
-        CHOLMOD.getcommon()) # /* workspace and parameters */
+        CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
 
     if rnk < 0
         error("Sparse QR factorization failed")
@@ -75,29 +76,33 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
 
     e = E[]
     if e == C_NULL
-        _E = Vector{CHOLMOD.SuiteSparse_long}()
+        _E = Vector{Ti}()
     else
-        _E = Vector{CHOLMOD.SuiteSparse_long}(undef, n)
+        _E = Vector{Ti}(undef, n)
         for i in 1:n
             @inbounds _E[i] = unsafe_load(e, i) + 1
         end
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(n, sizeof(CHOLMOD.SuiteSparse_long), e, CHOLMOD.getcommon())
+        Ti === Int64 ? 
+            cholmod_l_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti)) :
+            cholmod_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti))
     end
     hpinv = HPinv[]
     if hpinv == C_NULL
-        _HPinv = Vector{CHOLMOD.SuiteSparse_long}()
+        _HPinv = Vector{Ti}()
     else
-        _HPinv = Vector{CHOLMOD.SuiteSparse_long}(undef, m)
+        _HPinv = Vector{Ti}(undef, m)
         for i in 1:m
             @inbounds _HPinv[i] = unsafe_load(hpinv, i) + 1
         end
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(m, sizeof(CHOLMOD.SuiteSparse_long), hpinv, CHOLMOD.getcommon())
+        Ti === Int64 ? 
+            cholmod_l_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti)) :
+            cholmod_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti))
     end
 
     return rnk, _E, _HPinv
@@ -187,11 +192,11 @@ Column permutation:
 
 [^ACM933]: Foster, L. V., & Davis, T. A. (2013). Algorithm 933: Reliable Calculation of Numerical Rank, Null Space Bases, Pseudoinverse Solutions, and Basic Solutions Using SuitesparseQR. ACM Trans. Math. Softw., 40(1). [doi:10.1145/2513109.2513116](https://doi.org/10.1145/2513109.2513116)
 """
-function LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv <: CHOLMOD.VTypes}
+function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
     R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    E     = Ref{Ptr{CHOLMOD.SuiteSparse_long}}()
+    E     = Ref{Ptr{Ti}}()
     H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    HPinv = Ref{Ptr{CHOLMOD.SuiteSparse_long}}()
+    HPinv = Ref{Ptr{Ti}}()
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
     # SPQR doesn't accept symmetric matrices so we explicitly set the stype
