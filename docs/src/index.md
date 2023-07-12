@@ -211,12 +211,14 @@ SparseArrays.AbstractSparseMatrix
 SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
+SparseArrays.sparse!
 SparseArrays.sparsevec
 Base.similar(::SparseArrays.AbstractSparseMatrixCSC, ::Type)
 SparseArrays.issparse
 SparseArrays.nnz
 SparseArrays.findnz
 SparseArrays.spzeros
+SparseArrays.spzeros!
 SparseArrays.spdiagm
 SparseArrays.sparse_hcat
 SparseArrays.sparse_vcat
