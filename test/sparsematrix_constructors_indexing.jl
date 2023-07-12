@@ -1751,6 +1751,52 @@ end
         @test getcolptr(S!) === I
         @test getrowval(S!) === J
         @test nonzeros(S!) === V
+
+        # Test reuse of I, J, V for the matrix buffers in
+        # sparse!(I, J, V), sparse!(I, J, V, m, n), sparse!(I, J, V, m, n, combine),
+        # spzeros!(T, I, J), and spzeros!(T, I, J, m, n).
+        I, J, V = allocate_arrays(m, n)
+        S = sparse(I, J, V)
+        S! = sparse!(I, J, V)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+        I, J, V = allocate_arrays(m, n)
+        S = sparse(I, J, V, 2m, 2n)
+        S! = sparse!(I, J, V, 2m, 2n)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+        I, J, V = allocate_arrays(m, n)
+        S = sparse(I, J, V, 2m, 2n, *)
+        S! = sparse!(I, J, V, 2m, 2n, *)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+        for T in (Float32, Float64)
+            I, J, = allocate_arrays(m, n)
+            S = spzeros(T, I, J)
+            S! = spzeros!(T, I, J)
+            @test S == S!
+            @test same_structure(S, S!)
+            @test eltype(S) == eltype(S!) == T
+            @test getcolptr(S!) === I
+            @test getrowval(S!) === J
+            I, J, = allocate_arrays(m, n)
+            S = spzeros(T, I, J, 2m, 2n)
+            S! = spzeros!(T, I, J, 2m, 2n)
+            @test S == S!
+            @test same_structure(S, S!)
+            @test eltype(S) == eltype(S!) == T
+            @test getcolptr(S!) === I
+            @test getrowval(S!) === J
+        end
     end
 end
 

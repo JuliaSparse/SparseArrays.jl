@@ -175,8 +175,8 @@ dA = Array(sA)
     p28227 = sparse(Real[0 0.5])
 
     for arr in (se33, sA, pA, p28227, spzeros(3, 3))
+        farr = Array(arr)
         for f in (sum, prod, minimum, maximum)
-            farr = Array(arr)
             @test f(arr) ≈ f(farr)
             @test f(arr, dims=1) ≈ f(farr, dims=1)
             @test f(arr, dims=2) ≈ f(farr, dims=2)
@@ -184,7 +184,6 @@ dA = Array(sA)
             @test isequal(f(arr, dims=3), f(farr, dims=3))
         end
         for f in (+, *, min, max)
-            farr = Array(arr)
             @test mapreduce(identity, f, arr) ≈ mapreduce(identity, f, farr)
             @test mapreduce(x -> x + 1, f, arr) ≈ mapreduce(x -> x + 1, f, farr)
         end

@@ -95,7 +95,7 @@ _sparsem(A::AbstractSparseMatrix) = A
 _sparsem(A::AbstractSparseVector) = A
 
 # Transpose/Adjoint of sparse vector (returning sparse matrix)
-function _sparsem(A::Union{Transpose{<:Any,<:AbstractSparseVector},Adjoint{<:Any,<:AbstractSparseVector}})
+function _sparsem(A::AdjOrTrans{<:Any,<:AbstractSparseVector})
     B = parent(A)
     n = length(B)
     Ti = eltype(nonzeroinds(B))
@@ -217,8 +217,7 @@ function _sparsem(A::AbstractTriangularSparse{Tv}) where Tv
 end
 
 # 8 cases: (Transpose|Adjoint){Tv,[Unit](Upper|Lower)Triangular}
-function _sparsem(taA::Union{Transpose{Tv,<:AbstractTriangularSparse},
-                             Adjoint{Tv,<:AbstractTriangularSparse}}) where {Tv}
+function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparse}) where {Tv}
 
     sA = taA.parent
     A = sA.data

@@ -233,8 +233,7 @@ julia> nnz(A)
 """
 nnz(S::AbstractSparseMatrixCSC) = Int(getcolptr(S)[size(S, 2) + 1]) - 1
 nnz(S::ReshapedArray{<:Any,1,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
-nnz(S::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
-nnz(S::Transpose{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
+nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::SparseMatrixCSCView) = nnz1(S)
@@ -1297,6 +1296,34 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
             Vector{Ti}(undef, n+1), Vector{Ti}(), Vector{Tv}())
 end
 
+"""
+    SparseArrays.sparse!(I, J, V, [m, n, combine]) -> SparseMatrixCSC
+
+Variant of `sparse!` that re-uses the input vectors (`I`, `J`, `V`) for the final matrix
+storage. After construction the input vectors will alias the matrix buffers; `S.colptr ===
+I`, `S.rowval === J`, and `S.nzval === V` holds, and they will be `resize!`d as necessary.
+
+Note that some work buffers will still be allocated. Specifically, this method is a
+convenience wrapper around `sparse!(I, J, V, m, n, combine, klasttouch, csrrowptr,
+csrcolval, csrnzval, csccolptr, cscrowval, cscnzval)` where this method allocates
+`klasttouch`, `csrrowptr`, `csrcolval`, and `csrnzval` of appropriate size, but reuses `I`,
+`J`, and `V` for `csccolptr`, `cscrowval`, and `cscnzval`.
+
+Arguments `m`, `n`, and `combine` defaults to `maximum(I)`, `maximum(J)`, and `+`,
+respectively.
+
+!!! compat "Julia 1.10"
+    This method requires Julia version 1.10 or later.
+"""
+function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
+                 m::Integer=dimlub(I), n::Integer=dimlub(J), combine::Function=+) where {Tv, Ti<:Integer}
+    klasttouch = Vector{Ti}(undef, n)
+    csrrowptr  = Vector{Ti}(undef, m + 1)
+    csrcolval  = Vector{Ti}(undef, length(I))
+    csrnzval   = Vector{Tv}(undef, length(I))
+    sparse!(I, J, V, Int(m), Int(n), combine, klasttouch, csrrowptr, csrcolval, csrnzval, I, J, V)
+end
+
 dimlub(I) = isempty(I) ? 0 : Int(maximum(I)) #least upper bound on required sparse matrix dimension
 
 sparse(I,J,v::Number) = sparse(I, J, fill(v,length(I)))
@@ -2141,6 +2168,31 @@ function spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::I
     # to only build the sparsity pattern (which is indicated by passing combine=nothing).
     return sparse!(I, J, cscnzval, m, n, nothing, klasttouch,
                    csrrowptr, csrcolval, cscnzval, csccolptr, cscrowval, cscnzval)
+end
+
+"""
+    SparseArrays.spzeros!(::Type{Tv}, I, J, [m, n]) -> SparseMatrixCSC{Tv}
+
+Variant of `spzeros!` that re-uses the input vectors `I` and `J` for the final matrix
+storage. After construction the input vectors will alias the matrix buffers; `S.colptr ===
+I` and `S.rowval === J` holds, and they will be `resize!`d as necessary.
+
+Note that some work buffers will still be allocated. Specifically, this method is a
+convenience wrapper around `spzeros!(Tv, I, J, m, n, klasttouch, csrrowptr, csrcolval,
+csccolptr, cscrowval)` where this method allocates `klasttouch`, `csrrowptr`, and
+`csrcolval` of appropriate size, but reuses `I` and `J` for `csccolptr` and `cscrowval`.
+
+Arguments `m` and `n` defaults to `maximum(I)` and `maximum(J)`.
+
+!!! compat "Julia 1.10"
+    This method requires Julia version 1.10 or later.
+"""
+function spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti},
+                  m::Integer=dimlub(I), n::Integer=dimlub(J)) where {Tv, Ti <: Integer}
+    klasttouch = Vector{Ti}(undef, n)
+    csrrowptr  = Vector{Ti}(undef, m + 1)
+    csrcolval  = Vector{Ti}(undef, length(I))
+    return spzeros!(Tv, I, J, Int(m), Int(n), klasttouch, csrrowptr, csrcolval, I, J)
 end
 
 import Base._one
