@@ -352,7 +352,7 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
         for j in nzrange(A, col)
             row = A.rowval[j]
             val = A.nzval[j]
-            s += dot(conj(x[row]), val, ycol)
+            s += dot(x[row], val, ycol)
         end
     end
     return s
