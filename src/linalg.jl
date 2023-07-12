@@ -340,18 +340,21 @@ function dot(A::AbstractSparseMatrixCSC{T1,S1},B::AbstractSparseMatrixCSC{T2,S2}
 end
 
 function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractVector{T3}) where {T1,T2,T3}
-    Base.require_one_based_indexing(x, y)
+    require_one_based_indexing(x, y)
     m, n = size(A)
     (length(x) == m && n == length(y)) || throw(DimensionMismatch())
     T = promote_type(T1, T2, T3)
     s = zero(T)
     (iszero(m) || iszero(n)) && return s
+
+    rowvals = getrowval(A)
+    nzvals = getnzval(A)
     
     @inbounds @simd for col in 1:n
         ycol = y[col]
         for j in nzrange(A, col)
-            row = A.rowval[j]
-            val = A.nzval[j]
+            row = rowvals[j]
+            val = nzvals[j]
             s += dot(x[row], val, ycol)
         end
     end
