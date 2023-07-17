@@ -404,7 +404,7 @@ Factor(FC::FactorComponent) = FC.F
 #################
 
 # Dense wrappers
-# The ifelse here may be unecessary.
+# The ifelse here may be unnecessary.
 # nothing different actually occurs in cholmod_l_allocate vs cholmod_allocate AFAICT.
 # And CHOLMOD has no way of tracking the difference internally (no internal itype field).
 # This leads me to believe they can be mixed with long and int versions of sparse freely.

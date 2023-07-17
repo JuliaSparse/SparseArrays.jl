@@ -1077,7 +1077,7 @@ end
         @test Base.isstored(A, c[1], c[2]) == false
     end
 
-    # `isstored` for adjoint and tranposed matrices:
+    # `isstored` for adjoint and transposed matrices:
     for trans in (adjoint, transpose)
         B = trans(A)
         stored_indices = [CartesianIndex(j, i) for (j, i) in zip(J, I)]
@@ -1390,7 +1390,7 @@ using Base: swaprows!, swapcols!
              (swaprows!, 2, 3), # Test swapping rows of unequal length
              (swaprows!, 2, 4), # Test swapping non-adjacent rows
              (swapcols!, 1, 2), # Test swapping columns where one column is fully sparse
-             (swapcols!, 2, 3), # Test swapping coulms of unequal length
+             (swapcols!, 2, 3), # Test swapping columns of unequal length
              (swapcols!, 2, 4)) # Test swapping non-adjacent columns
         Scopy = copy(S)
         Sdense = Array(S)
