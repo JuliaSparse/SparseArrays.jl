@@ -20,6 +20,23 @@ using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCS
     @test (r[1] = r[1]; true)
 end
 
+@testset "SparseMatrixCSC from readonly" begin
+
+    # test that SparseMatrixCSC from readonly does copy
+    A = sprandn(12, 11, 0.3)
+    B = SparseMatrixCSC(size(A)..., ReadOnly(getcolptr(A)), ReadOnly(rowvals(A)), nonzeros(A))
+
+    @test typeof(B) == typeof(A)
+    @test A == B
+
+    @test getcolptr(A) == getcolptr(B)
+    @test getcolptr(A) !== getcolptr(B)
+    @test rowvals(A) == rowvals(B)
+    @test rowvals(A) !== rowvals(B)
+    @test nonzeros(A) == nonzeros(B)
+    @test nonzeros(A) === nonzeros(B)
+end
+
 struct_eq(A, B, C...) = struct_eq(A, B) && struct_eq(B, C...)
 struct_eq(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) =
     getcolptr(A) == getcolptr(B) && rowvals(A) == rowvals(B)
@@ -30,6 +47,10 @@ struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
     A = sprandn(10, 10, 0.3)
 
     F = FixedSparseCSC(copy(A))
+    Ft = FixedSparseCSC{eltype(A),eltype(rowvals(A))}(A)
+    @test typeof(Ft) == typeof(F)
+    @test Ft == F
+
     @test struct_eq(F, A)
     nonzeros(F) .= 0
     @test struct_eq(F, A)
@@ -97,7 +118,7 @@ end
     @test f(x, y, z) == 0
     t = similar(x)
     @test typeof(t) == typeof(x)
-    @test struct_eq(t, x)
+    @test struct_eq(t, x)    
 end
 
 @testset "Issue #190" begin
