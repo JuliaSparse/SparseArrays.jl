@@ -778,6 +778,13 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
             SparseVector(8, Int[1, 2, 6], Float64[3.25, 4.0, 3.5]))
         @test exact_equal(min.(x, x2),
             SparseVector(8, Int[2, 5, 6, 7], Float64[1.25, -0.75, -5.5, -6.0]))
+
+        # operations with views
+        for op in (:-, :+)
+            @test op(@view(xb[1:end]), @view(xa[1:end])) == op(xa, xb)
+            @test op(@view(xb[2:5]), @view(xa[2:5])) == op(xa, xb)[2:5]
+            @test op(@view(xb[1:end]), @view(big.(xa))) == big.(op(xa, xb))
+        end
     end
 
     ### Complex

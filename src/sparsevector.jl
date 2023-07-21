@@ -1558,6 +1558,21 @@ for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
     end
 end
 
+for fun in (:+, :-)
+    @eval @propagate_inbounds function $(fun)(x::SparseVectorUnion{Tx}, y::SparseVectorUnion{Ty}) where {Tx, Ty}
+        @boundscheck size(x) == size(y)
+        T = promote_type(Tx, Ty)
+        res = spzeros(T, length(x))
+        copyto!(res, x)
+        nzinds = nonzeroinds(y)
+        nzvals = nzvals(y)
+        @inbounds for nzidx in eachindex(nzinds)
+            res[nzinds[nzidx]] += nzvals[nzidx]
+        end
+        return res
+    end
+end
+
 ### Reduction
 Base.reducedim_initarray(A::SparseVectorUnion, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
