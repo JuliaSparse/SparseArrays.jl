@@ -787,7 +787,7 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
             r2 = op(@view(xb[2:5]), @view(xa[2:5]))
             @test r2 == op(xa, xb)[2:5]
             @test r2 isa SparseVector
-            r3 = op(@view(xb[1:end]), @view(big.(xa)))
+            r3 = op(@view(xb[1:end]), big.(xa))
             @test r3 == big.(op(xa, xb))
             @test r3 isa SparseVector
         end
