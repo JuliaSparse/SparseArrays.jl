@@ -1567,7 +1567,7 @@ for fun in (:+, :-)
         nzinds = nonzeroinds(y)
         nzvals = nonzeros(y)
         @inbounds for nzidx in eachindex(nzinds)
-            res[nzinds[nzidx]] += nzvals[nzidx]
+            res[nzinds[nzidx]] = fun(res[nzinds[nzidx]], nzvals[nzidx])
         end
         return res
     end
