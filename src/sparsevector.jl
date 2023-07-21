@@ -1565,7 +1565,7 @@ for fun in (:+, :-)
         res = spzeros(T, length(x))
         copyto!(res, x)
         nzinds = nonzeroinds(y)
-        nzvals = nzvals(y)
+        nzvals = nonzeros(y)
         @inbounds for nzidx in eachindex(nzinds)
             res[nzinds[nzidx]] += nzvals[nzidx]
         end
