@@ -788,7 +788,7 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         (SparseVector(5, [1], [1.0]), SparseVector(5, [2], [3.0])),
         (SparseVector(5, [3], [2.0]), SparseVector(5, [4], [3.0])),
     ]
-    @testset "View operations $((xa, xb)), op $op" for (xa, xb) in test_vectors, op in (-, +)
+    @testset "View operations $((collect(xa), collect(xb))), op $op" for (xa, xb) in test_vectors, op in (-, +)
         r1 = op(@view(xa[1:end]), @view(xb[1:end]))
         @test r1 == op(xa, xb)
         @test r1 isa SparseVector

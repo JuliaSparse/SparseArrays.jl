@@ -169,7 +169,7 @@ function _partialview_end_indices(x::SparseVectorPartialView)
         first_idx = findfirst(>=(x.indices[1][begin]), nzinds)
         last_idx = findlast(<=(x.indices[1][end]), nzinds)
         # empty view
-        if first_idx === nothing
+        if first_idx === nothing || last_idx === nothing
             last_idx = length(nzinds)
             first_idx = last_idx+1
         end
