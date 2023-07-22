@@ -10,7 +10,7 @@ using Test: guardseed
 using InteractiveUtils: @which
 using Dates
 include(joinpath(@__DIR__, "forbidproperties.jl"))
-include("simplesmatrix.jl")
+include(joinpath(@__DIR__, "simplesmatrix.jl"))
 
 function same_structure(A, B)
     return all(getfield(A, f) == getfield(B, f) for f in (:m, :n, :colptr, :rowval))

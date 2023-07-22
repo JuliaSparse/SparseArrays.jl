@@ -7,7 +7,7 @@ using Random
 using Test: guardseed
 using InteractiveUtils: @which
 include(joinpath(@__DIR__, "forbidproperties.jl"))
-include("simplesmatrix.jl")
+include(joinpath(@__DIR__, "simplesmatrix.jl"))
 
 
 @testset "Issue #15" begin

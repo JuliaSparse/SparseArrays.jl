@@ -17,7 +17,7 @@ if Base.USE_GPL_LIBS
     # Test multithreaded execution
     @testset "threaded SuiteSparse tests" verbose = true begin
         @testset "threads = $nt" begin
-            include("threads.jl")
+            include(joinpath(@__DIR__, "threads.jl"))
         end
         # test both nthreads==1 and nthreads>1. spawn a process to test whichever
         # case we are not running currently.

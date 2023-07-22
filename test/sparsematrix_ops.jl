@@ -12,7 +12,7 @@ using Test: guardseed
 using InteractiveUtils: @which
 using Dates
 include(joinpath(@__DIR__, "forbidproperties.jl"))
-include("simplesmatrix.jl")
+include(joinpath(@__DIR__, "simplesmatrix.jl"))
 
 @testset "_isnotzero" begin
     @test !_isnotzero(0::Int)
