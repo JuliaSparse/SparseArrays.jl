@@ -9,7 +9,7 @@ using Printf: @printf # for debug
 using Test: guardseed
 using InteractiveUtils: @which
 using Dates
-include("forbidproperties.jl")
+include(joinpath(@__DIR__, "forbidproperties.jl"))
 include("simplesmatrix.jl")
 
 function same_structure(A, B)

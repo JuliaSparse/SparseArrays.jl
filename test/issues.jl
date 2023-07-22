@@ -6,7 +6,7 @@ using LinearAlgebra
 using Random
 using Test: guardseed
 using InteractiveUtils: @which
-include("forbidproperties.jl")
+include(joinpath(@__DIR__, "forbidproperties.jl"))
 include("simplesmatrix.jl")
 
 

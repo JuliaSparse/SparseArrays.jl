@@ -7,7 +7,7 @@ using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
+include(joinpath(@__DIR__, "forbidproperties.jl"))
 
 ### Data
 

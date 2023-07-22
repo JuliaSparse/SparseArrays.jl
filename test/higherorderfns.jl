@@ -10,7 +10,7 @@ using Test
 using SparseArrays
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
+include(joinpath(@__DIR__, "forbidproperties.jl"))
 function test_map_and_map!(A, alloc_tests)
     # --> test map entry point
     fA = Array(A)
