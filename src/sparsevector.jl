@@ -1569,6 +1569,7 @@ for fun in (:+, :-)
         @inbounds for nzidx in eachindex(nzinds)
             res[nzinds[nzidx]] = $fun(res[nzinds[nzidx]], nzvals[nzidx])
         end
+        dropzeros!(res)
         return res
     end
 end

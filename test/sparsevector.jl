@@ -780,7 +780,7 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
             SparseVector(8, Int[2, 5, 6, 7], Float64[1.25, -0.75, -5.5, -6.0]))
 
         # operations with views
-        for op in (:-, :+)
+        for op in (-, +)
             r1 = op(@view(xb[1:end]), @view(xa[1:end]))
             @test r1 == op(xa, xb)
             @test r1 isa SparseVector
