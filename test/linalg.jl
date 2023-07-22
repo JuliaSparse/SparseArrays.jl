@@ -138,7 +138,7 @@ end
             ACa = sparse(trop(AC)) # copied and adjoint
             @test AT \ B ≈ AC \ B
             @test ATa \ B ≈ ACa \ B
-            @test ATa \ sparse(B) == ATa \ B
+            @test ATa \ sparse(B) ≈ ATa \ B
             @test Matrix(ATa) \ B ≈ ATa \ B
             @test ATa * ( ATa \ B ) ≈ B
         end

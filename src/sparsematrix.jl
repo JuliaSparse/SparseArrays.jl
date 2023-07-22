@@ -124,7 +124,7 @@ Get a writable copy of x. See `_unsafe_unfix(x)`
 """
 SparseMatrixCSC(x::FixedSparseCSC) = SparseMatrixCSC(size(x, 1), size(x, 2),
     copy(parent(getcolptr(x))),
-    copy(parent(rowval(x))),
+    copy(parent(rowvals(x))),
     copy(nonzeros(x)))
 
 function sparse_check_Ti(m::Integer, n::Integer, Ti::Type)
@@ -294,6 +294,9 @@ column. In conjunction with [`nonzeros`](@ref) and
           # perform sparse wizardry...
        end
     end
+
+!!! warning
+    Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
 nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
 nzrange(S::SparseMatrixCSCView, col::Integer) = nzrange(S.parent, S.indices[2][col])
