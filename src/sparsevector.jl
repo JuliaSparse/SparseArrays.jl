@@ -1598,7 +1598,7 @@ end
 
 for fun in (:+, :-)
     @eval @propagate_inbounds function $(fun)(x::Union{SparseVectorUnion{Tx},SparseVectorPartialView{Tx}}, y::Union{SparseVectorUnion{Ty},SparseVectorPartialView{Ty}}) where {Tx, Ty}
-        @boundscheck axes(x) == axes(y)
+        @boundscheck axes(x) == axes(y) || throw(DimensionMismatch("$(axes(x)), $(axes(y))"))
         T = promote_type(Tx, Ty)
         res = spzeros(T, length(x))
         copyto!(res, x)
