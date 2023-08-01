@@ -1144,7 +1144,9 @@ function hcat(Xin::AbstractSparseVector...)
     X = map(_unsafe_unfix, Xin)
     Tv = promote_type(map(eltype, X)...)
     Ti = promote_type(map(indtype, X)...)
-    r = _absspvec_hcat(map(x -> convert(SparseVector{Tv,Ti}, x), X)...)
+    r = (function (::Type{SV}) where SV
+        _absspvec_hcat(map(x -> convert(SV, x), X)...)
+    end)(SparseVector{Tv,Ti})
     return @if_move_fixed Xin... r
 end
 function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
@@ -1180,7 +1182,9 @@ function vcat(Xin::AbstractSparseVector...)
     X = map(_unsafe_unfix, Xin)
     Tv = promote_type(map(eltype, X)...)
     Ti = promote_type(map(indtype, X)...)
-    r = _absspvec_vcat(map(x -> convert(SparseVector{Tv,Ti}, x), X)...)
+    r = (function (::Type{SV}) where SV
+            _absspvec_vcat(map(x -> convert(SV, x), X)...)
+        end)(SparseVector{Tv,Ti})
     return @if_move_fixed Xin... r
 end
 function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
