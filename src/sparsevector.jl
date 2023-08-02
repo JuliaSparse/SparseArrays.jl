@@ -4,7 +4,7 @@
 
 import Base: sort!, findall, copy!
 import LinearAlgebra: promote_to_array_type, promote_to_arrays_
-using LinearAlgebra: adj_or_trans
+using LinearAlgebra: wrapperop
 
 ### The SparseVector
 
@@ -1834,7 +1834,7 @@ function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) whe
     length(x) == n || throw(DimensionMismatch())
     Ty = promote_op(matprod, eltype(A), eltype(x))
     y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
+    mul!(y, A, x)
 end
 
 function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
@@ -2035,7 +2035,7 @@ function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
 end
 
 *(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
-    _At_or_Ac_mul_B((a,b) -> adj_or_trans(xA)(a) * b, xA.parent, x, promote_op(matprod, eltype(xA), eltype(x)))
+    _At_or_Ac_mul_B((a,b) -> wrapperop(xA)(a) * b, xA.parent, x, promote_op(matprod, eltype(xA), eltype(x)))
 
 function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
                          Tv = promote_op(matprod, TvA, TvX)) where {TvA,TiA,TvX,TiX}

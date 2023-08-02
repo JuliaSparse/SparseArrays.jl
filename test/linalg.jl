@@ -811,6 +811,13 @@ end
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
     end
+
+    for (T, trans) in ((Float64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
+        B = sprandn(T, 10, 10, 0.2)
+        x = sprandn(T, 10, 0.4)
+        S = trans(B'B, uplo)
+        @test dot(x, S, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Matrix(S), Vector(x))
+    end
 end
 
 @testset "conversion to special LinearAlgebra types" begin
