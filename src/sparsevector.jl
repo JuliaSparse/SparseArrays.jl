@@ -117,9 +117,7 @@ function nnz(x::SparseColumnView)
     return length(nzrange(parent(x), colidx))
 end
 nnz(x::SparseVectorView) = nnz(x.parent)
-function nnz(x::SparseVectorPartialView)
-    return length(nonzeroinds(x))
-end
+nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))
 
 """
     nzrange(x::SparseVectorUnion, col)
@@ -144,7 +142,7 @@ nonzeros(x::SparseVectorView) = nonzeros(parent(x))
 function nonzeros(x::SparseVectorPartialView)
     (first_idx, last_idx) = _partialview_end_indices(x)
     nzvals = nonzeros(parent(x))
-    return @view(nzvals[first_idx:last_idx])
+    return view(nzvals, first_idx:last_idx)
 end
 
 nonzeroinds(x::SparseVector) = getfield(x, :nzind)
