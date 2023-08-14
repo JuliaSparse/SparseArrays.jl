@@ -1574,6 +1574,14 @@ end
     _show_with_braille_patterns(ioc, _filled_sparse(8, 16))
     @test String(take!(io)) == "⎡⣿⣿⎤\n" *
                                "⎣⣿⣿⎦"
+
+    I, J, V = shuffle(1:100), shuffle(1:100), [1:100;]
+    S = sparse(I, J, V)
+    I, J, V = I[sortperm(J)], sort(J), V[sortperm(J)]
+    @test repr(S) == "sparse($I, $J, $V, $(size(S,1)), $(size(S,2)))"
+    limctxt(x) = repr(x, context=:limit=>true)
+    expstr = "sparse($(limctxt(I)), $(limctxt(J)), $(limctxt(V)), $(size(S,1)), $(size(S,2)))"
+    @test limctxt(S) == expstr
 end
 
 @testset "issparse for specialized matrix types" begin

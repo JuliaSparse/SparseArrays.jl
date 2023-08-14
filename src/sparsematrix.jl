@@ -344,6 +344,20 @@ function Base.print_array(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTransp
     end
 end
 
+# struct to generate the column indices of the values
+struct ColumnIndices{Ti,S<:AbstractSparseMatrixCSC{<:Any,Ti}} <: AbstractVector{Ti}
+    arr :: S
+end
+
+size(C::ColumnIndices) = (nnz(C.arr),)
+# returns the column index of the n-th non-zero value from the column pointer
+@inline function getindex(C::ColumnIndices, i::Int)
+    @boundscheck checkbounds(C, i)
+    colptr = getcolptr(C.arr)
+    ind = searchsortedlast(colptr, i)
+    eltype(C)(ind)
+end
+
 # always show matrices as `sparse(I, J, K)`
 function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
     _checkbuffers(_S)
@@ -358,21 +372,7 @@ function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
         print(io, "transpose(")
     end
     print(io, "sparse(", I, ", ")
-    if length(I) == 0
-        print(io, eltype(getcolptr(S)), "[]")
-    else
-        print(io, "[")
-        il = nnz(S) - 1
-        for col in 1:size(S, 2),
-            k in getcolptr(S)[col] : (getcolptr(S)[col+1]-1)
-            print(io, col)
-            if il > 0
-                print(io, ", ")
-                il -= 1
-            end
-        end
-        print(io, "]")
-    end
+    show(io, ColumnIndices(S))
     print(io, ", ", K, ", ", m, ", ", n, ")")
     if _S isa Adjoint || _S isa Transpose
         print(io, ")")
