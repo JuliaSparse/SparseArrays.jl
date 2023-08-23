@@ -5,6 +5,7 @@
 original_depot_path = copy(Base.DEPOT_PATH)
 original_load_path = copy(Base.LOAD_PATH)
 original_env = copy(ENV)
+original_project = Base.active_project()
 ###
 
 import Pkg
@@ -13,6 +14,7 @@ import Pkg
 if Base.find_package("Aqua") === nothing
     @debug "Installing Aqua.jl for SparseArrays.jl tests"
     iob = IOBuffer()
+    Pkg.activate(; temp = true)
     try
         Pkg.add("Aqua", io=iob) # Needed for custom julia version resolve tests
     catch
@@ -86,4 +88,6 @@ end
 for (k, v) in pairs(original_env)
     ENV[k] = v
 end
+
+Base.set_active_project(original_project)
 ###
