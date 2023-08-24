@@ -1006,13 +1006,17 @@ function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
            " stored ", xnnz == 1 ? "entry" : "entries")
     if xnnz != 0
         println(io, ":")
-        show(IOContext(io, :typeinfo => eltype(x)), x)
+        show(IOContext(io, :typeinfo => eltype(x)), MIME"text/plain"(), x)
     end
 end
 
 show(io::IO, x::AbstractSparseVector) = show(convert(IOContext, io), x)
 function show(io::IOContext, x::AbstractSparseVector)
-    # TODO: make this a one-line form
+    nzind = nonzeroinds(x)
+    nzval = nonzeros(x)
+    print(io, "sparsevec(", nzind, ", ", nzval, ", ", length(x), ")")
+end
+function show(io::IOContext, ::MIME"text/plain", x::AbstractSparseVector)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     if isempty(nzind)

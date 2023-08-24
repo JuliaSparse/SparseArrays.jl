@@ -1534,7 +1534,7 @@ mutable struct t20488 end
     show(io, MIME"text/plain"(),  spzeros(Float64, Int64, 2))
     @test String(take!(io)) == "2-element $(SparseArrays.SparseVector){Float64, Int64} with 0 stored entries"
     show(io, similar(sparsevec(rand(3) .+ 0.1), t20488))
-    @test String(take!(io)) == "  [1]  =  #undef\n  [2]  =  #undef\n  [3]  =  #undef"
+    @test String(take!(io)) == "sparsevec([1, 2, 3], $t20488[#undef, #undef, #undef], 3)"
     # Test that we don't introduce unnecessary padding for long sparse arrays
     show(io, MIME"text/plain"(), SparseVector(div(typemax(Int32), 2), Int32[1], Int32[1]))
     @test String(take!(io)) == "1073741823-element $(SparseArrays.SparseVector){Int32, Int32} with 1 stored entry:\n  [1]  =  1"
