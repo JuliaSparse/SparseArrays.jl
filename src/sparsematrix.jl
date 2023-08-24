@@ -344,7 +344,13 @@ function Base.print_array(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTransp
     end
 end
 
-# struct to generate the column indices of the values
+"""
+    ColumnIndices(S::AbstractSparseMatrixCSC)
+
+Return the column indices of the stored values in `S`.
+This is an internal type that is used in displaying sparse matrices,
+and is not a part of the public interface.
+"""
 struct ColumnIndices{Ti,S<:AbstractSparseMatrixCSC{<:Any,Ti}} <: AbstractVector{Ti}
     arr :: S
 end

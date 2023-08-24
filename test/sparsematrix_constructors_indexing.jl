@@ -1575,7 +1575,8 @@ end
     @test String(take!(io)) == "⎡⣿⣿⎤\n" *
                                "⎣⣿⣿⎦"
 
-    I, J, V = shuffle(1:100), shuffle(1:100), [1:100;]
+    # respect IOContext while displaying J
+    I, J, V = shuffle(1:50), shuffle(1:50), [1:50;]
     S = sparse(I, J, V)
     I, J, V = I[sortperm(J)], sort(J), V[sortperm(J)]
     @test repr(S) == "sparse($I, $J, $V, $(size(S,1)), $(size(S,2)))"
