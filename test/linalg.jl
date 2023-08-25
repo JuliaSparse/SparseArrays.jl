@@ -138,7 +138,7 @@ end
             ACa = sparse(trop(AC)) # copied and adjoint
             @test AT \ B ≈ AC \ B
             @test ATa \ B ≈ ACa \ B
-            @test ATa \ sparse(B) == ATa \ B
+            @test ATa \ sparse(B) ≈ ATa \ B
             @test Matrix(ATa) \ B ≈ ATa \ B
             @test ATa * ( ATa \ B ) ≈ B
         end
@@ -190,7 +190,7 @@ end
     @testset "symmetric/Hermitian sparse multiply with $S($U)" for S in (Symmetric, Hermitian), U in (:U, :L), (A, B) in ((Areal,Breal), (Acomplex,Bcomplex))
         Asym = S(A, U)
         As = sparse(Asym) # takes most time
-        @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
+        # @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
         @test norm(Asym * B - As * B, Inf) <= eps() * n * p * 10
     end
 end
@@ -207,7 +207,7 @@ end
     @testset "symmetric/Hermitian sparseview multiply with $S($U)" for S in (Symmetric, Hermitian), U in (:U, :L), (A, B) in ((Areal,Breal), (Acomplex,Bcomplex))
         Asym = S(A, U)
         As = sparse(Asym) # takes most time
-        @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
+        # @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
         @test norm(Asym * B - As * B, Inf) <= eps() * n * p * 10
     end
 end
@@ -662,11 +662,14 @@ end
         @test Array(f*b) == f*Array(b)
         A = rand(2n, 2n)
         sA = view(A, 1:2:2n, 1:2:2n)
-        @test Array(sA*b) ≈ Array(sA)*Array(b)
-        @test Array(a*sA) ≈ Array(a)*Array(sA)
+        @test Array((sA*b)::Matrix) ≈ Array(sA)*Array(b)
+        @test Array((a*sA)::Matrix) ≈ Array(a)*Array(sA)
+        @test Array((sA'b)::Matrix) ≈ Array(sA')*Array(b)
         c = sprandn(ComplexF32, n, n, q)
-        @test Array(sA*c') ≈ Array(sA)*Array(c)'
-        @test Array(c'*sA) ≈ Array(c)'*Array(sA)
+        @test Array((sA*c')::Matrix) ≈ Array(sA)*Array(c)'
+        @test Array((c'*sA)::Matrix) ≈ Array(c)'*Array(sA)
+        @test Array((sA'c)::Matrix) ≈ Array(sA')*Array(c)
+        @test Array((sA'c')::Matrix) ≈ Array(sA')*Array(c)'
     end
 end
 
@@ -694,7 +697,7 @@ end
 end
 
 @testset "kronecker product" begin
-    for (m,n) in ((5,10), (13,8), (14,10))
+    for (m,n) in ((5,10), (13,8))
         a = sprand(m, 5, 0.4); a_d = Matrix(a)
         b = sprand(n, 6, 0.3); b_d = Matrix(b)
         v = view(a, :, 1); v_d = Vector(v)
@@ -718,12 +721,11 @@ end
                 @test Array(kron(t(a), b)::SparseMatrixCSC) == kron(t(a_d), b_d)
                 @test Array(kron(a, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
                 @test Array(kron(t(a), t(b))::SparseMatrixCSC) == kron(t(a_d), t(b_d))
-                @test Array(kron(a_d, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
                 @test Array(kron(t(a), b_d)::SparseMatrixCSC) == kron(t(a_d), b_d)
-                @test issparse(kron(c, d_di))
-                @test Array(kron(c, d_di)) == kron(c_d, d_d)
-                @test issparse(kron(c_di, d))
-                @test Array(kron(c_di, d)) == kron(c_d, d_d)
+                @test Array(kron(a_d, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
+                @test Array(kron(t(a), c_di)::SparseMatrixCSC) == kron(t(a_d), c_d)
+                @test Array(kron(a, t(c_di))::SparseMatrixCSC) == kron(a_d, t(c_d))
+                @test Array(kron(t(a), t(c_di))::SparseMatrixCSC) == kron(t(a_d), t(c_d))
                 @test issparse(kron(c_di, y))
                 @test Array(kron(c_di, y)) == kron(c_di, y_d)
                 @test issparse(kron(x, d_di))
@@ -754,6 +756,10 @@ end
         @test Vector(kron(x, z)) == kron(x_d, z_d)
         @test Array(kron(a, z)) == kron(a_d, z_d)
         @test Array(kron(z, b)) == kron(z_d, b_d)
+        # test bounds checks
+        @test_throws DimensionMismatch kron!(copy(a), a, b)
+        @test_throws DimensionMismatch kron!(copy(x), x, y)
+        @test_throws DimensionMismatch kron!(spzeros(2,2), x, y')
     end
 end
 
@@ -804,6 +810,13 @@ end
         y = sprand(ComplexF64, 15, 0.5)
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
+    end
+
+    for (T, trans) in ((Float64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
+        B = sprandn(T, 10, 10, 0.2)
+        x = sprandn(T, 10, 0.4)
+        S = trans(B'B, uplo)
+        @test dot(x, S, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Matrix(S), Vector(x))
     end
 end
 

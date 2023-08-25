@@ -1,5 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 using Test, LinearAlgebra, SparseArrays
+
 for file in readlines(joinpath(@__DIR__, "testgroups"))
     file == "" && continue # skip empty lines
     include(file * ".jl")

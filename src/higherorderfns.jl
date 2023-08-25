@@ -111,7 +111,7 @@ const SpBroadcasted2{Style<:SPVM,Axes,F,Args<:Tuple{SparseVecOrMat,SparseVecOrMa
 
 # (1) The definitions below provide a common interface to sparse vectors and matrices
 # sufficient for the purposes of map[!]/broadcast[!]. This interface treats sparse vectors
-# as n-by-one sparse matrices which, though technically incorrect, is how broacast[!] views
+# as n-by-one sparse matrices which, though technically incorrect, is how broadcast[!] views
 # sparse vectors in practice.
 @inline numrows(A::AbstractCompressedVector) = length(A)
 @inline numrows(A::AbstractSparseMatrixCSC) = size(A, 1)

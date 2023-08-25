@@ -175,8 +175,8 @@ dA = Array(sA)
     p28227 = sparse(Real[0 0.5])
 
     for arr in (se33, sA, pA, p28227, spzeros(3, 3))
+        farr = Array(arr)
         for f in (sum, prod, minimum, maximum)
-            farr = Array(arr)
             @test f(arr) ≈ f(farr)
             @test f(arr, dims=1) ≈ f(farr, dims=1)
             @test f(arr, dims=2) ≈ f(farr, dims=2)
@@ -184,10 +184,13 @@ dA = Array(sA)
             @test isequal(f(arr, dims=3), f(farr, dims=3))
         end
         for f in (+, *, min, max)
-            farr = Array(arr)
             @test mapreduce(identity, f, arr) ≈ mapreduce(identity, f, farr)
             @test mapreduce(x -> x + 1, f, arr) ≈ mapreduce(x -> x + 1, f, farr)
         end
+    end
+
+    for s0 in (spzeros(3, 7), spzeros(1, 3), spzeros(3, 1)), d in (1, 2, 3, (1,2))
+        @test all(isone, sum(s0, dims=d, init=1.0))
     end
 
     for f in (sum, prod, minimum, maximum)
@@ -230,6 +233,8 @@ dA = Array(sA)
         @test all(v)
         @test !iszero(v)
         @test count(v) == length(v)
+        @test all(!iszero, spzeros(0, 0))
+        @test !any(iszero, spzeros(0, 0))
     end
 
     @testset "empty cases" begin
@@ -559,6 +564,36 @@ Base.transpose(x::Counting) = Counting(transpose(x.elt))
             ((A′ isa Adjoint && B′ isa Transpose) || (A′ isa Transpose && B′ isa Adjoint)) && continue
             c = (resetcounter(); A′ == B′; getcounter())
             @test c ≤ 1 + (nnz(A′) + nnz(B′))
+        end
+    end
+end
+
+
+@testset "Issue #246" begin
+    for t in [Int, UInt8, Float64]
+        a = Counting.(sprand(t, 100, 0.5))
+        b = Counting.(sprand(t, 100, 0.5))
+
+        c = if nnz(a) != 0
+            c = copy(a)
+            nonzeros(c)[1] = 0
+            c
+        else
+            c = copy(a)
+            push!(nonzeros(c), zero(t))
+            push!(nonzerosinds(c), 1)
+            c
+        end
+        d = dropzeros(c)
+
+        for m in [identity, transpose, adjoint]
+            ma, mb, mc, md = m.([a, b, c, d])
+
+            resetcounter()
+            ma == mb
+            @test getcounter() <= nnz(a) + nnz(b)
+
+            @test (mc == md) == (Array(mc) == Array(md))
         end
     end
 end

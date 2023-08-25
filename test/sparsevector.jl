@@ -59,6 +59,7 @@ end
         @test isa(Array(x), Vector{Float64})
         @test Array(x) == xf
         @test Vector(x) == xf
+        @test collect(x) == xf
     end
 end
 @testset "show" begin
@@ -290,6 +291,10 @@ end
             @test Array(r) == Array(x)[bIv]
         end
     end
+    @testset "index with colon" begin
+        @test issparse(spzeros(0)[:])
+        @test isempty(spzeros(0)[:])
+    end
 end
 @testset "setindex" begin
     let xc = spzeros(Float64, 8)
@@ -459,7 +464,7 @@ end
         @test Vector(x1) == collect(x)
     end
 end
-@testset "vec/reinterpret/float/complex" begin
+@testset "vec/float/complex" begin
     a = SparseVector(8, [2, 5, 6], Int32[12, 35, 72])
     # vec
     @test vec(a) == a
@@ -617,6 +622,12 @@ end
             @test isa(vcat(spv6464, SparseVector(0, Int64[], Int32[])), SparseVector{Int64,Int64})
             @test isa(vcat(spv6464, SparseVector(0, Int32[], Int64[])), SparseVector{Int64,Int64})
             @test isa(vcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseVector{Int64,Int64})
+        end
+        @testset "horizontal concatenation of SparseVectors with different el- and ind-type (#22225)" begin
+            spv6464 = SparseVector(0, Int64[], Int64[])
+            @test isa(hcat(spv6464, SparseVector(0, Int64[], Int32[])), SparseMatrixCSC{Int64,Int64})
+            @test isa(hcat(spv6464, SparseVector(0, Int32[], Int64[])), SparseMatrixCSC{Int64,Int64})
+            @test isa(hcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseMatrixCSC{Int64,Int64})
         end
     end
 end
@@ -976,6 +987,11 @@ end
         @test all(v)
         @test count(v) == length(v)
     end
+
+    let v = spzeros(0)
+        @test all(!iszero, v)
+        @test !any(iszero, v)
+    end
 end
 
 ### linalg
@@ -1082,6 +1098,22 @@ end
                 @test isa(y, Vector{T})
                 @test y ≈ *(adjoint(A), xf)
             end
+
+            let A = randn(TA, 16, 16), x = sprand(Tx, 16, 0.7)
+                xf = Array(x)
+                for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
+                        M -> Hermitian(M, :U), M -> Hermitian(M, :L))
+                    for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
+                        y = rand(T, 16)
+                        rr = α*wrap(A)*xf + β*y
+                        @test mul!(y, wrap(A), x, α, β) === y
+                        @test y ≈ rr
+                    end
+                    y = *(wrap(A), x)
+                    @test isa(y, Vector{T})
+                    @test y ≈ *(wrap(A), xf)
+                end
+            end
         end
     end
     @testset "sparse A * sparse x -> dense y" begin
@@ -1111,6 +1143,29 @@ end
             y = SparseArrays.densemv(A, x; trans='T')
             @test isa(y, Vector{Float64})
             @test y ≈ *(transpose(Af), xf)
+        end
+
+        let A = sprandn(16, 16, 0.5), x = sprand(16, 0.7)
+            Af = Array(A)
+            xf = Array(x)
+            for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
+                M -> Hermitian(M, :U), M -> Hermitian(M, :L),
+                M -> UpperTriangular(M), M -> UnitUpperTriangular(M),
+                M -> LowerTriangular(M), M -> UnitLowerTriangular(M),
+                M -> UpperTriangular(transpose(M)), M -> UnitUpperTriangular(transpose(M)),
+                M -> LowerTriangular(transpose(M)), M -> UnitLowerTriangular(transpose(M)),
+                M -> UpperTriangular(adjoint(M)), M -> UnitUpperTriangular(adjoint(M)),
+                M -> LowerTriangular(adjoint(M)), M -> UnitLowerTriangular(adjoint(M)),
+                M -> UpperTriangular(Symmetric(M)))
+                for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
+                    y = rand(16)
+                    rr = α*wrap(Af)*xf + β*y
+                    @test mul!(y, wrap(A), x, α, β) === y
+                    @test y ≈ rr
+                end
+                y = wrap(A) * x
+                @test y ≈ *(wrap(Af), xf)
+            end
         end
 
         let A = complex.(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
@@ -1589,6 +1644,12 @@ end
     @test getcolptr(simA) == fill(1, 6+1)
     @test length(rowvals(simA)) == 0
     @test length(nonzeros(simA)) == 0
+end
+
+@testset "map preserves index types" begin
+    v1 = spzeros(Float32, Int16, 10)
+    v2 = spzeros(Float32, Int32, 10)
+    @test eltype(typeof(SparseArrays.nonzeroinds(map(max, v1, v2)))) == Int32
 end
 
 @testset "Fast operations on full column views" begin

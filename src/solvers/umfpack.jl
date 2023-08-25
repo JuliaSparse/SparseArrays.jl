@@ -6,7 +6,9 @@ export UmfpackLU
 
 import Base: (\), getproperty, show, size
 using LinearAlgebra
-import LinearAlgebra: Factorization, checksquare, det, logabsdet, lu, lu!, ldiv!
+using LinearAlgebra: AdjOrTrans
+import LinearAlgebra: Factorization, AdjointFactorization, TransposeFactorization,
+    checksquare, det, logabsdet, lu, lu!, ldiv!
 
 using SparseArrays
 using SparseArrays: getcolptr, AbstractSparseMatrixCSC
@@ -19,7 +21,6 @@ import ..increment, ..increment!, ..decrement, ..decrement!
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse:
-    SuiteSparse_long,
     umfpack_dl_defaults,
     umfpack_dl_report_control,
     umfpack_dl_report_info,
@@ -139,13 +140,12 @@ macro isok(A)
     :(umferror($(esc(A))))
 end
 
-# check the size of SuiteSparse_long
-if sizeof(SuiteSparse_long) == 4
-    const UmfpackIndexTypes = (:Int32,)
-    const UMFITypes = Int32
-else
+if Sys.WORD_SIZE == 64
     const UmfpackIndexTypes = (:Int32, :Int64)
     const UMFITypes = Union{Int32, Int64}
+else
+    const UmfpackIndexTypes = (:Int32,)
+    const UMFITypes = Int32
 end
 
 const UMFVTypes = Union{Float64,ComplexF64}
@@ -165,7 +165,6 @@ function show_umf_info(control::Vector{Float64}, info::Vector{Float64}, level::R
     umfpack_dl_report_info(control, info)
     control[1] = old_prt
 end
-
 
 mutable struct Numeric{Tv,Ti}
     p::Ptr{Cvoid}
@@ -194,9 +193,11 @@ _isnotnull(x::Union{Symbolic, Numeric}) = x.p != C_NULL
 """
 Working space for Umfpack so `ldiv!` doesn't allocate.
 
-To use multiple threads, each thread should have their own workspace that can be allocated using `Base.similar(::UmfpackWS)`
-and passed as a kwarg to `ldiv!`. Alternativly see `copy(::UmfpackLU)`. The constructor is overloaded so to create appropriate
-sized working space given the lu factorization or the sparse matrix and if refinement is on.
+To use multiple threads, each thread should have their own workspace this can be done using`copy(::UmfpackLU)`
+
+
+The constructor is overloaded so to create appropriate sized working space based on the lu
+factorization or the sparse matrix and the refinement setting.
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
@@ -235,11 +236,26 @@ mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
     lock::ReentrantLock
 end
 
+function UmfpackLU(S::AbstractSparseMatrixCSC{Tv, Ti};
+    control=get_umfpack_control(Tv, Ti)) where
+    {Tv<:UMFVTypes,Ti<:UMFITypes}
+
+    zerobased = getcolptr(S)[1] == 0
+    return UmfpackLU(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL),
+                    size(S, 1), size(S, 2),
+                    zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
+                    zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
+                    copy(nonzeros(S)), 0, UmfpackWS(S, has_refinement(control)),
+                    copy(control), Vector{Float64}(undef, UMFPACK_INFO),
+                    ReentrantLock()
+    )
+end
+
 workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
-const ATLU = Union{Transpose{<:Any, <:UmfpackLU}, Adjoint{<:Any, <:UmfpackLU}}
+const ATLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
 has_refinement(F::ATLU) = has_refinement(F.parent)
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
@@ -255,15 +271,12 @@ UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, T
 UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
 
 """
-    copy(F::UmfpackLU, [ws::UmfpackWS]) -> UmfpackLU
+    copy(F::UmfpackLU, [ws::UmfpackWS])::UmfpackLU
 A shallow copy of UmfpackLU to use in multithreaded solve applications.
 This function duplicates the working space, control, info and lock fields.
-
-Warning: This shallow copy should not be used for parallel factorizations or re-factorizations,
-doing so may lead to race-conditions.
 """
-# Not using simlar helps if the actual needed size has changed as it would need to be resized again
-Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) =
+# Not using similar helps if the actual needed size has changed as it would need to be resized again
+Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
     UmfpackLU(
         F.symbolic,
         F.numeric,
@@ -280,24 +293,7 @@ Base.copy(F::UmfpackLU, ws=UmfpackWS(F)) =
 Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
     T(copy(parent(F), ws))
 
-Base.deepcopy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
-    UmfpackLU(
-    Symbolic{Tv, Ti}(C_NULL), # TODO: switch to a copy when upstream is available
-    Numeric{Tv, Ti}(C_NULL), # TODO: switch to a copy when upstream is available
-    F.m, F.n,
-    F.colptr,
-    F.rowval,
-    F.nzval,
-    F.status,
-    ws,
-    copy(F.control),
-    copy(F.info),
-    ReentrantLock())
-Base.deepcopy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
-    T(deepcopy(parent(F), ws))
-
-Base.adjoint(F::UmfpackLU) = Adjoint(F)
-Base.transpose(F::UmfpackLU) = Transpose(F)
+Base.transpose(F::UmfpackLU) = TransposeFactorization(F)
 
 function Base.lock(f::Function, F::UmfpackLU)
     lock(F)
@@ -338,13 +334,12 @@ When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
-is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
-zero based copy is made.
+is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero-based, a
+zero-based copy is made.
 
-The `control` vector default to the package's default configs for umfpacks but can be changed passing a
+The `control` vector defaults to the package's default configuration for UMFPACK, but can be changed by passing a
 vector of length `UMFPACK_CONTROL`. See the UMFPACK manual for possible configurations. The corresponding
-variables are named `JL_UMFPACK_` since julia uses one based indexing.
-
+variables are named `JL_UMFPACK_` since Julia uses one-based indexing.
 
 The individual components of the factorization `F` can be accessed by indexing:
 
@@ -380,16 +375,7 @@ See also [`lu!`](@ref)
 function lu(S::AbstractSparseMatrixCSC{Tv, Ti};
     check::Bool = true, q=nothing, control=get_umfpack_control(Tv, Ti)) where
     {Tv<:UMFVTypes,Ti<:UMFITypes}
-
-    zerobased = getcolptr(S)[1] == 0
-    res = UmfpackLU(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL),
-                    size(S, 1), size(S, 2),
-                    zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
-                    zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
-                    copy(nonzeros(S)), 0, UmfpackWS(S, has_refinement(control)),
-                    copy(control), Vector{Float64}(undef, UMFPACK_INFO),
-                    ReentrantLock()
-    )
+    res = UmfpackLU(S; control)
     umfpack_numeric!(res; q)
     check && (issuccess(res) || throw(LinearAlgebra.SingularException(0)))
     return res
@@ -409,8 +395,8 @@ lu(A::Union{AbstractSparseMatrixCSC{T},AbstractSparseMatrixCSC{Complex{T}}};
 lu(A::AbstractSparseMatrixCSC; check::Bool = true) = lu(float(A); check = check)
 
 # We could do this as lu(A') = lu(A)' with UMFPACK, but the user could want to do one over the other
-lu(A::Union{Adjoint{T, S}, Transpose{T, S}}; check::Bool = true) where {T<:UMFVTypes, S<:AbstractSparseMatrixCSC{T}} =
-lu(copy(A); check)
+lu(A::AdjOrTrans{T,S}; check::Bool = true) where {T<:UMFVTypes, S<:AbstractSparseMatrixCSC{T}} =
+    lu(copy(A); check)
 
 """
     lu!(F::UmfpackLU, A::AbstractSparseMatrixCSC; check=true, reuse_symbolic=true, q=nothing) -> F::UmfpackLU
@@ -427,7 +413,7 @@ When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
-is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
+is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
 zero based copy is made.
 
 See also [`lu`](@ref)
@@ -483,19 +469,14 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
 
     resize!(F.nzval, length(nonzeros(S)))
     F.nzval .= nonzeros(S)
+    return lu!(F; reuse_symbolic, check, q)
+end
 
+function lu!(F::UmfpackLU; check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
     if !reuse_symbolic && _isnotnull(F.symbolic)
         F.symbolic = Symbolic{Tv, Ti}(C_NULL)
     end
-
-    umfpack_numeric!(F; reuse_numeric=false, q)
-
-    check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
-    return F
-end
-
-function lu!(F::UmfpackLU; check::Bool=true, q=nothing)
-    umfpack_numeric!(F; q)
+    umfpack_numeric!(F; reuse_numeric = false, q)
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
 end
@@ -611,11 +592,8 @@ for itype in UmfpackIndexTypes
                     qq = minimum(q) == 1 ? q .- one(eltype(q)) : q
                     @isok $symq_r(U.m, U.n, U.colptr, U.rowval, U.nzval, qq, tmp, U.control, U.info)
                 end
-                if _isnull(U.symbolic)
-                    U.symbolic.p = tmp[]
-                else
-                    U.symbolic = Symbolic{Float64, $itype}(tmp[])
-                end
+                U.symbolic = Symbolic{Float64, $itype}(tmp[])
+
             end
             return U
         end
@@ -630,11 +608,7 @@ for itype in UmfpackIndexTypes
                     qq = minimum(q) == 1 ? q .- one(eltype(q)) : q
                     @isok $symq_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), qq, tmp, U.control, U.info)
                 end
-                if _isnull(U.symbolic)
-                    U.symbolic.p = tmp[]
-                else
-                    U.symbolic = Symbolic{ComplexF64, $itype}(tmp[])
-                end
+                U.symbolic = Symbolic{ComplexF64, $itype}(tmp[])
             end
             return U
         end
@@ -650,11 +624,7 @@ for itype in UmfpackIndexTypes
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
-                if _isnull(U.numeric)
-                    U.numeric.p = tmp[]
-                else
-                    U.numeric = Numeric{Float64, $itype}(tmp[])
-                end
+                U.numeric = Numeric{Float64, $itype}(tmp[])
             end
             return U
         end
@@ -669,7 +639,7 @@ for itype in UmfpackIndexTypes
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
-                U.numeric.p = tmp[]
+                U.numeric = Numeric{ComplexF64, $itype}(tmp[])
             end
             return U
         end
@@ -960,32 +930,30 @@ LinearAlgebra.issuccess(lu::UmfpackLU) = lu.status == UMFPACK_OK
 
 ### Solve with Factorization
 
-import LinearAlgebra.ldiv!
-
 ldiv!(lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     ldiv!(B, lu, copy(B))
-ldiv!(translu::Transpose{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = translu.parent; ldiv!(B, transpose(lu), copy(B)))
-ldiv!(adjlu::Adjoint{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = adjlu.parent; ldiv!(B, adjoint(lu), copy(B)))
+ldiv!(translu::TransposeFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+    ldiv!(B, translu, copy(B))
+ldiv!(adjlu::AdjointFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+    ldiv!(B, adjlu, copy(B))
 ldiv!(lu::UmfpackLU{Float64}, B::StridedVecOrMat{<:Complex}) =
     ldiv!(B, lu, copy(B))
-ldiv!(translu::Transpose{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
-    (lu = translu.parent; ldiv!(B, transpose(lu), copy(B)))
-ldiv!(adjlu::Adjoint{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
-    (lu = adjlu.parent; ldiv!(B, adjoint(lu), copy(B)))
+ldiv!(translu::TransposeFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
+    ldiv!(B, translu, copy(B))
+ldiv!(adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}) =
+    ldiv!(B, adjlu, copy(B))
 
 ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
-ldiv!(X::StridedVecOrMat{T}, translu::Transpose{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+ldiv!(X::StridedVecOrMat{T}, translu::TransposeFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
-ldiv!(X::StridedVecOrMat{T}, adjlu::Adjoint{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
+ldiv!(X::StridedVecOrMat{T}, adjlu::AdjointFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
-ldiv!(X::StridedVecOrMat{Tb}, translu::Transpose{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
+ldiv!(X::StridedVecOrMat{Tb}, translu::TransposeFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
-ldiv!(X::StridedVecOrMat{Tb}, adjlu::Adjoint{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
+ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype)

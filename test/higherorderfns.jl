@@ -652,7 +652,8 @@ end
     @test ((_, x) -> x).(Int, spzeros(3)) == spzeros(3)
     @test ((_, _, x) -> x).(Int, Int, spzeros(3)) == spzeros(3)
     @test ((_, _, _, x) -> x).(Int, Int, Int, spzeros(3)) == spzeros(3)
-    @test_broken ((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3)) == spzeros(3)
+    @test ((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3)) == spzeros(3)
+    @test_broken typeof(((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3))) == typeof(spzeros(3))
 end
 
 using SparseArrays.HigherOrderFns: SparseVecStyle, SparseMatStyle
@@ -669,7 +670,7 @@ using SparseArrays.HigherOrderFns: SparseVecStyle, SparseMatStyle
     end
     @test err isa MethodError
     @test !occursin("is ambiguous", sprint(showerror, err))
-    @test occursin("no method matching _copy(::typeof(rand))", sprint(showerror, err))
+    @test err.f === SparseArrays.HigherOrderFns._copy
 end
 
 @testset "Sparse outer product, for type $T and vector $op" for

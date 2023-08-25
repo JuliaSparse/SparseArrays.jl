@@ -1,7 +1,5 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-import LinearAlgebra: AbstractTriangular
-
 """
     SparseMatrixCSCSymmHerm
 
@@ -10,10 +8,10 @@ import LinearAlgebra: AbstractTriangular
 const SparseMatrixCSCSymmHerm{Tv,Ti} = Union{Symmetric{Tv,<:SparseMatrixCSCUnion{Tv,Ti}},
                                             Hermitian{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}}
 
-const AbstractTriangularSparse{Tv,Ti} = AbstractTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
+const AbstractTriangularSparse{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
 
-# converting Symmetric/Hermitian/AbstractTriangular/SubArray of SparseMatrixCSC
-# and Transpose/Adjoint of AbstractTriangular of SparseMatrixCSC to SparseMatrixCSC
+# converting Symmetric/Hermitian/Triangular/SubArray of SparseMatrixCSC
+# and Transpose/Adjoint of Triangular of SparseMatrixCSC to SparseMatrixCSC
 for wr in (Symmetric, Hermitian, Transpose, Adjoint,
            UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular,
            SubArray)
@@ -97,7 +95,7 @@ _sparsem(A::AbstractSparseMatrix) = A
 _sparsem(A::AbstractSparseVector) = A
 
 # Transpose/Adjoint of sparse vector (returning sparse matrix)
-function _sparsem(A::Union{Transpose{<:Any,<:AbstractSparseVector},Adjoint{<:Any,<:AbstractSparseVector}})
+function _sparsem(A::AdjOrTrans{<:Any,<:AbstractSparseVector})
     B = parent(A)
     n = length(B)
     Ti = eltype(nonzeroinds(B))
@@ -219,8 +217,7 @@ function _sparsem(A::AbstractTriangularSparse{Tv}) where Tv
 end
 
 # 8 cases: (Transpose|Adjoint){Tv,[Unit](Upper|Lower)Triangular}
-function _sparsem(taA::Union{Transpose{Tv,<:AbstractTriangularSparse},
-                             Adjoint{Tv,<:AbstractTriangularSparse}}) where {Tv}
+function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparse}) where {Tv}
 
     sA = taA.parent
     A = sA.data

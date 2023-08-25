@@ -6,23 +6,28 @@ using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
-using SparseArrays: sparse, sprandn, spzeros, SparseMatrixCSC
+using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
+using Random: seed!
 
+# TODO REMOVE SECOND PREDICATE WITH SS7.1
 if Base.USE_GPL_LIBS
-
 @testset "Sparse QR" begin
 m, n = 100, 10
 nn = 100
 
 @test size(qr(sprandn(m, n, 0.1)).Q) == (m, m)
 
-@testset "element type of A: $eltyA" for eltyA in (Float64, ComplexF64)
-    if eltyA <: Real
-        A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
-    else
-        A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], complex.(randn(nn), randn(nn)), m, n)
-    end
+@test repr("text/plain", qr(sprandn(4, 4, 0.5)).Q) == "4×4 $(SparseArrays.SPQR.QRSparseQ{Float64, Int})"
 
+itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
+
+@testset "element type of A: $eltyA" for eltyA in (Float64, ComplexF64), iltyA in itypes
+    if eltyA <: Real
+        A = sparse(iltyA[1:n; rand(1:m, nn - n)], iltyA[1:n; rand(1:n, nn - n)], randn(nn), m, n)
+    else
+        A = sparse(iltyA[1:n; rand(1:m, nn - n)], iltyA[1:n; rand(1:n, nn - n)], complex.(randn(nn), randn(nn)), m, n)
+    end
+    
     F = qr(A)
     @test size(F) == (m,n)
     @test size(F, 1) == m
@@ -42,6 +47,7 @@ nn = 100
         Imm = Matrix{Float64}(I, m, m)
         @test Q' * (Q*Imm) ≈ Imm
         @test (Imm*Q) * Q' ≈ Imm
+        @test ((Imm[:,1])' * Q')::Adjoint ≈ Q[:,1]'
 
         # test that Q'Pl*A*Pr = R
         R0 = Q'*Array(A[F.prow, F.pcol])
@@ -77,6 +83,7 @@ nn = 100
 end
 
 @testset "basic solution of rank deficient ls" begin
+    seed!(12345)
     A = sprandn(m, 5, 0.9)*sprandn(5, n, 0.9)
     b = randn(m)
     xs = A\b
@@ -150,6 +157,12 @@ end
     perm = inv(Matrix(I, size(A)...)[q.prow, :])
     f = sum(q.R; dims=2) ./ sum(Dq.R; dims=2)
     @test perm * (transpose(f) .* sQ) ≈ sparse(Dq.Q)
+    v, V = sprandn(100, 0.01), sprandn(100, 100, 0.01)
+    @test Dq.Q * v ≈ Matrix(Dq.Q) * v
+    @test Dq.Q * V ≈ Matrix(Dq.Q) * V
+    @test Dq.Q * V' ≈ Matrix(Dq.Q) * V'
+    @test V * Dq.Q ≈ V * Matrix(Dq.Q)
+    @test V' * Dq.Q ≈ V' * Matrix(Dq.Q)
 end
 
 @testset "no strategies" begin

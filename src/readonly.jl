@@ -10,7 +10,7 @@ struct ReadOnly{T,N,V<:AbstractArray{T,N}} <: AbstractArray{T,N}
 end
 # ReadOnly of ReadOnly is meaningless
 ReadOnly(x::ReadOnly) = x
-Base.getproperty(x::ReadOnly, s) = Base.getproperty(parent(x), s)
+Base.getproperty(x::ReadOnly, s::Symbol) = Base.getproperty(parent(x), s)
 @inline Base.parent(x::ReadOnly) = getfield(x, :parent)
 
 for i in [:length, :first, :last, :eachindex, :firstindex, :lastindex, :eltype]
@@ -35,5 +35,8 @@ Base.copy(x::ReadOnly) = ReadOnly(copy(parent(x)))
 (==)(x::ReadOnly, y::AbstractVector) = parent(x) == y
 (==)(x::AbstractVector, y::ReadOnly) = x == parent(y)
 (==)(x::ReadOnly, y::ReadOnly) = parent(x) == parent(y)
+# disambiguation
+(==)(x::ReadOnly{T,1,<:AbstractVector{T}}, y::ReadOnly{S,1,<:AbstractVector{S}}) where {T,S} =
+    parent(x) == parent(y)
 
 Base.dataids(::ReadOnly) = tuple()

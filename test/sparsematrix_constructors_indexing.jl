@@ -12,6 +12,10 @@ using Dates
 include("forbidproperties.jl")
 include("simplesmatrix.jl")
 
+function same_structure(A, B)
+    return all(getfield(A, f) == getfield(B, f) for f in (:m, :n, :colptr, :rowval))
+end
+
 @testset "uniform scaling should not change type #103" begin
     A = spzeros(Float32, Int8, 5, 5)
     B = I - A
@@ -32,6 +36,7 @@ end
     @test SparseMatrixCSC{eltype(a), Int}(a) == a
     @test SparseMatrixCSC{eltype(a)}(Array(a)) == a
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
+    @test collect(a) == a
 end
 
 @testset "sparse matrix construction" begin
@@ -56,6 +61,30 @@ end
     @test size(m) == (3, 4)
     @test eltype(m) === Float32
     @test m == spzeros(3, 4)
+end
+
+@testset "spzeros for pattern creation (structural zeros)" begin
+    I = [1, 2, 3]
+    J = [1, 3, 4]
+    V = zeros(length(I))
+    S = spzeros(I, J)
+    S′ = sparse(I, J, V)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float64
+    S = spzeros(Float32, I, J)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float32
+    S = spzeros(I, J, 4, 5)
+    S′ = sparse(I, J, V, 4, 5)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float64
+    S = spzeros(Float32, I, J, 4, 5)
+    @test S == S′
+    @test same_structure(S, S′)
+    @test eltype(S) == Float32
 end
 
 @testset "concatenation tests" begin
@@ -273,7 +302,8 @@ end
 @testset "copyto!" begin
     A = sprand(5, 5, 0.2)
     B = sprand(5, 5, 0.2)
-    copyto!(A, B)
+    Ar = copyto!(A, B)
+    @test Ar === A
     @test A == B
     @test pointer(nonzeros(A)) != pointer(nonzeros(B))
     @test pointer(rowvals(A)) != pointer(rowvals(B))
@@ -311,7 +341,9 @@ end
     B = sprand(5, 5, 1.0)
     A = rand(5,5)
     A´ = similar(A)
-    @test copyto!(A, B) == copyto!(A´, Matrix(B))
+    Ac = copyto!(A, B)
+    @test Ac === A 
+    @test A == copyto!(A´, Matrix(B))
     # Test copyto!(dense, Rdest, sparse, Rsrc)
     A = rand(5,5)
     A´ = similar(A)
@@ -326,11 +358,15 @@ end
     @test Matrix(B´)[Rdest] == Matrix(B)[Rsrc]
     # Test that only elements at overlapping linear indices are overwritten
     A = sprand(3, 3, 1.0); B = ones(4, 4)
-    copyto!(B, A)
+    Bc = copyto!(B, A)
     @test B[4, :] != B[:, 4] == ones(4)
+    @test Bc === B
     # Allow no-op copyto! with empty source even for incompatible eltypes
     A = sparse(fill("", 0, 0))
     @test copyto!(B, A) == B
+
+    # Test correct error for too small destination array
+    @test_throws BoundsError copyto!(rand(2,2), sprand(3,3,0.2))
 end
 
 @testset "getindex" begin
@@ -446,6 +482,15 @@ end
         @test isa(r1, SparseVector{Int64,UInt8})
         @test isa(r2, SparseMatrixCSC{Int64,UInt8})
     # end
+
+    @testset "empty sparse matrix indexing" begin
+        for k = 0:3
+            @test issparse(spzeros(k,0)[:])
+            @test isempty(spzeros(k,0)[:])
+            @test issparse(spzeros(0,k)[:])
+            @test isempty(spzeros(0,k)[:])
+        end
+    end
 end
 
 @testset "setindex" begin
@@ -1032,7 +1077,7 @@ end
         @test Base.isstored(A, c[1], c[2]) == false
     end
 
-    # `isstored` for adjoint and tranposed matrices:
+    # `isstored` for adjoint and transposed matrices:
     for trans in (adjoint, transpose)
         B = trans(A)
         stored_indices = [CartesianIndex(j, i) for (j, i) in zip(J, I)]
@@ -1345,7 +1390,7 @@ using Base: swaprows!, swapcols!
              (swaprows!, 2, 3), # Test swapping rows of unequal length
              (swaprows!, 2, 4), # Test swapping non-adjacent rows
              (swapcols!, 1, 2), # Test swapping columns where one column is fully sparse
-             (swapcols!, 2, 3), # Test swapping coulms of unequal length
+             (swapcols!, 2, 3), # Test swapping columns of unequal length
              (swapcols!, 2, 4)) # Test swapping non-adjacent columns
         Scopy = copy(S)
         Sdense = Array(S)
@@ -1529,6 +1574,15 @@ end
     _show_with_braille_patterns(ioc, _filled_sparse(8, 16))
     @test String(take!(io)) == "⎡⣿⣿⎤\n" *
                                "⎣⣿⣿⎦"
+
+    # respect IOContext while displaying J
+    I, J, V = shuffle(1:50), shuffle(1:50), [1:50;]
+    S = sparse(I, J, V)
+    I, J, V = I[sortperm(J)], sort(J), V[sortperm(J)]
+    @test repr(S) == "sparse($I, $J, $V, $(size(S,1)), $(size(S,2)))"
+    limctxt(x) = repr(x, context=:limit=>true)
+    expstr = "sparse($(limctxt(I)), $(limctxt(J)), $(limctxt(V)), $(size(S,1)), $(size(S,2)))"
+    @test limctxt(S) == expstr
 end
 
 @testset "issparse for specialized matrix types" begin
@@ -1587,6 +1641,172 @@ end
     A[1,2] = 1
     @test SparseArrays.expandptr(getcolptr(A)) == [1; 2; 2; 3; 4; 5]
     @test_throws ArgumentError SparseArrays.expandptr([2; 3])
+end
+
+@testset "sparse! and spzeros!" begin
+    using SparseArrays: sparse!, spzeros!, getcolptr, getrowval, nonzeros
+
+    function allocate_arrays(m, n)
+        N = round(Int, 0.5 * m * n)
+        Tv, Ti = Float64, Int
+        I = Ti[rand(1:m) for _ in 1:N]; I = Ti[I; I]
+        J = Ti[rand(1:n) for _ in 1:N]; J = Ti[J; J]
+        V = Tv.(I)
+        csrrowptr = Vector{Ti}(undef, m + 1)
+        csrcolval = Vector{Ti}(undef, length(I))
+        csrnzval = Vector{Tv}(undef, length(I))
+        klasttouch = Vector{Ti}(undef, n)
+        csccolptr = Vector{Ti}(undef, n + 1)
+        cscrowval = Vector{Ti}()
+        cscnzval = Vector{Tv}()
+        return I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr, cscrowval, cscnzval
+    end
+
+    for (m, n) in ((10, 5), (5, 10), (10, 10))
+        # Passing csr vectors
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval = allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval)
+        @test S == S!
+        @test same_structure(S, S!)
+
+        I, J, _, klasttouch, csrrowptr, csrcolval = allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval)
+        @test S == S!
+        @test iszero(S!)
+        @test same_structure(S, S!)
+
+        # Passing csr vectors + csccolptr
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr = allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+
+        I, J, _, klasttouch, csrrowptr, csrcolval, _, csccolptr = allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval, csccolptr)
+        @test S == S!
+        @test iszero(S!)
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+
+        # Passing csr vectors, and csc vectors
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr, cscrowval, cscnzval =
+            allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval,
+                     csccolptr, cscrowval, cscnzval)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+        @test getrowval(S!) === cscrowval
+        @test nonzeros(S!) === cscnzval
+
+        I, J, _, klasttouch, csrrowptr, csrcolval, _, csccolptr, cscrowval, cscnzval =
+            allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval,
+                      csccolptr, cscrowval, cscnzval)
+        @test S == S!
+        @test iszero(S!)
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+        @test getrowval(S!) === cscrowval
+        @test nonzeros(S!) === cscnzval
+
+        # Passing csr vectors, and csc vectors of insufficient lengths
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr, cscrowval, cscnzval =
+            allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval,
+                     resize!(csccolptr, 0), resize!(cscrowval, 0), resize!(cscnzval, 0))
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+        @test getrowval(S!) === cscrowval
+        @test nonzeros(S!) === cscnzval
+
+        I, J, _, klasttouch, csrrowptr, csrcolval, _, csccolptr, cscrowval, cscnzval =
+            allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval,
+                      resize!(csccolptr, 0), resize!(cscrowval, 0), resize!(cscnzval, 0))
+        @test S == S!
+        @test iszero(S!)
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === csccolptr
+        @test getrowval(S!) === cscrowval
+        @test nonzeros(S!) === cscnzval
+
+        # Passing csr vectors, and csc vectors aliased with I, J, V
+        I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval = allocate_arrays(m, n)
+        S  = sparse(I, J, V, m, n)
+        S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval, I, J, V)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+
+        I, J, V, klasttouch, csrrowptr, csrcolval = allocate_arrays(m, n)
+        S  = spzeros(I, J, m, n)
+        S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval, I, J, V)
+        @test S == S!
+        @test iszero(S!)
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+
+        # Test reuse of I, J, V for the matrix buffers in
+        # sparse!(I, J, V), sparse!(I, J, V, m, n), sparse!(I, J, V, m, n, combine),
+        # spzeros!(T, I, J), and spzeros!(T, I, J, m, n).
+        I, J, V = allocate_arrays(m, n)
+        S = sparse(I, J, V)
+        S! = sparse!(I, J, V)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+        I, J, V = allocate_arrays(m, n)
+        S = sparse(I, J, V, 2m, 2n)
+        S! = sparse!(I, J, V, 2m, 2n)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+        I, J, V = allocate_arrays(m, n)
+        S = sparse(I, J, V, 2m, 2n, *)
+        S! = sparse!(I, J, V, 2m, 2n, *)
+        @test S == S!
+        @test same_structure(S, S!)
+        @test getcolptr(S!) === I
+        @test getrowval(S!) === J
+        @test nonzeros(S!) === V
+        for T in (Float32, Float64)
+            I, J, = allocate_arrays(m, n)
+            S = spzeros(T, I, J)
+            S! = spzeros!(T, I, J)
+            @test S == S!
+            @test same_structure(S, S!)
+            @test eltype(S) == eltype(S!) == T
+            @test getcolptr(S!) === I
+            @test getrowval(S!) === J
+            I, J, = allocate_arrays(m, n)
+            S = spzeros(T, I, J, 2m, 2n)
+            S! = spzeros!(T, I, J, 2m, 2n)
+            @test S == S!
+            @test same_structure(S, S!)
+            @test eltype(S) == eltype(S!) == T
+            @test getcolptr(S!) === I
+            @test getrowval(S!) === J
+        end
+    end
 end
 
 end

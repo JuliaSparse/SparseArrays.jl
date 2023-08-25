@@ -30,4 +30,10 @@ The main environment may become inconsistent so you might need to run `Pkg.insta
 
 For older (1.8 and before) `SuiteSparse.jl` needs to be bumped too.
 
+## Updating SuiteSparse
 
+In order to upgrade SparseArrays.jl to use a new release of SuiteSparse, the following steps are necessary:
+1. Update SuiteSparse in Yggdrasil
+2. Update the SuiteSparse wrappers in SparseArrays.jl/gen and generate the new wrappers
+3. Run BumpStdlibs to update the SparseArrays.jl version in julia master
+4. Update the relevant stdlibs in Julia to pull in the new releases

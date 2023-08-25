@@ -7,16 +7,14 @@ module SparseArrays
 
 using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
     require_one_based_indexing, promote_eltype
-using Base.Sort: Forward
+using Base.Order: Forward
 using LinearAlgebra
-using LinearAlgebra: AdjOrTrans, matprod
-
-# Temporary workaround for simplifying SparseArrays.jl upgrade in JuliaLang/julia
-# to workaround circshift! bug, see https://github.com/JuliaLang/julia/pull/46759
-const CIRCSHIFT_WRONG_DIRECTION = circshift!([1, 2, 3], 1) != circshift([1, 2, 3], 1)
+using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
+    AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, MulAddMul,
+    UpperOrLowerTriangular
 
 
-import Base: +, -, *, \, /, &, |, xor, ==, zero
+import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
     issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded,
     cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu
@@ -35,12 +33,14 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
 
+const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
+
 # helper function needed in sparsematrix, sparsevector and higherorderfns
 # `iszero` and `!iszero` don't guarantee to return a boolean but we need one that does
 # to remove the handle the structure of the array.
 @inline _iszero(x) = iszero(x) === true
-@inline _iszero(x::Number) = Base.iszero(x)
-@inline _iszero(x::AbstractArray) = Base.iszero(x)
+@inline _iszero(x::Number) = iszero(x)
+@inline _iszero(x::AbstractArray) = iszero(x)
 @inline _isnotzero(x) = iszero(x) !== true # like `!iszero(x)`, but handles `x::Missing`
 @inline _isnotzero(x::Number) = !iszero(x)
 @inline _isnotzero(x::AbstractArray) = !iszero(x)

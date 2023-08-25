@@ -7,7 +7,7 @@ using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
-    I, det, issuccess, ldiv!, lu, lu!, Adjoint, Transpose, SingularException, Diagonal, logabsdet
+    LinearAlgebra, I, det, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
 if Base.USE_GPL_LIBS
 function umfpack_report(l::UMFPACK.UmfpackLU)
@@ -15,6 +15,10 @@ function umfpack_report(l::UMFPACK.UmfpackLU)
     UMFPACK.umfpack_report_symbolic(l, 0)
     return
 end
+
+const TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
+    LinearAlgebra.TransposeFactorization :
+    Transpose
 
 for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
@@ -153,10 +157,6 @@ end
         Afcopy = copy(Af)
         @test Afcopy.numeric === Af.numeric
         @test Afcopy.symbolic === Af.symbolic
-
-        Afcopy = deepcopy(Af)
-        @test Afcopy.numeric !== Af.numeric
-        @test Afcopy.symbolic !== Af.symbolic
     end
 end
 
@@ -222,6 +222,7 @@ end
             @test y ≈ x
 
             @test A'*x ≈ b
+            @test transpose(lua) isa TransposeFact
             x = transpose(lua) \ b
             @test x ≈ float([1:5;])
 
@@ -494,6 +495,14 @@ end
     @test length(A.workspace.Wi) == 100
     @test length(A.workspace.W) == 500
     umfpack_report(A)
+end
+
+
+@testset "copy should keep the numeric/symbolic by default" begin
+    A = lu(sprandn(10, 10, 0.1) + I)
+    B = copy(A)
+    @test A.numeric === B.numeric
+    @test A.symbolic === B.symbolic
 end
 
 

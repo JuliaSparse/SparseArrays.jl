@@ -5,7 +5,8 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
-using ..LibSuiteSparse: SuiteSparseQR_C
+using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, copy_similar
+using ..LibSuiteSparse: SuiteSparseQR_C, SuiteSparseQR_i_C
 
 # ordering options */
 const ORDERING_FIXED   = Int32(0)
@@ -32,25 +33,26 @@ using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsaf
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
-import ..LibSuiteSparse: cholmod_l_free
+import ..LibSuiteSparse: cholmod_l_free, cholmod_free
 
 function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
-        A::Sparse{Tv},
-        Bsparse::Union{Sparse{Tv}                      , Ptr{Cvoid}} = C_NULL,
+        A::Sparse{Tv, Ti},
+        Bsparse::Union{Sparse{Tv, Ti}                      , Ptr{Cvoid}} = C_NULL,
         Bdense::Union{Dense{Tv}                        , Ptr{Cvoid}} = C_NULL,
         Zsparse::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}  , Ptr{Cvoid}} = C_NULL,
         Zdense::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}  , Ptr{Cvoid}} = C_NULL,
         R::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
-        E::Union{Ref{Ptr{CHOLMOD.SuiteSparse_long}}    , Ptr{Cvoid}} = C_NULL,
+        E::Union{Ref{Ptr{Ti}}    , Ptr{Cvoid}} = C_NULL,
         H::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
-        HPinv::Union{Ref{Ptr{CHOLMOD.SuiteSparse_long}}, Ptr{Cvoid}} = C_NULL,
-        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Tv<:CHOLMOD.VTypes}
+        HPinv::Union{Ref{Ptr{Ti}}, Ptr{Cvoid}} = C_NULL,
+        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
 
     ordering ∈ ORDERINGS || error("unknown ordering $ordering")
 
+    spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = SuiteSparseQR_C(
+    rnk  = spqr_call(
         ordering,       # all, except 3:given treated as 0:fixed
         tol,            # columns with 2-norm <= tol treated as 0
         econ,           # e = max(min(m,econ),rank(A))
@@ -66,7 +68,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         H,              # m-by-nh Householder vectors
         HPinv,          # size m row permutation
         HTau,           # 1-by-nh Householder coefficients
-        CHOLMOD.getcommon()) # /* workspace and parameters */
+        CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
 
     if rnk < 0
         error("Sparse QR factorization failed")
@@ -74,29 +76,33 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
 
     e = E[]
     if e == C_NULL
-        _E = Vector{CHOLMOD.SuiteSparse_long}()
+        _E = Vector{Ti}()
     else
-        _E = Vector{CHOLMOD.SuiteSparse_long}(undef, n)
+        _E = Vector{Ti}(undef, n)
         for i in 1:n
             @inbounds _E[i] = unsafe_load(e, i) + 1
         end
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(n, sizeof(CHOLMOD.SuiteSparse_long), e, CHOLMOD.getcommon())
+        Ti === Int64 ? 
+            cholmod_l_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti)) :
+            cholmod_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti))
     end
     hpinv = HPinv[]
     if hpinv == C_NULL
-        _HPinv = Vector{CHOLMOD.SuiteSparse_long}()
+        _HPinv = Vector{Ti}()
     else
-        _HPinv = Vector{CHOLMOD.SuiteSparse_long}(undef, m)
+        _HPinv = Vector{Ti}(undef, m)
         for i in 1:m
             @inbounds _HPinv[i] = unsafe_load(hpinv, i) + 1
         end
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        cholmod_l_free(m, sizeof(CHOLMOD.SuiteSparse_long), hpinv, CHOLMOD.getcommon())
+        Ti === Int64 ? 
+            cholmod_l_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti)) :
+            cholmod_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti))
     end
 
     return rnk, _E, _HPinv
@@ -127,7 +133,7 @@ function Base.size(F::QRSparse, i::Integer)
 end
 Base.axes(F::QRSparse) = map(Base.OneTo, size(F))
 
-struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: LinearAlgebra.AbstractQ{Tv}
+struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
     n::Int # Number of columns in original matrix
@@ -186,11 +192,11 @@ Column permutation:
 
 [^ACM933]: Foster, L. V., & Davis, T. A. (2013). Algorithm 933: Reliable Calculation of Numerical Rank, Null Space Bases, Pseudoinverse Solutions, and Basic Solutions Using SuitesparseQR. ACM Trans. Math. Softw., 40(1). [doi:10.1145/2513109.2513116](https://doi.org/10.1145/2513109.2513116)
 """
-function LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv <: CHOLMOD.VTypes}
+function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
     R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    E     = Ref{Ptr{CHOLMOD.SuiteSparse_long}}()
+    E     = Ref{Ptr{Ti}}()
     H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    HPinv = Ref{Ptr{CHOLMOD.SuiteSparse_long}}()
+    HPinv = Ref{Ptr{Ti}}()
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
     # SPQR doesn't accept symmetric matrices so we explicitly set the stype
@@ -233,7 +239,7 @@ function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
         h = view(Q.factors, :, l)
         for j in 1:size(A, 2)
             a = view(A, :, j)
-            LinearAlgebra.axpy!(τl*dot(h, a), h, a)
+            axpy!(τl*dot(h, a), h, a)
         end
     end
     return A
@@ -247,14 +253,14 @@ function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
     for l in 1:size(Q.factors, 2)
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
-        LinearAlgebra.mul!(tmp, A, h)
-        LinearAlgebra.lowrankupdate!(A, tmp, h, τl)
+        mul!(tmp, A, h)
+        lowrankupdate!(A, tmp, h, τl)
     end
     return A
 end
 
-function LinearAlgebra.lmul!(adjQ::Adjoint{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
-    Q = adjQ.parent
+function LinearAlgebra.lmul!(adjQ::AdjointQ{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
+    Q = parent(adjQ)
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
@@ -269,8 +275,8 @@ function LinearAlgebra.lmul!(adjQ::Adjoint{<:Any,<:QRSparseQ}, A::StridedVecOrMa
     return A
 end
 
-function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::Adjoint{<:Any,<:QRSparseQ})
-    Q = adjQ.parent
+function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
+    Q = parent(adjQ)
     if size(A, 2) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
@@ -278,11 +284,50 @@ function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::Adjoint{<:Any,<:QRSparseQ})
     for l in size(Q.factors, 2):-1:1
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
-        LinearAlgebra.mul!(tmp, A, h)
-        LinearAlgebra.lowrankupdate!(A, tmp, h, τl')
+        mul!(tmp, A, h)
+        lowrankupdate!(A, tmp, h, τl')
     end
     return A
 end
+
+function (*)(Q::QRSparseQ, b::AbstractVector)
+    TQb = promote_type(eltype(Q), eltype(b))
+    QQ = convert(AbstractQ{TQb}, Q)
+    if size(Q.factors, 1) == length(b)
+        bnew = copy_similar(b, TQb)
+    elseif size(Q.factors, 2) == length(b)
+        bnew = [b; zeros(TQb, size(Q.factors, 1) - length(b))]
+    else
+        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+    end
+    lmul!(QQ, bnew)
+end
+function (*)(Q::QRSparseQ, B::AbstractMatrix)
+    TQB = promote_type(eltype(Q), eltype(B))
+    QQ = convert(AbstractQ{TQB}, Q)
+    if size(Q.factors, 1) == size(B, 1)
+        Bnew = copy_similar(B, TQB)
+    elseif size(Q.factors, 2) == size(B, 1)
+        Bnew = [B; zeros(TQB, size(Q.factors, 1) - size(B,1), size(B, 2))]
+    else
+        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+    end
+    lmul!(QQ, Bnew)
+end
+function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
+    Q = parent(adjQ)
+    TAQ = promote_type(eltype(A), eltype(adjQ))
+    adjQQ = convert(AbstractQ{TAQ}, adjQ)
+    if size(A,2) == size(Q.factors, 1)
+        AA = copy_similar(A, TAQ)
+        return rmul!(AA, adjQQ)
+    elseif size(A,2) == size(Q.factors,2)
+        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - size(Q.factors, 2))], adjQQ)
+    else
+        throw(DimensionMismatch("matrix A has dimensions $(size(A)) but Q-matrix has dimensions $(size(adjQ))"))
+    end
+end
+(*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
 (*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
 (*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
@@ -315,19 +360,6 @@ function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     println(io, "\nColumn permutation:")
     show(io, mime, F.pcol)
 end
-function Base.show(io::IO, ::MIME{Symbol("text/plain")}, Q::QRSparseQ)
-    summary(io, Q)
-end
-
-# With a real lhs and complex rhs with the same precision, we can reinterpret
-# the complex rhs as a real rhs with twice the number of columns
-#
-# This definition is similar to the definition in factorization.jl except that
-# here we have to use \ instead of ldiv! because of limitations in SPQR
-
-## Two helper methods
-_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
-_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 """
     rank(::QRSparse{Tv,Ti}) -> Ti
@@ -342,6 +374,16 @@ LinearAlgebra.rank(F::QRSparse) = reduce(max, view(rowvals(F.R), 1:nnz(F.R)), in
 Calculate rank of `S` by calculating its QR factorization. Values smaller than `tol` are considered as zero. See SPQR's manual.
 """
 LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
+
+# With a real lhs and complex rhs with the same precision, we can reinterpret
+# the complex rhs as a real rhs with twice the number of columns
+#
+# This definition is similar to the definition in factorization.jl except that
+# here we have to use \ instead of ldiv! because of limitations in SPQR
+
+## Two helper methods
+_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
+_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
 # |z1|z3|  reinterpret  |x1|x2|x3|x4|  transpose  |x1|y1|  reshape  |x1|y1|x3|y3|
@@ -384,13 +426,13 @@ function _ldiv_basic(F::QRSparse, B::StridedVecOrMat)
     X0 = view(X, 1:size(B, 1), :)
 
     # Apply Q' to B
-    LinearAlgebra.lmul!(adjoint(F.Q), X0)
+    lmul!(adjoint(F.Q), X0)
 
     # Zero out to get basic solution
     X[rnk + 1:end, :] .= 0
 
     # Solve R*X = B
-    LinearAlgebra.ldiv!(UpperTriangular(F.R[Base.OneTo(rnk), Base.OneTo(rnk)]),
+    ldiv!(UpperTriangular(F.R[Base.OneTo(rnk), Base.OneTo(rnk)]),
                         view(X0, Base.OneTo(rnk), :))
 
     # Apply right permutation and extract solution from X
