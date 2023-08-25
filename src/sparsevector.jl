@@ -1020,7 +1020,7 @@ function show(io::IOContext, ::MIME"text/plain", x::AbstractSparseVector)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     if isempty(nzind)
-        return show(io, MIME("text/plain"), x)
+        return show(io, x)
     end
     limit = get(io, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
