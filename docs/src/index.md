@@ -7,7 +7,7 @@ DocTestSetup = :(using SparseArrays, LinearAlgebra)
 Julia has support for sparse vectors and [sparse matrices](https://en.wikipedia.org/wiki/Sparse_matrix)
 in the `SparseArrays` stdlib module. Sparse arrays are arrays that contain enough zeros that storing them in a special data structure leads to savings in space and execution time, compared to dense arrays.
 
-External packages which implement different sparse storage types, multidimensional sparse arrays, and more can be found in [Noteworthy external packages](@ref man-csc)
+External packages which implement different sparse storage types, multidimensional sparse arrays, and more can be found in [Noteworthy External Sparse Packages](@ref)
 
 ## [Compressed Sparse Column (CSC) Sparse Matrix Storage](@id man-csc)
 
@@ -246,7 +246,7 @@ SparseArrays.ftranspose!
 ```@meta
 DocTestSetup = nothing
 ```
-# Noteworthy external packages
+# Noteworthy External Sparse Packages
 
 Several other Julia packages provide sparse matrix implementations that should be mentioned:
 
