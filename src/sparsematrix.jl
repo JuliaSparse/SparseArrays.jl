@@ -124,7 +124,7 @@ Get a writable copy of x. See `_unsafe_unfix(x)`
 """
 SparseMatrixCSC(x::FixedSparseCSC) = SparseMatrixCSC(size(x, 1), size(x, 2),
     copy(parent(getcolptr(x))),
-    copy(parent(rowval(x))),
+    copy(parent(rowvals(x))),
     copy(nonzeros(x)))
 
 function sparse_check_Ti(m::Integer, n::Integer, Ti::Type)
@@ -294,6 +294,9 @@ column. In conjunction with [`nonzeros`](@ref) and
           # perform sparse wizardry...
        end
     end
+
+!!! warning
+    Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
 nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
 nzrange(S::SparseMatrixCSCView, col::Integer) = nzrange(S.parent, S.indices[2][col])
@@ -341,6 +344,26 @@ function Base.print_array(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTransp
     end
 end
 
+"""
+    ColumnIndices(S::AbstractSparseMatrixCSC)
+
+Return the column indices of the stored values in `S`.
+This is an internal type that is used in displaying sparse matrices,
+and is not a part of the public interface.
+"""
+struct ColumnIndices{Ti,S<:AbstractSparseMatrixCSC{<:Any,Ti}} <: AbstractVector{Ti}
+    arr :: S
+end
+
+size(C::ColumnIndices) = (nnz(C.arr),)
+# returns the column index of the n-th non-zero value from the column pointer
+@inline function getindex(C::ColumnIndices, i::Int)
+    @boundscheck checkbounds(C, i)
+    colptr = getcolptr(C.arr)
+    ind = searchsortedlast(colptr, i)
+    eltype(C)(ind)
+end
+
 # always show matrices as `sparse(I, J, K)`
 function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
     _checkbuffers(_S)
@@ -355,21 +378,7 @@ function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
         print(io, "transpose(")
     end
     print(io, "sparse(", I, ", ")
-    if length(I) == 0
-        print(io, eltype(getcolptr(S)), "[]")
-    else
-        print(io, "[")
-        il = nnz(S) - 1
-        for col in 1:size(S, 2),
-            k in getcolptr(S)[col] : (getcolptr(S)[col+1]-1)
-            print(io, col)
-            if il > 0
-                print(io, ", ")
-                il -= 1
-            end
-        end
-        print(io, "]")
-    end
+    show(io, ColumnIndices(S))
     print(io, ", ", K, ", ", m, ", ", n, ")")
     if _S isa Adjoint || _S isa Transpose
         print(io, ")")

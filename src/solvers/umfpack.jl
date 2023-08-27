@@ -275,7 +275,7 @@ UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, ref
 A shallow copy of UmfpackLU to use in multithreaded solve applications.
 This function duplicates the working space, control, info and lock fields.
 """
-# Not using simlar helps if the actual needed size has changed as it would need to be resized again
+# Not using similar helps if the actual needed size has changed as it would need to be resized again
 Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
     UmfpackLU(
         F.symbolic,
@@ -413,7 +413,7 @@ When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
-is proveded or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
+is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
 zero based copy is made.
 
 See also [`lu`](@ref)

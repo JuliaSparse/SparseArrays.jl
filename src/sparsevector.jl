@@ -4,8 +4,7 @@
 
 import Base: sort!, findall, copy!
 import LinearAlgebra: promote_to_array_type, promote_to_arrays_
-
-using LinearAlgebra: adj_or_trans, _SpecialArrays, _DenseConcatGroup
+using LinearAlgebra: wrapperop
 
 ### The SparseVector
 
@@ -1109,7 +1108,9 @@ function hcat(Xin::AbstractSparseVector...)
     X = map(_unsafe_unfix, Xin)
     Tv = promote_type(map(eltype, X)...)
     Ti = promote_type(map(indtype, X)...)
-    r = _absspvec_hcat(map(x -> convert(SparseVector{Tv,Ti}, x), X)...)
+    r = (function (::Type{SV}) where SV
+        _absspvec_hcat(map(x -> convert(SV, x), X)...)
+    end)(SparseVector{Tv,Ti})
     return @if_move_fixed Xin... r
 end
 function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
@@ -1145,7 +1146,9 @@ function vcat(Xin::AbstractSparseVector...)
     X = map(_unsafe_unfix, Xin)
     Tv = promote_type(map(eltype, X)...)
     Ti = promote_type(map(indtype, X)...)
-    r = _absspvec_vcat(map(x -> convert(SparseVector{Tv,Ti}, x), X)...)
+    r = (function (::Type{SV}) where SV
+            _absspvec_vcat(map(x -> convert(SV, x), X)...)
+        end)(SparseVector{Tv,Ti})
     return @if_move_fixed Xin... r
 end
 function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
@@ -1176,24 +1179,10 @@ function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     SparseVector(len, rnzind, rnzval)
 end
 
-hcat(Xin::Union{Vector, AbstractSparseVector}...) = hcat(map(sparse, Xin)...)
-vcat(Xin::Union{Vector, AbstractSparseVector}...) = vcat(map(sparse, Xin)...)
-
 ### Concatenation of un/annotated sparse/special/dense vectors/matrices
-
-const _SparseArrays = Union{AbstractSparseVector,
-                            AbstractSparseMatrixCSC,
-                            Adjoint{<:Any,<:AbstractSparseVector},
-                            Transpose{<:Any,<:AbstractSparseVector}}
-const _SparseConcatArrays = Union{_SpecialArrays, _SparseArrays}
-
-const _Symmetric_SparseConcatArrays = Symmetric{<:Any,<:_SparseConcatArrays}
-const _Hermitian_SparseConcatArrays = Hermitian{<:Any,<:_SparseConcatArrays}
-const _Triangular_SparseConcatArrays = UpperOrLowerTriangular{<:Any,<:_SparseConcatArrays}
-const _Annotated_SparseConcatArrays = Union{_Triangular_SparseConcatArrays, _Symmetric_SparseConcatArrays, _Hermitian_SparseConcatArrays}
-# It's important that _SparseConcatGroup is a larger union than _DenseConcatGroup to make
-# sparse cat-methods less specific and to kick in only if there is some sparse array present
-const _SparseConcatGroup = Union{_DenseConcatGroup, _SparseConcatArrays, _Annotated_SparseConcatArrays}
+# by type-pirating and subverting the Base.cat design by making these a subtype of the normal methods for it
+# and re-defining all of it here. See https://github.com/JuliaLang/julia/issues/2326
+# for what would have been a more principled way of doing this.
 
 # Concatenations involving un/annotated sparse/special matrices/vectors should yield sparse arrays
 
@@ -1205,23 +1194,56 @@ _sparse(A) = _makesparse(A)
 _makesparse(x::Number) = x
 _makesparse(x::AbstractVector) = convert(SparseVector, issparse(x) ? x : sparse(x))::SparseVector
 _makesparse(x::AbstractMatrix) = convert(SparseMatrixCSC, issparse(x) ? x : sparse(x))::SparseMatrixCSC
+anysparse() = false
+anysparse(X) = X isa AbstractArray && issparse(X)
+anysparse(X, Xs...) = anysparse(X) || anysparse(Xs...)
+
+const _SparseVecConcatGroup = Union{Vector, AbstractSparseVector}
+function hcat(X::_SparseVecConcatGroup...)
+    if anysparse(X...)
+        X = map(sparse, X)
+    end
+    return cat(X...; dims=Val(2))
+end
+function vcat(X::_SparseVecConcatGroup...)
+    if anysparse(X...)
+        X = map(sparse, X)
+    end
+    return cat(X...; dims=Val(1))
+end
+
+# type-pirate the Base.cat design by making this a subtype of the existing method for it
+# in future versions of Julia (v1.10+), in which https://github.com/JuliaLang/julia/issues/2326 is not fixed yet, the <:Number constraint could be relaxed
+# but see also https://github.com/JuliaSparse/SparseArrays.jl/issues/71
+const _SparseConcatGroup = Union{AbstractVecOrMat{<:Number},Number}
 
 # `@constprop :aggressive` allows `dims` to be propagated as constant improving return type inference
-Base.@constprop :aggressive function Base._cat(dims, Xin::_SparseConcatGroup...)
-    X = (_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))...)
-    T = promote_eltype(Xin...)
-    return Base._cat_t(dims, T, X...)
+Base.@constprop :aggressive function Base._cat(dims, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+    T = promote_eltype(X1, X...)
+    if anysparse(X1) || anysparse(X...)
+        X1, X = _sparse(X1), map(_makesparse, X)
+    end
+    return Base._cat_t(dims, T, X1, X...)
 end
-function hcat(Xin::_SparseConcatGroup...)
-    X = (_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))...)
-    return cat(X..., dims=Val(2))
+function hcat(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+    if anysparse(X1) || anysparse(X...)
+        X1, X = _sparse(X1), map(_makesparse, X)
+    end
+    return cat(X1, X..., dims=Val(2))
 end
-function vcat(Xin::_SparseConcatGroup...)
-    X = (_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))...)
-    return cat(X..., dims=Val(1))
+function vcat(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+    if anysparse(X1) || anysparse(X...)
+        X1, X = _sparse(X1), map(_makesparse, X)
+    end
+    return cat(X1, X..., dims=Val(1))
 end
-hvcat(rows::Tuple{Vararg{Int}}, X::_SparseConcatGroup...) =
-    vcat(_hvcat_rows(rows, X...)...)
+function hvcat(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+    if anysparse(X1) || anysparse(X...)
+        vcat(_hvcat_rows(rows, X1, X...)...)
+    else
+        Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
+    end
+end
 function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
     if row1 ≤ 0
         throw(ArgumentError("length of block row must be positive, got $row1"))
@@ -1237,8 +1259,17 @@ function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup.
 end
 _hvcat_rows(::Tuple{}, X::_SparseConcatGroup...) = ()
 
+# disambiguation for type-piracy problems created above
+hcat(n1::Number, ns::Vararg{Number}) = invoke(hcat, Tuple{Vararg{Number}}, n1, ns...)
+vcat(n1::Number, ns::Vararg{Number}) = invoke(vcat, Tuple{Vararg{Number}}, n1, ns...)
+hcat(n1::Type{N}, ns::Vararg{N}) where {N<:Number} = invoke(hcat, Tuple{Vararg{Number}}, n1, ns...)
+vcat(n1::Type{N}, ns::Vararg{N}) where {N<:Number} = invoke(vcat, Tuple{Vararg{Number}}, n1, ns...)
+hvcat(rows::Tuple{Vararg{Int}}, n1::Number, ns::Vararg{Number}) = invoke(hvcat, Tuple{typeof(rows), Vararg{Number}}, rows, n1, ns...)
+hvcat(rows::Tuple{Vararg{Int}}, n1::N, ns::Vararg{N}) where {N<:Number} = invoke(hvcat, Tuple{typeof(rows), Vararg{N}}, rows, n1, ns...)
+
+
 # make sure UniformScaling objects are converted to sparse matrices for concatenation
-promote_to_array_type(A::Tuple{Vararg{Union{_SparseConcatGroup,UniformScaling}}}) = SparseMatrixCSC
+promote_to_array_type(A::Tuple{Vararg{Union{_SparseConcatGroup,UniformScaling}}}) = anysparse(A...) ? SparseMatrixCSC : Matrix
 promote_to_arrays_(n::Int, ::Type{SparseMatrixCSC}, J::UniformScaling) = sparse(J, n, n)
 
 """
@@ -1763,7 +1794,7 @@ function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) whe
     length(x) == n || throw(DimensionMismatch())
     Ty = promote_op(matprod, eltype(A), eltype(x))
     y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
+    mul!(y, A, x)
 end
 
 function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
@@ -1964,7 +1995,7 @@ function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
 end
 
 *(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
-    _At_or_Ac_mul_B((a,b) -> adj_or_trans(xA)(a) * b, xA.parent, x, promote_op(matprod, eltype(xA), eltype(x)))
+    _At_or_Ac_mul_B((a,b) -> wrapperop(xA)(a) * b, xA.parent, x, promote_op(matprod, eltype(xA), eltype(x)))
 
 function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
                          Tv = promote_op(matprod, TvA, TvX)) where {TvA,TiA,TvX,TiX}

@@ -138,7 +138,7 @@ end
             ACa = sparse(trop(AC)) # copied and adjoint
             @test AT \ B ≈ AC \ B
             @test ATa \ B ≈ ACa \ B
-            @test ATa \ sparse(B) == ATa \ B
+            @test ATa \ sparse(B) ≈ ATa \ B
             @test Matrix(ATa) \ B ≈ ATa \ B
             @test ATa * ( ATa \ B ) ≈ B
         end
@@ -810,6 +810,13 @@ end
         y = sprand(ComplexF64, 15, 0.5)
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
+    end
+
+    for (T, trans) in ((Float64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
+        B = sprandn(T, 10, 10, 0.2)
+        x = sprandn(T, 10, 0.4)
+        S = trans(B'B, uplo)
+        @test dot(x, S, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Matrix(S), Vector(x))
     end
 end
 
