@@ -3207,7 +3207,7 @@ function _spsetz_setindex!(A::AbstractSparseMatrixCSC,
                 kI > lengthI && break
                 entrykIrow = I[kI]
             else # entrykArow == entrykIrow
-                nonzeros(A)[kA] = 0
+                nonzeros(A)[kA] = zero(eltype(A))
                 kA += 1
                 kI += 1
                 (kA > coljAlastk || kI > lengthI) && break
