@@ -1233,6 +1233,7 @@ _makesparse(x::AbstractMatrix) = convert(SparseMatrixCSC, issparse(x) ? x : spar
 anysparse() = false
 anysparse(X) = X isa AbstractArray && issparse(X)
 anysparse(X, Xs...) = anysparse(X) || anysparse(Xs...)
+anysparse(X::T, Xs::T...) where {T} = anysparse(X)
 
 const _SparseVecConcatGroup = Union{Vector, AbstractSparseVector}
 function hcat(X::_SparseVecConcatGroup...)
@@ -1265,13 +1266,13 @@ function hcat(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if anysparse(X1) || anysparse(X...)
         X1, X = _sparse(X1), map(_makesparse, X)
     end
-    return cat(X1, X..., dims=Val(2))
+    return Base.typed_hcat(Base.promote_eltype(X1, X...), X1, X...)
 end
 function vcat(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if anysparse(X1) || anysparse(X...)
         X1, X = _sparse(X1), map(_makesparse, X)
     end
-    return cat(X1, X..., dims=Val(1))
+    return Base.typed_vcat(Base.promote_eltype(X1, X...), X1, X...)
 end
 function hvcat(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if anysparse(X1) || anysparse(X...)
