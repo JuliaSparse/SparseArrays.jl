@@ -398,6 +398,11 @@ lu(A::AbstractSparseMatrixCSC; check::Bool = true) = lu(float(A); check = check)
 lu(A::AdjOrTrans{T,S}; check::Bool = true) where {T<:UMFVTypes, S<:AbstractSparseMatrixCSC{T}} =
     lu(copy(A); check)
 
+LinearAlgebra._lu(A::AbstractSparseMatrixCSC; kwargs...) =
+    lu(A; kwargs...)
+LinearAlgebra._lu(::AbstractSparseMatrixCSC, ::LinearAlgebra.PivotingStrategy; kwargs...) =
+    error("Pivoting Strategies are not supported by `SparseMatrixCSC`s")
+
 """
     lu!(F::UmfpackLU, A::AbstractSparseMatrixCSC; check=true, reuse_symbolic=true, q=nothing) -> F::UmfpackLU
 
