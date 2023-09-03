@@ -27,7 +27,7 @@ using Test, LinearAlgebra, SparseArrays, Aqua
 
 @testset "code quality" begin
     @testset "Method ambiguity" begin
-        # Aqua.test_ambiguities([SparseArrays, Base, Core])
+        Aqua.test_ambiguities([SparseArrays, Base, Core])
     end
     @testset "Unbound type parameters" begin
         @test_broken Aqua.detect_unbound_args_recursively(SparseArrays) == []
@@ -52,28 +52,28 @@ using Test, LinearAlgebra, SparseArrays, Aqua
     end
 end
 
-let ambig = detect_ambiguities(SparseArrays; recursive=true)
-    @test isempty(ambig)
-    ambig = Set{Any}(((m1.sig, m2.sig) for (m1, m2) in ambig))
-    expect = []
-    push!(expect, (Tuple{typeof(LinearAlgebra.generic_trimatmul!), AbstractVecOrMat, Any, Any, Function, AbstractMatrix, AbstractVecOrMat},
-                   Tuple{typeof(LinearAlgebra.generic_trimatmul!), StridedVecOrMat, Any, Any, Any, Union{Adjoint{var"#s388", var"#s387"}, Transpose{var"#s388", var"#s387"}} where {var"#s388", var"#s387"<:(Union{SparseArrays.AbstractSparseMatrixCSC{Tv, Ti}, SubArray{Tv, 2, <:SparseArrays.AbstractSparseMatrixCSC{Tv, Ti}, Tuple{Base.Slice{Base.OneTo{Int}}, I}} where I<:AbstractUnitRange} where {Tv, Ti})}, AbstractVecOrMat}))
-    push!(expect, (Tuple{typeof(LinearAlgebra.generic_trimatmul!), AbstractVecOrMat, Any, Any, Function, Union{Adjoint{T, S}, Transpose{T, S}} where {T, S}, AbstractVecOrMat},
-                   Tuple{typeof(LinearAlgebra.generic_trimatmul!), StridedVecOrMat, Any, Any, Any, Union{Adjoint{var"#s388", var"#s387"}, Transpose{var"#s388", var"#s387"}} where {var"#s388", var"#s387"<:(Union{SparseArrays.AbstractSparseMatrixCSC{Tv, Ti}, SubArray{Tv, 2, <:SparseArrays.AbstractSparseMatrixCSC{Tv, Ti}, Tuple{Base.Slice{Base.OneTo{Int}}, I}} where I<:AbstractUnitRange} where {Tv, Ti})}, AbstractVecOrMat}))
-    good = true
-    while !isempty(ambig)
-        sigs = pop!(ambig)
-        i = findfirst(==(sigs), expect)
-        if i === nothing
-            println(stderr, "push!(expect, (", sigs[1], ", ", sigs[2], "))")
-            good = false
-            continue
-        end
-        deleteat!(expect, i)
-    end
-    @test isempty(expect)
-    @test good
-end
+# let ambig = detect_ambiguities(SparseArrays; recursive=true)
+#     @test isempty(ambig)
+#     ambig = Set{Any}(((m1.sig, m2.sig) for (m1, m2) in ambig))
+#     expect = []
+#     push!(expect, (Tuple{typeof(LinearAlgebra.generic_trimatmul!), AbstractVecOrMat, Any, Any, Function, AbstractMatrix, AbstractVecOrMat},
+#                    Tuple{typeof(LinearAlgebra.generic_trimatmul!), StridedVecOrMat, Any, Any, Any, Union{Adjoint{var"#s388", var"#s387"}, Transpose{var"#s388", var"#s387"}} where {var"#s388", var"#s387"<:(Union{SparseArrays.AbstractSparseMatrixCSC{Tv, Ti}, SubArray{Tv, 2, <:SparseArrays.AbstractSparseMatrixCSC{Tv, Ti}, Tuple{Base.Slice{Base.OneTo{Int}}, I}} where I<:AbstractUnitRange} where {Tv, Ti})}, AbstractVecOrMat}))
+#     push!(expect, (Tuple{typeof(LinearAlgebra.generic_trimatmul!), AbstractVecOrMat, Any, Any, Function, Union{Adjoint{T, S}, Transpose{T, S}} where {T, S}, AbstractVecOrMat},
+#                    Tuple{typeof(LinearAlgebra.generic_trimatmul!), StridedVecOrMat, Any, Any, Any, Union{Adjoint{var"#s388", var"#s387"}, Transpose{var"#s388", var"#s387"}} where {var"#s388", var"#s387"<:(Union{SparseArrays.AbstractSparseMatrixCSC{Tv, Ti}, SubArray{Tv, 2, <:SparseArrays.AbstractSparseMatrixCSC{Tv, Ti}, Tuple{Base.Slice{Base.OneTo{Int}}, I}} where I<:AbstractUnitRange} where {Tv, Ti})}, AbstractVecOrMat}))
+#     good = true
+#     while !isempty(ambig)
+#         sigs = pop!(ambig)
+#         i = findfirst(==(sigs), expect)
+#         if i === nothing
+#             println(stderr, "push!(expect, (", sigs[1], ", ", sigs[2], "))")
+#             good = false
+#             continue
+#         end
+#         deleteat!(expect, i)
+#     end
+#     @test isempty(expect)
+#     @test good
+# end
 
 ###
 # Now we restore the original env, as promised
