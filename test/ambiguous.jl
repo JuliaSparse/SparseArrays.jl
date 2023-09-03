@@ -33,7 +33,7 @@ using Test, LinearAlgebra, SparseArrays, Aqua
         @test_broken Aqua.detect_unbound_args_recursively(SparseArrays) == []
     end
     @testset "Undefined exports" begin
-        Aqua.test_undefined_exports(SparseArrays) == []
+        Aqua.test_undefined_exports(SparseArrays)
     end
     @testset "Compare Project.toml and test/Project.toml" begin
         Aqua.test_project_extras(SparseArrays)
@@ -53,7 +53,7 @@ using Test, LinearAlgebra, SparseArrays, Aqua
 end
 
 let ambig = detect_ambiguities(SparseArrays; recursive=true)
-    @test_broken isempty(ambig)
+    @test isempty(ambig)
     ambig = Set{Any}(((m1.sig, m2.sig) for (m1, m2) in ambig))
     expect = []
     push!(expect, (Tuple{typeof(LinearAlgebra.generic_trimatmul!), AbstractVecOrMat, Any, Any, Function, AbstractMatrix, AbstractVecOrMat},
