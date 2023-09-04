@@ -162,6 +162,18 @@ begin
         vMAW = tr(wr(view(MA, :, 1:n)))
         @test vAW * B ≈ vMAW * B
     end
+    a = sprand(rng, ComplexF64, n, n, 0.01)
+    ma = Matrix(a)
+    @testset "triangular multiply with conjugate matrices" for tr in (x -> adjoint(transpose(x)), x -> transpose(adjoint(x))),
+        wr in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
+        AW = tr(wr(a))
+        MAW = tr(wr(ma))
+        @test AW * B ≈ MAW * B
+        # and for SparseMatrixCSCView - a view of all rows and unit range of cols
+        vAW = tr(wr(view(a, :, 1:n)))
+        vMAW = tr(wr(view(ma, :, 1:n)))
+        @test vAW * B ≈ vMAW * B
+    end
     A = A - Diagonal(diag(A)) + 2I # avoid rounding errors by division
     MA = Matrix(A)
     @testset "triangular solver for $tr($wr)" for tr in (identity, adjoint, transpose),
