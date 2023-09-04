@@ -1363,7 +1363,9 @@ end
     a = sprand(10, 10, 0.2)
     b = copy(a)
     sa = view(a, 1:10, 2:3)
-    fill!(sa, 0.0)
+    sa_filled = fill!(sa, 0.0)
+    # `fill!` should return the sub array instead of its parent.
+    @test sa_filled === sa
     b[1:10, 2:3] .= 0.0
     @test a == b
     A = sparse([1], [1], [Vector{Float64}(undef, 3)], 3, 3)
