@@ -3179,7 +3179,8 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
     else
         _spsetnz_setindex!(A, convert(Tv, x), I, J)
     end
-    return _checkbuffers(A)
+    _checkbuffers(A)
+    V
 end
 """
 Helper method for immediately preceding fill! method. For all (i,j) such that i in I and
