@@ -664,7 +664,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                     i2 = ia[j + 1] - one(eltype(ia))
 
                     # find diagonal element
-                    ii = searchsortedfirst(view(ja, i1:i2), j) - i1 + 1
+                    ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
                     jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
 
                     cj = C[j,k]
@@ -723,7 +723,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                     i2 = ia[j + 1] - one(eltype(ia))
 
                     # find diagonal element
-                    ii = searchsortedlast(view(ja, i1:i2), j) - i1 + 1
+                    ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
                     jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
 
                     cj = C[j,k]
@@ -801,7 +801,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
                 i2 = ia[j + 1] - one(eltype(ia))
 
                 # find diagonal element
-                ii = searchsortedfirst(view(ja, i1:i2), j) - i1 + 1
+                ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
                 jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
 
                 cj = C[j,k]
@@ -830,7 +830,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
                 i2 = ia[j + 1] - one(eltype(ia))
 
                 # find diagonal element
-                ii = searchsortedlast(view(ja, i1:i2), j) - i1 + 1
+                ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
                 jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
 
                 cj = C[j,k]

@@ -1954,7 +1954,7 @@ function _sparse_findprevnz(m::AbstractSparseMatrixCSC, ij::CartesianIndex{2})
     iszero(col) && return nothing
 
     lo, hi = getcolptr(m)[col], getcolptr(m)[col+1]
-    n = searchsortedlast(view(rowvals(m), lo:hi-1), row) - lo + 1
+    n = searchsortedlast(view(rowvals(m), lo:hi-1), row) + lo - 1
     if lo <= n <= hi-1
         return CartesianIndex(rowvals(m)[n], col)
     end
@@ -3491,7 +3491,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatr
                 xidx += 1
 
                 if r1 <= r2
-                    copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 2r1 + 1
+                    copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 1
                     if (copylen > 0)
                         if (nadd > 0)
                             copyto!(rowvalB, bidx, rowvalA, r1, copylen)
@@ -3621,7 +3621,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
         end
 
         if r1 <= r2
-            copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 2r1 + 1
+            copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 1
             if (copylen > 0)
                 if (nadd > 0)
                     copyto!(rowvalB, bidx, rowvalA, r1, copylen)
@@ -3705,7 +3705,7 @@ function dropstored!(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     end
     coljfirstk = Int(getcolptr(A)[j])
     coljlastk = Int(getcolptr(A)[j+1] - 1)
-    searchk = searchsortedfirst(view(rowvals(A), coljfirstk:coljlastk), i) - coljfirstk + 1
+    searchk = searchsortedfirst(view(rowvals(A), coljfirstk:coljlastk), i) + coljfirstk - 1
     if searchk <= coljlastk && rowvals(A)[searchk] == i
         # Entry A[i,j] is stored. Drop and return.
         deleteat!(rowvals(A), searchk)
@@ -4222,7 +4222,7 @@ function diag(A::AbstractSparseMatrixCSC{Tv,Ti}, d::Integer=0) where {Tv,Ti}
         r1 = Int(getcolptr(A)[c])
         r2 = Int(getcolptr(A)[c+1]-1)
         r1 > r2 && continue
-        r1 += searchsortedfirst(view(rowvals(A), r1:r2), r) + 1
+        r1 += searchsortedfirst(view(rowvals(A), r1:r2), r) - 1
         ((r1 > r2) || (rowvals(A)[r1] != r)) && continue
         push!(ind, i)
         push!(val, nonzeros(A)[r1])
