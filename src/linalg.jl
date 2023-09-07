@@ -347,8 +347,8 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
     require_one_based_indexing(x, y)
     m, n = size(A)
     (length(x) == m && n == length(y)) || throw(DimensionMismatch())
-    T = promote_type(T1, T2, T3)
-    s = zero(T)
+    s = dot(zero(T1), zero(T2), zero(T3))
+    T = typeof(s)
     (iszero(m) || iszero(n)) && return s
 
     rowvals = getrowval(A)
