@@ -1439,6 +1439,17 @@ cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
     Hermitian{T, <:SparseMatrixCSC{T}}};
     kws...) where {T<:Real} = cholesky(Sparse(A); kws...)
 
+LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
+    Symmetric{T, <:SparseMatrixCSC{T}},
+    Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}}},
+    Hermitian{T, <:SparseMatrixCSC{T}}};
+    kws...) where {T<:Real} = cholesky(A; kws...)
+LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
+    Symmetric{T, <:SparseMatrixCSC{T}},
+    Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}}},
+    Hermitian{T, <:SparseMatrixCSC{T}}}, ::LinearAlgebra.PivotingStrategy;
+    kws...) where {T<:Real} = error("Pivoting Strategies are not supported for `SparseMatrixCSC`s")
+
 function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
     # Makes it an LDLt
