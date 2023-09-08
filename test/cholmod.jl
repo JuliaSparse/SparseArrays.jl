@@ -972,6 +972,15 @@ end
     @test residual < 1e-6 
 end
 
+@testset "wrapped sparse matrices" begin
+    A = I + sprand(10, 10, 0.1); A = A'A
+    @test issuccess(cholesky(view(A, :, :)))
+    @test issuccess(cholesky(Symmetric(view(A, :, :))))
+    @test_throws ErrorException cholesky(view(A, :, :), RowMaximum())
+    @test_throws ErrorException cholesky(A, NoPivot())
+    @test_throws ErrorException cholesky(view(A, :, :), NoPivot())
+end
+
 end # Base.USE_GPL_LIBS
 
 end # module
