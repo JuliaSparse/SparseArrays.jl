@@ -1434,21 +1434,16 @@ true
 [^DavisHager2009]: Davis, Timothy A., & Hager, W. W. (2009). Dynamic Supernodes in Sparse Cholesky Update/Downdate and Triangular Solves. ACM Trans. Math. Softw., 35(4). [doi:10.1145/1462173.1462176](https://doi.org/10.1145/1462173.1462176)
 """
 cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
-    Symmetric{T, <:SparseMatrixCSC{T}},
-    Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}}},
-    Hermitian{T, <:SparseMatrixCSC{T}}};
-    kws...) where {T<:Real} = cholesky(Sparse(A); kws...)
+                    RealHermSymComplexHerm{T,<:SparseMatrixCSC}}; kws...) where {T<:Real} =
+    cholesky(Sparse(A); kws...)
 
 LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
-    Symmetric{T, <:SparseMatrixCSC{T}},
-    Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}}},
-    Hermitian{T, <:SparseMatrixCSC{T}}};
+    RealHermSymComplexHerm{T,<:SparseMatrixCSC}};
     kws...) where {T<:Real} = cholesky(A; kws...)
 LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
-    Symmetric{T, <:SparseMatrixCSC{T}},
-    Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}}},
-    Hermitian{T, <:SparseMatrixCSC{T}}}, ::LinearAlgebra.PivotingStrategy;
-    kws...) where {T<:Real} = error("Pivoting Strategies are not supported for `SparseMatrixCSC`s")
+    RealHermSymComplexHerm{T,<:SparseMatrixCSC}}, ::LinearAlgebra.PivotingStrategy;
+    kws...) where {T<:Real} =
+    error("Pivoting strategies are not supported for `SparseMatrixCSC`s")
 
 function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
