@@ -176,6 +176,7 @@ function _partialview_end_indices(x::SparseVectorPartialView)
 end
 
 function nonzeroinds(x::SparseVectorPartialView)
+    isempty(x.indices[1]) && return indtype(parent(x))[]
     (first_idx, last_idx) = _partialview_end_indices(x)
     nzinds = nonzeroinds(parent(x))
     return @view(nzinds[first_idx:last_idx]) .- (x.indices[1][begin] - 1)
