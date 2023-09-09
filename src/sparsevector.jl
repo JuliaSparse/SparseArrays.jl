@@ -95,6 +95,9 @@ const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tup
 const SparseVectorUnion{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
 const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
 
+# allows for views of a subset of the sparse vector indices
+const SparseVectorPartialView{Tv,Ti} = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{AbstractUnitRange},false}
+
 ### Basic properties
 
 length(x::SparseVector) = getfield(x, :n)
@@ -114,6 +117,7 @@ function nnz(x::SparseColumnView)
     return length(nzrange(parent(x), colidx))
 end
 nnz(x::SparseVectorView) = nnz(x.parent)
+nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))
 
 """
     nzrange(x::SparseVectorUnion, col)
@@ -135,6 +139,12 @@ function nonzeros(x::SparseColumnView)
 end
 nonzeros(x::SparseVectorView) = nonzeros(parent(x))
 
+function nonzeros(x::SparseVectorPartialView)
+    (first_idx, last_idx) = _partialview_end_indices(x)
+    nzvals = nonzeros(parent(x))
+    return view(nzvals, first_idx:last_idx)
+end
+
 nonzeroinds(x::SparseVector) = getfield(x, :nzind)
 nonzeroinds(x::FixedSparseVector) = getfield(x, :nzind)
 function nonzeroinds(x::SparseColumnView)
@@ -145,10 +155,37 @@ function nonzeroinds(x::SparseColumnView)
 end
 nonzeroinds(x::SparseVectorView) = nonzeroinds(parent(x))
 
+# return the first and last nonzero indices of the parent that belong to the view
+# return end+1:end if no nonzero in the parent
+function _partialview_end_indices(x::SparseVectorPartialView)
+    p = parent(x)
+    nzinds = nonzeroinds(p)
+    if isempty(nzinds)
+        last_idx = length(nzinds)
+        first_idx = last_idx + 1
+    else
+        first_idx = findfirst(>=(x.indices[1][begin]), nzinds)
+        last_idx = findlast(<=(x.indices[1][end]), nzinds)
+        # empty view
+        if first_idx === nothing || last_idx === nothing
+            last_idx = length(nzinds)
+            first_idx = last_idx+1
+        end
+    end
+    return (first_idx, last_idx)
+end
+
+function nonzeroinds(x::SparseVectorPartialView)
+    isempty(x.indices[1]) && return indtype(parent(x))[]
+    (first_idx, last_idx) = _partialview_end_indices(x)
+    nzinds = nonzeroinds(parent(x))
+    return @view(nzinds[first_idx:last_idx]) .- (x.indices[1][begin] - 1)
+end
+
 rowvals(x::SparseVectorUnion) = nonzeroinds(x)
 
 indtype(x::SparseColumnView) = indtype(parent(x))
-indtype(x::SparseVectorView) = indtype(parent(x))
+indtype(x::Union{SparseVectorView, SparseVectorPartialView}) = indtype(parent(x))
 
 
 function Base.sizehint!(v::SparseVector, newlen::Integer)
@@ -1570,6 +1607,22 @@ for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
             _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
         broadcast(::typeof($fun), x::AbstractCompressedVector{Tx}, y::AbstractCompressedVector{Ty}) where {Tx, Ty} =
             _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
+    end
+end
+
+for fun in (:+, :-)
+    @eval @propagate_inbounds function $(fun)(x::Union{SparseVectorUnion{Tx},SparseVectorPartialView{Tx}}, y::Union{SparseVectorUnion{Ty},SparseVectorPartialView{Ty}}) where {Tx, Ty}
+        @boundscheck axes(x) == axes(y) || throw(DimensionMismatch("$(axes(x)), $(axes(y))"))
+        T = promote_type(Tx, Ty)
+        res = spzeros(T, length(x))
+        copyto!(res, x)
+        nzinds = nonzeroinds(y)
+        nzvals = nonzeros(y)
+        @inbounds for nzidx in eachindex(nzinds)
+            res[nzinds[nzidx]] = $fun(res[nzinds[nzidx]], nzvals[nzidx])
+        end
+        dropzeros!(res)
+        return res
     end
 end
 
