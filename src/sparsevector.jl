@@ -676,8 +676,8 @@ function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     c1 = convert(Int, getcolptr(x)[j])
     c2 = convert(Int, getcolptr(x)[j+1]) - 1
     # Restrict to the selected rows
-    r1 = searchsortedfirst(rowvals(x), first(I), c1, c2, Forward)
-    r2 = searchsortedlast(rowvals(x), last(I), c1, c2, Forward)
+    r1 = searchsortedfirst(view(rowvals(x), c1:c2), first(I)) + c1 - 1
+    r2 = searchsortedlast(view(rowvals(x), c1:c2), last(I)) + c1 - 1
     return @if_move_fixed x SparseVector(length(I), [rowvals(x)[i] - first(I) + 1 for i = r1:r2], nonzeros(x)[r1:r2])
 end
 
@@ -707,7 +707,7 @@ function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::Abstrac
         stopA = Int(colptrA[col+1]-1)
         if ptrA <= stopA
             if rowvalA[ptrA] <= rowI
-                ptrA = searchsortedfirst(rowvalA, rowI, ptrA, stopA, Base.Order.Forward)
+                ptrA += searchsortedfirst(view(rowvalA, ptrA:stopA), rowI) - 1
                 if ptrA <= stopA && rowvalA[ptrA] == rowI
                     push!(nzinds, j)
                     push!(nzvals, nzvalA[ptrA])
@@ -996,7 +996,7 @@ function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractUnitRange) where {T
     # locate the first j0, s.t. xnzind[j0] >= i0
     j0 = searchsortedfirst(xnzind, i0)
     # locate the last j1, s.t. xnzind[j1] <= i1
-    j1 = searchsortedlast(xnzind, i1, j0, m, Forward)
+    j1 = searchsortedlast(view(xnzind, j0:m), i1) + j0 - 1
 
     # compute the number of non-zeros
     jrgn = j0:j1

@@ -451,7 +451,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
                     done = unit
-        
+
                     bj = B[joff + j]
                     for ii = i1:i2
                         jai = ja[ii]
@@ -481,7 +481,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
                     i2 = ia[j + 1] - 1
                     akku = Z
                     j0 = !unit ? j : j - 1
-        
+
                     # loop through column j of A - only structural non-zeros
                     for ii = i1:i2
                         jai = ja[ii]
@@ -507,7 +507,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
                     done = unit
-        
+
                     bj = B[joff + j]
                     for ii = i2:-1:i1
                         jai = ja[ii]
@@ -537,7 +537,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
                     i2 = ia[j + 1] - 1
                     akku = Z
                     j0 = !unit ? j : j + 1
-        
+
                     # loop through column j of A - only structural non-zeros
                     for ii = i2:-1:i1
                         jai = ja[ii]
@@ -580,7 +580,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
                 i1 = ia[j]
                 i2 = ia[j + 1] - 1
                 done = unit
-    
+
                 bj = B[joff + j]
                 for ii = i1:i2
                     jai = ja[ii]
@@ -608,7 +608,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
                 i1 = ia[j]
                 i2 = ia[j + 1] - 1
                 done = unit
-    
+
                 bj = B[joff + j]
                 for ii = i2:-1:i1
                     jai = ja[ii]
@@ -662,7 +662,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                     i2 = ia[j + 1] - one(eltype(ia))
 
                     # find diagonal element
-                    ii = searchsortedfirst(ja, j, i1, i2, Base.Order.Forward)
+                    ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
                     jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
 
                     cj = C[j,k]
@@ -691,7 +691,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                     i2 = ia[j + 1] - 1
                     akku = B[j,k]
                     done = false
-            
+
                     # loop through column j of A - only structural non-zeros
                     for ii = i2:-1:i1
                         jai = ja[ii]
@@ -719,11 +719,11 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                 for j = nrowB:-1:1
                     i1 = ia[j]
                     i2 = ia[j + 1] - one(eltype(ia))
-            
+
                     # find diagonal element
-                    ii = searchsortedlast(ja, j, i1, i2, Base.Order.Forward)
+                    ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
                     jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
-            
+
                     cj = C[j,k]
                     # check for zero pivot and divide with pivot
                     if jai == j
@@ -735,7 +735,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                     elseif !unit
                         throw(LinearAlgebra.SingularException(j))
                     end
-            
+
                     # update remaining part
                     for i = ii:-1:i1
                         C[ja[i],k] -= cj * LinearAlgebra._ustrip(aa[i])
@@ -750,7 +750,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                     i2 = ia[j + 1] - 1
                     akku = B[j,k]
                     done = false
-            
+
                     # loop through column j of A - only structural non-zeros
                     for ii = i1:i2
                         jai = ja[ii]
@@ -799,7 +799,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
                 i2 = ia[j + 1] - one(eltype(ia))
 
                 # find diagonal element
-                ii = searchsortedfirst(ja, j, i1, i2, Base.Order.Forward)
+                ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
                 jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
 
                 cj = C[j,k]
@@ -826,11 +826,11 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
             for j = nrowB:-1:1
                 i1 = ia[j]
                 i2 = ia[j + 1] - one(eltype(ia))
-        
+
                 # find diagonal element
-                ii = searchsortedlast(ja, j, i1, i2, Base.Order.Forward)
+                ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
                 jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
-        
+
                 cj = C[j,k]
                 # check for zero pivot and divide with pivot
                 if jai == j
@@ -842,7 +842,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
                 elseif !unit
                     throw(LinearAlgebra.SingularException(j))
                 end
-        
+
                 # update remaining part
                 for i = ii:-1:i1
                     C[ja[i],k] -= cj * LinearAlgebra._ustrip(conj(aa[i]))
@@ -902,13 +902,13 @@ end
 function nzrangeup(A, i, excl=false)
     r = nzrange(A, i); r1 = r.start; r2 = r.stop
     rv = rowvals(A)
-    @inbounds r2 < r1 || rv[r2] <= i - excl ? r : r1:searchsortedlast(rv, i - excl, r1, r2, Forward)
+    @inbounds r2 < r1 || rv[r2] <= i - excl ? r : r1:(searchsortedlast(view(rv, r1:r2), i - excl) + r1-1)
 end
 # row range from diagonal (included if excl=false) to end
 function nzrangelo(A, i, excl=false)
     r = nzrange(A, i); r1 = r.start; r2 = r.stop
     rv = rowvals(A)
-    @inbounds r2 < r1 || rv[r1] >= i + excl ? r : searchsortedfirst(rv, i + excl, r1, r2, Forward):r2
+    @inbounds r2 < r1 || rv[r1] >= i + excl ? r : (searchsortedfirst(view(rv, r1:r2), i + excl) + r1-1):r2
 end
 
 dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
@@ -983,7 +983,7 @@ function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rang
         r1 = Int(Acolptr[i])
         r2 = Int(Acolptr[i+1]-1)
         r1 > r2 && continue
-        r1 = searchsortedfirst(Arowval, i, r1, r2, Forward)
+        r1 += searchsortedfirst(view(Arowval, r1:r2), i) - 1
         ((r1 > r2) || (Arowval[r1] != i)) && continue
         r += dot(x[i], diagop(Anzval[r1]), y[i])
     end
