@@ -48,7 +48,7 @@ In some applications, it is convenient to store explicit zero values in a `Spars
 mutating operations). Such explicitly stored zeros are treated as structural nonzeros by many
 routines. The [`nnz`](@ref) function returns the number of elements explicitly stored in the
 sparse data structure, including non-structural zeros. In order to count the exact number of
-numerical nonzeros, use [`count(!iszero, x)`](@ref), which inspects every stored element of a sparse
+numerical nonzeros, use [`Base.count(!iszero, x)`](@ref), which inspects every stored element of a sparse
 matrix. [`dropzeros`](@ref), and the in-place [`dropzeros!`](@ref), can be used to
 remove stored zeros from the sparse matrix.
 
@@ -86,7 +86,7 @@ stored zeros. (See [Sparse Matrix Storage](@ref man-csc).).
 
 ## Sparse Vector and Matrix Constructors
 
-The simplest way to create a sparse array is to use a function equivalent to the [`zeros`](@ref)
+The simplest way to create a sparse array is to use a function equivalent to the [`Base.zeros`](@ref)
 function that Julia provides for working with dense arrays. To produce a
 sparse array instead, you can use the same name with an `sp` prefix:
 
@@ -122,7 +122,7 @@ julia> R = sparsevec(I,V)
 
 The inverse of the [`sparse`](@ref) and [`sparsevec`](@ref) functions is
 [`findnz`](@ref), which retrieves the inputs used to create the sparse array.
-[`findall(!iszero, x)`](@ref) returns the Cartesian indices of non-zero entries in `x`
+[`Base.findall(!iszero, x)`](@ref) returns the Cartesian indices of non-zero entries in `x`
 (including stored entries equal to zero).
 
 ```jldoctest sparse_function
@@ -165,7 +165,7 @@ julia> sparse([1.0, 0.0, 1.0])
   [3]  =  1.0
 ```
 
-You can go in the other direction using the [`Array`](@ref) constructor. The [`issparse`](@ref)
+You can go in the other direction using the [`Base.Array`](@ref) constructor. The [`issparse`](@ref)
 function can be used to query if a matrix is sparse.
 
 ```jldoctest
@@ -195,12 +195,12 @@ section of the standard library reference.
 
 | Sparse                     | Dense                  | Description                                                                                                                                                           |
 |:-------------------------- |:---------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`spzeros(m,n)`](@ref)     | [`zeros(m,n)`](@ref)   | Creates a *m*-by-*n* matrix of zeros. ([`spzeros(m,n)`](@ref) is empty.)                                                                                              |
-| [`sparse(I,n,n)`](@ref)  | [`Matrix(I,n,n)`](@ref)| Creates a *n*-by-*n* identity matrix.                                                                                                                                 |
-| [`sparse(A)`](@ref)        | [`Array(S)`](@ref)   | Interconverts between dense and sparse formats.                                                                                                                       |
-| [`sprand(m,n,d)`](@ref)    | [`rand(m,n)`](@ref)    | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed uniformly on the half-open interval ``[0, 1)``.                            |
-| [`sprandn(m,n,d)`](@ref)   | [`randn(m,n)`](@ref)   | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed according to the standard normal (Gaussian) distribution.                  |
-| [`sprandn(rng,m,n,d)`](@ref) | [`randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator                                   |
+| [`spzeros(m,n)`](@ref)     | [`Base.zeros(m,n)`](@ref)   | Creates a *m*-by-*n* matrix of zeros. ([`spzeros(m,n)`](@ref) is empty.)                                                                                              |
+| [`sparse(I,n,n)`](@ref)  | [`Base.Matrix(I,n,n)`](@ref)| Creates a *n*-by-*n* identity matrix.                                                                                                                                 |
+| [`sparse(A)`](@ref)        | [`Base.Array(S)`](@ref)   | Interconverts between dense and sparse formats.                                                                                                                       |
+| [`sprand(m,n,d)`](@ref)    | [`Base.rand(m,n)`](@ref)    | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed uniformly on the half-open interval ``[0, 1)``.                            |
+| [`sprandn(m,n,d)`](@ref)   | [`Base.randn(m,n)`](@ref)   | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed according to the standard normal (Gaussian) distribution.                  |
+| [`sprandn(rng,m,n,d)`](@ref) | [`Base.randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator                                   |
 
 # [SparseArrays API](@id stdlib-sparse-arrays)
 

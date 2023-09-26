@@ -9,7 +9,8 @@ makedocs(
     pages = Any[
         "SparseArrays" => "index.md",
         "Sparse Linear Algebra" => "solvers.md",
-        ]
+        ];
+    warnonly = [:missing_docs],
     )
 
 deploydocs(repo = "github.com/JuliaSparse/SparseArrays.jl.git")

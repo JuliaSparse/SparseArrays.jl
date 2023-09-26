@@ -326,12 +326,12 @@ show_umf_info(F::UmfpackLU, level::Real=2.0) =
 Compute the LU factorization of a sparse matrix `A`.
 
 For sparse `A` with real or complex element type, the return type of `F` is
-`UmfpackLU{Tv, Ti}`, with `Tv` = [`Float64`](@ref) or `ComplexF64` respectively and
-`Ti` is an integer type ([`Int32`](@ref) or [`Int64`](@ref)).
+`UmfpackLU{Tv, Ti}`, with `Tv` = `Float64` or `ComplexF64` respectively and
+`Ti` is an integer type (`Int32` or `Int64`).
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via [`issuccess`](@ref)) lies with the user.
+validity (via [`LinearAlgebra.issuccess`](@ref)) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero-based, a
@@ -358,15 +358,15 @@ The relation between `F` and `A` is
 
 `F` further supports the following functions:
 
-- [`\\`](@ref)
-- [`det`](@ref)
+- [`Base.(\\)`](@ref)
+- [`LinearAlgebra.det`](@ref)
 
-See also [`lu!`](@ref)
+See also [`LinearAlgebra.lu!`](@ref)
 
 !!! note
     `lu(A::AbstractSparseMatrixCSC)` uses the UMFPACK[^ACM832] library that is part of
     [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with [`Float64`](@ref) or
+    As this library only supports sparse matrices with `Float64` or
     `ComplexF64` elements, `lu` converts `A` into a copy that is of type
     `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
 
@@ -410,7 +410,7 @@ be resized accordingly.
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via [`issuccess`](@ref)) lies with the user.
+validity (via [`LinearAlgebra.issuccess`](@ref)) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
@@ -420,7 +420,7 @@ See also [`lu`](@ref)
 
 !!! note
     `lu!(F::UmfpackLU, A::AbstractSparseMatrixCSC)` uses the UMFPACK library that is part of
-    SuiteSparse. As this library only supports sparse matrices with [`Float64`](@ref) or
+    SuiteSparse. As this library only supports sparse matrices with `Float64` or
     `ComplexF64` elements, `lu!` will automatically convert the types to those set by the LU
     factorization or `SparseMatrixCSC{ComplexF64}` as appropriate.
 

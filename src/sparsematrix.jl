@@ -2073,7 +2073,7 @@ LinearAlgebra.fillstored!(S::AbstractSparseMatrixCSC, x) = (fill!(nzvalview(S), 
 
 Create a sparse vector of length `m` or sparse matrix of size `m x n`. This
 sparse array will not contain any nonzero values. No storage will be allocated
-for nonzero values during construction. The type defaults to [`Float64`](@ref) if not
+for nonzero values during construction. The type defaults to `Float64` if not
 specified.
 
 # Examples
