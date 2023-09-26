@@ -1992,7 +1992,7 @@ The optional `rng` argument specifies a random number generator, see [Random Num
 The optional `T` argument specifies the element type, which defaults to `Float64`.
 
 By default, nonzero values are sampled from a uniform distribution using
-the [`rand`](@ref) function, i.e. by `rand(T)`, or `rand(rng, T)` if `rng`
+the `rand` function, i.e. by `rand(T)`, or `rand(rng, T)` if `rng`
 is supplied; for the default `T=Float64`, this corresponds to nonzero values
 sampled uniformly in `[0,1)`.
 

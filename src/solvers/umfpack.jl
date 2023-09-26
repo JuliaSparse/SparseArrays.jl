@@ -331,7 +331,7 @@ For sparse `A` with real or complex element type, the return type of `F` is
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via [`LinearAlgebra.issuccess`](@ref)) lies with the user.
+validity (via `LinearAlgebra.issuccess`) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero-based, a
@@ -358,10 +358,10 @@ The relation between `F` and `A` is
 
 `F` further supports the following functions:
 
-- [`Base.(\\)`](@ref)
-- [`LinearAlgebra.det`](@ref)
+- `\\`
+- `LinearAlgebra.det`
 
-See also [`LinearAlgebra.lu!`](@ref)
+See also `LinearAlgebra.lu!`.
 
 !!! note
     `lu(A::AbstractSparseMatrixCSC)` uses the UMFPACK[^ACM832] library that is part of
@@ -410,13 +410,13 @@ be resized accordingly.
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via [`LinearAlgebra.issuccess`](@ref)) lies with the user.
+validity (via `LinearAlgebra.issuccess`) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
 zero based copy is made.
 
-See also [`lu`](@ref)
+See also `LinearAlgebra.lu`.
 
 !!! note
     `lu!(F::UmfpackLU, A::AbstractSparseMatrixCSC)` uses the UMFPACK library that is part of

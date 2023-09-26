@@ -153,7 +153,7 @@ _default_tol(A::AbstractSparseMatrixCSC) =
 
 Compute the `QR` factorization of a sparse matrix `A`. Fill-reducing row and column permutations
 are used such that `F.R = F.Q'*A[F.prow,F.pcol]`. The main application of this type is to
-solve least squares or underdetermined problems with [`Base.(\\)`](@ref). The function calls the C library SPQR[^ACM933].
+solve least squares or underdetermined problems with `\\`. The function calls the C library SPQR[^ACM933].
 
 !!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).

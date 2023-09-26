@@ -1334,8 +1334,8 @@ view of a `SparseMatrixCSC`. Note that even if `A` doesn't
 have the type tag, it must still be symmetric or Hermitian.
 If `perm` is not given, a fill-reducing permutation is used.
 `F = cholesky(A)` is most frequently used to solve systems of equations with `F\\b`,
-but also the methods [`LinearAlgebra.diag`](@ref), [`LinearAlgebra.det`](@ref), and
-[`LinearAlgebra.logdet`](@ref) are defined for `F`.
+but also the methods `LinearAlgebra.diag`, `LinearAlgebra.det`, and
+`LinearAlgebra.logdet` are defined for `F`.
 You can also extract individual factors from `F`, using `F.L`.
 However, since pivoting is on by default, the factorization is internally
 represented as `A == P'*L*L'*P` with a permutation matrix `P`;
@@ -1346,7 +1346,7 @@ it's typically preferable to extract "combined" factors like `PtL = F.PtL`
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via [`LinearAlgebra.issuccess`](@ref)) lies with the user.
+validity (via `LinearAlgebra.issuccess`) lies with the user.
 
 Setting the optional `shift` keyword argument computes the factorization of
 `A+shift*I` instead of `A`. If the `perm` argument is provided,
@@ -1502,8 +1502,8 @@ view of a `SparseMatrixCSC`. Note that even if `A` doesn't
 have the type tag, it must still be symmetric or Hermitian.
 A fill-reducing permutation is used. `F = ldlt(A)` is most frequently
 used to solve systems of equations `A*x = b` with `F\\b`. The returned
-factorization object `F` also supports the methods [`LinearAlgebra.diag`](@ref),
-[`LinearAlgebra.det`](@ref), [`LinearAlgebra.logdet`](@ref), and [`Base.inv`](@ref).
+factorization object `F` also supports the methods `LinearAlgebra.diag`,
+`LinearAlgebra.det`, `LinearAlgebra.logdet`, and `inv`.
 You can extract individual factors from `F` using `F.L`.
 However, since pivoting is on by default, the factorization is internally
 represented as `A == P'*L*D*L'*P` with a permutation matrix `P`;
@@ -1515,7 +1515,7 @@ The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtL
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via [`LinearAlgebra.issuccess`](@ref)) lies with the user.
+validity (via `LinearAlgebra.issuccess`) lies with the user.
 
 Setting the optional `shift` keyword argument computes the factorization of
 `A+shift*I` instead of `A`. If the `perm` argument is provided,
@@ -1549,7 +1549,7 @@ factor will be `L*L' == P*A*P' + C'*C`
 
 `update`: `Cint(1)` for `A + CC'`, `Cint(0)` for `A - CC'`
 """
-lowrankdowndate!
+lowrankupdowndate!
 
 #Helper functions for rank updates
 lowrank_reorder(V::AbstractArray,p) = Sparse(sparse(V[p,:]))
