@@ -9,9 +9,7 @@ makedocs(
     pages = Any[
         "SparseArrays" => "index.md",
         "Sparse Linear Algebra" => "solvers.md",
-        ];
-    # strict = true,
-    strict = Symbol[:doctest],
+        ]
     )
 
 deploydocs(repo = "github.com/JuliaSparse/SparseArrays.jl.git")
