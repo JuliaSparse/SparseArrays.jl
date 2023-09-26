@@ -1988,7 +1988,8 @@ end
 Create a random length `m` sparse vector or `m` by `n` sparse matrix, in
 which the probability of any element being nonzero is independently given by
 `p` (and hence the mean density of nonzeros is also exactly `p`).
-The optional `rng` argument specifies a random number generator, see [Random Numbers](@ref).
+The optional `rng` argument specifies a random number generator, see the section on
+"Random Numbers" in the Julia documentation.
 The optional `T` argument specifies the element type, which defaults to `Float64`.
 
 By default, nonzero values are sampled from a uniform distribution using
@@ -2044,7 +2045,8 @@ sprand(::Type{T}, m::Integer, n::Integer, density::AbstractFloat) where {T} =
 Create a random sparse vector of length `m` or sparse matrix of size `m` by `n`
 with the specified (independent) probability `p` of any entry being nonzero,
 where nonzero values are sampled from the normal distribution. The optional `rng`
-argument specifies a random number generator, see [Random Numbers](@ref).
+argument specifies a random number generator, see the section on "Random Numbers"
+in the Julia documentation.
 
 !!! compat "Julia 1.1"
     Specifying the output element type `Type` requires at least Julia 1.1.
