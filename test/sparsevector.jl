@@ -778,6 +778,35 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
             SparseVector(8, Int[1, 2, 6], Float64[3.25, 4.0, 3.5]))
         @test exact_equal(min.(x, x2),
             SparseVector(8, Int[2, 5, 6, 7], Float64[1.25, -0.75, -5.5, -6.0]))
+
+    end
+
+    test_vectors = [
+        (spv_x1, spv_x2),
+        (SparseVector(5, [1], [1.0]), SparseVector(5, [1], [3.0])),
+        (SparseVector(5, [2], [1.0]), SparseVector(5, [1], [3.0])),
+        (SparseVector(5, [1], [1.0]), SparseVector(5, [2], [3.0])),
+        (SparseVector(5, [3], [2.0]), SparseVector(5, [4], [3.0])),
+        (SparseVector(5, Int[], Float64[]), SparseVector(5, [4], [3.0])),
+    ]
+    @testset "View operations $((collect(xa), collect(xb))), op $op" for (xa, xb) in test_vectors, op in (-, +)
+        r1 = op(@view(xa[1:end]), @view(xb[1:end]))
+        @test r1 == op(xa, xb)
+        @test r1 isa SparseVector
+        r2 = op(@view(xa[2:end-1]), @view(xb[2:end-1]))
+        @test r2 == op(xa, xb)[2:end-1]
+        @test r2 isa SparseVector
+        r3 = op(@view(xb[1:end]), big.(xa))
+        @test r3 == big.(op(xb, xa))
+        @test r3 isa SparseVector
+        # empty views
+        r4 = op(@view(xa[1:2]), @view(xb[1:2]))
+        @test r4 == op(xa, xb)[1:2]
+        @test r4 == @view(op(xa, xb)[1:2])
+        @test r4 isa SparseVector
+        r5 = op(@view(xa[end-1:end]), @view(xb[end-1:end]))
+        @test r5 == op(xa, xb)[end-1:end]
+        @test r5 isa SparseVector
     end
 
     ### Complex
