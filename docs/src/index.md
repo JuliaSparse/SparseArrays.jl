@@ -92,7 +92,7 @@ sparse array instead, you can use the same name with an `sp` prefix:
 
 ```jldoctest
 julia> spzeros(3)
-3-element SparseVector{Float64, Int64} with 0 stored entries
+sparsevec(Int64[], Float64[], 3)
 ```
 
 The [`sparse`](@ref) function is often a handy way to construct sparse arrays. For

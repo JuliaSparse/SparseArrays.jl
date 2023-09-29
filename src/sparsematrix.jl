@@ -2085,7 +2085,7 @@ julia> spzeros(3, 3)
   ⋅    ⋅    ⋅
 
 julia> spzeros(Float32, 4)
-4-element SparseVector{Float32, Int64} with 0 stored entries
+sparsevec(Int64[], Float32[], 4)
 ```
 """
 spzeros(m::Integer, n::Integer) = spzeros(Float64, m, n)

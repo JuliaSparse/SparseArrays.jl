@@ -1000,47 +1000,51 @@ end
 
 ### show and friends
 
-function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
-    xnnz = length(nonzeros(x))
-    print(io, length(x), "-element ", typeof(x), " with ", xnnz,
-           " stored ", xnnz == 1 ? "entry" : "entries")
-    if xnnz != 0
-        println(io, ":")
-        show(IOContext(io, :typeinfo => eltype(x)), MIME"text/plain"(), x)
-    end
-end
+# function show(, ::MIME"text/plain", x::AbstractSparseVector)
+#     xnnz = length(nonzeros(x))
+#     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
+#            " stored ", xnnz == 1 ? "entry" : "entries")
+#     if xnnz != 0
+#         println(io, ":")
+#         show(IOContext(io, :typeinfo => eltype(x)), MIME"text/plain"(), x)
+#     end
+# end
 
-show(io::IO, x::AbstractSparseVector) = show(convert(IOContext, io), x)
-function show(io::IOContext, x::AbstractSparseVector)
+function show(io::IO, x::AbstractSparseVector)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     print(io, "sparsevec(", nzind, ", ", nzval, ", ", length(x), ")")
 end
-function show(io::IOContext, ::MIME"text/plain", x::AbstractSparseVector)
+function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     if isempty(nzind)
         return show(io, x)
     end
-    limit = get(io, :limit, false)::Bool
-    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
+    xnnz = length(nzval)
+    println(io, length(x), "-element ", typeof(x), " with ", xnnz,
+           " stored ", xnnz == 1 ? "entry" : "entries", ":")
+    ioctxt = IOContext(io, :typeinfo => eltype(x))
+    limit = get(ioctxt, :limit, false)::Bool
+    half_screen_rows = limit ? div(displaysize(ioctxt)[1] - 8, 2) : typemax(Int)
     pad = ndigits(nzind[end])
-    if !haskey(io, :compact)
-        io = IOContext(io, :compact => true)
+    if !haskey(ioctxt, :compact)
+        ioctxt = IOContext(ioctxt, :compact => true)
     end
     for k = eachindex(nzind)
         if k < half_screen_rows || k > length(nzind) - half_screen_rows
-            print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
+            print(ioctxt, "  ", '[', rpad(nzind[k], pad), "]  =  ")
             if isassigned(nzval, Int(k))
-                show(io, nzval[k])
+                show(ioctxt, nzval[k])
             else
-                print(io, Base.undef_ref_str)
+                print(ioctxt, Base.undef_ref_str)
             end
-            k != length(nzind) && println(io)
+            k != length(nzind) && println(ioctxt)
         elseif k == half_screen_rows
-            println(io, "   ", " "^pad, "   \u22ee")
+            println(ioctxt, "   ", " "^pad, "   \u22ee")
         end
     end
+    return nothing
 end
 
 ### Conversion to matrix
