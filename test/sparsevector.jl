@@ -1541,7 +1541,7 @@ mutable struct t20488 end
 
     # ensure that a vector of sparsevecs doesn't use pretty printing for elements
     S = sparsevec(Int64[1,4], Int64[2,3])
-    @test repr(S) == "sparsevec($([1, 4]), $([2, 3]), 4)"
+    @test repr(S) == "sparsevec($(Int64[1,4]), $(Int64[2,3]), 4)"
     @test repr([S]) == "$(SparseArrays.SparseVector){Int64, Int64}[$(repr(S))]"
 end
 
