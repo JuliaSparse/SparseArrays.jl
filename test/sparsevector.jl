@@ -1540,7 +1540,8 @@ mutable struct t20488 end
     @test String(take!(io)) == "1073741823-element $(SparseArrays.SparseVector){Int32, Int32} with 1 stored entry:\n  [1]  =  1"
 
     # ensure that a vector of sparsevecs doesn't use pretty printing for elements
-    S = sparsevec([1,4], [2,3])
+    S = sparsevec(Int64[1,4], Int64[2,3])
+    @test repr(S) == "sparsevec([1, 4], [2, 3], 4)"
     @test repr([S]) == "$(SparseArrays.SparseVector){Int64, Int64}[$(repr(S))]"
 end
 
