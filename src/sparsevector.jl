@@ -1008,16 +1008,16 @@ end
 function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
-    if isempty(nzind)
-        return show(io, x)
-    end
     xnnz = length(nzval)
-    println(io, length(x), "-element ", typeof(x), " with ", xnnz,
-           " stored ", xnnz == 1 ? "entry" : "entries", ":")
+    print(io, length(x), "-element ", typeof(x), " with ", xnnz,
+           " stored ", xnnz == 1 ? "entry" : "entries")
+    if xnnz > 0
+        println(io, ":")
+    end
     ioctxt = IOContext(io, :typeinfo => eltype(x))
     limit = get(ioctxt, :limit, false)::Bool
     half_screen_rows = limit ? div(displaysize(ioctxt)[1] - 8, 2) : typemax(Int)
-    pad = ndigits(nzind[end])
+    pad = isempty(nzind) ? 0 : ndigits(nzind[end])
     if !haskey(ioctxt, :compact)
         ioctxt = IOContext(ioctxt, :compact => true)
     end
