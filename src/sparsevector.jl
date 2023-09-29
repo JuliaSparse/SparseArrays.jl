@@ -1000,16 +1000,6 @@ end
 
 ### show and friends
 
-# function show(, ::MIME"text/plain", x::AbstractSparseVector)
-#     xnnz = length(nonzeros(x))
-#     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
-#            " stored ", xnnz == 1 ? "entry" : "entries")
-#     if xnnz != 0
-#         println(io, ":")
-#         show(IOContext(io, :typeinfo => eltype(x)), MIME"text/plain"(), x)
-#     end
-# end
-
 function show(io::IO, x::AbstractSparseVector)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
