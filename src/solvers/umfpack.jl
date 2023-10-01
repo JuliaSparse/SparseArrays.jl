@@ -346,7 +346,7 @@ For example to reenable iterative refinement:
     umfpack_control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0 # reenable iterative refinement (2 is UMFPACK default max iterative refinement steps)
 
     Alu = lu(A; control = umfpack_control)
-    x = Alu \ b   # solve Ax = b, including UMFPACK iterative refinement  
+    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement  
 
 The individual components of the factorization `F` can be accessed by indexing:
 
