@@ -3082,12 +3082,15 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     colptrB[colB] = 1
     idxB = 1
 
+    CartIndsA = CartesianIndices(szA)
+    CartIndsB = CartesianIndices(szB)
+
     for i in 1:n
         @boundscheck checkbounds(A, I[i])
-        row,col = Base._ind2sub(szA, I[i])
+        row,col = Tuple(CartIndsA[I[i]])
         for r in colptrA[col]:(colptrA[col+1]-1)
             @inbounds if rowvalA[r] == row
-                rowB,colB = Base._ind2sub(szB, i)
+                rowB,colB = Tuple(CartIndsB[i])
                 colptrB[colB+1] += 1
                 rowvalB[idxB] = rowB
                 nzvalB[idxB] = nzvalA[r]
@@ -3591,13 +3594,15 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
 
     isa(x, AbstractArray) && setindex_shape_check(x, length(I))
 
+    CartIndsA = CartesianIndices(szA)
+
     lastcol = 0
     (nrowA, ncolA) = szA
     @inbounds for xidx in 1:n
         sxidx = S[xidx]
         (sxidx < n) && (I[sxidx] == I[sxidx+1]) && continue
 
-        row,col = Base._ind2sub(szA, I[sxidx])
+        row,col = Tuple(CartIndsA[I[sxidx]])
         v = x[sxidx]
 
         if col > lastcol
