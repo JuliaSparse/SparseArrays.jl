@@ -23,7 +23,7 @@ import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Com
     conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin,
     float, getindex, imag, inv, kron, kron!, length, map, maximum, minimum, permute!, real,
     rot180, rotl90, rotr90, setindex!, show, similar, size, sum, transpose,
-    vcat, hcat, hvcat, cat, vec
+    vcat, hcat, hvcat, cat, vec, reverse, reverse!
 
 using Random: default_rng, AbstractRNG, randsubseq, randsubseq!
 
