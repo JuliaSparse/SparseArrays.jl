@@ -1001,12 +1001,10 @@ end
 ### show and friends
 
 function show(io::IO, x::AbstractSparseVector)
-    nzind = nonzeroinds(x)
-    nzval = nonzeros(x)
-    print(io, "sparsevec(", nzind, ", ", nzval, ", ", length(x), ")")
+    print(io, "sparsevec(", rowvals(x), ", ", nonzeros(x), ", ", length(x), ")")
 end
 function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
-    nzind = nonzeroinds(x)
+    nzind = rowvals(x)
     nzval = nonzeros(x)
     xnnz = length(nzval)
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
