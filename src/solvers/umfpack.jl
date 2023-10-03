@@ -47,6 +47,7 @@ import ..LibSuiteSparse:
     UMFPACK_PRL,
     UMFPACK_DENSE_ROW,
     UMFPACK_DENSE_COL,
+    UMFPACK_PIVOT_TOLERANCE,
     UMFPACK_BLOCK_SIZE,
     UMFPACK_ORDERING,
     UMFPACK_FIXQ,
@@ -81,6 +82,7 @@ import ..LibSuiteSparse:
 const JL_UMFPACK_PRL = UMFPACK_PRL + 1
 const JL_UMFPACK_DENSE_ROW = UMFPACK_DENSE_ROW + 1
 const JL_UMFPACK_DENSE_COL = UMFPACK_DENSE_COL + 1
+const JL_UMFPACK_PIVOT_TOLERANCE = UMFPACK_PIVOT_TOLERANCE + 1
 const JL_UMFPACK_BLOCK_SIZE = UMFPACK_BLOCK_SIZE + 1
 const JL_UMFPACK_ORDERING = UMFPACK_ORDERING + 1
 const JL_UMFPACK_FIXQ = UMFPACK_FIXQ + 1
@@ -337,9 +339,16 @@ The permutation `q` can either be a permutation vector or `nothing`. If no permu
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero-based, a
 zero-based copy is made.
 
-The `control` vector defaults to the package's default configuration for UMFPACK, but can be changed by passing a
-vector of length `UMFPACK_CONTROL`. See the UMFPACK manual for possible configurations. The corresponding
-variables are named `JL_UMFPACK_` since Julia uses one-based indexing.
+The `control` vector defaults to the Julia SparseArrays package's default configuration for UMFPACK (NB: this is modified from the UMFPACK defaults to
+disable iterative refinement), but can be changed by passing a vector of length `UMFPACK_CONTROL`, see the UMFPACK manual for possible configurations. 
+For example to reenable iterative refinement:
+
+    umfpack_control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int64) # read Julia default configuration for a Float64 sparse matrix
+    SparseArrays.UMFPACK.show_umf_ctrl(umfpack_control) # optional - display values
+    umfpack_control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0 # reenable iterative refinement (2 is UMFPACK default max iterative refinement steps)
+
+    Alu = lu(A; control = umfpack_control)
+    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement  
 
 The individual components of the factorization `F` can be accessed by indexing:
 
