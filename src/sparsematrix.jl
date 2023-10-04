@@ -4421,9 +4421,20 @@ end
 function _reverse(A::AbstractSparseMatrixCSC, ::Colon)
     rowinds, colinds, nzval = findnz(A)
     rowinds .= (size(A,1) + 1) .- rowinds
-    reverse!(rowinds)
     colinds .= (size(A,2) + 1) .- colinds
-    reverse!(colinds)
-    reverse!(nzval)
-    sparse(rowinds, colinds, nzval, size(A)...)
+    sparse!(rowinds, colinds, nzval, size(A)...)
+end
+function _reverse(A::AbstractSparseMatrixCSC, dims::Integer)
+    dims ∈ (1,2) || throw(ArgumentError("invalid dimension $dims in reverse"))
+    rowinds, colinds, nzval = findnz(A)
+    if dims == 1
+        rowinds .= (size(A,1) + 1) .- rowinds
+    else # dims == 2
+        colinds .= (size(A,2) + 1) .- colinds
+    end
+    sparse!(rowinds, colinds, nzval, size(A)...)
+end
+function _reverse(A::AbstractSparseMatrixCSC, dims::Tuple{Integer,Integer})
+    dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
+    _reverse(A, :)
 end

@@ -1830,6 +1830,14 @@ end
             revS = reverse(S)
             @test revS == reverse(w)
             @test nnz(revS) == nnz(S)
+            for dims in 1:2
+                revS = reverse(S; dims)
+                @test revS == reverse(w; dims)
+                @test nnz(revS) == nnz(S)
+            end
+            revS = reverse(S, dims=(1,2))
+            @test revS == reverse(w, dims=(1,2))
+            @test nnz(revS) == nnz(S)
         end
     end
 end
