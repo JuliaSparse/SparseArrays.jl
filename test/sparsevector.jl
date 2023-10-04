@@ -730,6 +730,7 @@ end
         w = collect(s)
         @testset for start in axes(s,1), stop in start:lastindex(s,1)
             srev = reverse(s, start, stop)
+            @test nnz(srev) == nnz(s)
             @test srev == reverse(w, start, stop)
         end
     end

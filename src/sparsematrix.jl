@@ -4414,3 +4414,16 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
     end
     return nothing
 end
+
+function reverse(A::AbstractSparseMatrixCSC; dims=:)
+    _reverse(A, dims)
+end
+function _reverse(A::AbstractSparseMatrixCSC, ::Colon)
+    rowinds, colinds, nzval = findnz(A)
+    rowinds .= (size(A,1) + 1) .- rowinds
+    reverse!(rowinds)
+    colinds .= (size(A,2) + 1) .- colinds
+    reverse!(colinds)
+    reverse!(nzval)
+    sparse(rowinds, colinds, nzval, size(A)...)
+end

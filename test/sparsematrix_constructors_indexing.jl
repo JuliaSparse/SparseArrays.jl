@@ -1822,4 +1822,16 @@ end
     end
 end
 
+@testset "reverse" begin
+    @testset "$name" for (name, S) in (("standard", sparse([2,2,4], [1,2,5], [-19, 73, -7])),
+                            ("zeros", spzeros(Int8, 20, 40)))
+        w = collect(S)
+        for start in axes(S,1), stop in start:lastindex(S)
+            revS = reverse(S)
+            @test revS == reverse(w)
+            @test nnz(revS) == nnz(S)
+        end
+    end
+end
+
 end
