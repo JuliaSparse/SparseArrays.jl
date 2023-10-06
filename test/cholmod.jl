@@ -10,7 +10,7 @@ using Serialization
 using LinearAlgebra:
     I, cholesky, cholesky!, det, diag, eigmax, ishermitian, isposdef, issuccess,
     issymmetric, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
-    PosDefException, ZeroPivotException
+    PosDefException, ZeroPivotException, RowMaximum
 using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
@@ -970,6 +970,16 @@ end
     u = K \ f
     residual = norm(f - K * u) / norm(f)
     @test residual < 1e-6 
+end
+
+@testset "wrapped sparse matrices" begin
+    A = I + sprand(10, 10, 0.1); A = A'A
+    @test issuccess(cholesky(view(A, :, :)))
+    @test issuccess(cholesky(Symmetric(view(A, :, :))))
+    @test_throws ErrorException cholesky(view(A, :, :), RowMaximum())
+    # turn on once two-arg cholesky is made to forward any PivotingStrategy argument
+    # @test_throws ErrorException cholesky(A, NoPivot())
+    # @test_throws ErrorException cholesky(view(A, :, :), NoPivot())
 end
 
 end # Base.USE_GPL_LIBS
