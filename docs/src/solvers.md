@@ -17,6 +17,7 @@ Other solvers such as [Pardiso.jl](https://github.com/JuliaSparse/Pardiso.jl/) a
 These factorizations are described in more detail in the
 [`Linear Algebra`](https://docs.julialang.org/en/v1/stdlib/LinearAlgebra/)
 section of the manual:
+
 1. [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky)
 2. [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt)
 3. [`lu`](@ref SparseArrays.UMFPACK.lu)
