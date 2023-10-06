@@ -342,7 +342,7 @@ end
     A = rand(5,5)
     A´ = similar(A)
     Ac = copyto!(A, B)
-    @test Ac === A 
+    @test Ac === A
     @test A == copyto!(A´, Matrix(B))
     # Test copyto!(dense, Rdest, sparse, Rsrc)
     A = rand(5,5)
@@ -1363,7 +1363,9 @@ end
     a = sprand(10, 10, 0.2)
     b = copy(a)
     sa = view(a, 1:10, 2:3)
-    fill!(sa, 0.0)
+    sa_filled = fill!(sa, 0.0)
+    # `fill!` should return the sub array instead of its parent.
+    @test sa_filled === sa
     b[1:10, 2:3] .= 0.0
     @test a == b
     A = sparse([1], [1], [Vector{Float64}(undef, 3)], 3, 3)
@@ -1375,6 +1377,17 @@ end
         B[1, jj] = [4.0, 5.0, 6.0]
     end
     @test A == B
+
+    # https://github.com/JuliaSparse/SparseArrays.jl/pull/433
+    struct Foo
+       x::Int
+    end
+    Base.zero(::Type{Foo}) = Foo(0)
+    Base.zero(::Foo) = zero(Foo)
+    C = sparse([1], [1], [Foo(3)], 3, 3)
+    sC = view(C, 1:1, 1:2)
+    fill!(sC, zero(Foo))
+    @test C[1:1, 1:2] == zeros(Foo, 1, 2)
 end
 
 using Base: swaprows!, swapcols!

@@ -95,6 +95,9 @@ const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tup
 const SparseVectorUnion{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
 const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
 
+# allows for views of a subset of the sparse vector indices
+const SparseVectorPartialView{Tv,Ti} = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{AbstractUnitRange},false}
+
 ### Basic properties
 
 length(x::SparseVector) = getfield(x, :n)
@@ -114,6 +117,7 @@ function nnz(x::SparseColumnView)
     return length(nzrange(parent(x), colidx))
 end
 nnz(x::SparseVectorView) = nnz(x.parent)
+nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))
 
 """
     nzrange(x::SparseVectorUnion, col)
@@ -135,6 +139,12 @@ function nonzeros(x::SparseColumnView)
 end
 nonzeros(x::SparseVectorView) = nonzeros(parent(x))
 
+function nonzeros(x::SparseVectorPartialView)
+    (first_idx, last_idx) = _partialview_end_indices(x)
+    nzvals = nonzeros(parent(x))
+    return view(nzvals, first_idx:last_idx)
+end
+
 nonzeroinds(x::SparseVector) = getfield(x, :nzind)
 nonzeroinds(x::FixedSparseVector) = getfield(x, :nzind)
 function nonzeroinds(x::SparseColumnView)
@@ -145,10 +155,37 @@ function nonzeroinds(x::SparseColumnView)
 end
 nonzeroinds(x::SparseVectorView) = nonzeroinds(parent(x))
 
+# return the first and last nonzero indices of the parent that belong to the view
+# return end+1:end if no nonzero in the parent
+function _partialview_end_indices(x::SparseVectorPartialView)
+    p = parent(x)
+    nzinds = nonzeroinds(p)
+    if isempty(nzinds)
+        last_idx = length(nzinds)
+        first_idx = last_idx + 1
+    else
+        first_idx = findfirst(>=(x.indices[1][begin]), nzinds)
+        last_idx = findlast(<=(x.indices[1][end]), nzinds)
+        # empty view
+        if first_idx === nothing || last_idx === nothing
+            last_idx = length(nzinds)
+            first_idx = last_idx+1
+        end
+    end
+    return (first_idx, last_idx)
+end
+
+function nonzeroinds(x::SparseVectorPartialView)
+    isempty(x.indices[1]) && return indtype(parent(x))[]
+    (first_idx, last_idx) = _partialview_end_indices(x)
+    nzinds = nonzeroinds(parent(x))
+    return @view(nzinds[first_idx:last_idx]) .- (x.indices[1][begin] - 1)
+end
+
 rowvals(x::SparseVectorUnion) = nonzeroinds(x)
 
 indtype(x::SparseColumnView) = indtype(parent(x))
-indtype(x::SparseVectorView) = indtype(parent(x))
+indtype(x::Union{SparseVectorView, SparseVectorPartialView}) = indtype(parent(x))
 
 
 function Base.sizehint!(v::SparseVector, newlen::Integer)
@@ -639,8 +676,8 @@ function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     c1 = convert(Int, getcolptr(x)[j])
     c2 = convert(Int, getcolptr(x)[j+1]) - 1
     # Restrict to the selected rows
-    r1 = searchsortedfirst(rowvals(x), first(I), c1, c2, Forward)
-    r2 = searchsortedlast(rowvals(x), last(I), c1, c2, Forward)
+    r1 = searchsortedfirst(view(rowvals(x), c1:c2), first(I)) + c1 - 1
+    r2 = searchsortedlast(view(rowvals(x), c1:c2), last(I)) + c1 - 1
     return @if_move_fixed x SparseVector(length(I), [rowvals(x)[i] - first(I) + 1 for i = r1:r2], nonzeros(x)[r1:r2])
 end
 
@@ -670,7 +707,7 @@ function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::Abstrac
         stopA = Int(colptrA[col+1]-1)
         if ptrA <= stopA
             if rowvalA[ptrA] <= rowI
-                ptrA = searchsortedfirst(rowvalA, rowI, ptrA, stopA, Base.Order.Forward)
+                ptrA += searchsortedfirst(view(rowvalA, ptrA:stopA), rowI) - 1
                 if ptrA <= stopA && rowvalA[ptrA] == rowI
                     push!(nzinds, j)
                     push!(nzvals, nzvalA[ptrA])
@@ -959,7 +996,7 @@ function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractUnitRange) where {T
     # locate the first j0, s.t. xnzind[j0] >= i0
     j0 = searchsortedfirst(xnzind, i0)
     # locate the last j1, s.t. xnzind[j1] <= i1
-    j1 = searchsortedlast(xnzind, i1, j0, m, Forward)
+    j1 = searchsortedlast(view(xnzind, j0:m), i1) + j0 - 1
 
     # compute the number of non-zeros
     jrgn = j0:j1
@@ -1193,6 +1230,7 @@ _makesparse(x::AbstractMatrix) = convert(SparseMatrixCSC, issparse(x) ? x : spar
 anysparse() = false
 anysparse(X) = X isa AbstractArray && issparse(X)
 anysparse(X, Xs...) = anysparse(X) || anysparse(Xs...)
+anysparse(X::T, Xs::T...) where {T} = anysparse(X)
 
 const _SparseVecConcatGroup = Union{Vector, AbstractSparseVector}
 function hcat(X::_SparseVecConcatGroup...)
@@ -1225,13 +1263,13 @@ function hcat(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if anysparse(X1) || anysparse(X...)
         X1, X = _sparse(X1), map(_makesparse, X)
     end
-    return cat(X1, X..., dims=Val(2))
+    return Base.typed_hcat(Base.promote_eltype(X1, X...), X1, X...)
 end
 function vcat(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if anysparse(X1) || anysparse(X...)
         X1, X = _sparse(X1), map(_makesparse, X)
     end
-    return cat(X1, X..., dims=Val(1))
+    return Base.typed_vcat(Base.promote_eltype(X1, X...), X1, X...)
 end
 function hvcat(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if anysparse(X1) || anysparse(X...)
@@ -1565,6 +1603,22 @@ for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
             _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
         broadcast(::typeof($fun), x::AbstractCompressedVector{Tx}, y::AbstractCompressedVector{Ty}) where {Tx, Ty} =
             _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
+    end
+end
+
+for fun in (:+, :-)
+    @eval @propagate_inbounds function $(fun)(x::Union{SparseVectorUnion{Tx},SparseVectorPartialView{Tx}}, y::Union{SparseVectorUnion{Ty},SparseVectorPartialView{Ty}}) where {Tx, Ty}
+        @boundscheck axes(x) == axes(y) || throw(DimensionMismatch("$(axes(x)), $(axes(y))"))
+        T = promote_type(Tx, Ty)
+        res = spzeros(T, length(x))
+        copyto!(res, x)
+        nzinds = nonzeroinds(y)
+        nzvals = nonzeros(y)
+        @inbounds for nzidx in eachindex(nzinds)
+            res[nzinds[nzidx]] = $fun(res[nzinds[nzidx]], nzvals[nzidx])
+        end
+        dropzeros!(res)
+        return res
     end
 end
 

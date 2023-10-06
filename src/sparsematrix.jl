@@ -1939,11 +1939,11 @@ function _sparse_findnextnz(m::AbstractSparseMatrixCSC, ij::CartesianIndex{2})
     col > size(m, 2) && return nothing
 
     lo, hi = getcolptr(m)[col], getcolptr(m)[col+1]
-    n = searchsortedfirst(rowvals(m), row, lo, hi-1, Base.Order.Forward)
+    n = searchsortedfirst(view(rowvals(m), lo:hi-1), row) + lo - 1
     if lo <= n <= hi-1
         return CartesianIndex(rowvals(m)[n], col)
     end
-    nextcol = searchsortedfirst(getcolptr(m), hi + 1, col + 1, length(getcolptr(m)), Base.Order.Forward)
+    nextcol = searchsortedfirst(view(getcolptr(m), col+1:length(getcolptr(m))), hi + 1) + col
     nextcol > length(getcolptr(m)) && return nothing
     nextlo = getcolptr(m)[nextcol-1]
     return CartesianIndex(rowvals(m)[nextlo], nextcol - 1)
@@ -1954,11 +1954,11 @@ function _sparse_findprevnz(m::AbstractSparseMatrixCSC, ij::CartesianIndex{2})
     iszero(col) && return nothing
 
     lo, hi = getcolptr(m)[col], getcolptr(m)[col+1]
-    n = searchsortedlast(rowvals(m), row, lo, hi-1, Base.Order.Forward)
+    n = searchsortedlast(view(rowvals(m), lo:hi-1), row) + lo - 1
     if lo <= n <= hi-1
         return CartesianIndex(rowvals(m)[n], col)
     end
-    prevcol = searchsortedlast(getcolptr(m), lo - 1, 1, col - 1, Base.Order.Forward)
+    prevcol = searchsortedlast(view(getcolptr(m), 1:col-1), lo - 1)
     prevcol < 1 && return nothing
     prevhi = getcolptr(m)[prevcol+1]
     return CartesianIndex(rowvals(m)[prevhi-1], prevcol)
@@ -2564,8 +2564,8 @@ function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=1:size(A, 1), cols=1:siz
         r1::Int = colptr[col]
         r2::Int = colptr[col+1] - 1
         if !allrows && (r1 <= r2)
-            r1 = searchsortedfirst(rowval, rowmin, r1, r2, Forward)
-            (r1 <= r2 ) && (r2 = searchsortedlast(rowval, rowmax, r1, r2, Forward))
+            r1 += searchsortedfirst(view(rowval, r1:r2), rowmin) - 1
+            (r1 <= r2 ) && (r2 = searchsortedlast(view(rowval, r1:r2), rowmax) + r1 - 1)
         end
         row = rowmin
         while (r1 <= r2) && (row == rowval[r1]) && _isnotzero(nzval[r1])
@@ -2677,7 +2677,7 @@ end
     r1 = Int(@inbounds getcolptr(A)[i1])
     r2 = Int(@inbounds getcolptr(A)[i1+1]-1)
     (r1 > r2) && return zero(T)
-    r1 = searchsortedfirst(rowvals(A), i0, r1, r2, Forward)
+    r1 = searchsortedfirst(view(rowvals(A), r1:r2), i0) + r1 - 1
     ((r1 > r2) || (rowvals(A)[r1] != i0)) ? zero(T) : nonzeros(A)[r1]
 end
 
@@ -2813,7 +2813,7 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
                 rowI = I[ptrI]
                 ptrI += 1
                 (rowvalA[ptrA] > rowI) && continue
-                ptrA = searchsortedfirst(rowvalA, rowI, ptrA, stopA, Base.Order.Forward)
+                ptrA += searchsortedfirst(view(rowvalA, ptrA:stopA), rowI) - 1
                 (ptrA <= stopA) || break
                 if rowvalA[ptrA] == rowI
                     ptrS += 1
@@ -2837,7 +2837,7 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
             while ptrI <= nI
                 rowI = I[ptrI]
                 if rowvalA[ptrA] <= rowI
-                    ptrA = searchsortedfirst(rowvalA, rowI, ptrA, stopA, Base.Order.Forward)
+                    ptrA += searchsortedfirst(view(rowvalA, ptrA:stopA), rowI) - 1
                     (ptrA <= stopA) || break
                     if rowvalA[ptrA] == rowI
                         rowvalS[ptrS] = ptrI
@@ -2941,7 +2941,7 @@ function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
     @inbounds for j = 1:m
         cval = cacheI[j]
         (cval == 0) && continue
-        ptrI = searchsortedfirst(I, j, ptrI, nI, Base.Order.Forward)
+        ptrI += searchsortedfirst(view(I, ptrI:nI), j) - 1
         cacheI[j] = ptrI
         while ptrI <= nI && I[ptrI] == j
             ptrS += cval
@@ -3129,7 +3129,7 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
     end
     coljfirstk = Int(getcolptr(A)[j])
     coljlastk = Int(getcolptr(A)[j+1] - 1)
-    searchk = searchsortedfirst(rowvals(A), i, coljfirstk, coljlastk, Base.Order.Forward)
+    searchk = searchsortedfirst(view(rowvals(A), coljfirstk:coljlastk), i) + coljfirstk - 1
     if searchk <= coljlastk && rowvals(A)[searchk] == i
         # Column j contains entry A[i,j]. Update and return
         nonzeros(A)[searchk] = v
@@ -3179,7 +3179,8 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
     else
         _spsetnz_setindex!(A, convert(Tv, x), I, J)
     end
-    return _checkbuffers(A)
+    _checkbuffers(A)
+    V
 end
 """
 Helper method for immediately preceding fill! method. For all (i,j) such that i in I and
@@ -3207,7 +3208,7 @@ function _spsetz_setindex!(A::AbstractSparseMatrixCSC,
                 kI > lengthI && break
                 entrykIrow = I[kI]
             else # entrykArow == entrykIrow
-                nonzeros(A)[kA] = 0
+                nonzeros(A)[kA] = zero(eltype(A))
                 kA += 1
                 kI += 1
                 (kA > coljAlastk || kI > lengthI) && break
@@ -3490,7 +3491,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatr
                 xidx += 1
 
                 if r1 <= r2
-                    copylen = searchsortedfirst(rowvalA, row, r1, r2, Forward) - r1
+                    copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 1
                     if (copylen > 0)
                         if (nadd > 0)
                             copyto!(rowvalB, bidx, rowvalA, r1, copylen)
@@ -3620,7 +3621,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
         end
 
         if r1 <= r2
-            copylen = searchsortedfirst(rowvalA, row, r1, r2, Forward) - r1
+            copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 1
             if (copylen > 0)
                 if (nadd > 0)
                     copyto!(rowvalB, bidx, rowvalA, r1, copylen)
@@ -3704,7 +3705,7 @@ function dropstored!(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     end
     coljfirstk = Int(getcolptr(A)[j])
     coljlastk = Int(getcolptr(A)[j+1] - 1)
-    searchk = searchsortedfirst(rowvals(A), i, coljfirstk, coljlastk, Base.Order.Forward)
+    searchk = searchsortedfirst(view(rowvals(A), coljfirstk:coljlastk), i) + coljfirstk - 1
     if searchk <= coljlastk && rowvals(A)[searchk] == i
         # Entry A[i,j] is stored. Drop and return.
         deleteat!(rowvals(A), searchk)
@@ -4221,7 +4222,7 @@ function diag(A::AbstractSparseMatrixCSC{Tv,Ti}, d::Integer=0) where {Tv,Ti}
         r1 = Int(getcolptr(A)[c])
         r2 = Int(getcolptr(A)[c+1]-1)
         r1 > r2 && continue
-        r1 = searchsortedfirst(rowvals(A), r, r1, r2, Forward)
+        r1 += searchsortedfirst(view(rowvals(A), r1:r2), r) - 1
         ((r1 > r2) || (rowvals(A)[r1] != r)) && continue
         push!(ind, i)
         push!(val, nonzeros(A)[r1])
