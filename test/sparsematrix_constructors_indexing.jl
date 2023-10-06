@@ -1825,31 +1825,38 @@ end
 @testset "reverse" begin
     @testset "$name" for (name, S) in (("standard", sparse([2,2,4], [1,2,5], [-19, 73, -7])),
                             ("sprand", sprand(Float32, 15, 18, 0.2)),
-                            ("zeros", spzeros(Int8, 20, 40)))
+                            ("zeros", spzeros(Int8, 20, 40)),
+                            ("fixed", SparseArrays.fixed(sparse([2,2,4], [1,2,5], [-19, 73, -7]))))
         w = collect(S)
         revS = reverse(S)
         @test revS == reverse(w)
         @test nnz(revS) == nnz(S)
-        S2 = copy(S)
-        reverse!(S2)
-        @test S2 == revS
-        @test nnz(S2) == nnz(S)
+        if S isa SparseMatrixCSC
+            S2 = copy(S)
+            reverse!(S2)
+            @test S2 == revS
+            @test nnz(S2) == nnz(S)
+        end
         for dims in 1:2
             revS = reverse(S; dims)
             @test revS == reverse(w; dims)
             @test nnz(revS) == nnz(S)
-            S2 = copy(S)
-            reverse!(S2; dims)
-            @test S2 == revS
-            @test nnz(S2) == nnz(S)
+            if S isa SparseMatrixCSC
+                S2 = copy(S)
+                reverse!(S2; dims)
+                @test S2 == revS
+                @test nnz(S2) == nnz(S)
+            end
         end
         revS = reverse(S, dims=(1,2))
         @test revS == reverse(w, dims=(1,2))
         @test nnz(revS) == nnz(S)
-        S2 = copy(S)
-        reverse!(S2, dims=(1,2))
-        @test S2 == revS
-        @test nnz(S2) == nnz(S)
+        if S isa SparseMatrixCSC
+            S2 = copy(S)
+            reverse!(S2, dims=(1,2))
+            @test S2 == revS
+            @test nnz(S2) == nnz(S)
+        end
     end
 end
 
