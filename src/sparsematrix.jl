@@ -1988,12 +1988,11 @@ end
 Create a random length `m` sparse vector or `m` by `n` sparse matrix, in
 which the probability of any element being nonzero is independently given by
 `p` (and hence the mean density of nonzeros is also exactly `p`).
-The optional `rng` argument specifies a random number generator, see the section on
-"Random Numbers" in the Julia documentation.
+The optional `rng` argument specifies a random number generator, see [Random Numbers](@ref).
 The optional `T` argument specifies the element type, which defaults to `Float64`.
 
 By default, nonzero values are sampled from a uniform distribution using
-the `rand` function, i.e. by `rand(T)`, or `rand(rng, T)` if `rng`
+the [`rand`](@ref) function, i.e. by `rand(T)`, or `rand(rng, T)` if `rng`
 is supplied; for the default `T=Float64`, this corresponds to nonzero values
 sampled uniformly in `[0,1)`.
 
@@ -2045,8 +2044,7 @@ sprand(::Type{T}, m::Integer, n::Integer, density::AbstractFloat) where {T} =
 Create a random sparse vector of length `m` or sparse matrix of size `m` by `n`
 with the specified (independent) probability `p` of any entry being nonzero,
 where nonzero values are sampled from the normal distribution. The optional `rng`
-argument specifies a random number generator, see the section on "Random Numbers"
-in the Julia documentation.
+argument specifies a random number generator, see [Random Numbers](@ref).
 
 !!! compat "Julia 1.1"
     Specifying the output element type `Type` requires at least Julia 1.1.
@@ -2075,7 +2073,7 @@ LinearAlgebra.fillstored!(S::AbstractSparseMatrixCSC, x) = (fill!(nzvalview(S), 
 
 Create a sparse vector of length `m` or sparse matrix of size `m x n`. This
 sparse array will not contain any nonzero values. No storage will be allocated
-for nonzero values during construction. The type defaults to `Float64` if not
+for nonzero values during construction. The type defaults to [`Float64`](@ref) if not
 specified.
 
 # Examples
