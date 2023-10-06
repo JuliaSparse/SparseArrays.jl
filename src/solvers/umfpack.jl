@@ -47,6 +47,7 @@ import ..LibSuiteSparse:
     UMFPACK_PRL,
     UMFPACK_DENSE_ROW,
     UMFPACK_DENSE_COL,
+    UMFPACK_PIVOT_TOLERANCE,
     UMFPACK_BLOCK_SIZE,
     UMFPACK_ORDERING,
     UMFPACK_FIXQ,
@@ -81,6 +82,7 @@ import ..LibSuiteSparse:
 const JL_UMFPACK_PRL = UMFPACK_PRL + 1
 const JL_UMFPACK_DENSE_ROW = UMFPACK_DENSE_ROW + 1
 const JL_UMFPACK_DENSE_COL = UMFPACK_DENSE_COL + 1
+const JL_UMFPACK_PIVOT_TOLERANCE = UMFPACK_PIVOT_TOLERANCE + 1
 const JL_UMFPACK_BLOCK_SIZE = UMFPACK_BLOCK_SIZE + 1
 const JL_UMFPACK_ORDERING = UMFPACK_ORDERING + 1
 const JL_UMFPACK_FIXQ = UMFPACK_FIXQ + 1
@@ -326,20 +328,27 @@ show_umf_info(F::UmfpackLU, level::Real=2.0) =
 Compute the LU factorization of a sparse matrix `A`.
 
 For sparse `A` with real or complex element type, the return type of `F` is
-`UmfpackLU{Tv, Ti}`, with `Tv` = `Float64` or `ComplexF64` respectively and
-`Ti` is an integer type (`Int32` or `Int64`).
+`UmfpackLU{Tv, Ti}`, with `Tv` = [`Float64`](@ref) or `ComplexF64` respectively and
+`Ti` is an integer type ([`Int32`](@ref) or [`Int64`](@ref)).
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via `LinearAlgebra.issuccess`) lies with the user.
+validity (via [`issuccess`](@ref)) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero-based, a
 zero-based copy is made.
 
-The `control` vector defaults to the package's default configuration for UMFPACK, but can be changed by passing a
-vector of length `UMFPACK_CONTROL`. See the UMFPACK manual for possible configurations. The corresponding
-variables are named `JL_UMFPACK_` since Julia uses one-based indexing.
+The `control` vector defaults to the Julia SparseArrays package's default configuration for UMFPACK (NB: this is modified from the UMFPACK defaults to
+disable iterative refinement), but can be changed by passing a vector of length `UMFPACK_CONTROL`, see the UMFPACK manual for possible configurations. 
+For example to reenable iterative refinement:
+
+    umfpack_control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int64) # read Julia default configuration for a Float64 sparse matrix
+    SparseArrays.UMFPACK.show_umf_ctrl(umfpack_control) # optional - display values
+    umfpack_control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0 # reenable iterative refinement (2 is UMFPACK default max iterative refinement steps)
+
+    Alu = lu(A; control = umfpack_control)
+    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement  
 
 The individual components of the factorization `F` can be accessed by indexing:
 
@@ -358,15 +367,15 @@ The relation between `F` and `A` is
 
 `F` further supports the following functions:
 
-- `\\`
-- `LinearAlgebra.det`
+- [`\\`](@ref)
+- [`det`](@ref)
 
-See also `LinearAlgebra.lu!`.
+See also [`lu!`](@ref)
 
 !!! note
     `lu(A::AbstractSparseMatrixCSC)` uses the UMFPACK[^ACM832] library that is part of
     [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with `Float64` or
+    As this library only supports sparse matrices with [`Float64`](@ref) or
     `ComplexF64` elements, `lu` converts `A` into a copy that is of type
     `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
 
@@ -410,17 +419,17 @@ be resized accordingly.
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via `LinearAlgebra.issuccess`) lies with the user.
+validity (via [`issuccess`](@ref)) lies with the user.
 
 The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
 zero based copy is made.
 
-See also `LinearAlgebra.lu`.
+See also [`lu`](@ref)
 
 !!! note
     `lu!(F::UmfpackLU, A::AbstractSparseMatrixCSC)` uses the UMFPACK library that is part of
-    SuiteSparse. As this library only supports sparse matrices with `Float64` or
+    SuiteSparse. As this library only supports sparse matrices with [`Float64`](@ref) or
     `ComplexF64` elements, `lu!` will automatically convert the types to those set by the LU
     factorization or `SparseMatrixCSC{ComplexF64}` as appropriate.
 
