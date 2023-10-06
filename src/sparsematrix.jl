@@ -4415,9 +4415,7 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
     return nothing
 end
 
-function reverse(A::AbstractSparseMatrixCSC; dims=:)
-    _reverse(A, dims)
-end
+reverse(A::AbstractSparseMatrixCSC; dims=:) = _reverse(A, dims)
 function _reverse(A::AbstractSparseMatrixCSC, ::Colon)
     rowinds, colinds, nzval = findnz(A)
     rowinds .= (size(A,1) + 1) .- rowinds
@@ -4437,4 +4435,47 @@ end
 function _reverse(A::AbstractSparseMatrixCSC, dims::Tuple{Integer,Integer})
     dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
     _reverse(A, :)
+end
+
+reverse(S::SparseMatrixCSC; dims...) = reverse!(copy(S); dims...)
+reverse!(S::SparseMatrixCSC; dims=:) = _reverse!(S, dims)
+function _reverse!(S::SparseMatrixCSC, ::Colon)
+    rowinds, nzval = rowvals(S), nonzeros(S)
+    colptr = S.colptr
+    rowinds .= (size(S,1) + 1) .- rowinds
+    reverse!(rowinds)
+    colptr .= (nnz(S) + 2) .- colptr
+    reverse!(colptr)
+    reverse!(nzval)
+    return S
+end
+function _reverse!(S::SparseMatrixCSC, dims::Integer)
+    dims ∈ (1,2) || throw(ArgumentError("invalid dimension $dims in reverse"))
+    rowinds, nzval = rowvals(S), nonzeros(S)
+    colptr = S.colptr
+    nzrs = nzrange.(Ref(S), axes(S,2))
+    if dims == 1
+        for col in axes(S,2)
+            nzr = nzrs[col]
+            reverse!(@views nzval[nzr])
+            rowinds_col = @view rowinds[nzr]
+            rowinds_col .= (size(S,1) + 1) .- rowinds_col
+            reverse!(rowinds_col)
+        end
+    else # dims == 2
+        colptr .= (nnz(S) + 2) .- colptr
+        reverse!(colptr)
+        for col in axes(S,2)
+            nzr = nzrs[col]
+            reverse!(@views nzval[nzr])
+            reverse!(@views rowinds[nzr])
+        end
+        reverse!(nzval)
+        reverse!(rowinds)
+    end
+    return S
+end
+function _reverse!(A::SparseMatrixCSC, dims::Tuple{Integer,Integer})
+    dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
+    _reverse!(A, :)
 end
