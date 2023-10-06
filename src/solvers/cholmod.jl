@@ -1293,8 +1293,8 @@ end
     cholesky!(F::CHOLMOD.Factor, A::SparseMatrixCSC; shift = 0.0, check = true) -> CHOLMOD.Factor
 
 Compute the Cholesky (``LL'``) factorization of `A`, reusing the symbolic
-factorization `F`. `A` must be a [`SparseMatrixCSC`](@ref) or a `Symmetric`/
-`Hermitian` view of a `SparseMatrixCSC`. Note that even if `A` doesn't
+factorization `F`. `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/
+[`Hermitian`](@ref) view of a `SparseMatrixCSC`. Note that even if `A` doesn't
 have the type tag, it must still be symmetric or Hermitian.
 
 See also [`cholesky`](@ref).
@@ -1329,13 +1329,13 @@ end
     cholesky(A::SparseMatrixCSC; shift = 0.0, check = true, perm = nothing) -> CHOLMOD.Factor
 
 Compute the Cholesky factorization of a sparse positive definite matrix `A`.
-`A` must be a [`SparseMatrixCSC`](@ref) or a `Symmetric`/`Hermitian`
+`A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
 view of a `SparseMatrixCSC`. Note that even if `A` doesn't
 have the type tag, it must still be symmetric or Hermitian.
 If `perm` is not given, a fill-reducing permutation is used.
 `F = cholesky(A)` is most frequently used to solve systems of equations with `F\\b`,
-but also the methods `LinearAlgebra.diag`, `LinearAlgebra.det`, and
-`LinearAlgebra.logdet` are defined for `F`.
+but also the methods [`diag`](@ref), [`det`](@ref), and
+[`logdet`](@ref) are defined for `F`.
 You can also extract individual factors from `F`, using `F.L`.
 However, since pivoting is on by default, the factorization is internally
 represented as `A == P'*L*L'*P` with a permutation matrix `P`;
@@ -1346,7 +1346,7 @@ it's typically preferable to extract "combined" factors like `PtL = F.PtL`
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via `LinearAlgebra.issuccess`) lies with the user.
+validity (via [`issuccess`](@ref)) lies with the user.
 
 Setting the optional `shift` keyword argument computes the factorization of
 `A+shift*I` instead of `A`. If the `perm` argument is provided,
@@ -1455,7 +1455,7 @@ end
     ldlt!(F::CHOLMOD.Factor, A::SparseMatrixCSC; shift = 0.0, check = true) -> CHOLMOD.Factor
 
 Compute the ``LDL'`` factorization of `A`, reusing the symbolic factorization `F`.
-`A` must be a [`SparseMatrixCSC`](@ref) or a `Symmetric`/`Hermitian`
+`A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
 view of a `SparseMatrixCSC`. Note that even if `A` doesn't
 have the type tag, it must still be symmetric or Hermitian.
 
@@ -1497,13 +1497,13 @@ end
     ldlt(A::SparseMatrixCSC; shift = 0.0, check = true, perm=nothing) -> CHOLMOD.Factor
 
 Compute the ``LDL'`` factorization of a sparse matrix `A`.
-`A` must be a [`SparseMatrixCSC`](@ref) or a `Symmetric`/`Hermitian`
+`A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
 view of a `SparseMatrixCSC`. Note that even if `A` doesn't
 have the type tag, it must still be symmetric or Hermitian.
 A fill-reducing permutation is used. `F = ldlt(A)` is most frequently
 used to solve systems of equations `A*x = b` with `F\\b`. The returned
-factorization object `F` also supports the methods `LinearAlgebra.diag`,
-`LinearAlgebra.det`, `LinearAlgebra.logdet`, and `inv`.
+factorization object `F` also supports the methods [`diag`](@ref),
+[`det`](@ref), [`logdet`](@ref), and [`inv`](@ref).
 You can extract individual factors from `F` using `F.L`.
 However, since pivoting is on by default, the factorization is internally
 represented as `A == P'*L*D*L'*P` with a permutation matrix `P`;
@@ -1515,7 +1515,7 @@ The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtL
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
-validity (via `LinearAlgebra.issuccess`) lies with the user.
+validity (via [`issuccess`](@ref)) lies with the user.
 
 Setting the optional `shift` keyword argument computes the factorization of
 `A+shift*I` instead of `A`. If the `perm` argument is provided,
@@ -1598,7 +1598,7 @@ lowrankupdate(F::Factor{Tv}, V::AbstractArray{Tv}) where {Tv<:VTypes} =
     lowrankupdate!(copy(F), V)
 
 """
-    lowrankupdate(F::CHOLMOD.Factor, C::AbstractArray) -> FF::CHOLMOD.Factor
+    lowrankdowndate(F::CHOLMOD.Factor, C::AbstractArray) -> FF::CHOLMOD.Factor
 
 Get an `LDLt` Factorization of `A + C*C'` given an `LDLt` or `LLt` factorization `F` of `A`.
 
