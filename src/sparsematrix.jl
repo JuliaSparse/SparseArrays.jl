@@ -4441,7 +4441,7 @@ reverse(S::SparseMatrixCSC; dims...) = reverse!(copy(S); dims...)
 reverse!(S::SparseMatrixCSC; dims=:) = _reverse!(S, dims)
 function _reverse!(S::SparseMatrixCSC, ::Colon)
     rowinds, nzval = rowvals(S), nonzeros(S)
-    colptr = S.colptr
+    colptr = getcolptr(S)
     rowinds .= (size(S,1) + 1) .- rowinds
     reverse!(rowinds)
     colptr .= (nnz(S) + 2) .- colptr
@@ -4452,7 +4452,7 @@ end
 function _reverse!(S::SparseMatrixCSC, dims::Integer)
     dims ∈ (1,2) || throw(ArgumentError("invalid dimension $dims in reverse"))
     rowinds, nzval = rowvals(S), nonzeros(S)
-    colptr = S.colptr
+    colptr = getcolptr(S)
     nzrs = nzrange.(Ref(S), axes(S,2))
     if dims == 1
         for col in axes(S,2)
