@@ -1569,6 +1569,9 @@ mutable struct t20488 end
     # Test that we don't introduce unnecessary padding for long sparse arrays
     show(io, MIME"text/plain"(), SparseVector(div(typemax(Int32), 2), Int32[1], Int32[1]))
     @test String(take!(io)) == "1073741823-element $(SparseArrays.SparseVector){Int32, Int32} with 1 stored entry:\n  [1]  =  1"
+    # ensure that :limit=>true leads to truncation
+    show(IOContext(io, :limit=>true), MIME"text/plain"(), sparsevec([1:20;], [1:20;]))
+    @test contains(String(take!(io)), "\n        \u22ee\n")
 
     # ensure that a vector of sparsevecs doesn't use pretty printing for elements
     S = sparsevec(Int64[1,4], Int64[2,3])
