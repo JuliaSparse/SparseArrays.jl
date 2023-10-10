@@ -18,7 +18,8 @@ using LinearAlgebra
 using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans
 import LinearAlgebra: (\), AdjointFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
-                 issuccess, issymmetric, ldlt, ldlt!, logdet, lowrankdowndate!
+                 issuccess, issymmetric, ldlt, ldlt!, logdet,
+                 lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
 using SparseArrays: getcolptr, AbstractSparseVecOrMat
@@ -1554,7 +1555,7 @@ factor will be `L*L' == P*A*P' + C'*C`
 
 `update`: `Cint(1)` for `A + CC'`, `Cint(0)` for `A - CC'`
 """
-lowrankdowndate!
+lowrankupdowndate!
 
 #Helper functions for rank updates
 lowrank_reorder(V::AbstractArray,p) = Sparse(sparse(V[p,:]))
@@ -1603,7 +1604,7 @@ lowrankupdate(F::Factor{Tv}, V::AbstractArray{Tv}) where {Tv<:VTypes} =
     lowrankupdate!(copy(F), V)
 
 """
-    lowrankupdate(F::CHOLMOD.Factor, C::AbstractArray) -> FF::CHOLMOD.Factor
+    lowrankdowndate(F::CHOLMOD.Factor, C::AbstractArray) -> FF::CHOLMOD.Factor
 
 Get an `LDLt` Factorization of `A + C*C'` given an `LDLt` or `LLt` factorization `F` of `A`.
 
