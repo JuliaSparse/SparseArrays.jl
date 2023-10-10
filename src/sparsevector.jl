@@ -1046,7 +1046,7 @@ function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
     xnnz = length(nzval)
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
            " stored ", xnnz == 1 ? "entry" : "entries")
-    if xnnz > 0
+    if xnnz != 0
         println(io, ":")
     end
     ioctxt = IOContext(io, :typeinfo => eltype(x))
