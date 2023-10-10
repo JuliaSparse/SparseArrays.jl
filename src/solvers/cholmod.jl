@@ -18,7 +18,8 @@ using LinearAlgebra
 using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans
 import LinearAlgebra: (\), AdjointFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
-                 issuccess, issymmetric, ldlt, ldlt!, logdet, lowrankdowndate!
+                 issuccess, issymmetric, ldlt, ldlt!, logdet,
+                 lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
 using SparseArrays: getcolptr, AbstractSparseVecOrMat
@@ -1433,10 +1434,16 @@ true
 [^DavisHager2009]: Davis, Timothy A., & Hager, W. W. (2009). Dynamic Supernodes in Sparse Cholesky Update/Downdate and Triangular Solves. ACM Trans. Math. Softw., 35(4). [doi:10.1145/1462173.1462176](https://doi.org/10.1145/1462173.1462176)
 """
 cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
-    Symmetric{T, <:SparseMatrixCSC{T}},
-    Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}}},
-    Hermitian{T, <:SparseMatrixCSC{T}}};
-    kws...) where {T<:Real} = cholesky(Sparse(A); kws...)
+                    RealHermSymComplexHerm{T,<:SparseMatrixCSC}}; kws...) where {T<:Real} =
+    cholesky(Sparse(A); kws...)
+
+LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
+    RealHermSymComplexHerm{T,<:SparseMatrixCSC}};
+    kws...) where {T<:Real} = cholesky(A; kws...)
+LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
+    RealHermSymComplexHerm{T,<:SparseMatrixCSC}}, ::LinearAlgebra.PivotingStrategy;
+    kws...) where {T<:Real} =
+    error("Pivoting strategies are not supported for `SparseMatrixCSC`s")
 
 function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
@@ -1548,7 +1555,7 @@ factor will be `L*L' == P*A*P' + C'*C`
 
 `update`: `Cint(1)` for `A + CC'`, `Cint(0)` for `A - CC'`
 """
-lowrankdowndate!
+lowrankupdowndate!
 
 #Helper functions for rank updates
 lowrank_reorder(V::AbstractArray,p) = Sparse(sparse(V[p,:]))
@@ -1597,7 +1604,7 @@ lowrankupdate(F::Factor{Tv}, V::AbstractArray{Tv}) where {Tv<:VTypes} =
     lowrankupdate!(copy(F), V)
 
 """
-    lowrankupdate(F::CHOLMOD.Factor, C::AbstractArray) -> FF::CHOLMOD.Factor
+    lowrankdowndate(F::CHOLMOD.Factor, C::AbstractArray) -> FF::CHOLMOD.Factor
 
 Get an `LDLt` Factorization of `A + C*C'` given an `LDLt` or `LLt` factorization `F` of `A`.
 
