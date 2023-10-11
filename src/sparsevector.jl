@@ -1037,43 +1037,39 @@ end
 
 ### show and friends
 
+function show(io::IO, x::AbstractSparseVector)
+    print(io, "sparsevec(", rowvals(x), ", ", nonzeros(x), ", ", length(x), ")")
+end
 function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
-    xnnz = length(nonzeros(x))
+    nzind = rowvals(x)
+    nzval = nonzeros(x)
+    xnnz = length(nzval)
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
            " stored ", xnnz == 1 ? "entry" : "entries")
     if xnnz != 0
         println(io, ":")
-        show(IOContext(io, :typeinfo => eltype(x)), x)
     end
-end
-
-show(io::IO, x::AbstractSparseVector) = show(convert(IOContext, io), x)
-function show(io::IOContext, x::AbstractSparseVector)
-    # TODO: make this a one-line form
-    nzind = nonzeroinds(x)
-    nzval = nonzeros(x)
-    if isempty(nzind)
-        return show(io, MIME("text/plain"), x)
-    end
-    limit = get(io, :limit, false)::Bool
-    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    pad = ndigits(nzind[end])
-    if !haskey(io, :compact)
-        io = IOContext(io, :compact => true)
+    ioctxt = IOContext(io, :typeinfo => eltype(x))
+    limit = get(ioctxt, :limit, false)::Bool
+    half_screen_rows = limit ? div(displaysize(ioctxt)[1] - 8, 2) : typemax(Int)
+    pad = isempty(nzind) ? 0 : ndigits(nzind[end])
+    if !haskey(ioctxt, :compact)
+        ioctxt = IOContext(ioctxt, :compact => true)
     end
     for k = eachindex(nzind)
         if k < half_screen_rows || k > length(nzind) - half_screen_rows
-            print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
+            print(ioctxt, "  ", '[', rpad(nzind[k], pad), "]  =  ")
             if isassigned(nzval, Int(k))
-                show(io, nzval[k])
+                show(ioctxt, nzval[k])
             else
-                print(io, Base.undef_ref_str)
+                print(ioctxt, Base.undef_ref_str)
             end
-            k != length(nzind) && println(io)
+            k != length(nzind) && println(ioctxt)
         elseif k == half_screen_rows
-            println(io, "   ", " "^pad, "   \u22ee")
+            println(ioctxt, "   ", " "^pad, "   \u22ee")
         end
     end
+    return nothing
 end
 
 ### Conversion to matrix

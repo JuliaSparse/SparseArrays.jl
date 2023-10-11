@@ -1563,10 +1563,20 @@ mutable struct t20488 end
     show(io, MIME"text/plain"(),  spzeros(Float64, Int64, 2))
     @test String(take!(io)) == "2-element $(SparseArrays.SparseVector){Float64, Int64} with 0 stored entries"
     show(io, similar(sparsevec(rand(3) .+ 0.1), t20488))
-    @test String(take!(io)) == "  [1]  =  #undef\n  [2]  =  #undef\n  [3]  =  #undef"
+    @test String(take!(io)) == "sparsevec([1, 2, 3], $t20488[#undef, #undef, #undef], 3)"
+    show(io, MIME"text/plain"(), similar(sparsevec(rand(3) .+ 0.1), t20488))
+    @test String(take!(io)) == "3-element SparseVector{$t20488, $Int} with 3 stored entries:\n  [1]  =  #undef\n  [2]  =  #undef\n  [3]  =  #undef"
     # Test that we don't introduce unnecessary padding for long sparse arrays
     show(io, MIME"text/plain"(), SparseVector(div(typemax(Int32), 2), Int32[1], Int32[1]))
     @test String(take!(io)) == "1073741823-element $(SparseArrays.SparseVector){Int32, Int32} with 1 stored entry:\n  [1]  =  1"
+    # ensure that :limit=>true leads to truncation
+    show(IOContext(io, :limit=>true), MIME"text/plain"(), sparsevec([1:20;], [1:20;]))
+    @test contains(String(take!(io)), "\n        \u22ee\n")
+
+    # ensure that a vector of sparsevecs doesn't use pretty printing for elements
+    S = sparsevec(Int64[1,4], Int64[2,3])
+    @test repr(S) == "sparsevec($(Int64[1,4]), $(Int64[2,3]), 4)"
+    @test repr([S]) == "$(SparseArrays.SparseVector){Int64, Int64}[$(repr(S))]"
 end
 
 @testset "spzeros with index type" begin
