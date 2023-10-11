@@ -14,11 +14,14 @@ Sparse matrix solvers call functions from [SuiteSparse](http://suitesparse.com).
 
 Other solvers such as [Pardiso.jl](https://github.com/JuliaSparse/Pardiso.jl/) are available as external packages. [Arpack.jl](https://julialinearalgebra.github.io/Arpack.jl/stable/) provides `eigs` and `svds` for iterative solution of eigensystems and singular value decompositions.
 
-These factorizations are described in more detail in [`Linear Algebra`](https://docs.julialang.org/en/v1/stdlib/LinearAlgebra/) section of the manual:
-1. [`cholesky`](@ref)
-2. [`ldlt`](@ref)
-3. [`lu`](@ref)
-4. [`qr`](@ref)
+These factorizations are described in more detail in the
+[`Linear Algebra`](https://docs.julialang.org/en/v1/stdlib/LinearAlgebra/)
+section of the manual:
+
+1. [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky)
+2. [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt)
+3. [`lu`](@ref SparseArrays.UMFPACK.lu)
+4. [`qr`](@ref SparseArrays.SPQR.qr)
 
 ```@docs
 SparseArrays.CHOLMOD.cholesky
