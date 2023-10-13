@@ -2236,13 +2236,13 @@ function conj(A::AbstractSparseMatrixCSC{<:Complex})
     map!(conj, view(nzval, 1:nnz(A)), nzvalview(A))
     return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
 end
-imag(A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size(A, 1), size(A, 2))
+imag(A::SparseMatrixCSCView{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size(A, 1), size(A, 2))
 
 ## Binary arithmetic and boolean operators
-(+)(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) = map(+, A, B)
-(-)(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) = map(-, A, B)
+(+)(A::SparseMatrixCSCView, B::SparseMatrixCSCView) = map(+, A, B)
+(-)(A::SparseMatrixCSCView, B::SparseMatrixCSCView) = map(-, A, B)
 
-function (+)(A::AbstractSparseMatrixCSC, B::Array)
+function (+)(A::SparseMatrixCSCView, B::Array)
     Base.promote_shape(axes(A), axes(B))
     C = Ref(zero(eltype(A))) .+ B
     rowinds, nzvals = rowvals(A), nonzeros(A)
@@ -2254,7 +2254,7 @@ function (+)(A::AbstractSparseMatrixCSC, B::Array)
     end
     return C
 end
-function (+)(A::Array, B::AbstractSparseMatrixCSC)
+function (+)(A::Array, B::SparseMatrixCSCView)
     Base.promote_shape(axes(A), axes(B))
     C = A .+ Ref(zero(eltype(B)))
     rowinds, nzvals = rowvals(B), nonzeros(B)
@@ -2266,7 +2266,7 @@ function (+)(A::Array, B::AbstractSparseMatrixCSC)
     end
     return C
 end
-function (-)(A::AbstractSparseMatrixCSC, B::Array)
+function (-)(A::SparseMatrixCSCView, B::Array)
     Base.promote_shape(axes(A), axes(B))
     C = Ref(zero(eltype(A))) .- B
     rowinds, nzvals = rowvals(A), nonzeros(A)
@@ -2278,7 +2278,7 @@ function (-)(A::AbstractSparseMatrixCSC, B::Array)
     end
     return C
 end
-function (-)(A::Array, B::AbstractSparseMatrixCSC)
+function (-)(A::Array, B::SparseMatrixCSCView)
     Base.promote_shape(axes(A), axes(B))
     C = A .- Ref(zero(eltype(B)))
     rowinds, nzvals = rowvals(B), nonzeros(B)
