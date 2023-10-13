@@ -2242,10 +2242,54 @@ imag(A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, si
 (+)(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) = map(+, A, B)
 (-)(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) = map(-, A, B)
 
-(+)(A::AbstractSparseMatrixCSC, B::Array) = Array(A) + B
-(+)(A::Array, B::AbstractSparseMatrixCSC) = A + Array(B)
-(-)(A::AbstractSparseMatrixCSC, B::Array) = Array(A) - B
-(-)(A::Array, B::AbstractSparseMatrixCSC) = A - Array(B)
+function (+)(A::AbstractSparseMatrixCSC, B::Array)
+    Base.promote_shape(axes(A), axes(B))
+    C = Ref(zero(eltype(A))) .+ B
+    rowinds, nzvals = rowvals(A), nonzeros(A)
+    for j in axes(A,2)
+        for i in nzrange(A, j)
+            rowidx = rowinds[i]
+            C[rowidx,j] = nzvals[i] + B[rowidx,j]
+        end
+    end
+    return C
+end
+function (+)(A::Array, B::AbstractSparseMatrixCSC)
+    Base.promote_shape(axes(A), axes(B))
+    C = A .+ Ref(zero(eltype(B)))
+    rowinds, nzvals = rowvals(B), nonzeros(B)
+    for j in axes(B,2)
+        for i in nzrange(B, j)
+            rowidx = rowinds[i]
+            C[rowidx,j] = A[rowidx,j] + nzvals[i] 
+        end
+    end
+    return C
+end
+function (-)(A::AbstractSparseMatrixCSC, B::Array)
+    Base.promote_shape(axes(A), axes(B))
+    C = Ref(zero(eltype(A))) .- B
+    rowinds, nzvals = rowvals(A), nonzeros(A)
+    for j in axes(A,2)
+        for i in nzrange(A, j)
+            rowidx = rowinds[i]
+            C[rowidx,j] = nzvals[i] - B[rowidx,j]
+        end
+    end
+    return C
+end
+function (-)(A::Array, B::AbstractSparseMatrixCSC)
+    Base.promote_shape(axes(A), axes(B))
+    C = A .- Ref(zero(eltype(B)))
+    rowinds, nzvals = rowvals(B), nonzeros(B)
+    for j in axes(B,2)
+        for i in nzrange(B, j)
+            rowidx = rowinds[i]
+            C[rowidx,j] = A[rowidx,j] - nzvals[i]
+        end
+    end
+    return C
+end
 
 ## full equality
 function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
