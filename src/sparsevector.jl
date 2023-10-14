@@ -52,7 +52,7 @@ SparseVector(n::Integer, nzind::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
 SparseVector{Tv, Ti}(::UndefInitializer, n::Integer) where {Tv, Ti}  = SparseVector{Tv, Ti}(n, Ti[], Tv[])
 
 """
-    `FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}`
+    FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
 
 Experimental AbstractCompressedVector whose non-zero index are fixed.
 """

@@ -55,7 +55,7 @@ Creates an empty sparse matrix with element type `Tv` and integer type `Ti` of s
 SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer) where {Tv, Ti} = spzeros(Tv, Ti, m, n)
 
 """
-    `FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}`
+    FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
 
 Experimental AbstractSparseMatrixCSC whose non-zero index are fixed.
 """
@@ -94,7 +94,7 @@ FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
         getcolptr(x), rowvals(x), nonzeros(x))
 
 """
-    `fixed(x...)`
+    fixed(x...)
 
 Experimental. Like `sparse` but returns a sparse array whose `_is_fixed` is `true`.
 """
@@ -102,13 +102,13 @@ fixed(x...) = move_fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
 
 """
-    `move_fixed(x::AbstractSparseMatrixCSC)`
+    move_fixed(x::AbstractSparseMatrixCSC)
 
 Experimental, unsafe. Make a `FixedSparseCSC` by reusing the colptr, rowvals and nonzeros of `x`.
 """
 move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x), rowvals(x), nonzeros(x))
 """
-    `_unsafe_unfix(x)`
+    _unsafe_unfix(x)
 
 Experimental, unsafe. Returns a modifiable version of `x` for compatibility with this codebase.
 """
@@ -118,7 +118,7 @@ _unsafe_unfix(x::SparseMatrixCSC) = x
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
 
 """
-    `SparseMatrixCSC(x::FixedSparseCSC)`
+    SparseMatrixCSC(x::FixedSparseCSC)
 
 Get a writable copy of x. See `_unsafe_unfix(x)`
 """
