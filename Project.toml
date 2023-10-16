@@ -10,7 +10,7 @@ Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 SuiteSparse_jll = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
 
 [compat]
-SuiteSparse_jll = "7.2"
+SuiteSparse_jll = "7.2.1"
 julia = "1.10"
 
 [extras]
