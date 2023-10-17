@@ -215,7 +215,8 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     Tv = promote_op(matprod, eltype(A), eltype(B))
     Ti = promote_type(indtype(A), indtype(B))
     mA, nA = size(A)
-    mB, nB = size(B)
+    nB = size(B, 2)
+    mB = size(B, 1)
     nA == mB || throw(DimensionMismatch("second dimension of A, $nA, does not match the first dimension of B, $mB"))
 
     nnzC = min(estimate_mulsize(mA, nnz(A), nA, nnz(B), nB) * 11 ÷ 10 + mA, mA*nB)
