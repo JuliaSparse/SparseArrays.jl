@@ -35,7 +35,7 @@ LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUni
 LinearAlgebra.generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion, B::DenseInputVector, _add::MulAddMul) =
     spdensemul!(C, tA, 'N', A, B, _add)
 
-function spdensemul!(C, tA, tB, A, B, _add)
+Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, _add)
     if tA == 'N'
         _spmatmul!(C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
     elseif tA == 'T'
