@@ -1296,8 +1296,8 @@ _hvcat_rows(::Tuple{}, X::_SparseConcatGroup...) = ()
 # disambiguation for type-piracy problems created above
 hcat(n1::Number, ns::Vararg{Number}) = invoke(hcat, Tuple{Vararg{Number}}, n1, ns...)
 vcat(n1::Number, ns::Vararg{Number}) = invoke(vcat, Tuple{Vararg{Number}}, n1, ns...)
-hcat(n1::Type{N}, ns::Vararg{N}) where {N<:Number} = invoke(hcat, Tuple{Vararg{Number}}, n1, ns...)
-vcat(n1::Type{N}, ns::Vararg{N}) where {N<:Number} = invoke(vcat, Tuple{Vararg{Number}}, n1, ns...)
+hcat(n1::N, ns::Vararg{N}) where {N<:Number} = invoke(hcat, Tuple{Vararg{N}}, n1, ns...)
+vcat(n1::N, ns::Vararg{N}) where {N<:Number} = invoke(vcat, Tuple{Vararg{N}}, n1, ns...)
 hvcat(rows::Tuple{Vararg{Int}}, n1::Number, ns::Vararg{Number}) = invoke(hvcat, Tuple{typeof(rows), Vararg{Number}}, rows, n1, ns...)
 hvcat(rows::Tuple{Vararg{Int}}, n1::N, ns::Vararg{N}) where {N<:Number} = invoke(hvcat, Tuple{typeof(rows), Vararg{N}}, rows, n1, ns...)
 
