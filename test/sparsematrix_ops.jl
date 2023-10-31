@@ -238,12 +238,13 @@ dA = Array(sA)
     end
 
     @testset "empty cases" begin
-        errchecker(str) = occursin("reducing over an empty collection is not allowed", str) ||
+        errchecker(str) = occursin(": reducing over an empty collection is not allowed", str) ||
+                          occursin(": reducing with ", str) ||
                           occursin("collection slices must be non-empty", str)
         @test sum(sparse(Int[])) === 0
         @test prod(sparse(Int[])) === 1
-        @test_throws "reducing over an empty" minimum(sparse(Int[]))
-        @test_throws "reducing over an empty" maximum(sparse(Int[]))
+        @test_throws errchecker minimum(sparse(Int[]))
+        @test_throws errchecker maximum(sparse(Int[]))
 
         for f in (sum, prod)
             @test isequal(f(spzeros(0, 1), dims=1), f(Matrix{Int}(I, 0, 1), dims=1))
