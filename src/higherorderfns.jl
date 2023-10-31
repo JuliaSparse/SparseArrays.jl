@@ -8,7 +8,7 @@ import Base: map, map!, broadcast, copy, copyto!
 
 using Base: front, tail, to_shape
 
-using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC,
+using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatrixCSCView,
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
@@ -1182,7 +1182,7 @@ _sparsifystructured(x) = x
 
 
 # (12) map[!] over combinations of sparse and structured matrices
-SparseOrStructuredMatrix = Union{FixedSparseCSC,SparseMatrixCSC,LinearAlgebra.StructuredMatrix}
+SparseOrStructuredMatrix = Union{FixedSparseCSC,SparseMatrixCSC,SparseMatrixCSCView,LinearAlgebra.StructuredMatrix}
 map(f::Tf, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, _sparsifystructured(A), map(_sparsifystructured, Bs)...))
 map!(f::Tf, C::AbstractSparseMatrixCSC, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
