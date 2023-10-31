@@ -2381,3 +2381,23 @@ function circshift!(O::SparseVector, X::SparseVector, (r,)::Base.DimsInteger{1})
 end
 
 circshift!(O::SparseVector, X::SparseVector, r::Real,) = circshift!(O, X, (Integer(r),))
+
+function reverse(S::AbstractSparseVector, start::Integer=firstindex(S), stop::Integer=lastindex(S))
+    Scopy = SparseVector(length(S), findnz(S)...)
+    reverse!(Scopy, start, stop)
+    return Scopy
+end
+
+function reverse!(S::AbstractSparseVector, start::Integer=firstindex(S), stop::Integer=lastindex(S))
+    checkbounds(S, start:stop)
+    nzinds = rowvals(S)
+    nzinds_revstart = searchsortedfirst(nzinds, start)
+    nzinds_revstop = searchsortedlast(nzinds, stop)
+    fi, li = firstindex(nzinds), lastindex(nzinds)
+    nzinds_revrange = max(fi, nzinds_revstart):min(li, nzinds_revstop)
+    iv = @view nzinds[nzinds_revrange]
+    iv .= (stop + start) .- iv
+    reverse!(iv)
+    reverse!(@view(nonzeros(S)[nzinds_revrange]))
+    return S
+end

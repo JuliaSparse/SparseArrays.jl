@@ -722,6 +722,21 @@ end
         end
     end
 end
+
+@testset "reverse" begin
+    @testset "$name" for (name, s) in (("standard", sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10)),
+                ("random", sprand(Float32, 20, 0.4)),
+                ("zeros", spzeros(4)),
+                ("fixed", SparseArrays.fixed(sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10))))
+        w = collect(s)
+        @testset for start in axes(s,1), stop in start:lastindex(s,1)
+            srev = reverse(s, start, stop)
+            @test nnz(srev) == nnz(s)
+            @test srev == reverse(w, start, stop)
+        end
+    end
+end
+
 ## math
 
 ### Data
