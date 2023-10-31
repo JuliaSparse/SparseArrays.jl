@@ -779,9 +779,12 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
     rowvalB = Vector{Int}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
 
+    CartIndsA = CartesianIndices(szA)
+    LinIndsA = LinearIndices(szA)
+
     if nnzB > 0
-        rowstart,colstart = Base._ind2sub(szA, first(I))
-        rowend,colend = Base._ind2sub(szA, last(I))
+        rowstart,colstart = Tuple(CartIndsA[first(I)])
+        rowend,colend = Tuple(CartIndsA[last(I)])
 
         idxB = 1
         @inbounds for col in colstart:colend
@@ -790,7 +793,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
             for r in colptrA[col]:(colptrA[col+1]-1)
                 rowA = rowvalA[r]
                 if minrow <= rowA <= maxrow
-                    rowvalB[idxB] = Base._sub2ind(szA, rowA, col) - first(I) + 1
+                    rowvalB[idxB] = LinIndsA[rowA, col] - first(I) + 1
                     nzvalB[idxB] = nzvalA[r]
                     idxB += 1
                 end
@@ -818,9 +821,11 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
     rowvalB = Vector{Ti}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
 
+    CartIndsA = CartesianIndices(szA)
+
     idxB = 1
     for i in 1:n
-        row,col = Base._ind2sub(szA, I[i])
+        row,col = Tuple(CartIndsA[I[i]])
         for r in colptrA[col]:(colptrA[col+1]-1)
             @inbounds if rowvalA[r] == row
                 if idxB <= nnzB
