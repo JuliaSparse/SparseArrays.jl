@@ -16,7 +16,9 @@ if Base.find_package("Aqua") === nothing
     iob = IOBuffer()
     Pkg.activate(; temp = true)
     try
-        Pkg.add("Aqua", io=iob) # Needed for custom julia version resolve tests
+        # TODO: make this version tie to compat in Project.toml
+        # or do this another safer way
+        Pkg.add(name="Aqua", version="0.8", io=iob) # Needed for custom julia version resolve tests
     catch
         println(String(take!(iob)))
         rethrow()
