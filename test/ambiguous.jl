@@ -46,9 +46,7 @@ using Test, LinearAlgebra, SparseArrays, Aqua
     @testset "Compat bounds" begin
         Aqua.test_deps_compat(SparseArrays)
     end
-    @testset "Project.toml formatting" begin
-        Aqua.test_project_toml_formatting(SparseArrays)
-    end
+
     @testset "Piracy" begin
         @test_broken Aqua.Piracy.hunt(SparseArrays) == Method[]
     end
