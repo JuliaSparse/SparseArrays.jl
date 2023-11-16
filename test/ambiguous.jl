@@ -28,28 +28,7 @@ end
 using Test, LinearAlgebra, SparseArrays, Aqua
 
 @testset "code quality" begin
-    @testset "Method ambiguity" begin
-        Aqua.test_ambiguities([SparseArrays, Base, Core])
-    end
-    @testset "Unbound type parameters" begin
-        @test_broken Aqua.detect_unbound_args_recursively(SparseArrays) == []
-    end
-    @testset "Undefined exports" begin
-        Aqua.test_undefined_exports(SparseArrays)
-    end
-    @testset "Compare Project.toml and test/Project.toml" begin
-        Aqua.test_project_extras(SparseArrays)
-    end
-    @testset "Stale dependencies" begin
-        Aqua.test_stale_deps(SparseArrays)
-    end
-    @testset "Compat bounds" begin
-        Aqua.test_deps_compat(SparseArrays)
-    end
-
-    @testset "Piracy" begin
-        @test_broken Aqua.Piracy.hunt(SparseArrays) == Method[]
-    end
+    Aqua.test_all(SparseArrays; unbound_args=(; broken=true), piracies=(; broken=true))
 end
 
 let ambig = detect_ambiguities(SparseArrays; recursive=true)
