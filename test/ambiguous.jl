@@ -9,7 +9,7 @@ original_project = Base.active_project()
 ###
 
 include("TestDepsUtils.jl")
-# TestDepsUtils.install_all_test_deps(; force_install = true) # uncomment this line for debugging
+TestDepsUtils.install_all_test_deps(; force_install = true) # uncomment this line for debugging
 TestDepsUtils.install_all_test_deps()
 
 using Test, LinearAlgebra, SparseArrays, Aqua
