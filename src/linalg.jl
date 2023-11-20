@@ -1483,7 +1483,7 @@ const _Symmetric_DenseArrays{T,A<:Matrix} = Symmetric{T,A}
 const _Hermitian_DenseArrays{T,A<:Matrix} = Hermitian{T,A}
 const _Triangular_DenseArrays{T,A<:Matrix} = UpperOrLowerTriangular{<:Any,A} # AbstractTriangular{T,A}
 const _Annotated_DenseArrays = Union{_SpecialArrays, _Triangular_DenseArrays, _Symmetric_DenseArrays, _Hermitian_DenseArrays}
-const _DenseConcatGroup = Union{Number, Vector, Adjoint{<:Any,<:Vector}, Transpose{<:Any,<:Vector}, Matrix, _Annotated_DenseArrays}
+const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, _Annotated_DenseArrays}
 
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
@@ -1541,9 +1541,9 @@ end
     end
     return z
 end
-kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseConcatGroup) =
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron!(C::SparseMatrixCSC, A::_DenseConcatGroup, B::_SparseKronGroup) =
+kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
@@ -1580,8 +1580,8 @@ end
 # extend to annotated sparse arrays, but leave out the (dense ⊗ dense)-case
 kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron(A::_SparseKronGroup, B::_DenseConcatGroup) = kron(A, sparse(B))
-kron(A::_DenseConcatGroup, B::_SparseKronGroup) = kron(sparse(A), B)
+kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
+kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
 kron(A::_SparseVectorUnion, B::_AdjOrTransSparseVectorUnion) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
