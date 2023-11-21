@@ -751,31 +751,27 @@ end
                 @test Array(kron(t(a), c_di)::SparseMatrixCSC) == kron(t(a_d), c_d)
                 @test Array(kron(a, t(c_di))::SparseMatrixCSC) == kron(a_d, t(c_d))
                 @test Array(kron(t(a), t(c_di))::SparseMatrixCSC) == kron(t(a_d), t(c_d))
-                @test issparse(kron(c_di, y))
-                @test Array(kron(c_di, y)) == kron(c_di, y_d)
-                @test issparse(kron(x, d_di))
-                @test Array(kron(x, d_di)) == kron(x_d, d_di)
+                @test Array(kron(c_di, y)::SparseMatrixCSC) == kron(c_di, y_d)
+                @test Array(kron(x, d_di)::SparseMatrixCSC) == kron(x_d, d_di)
             end
         end
         # vec ⊗ vec
-        @test Vector(kron(x, y)) == kron(x_d, y_d)
-        @test Vector(kron(x_d, y)) == kron(x_d, y_d)
-        @test Vector(kron(x, y_d)) == kron(x_d, y_d)
+        @test Vector(kron(x, y)::SparseVector) == kron(x_d, y_d)
+        @test Vector(kron(x_d, y)::SparseVector) == kron(x_d, y_d)
+        @test Vector(kron(x, y_d)::SparseVector) == kron(x_d, y_d)
         for t in (identity, adjoint, transpose)
             # mat ⊗ vec
             @test Array(kron(t(a), y)::SparseMatrixCSC) == kron(t(a_d), y_d)
-            @test Array(kron(t(a_d), y)) == kron(t(a_d), y_d)
+            @test Array(kron(t(a_d), y)::SparseMatrixCSC) == kron(t(a_d), y_d)
             @test Array(kron(t(a), y_d)::SparseMatrixCSC) == kron(t(a_d), y_d)
             # vec ⊗ mat
             @test Array(kron(x, t(b))::SparseMatrixCSC) == kron(x_d, t(b_d))
             @test Array(kron(x_d, t(b))::SparseMatrixCSC) == kron(x_d, t(b_d))
-            @test Array(kron(x, t(b_d))) == kron(x_d, t(b_d))
+            @test Array(kron(x, t(b_d))::SparseMatrixCSC) == kron(x_d, t(b_d))
         end
         # vec ⊗ vec'
-        @test issparse(kron(v, y'))
-        @test issparse(kron(x, y'))
-        @test Array(kron(v, y')) == kron(v_d, y_d')
-        @test Array(kron(x, y')) == kron(x_d, y_d')
+        @test Array(kron(v, y')::SparseMatrixCSC) == kron(v_d, y_d')
+        @test Array(kron(x, y')::SparseMatrixCSC) == kron(x_d, y_d')
         # test different types
         z = convert(SparseVector{Float16, Int8}, y); z_d = Vector(z)
         @test Vector(kron(x, z)) == kron(x_d, z_d)
