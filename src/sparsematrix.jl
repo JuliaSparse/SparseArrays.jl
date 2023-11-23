@@ -181,13 +181,21 @@ const SparseMatrixCSCView{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
         Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange}
 const SparseMatrixCSCUnion{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
+# Define an alias for views of a SparseMatrixCSC which include all rows and a selection of the columns.
+# Also define a union of SparseMatrixCSC and this view since many methods can be defined efficiently for
+# this union by extracting the fields via the get function: getrowval, and getnzval, BUT NOT getcolptr!
+const SparseMatrixCSCView2{Tv,Ti} =
+    SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
+        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractVector{<:Integer}}
+const SparseMatrixCSCUnion2{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView2{Tv,Ti}}
 
 getcolptr(S::SorF)     = getfield(S, :colptr)
-getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(axes(S, 2)):(last(axes(S, 2)) + 1))
+getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
+getcolptr(S::SparseMatrixCSCView2) = error("just to make sure")
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
-getrowval(S::SparseMatrixCSCView) = rowvals(parent(S))
+getrowval(S::SparseMatrixCSCView2) = rowvals(parent(S))
 getnzval( S::AbstractSparseMatrixCSC) = nonzeros(S)
-getnzval( S::SparseMatrixCSCView) = nonzeros(parent(S))
+getnzval( S::SparseMatrixCSCView2) = nonzeros(parent(S))
 nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
 
 """
@@ -212,7 +220,7 @@ nnz(S::ReshapedArray{<:Any,1,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
-nnz(S::SparseMatrixCSCView) = nnz1(S)
+nnz(S::SparseMatrixCSCView2) = nnz1(S)
 nnz1(S) = sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
 function Base._simple_count(pred, S::AbstractSparseMatrixCSC, init::T) where T
@@ -244,7 +252,7 @@ julia> nonzeros(A)
 ```
 """
 nonzeros(S::SorF) = getfield(S, :nzval)
-nonzeros(S::SparseMatrixCSCView)  = nonzeros(S.parent)
+nonzeros(S::SparseMatrixCSCView2)  = nonzeros(S.parent)
 nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 
@@ -272,7 +280,7 @@ julia> rowvals(A)
 ```
 """
 rowvals(S::SorF) = getfield(S, :rowval)
-rowvals(S::SparseMatrixCSCView) = rowvals(S.parent)
+rowvals(S::SparseMatrixCSCView2) = rowvals(S.parent)
 rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 
@@ -299,7 +307,7 @@ column. In conjunction with [`nonzeros`](@ref) and
     Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
 nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
-nzrange(S::SparseMatrixCSCView, col::Integer) = nzrange(S.parent, S.indices[2][col])
+nzrange(S::SparseMatrixCSCView2, col::Integer) = nzrange(S.parent, S.indices[2][col])
 nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangeup(S.data, i)
 nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangelo(S.data, i)
 
