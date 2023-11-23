@@ -152,6 +152,7 @@ begin
     A = sprand(rng, n, n, 0.01)
     MA = Matrix(A)
     lA = sprand(rng, n, n+10, 0.01)
+    @test nnz(lA[:, n+1:n+10]) == nnz(view(lA, :, n+1:n+10))
     @testset "triangular multiply with $tr($wr)" for tr in (identity, adjoint, transpose),
     wr in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
         AW = tr(wr(A))
