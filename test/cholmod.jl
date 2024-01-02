@@ -238,11 +238,12 @@ end
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
+# Pass 8 instead of CHOLMOD_INTLONG which no longer exists.
 @testset "illegal itype I" begin
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD_REAL, getcommon(Ti))
     puint = convert(Ptr{UInt32}, p)
-    unsafe_store!(puint, CHOLMOD_INTLONG, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
+    unsafe_store!(puint, 123, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
