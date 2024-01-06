@@ -36,11 +36,10 @@ import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spz
 import ..increment, ..increment!
 
 using ..LibSuiteSparse
-import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_INTLONG, CHOLMOD_LONG
+import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_LONG
 
 # # itype defines the types of integer used:
 # CHOLMOD_INT,      # all integer arrays are int
-# CHOLMOD_INTLONG,  # most are int, some are Sys.WORD_SIZE
 # CHOLMOD_LONG,     # all integer arrays are Sys.WORD_SIZE
 # # dtype defines what the numerical type is (double or float):
 # CHOLMOD_DOUBLE,   # all numerical values are double

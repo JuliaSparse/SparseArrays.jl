@@ -1,4 +1,6 @@
 #! /bin/bash julia --project generator.jl
+# -*- julia -*-
+
 using Pkg
 using Pkg.Artifacts
 using Clang.Generators
@@ -9,7 +11,7 @@ using JuliaFormatter
 cd(@__DIR__)
 
 # headers
-include_dir = joinpath(SuiteSparse_jll.artifact_dir, "include") |> normpath
+include_dir = joinpath(SuiteSparse_jll.artifact_dir, "include", "suitesparse") |> normpath
 
 cholmod_h = joinpath(include_dir, "cholmod.h")
 @assert isfile(cholmod_h)
