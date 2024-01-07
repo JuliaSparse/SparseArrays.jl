@@ -646,12 +646,15 @@ end
 end
 
 @testset "sparse matrix * BitArray" begin
-    A = sprand(5,5,0.2)
+    A = sprand(5,5,0.3)
+    MA = Array(A)
     B = trues(5)
-    @test A*B ≈ Array(A)*B
+    @test A*B ≈ MA*B
     B = trues(5,5)
-    @test A*B ≈ Array(A)*B
-    @test B*A ≈ B*Array(A)
+    for trA in (identity, adjoint, transpose), trB in (identity, adjoint, transpose)
+        @test trA(A) * trB(B) ≈ trA(MA) * trB(B)
+        @test trB(B) * trA(A) ≈ trB(B) * trA(MA)
+    end
 end
 
 

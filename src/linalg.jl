@@ -10,6 +10,23 @@ const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
 
+matprod_dest(A::SparseMatrixCSCUnion2, B::DenseTriangular, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::DenseTriangular, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCUnion2, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::SparseMatrixCSCUnion2, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::DenseTriangular, B::SparseMatrixCSCUnion2, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::StridedMaybeAdjOrTransMat, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::DenseTriangular, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
     @eval begin
         $op(A::AbstractSparseMatrix, B::$Wrapper{<:Any,<:AbstractSparseMatrix}) = $op(A, sparse(B))
@@ -75,9 +92,6 @@ function _spmatmul!(C, A, B, α, β)
     C
 end
 
-*(A::SparseMatrixCSCUnion2{TA}, B::DenseTriangular) where {TA} =
-    (T = promote_op(matprod, TA, eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B))
-
 function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     size(A, 2) == size(C, 1) ||
         throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the first dimension of C, $(size(C,1))"))
@@ -100,8 +114,6 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     C
 end
 
-*(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::DenseTriangular) =
-    (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B))
 
 Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
@@ -152,12 +164,6 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
     end
     C
 end
-*(X::StridedMaybeAdjOrTransMat, A::SparseMatrixCSCUnion2{TvA}) where {TvA} =
-    (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, A::SparseMatrixCSCUnion2{TvA}) where {TvA} =
-    (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::DenseTriangular, A::SparseMatrixCSCUnion2{TvA}) where {TvA} =
-    (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
 function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCUnion2, α::Number, β::Number)
     mA, nA = size(A)
@@ -179,12 +185,6 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     end
     C
 end
-*(X::StridedMaybeAdjOrTransMat, A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}) =
-    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}) =
-    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::DenseTriangular, A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}) =
-    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
@@ -873,7 +873,7 @@ end
 
 function (\)(A::Union{UpperTriangular,LowerTriangular}, B::AbstractSparseMatrixCSC)
     require_one_based_indexing(B)
-    TAB = LinearAlgebra._init_eltype(\, eltype(A), eltype(B))
+    TAB = promote_op(\, eltype(A), eltype(B))
     ldiv!(Matrix{TAB}(undef, size(B)), A, B)
 end
 function (\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSparseMatrixCSC)

@@ -1248,8 +1248,7 @@ end
 
 *(adjA::Adjoint{<:Any,<:Sparse}, B::Dense) =
     (A = adjA.parent; sdmult!(A, true, 1., 0., B, zeros(size(A, 2), size(B, 2))))
-*(adjA::Adjoint{<:Any,<:Sparse}, B::VecOrMat) =
-    (A = adjA.parent; *(adjoint(A), Dense(B)))
+*(adjA::Adjoint{<:Any,<:Sparse}, B::VecOrMat) = adjA * Dense(B)
 
 
 ## Factorization methods
