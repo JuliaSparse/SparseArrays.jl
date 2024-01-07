@@ -872,7 +872,7 @@ end
 
 function (\)(A::Union{UpperTriangular,LowerTriangular}, B::AbstractSparseMatrixCSC)
     require_one_based_indexing(B)
-    TAB = LinearAlgebra._init_eltype(\, eltype(A), eltype(B))
+    TAB = promote_op(\, eltype(A), eltype(B))
     ldiv!(Matrix{TAB}(undef, size(B)), A, B)
 end
 function (\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSparseMatrixCSC)
