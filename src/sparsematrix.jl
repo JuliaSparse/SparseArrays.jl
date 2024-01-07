@@ -179,7 +179,7 @@ end
 # underlying SparseMatrixCSC
 const SparseMatrixCSCView{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
-        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange}
+        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange{<:Integer}}
 const SparseMatrixCSCUnion{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
 # Define an alias for views of a SparseMatrixCSC which include all rows and a selection of the columns.
 # Also define a union of SparseMatrixCSC and this view since many methods can be defined efficiently for
