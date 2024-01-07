@@ -803,7 +803,7 @@ end
     for i = 1:5
         A = sprand(ComplexF64,10,15,0.4); MA = Matrix(A)
         B = sprand(ComplexF64,10,15,0.5); MB = Matrix(B)
-        C = rand(10,15) .> 0.3
+        C = rand(10,15) .> 0.3; MC = Matrix(C)
         @test dot(A,B) ≈ dot(MA, MB)
         @test dot(A,B) ≈ dot(A, MB)
         @test dot(A,B) ≈ dot(MA, B)
