@@ -314,6 +314,7 @@ end
         b = view(rand(elty, n+1), Vector(1:n+1))
         @test_throws DimensionMismatch ldiv!(D, b)
         for b in (sparse(rand(elty,n,n)), sparse(rand(elty,n)))
+            bd = Array(b)
             @test lmul!(copy(D), copy(b)) ≈ MD*bd
             @test lmul!(transpose(copy(D)), copy(b)) ≈ transpose(MD)*bd
             @test lmul!(adjoint(copy(D)), copy(b)) ≈ MD'*bd
