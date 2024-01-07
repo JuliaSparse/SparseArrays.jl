@@ -154,15 +154,15 @@ begin
     A = sprand(rng, n, n, 0.01)
     MA = Matrix(A)
     lA = sprand(rng, n, n+10, 0.01)
+    @test nnz(lA[:, n+1:n+10]) == nnz(view(lA, :, n+1:n+10))
     @testset "triangular multiply with $tr($wr)" for tr in (identity, adjoint, transpose),
     wr in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
         AW = tr(wr(A))
         MAW = tr(wr(MA))
         @test AW * B ≈ MAW * B
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
-        vAW = tr(wr(view(A, :, 1:n)))
-        vMAW = tr(wr(view(MA, :, 1:n)))
-        @test vAW * B ≈ vMAW * B
+        vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
+        @test vAW * B ≈ AW * B
     end
     a = sprand(rng, ComplexF64, n, n, 0.01)
     ma = Matrix(a)
@@ -172,9 +172,8 @@ begin
         MAW = tr(wr(ma))
         @test AW * B ≈ MAW * B
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
-        vAW = tr(wr(view(a, :, 1:n)))
-        vMAW = tr(wr(view(ma, :, 1:n)))
-        @test vAW * B ≈ vMAW * B
+        vAW = tr(wr(view([zero(a)+I a], :, (n+1):2n)))
+        @test vAW * B ≈ AW * B
     end
     A = A - Diagonal(diag(A)) + 2I # avoid rounding errors by division
     MA = Matrix(A)
@@ -183,6 +182,9 @@ begin
         AW = tr(wr(A))
         MAW = tr(wr(MA))
         @test AW \ B ≈ MAW \ B
+        # and for SparseMatrixCSCView - a view of all rows and unit range of cols
+        vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
+        @test vAW \ B ≈ AW \ B
     end
     @testset "triangular singular exceptions" begin
         A = LowerTriangular(sparse([0 2.0;0 1]))

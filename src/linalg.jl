@@ -10,21 +10,21 @@ const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
 
-matprod_dest(A::SparseMatrixCSCUnion, B::DenseTriangular, TS) =
+matprod_dest(A::SparseMatrixCSCUnion2, B::DenseTriangular, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::DenseTriangular, TS) =
+matprod_dest(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::DenseTriangular, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCUnion, TS) =
+matprod_dest(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCUnion2, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::SparseMatrixCSCUnion, TS) =
+matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::SparseMatrixCSCUnion2, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::DenseTriangular, B::SparseMatrixCSCUnion, TS) =
+matprod_dest(A::DenseTriangular, B::SparseMatrixCSCUnion2, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::StridedMaybeAdjOrTransMat, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, TS) =
+matprod_dest(A::StridedMaybeAdjOrTransMat, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, TS) =
+matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::DenseTriangular, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, TS) =
+matprod_dest(A::DenseTriangular, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
@@ -45,11 +45,11 @@ for op ∈ (:+, :-)
     end
 end
 
-LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion, B::DenseMatrixUnion, _add::MulAddMul) =
+LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, _add::MulAddMul) =
     spdensemul!(C, tA, tB, A, B, _add)
-LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion, B::AbstractTriangular, _add::MulAddMul) =
+LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, _add::MulAddMul) =
     spdensemul!(C, tA, tB, A, B, _add)
-LinearAlgebra.generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion, B::DenseInputVector, _add::MulAddMul) =
+LinearAlgebra.generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, _add::MulAddMul) =
     spdensemul!(C, tA, 'N', A, B, _add)
 
 Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, _add)
@@ -114,7 +114,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     C
 end
 
-Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
+Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
         _spmul!(C, transA(A), B, _add.alpha, _add.beta)
@@ -125,7 +125,7 @@ Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul!(C::Strided
     end
     return C
 end
-function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2, α::Number, β::Number)
     mX, nX = size(X)
     nX == size(A, 1) ||
         throw(DimensionMismatch("second dimension of X, $nX, does not match the first dimension of A, $(size(A,1))"))
@@ -145,7 +145,7 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::AbstractSparseMatrixC
     end
     C
 end
-function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCUnion2, α::Number, β::Number)
     mX, nX = size(X)
     nX == size(A, 1) ||
         throw(DimensionMismatch("second dimension of X, $nX, does not match the first dimension of A, $(size(A,1))"))
@@ -164,7 +164,7 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::A
     C
 end
 
-function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCUnion2, α::Number, β::Number)
     mA, nA = size(A)
     nA == size(B, 2) ||
         throw(DimensionMismatch("second dimension of A, $nA, does not match the second dimension of B, $(size(B,2))"))
