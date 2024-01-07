@@ -114,7 +114,6 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     C
 end
 
-
 Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
