@@ -228,6 +228,21 @@ end
     end
 end
 
+@testset "in-place sparse-sparse mul!" begin
+    sA = sprandn(ComplexF64, 50, 50, 0.1); A = Array(sA)
+    sB = sprandn(ComplexF64, 50, 50, 0.1); B = Array(sB)
+    sC = sprandn(ComplexF64, 50, 50, 0.1); C = Array(sC)
+    a = randn(ComplexF64); b = randn(ComplexF64)
+    for (sA, A) in ((sA, A), (view(sA, :, 1:1:50), A[:,1:1:50]))
+        for trA in (identity, adjoint, transpose), trB in (identity, adjoint, transpose)
+            @test mul!(copy(sC), trA(sA), trB(sB)) ≈ trA(A) * trB(B)
+            for α in (true, false, a), β in (true, false, b)
+                @test mul!(copy(sC), trA(sA), trB(sB), α, β) ≈ C*β + trA(A) * trB(B) * α
+            end
+        end
+    end
+end
+
 @testset "UniformScaling" begin
     local A = sprandn(10, 10, 0.5)
     MA = Array(A)
