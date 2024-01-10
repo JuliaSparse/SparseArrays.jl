@@ -1,5 +1,5 @@
 name = "SparseArrays"
-uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+uuid = "2f01184e-e22b-5af5-ae63-d93ebab69eaf"
 version = "1.11.0"
 
 [deps]
