@@ -150,7 +150,9 @@ Random.seed!(123)
     end
 end
 
-@testset "lp_afiro example $Ti" begin
+
+for Tv2 ∈ (Float32, Float64)
+@testset "lp_afiro example ($Tv, $Ti) \\ ($Tv2, $Ti)" begin
     afiro = CHOLMOD.Sparse(27, 51,
         Ti[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,
         23,25,27,29,33,37,41,45,47,49,51,53,55,57,59,63,65,67,69,71,75,79,83,87,89,
@@ -170,10 +172,13 @@ end
     CHOLMOD.change_stype!(afiro2, -1)
     chmaf = cholesky(afiro2)
     y = afiro'*fill(one(Tv), size(afiro,1))
-    sol = chmaf\(afiro*y) # least squares solution
+    sol = @test_nowarn chmaf\convert(Dense{Tv2}, (afiro*y)) # least squares solution
+    @test eltype(sol) == promote_type(Tv, Tv2)
     @test CHOLMOD.isvalid(sol)
     pred = afiro'*sol
-    @test norm(afiro * (convert(Matrix, y) - convert(Matrix, pred))) < √(eps(Tv)) # is this reasonable? 
+    @test norm(afiro * (convert(Matrix, y) - convert(Matrix, pred))) <
+        √(eps(Float32 <: Union{Tv, Tv2} ? Float32 : Float64)) # is this reasonable?
+end
 end
 
 @testset "Issue 9160 $Ti" begin
@@ -360,12 +365,10 @@ end
     @test isa(CHOLMOD.eye(3), CHOLMOD.Dense{Float64})
 end
 
-@testset "Core functionality" for elty in (Tv, Complex{Tv})
+@testset "Core functionality ($elty, $elty2)" for elty in (Tv, Complex{Tv}), Tv2 in (Float32, Float64), elty2 in (Tv2, Complex{Tv2})
     A1 = sparse([1:5; 1], [1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
-    A2 = sparse([1:5; 1], [1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
+    A2 = sparse([1:5; 1], [1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
     A1pd = A1'A1
-    A1Sparse = CHOLMOD.Sparse(A1)
-    A2Sparse = CHOLMOD.Sparse(A2)
     A1pdSparse = CHOLMOD.Sparse(
         size(A1pd, 1),
         size(A1pd, 2),
@@ -375,12 +378,14 @@ end
 
     ## High level interface
     @test isa(CHOLMOD.Sparse(3, 3, [0,1,3,4], [0,2,1,2], fill(one(Tv), 4)), CHOLMOD.Sparse) # Sparse doesn't require columns to be sorted
-    @test_throws BoundsError A1Sparse[6, 1]
-    @test_throws BoundsError A1Sparse[1, 6]
-    @test sparse(A1Sparse) == A1
     for i ∈ axes(A1, 1)
         A1[i, i] = real(A1[i, i])
     end #Construct Hermitian matrix properly
+    A1Sparse = CHOLMOD.Sparse(A1)
+    A2Sparse = CHOLMOD.Sparse(A2)
+    @test_throws BoundsError A1Sparse[6, 1]
+    @test_throws BoundsError A1Sparse[1, 6]
+    @test sparse(A1Sparse) == A1
     @test CHOLMOD.sparse(CHOLMOD.Sparse(Hermitian(A1, :L))) == Hermitian(A1, :L)
     @test CHOLMOD.sparse(CHOLMOD.Sparse(Hermitian(A1, :U))) == Hermitian(A1, :U)
     @test_throws ArgumentError convert(SparseMatrixCSC{elty,Int}, A1pdSparse)
@@ -432,8 +437,8 @@ end
     @test isa(CHOLMOD.Sparse(F), CHOLMOD.Sparse{elty})
     @test_throws DimensionMismatch F\CHOLMOD.Dense(fill(elty(1), 4))
     @test_throws DimensionMismatch F\CHOLMOD.Sparse(sparse(fill(elty(1), 4)))
-    b = fill(1., 5)
-    bT = fill(elty(1), 5)
+    b = ones(elty2, 5)
+    bT = ones(elty, 5)
     @test F'\bT ≈ Array(A1pd)'\b
     @test F'\sparse(bT) ≈ Array(A1pd)'\b
     @test transpose(F)\bT ≈ conj(A1pd)'\bT
@@ -502,13 +507,13 @@ end
     @test CHOLMOD.nnz(A1Sparse) == nnz(A1)
     @test CHOLMOD.speye(5, 5, elty) == Matrix(I, 5, 5)
     @test CHOLMOD.spzeros(5, 5, 5, elty) == zeros(elty, 5, 5)
-    if elty <: Real
+    if elty <: Real && elty2 <: Real
         @test CHOLMOD.copy(A1Sparse, 0, 1) == A1Sparse
         @test CHOLMOD.horzcat(A1Sparse, A2Sparse, true) == [A1 A2]
         @test CHOLMOD.vertcat(A1Sparse, A2Sparse, true) == [A1; A2]
-        svec = fill(one(elty), 1)
+        svec = fill(one(elty2), 1)
         @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SCALAR, A1Sparse) == A1Sparse
-        svec = fill(one(elty), 5)
+        svec = fill(one(elty2), 5)
         @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SCALAR, A1Sparse)
         @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_ROW, A1Sparse) == A1Sparse
         @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_ROW, A1Sparse)
@@ -517,19 +522,19 @@ end
         @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, A1Sparse) == A1Sparse
         @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_SYM, A1Sparse)
         @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, CHOLMOD.Sparse(A1[:,1:4]))
-    else
-        # These operations are not support for Complex, as CHOLMOD assumes input is Hermitian.
-        @test_throws MethodError CHOLMOD.copy(A1Sparse, 0, 1) == A1Sparse
-        @test_throws MethodError CHOLMOD.horzcat(A1Sparse, A2Sparse, true) == [A1 A2]
-        @test_throws MethodError CHOLMOD.vertcat(A1Sparse, A2Sparse, true) == [A1; A2]
-    end
-
-    if elty <: Real
-        @test CHOLMOD.ssmult(A1Sparse, A2Sparse, 0, true, true) ≈ A1*A2
         @test CHOLMOD.aat(A1Sparse, [0:size(A1,2)-1;], 1) ≈ A1*A1'
         @test CHOLMOD.aat(A1Sparse, [0:1;], 1) ≈ A1[:,1:2]*A1[:,1:2]'
         @test CHOLMOD.copy(A1Sparse, 0, 1) == A1Sparse
+    else
+        # These operations are not well-supportd for Complex, as CHOLMOD assumes input is Hermitian.
+        @test_throws MethodError CHOLMOD.horzcat(A1Sparse, A2Sparse, true) == [A1 A2]
+        @test_throws MethodError CHOLMOD.vertcat(A1Sparse, A2Sparse, true) == [A1; A2]
     end
+    @test CHOLMOD.ssmult(A1Sparse, A2Sparse, 0, true, true) ≈ A1*A2
+    d = fill(one(elty2), 5)
+    @test A1Sparse*d ≈ A1*d
+    @test A1Sparse'*d ≈ A1'*d
+    @test A2Sparse*A2Sparse' ≈ A2*A2'
 
     @test CHOLMOD.Sparse(CHOLMOD.Dense(A1Sparse)) == A1Sparse
 end
@@ -806,14 +811,14 @@ end
 
 @testset "Check that Symmetric{SparseMatrixCSC} can be constructed from CHOLMOD.Sparse" begin
     Int === Int32 && Random.seed!(124)
-    A = sprandn(10, 10, 0.1)
+    A = sprandn(Tv, 10, 10, 0.1)
     B = CHOLMOD.Sparse(A)
     C = B'B
     # Change internal representation to symmetric (upper/lower)
     o = fieldoffset(cholmod_sparse, findall(fieldnames(cholmod_sparse) .== :stype)[1])
     for uplo in (1, -1)
         unsafe_store!(Ptr{Int8}(pointer(C)), uplo, Int(o) + 1)
-        @test convert(Symmetric{Float64,SparseMatrixCSC{Float64,Int}}, C) ≈ Symmetric(A'A)
+        @test convert(Symmetric{Tv,SparseMatrixCSC{Tv,Int}}, C) ≈ Symmetric(A'A)
     end
 end
 
@@ -828,15 +833,15 @@ end
 end
 
 @testset "Test sparse low rank update for cholesky decomposition" begin
-    A = SparseMatrixCSC{Float64,Int}(10, 5, [1,3,6,8,10,13], [6,7,1,2,9,3,5,1,7,6,7,9],
-        [-0.138843, 2.99571, -0.556814, 0.669704, -1.39252, 1.33814,
+    A = SparseMatrixCSC{Tv,Int}(10, 5, [1,3,6,8,10,13], [6,7,1,2,9,3,5,1,7,6,7,9],
+        Tv[-0.138843, 2.99571, -0.556814, 0.669704, -1.39252, 1.33814,
         1.02371, -0.502384, 1.10686, 0.262229, -1.6935, 0.525239])
     AtA = A'*A
-    C0 = [1., 2., 0, 0, 0]
+    C0 = Tv[1., 2., 0, 0, 0]
     # Test both cholesky and LDLt with and without automatic permutations
     for F in (cholesky(AtA), cholesky(AtA, perm=1:5), ldlt(AtA), ldlt(AtA, perm=1:5))
         local F
-        x0 = F\(b = fill(1., 5))
+        x0 = F\(b = ones(Tv, 5))
         #Test both sparse/dense and vectors/matrices
         for Ctest in (C0, sparse(C0), [C0 2*C0], sparse([C0 2*C0]))
             local x, C, F1
@@ -880,8 +885,8 @@ end
 end
 
 @testset "Non-positive definite matrices" begin
-    A = sparse(Float64[1 2; 2 1])
-    B = sparse(ComplexF64[1 2; 2 1])
+    A = sparse(Tv[1 2; 2 1])
+    B = sparse(Complex{Tv}[1 2; 2 1])
     for M in (A, B, Symmetric(A), Hermitian(B))
         F = cholesky(M; check = false)
         @test_throws PosDefException cholesky(M)
@@ -889,8 +894,8 @@ end
         @test !issuccess(cholesky(M; check = false))
         @test !issuccess(cholesky!(F, M; check = false))
     end
-    A = sparse(Float64[0 0; 0 0])
-    B = sparse(ComplexF64[0 0; 0 0])
+    A = sparse(Tv[0 0; 0 0])
+    B = sparse(Complex{Tv}[0 0; 0 0])
     for M in (A, B, Symmetric(A), Hermitian(B))
         F = ldlt(M; check = false)
         @test_throws ZeroPivotException ldlt(M)
@@ -901,7 +906,7 @@ end
 end
 
 @testset "Issues #27860 & #28363" begin
-    for typeA in (Float64, ComplexF64), typeB in (Float64, ComplexF64), transform in (identity, adjoint, transpose)
+    for typeA in (Tv, Complex{Tv}), typeB in (Tv, Complex{Tv}), transform in (identity, adjoint, transpose)
         A = sparse(typeA[2.0 0.1; 0.1 2.0])
         B = randn(typeB, 2, 2)
         @test A \ transform(B) ≈ cholesky(A) \ transform(B) ≈ Matrix(A) \ transform(B)
@@ -914,15 +919,15 @@ end
 end
 
 @testset "Issue #33365" begin
-    A = Sparse(spzeros(0, 0))
+    A = Sparse(spzeros(Tv, 0, 0))
     @test A * A' == A
     @test A' * A == A
-    B = Sparse(spzeros(0, 4))
-    @test B * B' == Sparse(spzeros(0, 0))
-    @test B' * B == Sparse(spzeros(4, 4))
-    C = Sparse(spzeros(3, 0))
-    @test C * C' == Sparse(spzeros(3, 3))
-    @test C' * C == Sparse(spzeros(0, 0))
+    B = Sparse(spzeros(Tv, 0, 4))
+    @test B * B' == Sparse(spzeros(Tv, 0, 0))
+    @test B' * B == Sparse(spzeros(Tv, 4, 4))
+    C = Sparse(spzeros(Tv, 3, 0))
+    @test C * C' == Sparse(spzeros(Tv, 3, 3))
+    @test C' * C == Sparse(spzeros(Tv, 0, 0))
 end
 
 @testset "permutation handling" begin
@@ -937,7 +942,7 @@ end
 
     @testset "user-specified permutation" begin
         n = 100
-        A = sprand(n,n,5/n) |> t -> t't + I
+        A = sprand(Tv, n,n,5/n) |> t -> t't + I
         @test cholesky(A, perm=1:n).p == 1:n
     end
 end
@@ -967,7 +972,7 @@ end
 end
 
 @testset "wrapped sparse matrices" begin
-    A = I + sprand(10, 10, 0.1); A = A'A
+    A = I + sprand(Tv, 10, 10, 0.1); A = A'A
     @test issuccess(cholesky(view(A, :, :)))
     @test issuccess(cholesky(Symmetric(view(A, :, :))))
     @test_throws ErrorException cholesky(view(A, :, :), RowMaximum())

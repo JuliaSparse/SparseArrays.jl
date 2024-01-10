@@ -637,7 +637,7 @@ for TI ∈ IndexTypes
     end
 
     function ssmult(A::Sparse{Tv, $TI}, B::Sparse{Tv, $TI}, stype::Integer,
-        values::Bool, sorted::Bool) where Tv<:VRealTypes
+        values::Integer, sorted::Bool) where Tv<:VTypes
         lA = unsafe_load(pointer(A))
         lB = unsafe_load(pointer(B))
         if lA.ncol != lB.nrow
@@ -788,7 +788,7 @@ end
 
 # promotion functions for the strictly single typed functions above:
 function ssmult(A::Sparse{Tv1, Ti1}, B::Sparse{Tv2, Ti2}, stype::Integer,
-    values::Bool, sorted::Bool) where {Tv1, Tv2, Ti1, Ti2}
+    values::Integer, sorted::Bool) where {Tv1, Tv2, Ti1, Ti2}
     if size(A, 2) != size(B, 1)
         throw(DimensionMismatch("inner matrix dimensions do not fit"))
     end
@@ -800,8 +800,8 @@ function horzcat(A::Sparse{Tv1, Ti1}, B::Sparse{Tv2, Ti2}, values::Bool) where
     A, B = convert.(Sparse{promote_type(Tv1, Tv2), promote_type(Ti1, Ti2)}, (A, B))
     return horzcat(A, B, values)
 end
-function scale!(S::Dense{Tv1}, scale::Integer, A::Sparse{Tv2}) where {Tv1, Tv2}
-    S = convert(Dense{promote_type(Tv1, Tv2)}, S)
+function scale!(S::Dense, scale::Integer, A::Sparse{Tv}) where {Tv}
+    S = convert(Dense{Tv}, S)
     return scale!(S, scale, A)
 end
 function sdmult!(A::Sparse{Tv1, Ti}, transpose::Bool,
@@ -1731,7 +1731,7 @@ Update an `LDLt` or `LLt` Factorization `F` of `A` to a factorization of `A + C*
 
 See also [`lowrankupdate`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!`](@ref).
 """
-function lowrankupdate!(F::Factor{Tv, Ti}, V::AbstractArray{Tv}) where {Tv<:VTypes, Ti}
+function lowrankupdate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
     #Reorder and copy V to account for permutation
     C = lowrank_reorder(V, get_perm(F), Tv, Ti)
     lowrankupdowndate!(F, C, Cint(1))
@@ -1746,7 +1746,7 @@ Update an `LDLt` or `LLt` Factorization `F` of `A` to a factorization of `A - C*
 
 See also [`lowrankdowndate`](@ref), [`lowrankupdate`](@ref), [`lowrankupdate!`](@ref).
 """
-function lowrankdowndate!(F::Factor{Tv, Ti}, V::AbstractArray{Tv}) where {Tv<:VTypes, Ti}
+function lowrankdowndate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
     #Reorder and copy V to account for permutation
     C = lowrank_reorder(V, get_perm(F), Tv, Ti)
     lowrankupdowndate!(F, C, Cint(0))
@@ -1761,8 +1761,11 @@ The returned factor is always an `LDLt` factorization.
 
 See also [`lowrankupdate!`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!`](@ref).
 """
-lowrankupdate(F::Factor{Tv}, V::AbstractArray{Tv}) where {Tv<:VTypes} =
-    lowrankupdate!(copy(F), V)
+lowrankupdate(F::Factor{Tv}, V::AbstractArray{Tv2}) where {Tv, Tv2} =
+    lowrankupdate!(
+        change_xdtype(F, promote_type(Tv, Tv2)), 
+        convert(AbstractArray{promote_type(Tv, Tv2)}, V)
+    )
 
 """
     lowrankdowndate(F::CHOLMOD.Factor, C::AbstractArray) -> FF::CHOLMOD.Factor
@@ -1773,8 +1776,11 @@ The returned factor is always an `LDLt` factorization.
 
 See also [`lowrankdowndate!`](@ref), [`lowrankupdate`](@ref), [`lowrankupdate!`](@ref).
 """
-lowrankdowndate(F::Factor{Tv}, V::AbstractArray{Tv}) where {Tv<:VTypes} =
-    lowrankdowndate!(copy(F), V)
+lowrankdowndate(F::Factor{Tv}, V::AbstractArray{Tv2}) where {Tv, Tv2} =
+lowrankdowndate!(
+    change_xdtype(F, promote_type(Tv, Tv2)), 
+    convert(AbstractArray{promote_type(Tv, Tv2)}, V)
+)
 
 ## Solvers
 
@@ -1836,7 +1842,7 @@ end
 
 \(adjL::Adjoint{<:Any,<:FactorComponent}, B::Union{VecOrMat,SparseVecOrMat}) = (L = parent(adjL); adjoint(L)\B)
 
-(\)(L::Factor{T}, B::Dense{T}) where {T<:VTypes} = solve(CHOLMOD_A, L, B)
+(\)(L::Factor{T}, B::Dense{T2}) where {T<:VTypes, T2<:VTypes} = solve(CHOLMOD_A, L, B)
 # Explicit typevars are necessary to avoid ambiguities with defs in linalg/factorizations.jl
 # Likewise the two following explicit Vector and Matrix defs (rather than a single VecOrMat)
 (\)(L::Factor{T}, B::Vector{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
