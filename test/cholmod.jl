@@ -449,12 +449,7 @@ end
     @test det(F) == exp(logdet(F))
     let # to test supernodal, we must use a larger matrix
         Ftmp = SparseMatrixCSC{Tv, Ti}(sprandn(Tv, 100, 100, 0.1))
-        Ftmp = Ftmp'Ftmp + 100I
-        if sizeof(Int) == 4
-            println(isposdef(Array(Ftmp)))
-            println(Ftmp)
-            flush(stdout)
-        end
+        Ftmp = Ftmp'Ftmp + 10I
         @test logdet(cholesky(Ftmp)) ≈ logdet(Array(Ftmp))
     end
     @test logdet(ldlt(A1pd)) ≈ logdet(Array(A1pd))
