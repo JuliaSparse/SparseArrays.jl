@@ -370,7 +370,7 @@ end
     Ti ∈ itypes
     A1 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
     A2 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
-    A1pd = A1'A1
+    A1pd = A1'A1 + 10I
     A1pdSparse = CHOLMOD.Sparse(
         size(A1pd, 1),
         size(A1pd, 2),
@@ -449,7 +449,7 @@ end
     @test det(F) == exp(logdet(F))
     let # to test supernodal, we must use a larger matrix
         Ftmp = SparseMatrixCSC{Tv, Ti}(sprandn(Tv, 100, 100, 0.1))
-        Ftmp = Ftmp'Ftmp + I
+        Ftmp = Ftmp'Ftmp + 100I
         if sizeof(Int) == 4
             println(isposdef(Array(Ftmp)))
             println(Ftmp)
