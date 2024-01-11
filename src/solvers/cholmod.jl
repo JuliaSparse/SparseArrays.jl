@@ -693,7 +693,7 @@ for TI ∈ IndexTypes
         if nc != size(X, 1)
             throw(DimensionMismatch("incompatible dimensions, $nc and $(size(X,1))"))
         end
-        $(cholname(:sdmult, TI))(A, transpose, Ref(α), Ref(β), X, Y, getcommon($TI))
+        $(cholname(:sdmult, TI))(A, transpose, [real(α), imag(α)], [real(β), imag(β)], X, Y, getcommon($TI))
         Y
     end
 
@@ -727,7 +727,7 @@ for TI ∈ IndexTypes
     function factorize_p!(A::Sparse{Tv, $TI}, β::Real, F::Factor{Tv, $TI}) where Tv<:VTypes
         # note that β is passed as a complex number (double beta[2]),
         # but the CHOLMOD manual says that only beta[0] (real part) is used
-        $(cholname(:factorize_p, TI))(A, Ref{Cdouble}(β), C_NULL, 0, F, getcommon($TI))
+        $(cholname(:factorize_p, TI))(A, Float64[β, 0], C_NULL, 0, F, getcommon($TI))
         return F
     end
 
@@ -1376,7 +1376,9 @@ end
 
 ## Multiplication
 (*)(A::Sparse, B::Sparse) = ssmult(A, B, 0, true, true)
-(*)(A::Sparse, B::Dense) = sdmult!(A, false, 1., 0., B, zeros(size(A, 1), size(B, 2), eltype(A)))
+(*)(A::Sparse, B::Dense) = sdmult!(A, false, 1., 0., B, 
+    zeros(size(A, 1), size(B, 2), promote_type(eltype(A), eltype(B)))
+)
 (*)(A::Sparse, B::VecOrMat) = (*)(A, Dense(B))
 
 function *(A::Sparse{Tv, Ti}, adjB::Adjoint{Tv,Sparse{Tv, Ti}}) where {Tv<:VRealTypes, Ti}
@@ -1410,8 +1412,10 @@ function *(adjA::Adjoint{<:Any,<:Sparse}, B::Sparse)
     return ssmult(aa1, B, 0, true, true)
 end
 
-*(adjA::Adjoint{<:Any,<:Sparse}, B::Dense) =
-    (A = parent(adjA); sdmult!(A, true, 1., 0., B, zeros(size(A, 2), size(B, 2), eltype(adjA))))
+*(adjA::Adjoint{<:Any,<:Sparse}, B::Dense) = (
+    A = parent(adjA); sdmult!(A, true, 1., 0., B, 
+    zeros(size(A, 2), size(B, 2), promote_type(eltype(A), eltype(B))))
+)
 *(adjA::Adjoint{<:Any,<:Sparse}, B::VecOrMat) = adjA * Dense(B)
 
 
