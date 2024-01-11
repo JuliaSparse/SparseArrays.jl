@@ -324,8 +324,6 @@ end
     end
 end
 
-# Test Dense wrappers (only Float64 supported a present)
-
 @testset "High level interface" for elty in (Tv, Complex{Tv})
     local A, b
     if elty <: Real
@@ -365,9 +363,13 @@ end
     @test isa(CHOLMOD.eye(3), CHOLMOD.Dense{Float64})
 end
 
-@testset "Core functionality ($elty, $elty2)" for elty in (Tv, Complex{Tv}), Tv2 in (Float32, Float64), elty2 in (Tv2, Complex{Tv2})
-    A1 = sparse([1:5; 1], [1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
-    A2 = sparse([1:5; 1], [1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
+@testset "Core functionality ($elty, $elty2)" for 
+    elty in (Tv, Complex{Tv}), 
+    Tv2 in (Float32, Float64), 
+    elty2 in (Tv2, Complex{Tv2}),
+    Ti ∈ itypes
+    A1 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
+    A2 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
     A1pd = A1'A1
     A1pdSparse = CHOLMOD.Sparse(
         size(A1pd, 1),
@@ -377,7 +379,7 @@ end
         nonzeros(A1pd))
 
     ## High level interface
-    @test isa(CHOLMOD.Sparse(3, 3, [0,1,3,4], [0,2,1,2], fill(one(Tv), 4)), CHOLMOD.Sparse) # Sparse doesn't require columns to be sorted
+    @test isa(CHOLMOD.Sparse(3, 3, Ti[0,1,3,4], Ti[0,2,1,2], fill(one(Tv), 4)), CHOLMOD.Sparse) # Sparse doesn't require columns to be sorted
     for i ∈ axes(A1, 1)
         A1[i, i] = real(A1[i, i])
     end #Construct Hermitian matrix properly
@@ -388,11 +390,11 @@ end
     @test sparse(A1Sparse) == A1
     @test CHOLMOD.sparse(CHOLMOD.Sparse(Hermitian(A1, :L))) == Hermitian(A1, :L)
     @test CHOLMOD.sparse(CHOLMOD.Sparse(Hermitian(A1, :U))) == Hermitian(A1, :U)
-    @test_throws ArgumentError convert(SparseMatrixCSC{elty,Int}, A1pdSparse)
+    @test_throws ArgumentError convert(SparseMatrixCSC{elty,Ti}, A1pdSparse)
     if elty <: Real
-        @test_throws ArgumentError convert(Symmetric{Tv,SparseMatrixCSC{Tv,Int}}, A1Sparse)
+        @test_throws ArgumentError convert(Symmetric{Tv,SparseMatrixCSC{Tv,Ti}}, A1Sparse)
     else
-        @test_throws ArgumentError convert(Hermitian{Complex{Tv},SparseMatrixCSC{Complex{Tv},Int}}, A1Sparse)
+        @test_throws ArgumentError convert(Hermitian{Complex{Tv},SparseMatrixCSC{Complex{Tv},Ti}}, A1Sparse)
     end
     @test copy(A1Sparse) == A1Sparse
     @test size(A1Sparse, 3) == 1
@@ -446,8 +448,11 @@ end
     @test logdet(F) ≈ logdet(Array(A1pd))
     @test det(F) == exp(logdet(F))
     let # to test supernodal, we must use a larger matrix
-        Ftmp = sprandn(Tv, 100, 100, 0.1)
+        Ftmp = SparseMatrixCSC{Tv, Ti}(sprandn(Tv, 100, 100, 0.1))
         Ftmp = Ftmp'Ftmp + I
+        println(isposdef(Array(Ftmp)))
+        println(Ftmp)
+        flush(stdout)
         @test logdet(cholesky(Ftmp)) ≈ logdet(Array(Ftmp))
     end
     @test logdet(ldlt(A1pd)) ≈ logdet(Array(A1pd))
@@ -489,15 +494,15 @@ end
     @test_throws ArgumentError size(F, 0)
 
     F = cholesky(A1pdSparse, shift=2)
-    @test isa(CHOLMOD.Sparse(F), CHOLMOD.Sparse{elty})
+    @test isa(CHOLMOD.Sparse(F), CHOLMOD.Sparse{elty, Ti})
     @test CHOLMOD.Sparse(cholesky!(copy(F), A1pd, shift=2.0)) ≈ CHOLMOD.Sparse(F) # surprisingly, this can cause small ulp size changes so we cannot test exact equality
 
     F = ldlt(A1pd)
-    @test isa(CHOLMOD.Sparse(F), CHOLMOD.Sparse{elty})
+    @test isa(CHOLMOD.Sparse(F), CHOLMOD.Sparse{elty, Ti})
     @test CHOLMOD.Sparse(ldlt!(copy(F), A1pd)) ≈ CHOLMOD.Sparse(F) # surprisingly, this can cause small ulp size changes so we cannot test exact equality
 
     F = ldlt(A1pdSparse, shift=2)
-    @test isa(CHOLMOD.Sparse(F), CHOLMOD.Sparse{elty})
+    @test isa(CHOLMOD.Sparse(F), CHOLMOD.Sparse{elty, Ti})
     @test CHOLMOD.Sparse(ldlt!(copy(F), A1pd, shift=2.0)) ≈ CHOLMOD.Sparse(F) # surprisingly, this can cause small ulp size changes so we cannot test exact equality
 
     @test isa(CHOLMOD.factor_to_sparse!(F), CHOLMOD.Sparse)
