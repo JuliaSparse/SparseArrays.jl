@@ -450,9 +450,11 @@ end
     let # to test supernodal, we must use a larger matrix
         Ftmp = SparseMatrixCSC{Tv, Ti}(sprandn(Tv, 100, 100, 0.1))
         Ftmp = Ftmp'Ftmp + I
-        println(isposdef(Array(Ftmp)))
-        println(Ftmp)
-        flush(stdout)
+        if sizeof(Int) == 4
+            println(isposdef(Array(Ftmp)))
+            println(Ftmp)
+            flush(stdout)
+        end
         @test logdet(cholesky(Ftmp)) ≈ logdet(Array(Ftmp))
     end
     @test logdet(ldlt(A1pd)) ≈ logdet(Array(A1pd))

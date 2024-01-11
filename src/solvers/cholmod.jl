@@ -570,8 +570,8 @@ for TI ∈ IndexTypes
         # Warning! Important that finalizer doesn't modify the global Common struct.
         $(cholname(:free_factor, TI))(Ref(ptr), getcommon($TI)) == TRUE
     end
-    function aat(A::Sparse{Tv}, fset::Vector{$TI}, mode::Integer) where Tv<:VRealTypes
-        Sparse{Tv, $TI}($(cholname(:aat, TI))(A, fset, length(fset), mode, getcommon($TI)))
+    function aat(A::Sparse{Tv, $TI}, fset::Vector{<:Integer}, mode::Integer) where Tv<:VRealTypes
+        Sparse{Tv, $TI}($(cholname(:aat, TI))(A, convert(Vector{$TI}, fset), length(fset), mode, getcommon($TI)))
     end
 
     function sparse_to_dense(A::Sparse{Tv, $TI}) where Tv<:VTypes
