@@ -13,6 +13,10 @@ cd(@__DIR__)
 # headers
 include_dir = joinpath(SuiteSparse_jll.artifact_dir, "include", "suitesparse") |> normpath
 
+if !isfile(joinpath(include_dir, "cholmod.h"))
+    include_dir = joinpath(SuiteSparse_jll.artifact_dir, "include") |> normpath
+end
+
 cholmod_h = joinpath(include_dir, "cholmod.h")
 @assert isfile(cholmod_h)
 

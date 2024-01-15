@@ -2,14 +2,6 @@ function SuiteSparse_config_printf_func_get()
     @ccall libsuitesparseconfig.SuiteSparse_config_printf_func_get()::Ptr{Cvoid}
 end
 
-function cholmod_version(version)
-    @ccall libcholmod.cholmod_version(version::Ptr{Cint})::Cint
-end
-
-function cholmod_l_version(version)
-    @ccall libcholmod.cholmod_l_version(version::Ptr{Cint})::Cint
-end
-
 function SuiteSparse_config_malloc_func_get()
     @ccall libsuitesparseconfig.SuiteSparse_config_malloc_func_get()::Ptr{Cvoid}
 end
@@ -163,7 +155,7 @@ struct cholmod_method_struct
     nd_oksep::Cdouble
     other_1::NTuple{4,Cdouble}
     nd_small::Csize_t
-    other_2::NTuple{4,Cdouble}
+    other_2::NTuple{4,Csize_t}
     aggressive::Cint
     order_for_lu::Cint
     nd_compress::Cint
@@ -209,13 +201,13 @@ mutable struct cholmod_common_struct
     nrow::Csize_t
     mark::Int64
     iworksize::Csize_t
-    xworkbytes::Csize_t
+    xworksize::Csize_t
     Flag::Ptr{Cvoid}
     Head::Ptr{Cvoid}
     Xwork::Ptr{Cvoid}
     Iwork::Ptr{Cvoid}
     itype::Cint
-    other_5::Cint
+    dtype::Cint
     no_workspace_reallocate::Cint
     status::Cint
     fl::Cdouble
@@ -243,10 +235,7 @@ mutable struct cholmod_common_struct
     SPQR_flopcount_bound::Cdouble
     SPQR_tol_used::Cdouble
     SPQR_norm_E_fro::Cdouble
-    SPQR_istat::NTuple{8,Int64}
-    nsbounds_hit::Cdouble
-    sbound::Cfloat
-    other_6::Cfloat
+    SPQR_istat::NTuple{10,Int64}
     useGPU::Cint
     maxGpuMemBytes::Csize_t
     maxGpuMemFraction::Cdouble
@@ -286,7 +275,6 @@ mutable struct cholmod_common_struct
     cholmod_gpu_potrf_calls::Csize_t
     chunk::Cdouble
     nthreads_max::Cint
-    blas_dump::Ptr{Libc.FILE}
     cholmod_common_struct() = new()
 end
 
@@ -335,17 +323,6 @@ function cholmod_l_allocate_work(arg1, arg2, arg3, arg4)
                                               arg4::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_alloc_work(nrow, iworksize, xworksize, dtype, Common)
-    @ccall libcholmod.cholmod_alloc_work(nrow::Csize_t, iworksize::Csize_t,
-                                         xworksize::Csize_t, dtype::Cint,
-                                         Common::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_l_alloc_work(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_alloc_work(arg1::Csize_t, arg2::Csize_t, arg3::Csize_t,
-                                           arg4::Cint, arg5::Ptr{cholmod_common})::Cint
-end
-
 function cholmod_free_work(Common)
     @ccall libcholmod.cholmod_free_work(Common::Ptr{cholmod_common})::Cint
 end
@@ -372,20 +349,12 @@ function cholmod_l_error(arg1, arg2, arg3, arg4, arg5)
                                       arg4::Ptr{Cchar}, arg5::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_dbound(arg1, arg2)
-    @ccall libcholmod.cholmod_dbound(arg1::Cdouble, arg2::Ptr{cholmod_common})::Cdouble
+function cholmod_dbound(dj, Common)
+    @ccall libcholmod.cholmod_dbound(dj::Cdouble, Common::Ptr{cholmod_common})::Cdouble
 end
 
 function cholmod_l_dbound(arg1, arg2)
     @ccall libcholmod.cholmod_l_dbound(arg1::Cdouble, arg2::Ptr{cholmod_common})::Cdouble
-end
-
-function cholmod_sbound(arg1, arg2)
-    @ccall libcholmod.cholmod_sbound(arg1::Cfloat, arg2::Ptr{cholmod_common})::Cfloat
-end
-
-function cholmod_l_sbound(arg1, arg2)
-    @ccall libcholmod.cholmod_l_sbound(arg1::Cfloat, arg2::Ptr{cholmod_common})::Cfloat
 end
 
 function cholmod_hypot(x, y)
@@ -427,10 +396,28 @@ end
 
 const cholmod_sparse = cholmod_sparse_struct
 
-function cholmod_allocate_sparse(nrow, ncol, nzmax, sorted, packed, stype, xdtype, Common)
+mutable struct cholmod_descendant_score_t
+    score::Cdouble
+    d::Int64
+    cholmod_descendant_score_t() = new()
+end
+
+const descendantScore = cholmod_descendant_score_t
+
+function cholmod_score_comp(i, j)
+    @ccall libcholmod.cholmod_score_comp(i::Ptr{cholmod_descendant_score_t},
+                                         j::Ptr{cholmod_descendant_score_t})::Cint
+end
+
+function cholmod_l_score_comp(i, j)
+    @ccall libcholmod.cholmod_l_score_comp(i::Ptr{cholmod_descendant_score_t},
+                                           j::Ptr{cholmod_descendant_score_t})::Cint
+end
+
+function cholmod_allocate_sparse(nrow, ncol, nzmax, sorted, packed, stype, xtype, Common)
     @ccall libcholmod.cholmod_allocate_sparse(nrow::Csize_t, ncol::Csize_t, nzmax::Csize_t,
                                               sorted::Cint, packed::Cint, stype::Cint,
-                                              xdtype::Cint,
+                                              xtype::Cint,
                                               Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -471,8 +458,8 @@ function cholmod_l_nnz(arg1, arg2)
                                     arg2::Ptr{cholmod_common})::Int64
 end
 
-function cholmod_speye(nrow, ncol, xdtype, Common)
-    @ccall libcholmod.cholmod_speye(nrow::Csize_t, ncol::Csize_t, xdtype::Cint,
+function cholmod_speye(nrow, ncol, xtype, Common)
+    @ccall libcholmod.cholmod_speye(nrow::Csize_t, ncol::Csize_t, xtype::Cint,
                                     Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -481,9 +468,9 @@ function cholmod_l_speye(arg1, arg2, arg3, arg4)
                                       arg4::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
-function cholmod_spzeros(nrow, ncol, nzmax, xdtype, Common)
+function cholmod_spzeros(nrow, ncol, nzmax, xtype, Common)
     @ccall libcholmod.cholmod_spzeros(nrow::Csize_t, ncol::Csize_t, nzmax::Csize_t,
-                                      xdtype::Cint,
+                                      xtype::Cint,
                                       Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -493,8 +480,8 @@ function cholmod_l_spzeros(arg1, arg2, arg3, arg4, arg5)
                                         arg5::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
-function cholmod_transpose(A, mode, Common)
-    @ccall libcholmod.cholmod_transpose(A::Ptr{cholmod_sparse}, mode::Cint,
+function cholmod_transpose(A, values, Common)
+    @ccall libcholmod.cholmod_transpose(A::Ptr{cholmod_sparse}, values::Cint,
                                         Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -503,10 +490,10 @@ function cholmod_l_transpose(arg1, arg2, arg3)
                                           arg3::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
-function cholmod_transpose_unsym(A, mode, Perm, fset, fsize, C, Common)
-    @ccall libcholmod.cholmod_transpose_unsym(A::Ptr{cholmod_sparse}, mode::Cint,
+function cholmod_transpose_unsym(A, values, Perm, fset, fsize, F, Common)
+    @ccall libcholmod.cholmod_transpose_unsym(A::Ptr{cholmod_sparse}, values::Cint,
                                               Perm::Ptr{Int32}, fset::Ptr{Int32},
-                                              fsize::Csize_t, C::Ptr{cholmod_sparse},
+                                              fsize::Csize_t, F::Ptr{cholmod_sparse},
                                               Common::Ptr{cholmod_common})::Cint
 end
 
@@ -517,9 +504,9 @@ function cholmod_l_transpose_unsym(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
                                                 arg7::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_transpose_sym(A, mode, Perm, C, Common)
-    @ccall libcholmod.cholmod_transpose_sym(A::Ptr{cholmod_sparse}, mode::Cint,
-                                            Perm::Ptr{Int32}, C::Ptr{cholmod_sparse},
+function cholmod_transpose_sym(A, values, Perm, F, Common)
+    @ccall libcholmod.cholmod_transpose_sym(A::Ptr{cholmod_sparse}, values::Cint,
+                                            Perm::Ptr{Int32}, F::Ptr{cholmod_sparse},
                                             Common::Ptr{cholmod_common})::Cint
 end
 
@@ -529,8 +516,8 @@ function cholmod_l_transpose_sym(arg1, arg2, arg3, arg4, arg5)
                                               arg5::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_ptranspose(A, mode, Perm, fset, fsize, Common)
-    @ccall libcholmod.cholmod_ptranspose(A::Ptr{cholmod_sparse}, mode::Cint,
+function cholmod_ptranspose(A, values, Perm, fset, fsize, Common)
+    @ccall libcholmod.cholmod_ptranspose(A::Ptr{cholmod_sparse}, values::Cint,
                                          Perm::Ptr{Int32}, fset::Ptr{Int32}, fsize::Csize_t,
                                          Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
@@ -550,18 +537,6 @@ end
 function cholmod_l_sort(arg1, arg2)
     @ccall libcholmod.cholmod_l_sort(arg1::Ptr{cholmod_sparse},
                                      arg2::Ptr{cholmod_common})::Cint
-end
-
-function cholmod_band_nnz(A, k1, k2, ignore_diag, Common)
-    @ccall libcholmod.cholmod_band_nnz(A::Ptr{cholmod_sparse}, k1::Int64, k2::Int64,
-                                       ignore_diag::Bool,
-                                       Common::Ptr{cholmod_common})::Int64
-end
-
-function cholmod_l_band_nnz(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_band_nnz(arg1::Ptr{cholmod_sparse}, arg2::Int64,
-                                         arg3::Int64, arg4::Bool,
-                                         arg5::Ptr{cholmod_common})::Int64
 end
 
 function cholmod_band(A, k1, k2, mode, Common)
@@ -619,9 +594,9 @@ function cholmod_l_copy(arg1, arg2, arg3, arg4)
                                      arg4::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
-function cholmod_add(A, B, alpha, beta, mode, sorted, Common)
+function cholmod_add(A, B, alpha, beta, values, sorted, Common)
     @ccall libcholmod.cholmod_add(A::Ptr{cholmod_sparse}, B::Ptr{cholmod_sparse},
-                                  alpha::Ptr{Cdouble}, beta::Ptr{Cdouble}, mode::Cint,
+                                  alpha::Ptr{Cdouble}, beta::Ptr{Cdouble}, values::Cint,
                                   sorted::Cint,
                                   Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
@@ -633,8 +608,8 @@ function cholmod_l_add(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
                                     arg7::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
-function cholmod_sparse_xtype(to_xdtype, A, Common)
-    @ccall libcholmod.cholmod_sparse_xtype(to_xdtype::Cint, A::Ptr{cholmod_sparse},
+function cholmod_sparse_xtype(to_xtype, A, Common)
+    @ccall libcholmod.cholmod_sparse_xtype(to_xtype::Cint, A::Ptr{cholmod_sparse},
                                            Common::Ptr{cholmod_common})::Cint
 end
 
@@ -687,16 +662,6 @@ end
 function cholmod_l_allocate_factor(arg1, arg2)
     @ccall libcholmod.cholmod_l_allocate_factor(arg1::Csize_t,
                                                 arg2::Ptr{cholmod_common})::Ptr{cholmod_factor}
-end
-
-function cholmod_alloc_factor(n, dtype, Common)
-    @ccall libcholmod.cholmod_alloc_factor(n::Csize_t, dtype::Cint,
-                                           Common::Ptr{cholmod_common})::Ptr{cholmod_factor}
-end
-
-function cholmod_l_alloc_factor(arg1, arg2, arg3)
-    @ccall libcholmod.cholmod_l_alloc_factor(arg1::Csize_t, arg2::Cint,
-                                             arg3::Ptr{cholmod_common})::Ptr{cholmod_factor}
 end
 
 function cholmod_free_factor(L, Common)
@@ -776,8 +741,8 @@ function cholmod_l_copy_factor(arg1, arg2)
                                             arg2::Ptr{cholmod_common})::Ptr{cholmod_factor}
 end
 
-function cholmod_factor_xtype(to_xdtype, L, Common)
-    @ccall libcholmod.cholmod_factor_xtype(to_xdtype::Cint, L::Ptr{cholmod_factor},
+function cholmod_factor_xtype(to_xtype, L, Common)
+    @ccall libcholmod.cholmod_factor_xtype(to_xtype::Cint, L::Ptr{cholmod_factor},
                                            Common::Ptr{cholmod_common})::Cint
 end
 
@@ -800,9 +765,9 @@ end
 
 const cholmod_dense = cholmod_dense_struct
 
-function cholmod_allocate_dense(nrow, ncol, d, xdtype, Common)
+function cholmod_allocate_dense(nrow, ncol, d, xtype, Common)
     @ccall libcholmod.cholmod_allocate_dense(nrow::Csize_t, ncol::Csize_t, d::Csize_t,
-                                             xdtype::Cint,
+                                             xtype::Cint,
                                              Common::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
@@ -812,8 +777,8 @@ function cholmod_l_allocate_dense(arg1, arg2, arg3, arg4, arg5)
                                                arg5::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
-function cholmod_zeros(nrow, ncol, xdtype, Common)
-    @ccall libcholmod.cholmod_zeros(nrow::Csize_t, ncol::Csize_t, xdtype::Cint,
+function cholmod_zeros(nrow, ncol, xtype, Common)
+    @ccall libcholmod.cholmod_zeros(nrow::Csize_t, ncol::Csize_t, xtype::Cint,
                                     Common::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
@@ -822,8 +787,8 @@ function cholmod_l_zeros(arg1, arg2, arg3, arg4)
                                       arg4::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
-function cholmod_ones(nrow, ncol, xdtype, Common)
-    @ccall libcholmod.cholmod_ones(nrow::Csize_t, ncol::Csize_t, xdtype::Cint,
+function cholmod_ones(nrow, ncol, xtype, Common)
+    @ccall libcholmod.cholmod_ones(nrow::Csize_t, ncol::Csize_t, xtype::Cint,
                                    Common::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
@@ -832,8 +797,8 @@ function cholmod_l_ones(arg1, arg2, arg3, arg4)
                                      arg4::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
-function cholmod_eye(nrow, ncol, xdtype, Common)
-    @ccall libcholmod.cholmod_eye(nrow::Csize_t, ncol::Csize_t, xdtype::Cint,
+function cholmod_eye(nrow, ncol, xtype, Common)
+    @ccall libcholmod.cholmod_eye(nrow::Csize_t, ncol::Csize_t, xtype::Cint,
                                   Common::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
@@ -852,9 +817,9 @@ function cholmod_l_free_dense(arg1, arg2)
                                            arg2::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_ensure_dense(X, nrow, ncol, d, xdtype, Common)
-    @ccall libcholmod.cholmod_ensure_dense(X::Ptr{Ptr{cholmod_dense}}, nrow::Csize_t,
-                                           ncol::Csize_t, d::Csize_t, xdtype::Cint,
+function cholmod_ensure_dense(XHandle, nrow, ncol, d, xtype, Common)
+    @ccall libcholmod.cholmod_ensure_dense(XHandle::Ptr{Ptr{cholmod_dense}}, nrow::Csize_t,
+                                           ncol::Csize_t, d::Csize_t, xtype::Cint,
                                            Common::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
@@ -874,18 +839,8 @@ function cholmod_l_sparse_to_dense(arg1, arg2)
                                                 arg2::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
-function cholmod_dense_nnz(X, Common)
-    @ccall libcholmod.cholmod_dense_nnz(X::Ptr{cholmod_dense},
-                                        Common::Ptr{cholmod_common})::Int64
-end
-
-function cholmod_l_dense_nnz(arg1, arg2)
-    @ccall libcholmod.cholmod_l_dense_nnz(arg1::Ptr{cholmod_dense},
-                                          arg2::Ptr{cholmod_common})::Int64
-end
-
-function cholmod_dense_to_sparse(X, mode, Common)
-    @ccall libcholmod.cholmod_dense_to_sparse(X::Ptr{cholmod_dense}, mode::Cint,
+function cholmod_dense_to_sparse(X, values, Common)
+    @ccall libcholmod.cholmod_dense_to_sparse(X::Ptr{cholmod_dense}, values::Cint,
                                               Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -915,8 +870,8 @@ function cholmod_l_copy_dense2(arg1, arg2, arg3)
                                             arg3::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_dense_xtype(to_xdtype, X, Common)
-    @ccall libcholmod.cholmod_dense_xtype(to_xdtype::Cint, X::Ptr{cholmod_dense},
+function cholmod_dense_xtype(to_xtype, X, Common)
+    @ccall libcholmod.cholmod_dense_xtype(to_xtype::Cint, X::Ptr{cholmod_dense},
                                           Common::Ptr{cholmod_common})::Cint
 end
 
@@ -943,9 +898,9 @@ end
 
 const cholmod_triplet = cholmod_triplet_struct
 
-function cholmod_allocate_triplet(nrow, ncol, nzmax, stype, xdtype, Common)
+function cholmod_allocate_triplet(nrow, ncol, nzmax, stype, xtype, Common)
     @ccall libcholmod.cholmod_allocate_triplet(nrow::Csize_t, ncol::Csize_t, nzmax::Csize_t,
-                                               stype::Cint, xdtype::Cint,
+                                               stype::Cint, xtype::Cint,
                                                Common::Ptr{cholmod_common})::Ptr{cholmod_triplet}
 end
 
@@ -1006,8 +961,8 @@ function cholmod_l_copy_triplet(arg1, arg2)
                                              arg2::Ptr{cholmod_common})::Ptr{cholmod_triplet}
 end
 
-function cholmod_triplet_xtype(to_xdtype, T, Common)
-    @ccall libcholmod.cholmod_triplet_xtype(to_xdtype::Cint, T::Ptr{cholmod_triplet},
+function cholmod_triplet_xtype(to_xtype, T, Common)
+    @ccall libcholmod.cholmod_triplet_xtype(to_xtype::Cint, T::Ptr{cholmod_triplet},
                                             Common::Ptr{cholmod_common})::Cint
 end
 
@@ -1058,13 +1013,13 @@ function cholmod_l_realloc(arg1, arg2, arg3, arg4, arg5)
                                         arg5::Ptr{cholmod_common})::Ptr{Cvoid}
 end
 
-function cholmod_realloc_multiple(nnew, nint, xdtype, I_block, J_block, X_block, Z_block, n,
+function cholmod_realloc_multiple(nnew, nint, xtype, Iblock, Jblock, Xblock, Zblock, n,
                                   Common)
-    @ccall libcholmod.cholmod_realloc_multiple(nnew::Csize_t, nint::Cint, xdtype::Cint,
-                                               I_block::Ptr{Ptr{Cvoid}},
-                                               J_block::Ptr{Ptr{Cvoid}},
-                                               X_block::Ptr{Ptr{Cvoid}},
-                                               Z_block::Ptr{Ptr{Cvoid}}, n::Ptr{Csize_t},
+    @ccall libcholmod.cholmod_realloc_multiple(nnew::Csize_t, nint::Cint, xtype::Cint,
+                                               Iblock::Ptr{Ptr{Cvoid}},
+                                               Jblock::Ptr{Ptr{Cvoid}},
+                                               Xblock::Ptr{Ptr{Cvoid}},
+                                               Zblock::Ptr{Ptr{Cvoid}}, n::Ptr{Csize_t},
                                                Common::Ptr{cholmod_common})::Cint
 end
 
@@ -1075,6 +1030,14 @@ function cholmod_l_realloc_multiple(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
                                                  arg6::Ptr{Ptr{Cvoid}},
                                                  arg7::Ptr{Ptr{Cvoid}}, arg8::Ptr{Csize_t},
                                                  arg9::Ptr{cholmod_common})::Cint
+end
+
+function cholmod_version(version)
+    @ccall libcholmod.cholmod_version(version::Ptr{Cint})::Cint
+end
+
+function cholmod_l_version(version)
+    @ccall libcholmod.cholmod_l_version(version::Ptr{Cint})::Cint
 end
 
 function cholmod_check_common(Common)
@@ -1258,16 +1221,6 @@ function cholmod_l_read_sparse(arg1, arg2)
                                             arg2::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
-function cholmod_read_sparse2(f, dtype, Common)
-    @ccall libcholmod.cholmod_read_sparse2(f::Ptr{Libc.FILE}, dtype::Cint,
-                                           Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
-end
-
-function cholmod_l_read_sparse2(arg1, arg2, arg3)
-    @ccall libcholmod.cholmod_l_read_sparse2(arg1::Ptr{Libc.FILE}, arg2::Cint,
-                                             arg3::Ptr{cholmod_common})::Ptr{cholmod_sparse}
-end
-
 function cholmod_read_triplet(f, Common)
     @ccall libcholmod.cholmod_read_triplet(f::Ptr{Libc.FILE},
                                            Common::Ptr{cholmod_common})::Ptr{cholmod_triplet}
@@ -1276,16 +1229,6 @@ end
 function cholmod_l_read_triplet(arg1, arg2)
     @ccall libcholmod.cholmod_l_read_triplet(arg1::Ptr{Libc.FILE},
                                              arg2::Ptr{cholmod_common})::Ptr{cholmod_triplet}
-end
-
-function cholmod_read_triplet2(f, dtype, Common)
-    @ccall libcholmod.cholmod_read_triplet2(f::Ptr{Libc.FILE}, dtype::Cint,
-                                            Common::Ptr{cholmod_common})::Ptr{cholmod_triplet}
-end
-
-function cholmod_l_read_triplet2(arg1, arg2, arg3)
-    @ccall libcholmod.cholmod_l_read_triplet2(arg1::Ptr{Libc.FILE}, arg2::Cint,
-                                              arg3::Ptr{cholmod_common})::Ptr{cholmod_triplet}
 end
 
 function cholmod_read_dense(f, Common)
@@ -1298,16 +1241,6 @@ function cholmod_l_read_dense(arg1, arg2)
                                            arg2::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
-function cholmod_read_dense2(f, dtype, Common)
-    @ccall libcholmod.cholmod_read_dense2(f::Ptr{Libc.FILE}, dtype::Cint,
-                                          Common::Ptr{cholmod_common})::Ptr{cholmod_dense}
-end
-
-function cholmod_l_read_dense2(arg1, arg2, arg3)
-    @ccall libcholmod.cholmod_l_read_dense2(arg1::Ptr{Libc.FILE}, arg2::Cint,
-                                            arg3::Ptr{cholmod_common})::Ptr{cholmod_dense}
-end
-
 function cholmod_read_matrix(f, prefer, mtype, Common)
     @ccall libcholmod.cholmod_read_matrix(f::Ptr{Libc.FILE}, prefer::Cint, mtype::Ptr{Cint},
                                           Common::Ptr{cholmod_common})::Ptr{Cvoid}
@@ -1317,18 +1250,6 @@ function cholmod_l_read_matrix(arg1, arg2, arg3, arg4)
     @ccall libcholmod.cholmod_l_read_matrix(arg1::Ptr{Libc.FILE}, arg2::Cint,
                                             arg3::Ptr{Cint},
                                             arg4::Ptr{cholmod_common})::Ptr{Cvoid}
-end
-
-function cholmod_read_matrix2(f, prefer, dtype, mtype, Common)
-    @ccall libcholmod.cholmod_read_matrix2(f::Ptr{Libc.FILE}, prefer::Cint, dtype::Cint,
-                                           mtype::Ptr{Cint},
-                                           Common::Ptr{cholmod_common})::Ptr{Cvoid}
-end
-
-function cholmod_l_read_matrix2(arg1, arg2, arg3, arg4, arg5)
-    @ccall libcholmod.cholmod_l_read_matrix2(arg1::Ptr{Libc.FILE}, arg2::Cint, arg3::Cint,
-                                             arg4::Ptr{Cint},
-                                             arg5::Ptr{cholmod_common})::Ptr{Cvoid}
 end
 
 function cholmod_write_sparse(f, A, Z, comments, Common)
@@ -1580,9 +1501,9 @@ function cholmod_l_rowfac_mask2(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, 
                                              arg10::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_row_subtree(A, F, krow, Parent, R, Common)
+function cholmod_row_subtree(A, F, k, Parent, R, Common)
     @ccall libcholmod.cholmod_row_subtree(A::Ptr{cholmod_sparse}, F::Ptr{cholmod_sparse},
-                                          krow::Csize_t, Parent::Ptr{Int32},
+                                          k::Csize_t, Parent::Ptr{Int32},
                                           R::Ptr{cholmod_sparse},
                                           Common::Ptr{cholmod_common})::Cint
 end
@@ -1594,9 +1515,9 @@ function cholmod_l_row_subtree(arg1, arg2, arg3, arg4, arg5, arg6)
                                             arg6::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_lsolve_pattern(B, L, Yset, Common)
+function cholmod_lsolve_pattern(B, L, X, Common)
     @ccall libcholmod.cholmod_lsolve_pattern(B::Ptr{cholmod_sparse}, L::Ptr{cholmod_factor},
-                                             Yset::Ptr{cholmod_sparse},
+                                             X::Ptr{cholmod_sparse},
                                              Common::Ptr{cholmod_common})::Cint
 end
 
@@ -1607,10 +1528,10 @@ function cholmod_l_lsolve_pattern(arg1, arg2, arg3, arg4)
                                                arg4::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_row_lsubtree(A, Fi, fnz, krow, L, R, Common)
+function cholmod_row_lsubtree(A, Fi, fnz, k, L, R, Common)
     @ccall libcholmod.cholmod_row_lsubtree(A::Ptr{cholmod_sparse}, Fi::Ptr{Int32},
-                                           fnz::Csize_t, krow::Csize_t,
-                                           L::Ptr{cholmod_factor}, R::Ptr{cholmod_sparse},
+                                           fnz::Csize_t, k::Csize_t, L::Ptr{cholmod_factor},
+                                           R::Ptr{cholmod_sparse},
                                            Common::Ptr{cholmod_common})::Cint
 end
 
@@ -1623,7 +1544,7 @@ function cholmod_l_row_lsubtree(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 end
 
 function cholmod_resymbol(A, fset, fsize, pack, L, Common)
-    @ccall libcholmod.cholmod_resymbol(A::Ptr{cholmod_sparse}, fset::Ptr{Cint},
+    @ccall libcholmod.cholmod_resymbol(A::Ptr{cholmod_sparse}, fset::Ptr{Int32},
                                        fsize::Csize_t, pack::Cint, L::Ptr{cholmod_factor},
                                        Common::Ptr{cholmod_common})::Cint
 end
@@ -1659,9 +1580,9 @@ function cholmod_l_rcond(arg1, arg2)
                                       arg2::Ptr{cholmod_common})::Cdouble
 end
 
-function cholmod_postorder(Parent, n, Weight, Post, Common)
-    @ccall libcholmod.cholmod_postorder(Parent::Ptr{Int32}, n::Csize_t, Weight::Ptr{Int32},
-                                        Post::Ptr{Int32},
+function cholmod_postorder(Parent, n, Weight_p, Post, Common)
+    @ccall libcholmod.cholmod_postorder(Parent::Ptr{Int32}, n::Csize_t,
+                                        Weight_p::Ptr{Int32}, Post::Ptr{Int32},
                                         Common::Ptr{cholmod_common})::Int32
 end
 
@@ -1701,9 +1622,9 @@ function cholmod_l_norm_sparse(arg1, arg2, arg3)
                                             arg3::Ptr{cholmod_common})::Cdouble
 end
 
-function cholmod_horzcat(A, B, mode, Common)
+function cholmod_horzcat(A, B, values, Common)
     @ccall libcholmod.cholmod_horzcat(A::Ptr{cholmod_sparse}, B::Ptr{cholmod_sparse},
-                                      mode::Cint,
+                                      values::Cint,
                                       Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -1739,9 +1660,9 @@ function cholmod_l_sdmult(arg1, arg2, arg3, arg4, arg5, Y, arg7)
                                        arg7::Ptr{cholmod_common})::Cint
 end
 
-function cholmod_ssmult(A, B, stype, mode, sorted, Common)
+function cholmod_ssmult(A, B, stype, values, sorted, Common)
     @ccall libcholmod.cholmod_ssmult(A::Ptr{cholmod_sparse}, B::Ptr{cholmod_sparse},
-                                     stype::Cint, mode::Cint, sorted::Cint,
+                                     stype::Cint, values::Cint, sorted::Cint,
                                      Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -1751,10 +1672,10 @@ function cholmod_l_ssmult(arg1, arg2, arg3, arg4, arg5, arg6)
                                        arg6::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
-function cholmod_submatrix(A, rset, rsize, cset, csize, mode, sorted, Common)
+function cholmod_submatrix(A, rset, rsize, cset, csize, values, sorted, Common)
     @ccall libcholmod.cholmod_submatrix(A::Ptr{cholmod_sparse}, rset::Ptr{Int32},
                                         rsize::Int64, cset::Ptr{Int32}, csize::Int64,
-                                        mode::Cint, sorted::Cint,
+                                        values::Cint, sorted::Cint,
                                         Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -1765,9 +1686,9 @@ function cholmod_l_submatrix(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
                                           arg8::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
-function cholmod_vertcat(A, B, mode, Common)
+function cholmod_vertcat(A, B, values, Common)
     @ccall libcholmod.cholmod_vertcat(A::Ptr{cholmod_sparse}, B::Ptr{cholmod_sparse},
-                                      mode::Cint,
+                                      values::Cint,
                                       Common::Ptr{cholmod_common})::Ptr{cholmod_sparse}
 end
 
@@ -2124,24 +2045,6 @@ function cholmod_l_super_ltsolve(arg1, arg2, arg3, arg4)
                                               arg4::Ptr{cholmod_common})::Cint
 end
 
-mutable struct cholmod_descendant_score_t
-    score::Cdouble
-    d::Int64
-    cholmod_descendant_score_t() = new()
-end
-
-const descendantScore = cholmod_descendant_score_t
-
-function cholmod_score_comp(i, j)
-    @ccall libcholmod.cholmod_score_comp(i::Ptr{cholmod_descendant_score_t},
-                                         j::Ptr{cholmod_descendant_score_t})::Cint
-end
-
-function cholmod_l_score_comp(i, j)
-    @ccall libcholmod.cholmod_l_score_comp(i::Ptr{cholmod_descendant_score_t},
-                                           j::Ptr{cholmod_descendant_score_t})::Cint
-end
-
 function SuiteSparseQR_C(ordering, tol, econ, getCTX, A, Bsparse, Bdense, Zsparse, Zdense,
                          R, E, H, HPinv, HTau, cc)
     @ccall libspqr.SuiteSparseQR_C(ordering::Cint, tol::Cdouble, econ::Int64, getCTX::Cint,
@@ -2248,10 +2151,6 @@ function SuiteSparseQR_C_qmult(method, QR, X, cc)
                                          cc::Ptr{cholmod_common})::Ptr{cholmod_dense}
 end
 
-function SuiteSparseQR_C_version(version)
-    @ccall libspqr.SuiteSparseQR_C_version(version::Ptr{Cint})::Cvoid
-end
-
 function amd_order(n, Ap, Ai, P, Control, Info)
     @ccall libamd.amd_order(n::Int32, Ap::Ptr{Int32}, Ai::Ptr{Int32}, P::Ptr{Int32},
                             Control::Ptr{Cdouble}, Info::Ptr{Cdouble})::Cint
@@ -2312,14 +2211,6 @@ end
 
 function amd_l_info(Info)
     @ccall libamd.amd_l_info(Info::Ptr{Cdouble})::Cvoid
-end
-
-function amd_version(version)
-    @ccall libamd.amd_version(version::Ptr{Cint})::Cvoid
-end
-
-function umfpack_version(version)
-    @ccall libumfpack.umfpack_version(version::Ptr{Cint})::Cvoid
 end
 
 function umfpack_di_symbolic(n_row, n_col, Ap, Ai, Ax, Symbolic, Control, Info)
@@ -3328,35 +3219,13 @@ function umfpack_toc(stats)
     @ccall libumfpack.umfpack_toc(stats::Ptr{Cdouble})::Cvoid
 end
 
-const CHOLMOD_PATTERN = 0
+const CHOLMOD_DATE = "Sept 18, 2023"
 
-const CHOLMOD_REAL = 1
+const CHOLMOD_MAIN_VERSION = 4
 
-const CHOLMOD_COMPLEX = 2
+const CHOLMOD_SUB_VERSION = 2
 
-const CHOLMOD_ZOMPLEX = 3
-
-const CHOLMOD_DOUBLE = 0
-
-const CHOLMOD_SINGLE = 4
-
-const CHOLMOD_INT = 0
-
-const CHOLMOD_LONG = 2
-
-const CHOLMOD_DATE = "Dec 30, 2023"
-
-const CHOLMOD_MAIN_VERSION = 5
-
-const CHOLMOD_SUB_VERSION = 1
-
-const CHOLMOD_SUBSUB_VERSION = 0
-
-SUITESPARSE_VER_CODE(main, sub) = main * 1000 + sub
-
-CHOLMOD_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
-
-const CHOLMOD_VERSION = CHOLMOD_VER_CODE(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION)
+const CHOLMOD_SUBSUB_VERSION = 1
 
 const _FILE_OFFSET_BITS = 64
 
@@ -3382,18 +3251,22 @@ const SUITESPARSE_COMPILER_MSC = 0
 
 const SUITESPARSE_COMPILER_XLC = 0
 
-const SUITESPARSE_TIME = 0
-
-const SUITESPARSE_DATE = "Dec 30, 2023"
+const SUITESPARSE_DATE = "Oct 7, 2023"
 
 const SUITESPARSE_MAIN_VERSION = 7
 
-const SUITESPARSE_SUB_VERSION = 4
+const SUITESPARSE_SUB_VERSION = 2
 
-const SUITESPARSE_SUBSUB_VERSION = 0
+const SUITESPARSE_SUBSUB_VERSION = 1
+
+SUITESPARSE_VER_CODE(main, sub) = main * 1000 + sub
 
 const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(SUITESPARSE_MAIN_VERSION,
                                                  SUITESPARSE_SUB_VERSION)
+
+CHOLMOD_VER_CODE(main, sub) = main * 1000 + sub
+
+const CHOLMOD_VERSION = CHOLMOD_VER_CODE(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION)
 
 const CHOLMOD_DEVICE_SUPERNODE_BUFFERS = 6
 
@@ -3411,25 +3284,23 @@ const CHOLMOD_DENSE = 3
 
 const CHOLMOD_TRIPLET = 4
 
-const CHOLMOD_SIMPLICIAL = 0
+const CHOLMOD_INT = 0
 
-const CHOLMOD_AUTO = 1
+const CHOLMOD_INTLONG = 1
 
-const CHOLMOD_SUPERNODAL = 2
+const CHOLMOD_LONG = 2
 
-const CHOLMOD_NATURAL = 0
+const CHOLMOD_DOUBLE = 0
 
-const CHOLMOD_GIVEN = 1
+const CHOLMOD_SINGLE = 1
 
-const CHOLMOD_AMD = 2
+const CHOLMOD_PATTERN = 0
 
-const CHOLMOD_METIS = 3
+const CHOLMOD_REAL = 1
 
-const CHOLMOD_NESDIS = 4
+const CHOLMOD_COMPLEX = 2
 
-const CHOLMOD_COLAMD = 5
-
-const CHOLMOD_POSTORDERED = 6
+const CHOLMOD_ZOMPLEX = 3
 
 const CHOLMOD_MAXMETHODS = 9
 
@@ -3448,6 +3319,32 @@ const CHOLMOD_GPU_PROBLEM = -5
 const CHOLMOD_NOT_POSDEF = 1
 
 const CHOLMOD_DSMALL = 2
+
+const CHOLMOD_NATURAL = 0
+
+const CHOLMOD_GIVEN = 1
+
+const CHOLMOD_AMD = 2
+
+const CHOLMOD_METIS = 3
+
+const CHOLMOD_NESDIS = 4
+
+const CHOLMOD_COLAMD = 5
+
+const CHOLMOD_POSTORDERED = 6
+
+const CHOLMOD_SIMPLICIAL = 0
+
+const CHOLMOD_AUTO = 1
+
+const CHOLMOD_SUPERNODAL = 2
+
+const CHOLMOD_ANALYZE_FOR_SPQR = 0
+
+const CHOLMOD_ANALYZE_FOR_CHOLESKY = 1
+
+const CHOLMOD_ANALYZE_FOR_SPQRGPU = 2
 
 const CHOLMOD_MM_RECTANGULAR = 1
 
@@ -3489,12 +3386,6 @@ const CHOLMOD_COL = 2
 
 const CHOLMOD_SYM = 3
 
-const CHOLMOD_ANALYZE_FOR_SPQR = 0
-
-const CHOLMOD_ANALYZE_FOR_CHOLESKY = 1
-
-const CHOLMOD_ANALYZE_FOR_SPQRGPU = 2
-
 const SPQR_ORDERING_FIXED = 0
 
 const SPQR_ORDERING_NATURAL = 1
@@ -3535,15 +3426,15 @@ const SPQR_RTX_EQUALS_B = 2
 
 const SPQR_RTX_EQUALS_ETB = 3
 
-const SPQR_DATE = "Dec 30, 2023"
+const SPQR_DATE = "Sept 18, 2023"
 
 const SPQR_MAIN_VERSION = 4
 
-const SPQR_SUB_VERSION = 3
+const SPQR_SUB_VERSION = 2
 
-const SPQR_SUBSUB_VERSION = 0
+const SPQR_SUBSUB_VERSION = 1
 
-SPQR_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
+SPQR_VER_CODE(main, sub) = main * 1000 + sub
 
 const SPQR_VERSION = SPQR_VER_CODE(SPQR_MAIN_VERSION, SPQR_SUB_VERSION)
 
@@ -3595,15 +3486,15 @@ const AMD_INVALID = -2
 
 const AMD_OK_BUT_JUMBLED = 1
 
-const AMD_DATE = "Dec 30, 2023"
+const AMD_DATE = "Sept 18, 2023"
 
 const AMD_MAIN_VERSION = 3
 
-const AMD_SUB_VERSION = 3
+const AMD_SUB_VERSION = 2
 
-const AMD_SUBSUB_VERSION = 0
+const AMD_SUBSUB_VERSION = 1
 
-AMD_VERSION_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
+AMD_VERSION_CODE(main, sub) = main * 1000 + sub
 
 const AMD_VERSION = AMD_VERSION_CODE(AMD_MAIN_VERSION, AMD_SUB_VERSION)
 
@@ -3611,15 +3502,15 @@ const UMFPACK_INFO = 90
 
 const UMFPACK_CONTROL = 20
 
-const UMFPACK_DATE = "Dec 30, 2023"
+const UMFPACK_DATE = "Sept 18, 2023"
 
 const UMFPACK_MAIN_VERSION = 6
 
-const UMFPACK_SUB_VERSION = 3
+const UMFPACK_SUB_VERSION = 2
 
-const UMFPACK_SUBSUB_VERSION = 0
+const UMFPACK_SUBSUB_VERSION = 1
 
-UMFPACK_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
+UMFPACK_VER_CODE(main, sub) = main * 1000 + sub
 
 const UMFPACK_VER = UMFPACK_VER_CODE(UMFPACK_MAIN_VERSION, UMFPACK_SUB_VERSION)
 
