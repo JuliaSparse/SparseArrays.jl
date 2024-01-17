@@ -10,7 +10,17 @@ Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 SuiteSparse_jll = "bea87d4a-7f5b-5778-9afe-8cc45184846c"
 
 [compat]
-SuiteSparse_jll = "7.2"
+Aqua = "0.8"
+Dates = "<0.0.1, 1"
+InteractiveUtils = "<0.0.1, 1"
+Libdl = "<0.0.1, 1"
+LinearAlgebra = "<0.0.1, 1"
+Pkg = "<0.0.1, 1"
+Printf = "<0.0.1, 1"
+Random = "<0.0.1, 1"
+Serialization = "<0.0.1, 1"
+SuiteSparse_jll = "7.4.0"
+Test = "<0.0.1, 1"
 julia = "1.11"
 
 [extras]

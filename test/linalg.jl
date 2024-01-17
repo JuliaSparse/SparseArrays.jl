@@ -83,13 +83,15 @@ end
 
 @testset "Sparse promotion in sparse matmul" begin
     A = SparseMatrixCSC{Float32, Int8}(2, 2, Int8[1, 2, 3], Int8[1, 2], Float32[1., 2.])
+    MA = Array(A)
     B = SparseMatrixCSC{ComplexF32, Int32}(2, 2, Int32[1, 2, 3], Int32[1, 2], ComplexF32[1. + im, 2. - im])
-    @test A*transpose(B)                  ≈ Array(A) * transpose(Array(B))
-    @test A*adjoint(B)                    ≈ Array(A) * adjoint(Array(B))
-    @test transpose(A)*B                  ≈ transpose(Array(A)) * Array(B)
-    @test transpose(A)*transpose(B)       ≈ transpose(Array(A)) * transpose(Array(B))
-    @test adjoint(B)*A                    ≈ adjoint(Array(B)) * Array(A)
-    @test adjoint(B)*adjoint(complex.(A)) ≈ adjoint(Array(B)) * adjoint(Array(complex.(A)))
+    MB = Array(B)
+    @test A*transpose(B)                  ≈ MA * transpose(MB)
+    @test A*adjoint(B)                    ≈ MA * adjoint(MB)
+    @test transpose(A)*B                  ≈ transpose(MA) * MB
+    @test transpose(A)*transpose(B)       ≈ transpose(MA) * transpose(MB)
+    @test adjoint(B)*A                    ≈ adjoint(MB) * MA
+    @test adjoint(B)*adjoint(complex.(A)) ≈ adjoint(MB) * adjoint(Array(complex.(A)))
 end
 
 @testset "multiplication of triangular sparse and dense matrices" begin
@@ -152,15 +154,15 @@ begin
     A = sprand(rng, n, n, 0.01)
     MA = Matrix(A)
     lA = sprand(rng, n, n+10, 0.01)
+    @test nnz(lA[:, n+1:n+10]) == nnz(view(lA, :, n+1:n+10))
     @testset "triangular multiply with $tr($wr)" for tr in (identity, adjoint, transpose),
     wr in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
         AW = tr(wr(A))
         MAW = tr(wr(MA))
         @test AW * B ≈ MAW * B
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
-        vAW = tr(wr(view(A, :, 1:n)))
-        vMAW = tr(wr(view(MA, :, 1:n)))
-        @test vAW * B ≈ vMAW * B
+        vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
+        @test vAW * B ≈ AW * B
     end
     a = sprand(rng, ComplexF64, n, n, 0.01)
     ma = Matrix(a)
@@ -170,9 +172,8 @@ begin
         MAW = tr(wr(ma))
         @test AW * B ≈ MAW * B
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
-        vAW = tr(wr(view(a, :, 1:n)))
-        vMAW = tr(wr(view(ma, :, 1:n)))
-        @test vAW * B ≈ vMAW * B
+        vAW = tr(wr(view([zero(a)+I a], :, (n+1):2n)))
+        @test vAW * B ≈ AW * B
     end
     A = A - Diagonal(diag(A)) + 2I # avoid rounding errors by division
     MA = Matrix(A)
@@ -181,6 +182,9 @@ begin
         AW = tr(wr(A))
         MAW = tr(wr(MA))
         @test AW \ B ≈ MAW \ B
+        # and for SparseMatrixCSCView - a view of all rows and unit range of cols
+        vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
+        @test vAW \ B ≈ AW \ B
     end
     @testset "triangular singular exceptions" begin
         A = LowerTriangular(sparse([0 2.0;0 1]))
@@ -226,10 +230,11 @@ end
 
 @testset "UniformScaling" begin
     local A = sprandn(10, 10, 0.5)
-    @test A + I == Array(A) + I
-    @test I + A == I + Array(A)
-    @test A - I == Array(A) - I
-    @test I - A == I - Array(A)
+    MA = Array(A)
+    @test A + I == MA + I
+    @test I + A == I + MA
+    @test A - I == MA - I
+    @test I - A == I - MA
 end
 
 @testset "unary minus for SparseMatrixCSC{Bool}" begin
@@ -240,25 +245,30 @@ end
 
 @testset "sparse matrix norms" begin
     Ac = sprandn(10,10,.1) + im* sprandn(10,10,.1)
+    MAc = Array(Ac)
     Ar = sprandn(10,10,.1)
-    Ai = ceil.(Int,Ar*100)
-    @test opnorm(Ac,1) ≈ opnorm(Array(Ac),1)
-    @test opnorm(Ac,Inf) ≈ opnorm(Array(Ac),Inf)
-    @test norm(Ac) ≈ norm(Array(Ac))
-    @test opnorm(Ar,1) ≈ opnorm(Array(Ar),1)
-    @test opnorm(Ar,Inf) ≈ opnorm(Array(Ar),Inf)
-    @test norm(Ar) ≈ norm(Array(Ar))
-    @test opnorm(Ai,1) ≈ opnorm(Array(Ai),1)
-    @test opnorm(Ai,Inf) ≈ opnorm(Array(Ai),Inf)
-    @test norm(Ai) ≈ norm(Array(Ai))
+    MAr = Array(Ar)
+    Ai = ceil.(Int, Ar*100)
+    MAi = Array(Ai)
+    @test opnorm(Ac,1) ≈ opnorm(MAc,1)
+    @test opnorm(Ac,Inf) ≈ opnorm(MAc,Inf)
+    @test norm(Ac) ≈ norm(MAc)
+    @test opnorm(Ar,1) ≈ opnorm(MAr,1)
+    @test opnorm(Ar,Inf) ≈ opnorm(MAr,Inf)
+    @test norm(Ar) ≈ norm(MAr)
+    @test opnorm(Ai,1) ≈ opnorm(MAi,1)
+    @test opnorm(Ai,Inf) ≈ opnorm(MAi,Inf)
+    @test norm(Ai) ≈ norm(MAi)
     Ai = trunc.(Int, Ar*100)
-    @test opnorm(Ai,1) ≈ opnorm(Array(Ai),1)
-    @test opnorm(Ai,Inf) ≈ opnorm(Array(Ai),Inf)
-    @test norm(Ai) ≈ norm(Array(Ai))
+    MAi = Array(Ai)
+    @test opnorm(Ai,1) ≈ opnorm(MAi,1)
+    @test opnorm(Ai,Inf) ≈ opnorm(MAi,Inf)
+    @test norm(Ai) ≈ norm(MAi)
     Ai = round.(Int, Ar*100)
-    @test opnorm(Ai,1) ≈ opnorm(Array(Ai),1)
-    @test opnorm(Ai,Inf) ≈ opnorm(Array(Ai),Inf)
-    @test norm(Ai) ≈ norm(Array(Ai))
+    MAi = Array(Ai)
+    @test opnorm(Ai,1) ≈ opnorm(MAi,1)
+    @test opnorm(Ai,Inf) ≈ opnorm(MAi,Inf)
+    @test norm(Ai) ≈ norm(MAi)
     # make certain entries in nzval beyond
     # the range specified in colptr do not
     # impact norm of a sparse matrix
@@ -269,16 +279,18 @@ end
 
     # Test (m x 1) sparse matrix
     colM = sprandn(10, 1, 0.6)
-    @test opnorm(colM, 1) ≈ opnorm(Array(colM), 1)
-    @test opnorm(colM) ≈ opnorm(Array(colM))
-    @test opnorm(colM, Inf) ≈ opnorm(Array(colM), Inf)
+    McolM = Array(colM)
+    @test opnorm(colM, 1) ≈ opnorm(McolM, 1)
+    @test opnorm(colM) ≈ opnorm(McolM)
+    @test opnorm(colM, Inf) ≈ opnorm(McolM, Inf)
     @test_throws ArgumentError opnorm(colM, 3)
 
     # Test (1 x n) sparse matrix
     rowM = sprandn(1, 10, 0.6)
-    @test opnorm(rowM, 1) ≈ opnorm(Array(rowM), 1)
-    @test opnorm(rowM) ≈ opnorm(Array(rowM))
-    @test opnorm(rowM, Inf) ≈ opnorm(Array(rowM), Inf)
+    MrowM = Array(rowM)
+    @test opnorm(rowM, 1) ≈ opnorm(MrowM, 1)
+    @test opnorm(rowM) ≈ opnorm(MrowM)
+    @test opnorm(rowM, Inf) ≈ opnorm(MrowM, Inf)
     @test_throws ArgumentError opnorm(rowM, 3)
 end
 
@@ -293,10 +305,10 @@ end
         if elty <: Complex
             dd+=im*convert(Vector{elty}, randn(n))
         end
-        D = Diagonal(dd)
-        b = rand(elty, n, n)
-        b = sparse(b)
-        @test ldiv!(D, copy(b)) ≈ Array(D)\Array(b)
+        D = Diagonal(dd); MD = Array(D)
+        bd = rand(elty, n, n)
+        b = sparse(bd)
+        @test ldiv!(D, copy(b)) ≈ MD\bd
         @test_throws SingularException ldiv!(Diagonal(zeros(elty, n)), copy(b))
         b = rand(elty, n+1, n+1)
         b = sparse(b)
@@ -304,9 +316,10 @@ end
         b = view(rand(elty, n+1), Vector(1:n+1))
         @test_throws DimensionMismatch ldiv!(D, b)
         for b in (sparse(rand(elty,n,n)), sparse(rand(elty,n)))
-            @test lmul!(copy(D), copy(b)) ≈ Array(D)*Array(b)
-            @test lmul!(transpose(copy(D)), copy(b)) ≈ transpose(Array(D))*Array(b)
-            @test lmul!(adjoint(copy(D)), copy(b)) ≈ Array(D)'*Array(b)
+            bd = Array(b)
+            @test lmul!(copy(D), copy(b)) ≈ MD*bd
+            @test lmul!(transpose(copy(D)), copy(b)) ≈ transpose(MD)*bd
+            @test lmul!(adjoint(copy(D)), copy(b)) ≈ MD'*bd
         end
     end
 end
@@ -644,12 +657,15 @@ end
 end
 
 @testset "sparse matrix * BitArray" begin
-    A = sprand(5,5,0.2)
+    A = sprand(5,5,0.3)
+    MA = Array(A)
     B = trues(5)
-    @test A*B ≈ Array(A)*B
+    @test A*B ≈ MA*B
     B = trues(5,5)
-    @test A*B ≈ Array(A)*B
-    @test B*A ≈ B*Array(A)
+    for trA in (identity, adjoint, transpose), trB in (identity, adjoint, transpose)
+        @test trA(A) * trB(B) ≈ trA(MA) * trB(B)
+        @test trB(B) * trA(A) ≈ trB(B) * trA(MA)
+    end
 end
 
 
@@ -659,29 +675,29 @@ end
                             (100, 0.01, 100, 0.01, 20),
                             (100, 0.1, 100, 0.2, 100),
                            )
-        a = sprand(m, n, p)
-        b = sprand(n, k, q)
+        a = sprand(m, n, p); ad = Array(a)
+        b = sprand(n, k, q); bd = Array(b)
         as = sparse(a')
         bs = sparse(b')
         ab = a * b
-        aab = Array(a) * Array(b)
+        aab = ad * bd
         @test maximum(abs.(ab - aab)) < 100*eps()
         @test a*bs' == ab
         @test as'*b == ab
         @test as'*bs' == ab
         f = Diagonal(rand(n))
-        @test Array(a*f) == Array(a)*f
-        @test Array(f*b) == f*Array(b)
+        @test Array(a*f) == ad*f
+        @test Array(f*b) == f*bd
         A = rand(2n, 2n)
-        sA = view(A, 1:2:2n, 1:2:2n)
-        @test Array((sA*b)::Matrix) ≈ Array(sA)*Array(b)
-        @test Array((a*sA)::Matrix) ≈ Array(a)*Array(sA)
-        @test Array((sA'b)::Matrix) ≈ Array(sA')*Array(b)
-        c = sprandn(ComplexF32, n, n, q)
-        @test Array((sA*c')::Matrix) ≈ Array(sA)*Array(c)'
-        @test Array((c'*sA)::Matrix) ≈ Array(c)'*Array(sA)
-        @test Array((sA'c)::Matrix) ≈ Array(sA')*Array(c)
-        @test Array((sA'c')::Matrix) ≈ Array(sA')*Array(c)'
+        sA = view(A, 1:2:2n, 1:2:2n); dA = Array(sA)
+        @test (sA*b)::Matrix ≈ dA*bd
+        @test (a*sA)::Matrix ≈ ad*dA
+        @test (sA'b)::Matrix ≈ dA'*bd
+        c = sprandn(ComplexF32, n, n, q); cd = Array(c)
+        @test (sA*c')::Matrix ≈ dA*cd'
+        @test (c'*sA)::Matrix ≈ cd'*dA
+        @test (sA'c)::Matrix ≈ dA'*cd
+        @test (sA'c')::Matrix ≈ dA'*cd'
     end
 end
 
@@ -743,44 +759,40 @@ end
             d = sparse(d_di); d_d = Array(d_di)
             # mat ⊗ mat
             for t in (identity, adjoint, transpose)
-                @test Array(kron(t(a), b)::SparseMatrixCSC) == kron(t(a_d), b_d)
-                @test Array(kron(a, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
-                @test Array(kron(t(a), t(b))::SparseMatrixCSC) == kron(t(a_d), t(b_d))
-                @test Array(kron(t(a), b_d)::SparseMatrixCSC) == kron(t(a_d), b_d)
-                @test Array(kron(a_d, t(b))::SparseMatrixCSC) == kron(a_d, t(b_d))
-                @test Array(kron(t(a), c_di)::SparseMatrixCSC) == kron(t(a_d), c_d)
-                @test Array(kron(a, t(c_di))::SparseMatrixCSC) == kron(a_d, t(c_d))
-                @test Array(kron(t(a), t(c_di))::SparseMatrixCSC) == kron(t(a_d), t(c_d))
-                @test issparse(kron(c_di, y))
-                @test Array(kron(c_di, y)) == kron(c_di, y_d)
-                @test issparse(kron(x, d_di))
-                @test Array(kron(x, d_di)) == kron(x_d, d_di)
+                @test kron(t(a), b)::SparseMatrixCSC == kron(t(a_d), b_d)
+                @test kron(a, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
+                @test kron(t(a), t(b))::SparseMatrixCSC == kron(t(a_d), t(b_d))
+                @test kron(t(a), b_d)::SparseMatrixCSC == kron(t(a_d), b_d)
+                @test kron(a_d, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
+                @test kron(t(a), c_di)::SparseMatrixCSC == kron(t(a_d), c_d)
+                @test kron(a, t(c_di))::SparseMatrixCSC == kron(a_d, t(c_d))
+                @test kron(t(a), t(c_di))::SparseMatrixCSC == kron(t(a_d), t(c_d))
+                @test kron(c_di, y)::SparseMatrixCSC == kron(c_di, y_d)
+                @test kron(x, d_di)::SparseMatrixCSC == kron(x_d, d_di)
             end
         end
         # vec ⊗ vec
-        @test Vector(kron(x, y)) == kron(x_d, y_d)
-        @test Vector(kron(x_d, y)) == kron(x_d, y_d)
-        @test Vector(kron(x, y_d)) == kron(x_d, y_d)
+        @test Vector(kron(x, y)::SparseVector) == kron(x_d, y_d)
+        @test Vector(kron(x_d, y)::SparseVector) == kron(x_d, y_d)
+        @test Vector(kron(x, y_d)::SparseVector) == kron(x_d, y_d)
         for t in (identity, adjoint, transpose)
             # mat ⊗ vec
-            @test Array(kron(t(a), y)::SparseMatrixCSC) == kron(t(a_d), y_d)
-            @test Array(kron(t(a_d), y)) == kron(t(a_d), y_d)
-            @test Array(kron(t(a), y_d)::SparseMatrixCSC) == kron(t(a_d), y_d)
+            @test kron(t(a), y)::SparseMatrixCSC == kron(t(a_d), y_d)
+            @test kron(t(a_d), y)::SparseMatrixCSC == kron(t(a_d), y_d)
+            @test kron(t(a), y_d)::SparseMatrixCSC == kron(t(a_d), y_d)
             # vec ⊗ mat
-            @test Array(kron(x, t(b))::SparseMatrixCSC) == kron(x_d, t(b_d))
-            @test Array(kron(x_d, t(b))::SparseMatrixCSC) == kron(x_d, t(b_d))
-            @test Array(kron(x, t(b_d))) == kron(x_d, t(b_d))
+            @test kron(x, t(b))::SparseMatrixCSC == kron(x_d, t(b_d))
+            @test kron(x_d, t(b))::SparseMatrixCSC == kron(x_d, t(b_d))
+            @test kron(x, t(b_d))::SparseMatrixCSC == kron(x_d, t(b_d))
         end
         # vec ⊗ vec'
-        @test issparse(kron(v, y'))
-        @test issparse(kron(x, y'))
-        @test Array(kron(v, y')) == kron(v_d, y_d')
-        @test Array(kron(x, y')) == kron(x_d, y_d')
+        @test kron(v, y')::SparseMatrixCSC == kron(v_d, y_d')
+        @test kron(x, y')::SparseMatrixCSC == kron(x_d, y_d')
         # test different types
         z = convert(SparseVector{Float16, Int8}, y); z_d = Vector(z)
         @test Vector(kron(x, z)) == kron(x_d, z_d)
-        @test Array(kron(a, z)) == kron(a_d, z_d)
-        @test Array(kron(z, b)) == kron(z_d, b_d)
+        @test kron(a, z) == kron(a_d, z_d)
+        @test kron(z, b) == kron(z_d, b_d)
         # test bounds checks
         @test_throws DimensionMismatch kron!(copy(a), a, b)
         @test_throws DimensionMismatch kron!(copy(x), x, y)
@@ -791,30 +803,30 @@ end
 @testset "sparse Frobenius dot/inner product" begin
     full_view = M -> view(M, :, :)
     for i = 1:5
-        A = sprand(ComplexF64,10,15,0.4)
-        B = sprand(ComplexF64,10,15,0.5)
-        C = rand(10,15) .> 0.3
-        @test dot(A,B) ≈ dot(Matrix(A), Matrix(B))
-        @test dot(A,B) ≈ dot(A, Matrix(B))
-        @test dot(A,B) ≈ dot(Matrix(A), B)
-        @test dot(A,C) ≈ dot(Matrix(A), C)
-        @test dot(C,A) ≈ dot(C, Matrix(A))
+        A = sprand(ComplexF64,10,15,0.4); MA = Matrix(A)
+        B = sprand(ComplexF64,10,15,0.5); MB = Matrix(B)
+        C = rand(10,15) .> 0.3; MC = Matrix(C)
+        @test dot(A,B) ≈ dot(MA, MB)
+        @test dot(A,B) ≈ dot(A, MB)
+        @test dot(A,B) ≈ dot(MA, B)
+        @test dot(A,C) ≈ dot(MA, C)
+        @test dot(C,A) ≈ dot(C, MA)
         # square matrices required by most linear algebra wrappers
-        SA = A * A'
-        SB = B * B'
-        SC = C * C'
+        SA = A * A'; MSA = Matrix(SA)
+        SB = B * B'; MSB = Matrix(SB)
+        SC = C * C'; MSC = Matrix(SC)
         for W in (full_view, LowerTriangular, UpperTriangular, UpperHessenberg, Symmetric, Hermitian)
-            WA = W(Matrix(SA))
-            WB = W(Matrix(SB))
-            WC = W(Matrix(SC))
-            @test dot(WA,SB) ≈ dot(WA, Matrix(SB))
-            @test dot(SA,WB) ≈ dot(Matrix(SA), WB)
-            @test dot(SA,WC) ≈ dot(Matrix(SA), WC)
+            WA = W(MSA)
+            WB = W(MSB)
+            WC = W(MSC)
+            @test dot(WA,SB) ≈ dot(WA, MSB)
+            @test dot(SA,WB) ≈ dot(MSA, WB)
+            @test dot(SA,WC) ≈ dot(MSA, WC)
         end
         for W in (transpose, adjoint)
-            WA = W(Matrix(A))
-            WB = W(Matrix(B))
-            WC = W(Matrix(C))
+            WA = W(MA)
+            WB = W(MB)
+            WC = W(MC)
             TA = copy(W(A))
             TB = copy(W(B))
             @test dot(WA,TB) ≈ dot(WA, Matrix(TB))

@@ -230,6 +230,11 @@ LinearAlgebra.qr(A::FixedSparseCSC; tol=_default_tol(A), ordering=ORDERING_DEFAU
     let B=A
         qr(_unsafe_unfix(B); tol, ordering)
     end
+
+LinearAlgebra._qr(A::SparseMatrixCSC; kwargs...) = qr(A; kwargs...)
+LinearAlgebra._qr(::SparseMatrixCSC, ::LinearAlgebra.PivotingStrategy; kwargs...) =
+    error("Pivoting Strategies are not supported for `SparseMatrixCSC`s")
+
 function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))

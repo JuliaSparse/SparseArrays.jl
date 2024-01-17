@@ -17,13 +17,14 @@ using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, m
 import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
     issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded,
-    cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu
+    cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu,
+    matprod_dest
 
 import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Complex,
     conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin,
     float, getindex, imag, inv, kron, kron!, length, map, maximum, minimum, permute!, real,
     rot180, rotl90, rotr90, setindex!, show, similar, size, sum, transpose,
-    vcat, hcat, hvcat, cat, vec
+    vcat, hcat, hvcat, cat, vec, reverse, reverse!
 
 using Random: default_rng, AbstractRNG, randsubseq, randsubseq!
 

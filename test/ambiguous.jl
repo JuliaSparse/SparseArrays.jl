@@ -16,7 +16,9 @@ if Base.find_package("Aqua") === nothing
     iob = IOBuffer()
     Pkg.activate(; temp = true)
     try
-        Pkg.add("Aqua", io=iob) # Needed for custom julia version resolve tests
+        # TODO: make this version tie to compat in Project.toml
+        # or do this another safer way
+        Pkg.add(name="Aqua", version="0.8", io=iob) # Needed for custom julia version resolve tests
     catch
         println(String(take!(iob)))
         rethrow()
@@ -26,30 +28,7 @@ end
 using Test, LinearAlgebra, SparseArrays, Aqua
 
 @testset "code quality" begin
-    @testset "Method ambiguity" begin
-        Aqua.test_ambiguities([SparseArrays, Base, Core])
-    end
-    @testset "Unbound type parameters" begin
-        @test_broken Aqua.detect_unbound_args_recursively(SparseArrays) == []
-    end
-    @testset "Undefined exports" begin
-        Aqua.test_undefined_exports(SparseArrays)
-    end
-    @testset "Compare Project.toml and test/Project.toml" begin
-        Aqua.test_project_extras(SparseArrays)
-    end
-    @testset "Stale dependencies" begin
-        Aqua.test_stale_deps(SparseArrays)
-    end
-    @testset "Compat bounds" begin
-        Aqua.test_deps_compat(SparseArrays)
-    end
-    @testset "Project.toml formatting" begin
-        Aqua.test_project_toml_formatting(SparseArrays)
-    end
-    @testset "Piracy" begin
-        @test_broken Aqua.Piracy.hunt(SparseArrays) == Method[]
-    end
+    Aqua.test_all(SparseArrays; unbound_args=(; broken=true), piracies=(; broken=true))
 end
 
 let ambig = detect_ambiguities(SparseArrays; recursive=true)

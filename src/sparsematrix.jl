@@ -55,7 +55,7 @@ Creates an empty sparse matrix with element type `Tv` and integer type `Ti` of s
 SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer) where {Tv, Ti} = spzeros(Tv, Ti, m, n)
 
 """
-    `FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}`
+    FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
 
 Experimental AbstractSparseMatrixCSC whose non-zero index are fixed.
 """
@@ -94,7 +94,7 @@ FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
         getcolptr(x), rowvals(x), nonzeros(x))
 
 """
-    `fixed(x...)`
+    fixed(x...)
 
 Experimental. Like `sparse` but returns a sparse array whose `_is_fixed` is `true`.
 """
@@ -102,13 +102,13 @@ fixed(x...) = move_fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
 
 """
-    `move_fixed(x::AbstractSparseMatrixCSC)`
+    move_fixed(x::AbstractSparseMatrixCSC)
 
 Experimental, unsafe. Make a `FixedSparseCSC` by reusing the colptr, rowvals and nonzeros of `x`.
 """
 move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x), rowvals(x), nonzeros(x))
 """
-    `_unsafe_unfix(x)`
+    _unsafe_unfix(x)
 
 Experimental, unsafe. Returns a modifiable version of `x` for compatibility with this codebase.
 """
@@ -118,7 +118,7 @@ _unsafe_unfix(x::SparseMatrixCSC) = x
 const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
 
 """
-    `SparseMatrixCSC(x::FixedSparseCSC)`
+    SparseMatrixCSC(x::FixedSparseCSC)
 
 Get a writable copy of x. See `_unsafe_unfix(x)`
 """
@@ -179,15 +179,23 @@ end
 # underlying SparseMatrixCSC
 const SparseMatrixCSCView{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
-        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange}
+        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange{<:Integer}}
 const SparseMatrixCSCUnion{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
+# Define an alias for views of a SparseMatrixCSC which include all rows and a selection of the columns.
+# Also define a union of SparseMatrixCSC and this view since many methods can be defined efficiently for
+# this union by extracting the fields via the get function: getrowval, and getnzval, BUT NOT getcolptr!
+const SparseMatrixCSCColumnSubset{Tv,Ti} =
+    SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
+        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractVector{<:Integer}}
+const SparseMatrixCSCUnion2{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCColumnSubset{Tv,Ti}}
 
 getcolptr(S::SorF)     = getfield(S, :colptr)
-getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(axes(S, 2)):(last(axes(S, 2)) + 1))
+getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
+getcolptr(S::SparseMatrixCSCColumnSubset) = error("getcolptr not well-defined for $(typeof(S))")
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
-getrowval(S::SparseMatrixCSCView) = rowvals(parent(S))
+getrowval(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
 getnzval( S::AbstractSparseMatrixCSC) = nonzeros(S)
-getnzval( S::SparseMatrixCSCView) = nonzeros(parent(S))
+getnzval( S::SparseMatrixCSCColumnSubset) = nonzeros(parent(S))
 nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
 
 """
@@ -212,7 +220,7 @@ nnz(S::ReshapedArray{<:Any,1,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
-nnz(S::SparseMatrixCSCView) = nnz1(S)
+nnz(S::SparseMatrixCSCColumnSubset) = nnz1(S)
 nnz1(S) = sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
 function Base._simple_count(pred, S::AbstractSparseMatrixCSC, init::T) where T
@@ -244,7 +252,7 @@ julia> nonzeros(A)
 ```
 """
 nonzeros(S::SorF) = getfield(S, :nzval)
-nonzeros(S::SparseMatrixCSCView)  = nonzeros(S.parent)
+nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(S.parent)
 nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 
@@ -272,7 +280,7 @@ julia> rowvals(A)
 ```
 """
 rowvals(S::SorF) = getfield(S, :rowval)
-rowvals(S::SparseMatrixCSCView) = rowvals(S.parent)
+rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(S.parent)
 rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 
@@ -299,7 +307,7 @@ column. In conjunction with [`nonzeros`](@ref) and
     Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
 nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
-nzrange(S::SparseMatrixCSCView, col::Integer) = nzrange(S.parent, S.indices[2][col])
+nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(S.parent, S.indices[2][col])
 nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangeup(S.data, i)
 nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangelo(S.data, i)
 
@@ -2236,16 +2244,60 @@ function conj(A::AbstractSparseMatrixCSC{<:Complex})
     map!(conj, view(nzval, 1:nnz(A)), nzvalview(A))
     return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
 end
-imag(A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size(A, 1), size(A, 2))
+imag(A::SparseMatrixCSCUnion{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size(A, 1), size(A, 2))
 
 ## Binary arithmetic and boolean operators
-(+)(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) = map(+, A, B)
-(-)(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) = map(-, A, B)
+(+)(A::SparseMatrixCSCUnion, B::SparseMatrixCSCUnion) = map(+, A, B)
+(-)(A::SparseMatrixCSCUnion, B::SparseMatrixCSCUnion) = map(-, A, B)
 
-(+)(A::AbstractSparseMatrixCSC, B::Array) = Array(A) + B
-(+)(A::Array, B::AbstractSparseMatrixCSC) = A + Array(B)
-(-)(A::AbstractSparseMatrixCSC, B::Array) = Array(A) - B
-(-)(A::Array, B::AbstractSparseMatrixCSC) = A - Array(B)
+function (+)(A::SparseMatrixCSCUnion, B::Array)
+    Base.promote_shape(axes(A), axes(B))
+    C = Ref(zero(eltype(A))) .+ B
+    rowinds, nzvals = rowvals(A), nonzeros(A)
+    for j in axes(A,2)
+        for i in nzrange(A, j)
+            rowidx = rowinds[i]
+            C[rowidx,j] = nzvals[i] + B[rowidx,j]
+        end
+    end
+    return C
+end
+function (+)(A::Array, B::SparseMatrixCSCUnion)
+    Base.promote_shape(axes(A), axes(B))
+    C = A .+ Ref(zero(eltype(B)))
+    rowinds, nzvals = rowvals(B), nonzeros(B)
+    for j in axes(B,2)
+        for i in nzrange(B, j)
+            rowidx = rowinds[i]
+            C[rowidx,j] = A[rowidx,j] + nzvals[i] 
+        end
+    end
+    return C
+end
+function (-)(A::SparseMatrixCSCUnion, B::Array)
+    Base.promote_shape(axes(A), axes(B))
+    C = Ref(zero(eltype(A))) .- B
+    rowinds, nzvals = rowvals(A), nonzeros(A)
+    for j in axes(A,2)
+        for i in nzrange(A, j)
+            rowidx = rowinds[i]
+            C[rowidx,j] = nzvals[i] - B[rowidx,j]
+        end
+    end
+    return C
+end
+function (-)(A::Array, B::SparseMatrixCSCUnion)
+    Base.promote_shape(axes(A), axes(B))
+    C = A .- Ref(zero(eltype(B)))
+    rowinds, nzvals = rowvals(B), nonzeros(B)
+    for j in axes(B,2)
+        for i in nzrange(B, j)
+            rowidx = rowinds[i]
+            C[rowidx,j] = A[rowidx,j] - nzvals[i]
+        end
+    end
+    return C
+end
 
 ## full equality
 function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
@@ -3082,12 +3134,15 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     colptrB[colB] = 1
     idxB = 1
 
+    CartIndsA = CartesianIndices(szA)
+    CartIndsB = CartesianIndices(szB)
+
     for i in 1:n
         @boundscheck checkbounds(A, I[i])
-        row,col = Base._ind2sub(szA, I[i])
+        row,col = Tuple(CartIndsA[I[i]])
         for r in colptrA[col]:(colptrA[col+1]-1)
             @inbounds if rowvalA[r] == row
-                rowB,colB = Base._ind2sub(szB, i)
+                rowB,colB = Tuple(CartIndsB[i])
                 colptrB[colB+1] += 1
                 rowvalB[idxB] = rowB
                 nzvalB[idxB] = nzvalA[r]
@@ -3591,13 +3646,15 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
 
     isa(x, AbstractArray) && setindex_shape_check(x, length(I))
 
+    CartIndsA = CartesianIndices(szA)
+
     lastcol = 0
     (nrowA, ncolA) = szA
     @inbounds for xidx in 1:n
         sxidx = S[xidx]
         (sxidx < n) && (I[sxidx] == I[sxidx+1]) && continue
 
-        row,col = Base._ind2sub(szA, I[sxidx])
+        row,col = Tuple(CartIndsA[I[sxidx]])
         v = x[sxidx]
 
         if col > lastcol
@@ -4413,4 +4470,69 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
         end
     end
     return nothing
+end
+
+reverse(A::AbstractSparseMatrixCSC; dims=:) = _reverse(A, dims)
+function _reverse(A::AbstractSparseMatrixCSC, ::Colon)
+    rowinds, colinds, nzval = findnz(A)
+    rowinds .= (size(A,1) + 1) .- rowinds
+    colinds .= (size(A,2) + 1) .- colinds
+    sparse!(rowinds, colinds, nzval, size(A)...)
+end
+function _reverse(A::AbstractSparseMatrixCSC, dims::Integer)
+    dims ∈ (1,2) || throw(ArgumentError("invalid dimension $dims in reverse"))
+    rowinds, colinds, nzval = findnz(A)
+    if dims == 1
+        rowinds .= (size(A,1) + 1) .- rowinds
+    else # dims == 2
+        colinds .= (size(A,2) + 1) .- colinds
+    end
+    sparse!(rowinds, colinds, nzval, size(A)...)
+end
+function _reverse(A::AbstractSparseMatrixCSC, dims::Tuple{Integer,Integer})
+    dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
+    _reverse(A, :)
+end
+
+reverse(S::SparseMatrixCSC; dims...) = reverse!(copy(S); dims...)
+reverse!(S::SparseMatrixCSC; dims=:) = _reverse!(S, dims)
+function _reverse!(S::SparseMatrixCSC, ::Colon)
+    rowinds, nzval = rowvals(S), nonzeros(S)
+    colptr = getcolptr(S)
+    rowinds .= (size(S,1) + 1) .- rowinds
+    reverse!(rowinds)
+    colptr .= (nnz(S) + 2) .- colptr
+    reverse!(colptr)
+    reverse!(nzval)
+    return S
+end
+function _reverse!(S::SparseMatrixCSC, dims::Integer)
+    dims ∈ (1,2) || throw(ArgumentError("invalid dimension $dims in reverse"))
+    rowinds, nzval = rowvals(S), nonzeros(S)
+    colptr = getcolptr(S)
+    nzrs = nzrange.(Ref(S), axes(S,2))
+    if dims == 1
+        for col in axes(S,2)
+            nzr = nzrs[col]
+            reverse!(@views nzval[nzr])
+            rowinds_col = @view rowinds[nzr]
+            rowinds_col .= (size(S,1) + 1) .- rowinds_col
+            reverse!(rowinds_col)
+        end
+    else # dims == 2
+        colptr .= (nnz(S) + 2) .- colptr
+        reverse!(colptr)
+        for col in axes(S,2)
+            nzr = nzrs[col]
+            reverse!(@views nzval[nzr])
+            reverse!(@views rowinds[nzr])
+        end
+        reverse!(nzval)
+        reverse!(rowinds)
+    end
+    return S
+end
+function _reverse!(A::SparseMatrixCSC, dims::Tuple{Integer,Integer})
+    dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
+    _reverse!(A, :)
 end

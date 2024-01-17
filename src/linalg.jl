@@ -10,6 +10,23 @@ const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
 
+matprod_dest(A::SparseMatrixCSCUnion2, B::DenseTriangular, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::DenseTriangular, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCUnion2, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::SparseMatrixCSCUnion2, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::DenseTriangular, B::SparseMatrixCSCUnion2, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::StridedMaybeAdjOrTransMat, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::DenseTriangular, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
     @eval begin
         $op(A::AbstractSparseMatrix, B::$Wrapper{<:Any,<:AbstractSparseMatrix}) = $op(A, sparse(B))
@@ -28,14 +45,14 @@ for op ∈ (:+, :-)
     end
 end
 
-LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion, B::DenseMatrixUnion, _add::MulAddMul) =
+LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, _add::MulAddMul) =
     spdensemul!(C, tA, tB, A, B, _add)
-LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion, B::AbstractTriangular, _add::MulAddMul) =
+LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, _add::MulAddMul) =
     spdensemul!(C, tA, tB, A, B, _add)
-LinearAlgebra.generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion, B::DenseInputVector, _add::MulAddMul) =
+LinearAlgebra.generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, _add::MulAddMul) =
     spdensemul!(C, tA, 'N', A, B, _add)
 
-function spdensemul!(C, tA, tB, A, B, _add)
+Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, _add)
     if tA == 'N'
         _spmatmul!(C, A, LinearAlgebra.wrap(B, tB), _add.alpha, _add.beta)
     elseif tA == 'T'
@@ -55,9 +72,12 @@ function spdensemul!(C, tA, tB, A, B, _add)
 end
 
 function _spmatmul!(C, A, B, α, β)
-    size(A, 2) == size(B, 1) || throw(DimensionMismatch())
-    size(A, 1) == size(C, 1) || throw(DimensionMismatch())
-    size(B, 2) == size(C, 2) || throw(DimensionMismatch())
+    size(A, 2) == size(B, 1) ||
+        throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the first dimension of B, $(size(B,1))"))
+    size(A, 1) == size(C, 1) ||
+        throw(DimensionMismatch("first dimension of A, $(size(A,1)), does not match the first dimension of C, $(size(C,1))"))
+    size(B, 2) == size(C, 2) ||
+        throw(DimensionMismatch("second dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
     nzv = nonzeros(A)
     rv = rowvals(A)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
@@ -72,13 +92,13 @@ function _spmatmul!(C, A, B, α, β)
     C
 end
 
-*(A::SparseMatrixCSCUnion{TA}, B::DenseTriangular) where {TA} =
-    (T = promote_op(matprod, TA, eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B))
-
 function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
-    size(A, 2) == size(C, 1) || throw(DimensionMismatch())
-    size(A, 1) == size(B, 1) || throw(DimensionMismatch())
-    size(B, 2) == size(C, 2) || throw(DimensionMismatch())
+    size(A, 2) == size(C, 1) ||
+        throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the first dimension of C, $(size(C,1))"))
+    size(A, 1) == size(B, 1) ||
+        throw(DimensionMismatch("first dimension of A, $(size(A,1)), does not match the first dimension of B, $(size(B,1))"))
+    size(B, 2) == size(C, 2) ||
+        throw(DimensionMismatch("second dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
     nzv = nonzeros(A)
     rv = rowvals(A)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
@@ -94,10 +114,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     C
 end
 
-*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::DenseTriangular) =
-    (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B))
-
-function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
+Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, _add::MulAddMul)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
         _spmul!(C, transA(A), B, _add.alpha, _add.beta)
@@ -108,11 +125,14 @@ function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatr
     end
     return C
 end
-function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2, α::Number, β::Number)
     mX, nX = size(X)
-    nX == size(A, 1) || throw(DimensionMismatch())
-    mX == size(C, 1) || throw(DimensionMismatch())
-    size(A, 2) == size(C, 2) || throw(DimensionMismatch())
+    nX == size(A, 1) ||
+        throw(DimensionMismatch("second dimension of X, $nX, does not match the first dimension of A, $(size(A,1))"))
+    mX == size(C, 1) ||
+        throw(DimensionMismatch("first dimension of X, $mX, does not match the first dimension of C, $(size(C,1))"))
+    size(A, 2) == size(C, 2) ||
+        throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the second dimension of C, $(size(C,2))"))
     rv = rowvals(A)
     nzv = nonzeros(A)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
@@ -125,11 +145,14 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::AbstractSparseMatrixC
     end
     C
 end
-function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCUnion2, α::Number, β::Number)
     mX, nX = size(X)
-    nX == size(A, 1) || throw(DimensionMismatch())
-    mX == size(C, 1) || throw(DimensionMismatch())
-    size(A, 2) == size(C, 2) || throw(DimensionMismatch())
+    nX == size(A, 1) ||
+        throw(DimensionMismatch("second dimension of X, $nX, does not match the first dimension of A, $(size(A,1))"))
+    mX == size(C, 1) ||
+        throw(DimensionMismatch("first dimension of X, $mX, does not match the first dimension of C, $(size(C,1))"))
+    size(A, 2) == size(C, 2) ||
+        throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the second dimension of C, $(size(C,2))"))
     rv = rowvals(A)
     nzv = nonzeros(A)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
@@ -140,18 +163,15 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::A
     end
     C
 end
-*(X::StridedMaybeAdjOrTransMat, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
-    (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
-    (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::DenseTriangular, A::SparseMatrixCSCUnion{TvA}) where {TvA} =
-    (T = promote_op(matprod, eltype(X), TvA); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
-function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::AbstractSparseMatrixCSC, α::Number, β::Number)
+function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCUnion2, α::Number, β::Number)
     mA, nA = size(A)
-    nA == size(B, 2) || throw(DimensionMismatch())
-    mA == size(C, 1) || throw(DimensionMismatch())
-    size(B, 1) == size(C, 2) || throw(DimensionMismatch())
+    nA == size(B, 2) ||
+        throw(DimensionMismatch("second dimension of A, $nA, does not match the second dimension of B, $(size(B,2))"))
+    mA == size(C, 1) ||
+        throw(DimensionMismatch("first dimension of A, $mA, does not match the first dimension of C, $(size(C,1))"))
+    size(B, 1) == size(C, 2) ||
+        throw(DimensionMismatch("first dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
     rv = rowvals(B)
     nzv = nonzeros(B)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
@@ -164,12 +184,6 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     end
     C
 end
-*(X::StridedMaybeAdjOrTransMat, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
-    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
-    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
-*(X::DenseTriangular, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
-    (T = promote_op(matprod, eltype(X), eltype(A)); mul!(similar(X, T, (size(X, 1), size(A, 2))), X, A, true, false))
 
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
@@ -201,7 +215,8 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     Ti = promote_type(indtype(A), indtype(B))
     mA, nA = size(A)
     nB = size(B, 2)
-    nA == size(B, 1) || throw(DimensionMismatch())
+    mB = size(B, 1)
+    nA == mB || throw(DimensionMismatch("second dimension of A, $nA, does not match the first dimension of B, $mB"))
 
     nnzC = min(estimate_mulsize(mA, nnz(A), nA, nnz(B), nB) * 11 ÷ 10 + mA, mA*nB)
     colptrC = Vector{Ti}(undef, nB+1)
@@ -346,14 +361,15 @@ end
 function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractVector{T3}) where {T1,T2,T3}
     require_one_based_indexing(x, y)
     m, n = size(A)
-    (length(x) == m && n == length(y)) || throw(DimensionMismatch())
+    (length(x) == m && n == length(y)) ||
+        throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
     s = dot(zero(T1), zero(T2), zero(T3))
     T = typeof(s)
     (iszero(m) || iszero(n)) && return s
 
     rowvals = getrowval(A)
     nzvals = getnzval(A)
-    
+
     @inbounds @simd for col in 1:n
         ycol = y[col]
         for j in nzrange(A, col)
@@ -366,7 +382,8 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
 end
 function dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector)
     m, n = size(A)
-    length(x) == m && n == length(y) || throw(DimensionMismatch())
+    length(x) == m && n == length(y) ||
+        throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
     if iszero(m) || iszero(n)
         return dot(zero(eltype(x)), zero(eltype(A)), zero(eltype(y)))
     end
@@ -403,7 +420,7 @@ function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatri
     T = promote_type(eltype(A), eltype(B))
     (m, n) = size(A)
     if (m, n) != size(B)
-        throw(DimensionMismatch())
+        throw(DimensionMismatch("A has size ($m, $n) but B has size $(size(B))"))
     end
     s = zero(T)
     if m * n == 0
@@ -855,7 +872,7 @@ end
 
 function (\)(A::Union{UpperTriangular,LowerTriangular}, B::AbstractSparseMatrixCSC)
     require_one_based_indexing(B)
-    TAB = LinearAlgebra._init_eltype(\, eltype(A), eltype(B))
+    TAB = promote_op(\, eltype(A), eltype(B))
     ldiv!(Matrix{TAB}(undef, size(B)), A, B)
 end
 function (\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSparseMatrixCSC)
@@ -872,7 +889,8 @@ end
 function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::StridedVecOrMat{T}, A, B, α, β) where T
     n = size(A, 2)
     m = size(B, 2)
-    n == size(B, 1) == size(C, 1) && m == size(C, 2) || throw(DimensionMismatch())
+    n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
+        throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
     rv = rowvals(A)
     nzv = nonzeros(A)
     let z = T(0), sumcol=z, αxj=z, aarc=z, α = α
@@ -916,7 +934,8 @@ dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC
 function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, rangefun::Function, diagop::Function, odiagop::Function)
     require_one_based_indexing(x, y)
     m, n = size(A)
-    (length(x) == m && n == length(y)) || throw(DimensionMismatch())
+    (length(x) == m && n == length(y)) ||
+        throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
     if iszero(m) || iszero(n)
         return dot(zero(eltype(x)), zero(eltype(A)), zero(eltype(y)))
     end
@@ -946,7 +965,8 @@ dot(x::SparseVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC},
     _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real)
 function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rangefun::Function, diagop::Function)
     m, n = size(A)
-    length(x) == m && n == length(y) || throw(DimensionMismatch())
+    length(x) == m && n == length(y) ||
+        throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
     if iszero(m) || iszero(n)
         return dot(zero(eltype(x)), zero(eltype(A)), zero(eltype(y)))
     end
@@ -1462,7 +1482,7 @@ const _Symmetric_DenseArrays{T,A<:Matrix} = Symmetric{T,A}
 const _Hermitian_DenseArrays{T,A<:Matrix} = Hermitian{T,A}
 const _Triangular_DenseArrays{T,A<:Matrix} = UpperOrLowerTriangular{<:Any,A} # AbstractTriangular{T,A}
 const _Annotated_DenseArrays = Union{_SpecialArrays, _Triangular_DenseArrays, _Symmetric_DenseArrays, _Hermitian_DenseArrays}
-const _DenseConcatGroup = Union{Number, Vector, Adjoint{<:Any,<:Vector}, Transpose{<:Any,<:Vector}, Matrix, _Annotated_DenseArrays}
+const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, _Annotated_DenseArrays}
 
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
@@ -1520,9 +1540,9 @@ end
     end
     return z
 end
-kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseConcatGroup) =
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron!(C::SparseMatrixCSC, A::_DenseConcatGroup, B::_SparseKronGroup) =
+kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
@@ -1559,8 +1579,8 @@ end
 # extend to annotated sparse arrays, but leave out the (dense ⊗ dense)-case
 kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron(A::_SparseKronGroup, B::_DenseConcatGroup) = kron(A, sparse(B))
-kron(A::_DenseConcatGroup, B::_SparseKronGroup) = kron(sparse(A), B)
+kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
+kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
 kron(A::_SparseVectorUnion, B::_AdjOrTransSparseVectorUnion) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
@@ -1591,7 +1611,9 @@ end
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
     m, n = size(A)
     b    = D.diag
-    (n==length(b) && size(A)==size(C)) || throw(DimensionMismatch())
+    lb = length(b)
+    n == lb || throw(DimensionMismatch("A has size ($m, $n) but D has size ($lb, $lb)"))
+    size(A)==size(C) || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
     copyinds!(C, A)
     Cnzval = nonzeros(C)
     Anzval = nonzeros(A)
@@ -1605,7 +1627,9 @@ end
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
     m, n = size(A)
     b    = D.diag
-    (m==length(b) && size(A)==size(C)) || throw(DimensionMismatch())
+    lb = length(b)
+    m == lb || throw(DimensionMismatch("D has size ($lb, $lb) but A has size ($m, $n)"))
+    size(A)==size(C) || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
     copyinds!(C, A)
     Cnzval = nonzeros(C)
     Anzval = nonzeros(A)
@@ -1618,7 +1642,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
 end
 
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
-    size(A)==size(C) || throw(DimensionMismatch())
+    size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     copyinds!(C, A)
     resize!(nonzeros(C), length(nonzeros(A)))
     mul!(nonzeros(C), nonzeros(A), b)
@@ -1626,7 +1650,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
 end
 
 function mul!(C::AbstractSparseMatrixCSC, b::Number, A::AbstractSparseMatrixCSC)
-    size(A)==size(C) || throw(DimensionMismatch())
+    size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     copyinds!(C, A)
     resize!(nonzeros(C), length(nonzeros(A)))
     mul!(nonzeros(C), b, nonzeros(A))
@@ -1645,7 +1669,8 @@ end
 
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
     m, n = size(A)
-    (n == size(D, 1)) || throw(DimensionMismatch())
+    szD = size(D, 1)
+    (n == szD) || throw(DimensionMismatch("A has size ($m, $n) but D has size ($szD, $szD)"))
     Anzval = nonzeros(A)
     @inbounds for col in 1:n, p in nzrange(A, col)
          Anzval[p] = Anzval[p] * D.diag[col]
@@ -1655,7 +1680,8 @@ end
 
 function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
     m, n = size(A)
-    (m == size(D, 2)) || throw(DimensionMismatch())
+    ds2 = size(D, 2)
+    (m == ds2) || throw(DimensionMismatch("D has size ($ds2, $ds2) but A has size ($m, $n)"))
     Anzval = nonzeros(A)
     Arowval = rowvals(A)
     @inbounds for col in 1:n, p in nzrange(A, col)
@@ -1667,7 +1693,10 @@ end
 function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
     m, n = size(A)
     b    = D.diag
-    (m==length(b) && size(A)==size(C)) || throw(DimensionMismatch())
+    lb = length(b)
+    m==lb || throw(DimensionMismatch("D has size ($lb, $lb) but A has size ($m, $n)"))
+    szC = size(C)
+    size(A) == szC || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $szC"))
     copyinds!(C, A)
     Cnzval = nonzeros(C)
     Anzval = nonzeros(A)
@@ -1682,7 +1711,10 @@ end
 function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
     m, n = size(A)
     b    = D.diag
-    (n==length(b) && size(A)==size(C)) || throw(DimensionMismatch())
+    lb = length(b)
+    n == lb || throw(DimensionMismatch("A has size ($m, $n) but D has size ($lb, $lb)"))
+    szC = size(C)
+    size(A) == szC || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $szC"))
     copyinds!(C, A)
     Cnzval = nonzeros(C)
     Anzval = nonzeros(A)

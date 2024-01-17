@@ -101,12 +101,13 @@ do33 = fill(1.,3)
     end
     @testset "binary operations on sparse matrices with union eltype" begin
         A = sparse([1,2,1], [1,1,2], Union{Int, Missing}[1, missing, 0])
+        MA = Array(A)
         for fun in (+, -, *, min, max)
             if fun in (+, -)
-                @test collect(skipmissing(Array(fun(A, A)))) == collect(skipmissing(Array(fun(Array(A), Array(A)))))
+                @test collect(skipmissing(Array(fun(A, A)))) == collect(skipmissing(Array(fun(MA, MA))))
             end
-            @test collect(skipmissing(Array(map(fun, A, A)))) == collect(skipmissing(map(fun, Array(A), Array(A))))
-            @test collect(skipmissing(Array(broadcast(fun, A, A)))) == collect(skipmissing(broadcast(fun, Array(A), Array(A))))
+            @test collect(skipmissing(Array(map(fun, A, A)))) == collect(skipmissing(map(fun, MA, MA)))
+            @test collect(skipmissing(Array(broadcast(fun, A, A)))) == collect(skipmissing(broadcast(fun, MA, MA)))
         end
         b = convert(SparseMatrixCSC{Union{Float64, Missing}}, sprandn(Float64, 20, 10, 0.2)); b[rand(1:200, 3)] .= missing
         C = convert(SparseMatrixCSC{Union{Float64, Missing}}, sprandn(Float64, 20, 10, 0.9)); C[rand(1:200, 3)] .= missing
@@ -238,12 +239,13 @@ dA = Array(sA)
     end
 
     @testset "empty cases" begin
-        errchecker(str) = occursin("reducing over an empty collection is not allowed", str) ||
+        errchecker(str) = occursin(": reducing over an empty collection is not allowed", str) ||
+                          occursin(": reducing with ", str) ||
                           occursin("collection slices must be non-empty", str)
         @test sum(sparse(Int[])) === 0
         @test prod(sparse(Int[])) === 1
-        @test_throws "reducing over an empty" minimum(sparse(Int[]))
-        @test_throws "reducing over an empty" maximum(sparse(Int[]))
+        @test_throws errchecker minimum(sparse(Int[]))
+        @test_throws errchecker maximum(sparse(Int[]))
 
         for f in (sum, prod)
             @test isequal(f(spzeros(0, 1), dims=1), f(Matrix{Int}(I, 0, 1), dims=1))
@@ -262,10 +264,10 @@ end
 
 @testset "findall" begin
     # issue described in https://groups.google.com/d/msg/julia-users/Yq4dh8NOWBQ/GU57L90FZ3EJ
-    A = sparse(I, 5, 5)
-    @test findall(A) == findall(x -> x == true, A) == findall(Array(A))
+    A = sparse(I, 5, 5); MA = Array(A)
+    @test findall(A) == findall(x -> x == true, A) == findall(MA)
     # Non-stored entries are true
-    @test findall(x -> x == false, A) == findall(x -> x == false, Array(A))
+    @test findall(x -> x == false, A) == findall(x -> x == false, MA)
 
     # Not all stored entries are true
     @test findall(sparse([true false])) == [CartesianIndex(1, 1)]

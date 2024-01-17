@@ -52,7 +52,7 @@ SparseVector(n::Integer, nzind::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
 SparseVector{Tv, Ti}(::UndefInitializer, n::Integer) where {Tv, Ti}  = SparseVector{Tv, Ti}(n, Ti[], Tv[])
 
 """
-    `FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}`
+    FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
 
 Experimental AbstractCompressedVector whose non-zero index are fixed.
 """
@@ -779,9 +779,12 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
     rowvalB = Vector{Int}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
 
+    CartIndsA = CartesianIndices(szA)
+    LinIndsA = LinearIndices(szA)
+
     if nnzB > 0
-        rowstart,colstart = Base._ind2sub(szA, first(I))
-        rowend,colend = Base._ind2sub(szA, last(I))
+        rowstart,colstart = Tuple(CartIndsA[first(I)])
+        rowend,colend = Tuple(CartIndsA[last(I)])
 
         idxB = 1
         @inbounds for col in colstart:colend
@@ -790,7 +793,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
             for r in colptrA[col]:(colptrA[col+1]-1)
                 rowA = rowvalA[r]
                 if minrow <= rowA <= maxrow
-                    rowvalB[idxB] = Base._sub2ind(szA, rowA, col) - first(I) + 1
+                    rowvalB[idxB] = LinIndsA[rowA, col] - first(I) + 1
                     nzvalB[idxB] = nzvalA[r]
                     idxB += 1
                 end
@@ -818,9 +821,11 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
     rowvalB = Vector{Ti}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
 
+    CartIndsA = CartesianIndices(szA)
+
     idxB = 1
     for i in 1:n
-        row,col = Base._ind2sub(szA, I[i])
+        row,col = Tuple(CartIndsA[I[i]])
         for r in colptrA[col]:(colptrA[col+1]-1)
             @inbounds if rowvalA[r] == row
                 if idxB <= nnzB
@@ -1037,43 +1042,39 @@ end
 
 ### show and friends
 
+function show(io::IO, x::AbstractSparseVector)
+    print(io, "sparsevec(", rowvals(x), ", ", nonzeros(x), ", ", length(x), ")")
+end
 function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
-    xnnz = length(nonzeros(x))
+    nzind = rowvals(x)
+    nzval = nonzeros(x)
+    xnnz = length(nzval)
     print(io, length(x), "-element ", typeof(x), " with ", xnnz,
            " stored ", xnnz == 1 ? "entry" : "entries")
     if xnnz != 0
         println(io, ":")
-        show(IOContext(io, :typeinfo => eltype(x)), x)
     end
-end
-
-show(io::IO, x::AbstractSparseVector) = show(convert(IOContext, io), x)
-function show(io::IOContext, x::AbstractSparseVector)
-    # TODO: make this a one-line form
-    nzind = nonzeroinds(x)
-    nzval = nonzeros(x)
-    if isempty(nzind)
-        return show(io, MIME("text/plain"), x)
-    end
-    limit = get(io, :limit, false)::Bool
-    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
-    pad = ndigits(nzind[end])
-    if !haskey(io, :compact)
-        io = IOContext(io, :compact => true)
+    ioctxt = IOContext(io, :typeinfo => eltype(x))
+    limit = get(ioctxt, :limit, false)::Bool
+    half_screen_rows = limit ? div(displaysize(ioctxt)[1] - 8, 2) : typemax(Int)
+    pad = isempty(nzind) ? 0 : ndigits(nzind[end])
+    if !haskey(ioctxt, :compact)
+        ioctxt = IOContext(ioctxt, :compact => true)
     end
     for k = eachindex(nzind)
         if k < half_screen_rows || k > length(nzind) - half_screen_rows
-            print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
+            print(ioctxt, "  ", '[', rpad(nzind[k], pad), "]  =  ")
             if isassigned(nzval, Int(k))
-                show(io, nzval[k])
+                show(ioctxt, nzval[k])
             else
-                print(io, Base.undef_ref_str)
+                print(ioctxt, Base.undef_ref_str)
             end
-            k != length(nzind) && println(io)
+            k != length(nzind) && println(ioctxt)
         elseif k == half_screen_rows
-            println(io, "   ", " "^pad, "   \u22ee")
+            println(ioctxt, "   ", " "^pad, "   \u22ee")
         end
     end
+    return nothing
 end
 
 ### Conversion to matrix
@@ -1300,8 +1301,8 @@ _hvcat_rows(::Tuple{}, X::_SparseConcatGroup...) = ()
 # disambiguation for type-piracy problems created above
 hcat(n1::Number, ns::Vararg{Number}) = invoke(hcat, Tuple{Vararg{Number}}, n1, ns...)
 vcat(n1::Number, ns::Vararg{Number}) = invoke(vcat, Tuple{Vararg{Number}}, n1, ns...)
-hcat(n1::Type{N}, ns::Vararg{N}) where {N<:Number} = invoke(hcat, Tuple{Vararg{Number}}, n1, ns...)
-vcat(n1::Type{N}, ns::Vararg{N}) where {N<:Number} = invoke(vcat, Tuple{Vararg{Number}}, n1, ns...)
+hcat(n1::N, ns::Vararg{N}) where {N<:Number} = invoke(hcat, Tuple{Vararg{N}}, n1, ns...)
+vcat(n1::N, ns::Vararg{N}) where {N<:Number} = invoke(vcat, Tuple{Vararg{N}}, n1, ns...)
 hvcat(rows::Tuple{Vararg{Int}}, n1::Number, ns::Vararg{Number}) = invoke(hvcat, Tuple{typeof(rows), Vararg{Number}}, rows, n1, ns...)
 hvcat(rows::Tuple{Vararg{Int}}, n1::N, ns::Vararg{N}) where {N<:Number} = invoke(hvcat, Tuple{typeof(rows), Vararg{N}}, rows, n1, ns...)
 
@@ -1851,7 +1852,7 @@ function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) whe
     mul!(y, A, x)
 end
 
-function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
+Base.@constprop :aggressive function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                             _add::MulAddMul = MulAddMul())
     if tA == 'N'
         _spmul!(y, A, x, _add.alpha, _add.beta)
@@ -1971,7 +1972,7 @@ function densemv(A::AbstractSparseMatrixCSC, x::AbstractSparseVector; trans::Abs
 end
 
 # * and mul!
-function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
+Base.@constprop :aggressive function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
                             _add::MulAddMul = MulAddMul())
     if tA == 'N'
         _spmul!(y, A, x, _add.alpha, _add.beta)
@@ -2385,3 +2386,23 @@ function circshift!(O::SparseVector, X::SparseVector, (r,)::Base.DimsInteger{1})
 end
 
 circshift!(O::SparseVector, X::SparseVector, r::Real,) = circshift!(O, X, (Integer(r),))
+
+function reverse(S::AbstractSparseVector, start::Integer=firstindex(S), stop::Integer=lastindex(S))
+    Scopy = SparseVector(length(S), findnz(S)...)
+    reverse!(Scopy, start, stop)
+    return Scopy
+end
+
+function reverse!(S::AbstractSparseVector, start::Integer=firstindex(S), stop::Integer=lastindex(S))
+    checkbounds(S, start:stop)
+    nzinds = rowvals(S)
+    nzinds_revstart = searchsortedfirst(nzinds, start)
+    nzinds_revstop = searchsortedlast(nzinds, stop)
+    fi, li = firstindex(nzinds), lastindex(nzinds)
+    nzinds_revrange = max(fi, nzinds_revstart):min(li, nzinds_revstop)
+    iv = @view nzinds[nzinds_revrange]
+    iv .= (stop + start) .- iv
+    reverse!(iv)
+    reverse!(@view(nonzeros(S)[nzinds_revrange]))
+    return S
+end
