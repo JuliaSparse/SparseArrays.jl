@@ -1,3 +1,7 @@
+```@meta
+EditURL = "https://github.com/JuliaSparse/SparseArrays.jl/blob/master/docs/src/index.md"
+```
+
 # Sparse Arrays
 
 ```@meta
