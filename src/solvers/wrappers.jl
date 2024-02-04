@@ -1,3 +1,7 @@
+function SuiteSparse_time()
+    @ccall libsuitesparseconfig.SuiteSparse_time()::Cdouble
+end
+
 function SuiteSparse_config_printf_func_get()
     @ccall libsuitesparseconfig.SuiteSparse_config_printf_func_get()::Ptr{Cvoid}
 end
@@ -126,10 +130,6 @@ end
 
 function SuiteSparse_toc(tic)
     @ccall libsuitesparseconfig.SuiteSparse_toc(tic::Ptr{Cdouble})::Cdouble
-end
-
-function SuiteSparse_time()
-    @ccall libsuitesparseconfig.SuiteSparse_time()::Cdouble
 end
 
 function SuiteSparse_hypot(x, y)
@@ -286,7 +286,6 @@ mutable struct cholmod_common_struct
     cholmod_gpu_potrf_calls::Csize_t
     chunk::Cdouble
     nthreads_max::Cint
-    blas_dump::Ptr{Libc.FILE}
     cholmod_common_struct() = new()
 end
 
@@ -3344,11 +3343,11 @@ const CHOLMOD_INT = 0
 
 const CHOLMOD_LONG = 2
 
-const CHOLMOD_DATE = "Dec 30, 2023"
+const CHOLMOD_DATE = "Jan 20, 2024"
 
 const CHOLMOD_MAIN_VERSION = 5
 
-const CHOLMOD_SUB_VERSION = 1
+const CHOLMOD_SUB_VERSION = 2
 
 const CHOLMOD_SUBSUB_VERSION = 0
 
@@ -3356,7 +3355,7 @@ SUITESPARSE_VER_CODE(main, sub) = main * 1000 + sub
 
 CHOLMOD_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 
-const CHOLMOD_VERSION = CHOLMOD_VER_CODE(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION)
+const CHOLMOD_VERSION = CHOLMOD_VER_CODE(5, 2)
 
 const _FILE_OFFSET_BITS = 64
 
@@ -3382,18 +3381,21 @@ const SUITESPARSE_COMPILER_MSC = 0
 
 const SUITESPARSE_COMPILER_XLC = 0
 
-const SUITESPARSE_TIME = 0
+const SUITESPARSE_TIME = SuiteSparse_time()
 
-const SUITESPARSE_DATE = "Dec 30, 2023"
+const SUITESPARSE_DATE = "Jan 20, 2024"
 
 const SUITESPARSE_MAIN_VERSION = 7
 
-const SUITESPARSE_SUB_VERSION = 4
+const SUITESPARSE_SUB_VERSION = 6
 
 const SUITESPARSE_SUBSUB_VERSION = 0
 
-const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(SUITESPARSE_MAIN_VERSION,
-                                                 SUITESPARSE_SUB_VERSION)
+const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(7, 6)
+
+const SUITESPARSE__VERSION = SUITESPARSE__VERCODE(7, 6, 0)
+
+const CHOLMOD__VERSION = SUITESPARSE__VERCODE(5, 2, 0)
 
 const CHOLMOD_DEVICE_SUPERNODE_BUFFERS = 6
 
@@ -3535,17 +3537,19 @@ const SPQR_RTX_EQUALS_B = 2
 
 const SPQR_RTX_EQUALS_ETB = 3
 
-const SPQR_DATE = "Dec 30, 2023"
+const SPQR_DATE = "Jan 20, 2024"
 
 const SPQR_MAIN_VERSION = 4
 
 const SPQR_SUB_VERSION = 3
 
-const SPQR_SUBSUB_VERSION = 0
+const SPQR_SUBSUB_VERSION = 2
 
 SPQR_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 
-const SPQR_VERSION = SPQR_VER_CODE(SPQR_MAIN_VERSION, SPQR_SUB_VERSION)
+const SPQR_VERSION = SPQR_VER_CODE(4, 3)
+
+const SPQR__VERSION = SUITESPARSE__VERCODE(4, 3, 2)
 
 const AMD_CONTROL = 5
 
@@ -3595,33 +3599,37 @@ const AMD_INVALID = -2
 
 const AMD_OK_BUT_JUMBLED = 1
 
-const AMD_DATE = "Dec 30, 2023"
+const AMD_DATE = "Jan 10, 2024"
 
 const AMD_MAIN_VERSION = 3
 
 const AMD_SUB_VERSION = 3
 
-const AMD_SUBSUB_VERSION = 0
+const AMD_SUBSUB_VERSION = 1
 
 AMD_VERSION_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 
-const AMD_VERSION = AMD_VERSION_CODE(AMD_MAIN_VERSION, AMD_SUB_VERSION)
+const AMD_VERSION = AMD_VERSION_CODE(3, 3)
+
+const AMD__VERSION = SUITESPARSE__VERCODE(3, 3, 1)
 
 const UMFPACK_INFO = 90
 
 const UMFPACK_CONTROL = 20
 
-const UMFPACK_DATE = "Dec 30, 2023"
+const UMFPACK_DATE = "Jan 20, 2024"
 
 const UMFPACK_MAIN_VERSION = 6
 
 const UMFPACK_SUB_VERSION = 3
 
-const UMFPACK_SUBSUB_VERSION = 0
+const UMFPACK_SUBSUB_VERSION = 2
 
 UMFPACK_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 
-const UMFPACK_VER = UMFPACK_VER_CODE(UMFPACK_MAIN_VERSION, UMFPACK_SUB_VERSION)
+const UMFPACK_VER = UMFPACK_VER_CODE(6, 3)
+
+const UMFPACK__VERSION = SUITESPARSE__VERCODE(6, 3, 2)
 
 const UMFPACK_STATUS = 0
 
