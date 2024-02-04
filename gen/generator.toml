@@ -73,6 +73,6 @@ functionlike_macro_includelist = [
     "KLU__VERCODE",
     "BTF_VERSION_CODE",
     "BTF__VERCODE",
-    "CCOLAMD_VERSION_CODE"
+    "CCOLAMD_VERSION_CODE",
     "CCOLAMD__VERCODE"
 ]
