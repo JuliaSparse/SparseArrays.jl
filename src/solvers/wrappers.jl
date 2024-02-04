@@ -3393,6 +3393,10 @@ const SUITESPARSE_SUBSUB_VERSION = 0
 
 const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(7, 6)
 
+function SUITESPARSE__VERCODE(main, sub, patch)
+    return (main * Culonglong(1000) + sub) * Culonglong(1000) + patch
+end
+
 const SUITESPARSE__VERSION = SUITESPARSE__VERCODE(7, 6, 0)
 
 const CHOLMOD__VERSION = SUITESPARSE__VERCODE(5, 2, 0)
