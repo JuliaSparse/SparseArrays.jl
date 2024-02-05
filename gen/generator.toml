@@ -58,12 +58,21 @@ macro_mode = "basic"
 
 functionlike_macro_includelist = [
     "SUITESPARSE_VER_CODE",
+    "SUITESPARSE__VERCODE",
     "CHOLMOD_VER_CODE",
+    "CHOLMOD__VERCODE",
     "SPQR_VER_CODE",
+    "SPQR__VERCODE",
     "AMD_VERSION_CODE",
+    "AMD__VERCODE",
     "UMFPACK_VER_CODE",
+    "UMFPACK__VERCODE",
     "COLAMD_VERSION_CODE",
+    "COLAMD__VERCODE",
     "KLU_VERSION_CODE",
+    "KLU__VERCODE",
     "BTF_VERSION_CODE",
-    "CCOLAMD_VERSION_CODE"
+    "BTF__VERCODE",
+    "CCOLAMD_VERSION_CODE",
+    "CCOLAMD__VERCODE"
 ]
