@@ -324,8 +324,8 @@ Base.@constprop :aggressive function generic_matmatmul!(C::SparseMatrixCSCUnion2
     B, tB = tB in ('H', 'h', 'S', 's') ? (wrap(B, tB), 'N') : (B, tB)
     _generic_matmatmul!(C, tA, tB, A, B, _add)
 end
-function _generic_matmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::SparseMatrixCSCUnion2,
-                                B::SparseMatrixCSCUnion2, _add::MulAddMul)
+function _generic_matmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::AbstractVecOrMat,
+                                B::AbstractVecOrMat, _add::MulAddMul)
     @assert tA in ('N', 'T', 'C') && tB in ('N', 'T', 'C')
     require_one_based_indexing(C, A, B)
     R = eltype(C)
