@@ -177,7 +177,7 @@ function getcommon(::Type{Int32})
 end
 
 function getcommon(::Type{Int64})
-    return get!(newcommon_l, task_local_storage(), :cholmod_common)::Ref{cholmod_common}
+    return get!(newcommon_l, task_local_storage(), :cholmod_common_l)::Ref{cholmod_common}
 end
 
 getcommon() = getcommon(Int)
