@@ -66,7 +66,7 @@ jobs:
             echo "Invalid value for JULIA_WORD_SIZE: ${JULIA_WORD_SIZE:?}"
             exit 1
           fi
-      - run: JULIA_ARCH is "${JULIA_ARCH:?}"
+      - run: echo JULIA_ARCH is "${JULIA_ARCH:?}"
         env:
           JULIA_ARCH: ${{ steps.determine-julia-arch.outputs.julia-arch }}
       - uses: julia-actions/setup-julia@v1
