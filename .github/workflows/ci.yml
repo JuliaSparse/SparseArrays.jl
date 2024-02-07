@@ -25,7 +25,9 @@ jobs:
           - 'nightly'
         os:
           - ubuntu-latest
-          - macOS-latest
+          - macos-12 # Intel
+          - macos-13 # Intel
+          - macos-14 # Apple Silicon
           - windows-latest
         arch:
           - x64
