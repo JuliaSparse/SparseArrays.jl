@@ -166,7 +166,7 @@ end
 function newcommon(; print = 0) # no printing from CHOLMOD by default
     common = finalizer(cholmod_finish, Ref(cholmod_common()))
     result = cholmod_start(common)
-    @assert result == TRUE "failed to run `cholmod_l_start`!"
+    @assert result == TRUE "failed to run `cholmod_start`!"
     common[].print = print
     common[].error_handler = @cfunction(error_handler, Cvoid, (Cint, Cstring, Cint, Cstring))
     return common
@@ -177,7 +177,7 @@ function getcommon(::Type{Int32})
 end
 
 function getcommon(::Type{Int64})
-    return get!(newcommon_l, task_local_storage(), :cholmod_common_l)::Ref{cholmod_common}
+    return get!(newcommon_l, task_local_storage(), :cholmod_common)::Ref{cholmod_common}
 end
 
 getcommon() = getcommon(Int)
