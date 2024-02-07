@@ -63,6 +63,7 @@ jobs:
             exit 1
           fi
       - run: echo JULIA_ARCH is "${JULIA_ARCH:?}"
+        shell: bash
         env:
           JULIA_ARCH: ${{ steps.determine-julia-arch.outputs.julia-arch }}
       - uses: julia-actions/setup-julia@v1
