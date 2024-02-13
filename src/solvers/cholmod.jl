@@ -166,7 +166,7 @@ end
 function newcommon(; print = 0) # no printing from CHOLMOD by default
     common = finalizer(cholmod_finish, Ref(cholmod_common()))
     result = cholmod_start(common)
-    @assert result == TRUE "failed to run `cholmod_l_start`!"
+    @assert result == TRUE "failed to run `cholmod_start`!"
     common[].print = print
     common[].error_handler = @cfunction(error_handler, Cvoid, (Cint, Cstring, Cint, Cstring))
     return common
