@@ -66,7 +66,7 @@ jobs:
         shell: bash
         env:
           JULIA_ARCH: ${{ steps.determine-julia-arch.outputs.julia-arch }}
-      - uses: julia-actions/setup-julia@v1.9.6 # TODO: change back to v1
+      - uses: julia-actions/setup-julia@v1
         with:
           version: ${{ matrix.julia-version }}
           arch: ${{ steps.determine-julia-arch.outputs.julia-arch }}
@@ -95,7 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@latest
+      - uses: julia-actions/setup-julia@v1
         with:
           # version: '1.6'
           version: 'nightly'
