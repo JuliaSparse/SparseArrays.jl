@@ -2697,7 +2697,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
                 Iv = CartesianIndex(rowval[j], i)
             end
         end
-        return Sv, Iv
+        return (fill(Sv,1,1), fill(Iv,1,1))
     else
         throw(ArgumentError("invalid value for region; must be 1, 2, or (1,2)"))
     end
@@ -2710,8 +2710,10 @@ findmin(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTu
     _findr(_isless_fm, A, region)
 findmax(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTuple{2,Integer}}) where {Tv} =
     _findr(_isgreater_fm, A, region)
-findmin(A::AbstractSparseMatrixCSC; dims::Union{Integer,Tuple{Integer},NTuple{2,Integer}}=(1,2)) = findmin(A, dims)
-findmax(A::AbstractSparseMatrixCSC; dims::Union{Integer,Tuple{Integer},NTuple{2,Integer}}=(1,2)) = findmax(A, dims)
+findmin(A::AbstractSparseMatrixCSC; dims::Union{Nothing,Integer,Tuple{Integer},NTuple{2,Integer}} = nothing) =
+    isnothing(dims) ? (r = findmin(A, (1,2)); (r[1][1], r[2][1])) : findmin(A, dims)
+findmax(A::AbstractSparseMatrixCSC; dims::Union{Nothing,Integer,Tuple{Integer},NTuple{2,Integer}} = nothing) =
+    isnothing(dims) ? (r = findmax(A, (1,2)); (r[1][1], r[2][1])) : findmax(A, dims)
 
 argmin(A::AbstractSparseMatrixCSC) = findmin(A)[2]
 argmax(A::AbstractSparseMatrixCSC) = findmax(A)[2]

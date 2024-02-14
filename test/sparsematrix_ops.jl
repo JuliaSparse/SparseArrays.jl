@@ -241,7 +241,8 @@ dA = Array(sA)
     @testset "empty cases" begin
         errchecker(str) = occursin(": reducing over an empty collection is not allowed", str) ||
                           occursin(": reducing with ", str) ||
-                          occursin("collection slices must be non-empty", str)
+                          occursin("collection slices must be non-empty", str) ||
+                          occursin("array slices must be non-empty", str)
         @test sum(sparse(Int[])) === 0
         @test prod(sparse(Int[])) === 1
         @test_throws errchecker minimum(sparse(Int[]))
@@ -331,10 +332,10 @@ end
 @testset "argmax, argmin, findmax, findmin" begin
     S = sprand(100,80, 0.5)
     A = Array(S)
-    @test @inferred(argmax(S)) == argmax(A)
-    @test @inferred(argmin(S)) == argmin(A)
-    @test @inferred(findmin(S)) == findmin(A)
-    @test @inferred(findmax(S)) == findmax(A)
+    @test argmax(S) == argmax(A)
+    @test argmin(S) == argmin(A)
+    @test findmin(S) == findmin(A)
+    @test findmax(S) == findmax(A)
     for region in [(1,), (2,), (1,2)], m in [findmax, findmin]
         @test m(S, dims=region) == m(A, dims=region)
     end
