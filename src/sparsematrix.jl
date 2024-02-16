@@ -2629,7 +2629,7 @@ function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=1:size(A, 1), cols=1:siz
     return CartesianIndex(0, 0)
 end
 
-function _findr(op, A, region, Tv)
+function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
     require_one_based_indexing(A)
     Ti = eltype(keys(A))
     i1 = first(keys(A))
@@ -2707,11 +2707,13 @@ _isless_fm(a, b)    =  b == b && ( a != a || isless(a, b) )
 _isgreater_fm(a, b) =  b == b && ( a != a || isless(b, a) )
 
 findmin(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTuple{2,Integer}}) where {Tv} =
-    _findr(_isless_fm, A, region, Tv)
+    _findr(_isless_fm, A, region)
 findmax(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTuple{2,Integer}}) where {Tv} =
-    _findr(_isgreater_fm, A, region, Tv)
-findmin(A::AbstractSparseMatrixCSC) = (r=findmin(A,(1,2)); (r[1][1], r[2][1]))
-findmax(A::AbstractSparseMatrixCSC) = (r=findmax(A,(1,2)); (r[1][1], r[2][1]))
+    _findr(_isgreater_fm, A, region)
+findmin(A::AbstractSparseMatrixCSC; dims::Union{Nothing,Integer,Tuple{Integer},NTuple{2,Integer}} = nothing) =
+    isnothing(dims) ? (r = findmin(A, (1,2)); (r[1][1], r[2][1])) : findmin(A, dims)
+findmax(A::AbstractSparseMatrixCSC; dims::Union{Nothing,Integer,Tuple{Integer},NTuple{2,Integer}} = nothing) =
+    isnothing(dims) ? (r = findmax(A, (1,2)); (r[1][1], r[2][1])) : findmax(A, dims)
 
 argmin(A::AbstractSparseMatrixCSC) = findmin(A)[2]
 argmax(A::AbstractSparseMatrixCSC) = findmax(A)[2]
