@@ -1858,7 +1858,7 @@ function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) whe
     mul!(y, A, x)
 end
 
-Base.@constprop :aggressive function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
+Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                             _add::MulAddMul = MulAddMul())
     if tA == 'N'
         _spmul!(y, A, x, _add.alpha, _add.beta)
@@ -1867,11 +1867,11 @@ Base.@constprop :aggressive function LinearAlgebra.generic_matvecmul!(y::Abstrac
     elseif tA == 'C'
         _At_or_Ac_mul_B!(adjoint, y, A, x, _add.alpha, _add.beta)
     else
-        _spmul!(y, LinearAlgebra.wrap(A, tA), x, _add.alpha, _add.beta)
+        _spmul!(y, wrap(A, tA), x, _add.alpha, _add.beta)
     end
     return y
 end
-function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
+function generic_matvecmul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
                                              _add::MulAddMul = MulAddMul())
     @assert tA == 'N'
     Adata = parent(A)
@@ -1989,7 +1989,7 @@ function densemv(A::AbstractSparseMatrixCSC, x::AbstractSparseVector; trans::Abs
 end
 
 # * and mul!
-Base.@constprop :aggressive function LinearAlgebra.generic_matvecmul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
+Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
                             _add::MulAddMul = MulAddMul())
     if tA == 'N'
         _spmul!(y, A, x, _add.alpha, _add.beta)
@@ -1998,7 +1998,7 @@ Base.@constprop :aggressive function LinearAlgebra.generic_matvecmul!(y::Abstrac
     elseif tA == 'C'
         _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, A, x, _add.alpha, _add.beta)
     else
-        LinearAlgebra._generic_matvecmul!(y, 'N', LinearAlgebra.wrap(A, tA), x, _add)
+        LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, _add)
     end
     return y
 end
