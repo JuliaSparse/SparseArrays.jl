@@ -18,7 +18,7 @@ import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
     issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded,
     cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu,
-    matprod_dest
+    matprod_dest, generic_matvecmul!, generic_matmatmul!
 
 import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Complex,
     conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin,

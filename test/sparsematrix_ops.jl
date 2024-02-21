@@ -241,7 +241,8 @@ dA = Array(sA)
     @testset "empty cases" begin
         errchecker(str) = occursin(": reducing over an empty collection is not allowed", str) ||
                           occursin(": reducing with ", str) ||
-                          occursin("collection slices must be non-empty", str)
+                          occursin("collection slices must be non-empty", str) ||
+                          occursin("array slices must be non-empty", str)
         @test sum(sparse(Int[])) === 0
         @test prod(sparse(Int[])) === 1
         @test_throws errchecker minimum(sparse(Int[]))
