@@ -23,50 +23,31 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-13 # Intel
-          - macos-14 # Apple Silicon
-        julia-word-size:
-          - '32'
-          - '64'
+          - macOS-13 # intel
+          - macOS-14 # arm
+        julia-arch:
+          - x64
+          - x86
+          - aarch64
         exclude:
-          - os: macos-13
-            julia-word-size: '32'
-          - os: macos-14
-            julia-word-size: '32'
+          - os: ubuntu-latest
+            julia-arch: aarch64
+          - os: windows-latest
+            julia-arch: aarch64
+          - os: macOS-13
+            julia-arch: x86
+          - os: macOS-13
+            julia-arch: aarch64
+          - os: macOS-14
+            julia-arch: x86
+          - os: macOS-14
+            julia-arch: x64
     steps:
       - uses: actions/checkout@v4
-      - name: Determine the value of JULIA_ARCH
-        id: determine-julia-arch
-        shell: bash
-        env:
-          JULIA_WORD_SIZE: ${{ matrix.julia-word-size }}
-        run: |
-          echo "RUNNER_ARCH is: ${RUNNER_ARCH:?}"
-          echo "JULIA_WORD_SIZE is: ${JULIA_WORD_SIZE:?}"
-          if [[ "${JULIA_WORD_SIZE:?}" == "32" ]]; then
-            # If JULIA_WORD_SIZE is 32, then we hard-code JULIA_ARCH
-            # to be x86, because x86 is the only 32-bit arch that we
-            # test.
-            echo "julia-arch=x86" >> "${GITHUB_OUTPUT:?}"
-          elif [[ "$JULIA_WORD_SIZE" == "64" ]]; then
-            # If JULIA_WORD_SIZE is 64, then we set JULIA_ARCH to be
-            # the same as RUNNER_ARCH.
-            #
-            # Note: RUNNER_ARCH is an environment variable that is
-            # automatically set by GitHub Actions.
-            echo "julia-arch=${RUNNER_ARCH:?}" >> "${GITHUB_OUTPUT:?}"
-          else
-            echo "Invalid value for JULIA_WORD_SIZE: ${JULIA_WORD_SIZE:?}"
-            exit 1
-          fi
-      - run: echo JULIA_ARCH is "${JULIA_ARCH:?}"
-        shell: bash
-        env:
-          JULIA_ARCH: ${{ steps.determine-julia-arch.outputs.julia-arch }}
       - uses: julia-actions/setup-julia@v1
         with:
           version: ${{ matrix.julia-version }}
-          arch: ${{ steps.determine-julia-arch.outputs.julia-arch }}
+          arch: ${{ matrix.julia-arch }}
       - uses: actions/cache@v4
         env:
           cache-name: cache-artifacts
