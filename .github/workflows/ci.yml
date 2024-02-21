@@ -1,9 +1,6 @@
 name: CI
 on:
   pull_request:
-    branches:
-      - 'main'
-      - 'release-*'
   push:
     branches:
       - 'main'
@@ -16,30 +13,41 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        version:
+        julia-version:
           - 'nightly'
         os:
           - ubuntu-latest
-          - macOS-latest
           - windows-latest
-        arch:
+          - macOS-13 # intel
+          - macOS-14 # arm
+        julia-arch:
           - x64
           - x86
+          - aarch64
         exclude:
-          - os: macOS-latest
-            arch: x86
+          - os: ubuntu-latest
+            julia-arch: aarch64
+          - os: windows-latest
+            julia-arch: aarch64
+          - os: macOS-13
+            julia-arch: x86
+          - os: macOS-13
+            julia-arch: aarch64
+          - os: macOS-14
+            julia-arch: x86
+          - os: macOS-14
+            julia-arch: x64
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v1
         with:
-          version: ${{ matrix.version }}
-          arch: ${{ matrix.arch }}
+          version: ${{ matrix.julia-version }}
+          arch: ${{ matrix.julia-arch }}
       - uses: actions/cache@v4
         env:
           cache-name: cache-artifacts
@@ -65,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@latest
+      - uses: julia-actions/setup-julia@v1
         with:
           # version: '1.6'
           version: 'nightly'
