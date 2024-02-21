@@ -23,15 +23,12 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-12 # Intel
           - macos-13 # Intel
           - macos-14 # Apple Silicon
         julia-word-size:
           - '32'
           - '64'
         exclude:
-          - os: macos-12
-            julia-word-size: '32'
           - os: macos-13
             julia-word-size: '32'
           - os: macos-14
