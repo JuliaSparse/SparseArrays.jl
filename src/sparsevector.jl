@@ -1859,28 +1859,28 @@ function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) whe
 end
 
 Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
-                                            _add::MulAddMul = MulAddMul())
+                                                        alpha::Number, beta::Number)
     if tA == 'N'
-        _spmul!(y, A, x, _add.alpha, _add.beta)
+        _spmul!(y, A, x, alpha, beta)
     elseif tA == 'T'
-        _At_or_Ac_mul_B!(transpose, y, A, x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(transpose, y, A, x, alpha, beta)
     elseif tA == 'C'
-        _At_or_Ac_mul_B!(adjoint, y, A, x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(adjoint, y, A, x, alpha, beta)
     else
-        _spmul!(y, wrap(A, tA), x, _add.alpha, _add.beta)
+        _spmul!(y, wrap(A, tA), x, alpha, beta)
     end
     return y
 end
 function generic_matvecmul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
-                                             _add::MulAddMul = MulAddMul())
+                            alpha::Number, beta::Number)
     @assert tA == 'N'
     Adata = parent(A)
     if Adata isa Transpose
-        _At_or_Ac_mul_B!(transpose, y, _fliptri(A), x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(transpose, y, _fliptri(A), x, alpha, beta)
     elseif Adata isa Adjoint
-        _At_or_Ac_mul_B!(adjoint, y, _fliptri(A), x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!(adjoint, y, _fliptri(A), x, alpha, beta)
     else # Adata is plain
-        _spmul!(y, A, x, _add.alpha, _add.beta)
+        _spmul!(y, A, x, alpha, beta)
     end
     return y
 end
@@ -1990,15 +1990,15 @@ end
 
 # * and mul!
 Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
-                            _add::MulAddMul = MulAddMul())
+                                                        alpha::Number, beta::Number)
     if tA == 'N'
-        _spmul!(y, A, x, _add.alpha, _add.beta)
+        _spmul!(y, A, x, alpha, beta)
     elseif tA == 'T'
-        _At_or_Ac_mul_B!((a,b) -> transpose(a) * b, y, A, x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!((a,b) -> transpose(a) * b, y, A, x, alpha, beta)
     elseif tA == 'C'
-        _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, A, x, _add.alpha, _add.beta)
+        _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, A, x, alpha, beta)
     else
-        LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, _add)
+        @stable_muladdmul LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, MulAddMul(alpha, beta))
     end
     return y
 end
