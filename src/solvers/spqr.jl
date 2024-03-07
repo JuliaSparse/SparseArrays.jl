@@ -224,7 +224,7 @@ LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
     "Try qr(convert(SparseMatrixCSC{Float64/ComplexF64, Int}, A)) for ",
     "sparse floating point QR using SPQR or qr(Array(A)) for generic ",
     "dense QR.")))
-LinearAlgebra.qr(A::SparseMatrixCSC; tol=_default_tol(A)) = qr(float(A); tol=tol)
+LinearAlgebra.qr(A::SparseMatrixCSC; tol=_default_tol(A)) = qr(Float64.(A); tol=tol)
 LinearAlgebra.qr(::SparseMatrixCSC, ::LinearAlgebra.PivotingStrategy) = error("Pivoting Strategies are not supported by `SparseMatrixCSC`s")
 LinearAlgebra.qr(A::FixedSparseCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) =
     let B=A
