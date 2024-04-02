@@ -30,12 +30,13 @@ if Base.USE_GPL_LIBS
         # case we are not running currently.
         other_nthreads = nt == 1 ? 4 : 1
         @testset "threads = $other_nthreads" begin
-            # 1. If the OS is Windows and we are in GitHub Actions CI, we do NOT run the `threads` tests.
-            # 2. If the OS is Windows and we are NOT in GitHub Actions CI, we DO run the `threads` tests.
+            # 1. If the OS is Windows and we are in GitHub Actions CI, we do NOT run
+            #    the `threads` tests.
+            # 2. If the OS is Windows and we are NOT in GitHub Actions CI, we DO run
+            #    the `threads` tests.
+            #        - So, just as an example, if the OS is Windows and we are in
+            #          Buildkite CI, we DO run the `threads` tests.
             # 3. If the OS is NOT Windows, we DO run the `threads` tests.
-            #
-            # So, just for example:
-            # - If the OS is Windows and we are in Buildkite CI, we DO run the `threads` tests.
             if Sys.iswindows() && is_github_actions_ci()
                 @warn "Skipping `threads` tests on Windows on GitHub Actions CI"
                 @test_broken false
