@@ -1,6 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 using Test, LinearAlgebra, SparseArrays
 
+# Some utility functions:
+include("util/gha.jl")
+
 if Base.get_bool_env("SPARSEARRAYS_AQUA_TEST", false)
     include("ambiguous.jl")
 end
