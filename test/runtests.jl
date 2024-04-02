@@ -34,7 +34,9 @@ if Base.USE_GPL_LIBS
                 @warn "Skipping `threads` tests on Windows on GitHub Actions CI"
                 @test_broken false
             else
+                @info "Beginning `threads` tests..."
                 include("threads.jl")
+                @info "Finished `threads` tests"
             end
         end
         # test both nthreads==1 and nthreads>1. spawn a process to test whichever
