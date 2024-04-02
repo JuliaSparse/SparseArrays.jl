@@ -31,7 +31,7 @@ if Base.USE_GPL_LIBS
         @warn "Skipping `threads` tests on Windows on GitHub Actions CI"
         @test_skip false
     else
-        @info "Beginning the `threads` tests..." # TODO: change this to @debug
+        @debug "Beginning the `threads` tests..."
 
         # Test multithreaded execution
         @testset "threaded SuiteSparse tests" verbose = true begin
@@ -61,6 +61,6 @@ if Base.USE_GPL_LIBS
             end
         end
 
-        @info "Finished the `threads` tests..." # TODO: change this to @debug
+        @debug "Finished the `threads` tests..."
     end
 end
