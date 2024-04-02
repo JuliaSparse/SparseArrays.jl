@@ -68,6 +68,7 @@ jobs:
         with:
           file: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
   docs:
     runs-on: ubuntu-latest
     steps:
