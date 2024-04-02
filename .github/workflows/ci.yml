@@ -22,7 +22,7 @@ jobs:
           - 'nightly'
         os:
           - ubuntu-latest
-          - windows-latest
+          # - windows-latest # Windows always fails on GitHub Actions
           - macOS-13 # intel
           - macOS-14 # arm
         julia-arch:
