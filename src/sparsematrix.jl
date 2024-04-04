@@ -49,10 +49,12 @@ SparseMatrixCSC(m, n, colptr::ReadOnly, rowval::ReadOnly, nzval::Vector) =
 
 """
     SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer)
+    SparseMatrixCSC{Tv,Ti}(::UndefInitializer, (m,n)::NTuple{2,Integer})
 
 Creates an empty sparse matrix with element type `Tv` and integer type `Ti` of size `m × n`.
 """
 SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer) where {Tv, Ti} = spzeros(Tv, Ti, m, n)
+SparseMatrixCSC{Tv,Ti}(::UndefInitializer, mn::NTuple{2,Integer}) where {Tv, Ti} = spzeros(Tv, Ti, mn...)
 
 """
     FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
