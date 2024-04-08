@@ -3970,6 +3970,47 @@ function hcat(X::AbstractSparseMatrixCSC...)
     SparseMatrixCSC(m, n, colptr, rowval, nzval)
 end
 
+
+# Efficient repetition of sparse matrices
+
+function Base.repeat(A::AbstractSparseMatrixCSC, m)
+    colptr_source = getcolptr(A)
+    rowval_source = rowvals(A)
+    nzval_source = nonzeros(A)
+
+    nnz_new = nnz(A) * m
+    colptr = similar(colptr_source, length(colptr_source))
+    rowval = similar(rowval_source, nnz_new)
+    nzval = similar(nzval_source, nnz_new)
+
+    colptr[1] = 1
+    for c = 1 : size(A, 2)
+        ptr_res = colptr[c]
+        ptr_source = colptr_source[c]
+        col_length = colptr_source[c + 1] - ptr_source
+        for index_repetition = 0 : (m - 1)
+            row_offset = index_repetition * size(A, 1)
+            stuffcol!(rowval, nzval, ptr_res, rowval_source, nzval_source, ptr_source,
+                      col_length, row_offset)
+            ptr_res += col_length
+        end
+        colptr[c + 1] = ptr_res
+    end
+    @assert colptr[end] == nnz_new + 1
+
+    SparseMatrixCSC(size(A, 1) * m, size(A, 2), colptr, rowval, nzval)
+end
+
+function Base.repeat(A::AbstractSparseMatrixCSC, m, n)
+    B = repeat(A, m)
+    nnz_per_column = diff(getcolptr(B))
+    colptr = cumsum(vcat(1, repeat(nnz_per_column, n)))
+    rowval = repeat(rowvals(B), n)
+    nzval = repeat(nonzeros(B), n)
+    SparseMatrixCSC(size(B, 1), size(B, 2) * n, colptr, rowval, nzval)
+end
+
+
 """
     blockdiag(A...)
 
