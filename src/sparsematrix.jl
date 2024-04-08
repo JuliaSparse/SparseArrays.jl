@@ -3908,11 +3908,12 @@ function vcat(X::AbstractSparseMatrixCSC...)
         ptr_res = colptr[c]
         for i = 1 : num
             colptrXi = getcolptr(X[i])
+            rowvalXi = rowvals(X[i])
+            nzvalXi = nonzeros(X[i])
             col_length = colptrXi[c + 1] - colptrXi[c]
             ptr_Xi = colptrXi[c]
 
-            stuffcol!(X[i], colptr, rowval, nzval,
-                      ptr_res, ptr_Xi, col_length, mX_sofar)
+            stuffcol!(rowval, nzval, ptr_res, rowvalXi, nzvalXi, ptr_Xi, col_length, mX_sofar)
 
             ptr_res += col_length
             mX_sofar += mX[i]
@@ -3922,12 +3923,8 @@ function vcat(X::AbstractSparseMatrixCSC...)
     SparseMatrixCSC(m, n, colptr, rowval, nzval)
 end
 
-@inline function stuffcol!(Xi::AbstractSparseMatrixCSC, colptr, rowval, nzval,
-                           ptr_res, ptr_Xi, col_length, mX_sofar)
-    colptrXi = getcolptr(Xi)
-    rowvalXi = rowvals(Xi)
-    nzvalXi  = nonzeros(Xi)
-
+@inline function stuffcol!(rowval, nzval, ptr_res, rowvalXi, nzvalXi, ptr_Xi,
+                           col_length, mX_sofar)
     for k=ptr_res:(ptr_res + col_length - 1)
         @inbounds rowval[k] = rowvalXi[ptr_Xi] + mX_sofar
         @inbounds nzval[k]  = nzvalXi[ptr_Xi]
