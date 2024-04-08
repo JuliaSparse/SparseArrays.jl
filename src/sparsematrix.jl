@@ -3908,13 +3908,13 @@ function vcat(X::AbstractSparseMatrixCSC...)
         ptr_res = colptr[c]
         for i = 1 : num
             colptrXi = getcolptr(X[i])
-            col_length = (colptrXi[c + 1] - 1) - colptrXi[c]
+            col_length = colptrXi[c + 1] - colptrXi[c]
             ptr_Xi = colptrXi[c]
 
             stuffcol!(X[i], colptr, rowval, nzval,
                       ptr_res, ptr_Xi, col_length, mX_sofar)
 
-            ptr_res += col_length + 1
+            ptr_res += col_length
             mX_sofar += mX[i]
         end
         colptr[c + 1] = ptr_res
@@ -3928,7 +3928,7 @@ end
     rowvalXi = rowvals(Xi)
     nzvalXi  = nonzeros(Xi)
 
-    for k=ptr_res:(ptr_res + col_length)
+    for k=ptr_res:(ptr_res + col_length - 1)
         @inbounds rowval[k] = rowvalXi[ptr_Xi] + mX_sofar
         @inbounds nzval[k]  = nzvalXi[ptr_Xi]
         ptr_Xi += 1
