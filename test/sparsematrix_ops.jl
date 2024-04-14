@@ -601,4 +601,28 @@ end
     end
 end
 
+@testset "copytrito!" begin
+    S = sparse([1,2,2,2,3], [1,1,2,2,4], [5, -19, 73, 12, -7])
+    M = fill(Inf, size(S))
+    copytrito!(M, S, 'U')
+    for col in axes(S, 2)
+        for row in 1:min(col, size(S,1))
+            @test M[row, col] == S[row, col]
+        end
+        for row in min(col, size(S,1))+1:size(S,1)
+            @test isinf(M[row, col])
+        end
+    end
+    M .= Inf
+    copytrito!(M, S, 'L')
+    for col in axes(S, 2)
+        for row in 1:col-1
+            @test isinf(M[row, col])
+        end
+        for row in col:size(S, 1)
+            @test M[row, col] == S[row, col]
+        end
+    end
+end
+
 end # module
