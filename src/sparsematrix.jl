@@ -4540,3 +4540,26 @@ function _reverse!(A::SparseMatrixCSC, dims::Tuple{Integer,Integer})
     dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
     _reverse!(A, :)
 end
+
+function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
+    Base.require_one_based_indexing(M, S)
+    if !(uplo == 'U' || uplo == 'L')
+        throw(ArgumentError(lazy"uplo argument must be 'U' (upper) or 'L' (lower), got '$uplo'"))
+    end
+    m,n = size(S)
+    m1,n1 = size(M)
+    (m1 < m || n1 < n) && throw(DimensionMismatch("dest of size ($m1,$n1) should have at least the same number of rows and columns than src of size ($m,$n)"))
+
+    rv = rowvals(S)
+    nz = nonzeros(S)
+    for col in axes(S,2)
+        trirange = uplo == 'U' ? (1:min(col, size(S,1))) : (col:size(S,1))
+        fill!(view(M, trirange, col), zero(eltype(S)))
+        for i in nzrange(S, col)
+            row = rv[i]
+            (uplo == 'U' && row <= col) || (uplo == 'L' && row >= col) || continue
+            M[row, col] = nz[i]
+        end
+    end 
+    return M
+end
