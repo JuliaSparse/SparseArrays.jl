@@ -623,6 +623,7 @@ end
             @test M[row, col] == S[row, col]
         end
     end
+    @test_throws ArgumentError copytrito!(M, S, 'M')
 end
 
 end # module
