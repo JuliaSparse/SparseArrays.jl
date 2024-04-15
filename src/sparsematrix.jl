@@ -4558,8 +4558,7 @@ function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
         for i in nzrange(S, col)
             row = rv[i]
             (uplo == 'U' && row <= col) || (uplo == 'L' && row >= col) || continue
-            v = nz[i]
-            M[row, col] = v 
+            M[row, col] = nz[i]
         end
     end 
     return M
