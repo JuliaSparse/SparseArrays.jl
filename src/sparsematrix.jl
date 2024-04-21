@@ -3908,12 +3908,10 @@ function vcat(X::AbstractSparseMatrixCSC...)
         ptr_res = colptr[c]
         for i = 1 : num
             colptrXi = getcolptr(X[i])
-            rowvalXi = rowvals(X[i])
-            nzvalXi = nonzeros(X[i])
             col_length = colptrXi[c + 1] - colptrXi[c]
             ptr_Xi = colptrXi[c]
 
-            stuffcol!(rowval, nzval, ptr_res, rowvalXi, nzvalXi, ptr_Xi, col_length, mX_sofar)
+            stuffcol!(rowval, nzval, ptr_res, rowvals(X[i]), nonzeros(X[i]), ptr_Xi, col_length, mX_sofar)
 
             ptr_res += col_length
             mX_sofar += mX[i]
@@ -3974,23 +3972,19 @@ end
 # Efficient repetition of sparse matrices
 
 function Base.repeat(A::AbstractSparseMatrixCSC, m)
-    colptr_source = getcolptr(A)
-    rowval_source = rowvals(A)
-    nzval_source = nonzeros(A)
-
     nnz_new = nnz(A) * m
-    colptr = similar(colptr_source, length(colptr_source))
-    rowval = similar(rowval_source, nnz_new)
-    nzval = similar(nzval_source, nnz_new)
+    colptr = similar(getcolptr(A), length(getcolptr(A)))
+    rowval = similar(rowvals(A), nnz_new)
+    nzval = similar(nonzeros(A), nnz_new)
 
     colptr[1] = 1
     for c = 1 : size(A, 2)
         ptr_res = colptr[c]
-        ptr_source = colptr_source[c]
-        col_length = colptr_source[c + 1] - ptr_source
+        ptr_source = getcolptr(A)[c]
+        col_length = getcolptr(A)[c + 1] - ptr_source
         for index_repetition = 0 : (m - 1)
             row_offset = index_repetition * size(A, 1)
-            stuffcol!(rowval, nzval, ptr_res, rowval_source, nzval_source, ptr_source,
+            stuffcol!(rowval, nzval, ptr_res, rowvals(A), nonzeros(A), ptr_source,
                       col_length, row_offset)
             ptr_res += col_length
         end

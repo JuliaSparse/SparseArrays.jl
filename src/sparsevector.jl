@@ -1314,14 +1314,13 @@ function Base.repeat(v::AbstractSparseVector, m)
     nnz_source = nnz(v)
     nnz_new = nnz_source * m
 
-    nzind_source, nzval_source = findnz(v)
-    nzind = similar(nzind_source, nnz_new)
-    nzval = similar(nzval_source, nnz_new)
+    nzind = similar(nonzeroinds(v), nnz_new)
+    nzval = similar(nonzeros(v), nnz_new)
 
     ptr_res = 1
     for index_repetition = 0:(m-1)
         row_offset = index_repetition * length(v)
-        stuffcol!(nzind, nzval, ptr_res, nzind_source, nzval_source, 1, nnz_source, row_offset)
+        stuffcol!(nzind, nzval, ptr_res, nonzeroinds(v), nonzeros(v), 1, nnz_source, row_offset)
         ptr_res += nnz_source
     end
     @assert ptr_res == nnz_new + 1
@@ -1331,11 +1330,9 @@ end
 
 function Base.repeat(v::AbstractSparseVector, m, n)
     w = repeat(v, m)
-    nzind_source, nzval_source = findnz(w)
-
-    colptr = Vector{eltype(nzind_source)}(1 .+ nnz(w) * (0:n))
-    rowval = repeat(nzind_source, n)
-    nzval = repeat(nzval_source, n)
+    colptr = Vector{eltype(nonzeroinds(w))}(1 .+ nnz(w) * (0:n))
+    rowval = repeat(nonzeroinds(w), n)
+    nzval = repeat(nonzeros(w), n)
     SparseMatrixCSC(length(w), n, colptr, rowval, nzval)
 end
 
