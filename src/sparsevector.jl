@@ -1320,8 +1320,7 @@ function Base.repeat(v::AbstractSparseVector, m)
     ptr_res = 1
     for index_repetition = 0:(m-1)
         row_offset = index_repetition * length(v)
-        stuffcol!(nzind, nzval, ptr_res, nonzeroinds(v), nonzeros(v), 1, nnz_source, row_offset)
-        ptr_res += nnz_source
+        ptr_res = stuffcol!(nzind, nzval, ptr_res, nonzeroinds(v), nonzeros(v), 1, nnz_source, row_offset)
     end
     @assert ptr_res == nnz_new + 1
 

@@ -3911,9 +3911,8 @@ function vcat(X::AbstractSparseMatrixCSC...)
             col_length = colptrXi[c + 1] - colptrXi[c]
             ptr_Xi = colptrXi[c]
 
-            stuffcol!(rowval, nzval, ptr_res, rowvals(X[i]), nonzeros(X[i]), ptr_Xi, col_length, mX_sofar)
-
-            ptr_res += col_length
+            ptr_res = stuffcol!(rowval, nzval, ptr_res, rowvals(X[i]), nonzeros(X[i]), ptr_Xi,
+                                col_length, mX_sofar)
             mX_sofar += mX[i]
         end
         colptr[c + 1] = ptr_res
@@ -3928,6 +3927,7 @@ end
         @inbounds nzval[k]  = nzvalXi[ptr_Xi]
         ptr_Xi += 1
     end
+    return ptr_res + col_length
 end
 
 function hcat(X::AbstractSparseMatrixCSC...)
@@ -3984,9 +3984,8 @@ function Base.repeat(A::AbstractSparseMatrixCSC, m)
         col_length = getcolptr(A)[c + 1] - ptr_source
         for index_repetition = 0 : (m - 1)
             row_offset = index_repetition * size(A, 1)
-            stuffcol!(rowval, nzval, ptr_res, rowvals(A), nonzeros(A), ptr_source,
-                      col_length, row_offset)
-            ptr_res += col_length
+            ptr_res = stuffcol!(rowval, nzval, ptr_res, rowvals(A), nonzeros(A), ptr_source,
+                                col_length, row_offset)
         end
         colptr[c + 1] = ptr_res
     end
