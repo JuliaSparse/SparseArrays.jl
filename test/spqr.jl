@@ -2,6 +2,10 @@
 
 module SPQRTests
 
+if !Base.USE_GPL_LIBS
+    @info "Not use GPL libs, Skipping SPQR Tests"
+else
+
 using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
@@ -10,7 +14,7 @@ using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
 # TODO REMOVE SECOND PREDICATE WITH SS7.1
-if Base.USE_GPL_LIBS
+
 @testset "Sparse QR" begin
 m, n = 100, 10
 nn = 100

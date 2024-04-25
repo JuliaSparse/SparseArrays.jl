@@ -2,6 +2,10 @@
 
 module CHOLMODTests
 
+if !Base.USE_GPL_LIBS
+    @info "Not use GPL libs, Skipping CHOLMOD Tests"
+else
+
 using Test
 using SparseArrays.CHOLMOD
 using SparseArrays.CHOLMOD: getcommon
@@ -15,8 +19,6 @@ using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
 using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
-
-if Base.USE_GPL_LIBS
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)

@@ -2,12 +2,14 @@
 
 module SparseLinalgSolversTests
 
+if !Base.USE_GPL_LIBS
+    @info "Not use GPL libs, Skipping SparseLinalgSolvers Tests"
+else
+
 using Test
 using SparseArrays
 using Random
 using LinearAlgebra
-
-if Base.USE_GPL_LIBS
 
 @testset "explicit zeros" begin
     a = SparseMatrixCSC(2, 2, [1, 3, 5], [1, 2, 1, 2], [1.0, 0.0, 0.0, 1.0])
