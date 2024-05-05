@@ -1,12 +1,12 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module CHOLMODTests
+using Test
 
 @static if !Base.USE_GPL_LIBS
     @info "Not use GPL libs, Skipping CHOLMOD Tests"
 else
 
-using Test
 using SparseArrays.CHOLMOD
 using SparseArrays.CHOLMOD: getcommon
 using Random

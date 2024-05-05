@@ -1,12 +1,12 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module SPQRTests
+using Test
 
 @static if !Base.USE_GPL_LIBS
     @info "Not use GPL libs, Skipping SPQR Tests"
 else
 
-using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot

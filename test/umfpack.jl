@@ -1,12 +1,12 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module UMFPACKTests
+using Test
 
 @static if !Base.USE_GPL_LIBS
     @info "Not use GPL libs, Skipping UMFPACK Tests"
 else
 
-using Test
 using Random
 using SparseArrays
 using Serialization
