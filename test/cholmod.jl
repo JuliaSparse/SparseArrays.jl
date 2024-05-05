@@ -2,7 +2,7 @@
 
 module CHOLMODTests
 
-if !Base.USE_GPL_LIBS
+@static if !Base.USE_GPL_LIBS
     @info "Not use GPL libs, Skipping CHOLMOD Tests"
 else
 
