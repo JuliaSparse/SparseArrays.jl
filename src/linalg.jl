@@ -47,28 +47,29 @@ for op ∈ (:+, :-)
     end
 end
 
-generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, _add::MulAddMul) =
-    spdensemul!(C, tA, tB, A, B, _add)
-generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, _add::MulAddMul) =
-    spdensemul!(C, tA, tB, A, B, _add)
-generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, _add::MulAddMul) =
-    spdensemul!(C, tA, 'N', A, B, _add)
+generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, alpha::Number, beta::Number) =
+    spdensemul!(C, tA, tB, A, B, alpha, beta)
+generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, alpha::Number, beta::Number) =
+    spdensemul!(C, tA, tB, A, B, alpha, beta)
+generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, alpha::Number, beta::Number) =
+    spdensemul!(C, tA, 'N', A, B, alpha, beta)
 
-Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, _add)
-    if tA == 'N'
-        _spmatmul!(C, A, wrap(B, tB), _add.alpha, _add.beta)
-    elseif tA == 'T'
-        _At_or_Ac_mul_B!(transpose, C, A, wrap(B, tB), _add.alpha, _add.beta)
-    elseif tA == 'C'
-        _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), _add.alpha, _add.beta)
-    elseif tA in ('S', 's', 'H', 'h') && tB == 'N'
+Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
+    tA_uc, tB_uc = uppercase(tA), uppercase(tB)
+    if tA_uc == 'N'
+        _spmatmul!(C, A, wrap(B, tB), alpha, beta)
+    elseif tA_uc == 'T'
+        _At_or_Ac_mul_B!(transpose, C, A, wrap(B, tB), alpha, beta)
+    elseif tA_uc == 'C'
+        _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), alpha, beta)
+    elseif tA_uc in ('S', 'H') && tB_uc == 'N'
         rangefun = isuppercase(tA) ? nzrangeup : nzrangelo
-        diagop = tA in ('S', 's') ? identity : real
-        odiagop = tA in ('S', 's') ? transpose : adjoint
+        diagop = tA_uc == 'S' ? identity : real
+        odiagop = tA_uc == 'S' ? transpose : adjoint
         T = eltype(C)
-        _mul!(rangefun, diagop, odiagop, C, A, B, T(_add.alpha), T(_add.beta))
+        _mul!(rangefun, diagop, odiagop, C, A, B, T(alpha), T(beta))
     else
-        _generic_matmatmul!(C, 'N', 'N', wrap(A, tA), wrap(B, tB), _add)
+        @stable_muladdmul LinearAlgebra._generic_matmatmul!(C, 'N', 'N', wrap(A, tA), wrap(B, tB), MulAddMul(alpha, beta))
     end
     return C
 end
@@ -116,14 +117,14 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     C
 end
 
-Base.@constprop :aggressive function generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, _add::MulAddMul)
+Base.@constprop :aggressive function generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, alpha::Number, beta::Number)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
-        _spmul!(C, transA(A), B, _add.alpha, _add.beta)
+        _spmul!(C, transA(A), B, alpha, beta)
     elseif tB == 'T'
-        _A_mul_Bt_or_Bc!(transpose, C, transA(A), B, _add.alpha, _add.beta)
+        _A_mul_Bt_or_Bc!(transpose, C, transA(A), B, alpha, beta)
     else # tB == 'C'
-        _A_mul_Bt_or_Bc!(adjoint, C, transA(A), B, _add.alpha, _add.beta)
+        _A_mul_Bt_or_Bc!(adjoint, C, transA(A), B, alpha, beta)
     end
     return C
 end
@@ -319,10 +320,11 @@ function estimate_mulsize(m::Integer, nnzA::Integer, n::Integer, nnzB::Integer, 
 end
 
 Base.@constprop :aggressive function generic_matmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::SparseMatrixCSCUnion2,
-                            B::SparseMatrixCSCUnion2, _add::MulAddMul)
-    A, tA = tA in ('H', 'h', 'S', 's') ? (wrap(A, tA), 'N') : (A, tA)
-    B, tB = tB in ('H', 'h', 'S', 's') ? (wrap(B, tB), 'N') : (B, tB)
-    _generic_matmatmul!(C, tA, tB, A, B, _add)
+                            B::SparseMatrixCSCUnion2, alpha::Number, beta::Number)
+    tA_uc, tB_uc = uppercase(tA), uppercase(tB)
+    Anew, ta = tA_uc in ('S', 'H') ? (wrap(A, tA), oftype(tA, 'N')) : (A, tA)
+    Bnew, tb = tB_uc in ('S', 'H') ? (wrap(B, tB), oftype(tB, 'N')) : (B, tB)
+    @stable_muladdmul _generic_matmatmul!(C, ta, tb, Anew, Bnew, MulAddMul(alpha, beta))
 end
 function _generic_matmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::AbstractVecOrMat,
                                 B::AbstractVecOrMat, _add::MulAddMul)
