@@ -49,10 +49,12 @@ SparseMatrixCSC(m, n, colptr::ReadOnly, rowval::ReadOnly, nzval::Vector) =
 
 """
     SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer)
+    SparseMatrixCSC{Tv,Ti}(::UndefInitializer, (m,n)::NTuple{2,Integer})
 
 Creates an empty sparse matrix with element type `Tv` and integer type `Ti` of size `m × n`.
 """
 SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer) where {Tv, Ti} = spzeros(Tv, Ti, m, n)
+SparseMatrixCSC{Tv,Ti}(::UndefInitializer, mn::NTuple{2,Integer}) where {Tv, Ti} = spzeros(Tv, Ti, mn...)
 
 """
     FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
@@ -4537,4 +4539,27 @@ end
 function _reverse!(A::SparseMatrixCSC, dims::Tuple{Integer,Integer})
     dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
     _reverse!(A, :)
+end
+
+function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
+    Base.require_one_based_indexing(M, S)
+    if !(uplo == 'U' || uplo == 'L')
+        throw(ArgumentError(lazy"uplo argument must be 'U' (upper) or 'L' (lower), got '$uplo'"))
+    end
+    m,n = size(S)
+    m1,n1 = size(M)
+    (m1 < m || n1 < n) && throw(DimensionMismatch("dest of size ($m1,$n1) should have at least the same number of rows and columns than src of size ($m,$n)"))
+
+    rv = rowvals(S)
+    nz = nonzeros(S)
+    for col in axes(S,2)
+        trirange = uplo == 'U' ? (1:min(col, size(S,1))) : (col:size(S,1))
+        fill!(view(M, trirange, col), zero(eltype(S)))
+        for i in nzrange(S, col)
+            row = rv[i]
+            (uplo == 'U' && row <= col) || (uplo == 'L' && row >= col) || continue
+            M[row, col] = nz[i]
+        end
+    end 
+    return M
 end
