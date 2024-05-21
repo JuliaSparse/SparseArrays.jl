@@ -1308,6 +1308,34 @@ hvcat(rows::Tuple{Vararg{Int}}, n1::Number, ns::Vararg{Number}) = invoke(hvcat, 
 hvcat(rows::Tuple{Vararg{Int}}, n1::N, ns::Vararg{N}) where {N<:Number} = invoke(hvcat, Tuple{typeof(rows), Vararg{N}}, rows, n1, ns...)
 
 
+### Efficient repetition of sparse vectors
+
+function Base.repeat(v::AbstractSparseVector, m)
+    nnz_source = nnz(v)
+    nnz_new = nnz_source * m
+
+    nzind = similar(nonzeroinds(v), nnz_new)
+    nzval = similar(nonzeros(v), nnz_new)
+
+    ptr_res = 1
+    for index_repetition = 0:(m-1)
+        row_offset = index_repetition * length(v)
+        ptr_res = stuffcol!(nzind, nzval, ptr_res, nonzeroinds(v), nonzeros(v), 1, nnz_source, row_offset)
+    end
+    @assert ptr_res == nnz_new + 1
+
+    SparseVector(length(v) * m, nzind, nzval)
+end
+
+function Base.repeat(v::AbstractSparseVector, m, n)
+    w = repeat(v, m)
+    colptr = Vector{eltype(nonzeroinds(w))}(1 .+ nnz(w) * (0:n))
+    rowval = repeat(nonzeroinds(w), n)
+    nzval = repeat(nonzeros(w), n)
+    SparseMatrixCSC(length(w), n, colptr, rowval, nzval)
+end
+
+
 # make sure UniformScaling objects are converted to sparse matrices for concatenation
 promote_to_array_type(A::Tuple{Vararg{Union{_SparseConcatGroup,UniformScaling}}}) = anysparse(A...) ? SparseMatrixCSC : Matrix
 promote_to_arrays_(n::Int, ::Type{SparseMatrixCSC}, J::UniformScaling) = sparse(J, n, n)

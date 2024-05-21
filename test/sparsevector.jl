@@ -635,6 +635,18 @@ end
         end
     end
 end
+
+@testset "repeat" begin
+    for m = 0:3
+        @test issparse(repeat(spv_x1, m))
+        @test repeat(spv_x1, m) == repeat(x1_full, m)
+        for n = 0:3
+            @test issparse(repeat(spv_x1, m, n))
+            @test repeat(spv_x1, m, n) == repeat(x1_full, m, n)
+        end
+    end
+end
+
 @testset "sparsemat: combinations with sparse matrix" begin
     let S = sprand(4, 8, 0.5)
         Sf = Array(S)

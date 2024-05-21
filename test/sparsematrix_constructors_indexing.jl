@@ -302,6 +302,19 @@ end
     end
 end
 
+@testset "repeat tests" begin
+    A = sprand(6, 4, 0.5)
+    A_full = Matrix(A)
+    for m = 0:3
+        @test issparse(repeat(A, m))
+        @test repeat(A, m) == repeat(A_full, m)
+        for n = 0:3
+            @test issparse(repeat(A, m, n))
+            @test repeat(A, m, n) == repeat(A_full, m, n)
+        end
+    end
+end
+
 @testset "copyto!" begin
     A = sprand(5, 5, 0.2)
     B = sprand(5, 5, 0.2)
