@@ -4,7 +4,7 @@ module CHOLMODTests
 using Test
 
 @static if !Base.USE_GPL_LIBS
-    @info "Not use GPL libs, Skipping CHOLMOD Tests"
+    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping CHOLMOD tests"
 else
 
 using SparseArrays.CHOLMOD

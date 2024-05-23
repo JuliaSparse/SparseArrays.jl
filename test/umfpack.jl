@@ -4,7 +4,7 @@ module UMFPACKTests
 using Test
 
 @static if !Base.USE_GPL_LIBS
-    @info "Not use GPL libs, Skipping UMFPACK Tests"
+    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping UMFPACK Tests"
 else
 
 using Random
