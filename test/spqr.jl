@@ -27,7 +27,7 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
     else
         A = sparse(iltyA[1:n; rand(1:m, nn - n)], iltyA[1:n; rand(1:n, nn - n)], complex.(randn(nn), randn(nn)), m, n)
     end
-    
+
     F = qr(A)
     @test size(F) == (m,n)
     @test size(F, 1) == m
@@ -39,7 +39,7 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test istriu(F.R)
         @test isperm(F.pcol)
         @test isperm(F.prow)
-        @test_throws ErrorException F.T
+        @test_throws isdefined(Base, :FieldError) ? FieldError : ErrorException F.T
     end
 
     @testset "apply Q" begin

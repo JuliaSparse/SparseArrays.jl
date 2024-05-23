@@ -178,7 +178,7 @@ end
             lua = lu(A)
             umfpack_report(lua)
             @test nnz(lua) == 18
-            @test_throws ErrorException lua.Z
+            @test_throws isdefined(Base, :FieldError) ? FieldError : ErrorException lua.Z
             L,U,p,q,Rs = lua.:(:)
             @test L == lua.L
             @test U == lua.U
