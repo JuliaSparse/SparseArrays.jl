@@ -13,7 +13,6 @@ using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
-# TODO REMOVE SECOND PREDICATE WITH SS7.1
 
 @testset "Sparse QR" begin
 m, n = 100, 10
