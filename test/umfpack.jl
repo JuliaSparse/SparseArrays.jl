@@ -1,15 +1,19 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module UMFPACKTests
-
 using Test
+
+@static if !Base.USE_GPL_LIBS
+    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping UMFPACK Tests"
+else
+
 using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
     LinearAlgebra, I, det, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
-if Base.USE_GPL_LIBS
+
 function umfpack_report(l::UMFPACK.UmfpackLU)
     UMFPACK.umfpack_report_numeric(l, 0)
     UMFPACK.umfpack_report_symbolic(l, 0)
