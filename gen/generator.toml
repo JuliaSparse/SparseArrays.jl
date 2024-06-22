@@ -1,9 +1,11 @@
 [general]
+library_name = "SuiteSparse"
 library_names = {"SuiteSparse_config.h" = "libsuitesparseconfig", "SuiteSparseQR_C.h" = "libspqr", "umfpack.h" = "libumfpack", "cholmod.h" = "libcholmod", "amd.h" = "libamd"}
 
 use_julia_native_enum_type = true
 use_deterministic_symbol = true
 auto_mutability = true
+skip_static_functions = true
 
 output_ignorelist = [
     # Clang.jl cannot handle these macro correctly, skip for now.
