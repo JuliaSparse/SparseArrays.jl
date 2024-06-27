@@ -212,6 +212,7 @@ section of the standard library reference.
 SparseArrays.AbstractSparseArray
 SparseArrays.AbstractSparseVector
 SparseArrays.AbstractSparseMatrix
+SparseArrays.AbstractSparseMatrixCSC
 SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
@@ -233,6 +234,7 @@ SparseArrays.sprandn
 SparseArrays.nonzeros
 SparseArrays.rowvals
 SparseArrays.nzrange
+SparseArrays.getcolptr
 SparseArrays.droptol!
 SparseArrays.dropzeros!
 SparseArrays.dropzeros
