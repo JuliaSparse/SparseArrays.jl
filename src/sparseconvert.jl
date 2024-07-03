@@ -7,8 +7,13 @@
 """
 const SparseMatrixCSCSymmHerm{Tv,Ti} = Union{Symmetric{Tv,<:SparseMatrixCSCUnion{Tv,Ti}},
                                             Hermitian{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}}
+const SparseMatrixCSRSymmHerm{Tv,Ti,MatrixType} = Union{
+    Symmetric{Tv,MatrixType},
+    Hermitian{Tv,MatrixType}
+} where MatrixType <: SparseMatrixCSRUnion{Tv,Ti}
 
-const AbstractTriangularSparse{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
+const AbstractTriangularSparseCSC{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
+const AbstractTriangularSparseCSR{Tv,Ti,MatrixType} = UpperOrLowerTriangular{Tv,MatrixType} where MatrixType <: MatrixType<:SparseMatrixCSRUnion{Tv,Ti}
 
 # converting Symmetric/Hermitian/Triangular/SubArray of SparseMatrixCSC
 # and Transpose/Adjoint of Triangular of SparseMatrixCSC to SparseMatrixCSC
@@ -115,6 +120,7 @@ end
 
 # Symmetric/Hermitian of sparse matrix
 _sparsem(A::SparseMatrixCSCSymmHerm) = _sparsem(A.uplo == 'U' ? nzrangeup : nzrangelo, A)
+_sparsem(A::SparseMatrixCSRSymmHerm) = _sparsem(A.uplo == 'U' ? nzrangeup : nzrangelo, A)
 # Triangular of sparse matrix
 _sparsem(A::UpperTriangular{T,<:AbstractSparseMatrix}) where T = triu(A.data)
 _sparsem(A::LowerTriangular{T,<:AbstractSparseMatrix}) where T = tril(A.data)
@@ -169,11 +175,60 @@ function _sparsem(fnzrange::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv
         end
         newcolptr[j] = newk
     end
-    _sparse_gen(m, n, newcolptr, newrowval, newnzval)
+    _sparse_gen_csc(SparseMatrixCSC, m, n, newcolptr, newrowval, newnzval)
+end
+function _sparsem(fnzrange::Function, sA::SparseMatrixCSRSymmHerm{Tv,MatrixType}) where {Tv,MatrixType}
+    A = sA.data
+    colval = colvals(A)
+    nzval = nonzeros(A)
+    m, n = size(A)
+    Ti = eltype(colval)
+    fadj = sA isa Symmetric ? transpose : adjoint
+    newrowptr = Vector{Ti}(undef, n+1)
+    diagmap = fadj == transpose ? identity : real
+
+    newrowptr[1] = 1
+    rowrange = fnzrange === nzrangeup ? (1:n) : (n:-1:1)
+    @inbounds for j = colrange
+        r = fnzrange(A, j); r1 = r.start; r2 = r.stop
+        newrowptr[j+1] = r2 - r1 + 1
+        for k = r1:r2
+            row = colval[k]
+            if row != j
+                newrowptr[row+1] += 1
+            end
+        end
+    end
+    cumsum!(newrowptr, newrowptr)
+    nz = newrowptr[n+1] - 1
+    newcolval = Vector{Ti}(undef, nz)
+    newnzval = Vector{Tv}(undef, nz)
+    @inbounds for j = 1:n
+        newk = newrowptr[j]
+        for k = fnzrange(A, j)
+            i = colval[k]
+            nzv = nzval[k]
+            if i != j
+                newcolval[newk] = i
+                newnzval[newk] = nzv
+                newk += 1
+                ni = newrowptr[i]
+                newcolval[ni] = j
+                newnzval[ni] = fadj(nzv)
+                newrowptr[i] = ni + 1
+            else
+                newcolval[newk] = i
+                newnzval[newk] = diagmap(nzv)
+                newk += 1
+            end
+        end
+        newrowptr[j] = newk
+    end
+    _sparse_gen_csr(MatrixType, m, n, newrowptr, newcolval, newnzval)
 end
 
 # 2 cases: Unit(Upper|Lower)Triangular{Tv,AbstractSparseMatrixCSC}
-function _sparsem(A::AbstractTriangularSparse{Tv}) where Tv
+function _sparsem(A::AbstractTriangularSparseCSC{Tv}) where Tv
     S = A.data
     rowval = rowvals(S)
     nzval = nonzeros(S)
@@ -215,10 +270,51 @@ function _sparsem(A::AbstractTriangularSparse{Tv}) where Tv
     resize!(newnzval, nz)
     SparseMatrixCSC(m, n, newcolptr, newrowval, newnzval)
 end
+function _sparsem(A::AbstractTriangularSparseCSR{Tv,<:Any,MatrixType}) where {Tv, MatrixType}
+    S = A.data
+    colval = colvals(S)
+    nzval = nonzeros(S)
+    m, n = size(S)
+    Ti = eltype(colval)
+    fnzrange = A isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
+    unit = A isa Union{UnitUpperTriangular,UnitLowerTriangular}
+    nz = nnz(S) + n * unit
+    newrowptr = Vector{Ti}(undef, n+1)
+    newcolval = Vector{Ti}(undef, nz)
+    newnzval = Vector{Tv}(undef, nz)
+    newrowptr[1] = 1
+    uplo = fnzrange == nzrangeup
+    newk = 1
+    @inbounds for j = 1:n
+        newkk = newk
+        if unit
+            newk += !uplo
+        end
+        r = fnzrange(S, j); r1 = r.start; r2 = r.stop
+        for k = r1:r2
+            i = colval[k]
+            if i != j || i == j && !unit
+                newcolval[newk] = i
+                newnzval[newk] = nzval[k]
+                newk += 1
+            end
+        end
+        if unit
+            uplo && (newkk = newk)
+            newcolval[newkk] = j
+            newnzval[newkk] = one(Tv)
+            newk += uplo
+        end
+        newrowptr[j+1] = newk
+    end
+    nz = newrowptr[n+1] - 1
+    resize!(newcolval, nz)
+    resize!(newnzval, nz)
+    MatrixType(m, n, newrowptr, newcolval, newnzval)
+end
 
 # 8 cases: (Transpose|Adjoint){Tv,[Unit](Upper|Lower)Triangular}
-function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparse}) where {Tv}
-
+function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparseCSC}) where {Tv}
     sA = taA.parent
     A = sA.data
     rowval = rowvals(A)
@@ -273,11 +369,73 @@ function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparse}) where {Tv}
     _sparse_gen(n, m, newcolptr, newrowval, newnzval)
 end
 
-function _sparse_gen(m, n, newcolptr, newrowval, newnzval)
+function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparseCSR{Tv,<:Any,MatrixType}}) where {Tv, MatrixType}
+    sA = taA.parent
+    A = sA.data
+    colval = colvals(A)
+    nzval = nonzeros(A)
+    m, n = size(A)
+    Ti = eltype(colval)
+    fnzrange = sA isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
+    fadj = taA isa Transpose ? transpose : adjoint
+    unit = sA isa Union{UnitUpperTriangular,UnitLowerTriangular}
+    uplo = A isa Union{UpperTriangular,UnitUpperTriangular}
+
+    newrowptr = Vector{Ti}(undef, n+1)
+    fill!(newrowptr, unit)
+    newrowptr[1] = 1
+    @inbounds for j = 1:n
+        for k = fnzrange(A, j)
+            i = colval[k]
+            if i != j || i == j && !unit
+                newrowptr[i+1] += 1
+            end
+        end
+    end
+    cumsum!(newrowptr, newrowptr)
+    nz = newrowptr[n+1] - 1
+    newcolval = Vector{Ti}(undef, nz)
+    newnzval = Vector{Tv}(undef, nz)
+
+    @inbounds for j = 1:n
+        if !uplo && unit
+            ni = newrowptr[j]
+            newcolval[ni] = j
+            newnzval[ni] = fadj(one(Tv))
+            newrowptr[j] = ni + 1
+        end
+        for k = fnzrange(A, j)
+            i = colval[k]
+            nzv = nzval[k]
+            if i != j || i == j && !unit
+                ni = newrowptr[i]
+                newcolval[ni] = j
+                newnzval[ni] = fadj(nzv)
+                newrowptr[i] = ni + 1
+            end
+        end
+        if uplo && unit
+            ni = newrowptr[j]
+            newcolval[ni] = j
+            newnzval[ni] = fadj(one(Tv))
+            newrowptr[j] = ni + 1
+        end
+    end
+    _sparse_gen(MatrixType, n, m, newrowptr, newcolval, newnzval)
+end
+
+function _sparse_gen_csc(T, m, n, newcolptr, newrowval, newnzval)
     @inbounds for j = n:-1:1
         newcolptr[j+1] = newcolptr[j]
     end
     newcolptr[1] = 1
-    SparseMatrixCSC(m, n, newcolptr, newrowval, newnzval)
+    T(m, n, newcolptr, newrowval, newnzval)
 end
 
+function _sparse_gen_csr(T, m, n, newcolptr, newrowval, newnzval)
+    @inbounds for j = n:-1:1
+        newcolptr[j+1] = newcolptr[j]
+    end
+    newcolptr[1] = 1
+    T(m, n, newcolptr, newrowval, newnzval)
+end
