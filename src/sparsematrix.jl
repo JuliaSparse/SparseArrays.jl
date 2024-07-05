@@ -26,7 +26,7 @@ struct SparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     function SparseMatrixCSC{Tv,Ti}(m::Integer, n::Integer, colptr::Vector{Ti},
                             rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
-        _goodbuffers(Int(m), Int(n), colptr, rowval, nzval) ||
+        _goodbufferscsc(Int(m), Int(n), colptr, rowval, nzval) ||
             throw(ArgumentError("Invalid buffers for SparseMatrixCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
         new(Int(m), Int(n), colptr, rowval, nzval)
     end
@@ -73,7 +73,7 @@ struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
                             rowval::ReadOnly{Ti,1,Vector{Ti}},
                             nzval::Vector{Tv}) where {Tv,Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
-        _goodbuffers(Int(m), Int(n), parent(colptr), parent(rowval), nzval) ||
+        _goodbufferscsc(Int(m), Int(n), parent(colptr), parent(rowval), nzval) ||
             throw(ArgumentError("Invalid buffers for FixedSparseCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
         new(Int(m), Int(n), colptr, rowval, nzval)
     end
@@ -164,12 +164,18 @@ end
 
 size(S::SorF) = (getfield(S, :m), getfield(S, :n))
 
-_goodbuffers(S::AbstractSparseMatrixCSC) = _goodbuffers(size(S)..., getcolptr(S), getrowval(S), nonzeros(S))
-_checkbuffers(S::AbstractSparseMatrixCSC) = (@assert _goodbuffers(S); S)
+_goodbuffers(S::AbstractSparseMatrixCSC) = _goodbufferscsc(size(S)..., getcolptr(S), getrowval(S), nonzeros(S))
+_goodbuffers(S::AbstractSparseMatrixCSR) = _goodbufferscsr(size(S)..., getrowptr(S), getcolval(S), nonzeros(S))
+_checkbuffers(S::AbstractSparseMatrixCSCOrCSR) = (@assert _goodbuffers(S); S)
 _checkbuffers(S::Union{Adjoint, Transpose}) = (_checkbuffers(parent(S)); S)
 
-function _goodbuffers(m, n, colptr, rowval, nzval)
+function _goodbufferscsc(m, n, colptr, rowval, nzval)
     (length(colptr) == n + 1 && colptr[end] - 1 == length(rowval) == length(nzval))
+    # stronger check for debugging purposes
+    # && all(issorted(@view rowval[colptr[i]:colptr[i+1]-1]) for i=1:n)
+end
+function _goodbufferscsr(m, n, rowptr, colval, nzval)
+    (length(rowptr) == m + 1 && rowptr[end] - 1 == length(colval) == length(nzval))
     # stronger check for debugging purposes
     # && all(issorted(@view rowval[colptr[i]:colptr[i+1]-1]) for i=1:n)
 end
@@ -1535,11 +1541,9 @@ end
 function _computerowptrs_halfperm!(X::AbstractSparseMatrixCSR{Tv,Ti}, A::AbstractSparseMatrixCSR{TvA,Ti}) where {Tv,TvA,Ti}
     # Compute `transpose(A[q,:])`'s column counts. Store shifted forward one position in getcolptr(X).
     fill!(getrowptr(X), 0)
-    @show colvals(A)
     for k in 1:nnz(A)
         getrowptr(X)[colvals(A)[k]+1] += 1
     end
-    @show getrowptr(X)
     # Compute `transpose(A[q,:])`'s column pointers. Store shifted forward one position in getcolptr(X).
     getrowptr(X)[1] = 1
     countsum = 1
@@ -1647,7 +1651,7 @@ function ftranspose(A::MatrixType, f::Function, eltype::Type{Tv} = TvA) where {T
                    Vector{Ti}(undef, 0),
                    Vector{Tv}(undef, 0))
     sizehint!(X, nnz(A))
-    return halfperm!(X, A, 1:size(A, 2), f)
+    return halfperm!(X, A, 1:size(A, 1), f)
 end
 
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)

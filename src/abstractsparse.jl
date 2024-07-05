@@ -48,6 +48,8 @@ Supertype for matrix with compressed sparse row (CSR).
 """
 abstract type AbstractSparseMatrixCSR{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
+const AbstractSparseMatrixCSCOrCSR{Tv,Ti} = Union{AbstractSparseMatrixCSR{Tv,Ti}, AbstractSparseMatrixCSC{Tv,Ti}}
+
 """
     issparse(S)
 

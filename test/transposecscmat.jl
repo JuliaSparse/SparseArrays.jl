@@ -43,7 +43,7 @@ SparseArrays.nonzeros(A::TransposeSparseMatrixCSC)  = nonzeros(A.A.parent)
     @test typeof(ATTAT) <: SparseArrays.AbstractSparseMatrixCSR
     @test all(ATTAT .== A*A')
 
-    A = TransposeSparseMatrixCSC(sprandn(3,2,0.5))
+    A  = TransposeSparseMatrixCSC(sprandn(3,2,0.5))
     B1 = TransposeSparseMatrixCSC(sprandn(3,4,0.5))
     B2 = TransposeSparseMatrixCSC(sprandn(3,3,0.5))
     B3 = TransposeSparseMatrixCSC(sprandn(4,3,0.5))
