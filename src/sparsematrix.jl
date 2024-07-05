@@ -2956,6 +2956,8 @@ end
     ((r1 > r2) || (rowvals(A)[r1] != i0)) ? zero(T) : nonzeros(A)[r1]
 end
 
+@RCI @propagate_inbounds getindex(A::AbstractSparseMatrixCSR, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
+
 @RCI @propagate_inbounds function getindex(A::AbstractSparseMatrixCSR{T}, i0::Integer, i1::Integer) where T
     @boundscheck checkbounds(A, i0, i1)
     c1 = Int(@inbounds getrowptr(A)[i0])
