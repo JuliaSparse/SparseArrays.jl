@@ -366,7 +366,7 @@ function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparseCSC}) where {Tv}
             newcolptr[j] = ni + 1
         end
     end
-    _sparse_gen(n, m, newcolptr, newrowval, newnzval)
+    _sparse_gen_csc(SparseMatrixCSC, n, m, newcolptr, newrowval, newnzval)
 end
 
 function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparseCSR{Tv,<:Any,MatrixType}}) where {Tv, MatrixType}
@@ -421,7 +421,7 @@ function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparseCSR{Tv,<:Any,Matr
             newrowptr[j] = ni + 1
         end
     end
-    _sparse_gen(MatrixType, n, m, newrowptr, newcolval, newnzval)
+    _sparse_gen_csr(MatrixType, n, m, newrowptr, newcolval, newnzval)
 end
 
 function _sparse_gen_csc(T, m, n, newcolptr, newrowval, newnzval)

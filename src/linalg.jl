@@ -1326,26 +1326,26 @@ function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::Strided
 end
 
 # row range up to (and including if excl=false) diagonal
-function nzrangeup(A::AbstractSparseMatrixCSC, i, excl=false)
+function nzrangeup(A::SparseMatrixCSCUnion3, i, excl=false)
     r = nzrange(A, i); r1 = r.start; r2 = r.stop
     rv = rowvals(A)
     @inbounds r2 < r1 || rv[r2] <= i - excl ? r : r1:(searchsortedlast(view(rv, r1:r2), i - excl) + r1-1)
 end
 # row range from diagonal (included if excl=false) to end
-function nzrangelo(A::AbstractSparseMatrixCSC, i, excl=false)
+function nzrangelo(A::SparseMatrixCSCUnion3, i, excl=false)
     r = nzrange(A, i); r1 = r.start; r2 = r.stop
     rv = rowvals(A)
     @inbounds r2 < r1 || rv[r1] >= i + excl ? r : (searchsortedfirst(view(rv, r1:r2), i + excl) + r1-1):r2
 end
-function nzrangeup(A::AbstractSparseMatrixCSR, i, excl=false)
-    r = nzrange(A, i); r1 = r.start; r2 = r.stop
-    rv = colvals(A)
-    @inbounds r2 < r1 || rv[r1] >= i + excl ? r : (searchsortedfirst(view(rv, r1:r2), i + excl) + r1-1):r2
+function nzrangeup(A::SparseMatrixCSRUnion3, i, excl=false)
+    c = nzrange(A, i); c1 = c.start; c2 = c.stop
+    cv = colvals(A)
+    @inbounds c2 < c1 || cv[c1] >= i + excl ? c : (searchsortedfirst(view(cv, c1:c2), i + excl) + c1-1):c2
 end
-function nzrangelo(A::AbstractSparseMatrixCSR, i, excl=false)
-    r = nzrange(A, i); r1 = r.start; r2 = r.stop
-    rv = colvals(A)
-    @inbounds r2 < r1 || rv[r2] <= i - excl ? r : r1:(searchsortedlast(view(rv, r1:r2), i - excl) + r1-1)
+function nzrangelo(A::SparseMatrixCSRUnion3, i, excl=false)
+    c = nzrange(A, i); c1 = c.start; c2 = c.stop
+    cv = colvals(A)
+    @inbounds c2 < c1 || cv[c2] <= i - excl ? c : c1:(searchsortedlast(view(cv, c1:c2), i - excl) + c1-1)
 end
 
 dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractVector) =

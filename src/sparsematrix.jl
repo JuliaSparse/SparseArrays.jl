@@ -190,6 +190,7 @@ const SparseMatrixCSCColumnSubset{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
         Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractVector{<:Integer}}
 const SparseMatrixCSCUnion2{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCColumnSubset{Tv,Ti}}
+const SparseMatrixCSCUnion3{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCColumnSubset{Tv,Ti}, SparseMatrixCSCView{Tv, Ti}}
 
 getcolptr(S::SorF)     = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
@@ -202,12 +203,13 @@ nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
 
 const SparseMatrixCSRView{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSR{Tv,Ti},
-        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange{<:Integer}}
+        Tuple{I,Base.Slice{Base.OneTo{Int}}}} where {I<:AbstractUnitRange{<:Integer}}
 const SparseMatrixCSRRowSubset{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSR{Tv,Ti},
         Tuple{I,Base.Slice{Base.OneTo{Int}}}} where {I<:AbstractVector{<:Integer}}
 const SparseMatrixCSRUnion{Tv,Ti}  = Union{AbstractSparseMatrixCSR{Tv,Ti}, SparseMatrixCSRView{Tv,Ti}}
 const SparseMatrixCSRUnion2{Tv,Ti} = Union{AbstractSparseMatrixCSR{Tv,Ti}, SparseMatrixCSRRowSubset{Tv,Ti}}
+const SparseMatrixCSRUnion3{Tv,Ti} = Union{AbstractSparseMatrixCSR{Tv,Ti}, SparseMatrixCSRRowSubset{Tv,Ti}, SparseMatrixCSRView{Tv, Ti}}
 
 getrowptr(S::AbstractSparseMatrixCSR) = getfield(S, :rowptr)
 getrowptr(S::SparseMatrixCSRView)     = view(getrowptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
