@@ -747,6 +747,34 @@ for TI ∈ IndexTypes
         Dense{Tv}($(cholname(:solve, TI))(sys, F, B, getcommon($TI)))
     end
 
+    # solve the system and store the result in X
+    function solve2(sys::Integer, F::Factor{Tv, $TI}, B::Dense{Tv}, X::Dense{Tv}) where Tv<:VTypes
+        if size(F, 1) != size(B, 1)
+            throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
+                "Factorization has $(size(F, 2)) rows, but RHS has $(size(B, 1)) rows."))
+        end
+        if size(F, 2) != size(X, 1)
+            throw(DimensionMismatch("Factorization and solution should match sizes. " *
+                "Factorization has $(size(F, 1)) columns, but solution has $(size(B, 1)) rows."))
+        end
+        if !issuccess(F)
+            s = unsafe_load(pointer(F))
+            if s.is_ll == 1
+                throw(LinearAlgebra.PosDefException(s.minor))
+            else
+                throw(LinearAlgebra.ZeroPivotException(s.minor))
+            end
+        end
+        X_Handle = pointer(X)
+        Y_Handle = Ptr{LibSuiteSparse.cholmod_dense_struct}()
+        E_Handle = Ptr{LibSuiteSparse.cholmod_dense_struct}()
+        status = $(cholname(:solve2, TI))(sys, F, B, C_NULL, Ref(X_Handle), C_NULL, Ref(Y_Handle), Ref(E_Handle), getcommon($TI))
+        free!(Y_Handle)
+        free!(E_Handle)
+        @assert !iszero(status)
+        return X
+    end
+
     function spsolve(sys::Integer, F::Factor{Tv, $TI}, B::Sparse{Tv, $TI}) where Tv<:VTypes
         if size(F,1) != size(B,1)
             throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
@@ -795,7 +823,7 @@ function ssmult(A::Sparse{Tv1, Ti1}, B::Sparse{Tv2, Ti2}, stype::Integer,
     A, B = convert.(Sparse{promote_type(Tv1, Tv2), promote_type(Ti1, Ti2)}, (A, B))
     return ssmult(A, B, stype, values, sorted)
 end
-function horzcat(A::Sparse{Tv1, Ti1}, B::Sparse{Tv2, Ti2}, values::Bool) where 
+function horzcat(A::Sparse{Tv1, Ti1}, B::Sparse{Tv2, Ti2}, values::Bool) where
         {Tv1<:VRealTypes, Tv2<:VRealTypes, Ti1, Ti2}
     A, B = convert.(Sparse{promote_type(Tv1, Tv2), promote_type(Ti1, Ti2)}, (A, B))
     return horzcat(A, B, values)
@@ -809,7 +837,7 @@ function sdmult!(A::Sparse{Tv1, Ti}, transpose::Bool,
     A, X = convert(Sparse{Tv3, Ti}, A), convert(Dense{Tv3}, X)
     return sdmult!(A, transpose, α, β, X, Y)
 end
-function vertcat(A::Sparse{Tv1, Ti1}, B::Sparse{Tv2, Ti2}, values::Bool) where 
+function vertcat(A::Sparse{Tv1, Ti1}, B::Sparse{Tv2, Ti2}, values::Bool) where
         {Tv1<:VRealTypes, Ti1, Tv2<:VRealTypes, Ti2}
     A, B = convert.(Sparse{promote_type(Tv1, Tv2), promote_type(Ti1, Ti2)}, (A, B))
     return vertcat(A, B, values)
@@ -895,7 +923,7 @@ function Dense(A::StridedVecOrMatInclAdjAndTrans)
     return Dense{T}(A)
 end
 # Don't always promote to Float64 now that we have Float32 support.
-Dense(A::StridedVecOrMatInclAdjAndTrans{T}) where 
+Dense(A::StridedVecOrMatInclAdjAndTrans{T}) where
     {T<:Union{Float16, ComplexF16, Float32, ComplexF32}} = Dense{promote_type(T, Float32)}(A)
 
 
@@ -1055,8 +1083,8 @@ Sparse(A::Hermitian{Tv, SparseMatrixCSC{Tv,Ti}}) where {Tv, Ti} =
     Sparse{promote_type(Tv, Float64), Ti <: ITypes ? Ti : promote_type(Ti, Int)}(
         A.data, A.uplo == 'L' ? -1 : 1
     )
-Sparse(A::Hermitian{Tv, SparseMatrixCSC{Tv,Ti}}) where 
-    {Tv<:Union{Float16, Float32, ComplexF32, ComplexF16}, Ti} = 
+Sparse(A::Hermitian{Tv, SparseMatrixCSC{Tv,Ti}}) where
+    {Tv<:Union{Float16, Float32, ComplexF32, ComplexF16}, Ti} =
     Sparse{promote_type(Float32, Tv), Ti <: ITypes ? Ti : promote_type(Ti, Int)}(
         A.data, A.uplo == 'L' ? -1 : 1
     )
@@ -1076,7 +1104,7 @@ function Base.convert(::Type{Sparse{Tnew, Inew}}, A::Sparse{Tv, Ti}) where {Tnew
         a = unsafe_load(typedpointer(A))
         S = allocate_sparse(a.nrow, a.ncol, a.nzmax, Bool(a.sorted), Bool(a.packed), a.stype, Tnew, Inew)
         s = unsafe_load(typedpointer(S))
-        
+
         ap = unsafe_wrap(Array, a.p, (a.ncol + 1,), own = false)
         sp = unsafe_wrap(Array, s.p, (s.ncol + 1,), own = false)
         copyto!(sp, ap)
@@ -1376,7 +1404,7 @@ end
 
 ## Multiplication
 (*)(A::Sparse, B::Sparse) = ssmult(A, B, 0, true, true)
-(*)(A::Sparse, B::Dense) = sdmult!(A, false, 1., 0., B, 
+(*)(A::Sparse, B::Dense) = sdmult!(A, false, 1., 0., B,
     zeros(size(A, 1), size(B, 2), promote_type(eltype(A), eltype(B)))
 )
 (*)(A::Sparse, B::VecOrMat) = (*)(A, Dense(B))
@@ -1413,7 +1441,7 @@ function *(adjA::Adjoint{<:Any,<:Sparse}, B::Sparse)
 end
 
 *(adjA::Adjoint{<:Any,<:Sparse}, B::Dense) = (
-    A = parent(adjA); sdmult!(A, true, 1., 0., B, 
+    A = parent(adjA); sdmult!(A, true, 1., 0., B,
     zeros(size(A, 2), size(B, 2), promote_type(eltype(A), eltype(B))))
 )
 *(adjA::Adjoint{<:Any,<:Sparse}, B::VecOrMat) = adjA * Dense(B)
@@ -1467,7 +1495,7 @@ See also [`cholesky`](@ref).
 
 !!! note
     This method uses the CHOLMOD library from SuiteSparse, which only supports
-    real or complex types in single or double precision. 
+    real or complex types in single or double precision.
     Input matrices not of those element types will
     be converted to these types as appropriate.
 """
@@ -1587,8 +1615,8 @@ true
 
 !!! note
     This method uses the CHOLMOD[^ACM887][^DavisHager2009] library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    CHOLMOD only supports real or complex types in single or double precision. 
-    Input matrices not of those element types will be 
+    CHOLMOD only supports real or complex types in single or double precision.
+    Input matrices not of those element types will be
     converted to these types as appropriate.
 
     Many other functions from CHOLMOD are wrapped but not exported from the
@@ -1633,8 +1661,8 @@ have the type tag, it must still be symmetric or Hermitian.
 See also [`ldlt`](@ref).
 
 !!! note
-    This method uses the CHOLMOD library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse), 
-    which only supports real or complex types in single or double precision. 
+    This method uses the CHOLMOD library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
+    which only supports real or complex types in single or double precision.
     Input matrices not of those element types will
     be converted to these types as appropriate.
 """
@@ -1695,7 +1723,7 @@ it should be a permutation of `1:size(A,1)` giving the ordering to use
 
 !!! note
     This method uses the CHOLMOD[^ACM887][^DavisHager2009] library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    CHOLMOD only supports real or complex types in single or double precision. 
+    CHOLMOD only supports real or complex types in single or double precision.
     Input matrices not of those element types will
     be converted to these types as appropriate.
 
@@ -1767,7 +1795,7 @@ See also [`lowrankupdate!`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!
 """
 lowrankupdate(F::Factor{Tv}, V::AbstractArray{Tv2}) where {Tv, Tv2} =
     lowrankupdate!(
-        change_xdtype(F, promote_type(Tv, Tv2)), 
+        change_xdtype(F, promote_type(Tv, Tv2)),
         convert(AbstractArray{promote_type(Tv, Tv2)}, V)
     )
 
@@ -1782,7 +1810,7 @@ See also [`lowrankdowndate!`](@ref), [`lowrankupdate`](@ref), [`lowrankupdate!`]
 """
 lowrankdowndate(F::Factor{Tv}, V::AbstractArray{Tv2}) where {Tv, Tv2} =
 lowrankdowndate!(
-    change_xdtype(F, promote_type(Tv, Tv2)), 
+    change_xdtype(F, promote_type(Tv, Tv2)),
     convert(AbstractArray{promote_type(Tv, Tv2)}, V)
 )
 
