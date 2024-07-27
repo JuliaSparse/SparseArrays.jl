@@ -302,6 +302,17 @@ end
     X2 = zero(X)
     @inferred ldiv!(X2, factor, B)
     @test X2 ≈ X
+
+    c = fill(Tv(1), size(x, 1) + 1)
+    C = fill(Tv(1), size(X, 1) + 1, size(X, 2))
+    y = fill(Tv(1), size(x, 1) + 1)
+    Y = fill(Tv(1), size(X, 1) + 1, size(X, 2))
+    @test_throws DimensionMismatch ldiv!(y, factor, b)
+    @test_throws DimensionMismatch ldiv!(Y, factor, B)
+    @test_throws DimensionMismatch ldiv!(x2, factor, c)
+    @test_throws DimensionMismatch ldiv!(X2, factor, C)
+    @test_throws DimensionMismatch ldiv!(X2, factor, b)
+    @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
 end #end for Ti ∈ itypes

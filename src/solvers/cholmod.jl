@@ -1947,6 +1947,10 @@ for TI in IndexTypes
             throw(DimensionMismatch("Factorization and solution should match sizes. " *
                 "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
         end
+        if size(x, 2) != size(b, 2)
+            throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
+                "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
+        end
         if !issuccess(L)
             s = unsafe_load(pointer(L))
             if s.is_ll == 1
