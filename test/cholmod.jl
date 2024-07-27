@@ -138,6 +138,9 @@ Random.seed!(123)
     @test CHOLMOD.isvalid(chma)
     @test unsafe_load(pointer(chma)).is_ll == 1    # check that it is in fact an LLt
     @test chma\b ≈ x
+    x2 = zero(x)
+    @inferred ldiv!(x2, chma, b)
+    @test x2 ≈ x
     @test nnz(chma) == 489
     @test nnz(cholesky(A, perm=1:size(A,1))) > nnz(chma)
     @test size(chma) == size(A)
@@ -365,9 +368,9 @@ end
     @test isa(CHOLMOD.eye(3), CHOLMOD.Dense{Float64})
 end
 
-@testset "Core functionality ($elty, $elty2)" for 
-    elty in (Tv, Complex{Tv}), 
-    Tv2 in (Float32, Float64), 
+@testset "Core functionality ($elty, $elty2)" for
+    elty in (Tv, Complex{Tv}),
+    Tv2 in (Float32, Float64),
     elty2 in (Tv2, Complex{Tv2}),
     Ti ∈ itypes
     A1 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
@@ -972,7 +975,7 @@ end
     f = ones(size(K, 1))
     u = K \ f
     residual = norm(f - K * u) / norm(f)
-    @test residual < 1e-6 
+    @test residual < 1e-6
 end
 
 @testset "wrapped sparse matrices" begin

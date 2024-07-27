@@ -18,7 +18,7 @@ using LinearAlgebra
 using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans
 import LinearAlgebra: (\), AdjointFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
-                 issuccess, issymmetric, ldlt, ldlt!, logdet,
+                 issuccess, issymmetric, ldiv!, ldlt, ldlt!, logdet,
                  lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
@@ -755,7 +755,7 @@ for TI ∈ IndexTypes
         end
         if size(F, 2) != size(X, 1)
             throw(DimensionMismatch("Factorization and solution should match sizes. " *
-                "Factorization has $(size(F, 1)) columns, but solution has $(size(B, 1)) rows."))
+                "Factorization has $(size(F, 1)) columns, but solution has $(size(X, 1)) rows."))
         end
         if !issuccess(F)
             s = unsafe_load(pointer(F))
@@ -766,9 +766,15 @@ for TI ∈ IndexTypes
             end
         end
         X_Handle = pointer(X)
-        Y_Handle = Ptr{LibSuiteSparse.cholmod_dense_struct}()
-        E_Handle = Ptr{LibSuiteSparse.cholmod_dense_struct}()
-        status = $(cholname(:solve2, TI))(sys, F, B, C_NULL, Ref(X_Handle), C_NULL, Ref(Y_Handle), Ref(E_Handle), getcommon($TI))
+        Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)
+        E_Handle = Ptr{cholmod_dense_struct}(C_NULL)
+        status = $(cholname(:solve2, TI))(
+            sys, F,
+            B, C_NULL,
+            Ref(X_Handle), C_NULL,
+            Ref(Y_Handle),
+            Ref(E_Handle),
+            getcommon($TI))
         free!(Y_Handle)
         free!(E_Handle)
         @assert !iszero(status)
@@ -940,6 +946,19 @@ function Base.convert(::Type{Dense{Tnew}}, A::Dense{T}) where {Tnew, T}
     return d
 end
 Base.convert(::Type{Dense{T}}, A::Dense{T}) where T = A
+
+function wrap_dense(x::StridedVecOrMat{T}) where {T <: VTypes}
+    dense_x = cholmod_dense_struct()
+    dense_x.nrow = size(x, 1)
+    dense_x.ncol = size(x, 2)
+    dense_x.nzmax = length(x)
+    dense_x.d = stride(x, 2)
+    dense_x.x = pointer(x)
+    dense_x.z = C_NULL
+    dense_x.xtype = xtyp(eltype(x))
+    dense_x.dtype = dtyp(eltype(x))
+    return dense_x
+end
 
 # This constructor assumes zero based colptr and rowval
 function Sparse(m::Integer, n::Integer,
@@ -1932,6 +1951,67 @@ const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjO
 \(::RealHermSymComplexHermSSL, ::AbstractSparseVecOrMatInclAdjAndTrans) =
     throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
         " consider to convert B to a dense array"))
+
+# in-place ldiv!
+for TI in IndexTypes
+    @eval function ldiv!(X::Dense{T},
+                         L::Factor{T, $TI},
+                         B::Dense{T}) where {T<:VTypes}
+        solve2(CHOLMOD_A, L, B, X)
+        return X
+    end
+
+    @eval function ldiv!(x::StridedVecOrMat{T},
+                         L::Factor{T, $TI},
+                         b::StridedVecOrMat{T}) where {T<:VTypes}
+        if x === b
+            throw(ArgumentError("output array must not be aliased with input array"))
+        end
+        if size(L, 1) != size(b, 1)
+            throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
+                "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
+        end
+        if size(L, 2) != size(x, 1)
+            throw(DimensionMismatch("Factorization and solution should match sizes. " *
+                "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
+        end
+        if !issuccess(L)
+            s = unsafe_load(pointer(L))
+            if s.is_ll == 1
+                throw(LinearAlgebra.PosDefException(s.minor))
+            else
+                throw(LinearAlgebra.ZeroPivotException(s.minor))
+            end
+        end
+
+        # Just calling Dense(x) or Dense(b) will allocate new
+        # `cholmod_dense_struct`s in CHOLMOD. Instead, we want to reuse
+        # the existing memory. We can do this by creating new
+        # `cholmod_dense_struct`s and filling them manually.
+        dense_x = wrap_dense(x)
+        dense_b = wrap_dense(b)
+
+        X_Handle = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
+        Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)
+        E_Handle = Ptr{cholmod_dense_struct}(C_NULL)
+        # @info "before solve2" X_Handle Y_Handle E_Handle
+        GC.@preserve dense_x dense_b begin
+            status = $(cholname(:solve2, TI))(
+                CHOLMOD_A, L,
+                Ref(dense_b), C_NULL,
+                Ref(X_Handle), C_NULL,
+                Ref(Y_Handle),
+                Ref(E_Handle),
+                getcommon($TI))
+        end
+        # @info "after solve2" X_Handle Y_Handle E_Handle
+        free!(Y_Handle)
+        free!(E_Handle)
+        @assert !iszero(status)
+
+        return x
+    end
+end
 
 ## Other convenience methods
 function diag(F::Factor{Tv, Ti}) where {Tv, Ti}
