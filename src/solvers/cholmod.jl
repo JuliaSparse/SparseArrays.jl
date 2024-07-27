@@ -1947,8 +1947,20 @@ for TI in IndexTypes
         # `cholmod_dense_struct`s in CHOLMOD. Instead, we want to reuse
         # the existing memory. We can do this by creating new
         # `cholmod_dense_struct`s and filling them manually.
-        dense_x = wrap_dense(x)
-        dense_b = wrap_dense(b)
+        # We need to use a special handling for the case of `Dense`
+        # input arrays since the `pointer` refers to the pointer to the
+        # `cholmod_dense`, not to the array values themselves as for
+        # standard arrays.
+        if x isa Dense
+            dense_x = unsafe_load(pointer(x))
+        else
+            dense_x = wrap_dense(x)
+        end
+        if b isa Dense
+            dense_b = unsafe_load(pointer(b))
+        else
+            dense_b = wrap_dense(b)
+        end
 
         X_Handle = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
         Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)

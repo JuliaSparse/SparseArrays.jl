@@ -284,6 +284,26 @@ end
     end
 end
 
+@testset "ldiv! $Tv $Ti" begin
+    local A, x, x2, b, X, X2, B
+    A = sprand(10, 10, 0.1)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    factor = cholesky(A)
+
+    x = fill(Tv(1), 10)
+    b = A * x
+    x2 = zero(x)
+    @inferred ldiv!(x2, factor, b)
+    @test x2 ≈ x
+
+    X = fill(Tv(1), 10, 5)
+    B = A * X
+    X2 = zero(X)
+    @inferred ldiv!(X2, factor, B)
+    @test X2 ≈ X
+end
+
 end #end for Ti ∈ itypes
 
 for Tv ∈ (Float32, Float64)
