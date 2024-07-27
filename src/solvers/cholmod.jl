@@ -747,40 +747,6 @@ for TI ∈ IndexTypes
         Dense{Tv}($(cholname(:solve, TI))(sys, F, B, getcommon($TI)))
     end
 
-    # solve the system and store the result in X
-    function solve2(sys::Integer, F::Factor{Tv, $TI}, B::Dense{Tv}, X::Dense{Tv}) where Tv<:VTypes
-        if size(F, 1) != size(B, 1)
-            throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
-                "Factorization has $(size(F, 2)) rows, but RHS has $(size(B, 1)) rows."))
-        end
-        if size(F, 2) != size(X, 1)
-            throw(DimensionMismatch("Factorization and solution should match sizes. " *
-                "Factorization has $(size(F, 1)) columns, but solution has $(size(X, 1)) rows."))
-        end
-        if !issuccess(F)
-            s = unsafe_load(pointer(F))
-            if s.is_ll == 1
-                throw(LinearAlgebra.PosDefException(s.minor))
-            else
-                throw(LinearAlgebra.ZeroPivotException(s.minor))
-            end
-        end
-        X_Handle = pointer(X)
-        Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)
-        E_Handle = Ptr{cholmod_dense_struct}(C_NULL)
-        status = $(cholname(:solve2, TI))(
-            sys, F,
-            B, C_NULL,
-            Ref(X_Handle), C_NULL,
-            Ref(Y_Handle),
-            Ref(E_Handle),
-            getcommon($TI))
-        free!(Y_Handle)
-        free!(E_Handle)
-        @assert !iszero(status)
-        return X
-    end
-
     function spsolve(sys::Integer, F::Factor{Tv, $TI}, B::Sparse{Tv, $TI}) where Tv<:VTypes
         if size(F,1) != size(B,1)
             throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
@@ -1954,13 +1920,6 @@ const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjO
 
 # in-place ldiv!
 for TI in IndexTypes
-    @eval function ldiv!(X::Dense{T},
-                         L::Factor{T, $TI},
-                         B::Dense{T}) where {T<:VTypes}
-        solve2(CHOLMOD_A, L, B, X)
-        return X
-    end
-
     @eval function ldiv!(x::StridedVecOrMat{T},
                          L::Factor{T, $TI},
                          b::StridedVecOrMat{T}) where {T<:VTypes}
@@ -1994,7 +1953,6 @@ for TI in IndexTypes
         X_Handle = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
         Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)
         E_Handle = Ptr{cholmod_dense_struct}(C_NULL)
-        # @info "before solve2" X_Handle Y_Handle E_Handle
         GC.@preserve dense_x dense_b begin
             status = $(cholname(:solve2, TI))(
                 CHOLMOD_A, L,
@@ -2004,7 +1962,6 @@ for TI in IndexTypes
                 Ref(E_Handle),
                 getcommon($TI))
         end
-        # @info "after solve2" X_Handle Y_Handle E_Handle
         free!(Y_Handle)
         free!(E_Handle)
         @assert !iszero(status)
