@@ -1953,8 +1953,8 @@ for TI in IndexTypes
         X_Handle = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
         Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)
         E_Handle = Ptr{cholmod_dense_struct}(C_NULL)
-        GC.@preserve dense_x dense_b begin
-            status = $(cholname(:solve2, TI))(
+        status = GC.@preserve x dense_x b dense_b begin
+            $(cholname(:solve2, TI))(
                 CHOLMOD_A, L,
                 Ref(dense_b), C_NULL,
                 Ref(X_Handle), C_NULL,
@@ -1962,8 +1962,12 @@ for TI in IndexTypes
                 Ref(E_Handle),
                 getcommon($TI))
         end
-        free!(Y_Handle)
-        free!(E_Handle)
+        if Y_Handle != C_NULL
+            free!(Y_Handle)
+        end
+        if E_Handle != C_NULL
+            free!(E_Handle)
+        end
         @assert !iszero(status)
 
         return x
