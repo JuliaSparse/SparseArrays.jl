@@ -13,7 +13,7 @@ using Random
 using Serialization
 using LinearAlgebra:
     I, cholesky, cholesky!, det, diag, eigmax, ishermitian, isposdef, issuccess,
-    issymmetric, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
+    issymmetric, ldiv!, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
     PosDefException, ZeroPivotException, RowMaximum
 using SparseArrays
 using SparseArrays: getcolptr
