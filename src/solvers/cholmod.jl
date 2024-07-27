@@ -913,7 +913,11 @@ function Base.convert(::Type{Dense{Tnew}}, A::Dense{T}) where {Tnew, T}
 end
 Base.convert(::Type{Dense{T}}, A::Dense{T}) where T = A
 
-function wrap_dense(x::StridedVecOrMat{T}) where {T <: VTypes}
+# Just calling Dense(x) or Dense(b) will allocate new
+# `cholmod_dense_struct`s in CHOLMOD. Instead, we want to reuse
+# the existing memory. We can do this by creating new
+# `cholmod_dense_struct`s and filling them manually.
+function wrap_dense_and_ptr(x::StridedVecOrMat{T}) where {T <: VTypes}
     dense_x = cholmod_dense_struct()
     dense_x.nrow = size(x, 1)
     dense_x.ncol = size(x, 2)
@@ -923,7 +927,16 @@ function wrap_dense(x::StridedVecOrMat{T}) where {T <: VTypes}
     dense_x.z = C_NULL
     dense_x.xtype = xtyp(eltype(x))
     dense_x.dtype = dtyp(eltype(x))
-    return dense_x
+    return dense_x, pointer_from_objref(dense_x)
+end
+# We need to use a special handling for the case of `Dense`
+# input arrays since the `pointer` refers to the pointer to the
+# `cholmod_dense`, not to the array values themselves as for
+# standard arrays.
+function wrap_dense_and_ptr(x::Dense{T}) where {T <: VTypes}
+    dense_x_ptr = x.ptr
+    dense_x = unsafe_load(dense_x_ptr)
+    return dense_x, pointer_from_objref(dense_x)
 end
 
 # This constructor assumes zero based colptr and rowval
@@ -1947,22 +1960,10 @@ for TI in IndexTypes
         # `cholmod_dense_struct`s in CHOLMOD. Instead, we want to reuse
         # the existing memory. We can do this by creating new
         # `cholmod_dense_struct`s and filling them manually.
-        # We need to use a special handling for the case of `Dense`
-        # input arrays since the `pointer` refers to the pointer to the
-        # `cholmod_dense`, not to the array values themselves as for
-        # standard arrays.
-        if x isa Dense
-            dense_x = unsafe_load(pointer(x))
-        else
-            dense_x = wrap_dense(x)
-        end
-        if b isa Dense
-            dense_b = unsafe_load(pointer(b))
-        else
-            dense_b = wrap_dense(b)
-        end
+        dense_x, dense_x_ptr = wrap_dense_and_ptr(x)
+        dense_b, dense_b_ptr = wrap_dense_and_ptr(b)
 
-        X_Handle = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
+        X_Handle = Ptr{cholmod_dense_struct}(dense_x_ptr)
         Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)
         E_Handle = Ptr{cholmod_dense_struct}(C_NULL)
         status = GC.@preserve x dense_x b dense_b begin
