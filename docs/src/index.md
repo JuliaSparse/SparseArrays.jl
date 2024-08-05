@@ -269,7 +269,7 @@ DocTestSetup = nothing
 
 # [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
 
-```@docs
+```@docs; canonical=false
 SparseArrays.CHOLMOD.cholesky
 SparseArrays.CHOLMOD.cholesky!
 SparseArrays.CHOLMOD.lowrankupdate
