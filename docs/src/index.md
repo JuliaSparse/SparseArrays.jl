@@ -270,16 +270,16 @@ DocTestSetup = nothing
 # [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
 
 ```@docs; canonical=false
-SparseArrays.CHOLMOD.cholesky
-SparseArrays.CHOLMOD.cholesky!
-SparseArrays.CHOLMOD.lowrankupdate
-SparseArrays.CHOLMOD.lowrankupdate!
-SparseArrays.CHOLMOD.lowrankdowndate
-SparseArrays.CHOLMOD.lowrankdowndate!
-SparseArrays.CHOLMOD.lowrankupdowndate!
-SparseArrays.CHOLMOD.ldlt
-SparseArrays.UMFPACK.lu
-SparseArrays.SPQR.qr
+SparseArrays.CHOLMOD.cholesky(::SparseMatrixCSC)
+SparseArrays.CHOLMOD.cholesky!(::SparseMatrixCSC)
+SparseArrays.CHOLMOD.lowrankupdate(::SparseMatrixCSC)
+SparseArrays.CHOLMOD.lowrankupdate!(::SparseMatrixCSC)
+SparseArrays.CHOLMOD.lowrankdowndate(::SparseMatrixCSC)
+SparseArrays.CHOLMOD.lowrankdowndate!(::SparseMatrixCSC)
+SparseArrays.CHOLMOD.lowrankupdowndate!(::SparseMatrixCSC)
+SparseArrays.CHOLMOD.ldlt(::SparseMatrixCSC)
+SparseArrays.UMFPACK.lu(::SparseMatrixCSC)
+SparseArrays.SPQR.qr(::SparseMatrixCSC)
 ```
 
 ```@meta
