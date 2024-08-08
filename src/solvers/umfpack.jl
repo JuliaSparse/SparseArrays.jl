@@ -397,7 +397,7 @@ lu(A::AbstractSparseMatrixCSC{<:Union{ComplexF16,ComplexF32},Ti};
     lu(convert(SparseMatrixCSC{ComplexF64,Ti}, A); check = check)
 lu(A::Union{AbstractSparseMatrixCSC{T},AbstractSparseMatrixCSC{Complex{T}}};
    check::Bool = true) where {T<:AbstractFloat} =
-    throw(ArgumentError(string("matrix type ", typeof(A), "not supported. ",
+    throw(ArgumentError(string("matrix type ", typeof(A), " not supported. ",
     "Try lu(convert(SparseMatrixCSC{Float64/ComplexF64,Int}, A)) for ",
     "sparse floating point LU using UMFPACK or lu(Array(A)) for generic ",
     "dense LU.")))
