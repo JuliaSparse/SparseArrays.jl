@@ -18,7 +18,7 @@ using LinearAlgebra
 using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans
 import LinearAlgebra: (\), AdjointFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
-                 issuccess, issymmetric, ldlt, ldlt!, logdet,
+                 issuccess, issymmetric, ldiv!, ldlt, ldlt!, logdet,
                  lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
@@ -912,6 +912,32 @@ function Base.convert(::Type{Dense{Tnew}}, A::Dense{T}) where {Tnew, T}
     return d
 end
 Base.convert(::Type{Dense{T}}, A::Dense{T}) where T = A
+
+# Just calling Dense(x) or Dense(b) will allocate new
+# `cholmod_dense_struct`s in CHOLMOD. Instead, we want to reuse
+# the existing memory. We can do this by creating new
+# `cholmod_dense_struct`s and filling them manually.
+function wrap_dense_and_ptr(x::StridedVecOrMat{T}) where {T <: VTypes}
+    dense_x = cholmod_dense_struct()
+    dense_x.nrow = size(x, 1)
+    dense_x.ncol = size(x, 2)
+    dense_x.nzmax = length(x)
+    dense_x.d = stride(x, 2)
+    dense_x.x = pointer(x)
+    dense_x.z = C_NULL
+    dense_x.xtype = xtyp(eltype(x))
+    dense_x.dtype = dtyp(eltype(x))
+    return dense_x, pointer_from_objref(dense_x)
+end
+# We need to use a special handling for the case of `Dense`
+# input arrays since the `pointer` refers to the pointer to the
+# `cholmod_dense`, not to the array values themselves as for
+# standard arrays.
+function wrap_dense_and_ptr(x::Dense{T}) where {T <: VTypes}
+    dense_x_ptr = x.ptr
+    dense_x = unsafe_load(dense_x_ptr)
+    return dense_x, pointer_from_objref(dense_x)
+end
 
 # This constructor assumes zero based colptr and rowval
 function Sparse(m::Integer, n::Integer,
@@ -1912,6 +1938,66 @@ const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjO
 \(::RealHermSymComplexHermSSL, ::AbstractSparseVecOrMatInclAdjAndTrans) =
     throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
         " consider to convert B to a dense array"))
+
+# in-place ldiv!
+for TI in IndexTypes
+    @eval function ldiv!(x::StridedVecOrMat{T},
+                         L::Factor{T, $TI},
+                         b::StridedVecOrMat{T}) where {T<:VTypes}
+        if x === b
+            throw(ArgumentError("output array must not be aliased with input array"))
+        end
+        if size(L, 1) != size(b, 1)
+            throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
+                "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
+        end
+        if size(L, 2) != size(x, 1)
+            throw(DimensionMismatch("Factorization and solution should match sizes. " *
+                "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
+        end
+        if size(x, 2) != size(b, 2)
+            throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
+                "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
+        end
+        if !issuccess(L)
+            s = unsafe_load(pointer(L))
+            if s.is_ll == 1
+                throw(LinearAlgebra.PosDefException(s.minor))
+            else
+                throw(LinearAlgebra.ZeroPivotException(s.minor))
+            end
+        end
+
+        # Just calling Dense(x) or Dense(b) will allocate new
+        # `cholmod_dense_struct`s in CHOLMOD. Instead, we want to reuse
+        # the existing memory. We can do this by creating new
+        # `cholmod_dense_struct`s and filling them manually.
+        dense_x, dense_x_ptr = wrap_dense_and_ptr(x)
+        dense_b, dense_b_ptr = wrap_dense_and_ptr(b)
+
+        X_Handle = Ptr{cholmod_dense_struct}(dense_x_ptr)
+        Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)
+        E_Handle = Ptr{cholmod_dense_struct}(C_NULL)
+        status = GC.@preserve x dense_x b dense_b begin
+            $(cholname(:solve2, TI))(
+                CHOLMOD_A, L,
+                Ref(dense_b), C_NULL,
+                Ref(X_Handle), C_NULL,
+                Ref(Y_Handle),
+                Ref(E_Handle),
+                getcommon($TI))
+        end
+        if Y_Handle != C_NULL
+            free!(Y_Handle)
+        end
+        if E_Handle != C_NULL
+            free!(E_Handle)
+        end
+        @assert !iszero(status)
+
+        return x
+    end
+end
 
 ## Other convenience methods
 function diag(F::Factor{Tv, Ti}) where {Tv, Ti}

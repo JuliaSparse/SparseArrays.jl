@@ -13,7 +13,7 @@ using Random
 using Serialization
 using LinearAlgebra:
     I, cholesky, cholesky!, det, diag, eigmax, ishermitian, isposdef, issuccess,
-    issymmetric, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
+    issymmetric, ldiv!, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
     PosDefException, ZeroPivotException, RowMaximum
 using SparseArrays
 using SparseArrays: getcolptr
@@ -138,6 +138,9 @@ Random.seed!(123)
     @test CHOLMOD.isvalid(chma)
     @test unsafe_load(pointer(chma)).is_ll == 1    # check that it is in fact an LLt
     @test chma\b ≈ x
+    x2 = zero(x)
+    @inferred ldiv!(x2, chma, b)
+    @test x2 ≈ x
     @test nnz(chma) == 489
     @test nnz(cholesky(A, perm=1:size(A,1))) > nnz(chma)
     @test size(chma) == size(A)
@@ -281,6 +284,37 @@ end
     end
 end
 
+@testset "ldiv! $Tv $Ti" begin
+    local A, x, x2, b, X, X2, B
+    A = sprand(10, 10, 0.1)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    factor = cholesky(A)
+
+    x = fill(Tv(1), 10)
+    b = A * x
+    x2 = zero(x)
+    @inferred ldiv!(x2, factor, b)
+    @test x2 ≈ x
+
+    X = fill(Tv(1), 10, 5)
+    B = A * X
+    X2 = zero(X)
+    @inferred ldiv!(X2, factor, B)
+    @test X2 ≈ X
+
+    c = fill(Tv(1), size(x, 1) + 1)
+    C = fill(Tv(1), size(X, 1) + 1, size(X, 2))
+    y = fill(Tv(1), size(x, 1) + 1)
+    Y = fill(Tv(1), size(X, 1) + 1, size(X, 2))
+    @test_throws DimensionMismatch ldiv!(y, factor, b)
+    @test_throws DimensionMismatch ldiv!(Y, factor, B)
+    @test_throws DimensionMismatch ldiv!(x2, factor, c)
+    @test_throws DimensionMismatch ldiv!(X2, factor, C)
+    @test_throws DimensionMismatch ldiv!(X2, factor, b)
+    @test_throws DimensionMismatch ldiv!(x2, factor, B)
+end
+
 end #end for Ti ∈ itypes
 
 for Tv ∈ (Float32, Float64)
@@ -365,9 +399,9 @@ end
     @test isa(CHOLMOD.eye(3), CHOLMOD.Dense{Float64})
 end
 
-@testset "Core functionality ($elty, $elty2)" for 
-    elty in (Tv, Complex{Tv}), 
-    Tv2 in (Float32, Float64), 
+@testset "Core functionality ($elty, $elty2)" for
+    elty in (Tv, Complex{Tv}),
+    Tv2 in (Float32, Float64),
     elty2 in (Tv2, Complex{Tv2}),
     Ti ∈ itypes
     A1 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
@@ -972,7 +1006,7 @@ end
     f = ones(size(K, 1))
     u = K \ f
     residual = norm(f - K * u) / norm(f)
-    @test residual < 1e-6 
+    @test residual < 1e-6
 end
 
 @testset "wrapped sparse matrices" begin
