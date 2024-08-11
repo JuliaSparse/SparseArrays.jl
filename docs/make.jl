@@ -8,6 +8,7 @@ makedocs(
     sitename = "SparseArrays",
     pages = Any[
         "SparseArrays" => "index.md",
+        "Sparse Linear Algebra API" => "solvers.md",
         ];
     warnonly = [:missing_docs, :cross_references],
     )
