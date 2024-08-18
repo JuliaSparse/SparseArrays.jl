@@ -33,6 +33,7 @@ jobs:
         include:
           - os: macOS-latest
             julia-arch: aarch64
+            julia-version: 'nightly'
             
     steps:
       - uses: actions/checkout@v4
