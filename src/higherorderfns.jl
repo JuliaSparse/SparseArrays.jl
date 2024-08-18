@@ -8,7 +8,7 @@ import Base: map, map!, broadcast, copy, copyto!
 
 using Base: front, tail, to_shape
 
-using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC,
+using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatrixCSCView,
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
                       SparseVectorUnion, AdjOrTransSparseVectorUnion,
@@ -111,7 +111,7 @@ const SpBroadcasted2{Style<:SPVM,Axes,F,Args<:Tuple{SparseVecOrMat,SparseVecOrMa
 
 # (1) The definitions below provide a common interface to sparse vectors and matrices
 # sufficient for the purposes of map[!]/broadcast[!]. This interface treats sparse vectors
-# as n-by-one sparse matrices which, though technically incorrect, is how broacast[!] views
+# as n-by-one sparse matrices which, though technically incorrect, is how broadcast[!] views
 # sparse vectors in practice.
 @inline numrows(A::AbstractCompressedVector) = length(A)
 @inline numrows(A::AbstractSparseMatrixCSC) = size(A, 1)
@@ -1182,7 +1182,7 @@ _sparsifystructured(x) = x
 
 
 # (12) map[!] over combinations of sparse and structured matrices
-SparseOrStructuredMatrix = Union{FixedSparseCSC,SparseMatrixCSC,LinearAlgebra.StructuredMatrix}
+SparseOrStructuredMatrix = Union{FixedSparseCSC,SparseMatrixCSC,SparseMatrixCSCView,LinearAlgebra.StructuredMatrix}
 map(f::Tf, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, _sparsifystructured(A), map(_sparsifystructured, Bs)...))
 map!(f::Tf, C::AbstractSparseMatrixCSC, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =

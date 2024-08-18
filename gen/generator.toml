@@ -1,9 +1,11 @@
 [general]
+library_name = "SuiteSparse"
 library_names = {"SuiteSparse_config.h" = "libsuitesparseconfig", "SuiteSparseQR_C.h" = "libspqr", "umfpack.h" = "libumfpack", "cholmod.h" = "libcholmod", "amd.h" = "libamd"}
 
 use_julia_native_enum_type = true
 use_deterministic_symbol = true
 auto_mutability = true
+skip_static_functions = true
 
 output_ignorelist = [
     # Clang.jl cannot handle these macro correctly, skip for now.
@@ -43,8 +45,8 @@ output_ignorelist = [
     "SUITESPARSE_COMPILER_NAME",
     "SUITESPARSE_STDC_VERSION",
     "SUITESPARSE_RESTRICT",
-    "SUITESPARSE_LAPACK_[A-Z]+",
-    "SUITESPARSE_BLAS_[A-Z]+",
+    "SUITESPARSE_LAPACK_[A-Z0-9]+",
+    "SUITESPARSE_BLAS_[A-Z0-9]+",
     "SUITESPARSE_BLAS_DNRM2",
     "SUITESPARSE_BLAS_DZNRM2",
     "UMFPACK_VERSION",
@@ -58,12 +60,21 @@ macro_mode = "basic"
 
 functionlike_macro_includelist = [
     "SUITESPARSE_VER_CODE",
+    "SUITESPARSE__VERCODE",
     "CHOLMOD_VER_CODE",
+    "CHOLMOD__VERCODE",
     "SPQR_VER_CODE",
+    "SPQR__VERCODE",
     "AMD_VERSION_CODE",
+    "AMD__VERCODE",
     "UMFPACK_VER_CODE",
+    "UMFPACK__VERCODE",
     "COLAMD_VERSION_CODE",
+    "COLAMD__VERCODE",
     "KLU_VERSION_CODE",
+    "KLU__VERCODE",
     "BTF_VERSION_CODE",
-    "CCOLAMD_VERSION_CODE"
+    "BTF__VERCODE",
+    "CCOLAMD_VERSION_CODE",
+    "CCOLAMD__VERCODE"
 ]

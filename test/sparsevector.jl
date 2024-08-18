@@ -219,10 +219,14 @@ end
     end
 
     @testset "Undef initializer" begin
-        v = SparseVector{Float32, Int16}(undef, 4)
-        @test size(v) == (4, )
-        @test eltype(v) === Float32
-        @test v == spzeros(Float32, 4)
+        sz = (4,)
+        for v in (SparseVector{Float32, Int16}(undef, sz),
+                    SparseVector{Float32, Int16}(undef, sz...),
+                    similar(SparseVector{Float32, Int16}, sz))
+            @test size(v) == sz
+            @test eltype(v) === Float32
+            @test v == spzeros(Float32, sz...)
+        end
     end
 end
 ### Element access
@@ -631,6 +635,18 @@ end
         end
     end
 end
+
+@testset "repeat" begin
+    for m = 0:3
+        @test issparse(repeat(spv_x1, m))
+        @test repeat(spv_x1, m) == repeat(x1_full, m)
+        for n = 0:3
+            @test issparse(repeat(spv_x1, m, n))
+            @test repeat(spv_x1, m, n) == repeat(x1_full, m, n)
+        end
+    end
+end
+
 @testset "sparsemat: combinations with sparse matrix" begin
     let S = sprand(4, 8, 0.5)
         Sf = Array(S)
@@ -722,6 +738,21 @@ end
         end
     end
 end
+
+@testset "reverse" begin
+    @testset "$name" for (name, s) in (("standard", sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10)),
+                ("random", sprand(Float32, 20, 0.4)),
+                ("zeros", spzeros(4)),
+                ("fixed", SparseArrays.fixed(sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10))))
+        w = collect(s)
+        @testset for start in axes(s,1), stop in start:lastindex(s,1)
+            srev = reverse(s, start, stop)
+            @test nnz(srev) == nnz(s)
+            @test srev == reverse(w, start, stop)
+        end
+    end
+end
+
 ## math
 
 ### Data
@@ -778,6 +809,35 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
             SparseVector(8, Int[1, 2, 6], Float64[3.25, 4.0, 3.5]))
         @test exact_equal(min.(x, x2),
             SparseVector(8, Int[2, 5, 6, 7], Float64[1.25, -0.75, -5.5, -6.0]))
+
+    end
+
+    test_vectors = [
+        (spv_x1, spv_x2),
+        (SparseVector(5, [1], [1.0]), SparseVector(5, [1], [3.0])),
+        (SparseVector(5, [2], [1.0]), SparseVector(5, [1], [3.0])),
+        (SparseVector(5, [1], [1.0]), SparseVector(5, [2], [3.0])),
+        (SparseVector(5, [3], [2.0]), SparseVector(5, [4], [3.0])),
+        (SparseVector(5, Int[], Float64[]), SparseVector(5, [4], [3.0])),
+    ]
+    @testset "View operations $((collect(xa), collect(xb))), op $op" for (xa, xb) in test_vectors, op in (-, +)
+        r1 = op(@view(xa[1:end]), @view(xb[1:end]))
+        @test r1 == op(xa, xb)
+        @test r1 isa SparseVector
+        r2 = op(@view(xa[2:end-1]), @view(xb[2:end-1]))
+        @test r2 == op(xa, xb)[2:end-1]
+        @test r2 isa SparseVector
+        r3 = op(@view(xb[1:end]), big.(xa))
+        @test r3 == big.(op(xb, xa))
+        @test r3 isa SparseVector
+        # empty views
+        r4 = op(@view(xa[1:2]), @view(xb[1:2]))
+        @test r4 == op(xa, xb)[1:2]
+        @test r4 == @view(op(xa, xb)[1:2])
+        @test r4 isa SparseVector
+        r5 = op(@view(xa[end-1:end]), @view(xb[end-1:end]))
+        @test r5 == op(xa, xb)[end-1:end]
+        @test r5 isa SparseVector
     end
 
     ### Complex
@@ -1530,14 +1590,24 @@ mutable struct t20488 end
 @testset "show" begin
     io = IOBuffer()
     show(io, MIME"text/plain"(), sparsevec(Int64[1], [1.0]))
-    @test String(take!(io)) == "1-element $(SparseArrays.SparseVector){Float64, Int64} with 1 stored entry:\n  [1]  =  1.0"
+    @test String(take!(io)) == "1-element $SparseVector{Float64, Int64} with 1 stored entry:\n  [1]  =  1.0"
     show(io, MIME"text/plain"(),  spzeros(Float64, Int64, 2))
-    @test String(take!(io)) == "2-element $(SparseArrays.SparseVector){Float64, Int64} with 0 stored entries"
+    @test String(take!(io)) == "2-element $SparseVector{Float64, Int64} with 0 stored entries"
     show(io, similar(sparsevec(rand(3) .+ 0.1), t20488))
-    @test String(take!(io)) == "  [1]  =  #undef\n  [2]  =  #undef\n  [3]  =  #undef"
+    @test String(take!(io)) == "sparsevec([1, 2, 3], $t20488[#undef, #undef, #undef], 3)"
+    show(io, MIME"text/plain"(), similar(sparsevec(rand(3) .+ 0.1), t20488))
+    @test String(take!(io)) == "3-element $SparseVector{$t20488, $Int} with 3 stored entries:\n  [1]  =  #undef\n  [2]  =  #undef\n  [3]  =  #undef"
     # Test that we don't introduce unnecessary padding for long sparse arrays
     show(io, MIME"text/plain"(), SparseVector(div(typemax(Int32), 2), Int32[1], Int32[1]))
-    @test String(take!(io)) == "1073741823-element $(SparseArrays.SparseVector){Int32, Int32} with 1 stored entry:\n  [1]  =  1"
+    @test String(take!(io)) == "1073741823-element $SparseVector{Int32, Int32} with 1 stored entry:\n  [1]  =  1"
+    # ensure that :limit=>true leads to truncation
+    show(IOContext(io, :limit=>true), MIME"text/plain"(), sparsevec([1:20;], [1:20;]))
+    @test contains(String(take!(io)), "\n        \u22ee\n")
+
+    # ensure that a vector of sparsevecs doesn't use pretty printing for elements
+    S = sparsevec(Int64[1,4], Int64[2,3])
+    @test repr(S) == "sparsevec($(Int64[1,4]), $(Int64[2,3]), 4)"
+    @test repr([S]) == "$SparseVector{Int64, Int64}[$(repr(S))]"
 end
 
 @testset "spzeros with index type" begin

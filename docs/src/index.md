@@ -1,3 +1,7 @@
+```@meta
+EditURL = "https://github.com/JuliaSparse/SparseArrays.jl/blob/master/docs/src/index.md"
+```
+
 # Sparse Arrays
 
 ```@meta
@@ -7,7 +11,7 @@ DocTestSetup = :(using SparseArrays, LinearAlgebra)
 Julia has support for sparse vectors and [sparse matrices](https://en.wikipedia.org/wiki/Sparse_matrix)
 in the `SparseArrays` stdlib module. Sparse arrays are arrays that contain enough zeros that storing them in a special data structure leads to savings in space and execution time, compared to dense arrays.
 
-External packages which implement different sparse storage types, multidimensional sparse arrays, and more can be found in [Noteworthy external packages](@ref man-csc)
+External packages which implement different sparse storage types, multidimensional sparse arrays, and more can be found in [Noteworthy External Sparse Packages](@ref)
 
 ## [Compressed Sparse Column (CSC) Sparse Matrix Storage](@id man-csc)
 
@@ -121,9 +125,9 @@ julia> R = sparsevec(I,V)
 ```
 
 The inverse of the [`sparse`](@ref) and [`sparsevec`](@ref) functions is
-[`findnz`](@ref), which retrieves the inputs used to create the sparse array.
-[`findall(!iszero, x)`](@ref) returns the cartesian indices of non-zero entries in `x`
-(including stored entries equal to zero).
+[`findnz`](@ref), which retrieves the inputs used to create the sparse array (including stored entries equal to zero).
+[`findall(!iszero, x)`](@ref) returns the Cartesian indices of non-zero entries in `x`
+(not including stored entries equal to zero).
 
 ```jldoctest sparse_function
 julia> findnz(S)
@@ -202,6 +206,25 @@ section of the standard library reference.
 | [`sprandn(m,n,d)`](@ref)   | [`randn(m,n)`](@ref)   | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed according to the standard normal (Gaussian) distribution.                  |
 | [`sprandn(rng,m,n,d)`](@ref) | [`randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator                                   |
 
+## [Sparse Linear Algebra](@id stdlib-sparse-linalg)
+
+Sparse matrix solvers call functions from [SuiteSparse](http://suitesparse.com). The following factorizations are available:
+
+1. [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky)
+2. [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt)
+3. [`lu`](@ref SparseArrays.UMFPACK.lu)
+4. [`qr`](@ref SparseArrays.SPQR.qr)
+
+| Type                  | Description                                   |
+|:----------------------|:--------------------------------------------- |
+| `CHOLMOD.Factor`      | Cholesky and LDLt factorizations              |
+| `UMFPACK.UmfpackLU`   | LU factorization                              |
+| `SPQR.QRSparse`       | QR factorization                              |
+
+```@meta
+DocTestSetup = nothing
+```
+
 # [SparseArrays API](@id stdlib-sparse-arrays)
 
 ```@docs
@@ -243,7 +266,8 @@ SparseArrays.ftranspose!
 ```@meta
 DocTestSetup = nothing
 ```
-# Noteworthy external packages
+
+# Noteworthy External Sparse Packages
 
 Several other Julia packages provide sparse matrix implementations that should be mentioned:
 
@@ -260,3 +284,17 @@ Several other Julia packages provide sparse matrix implementations that should b
 6. [LuxurySparse.jl](https://github.com/QuantumBFS/LuxurySparse.jl) provides static sparse array formats, as well as a coordinate format.
 
 7. [ExtendableSparse.jl](https://github.com/j-fu/ExtendableSparse.jl) enables fast insertion into sparse matrices using a lazy approach to new stored indices.
+
+8. [Finch.jl](https://github.com/willow-ahrens/Finch.jl) supports extensive multidimensional sparse array formats and operations through a mini tensor language and compiler, all in native Julia. Support for COO, CSF, CSR, CSC and more, as well as operations like broadcast, reduce, etc. and custom operations.
+
+External packages providing sparse direct solvers:
+1. [KLU.jl](https://github.com/JuliaSparse/KLU.jl)
+2. [Pardiso.jl](https://github.com/JuliaSparse/Pardiso.jl/)
+
+External packages providing solvers for iterative solution of eigensystems and singular value decompositions:
+1. [ArnoldiMethods.jl](https://github.com/JuliaLinearAlgebra/ArnoldiMethod.jl)
+2. [KrylovKit](https://github.com/Jutho/KrylovKit.jl)
+3. [Arpack.jl](https://github.com/JuliaLinearAlgebra/Arpack.jl)
+
+External packages for working with graphs:
+1. [Graphs.jl](https://github.com/JuliaGraphs/Graphs.jl)

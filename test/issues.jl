@@ -658,6 +658,12 @@ end
     @test s[3] === -0.0
 end
 
+if isdefined(Docs, :undocumented_names) # new in Julia 1.11
+    @testset "docstrings (issue julia#52725)" begin
+        @test isempty(Docs.undocumented_names(SparseArrays))
+    end
+end
+
 # As part of the migration of SparseArrays.jl into its own repo,
 # these tests have been moved from other files in julia tests to
 # the SparseArrays.jl repo

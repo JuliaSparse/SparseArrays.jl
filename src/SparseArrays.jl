@@ -6,24 +6,25 @@ Support for sparse arrays. Provides `AbstractSparseArray` and subtypes.
 module SparseArrays
 
 using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
-    require_one_based_indexing, promote_eltype
+    require_one_based_indexing, promote_eltype, @propagate_inbounds, &, |
 using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
     AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, MulAddMul,
-    UpperOrLowerTriangular
+    UpperOrLowerTriangular, @stable_muladdmul
 
 
-import Base: +, -, *, \, /, &, |, xor, ==, zero, @propagate_inbounds
+import Base: +, -, *, \, /, ==, zero
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
     issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded,
-    cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu
+    cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu,
+    matprod_dest, generic_matvecmul!, generic_matmatmul!, copytrito!
 
 import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Complex,
     conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin,
     float, getindex, imag, inv, kron, kron!, length, map, maximum, minimum, permute!, real,
     rot180, rotl90, rotr90, setindex!, show, similar, size, sum, transpose,
-    vcat, hcat, hvcat, cat, vec
+    vcat, hcat, hvcat, cat, vec, reverse, reverse!
 
 using Random: default_rng, AbstractRNG, randsubseq, randsubseq!
 

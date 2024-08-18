@@ -57,10 +57,13 @@ end
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], -1.0, 2, 2, *) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [-1.0, -1.0, -1.0, 1.0], 2, 2)
     @test sparse(sparse(Int32.(1:5), Int32.(1:5), trues(5))') isa SparseMatrixCSC{Bool,Int32}
     # undef initializer
-    m = SparseMatrixCSC{Float32, Int16}(undef, 3, 4)
-    @test size(m) == (3, 4)
-    @test eltype(m) === Float32
-    @test m == spzeros(3, 4)
+    sz = (3, 4)
+    for m in (SparseMatrixCSC{Float32, Int16}(undef, sz...), SparseMatrixCSC{Float32, Int16}(undef, sz),
+                 similar(SparseMatrixCSC{Float32, Int16}, sz))
+        @test size(m) == sz
+        @test eltype(m) === Float32
+        @test m == spzeros(sz...)
+    end
 end
 
 @testset "spzeros for pattern creation (structural zeros)" begin
@@ -299,6 +302,19 @@ end
     end
 end
 
+@testset "repeat tests" begin
+    A = sprand(6, 4, 0.5)
+    A_full = Matrix(A)
+    for m = 0:3
+        @test issparse(repeat(A, m))
+        @test repeat(A, m) == repeat(A_full, m)
+        for n = 0:3
+            @test issparse(repeat(A, m, n))
+            @test repeat(A, m, n) == repeat(A_full, m, n)
+        end
+    end
+end
+
 @testset "copyto!" begin
     A = sprand(5, 5, 0.2)
     B = sprand(5, 5, 0.2)
@@ -342,7 +358,7 @@ end
     A = rand(5,5)
     A´ = similar(A)
     Ac = copyto!(A, B)
-    @test Ac === A 
+    @test Ac === A
     @test A == copyto!(A´, Matrix(B))
     # Test copyto!(dense, Rdest, sparse, Rsrc)
     A = rand(5,5)
@@ -1077,7 +1093,7 @@ end
         @test Base.isstored(A, c[1], c[2]) == false
     end
 
-    # `isstored` for adjoint and tranposed matrices:
+    # `isstored` for adjoint and transposed matrices:
     for trans in (adjoint, transpose)
         B = trans(A)
         stored_indices = [CartesianIndex(j, i) for (j, i) in zip(J, I)]
@@ -1363,7 +1379,9 @@ end
     a = sprand(10, 10, 0.2)
     b = copy(a)
     sa = view(a, 1:10, 2:3)
-    fill!(sa, 0.0)
+    sa_filled = fill!(sa, 0.0)
+    # `fill!` should return the sub array instead of its parent.
+    @test sa_filled === sa
     b[1:10, 2:3] .= 0.0
     @test a == b
     A = sparse([1], [1], [Vector{Float64}(undef, 3)], 3, 3)
@@ -1375,6 +1393,17 @@ end
         B[1, jj] = [4.0, 5.0, 6.0]
     end
     @test A == B
+
+    # https://github.com/JuliaSparse/SparseArrays.jl/pull/433
+    struct Foo
+       x::Int
+    end
+    Base.zero(::Type{Foo}) = Foo(0)
+    Base.zero(::Foo) = zero(Foo)
+    C = sparse([1], [1], [Foo(3)], 3, 3)
+    sC = view(C, 1:1, 1:2)
+    fill!(sC, zero(Foo))
+    @test C[1:1, 1:2] == zeros(Foo, 1, 2)
 end
 
 using Base: swaprows!, swapcols!
@@ -1390,7 +1419,7 @@ using Base: swaprows!, swapcols!
              (swaprows!, 2, 3), # Test swapping rows of unequal length
              (swaprows!, 2, 4), # Test swapping non-adjacent rows
              (swapcols!, 1, 2), # Test swapping columns where one column is fully sparse
-             (swapcols!, 2, 3), # Test swapping coulms of unequal length
+             (swapcols!, 2, 3), # Test swapping columns of unequal length
              (swapcols!, 2, 4)) # Test swapping non-adjacent columns
         Scopy = copy(S)
         Sdense = Array(S)
@@ -1574,6 +1603,15 @@ end
     _show_with_braille_patterns(ioc, _filled_sparse(8, 16))
     @test String(take!(io)) == "⎡⣿⣿⎤\n" *
                                "⎣⣿⣿⎦"
+
+    # respect IOContext while displaying J
+    I, J, V = shuffle(1:50), shuffle(1:50), [1:50;]
+    S = sparse(I, J, V)
+    I, J, V = I[sortperm(J)], sort(J), V[sortperm(J)]
+    @test repr(S) == "sparse($I, $J, $V, $(size(S,1)), $(size(S,2)))"
+    limctxt(x) = repr(x, context=:limit=>true)
+    expstr = "sparse($(limctxt(I)), $(limctxt(J)), $(limctxt(V)), $(size(S,1)), $(size(S,2)))"
+    @test limctxt(S) == expstr
 end
 
 @testset "issparse for specialized matrix types" begin
@@ -1796,6 +1834,44 @@ end
             @test eltype(S) == eltype(S!) == T
             @test getcolptr(S!) === I
             @test getrowval(S!) === J
+        end
+    end
+end
+
+@testset "reverse" begin
+    @testset "$name" for (name, S) in (("standard", sparse([2,2,4], [1,2,5], [-19, 73, -7])),
+                            ("sprand", sprand(Float32, 15, 18, 0.2)),
+                            ("zeros", spzeros(Int8, 20, 40)),
+                            ("fixed", SparseArrays.fixed(sparse([2,2,4], [1,2,5], [-19, 73, -7]))))
+        w = collect(S)
+        revS = reverse(S)
+        @test revS == reverse(w)
+        @test nnz(revS) == nnz(S)
+        if S isa SparseMatrixCSC
+            S2 = copy(S)
+            reverse!(S2)
+            @test S2 == revS
+            @test nnz(S2) == nnz(S)
+        end
+        for dims in 1:2
+            revS = reverse(S; dims)
+            @test revS == reverse(w; dims)
+            @test nnz(revS) == nnz(S)
+            if S isa SparseMatrixCSC
+                S2 = copy(S)
+                reverse!(S2; dims)
+                @test S2 == revS
+                @test nnz(S2) == nnz(S)
+            end
+        end
+        revS = reverse(S, dims=(1,2))
+        @test revS == reverse(w, dims=(1,2))
+        @test nnz(revS) == nnz(S)
+        if S isa SparseMatrixCSC
+            S2 = copy(S)
+            reverse!(S2, dims=(1,2))
+            @test S2 == revS
+            @test nnz(S2) == nnz(S)
         end
     end
 end

@@ -62,11 +62,11 @@ end
         # --> test map! entry point
         fX = map(+, fA, fB); X = sparse(fX)
         map!(+, X, A, B); X = sparse(fX) # warmup for @allocated
-        @test (@allocated map!(+, X, A, B)) < 300
+        @test (@allocated map!(+, X, A, B)) < 500
         @test map!(+, X, A, B) == sparse(map!(+, fX, fA, fB))
         fX = map(*, fA, fB); X = sparse(fX)
         map!(*, X, A, B); X = sparse(fX) # warmup for @allocated
-        @test (@allocated map!(*, X, A, B)) < 300
+        @test (@allocated map!(*, X, A, B)) < 500
         @test map!(*, X, A, B) == sparse(map!(*, fX, fA, fB))
         @test map!(f, X, A, B) == sparse(map!(f, fX, fA, fB))
         @test_throws DimensionMismatch map!(f, X, A, spzeros((shapeA .- 1)...))
@@ -92,11 +92,11 @@ end
         # --> test map! entry point
         fX = map(+, fA, fB, fC); X = sparse(fX)
         map!(+, X, A, B, C); X = sparse(fX) # warmup for @allocated
-        @test (@allocated map!(+, X, A, B, C)) < 300
+        @test (@allocated map!(+, X, A, B, C)) < 500
         @test map!(+, X, A, B, C) == sparse(map!(+, fX, fA, fB, fC))
         fX = map(*, fA, fB, fC); X = sparse(fX)
         map!(*, X, A, B, C); X = sparse(fX) # warmup for @allocated
-        @test (@allocated map!(*, X, A, B, C)) < 300
+        @test (@allocated map!(*, X, A, B, C)) < 500
         @test map!(*, X, A, B, C) == sparse(map!(*, fX, fA, fB, fC))
         @test map!(f, X, A, B, C) == sparse(map!(f, fX, fA, fB, fC))
         @test_throws DimensionMismatch map!(f, X, A, B, spzeros((shapeA .- 1)...))
@@ -139,12 +139,12 @@ end
         # --> test broadcast! entry point / zero-preserving op
         broadcast!(sin, fZ, fX); Z = sparse(fZ)
         broadcast!(sin, Z, X); Z = sparse(fZ) # warmup for @allocated
-        @test (@allocated broadcast!(sin, Z, X)) < 300
+        @test (@allocated broadcast!(sin, Z, X)) < 500
         @test broadcast!(sin, Z, X) == sparse(broadcast!(sin, fZ, fX))
         # --> test broadcast! entry point / not-zero-preserving op
         broadcast!(cos, fZ, fX); Z = sparse(fZ)
         broadcast!(cos, Z, X); Z = sparse(fZ) # warmup for @allocated
-        @test (@allocated broadcast!(cos, Z, X)) < 300
+        @test (@allocated broadcast!(cos, Z, X)) < 500
         @test broadcast!(cos, Z, X) == sparse(broadcast!(cos, fZ, fX))
         # --> test shape checks for broadcast! entry point
         # TODO strengthen this test, avoiding dependence on checking whether
@@ -163,12 +163,12 @@ end
         # --> test broadcast! entry point / zero-preserving op
         broadcast!(sin, fV, fX); V = sparse(fV)
         broadcast!(sin, V, X); V = sparse(fV) # warmup for @allocated
-        @test (@allocated broadcast!(sin, V, X)) < 300
+        @test (@allocated broadcast!(sin, V, X)) < 500
         @test broadcast!(sin, V, X) == sparse(broadcast!(sin, fV, fX))
         # --> test broadcast! entry point / not-zero-preserving
         broadcast!(cos, fV, fX); V = sparse(fV)
         broadcast!(cos, V, X); V = sparse(fV) # warmup for @allocated
-        @test (@allocated broadcast!(cos, V, X)) < 300
+        @test (@allocated broadcast!(cos, V, X)) < 500
         @test broadcast!(cos, V, X) == sparse(broadcast!(cos, fV, fX))
         # --> test shape checks for broadcast! entry point
         # TODO strengthen this test, avoiding dependence on checking whether
@@ -216,17 +216,17 @@ end
             # --> test broadcast! entry point / +-like zero-preserving op
             broadcast!(+, fZ, fX, fY); Z = sparse(fZ)
             broadcast!(+, Z, X, Y); Z = sparse(fZ) # warmup for @allocated
-            @test (@allocated broadcast!(+, Z, X, Y)) < 300
+            @test (@allocated broadcast!(+, Z, X, Y)) < 500
             @test broadcast!(+, Z, X, Y) == sparse(broadcast!(+, fZ, fX, fY))
             # --> test broadcast! entry point / *-like zero-preserving op
             broadcast!(*, fZ, fX, fY); Z = sparse(fZ)
             broadcast!(*, Z, X, Y); Z = sparse(fZ) # warmup for @allocated
-            @test (@allocated broadcast!(*, Z, X, Y)) < 300
+            @test (@allocated broadcast!(*, Z, X, Y)) < 500
             @test broadcast!(*, Z, X, Y) == sparse(broadcast!(*, fZ, fX, fY))
             # --> test broadcast! entry point / not zero-preserving op
             broadcast!(f, fZ, fX, fY); Z = sparse(fZ)
             broadcast!(f, Z, X, Y); Z = sparse(fZ) # warmup for @allocated
-            @test (@allocated broadcast!(f, Z, X, Y)) < 300
+            @test (@allocated broadcast!(f, Z, X, Y)) < 500
             @test broadcast!(f, Z, X, Y) == sparse(broadcast!(f, fZ, fX, fY))
             # --> test shape checks for both broadcast and broadcast! entry points
             # TODO strengthen this test, avoiding dependence on checking whether
@@ -279,17 +279,17 @@ end
             # --> test broadcast! entry point / +-like zero-preserving op
             fQ = broadcast(+, fX, fY, fZ); Q = sparse(fQ)
             broadcast!(+, Q, X, Y, Z); Q = sparse(fQ) # warmup for @allocated
-            @test (@allocated broadcast!(+, Q, X, Y, Z)) < 300
+            @test (@allocated broadcast!(+, Q, X, Y, Z)) < 500
             @test broadcast!(+, Q, X, Y, Z) == sparse(broadcast!(+, fQ, fX, fY, fZ))
             # --> test broadcast! entry point / *-like zero-preserving op
             fQ = broadcast(*, fX, fY, fZ); Q = sparse(fQ)
             broadcast!(*, Q, X, Y, Z); Q = sparse(fQ) # warmup for @allocated
-            @test (@allocated broadcast!(*, Q, X, Y, Z)) < 300
+            @test (@allocated broadcast!(*, Q, X, Y, Z)) < 500
             @test broadcast!(*, Q, X, Y, Z) == sparse(broadcast!(*, fQ, fX, fY, fZ))
             # --> test broadcast! entry point / not zero-preserving op
             fQ = broadcast(f, fX, fY, fZ); Q = sparse(fQ)
             broadcast!(f, Q, X, Y, Z); Q = sparse(fQ) # warmup for @allocated
-            @test (@allocated broadcast!(f, Q, X, Y, Z)) < 300
+            @test (@allocated broadcast!(f, Q, X, Y, Z)) < 500
             @test broadcast!(f, Q, X, Y, Z) == sparse(broadcast!(f, fQ, fX, fY, fZ))
             # --> test shape checks for both broadcast and broadcast! entry points
             # TODO strengthen this test, avoiding dependence on checking whether

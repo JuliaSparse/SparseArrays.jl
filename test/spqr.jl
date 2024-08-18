@@ -1,16 +1,19 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module SPQRTests
-
 using Test
+
+@static if !Base.USE_GPL_LIBS
+    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping SPQR Tests"
+else
+
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
-# TODO REMOVE SECOND PREDICATE WITH SS7.1
-if Base.USE_GPL_LIBS
+
 @testset "Sparse QR" begin
 m, n = 100, 10
 nn = 100
@@ -27,7 +30,7 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
     else
         A = sparse(iltyA[1:n; rand(1:m, nn - n)], iltyA[1:n; rand(1:n, nn - n)], complex.(randn(nn), randn(nn)), m, n)
     end
-    
+
     F = qr(A)
     @test size(F) == (m,n)
     @test size(F, 1) == m
@@ -39,7 +42,7 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test istriu(F.R)
         @test isperm(F.pcol)
         @test isperm(F.prow)
-        @test_throws ErrorException F.T
+        @test_throws isdefined(Base, :FieldError) ? FieldError : ErrorException F.T
     end
 
     @testset "apply Q" begin
