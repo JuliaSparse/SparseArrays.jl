@@ -146,7 +146,7 @@ Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q
 
 # From SPQR manual p. 6
 _default_tol(A::AbstractSparseMatrixCSC) =
-    20*sum(size(A))*eps(real(eltype(A)))*maximum(norm(view(A, :, i)) for i in 1:size(A, 2))
+    20*sum(size(A))*eps()*maximum(norm(view(A, :, i)) for i in 1:size(A, 2))
 
 """
     qr(A::SparseMatrixCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) -> QRSparse
