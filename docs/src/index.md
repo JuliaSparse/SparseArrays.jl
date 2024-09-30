@@ -210,18 +210,16 @@ section of the standard library reference.
 
 Sparse matrix solvers call functions from [SuiteSparse](http://suitesparse.com). The following factorizations are available:
 
+1. [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky)
+2. [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt)
+3. [`lu`](@ref SparseArrays.UMFPACK.lu)
+4. [`qr`](@ref SparseArrays.SPQR.qr)
+
 | Type                  | Description                                   |
 |:----------------------|:--------------------------------------------- |
 | `CHOLMOD.Factor`      | Cholesky and LDLt factorizations              |
 | `UMFPACK.UmfpackLU`   | LU factorization                              |
 | `SPQR.QRSparse`       | QR factorization                              |
-
-These factorizations are described in more detail in the [Sparse Linear Algebra API section](@ref stdlib-sparse-linalg-api):
-
-1. [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky)
-2. [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt)
-3. [`lu`](@ref SparseArrays.UMFPACK.lu)
-4. [`qr`](@ref SparseArrays.SPQR.qr)
 
 ```@meta
 DocTestSetup = nothing
@@ -261,25 +259,6 @@ SparseArrays.permute
 permute!{Tv, Ti, Tp <: Integer, Tq <: Integer}(::SparseMatrixCSC{Tv,Ti}, ::SparseMatrixCSC{Tv,Ti}, ::AbstractArray{Tp,1}, ::AbstractArray{Tq,1})
 SparseArrays.halfperm!
 SparseArrays.ftranspose!
-```
-
-```@meta
-DocTestSetup = nothing
-```
-
-# [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
-
-```@docs
-SparseArrays.CHOLMOD.cholesky
-SparseArrays.CHOLMOD.cholesky!
-SparseArrays.CHOLMOD.lowrankupdate
-SparseArrays.CHOLMOD.lowrankupdate!
-SparseArrays.CHOLMOD.lowrankdowndate
-SparseArrays.CHOLMOD.lowrankdowndate!
-SparseArrays.CHOLMOD.lowrankupdowndate!
-SparseArrays.CHOLMOD.ldlt
-SparseArrays.UMFPACK.lu
-SparseArrays.SPQR.qr
 ```
 
 ```@meta
