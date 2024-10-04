@@ -205,8 +205,24 @@ const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCUnion{Tv,Ti},SparseTriangular{Tv
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::SparseOrTri) = spmatmul(copy(A), B)
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(copy(A), copy(B))
 
-(*)(Da::Diagonal, A::Union{SparseMatrixCSCUnion, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) =
-    Da * (A * Db)
+(*)(Da::Diagonal, A::Union{SparseMatrixCSCUnion, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
+function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
+    T = promote_op(matprod, eltype(Da), promote_op(matprod, eltype(A), eltype(Db)))
+    dest = similar(A, T)
+    vals_dest = nonzeros(dest)
+    rows = rowvals(A)
+    vals = nonzeros(A)
+    da, db = map(parent, (Da, Db))
+    for col in axes(A,2)
+        dbcol = db[col]
+        for i in nzrange(A, col)
+            row = rows[i]
+            val = vals[i]
+            vals_dest[i] = da[row] * val * dbcol
+        end
+    end
+    dest
+end
 
 # Gustavson's matrix multiplication algorithm revisited.
 # The result rowval vector is already sorted by construction.

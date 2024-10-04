@@ -914,18 +914,19 @@ end
 end
 
 @testset "diagonal-sandwiched triple multiplication" begin
-    D = Diagonal(1:4)
-    S = sprand(Int, 4, 4, 0.2)
+    D1 = Diagonal(1:4)
+    D2 = Diagonal(2:2:8)
+    S = sprand(4, 4, 0.2)
     A = Array(S)
-    C = D * S * D
+    C = D1 * S * D2
     @test C isa SparseMatrixCSC
-    @test C ≈ D * A * D
-    C = D * S' * D
+    @test C ≈ D1 * A * D2
+    C = D1 * S' * D2
     @test C isa SparseMatrixCSC
-    @test C ≈ D * A' * D
-    C = D * view(S, :, :) * D
+    @test C ≈ D1 * A' * D2
+    C = D1 * view(S, :, :) * D2
     @test C isa SparseMatrixCSC
-    @test C ≈ D * A * D
+    @test C ≈ D1 * A * D2
 end
 
 end
