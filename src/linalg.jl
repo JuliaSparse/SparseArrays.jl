@@ -207,6 +207,8 @@ const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCUnion{Tv,Ti},SparseTriangular{Tv
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCUnion, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
+    (size(Da, 2) == size(A,1) && size(A,2) == size(Db,1)) ||
+        throw(DimensionMismatch("incompatible sizes"))
     T = promote_op(matprod, eltype(Da), promote_op(matprod, eltype(A), eltype(Db)))
     dest = similar(A, T)
     vals_dest = nonzeros(dest)
