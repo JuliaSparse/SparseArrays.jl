@@ -190,12 +190,13 @@ end
 
 function *(A::Diagonal, b::AbstractSparseVector)
     T = promote_eltype(A, b)
+    res = similar(b, T)
     nzind_b = nonzeroinds(b)
     nzval_b = nonzeros(b)
-    if isempty(nzind_b)
-        return zero(T)
+    for idx in eachindex(nzind_b)
+        res[nzind_b[idx]] = A.diag[nzind_b[idx]] * nzval_b[idx]
     end
-    return sum(A.diag[nzind_b[idx]] * nzval_b[idx] for idx in eachindex(nzind_b))
+    return res
 end
 
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
