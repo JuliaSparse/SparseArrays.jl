@@ -629,6 +629,61 @@ function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrix
     return conj(dot(B, A))
 end
 
+function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractVector)
+    if length(x) != length(y)
+        throw(
+            DimensionMismatch("Vector x has a length $(length(x)) but y has a length $(length(y))")
+        )
+    end
+    d = Q.diag
+    nzvals = nonzeros(x)
+    nzinds = nonzeroinds(x)
+    s = zero(Base.promote_eltype(x, Q, y))
+    @inbounds for nzidx in eachindex(nzvals)
+        s += dot(nzvals[nzidx], d[nzinds[nzidx]], y[nzinds[nzidx]])
+    end
+    return s
+end
+
+function dot(a::AbstractSparseVector, Q::Diagonal, b::AbstractSparseVector)
+    n = length(a)
+    if length(b) != n
+        throw(
+            DimensionMismatch("Vector a has a length $n but b has a length $(length(b))")
+        )
+    end
+    anzind = nonzeroinds(a)
+    bnzind = nonzeroinds(b)
+    anzval = nonzeros(a)
+    bnzval = nonzeros(b)
+    s = zero(Base.promote_eltype(a, Q, b))
+
+    if isempty(anzind) || isempty(bnzind)
+        return s
+    end
+
+    a_idx = 1
+    b_idx = 1
+    a_idx_last = length(anzind)
+    b_idx_last = length(bnzind)
+
+    # go through the nonzero indices of a and b simultaneously
+    @inbounds while a_idx <= a_idx_last && b_idx <= b_idx_last
+        ia = anzind[a_idx]
+        ib = bnzind[b_idx]
+        if ia == ib
+            s += dot(anzval[a_idx], Q.diag[ia], bnzval[b_idx])
+            a_idx += 1
+            b_idx += 1
+        elseif ia < ib
+            a_idx += 1
+        else
+            b_idx += 1
+        end
+    end
+    return s
+end
+
 ## triangular sparse handling
 ## triangular multiplication
 function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCUnion, B::AbstractVecOrMat)
