@@ -852,9 +852,9 @@ end
         end
         for M in (A, B, C)
             D = Diagonal(M * M')
-            a = spzeros(size(D, 1))
+            a = spzeros(Complex{Float64}, size(D, 1))
             a[1:3] = rand(Complex{Float64}, 3)
-            b = spzeros(size(D, 1))
+            b = spzeros(Complex{Float64}, size(D, 1))
             b[1:3] = rand(Complex{Float64}, 3)
             @test dot(a, D, b) ≈ dot(a, sparse(D), b)
             @test dot(b, D, a) ≈ dot(b, sparse(D), a)
