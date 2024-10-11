@@ -673,6 +673,16 @@ end
     end
 end
 
+@testset "diagonal - sparse vector mutliplication" begin
+    for _ in 1:10
+        b = spzeros(10)
+        b[1:3] .= 1:3
+        A = Diagonal(randn(10))
+        @test norm(A * b - A * Vector(b)) <= 10eps()
+        @test norm(A * b - Array(A) * b) <= 10eps()
+    end
+end
+
 @testset "sparse matrix * BitArray" begin
     A = sprand(5,5,0.3)
     MA = Array(A)

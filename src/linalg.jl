@@ -188,6 +188,16 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     C
 end
 
+function *(A::Diagonal, b::AbstractSparseVector)
+    T = promote_eltype(A, b)
+    nzind_b = nonzeroinds(b)
+    nzval_b = nonzeros(b)
+    if isempty(nzind_b)
+        return zero(T)
+    end
+    return sum(A.diag[nzind_b[idx]] * nzval_b[idx] for idx in eachindex(nzind_b))
+end
+
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
