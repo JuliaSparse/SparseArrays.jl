@@ -858,6 +858,8 @@ end
             b[1:3] = rand(Complex{Float64}, 3)
             @test dot(a, D, b) ≈ dot(a, sparse(D), b)
             @test dot(b, D, a) ≈ dot(b, sparse(D), a)
+            @test dot(b, D, a) ≈ dot(b, D, collect(a))
+            @test dot(b, D, a) ≈ dot(collect(b), D, a)
         end
     end
     @test_throws DimensionMismatch dot(sprand(5,5,0.2),sprand(5,6,0.2))
