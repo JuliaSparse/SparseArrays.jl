@@ -47,11 +47,11 @@ for op ∈ (:+, :-)
     end
 end
 
-generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, alpha::Number, beta::Number) =
+@inline generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, alpha::Number, beta::Number) =
     spdensemul!(C, tA, tB, A, B, alpha, beta)
-generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, alpha::Number, beta::Number) =
+@inline generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, tA, tB, A, B, alpha, beta)
-generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, alpha::Number, beta::Number) =
+@inline generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', A, B, alpha, beta)
 
 Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
