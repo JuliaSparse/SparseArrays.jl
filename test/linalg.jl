@@ -673,6 +673,21 @@ end
     end
 end
 
+@testset "diagonal - sparse vector mutliplication" begin
+    for _ in 1:10
+        b = spzeros(10)
+        b[1:3] .= 1:3
+        A = Diagonal(randn(10))
+        @test norm(A * b - A * Vector(b)) <= 10eps()
+        @test norm(A * b - Array(A) * b) <= 10eps()
+        Ac = Diagonal(randn(Complex{Float64}, 10))
+        @test norm(Ac * b - Ac * Vector(b)) <= 10eps()
+        @test norm(Ac * b - Array(Ac) * b) <= 10eps()
+        @test_throws DimensionMismatch A * [b; 1]
+        @test_throws DimensionMismatch A * b[1:end-1]
+    end
+end
+
 @testset "sparse matrix * BitArray" begin
     A = sprand(5,5,0.3)
     MA = Array(A)
