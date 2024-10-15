@@ -633,7 +633,7 @@ function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractVector)
     d = Q.diag
     if length(x) != length(y) || length(y) != length(d)
         throw(
-            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(length(d))")
+            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(size(Q, 1))")
         )
     end
     nzvals = nonzeros(x)
@@ -649,7 +649,7 @@ function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractSparseVector)
     n = length(x)
     if length(y) != n || n != size(Q, 1)
         throw(
-            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(length(d))")
+            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(size(Q, 1))")
         )
     end
     xnzind = nonzeroinds(x)
