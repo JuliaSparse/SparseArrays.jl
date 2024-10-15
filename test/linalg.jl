@@ -683,6 +683,8 @@ end
         Ac = Diagonal(randn(Complex{Float64}, 10))
         @test norm(Ac * b - Ac * Vector(b)) <= 10eps()
         @test norm(Ac * b - Array(Ac) * b) <= 10eps()
+        @test_throws DimensionMismatch A * [b; 1]
+        @test_throws DimensionMismatch A * b[1:end-1]
     end
 end
 

@@ -189,6 +189,11 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
 end
 
 function *(A::Diagonal, b::AbstractSparseVector)
+    if size(A, 2) != length(b)
+        throw(
+            DimensionMismatch("The dimension of the matrix A $(size(A)) and of the vector b $(length(b))")
+        )
+    end
     T = promote_eltype(A, b)
     res = similar(b, T)
     nzind_b = nonzeroinds(b)
