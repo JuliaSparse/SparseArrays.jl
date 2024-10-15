@@ -630,12 +630,12 @@ function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrix
 end
 
 function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractVector)
-    if length(x) != length(y)
+    d = Q.diag
+    if length(x) != length(y) || length(y) != length(d)
         throw(
-            DimensionMismatch("Vector x has a length $(length(x)) but y has a length $(length(y))")
+            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(length(d))")
         )
     end
-    d = Q.diag
     nzvals = nonzeros(x)
     nzinds = nonzeroinds(x)
     s = zero(Base.promote_eltype(x, Q, y))
@@ -645,40 +645,40 @@ function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractVector)
     return s
 end
 
-function dot(a::AbstractSparseVector, Q::Diagonal, b::AbstractSparseVector)
-    n = length(a)
-    if length(b) != n
+function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractSparseVector)
+    n = length(x)
+    if length(y) != n || n != size(Q, 1)
         throw(
-            DimensionMismatch("Vector a has a length $n but b has a length $(length(b))")
+            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(length(d))")
         )
     end
-    anzind = nonzeroinds(a)
-    bnzind = nonzeroinds(b)
-    anzval = nonzeros(a)
-    bnzval = nonzeros(b)
-    s = zero(Base.promote_eltype(a, Q, b))
+    xnzind = nonzeroinds(x)
+    ynzind = nonzeroinds(y)
+    xnzval = nonzeros(x)
+    ynzval = nonzeros(y)
+    s = zero(Base.promote_eltype(x, Q, y))
 
-    if isempty(anzind) || isempty(bnzind)
+    if isempty(xnzind) || isempty(ynzind)
         return s
     end
 
-    a_idx = 1
-    b_idx = 1
-    a_idx_last = length(anzind)
-    b_idx_last = length(bnzind)
+    x_idx = 1
+    y_idx = 1
+    x_idx_last = length(xnzind)
+    y_idx_last = length(ynzind)
 
     # go through the nonzero indices of a and b simultaneously
-    @inbounds while a_idx <= a_idx_last && b_idx <= b_idx_last
-        ia = anzind[a_idx]
-        ib = bnzind[b_idx]
-        if ia == ib
-            s += dot(anzval[a_idx], Q.diag[ia], bnzval[b_idx])
-            a_idx += 1
-            b_idx += 1
-        elseif ia < ib
-            a_idx += 1
+    @inbounds while x_idx <= x_idx_last && y_idx <= y_idx_last
+        ix = xnzind[x_idx]
+        iy = ynzind[y_idx]
+        if ix == iy
+            s += dot(xnzval[x_idx], Q.diag[ix], ynzval[y_idx])
+            x_idx += 1
+            y_idx += 1
+        elseif ix < iy
+            x_idx += 1
         else
-            b_idx += 1
+            y_idx += 1
         end
     end
     return s

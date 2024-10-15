@@ -860,6 +860,9 @@ end
             @test dot(b, D, a) ≈ dot(b, sparse(D), a)
             @test dot(b, D, a) ≈ dot(b, D, collect(a))
             @test dot(b, D, a) ≈ dot(collect(b), D, a)
+            @test_throws DimensionMismatch dot(b, D, [a; 1])
+            @test_throws DimensionMismatch dot([b; 1], D, a)
+            @test_throws DimensionMismatch dot([b; 1], D, [a; 1])
         end
     end
     @test_throws DimensionMismatch dot(sprand(5,5,0.2),sprand(5,6,0.2))
