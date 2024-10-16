@@ -629,16 +629,16 @@ function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrix
     return conj(dot(B, A))
 end
 
-function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractVector)
-    d = Q.diag
+function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractVector)
+    d = D.diag
     if length(x) != length(y) || length(y) != length(d)
         throw(
-            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(size(Q, 1))")
+            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), D has side dimension $(length(d))")
         )
     end
     nzvals = nonzeros(x)
     nzinds = nonzeroinds(x)
-    s = zero(Base.promote_eltype(x, Q, y))
+    s = zero(typeof(dot(first(x), first(D), first(y))))
     @inbounds for nzidx in eachindex(nzvals)
         s += dot(nzvals[nzidx], d[nzinds[nzidx]], y[nzinds[nzidx]])
     end
