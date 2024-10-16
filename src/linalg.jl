@@ -656,8 +656,7 @@ function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractSparseVector)
     ynzind = nonzeroinds(y)
     xnzval = nonzeros(x)
     ynzval = nonzeros(y)
-    s = zero(Base.promote_eltype(x, D, y))
-
+    s = zero(typeof(dot(first(x), first(D), first(y))))
     if isempty(xnzind) || isempty(ynzind)
         return s
     end
