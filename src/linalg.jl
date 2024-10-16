@@ -645,18 +645,18 @@ function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractVector)
     return s
 end
 
-function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractSparseVector)
-    n = length(x)
-    if length(y) != n || n != size(Q, 1)
+function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractSparseVector)
+    d = D.diag
+    if length(y) != length(x) || length(y) != length(d)
         throw(
-            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(size(Q, 1))")
+            DimensionMismatch("Vectors and matrix have different dimensions, x has a length $(length(x)), y has a length $(length(y)), Q has side dimension $(length(d))")
         )
     end
     xnzind = nonzeroinds(x)
     ynzind = nonzeroinds(y)
     xnzval = nonzeros(x)
     ynzval = nonzeros(y)
-    s = zero(Base.promote_eltype(x, Q, y))
+    s = zero(Base.promote_eltype(x, D, y))
 
     if isempty(xnzind) || isempty(ynzind)
         return s
@@ -672,7 +672,7 @@ function dot(x::AbstractSparseVector, Q::Diagonal, y::AbstractSparseVector)
         ix = xnzind[x_idx]
         iy = ynzind[y_idx]
         if ix == iy
-            s += dot(xnzval[x_idx], Q.diag[ix], ynzval[y_idx])
+            s += dot(xnzval[x_idx], d[ix], ynzval[y_idx])
             x_idx += 1
             y_idx += 1
         elseif ix < iy
