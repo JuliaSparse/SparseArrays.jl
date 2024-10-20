@@ -912,4 +912,24 @@ end
     @test sparse(3I, 4, 5) == sparse(1:4, 1:4, 3, 4, 5)
     @test sparse(3I, 5, 4) == sparse(1:4, 1:4, 3, 5, 4)
 end
+
+@testset "diagonal-sandwiched triple multiplication" begin
+    S = sprand(4, 6, 0.2)
+    D1 = Diagonal(axes(S,1))
+    D2 = Diagonal(axes(S,2) .+ 4)
+    A = Array(S)
+    C = D1 * S * D2
+    @test C isa SparseMatrixCSC
+    @test C ≈ D1 * A * D2
+    C = D2 * S' * D1
+    @test C isa SparseMatrixCSC
+    @test C ≈ D2 * A' * D1
+    C = D1 * view(S, :, :) * D2
+    @test C isa SparseMatrixCSC
+    @test C ≈ D1 * A * D2
+
+    @test_throws DimensionMismatch D2 * S * D2
+    @test_throws DimensionMismatch D1 * S * D1
+end
+
 end
