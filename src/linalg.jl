@@ -645,6 +645,8 @@ function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractVector)
     return s
 end
 
+dot(x::AbstractVector, D::Diagonal, y::AbstractSparseVector) = adjoint(dot(y, D', x))
+
 function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractSparseVector)
     d = D.diag
     if length(y) != length(x) || length(y) != length(d)
