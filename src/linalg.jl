@@ -191,7 +191,7 @@ end
 function *(A::Diagonal, b::AbstractSparseVector)
     if size(A, 2) != length(b)
         throw(
-            DimensionMismatch("The dimension of the matrix A $(size(A)) and of the vector b $(length(b))")
+            DimensionMismatch(lazy"The dimension of the matrix A $(size(A)) and of the vector b $(length(b))")
         )
     end
     T = promote_eltype(A, b)
