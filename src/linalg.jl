@@ -188,6 +188,23 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     C
 end
 
+function *(A::Diagonal, b::AbstractSparseVector)
+    if size(A, 2) != length(b)
+        throw(
+            DimensionMismatch(lazy"The dimension of the matrix A $(size(A)) and of the vector b $(length(b))")
+        )
+    end
+    T = promote_eltype(A, b)
+    res = similar(b, T)
+    nzind_b = nonzeroinds(b)
+    nzval_b = nonzeros(b)
+    nzval_res = nonzeros(res)
+    for idx in eachindex(nzind_b)
+        nzval_res[idx] = A.diag[nzind_b[idx]] * nzval_b[idx]
+    end
+    return res
+end
+
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
