@@ -198,8 +198,9 @@ function *(A::Diagonal, b::AbstractSparseVector)
     res = similar(b, T)
     nzind_b = nonzeroinds(b)
     nzval_b = nonzeros(b)
+    nzval_res = nonzeros(res)
     for idx in eachindex(nzind_b)
-        res[nzind_b[idx]] = A.diag[nzind_b[idx]] * nzval_b[idx]
+        nzval_res[idx] = A.diag[nzind_b[idx]] * nzval_b[idx]
     end
     return res
 end
