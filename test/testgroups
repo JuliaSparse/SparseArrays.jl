@@ -9,4 +9,5 @@ sparsematrix_constructors_indexing
 sparsematrix_ops
 sparsevector
 spqr
+transposecscmat
 umfpack
