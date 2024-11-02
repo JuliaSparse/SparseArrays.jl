@@ -25,21 +25,21 @@ jobs:
           - '~1.10.0-0'
         os:
           - ubuntu-latest
-          - macOS-latest
           - windows-latest
         arch:
           - x64
-          - x86
-        exclude:
+        include:
           - os: macOS-latest
+            arch: aarch64
+          - os: ubuntu-latest
             arch: x86
     steps:
-      - uses: actions/checkout@v2
-      - uses: julia-actions/setup-julia@v1
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-      - uses: actions/cache@v1
+      - uses: actions/cache@v4
         env:
           cache-name: cache-artifacts
         with:
@@ -55,17 +55,18 @@ jobs:
         env:
           SPARSEARRAYS_AQUA_TEST: true
       - uses: julia-actions/julia-processcoverage@v1
-      - uses: codecov/codecov-action@v1
+      - uses: codecov/codecov-action@v4
         with:
           file: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@latest
         with:
-          # version: '1.6'
-          version: 'nightly'
+          version: '1.10'
       - name: Generate docs
         run: |
           julia --color=yes -e 'write("Project.toml", replace(read("Project.toml", String), r"uuid = .*?\n" =>"uuid = \"3f01184e-e22b-5df5-ae63-d93ebab69eaf\"\n"));'
