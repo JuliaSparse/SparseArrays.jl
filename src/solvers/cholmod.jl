@@ -1258,25 +1258,33 @@ end
 
 ## Compute that symbolic factorization only
 function symbolic(A::Sparse{<:VTypes, Ti};
-    perm::Union{Nothing,AbstractVector{<:Integer}}=nothing,
-    postorder::Bool=isnothing(perm)||isempty(perm), userperm_only::Bool=true) where Ti
+                  perm::Union{Nothing,AbstractVector{<:Integer}}=nothing,
+                  postorder::Bool=isnothing(perm)||isempty(perm),
+                  userperm_only::Bool=true,
+                  nested_dissection::Bool=false) where Ti
 
     sA = unsafe_load(pointer(A))
     sA.stype == 0 && throw(ArgumentError("sparse matrix is not symmetric/Hermitian"))
 
-    @cholmod_param postorder = postorder begin
-        if perm === nothing || isempty(perm) # TODO: deprecate empty perm
-            return analyze(A)
-        else # user permutation provided
-            if userperm_only # use perm even if it is worse than AMD
-                @cholmod_param nmethods = 1 begin
+    # The default is to just use AMD. Use nested dissection only if explicitly asked for.
+    # https://github.com/JuliaSparse/SparseArrays.jl/issues/548
+    # https://github.com/DrTimothyAldenDavis/SuiteSparse/blob/26ababc7f3af725c5fb9168a1b94850eab74b666/CHOLMOD/Include/cholmod.h#L555-L574
+    @cholmod_param nmethods = (nested_dissection ? 0 : 2) begin
+        @cholmod_param postorder = postorder begin
+            if perm === nothing || isempty(perm) # TODO: deprecate empty perm
+                return analyze(A)
+            else # user permutation provided
+                if userperm_only # use perm even if it is worse than AMD
+                    @cholmod_param nmethods = 1 begin
+                        return analyze_p(A, Ti[p-1 for p in perm])
+                    end
+                else
                     return analyze_p(A, Ti[p-1 for p in perm])
                 end
-            else
-                return analyze_p(A, Ti[p-1 for p in perm])
             end
         end
     end
+
 end
 
 function cholesky!(F::Factor{Tv}, A::Sparse{Tv};
