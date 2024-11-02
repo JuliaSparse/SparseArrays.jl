@@ -31,7 +31,7 @@ jobs:
             julia-arch: aarch64
             julia-version: 'nightly'
           - os: macOS-13
-            julia-arch: x86
+            julia-arch: x64
             julia-version: 'nightly'
     steps:
       - uses: actions/checkout@v4
