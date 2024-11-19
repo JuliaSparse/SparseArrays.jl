@@ -1,8 +1,12 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module CHOLMODTests
-
 using Test
+
+@static if !Base.USE_GPL_LIBS
+    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping CHOLMOD tests"
+else
+
 using SparseArrays.CHOLMOD
 using SparseArrays.CHOLMOD: getcommon
 using Random
@@ -15,8 +19,6 @@ using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
 using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
-
-if Base.USE_GPL_LIBS
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)

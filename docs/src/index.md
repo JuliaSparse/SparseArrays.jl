@@ -206,6 +206,27 @@ section of the standard library reference.
 | [`sprandn(m,n,d)`](@ref)   | [`randn(m,n)`](@ref)   | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed according to the standard normal (Gaussian) distribution.                  |
 | [`sprandn(rng,m,n,d)`](@ref) | [`randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator                                   |
 
+## [Sparse Linear Algebra](@id stdlib-sparse-linalg)
+
+Sparse matrix solvers call functions from [SuiteSparse](http://suitesparse.com). The following factorizations are available:
+
+| Type                  | Description                                   |
+|:----------------------|:--------------------------------------------- |
+| `CHOLMOD.Factor`      | Cholesky and LDLt factorizations              |
+| `UMFPACK.UmfpackLU`   | LU factorization                              |
+| `SPQR.QRSparse`       | QR factorization                              |
+
+These factorizations are described in more detail in the [Sparse Linear Algebra API section](@ref stdlib-sparse-linalg-api):
+
+1. [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky)
+2. [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt)
+3. [`lu`](@ref SparseArrays.UMFPACK.lu)
+4. [`qr`](@ref SparseArrays.SPQR.qr)
+
+```@meta
+DocTestSetup = nothing
+```
+
 # [SparseArrays API](@id stdlib-sparse-arrays)
 
 ```@docs
@@ -245,6 +266,26 @@ SparseArrays.ftranspose!
 ```@meta
 DocTestSetup = nothing
 ```
+
+# [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
+
+```@docs
+SparseArrays.CHOLMOD.cholesky
+SparseArrays.CHOLMOD.cholesky!
+SparseArrays.CHOLMOD.lowrankupdate
+SparseArrays.CHOLMOD.lowrankupdate!
+SparseArrays.CHOLMOD.lowrankdowndate
+SparseArrays.CHOLMOD.lowrankdowndate!
+SparseArrays.CHOLMOD.lowrankupdowndate!
+SparseArrays.CHOLMOD.ldlt
+SparseArrays.UMFPACK.lu
+SparseArrays.SPQR.qr
+```
+
+```@meta
+DocTestSetup = nothing
+```
+
 # Noteworthy External Sparse Packages
 
 Several other Julia packages provide sparse matrix implementations that should be mentioned:
@@ -264,3 +305,15 @@ Several other Julia packages provide sparse matrix implementations that should b
 7. [ExtendableSparse.jl](https://github.com/j-fu/ExtendableSparse.jl) enables fast insertion into sparse matrices using a lazy approach to new stored indices.
 
 8. [Finch.jl](https://github.com/willow-ahrens/Finch.jl) supports extensive multidimensional sparse array formats and operations through a mini tensor language and compiler, all in native Julia. Support for COO, CSF, CSR, CSC and more, as well as operations like broadcast, reduce, etc. and custom operations.
+
+External packages providing sparse direct solvers:
+1. [KLU.jl](https://github.com/JuliaSparse/KLU.jl)
+2. [Pardiso.jl](https://github.com/JuliaSparse/Pardiso.jl/)
+
+External packages providing solvers for iterative solution of eigensystems and singular value decompositions:
+1. [ArnoldiMethods.jl](https://github.com/JuliaLinearAlgebra/ArnoldiMethod.jl)
+2. [KrylovKit](https://github.com/Jutho/KrylovKit.jl)
+3. [Arpack.jl](https://github.com/JuliaLinearAlgebra/Arpack.jl)
+
+External packages for working with graphs:
+1. [Graphs.jl](https://github.com/JuliaGraphs/Graphs.jl)

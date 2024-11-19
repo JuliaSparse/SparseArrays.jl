@@ -1,16 +1,19 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module SPQRTests
-
 using Test
+
+@static if !Base.USE_GPL_LIBS
+    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping SPQR Tests"
+else
+
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
-# TODO REMOVE SECOND PREDICATE WITH SS7.1
-if Base.USE_GPL_LIBS
+
 @testset "Sparse QR" begin
 m, n = 100, 10
 nn = 100
