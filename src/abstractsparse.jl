@@ -184,6 +184,13 @@ else
     end
 end
 
+macro allowscalar(p)
+    quote
+        $(allowscalar)($(esc(p)))
+        @Core.latestworld
+    end
+end
+
 @inline _is_fixed(::AbstractArray) = false
 @inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
 macro if_move_fixed(a...)
