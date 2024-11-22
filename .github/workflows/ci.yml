@@ -40,7 +40,6 @@ jobs:
           version: ${{ matrix.julia-version }}
           arch: ${{ matrix.julia-arch }}
       - uses: julia-actions/cache@v2
-      - run: julia --color=yes .ci/test_and_change_uuid.jl
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1
@@ -69,7 +68,6 @@ jobs:
           version: ${{ matrix.julia-version }}
           arch: ${{ matrix.julia-arch }}
       - uses: julia-actions/cache@v2
-      - run: julia --color=yes .ci/test_and_change_uuid.jl
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         env:
@@ -83,8 +81,7 @@ jobs:
           version: 'nightly'
       - name: Generate docs
         run: |
-          julia --color=yes -e 'write("Project.toml", replace(read("Project.toml", String), r"uuid = .*?\n" =>"uuid = \"3f01184e-e22b-5df5-ae63-d93ebab69eaf\"\n"));'
-          julia --project --color=yes -e 'using Pkg; Pkg.activate("docs"); Pkg.instantiate(); Pkg.develop(PackageSpec(path = pwd()))'
+          julia --project --color=yes -e 'using Pkg; Pkg.activate("docs"); Pkg.develop(PackageSpec(path = pwd()))'
           julia --project=docs --color=yes docs/make.jl pdf
         env:
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
