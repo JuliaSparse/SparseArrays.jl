@@ -901,6 +901,15 @@ Dense(A::StridedVecOrMatInclAdjAndTrans{T}) where
 
 Dense(A::Sparse) = sparse_to_dense(A)
 
+function Dense(ptr::Ptr{cholmod_dense})
+    if ptr == C_NULL
+        throw(ArgumentError("dense matrix construction failed for " *
+            "unknown reasons. Please submit a bug report."))
+    end
+    s = unsafe_load(ptr)
+    return Dense{jlxtype(s.xtype, s.dtype)}(ptr)
+end
+
 function Base.convert(::Type{Dense{Tnew}}, A::Dense{T}) where {Tnew, T}
     GC.@preserve A begin
         Ap = unsafe_load(pointer(A))
