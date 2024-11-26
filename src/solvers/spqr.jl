@@ -205,7 +205,7 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
         R, E, H, HPinv, HTau)
 
     R_ = SparseMatrixCSC{Tv, Ti}(Sparse(R[]))
-    return QRSparse(SparseMatrixCSC{Tv, Ti}(Tv.(Sparse(H[]))),
+    return QRSparse(SparseMatrixCSC{Tv, Ti}(Sparse(H[])),
                     vec(Array{Tv}(CHOLMOD.Dense(HTau[]))),
                     SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                     size(R_, 2),
