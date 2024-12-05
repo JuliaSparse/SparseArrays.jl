@@ -37,9 +37,9 @@ const AbstractSparseVecOrMat = Union{AbstractSparseVector,AbstractSparseMatrix}
 """
     AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
 
-Supertype for matrix with compressed sparse column (CSC).
-Subtypes of this type are expected to follow the `AbstractSparseMatrixCSC` interface
-consisting of  [`nnz`](@ref),  [`rowvals`](@ref),  [`nzrange`](@ref), [`nonzeros`](@ref) and [`getcolptr`](@ref).
+Supertype for sparse matrix with elements of type `Tv` and index type `Ti` 
+in compressed sparse column (CSC) format. Subtypes of this type are expected to implement 
+[`nnz`](@ref),  [`rowvals`](@ref),  [`nzrange`](@ref), [`nonzeros`](@ref) and [`getcolptr`](@ref).
 """
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
