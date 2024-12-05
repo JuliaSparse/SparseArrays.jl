@@ -110,6 +110,12 @@ end
     @test (F.Q*F.R)::SparseMatrixCSC == A[F.prow,F.pcol]
 end
 
+@testset "Issue #585 for element type: $eltyA" for eltyA in (Float64, Float32)
+    A = sparse(eltyA[1 0; 0 1])
+    F = qr(A)
+    @test eltype(F.Q) == eltype(F.R) == eltyA
+end
+
 @testset "select ordering overdetermined" begin
      A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
      b = randn(m)

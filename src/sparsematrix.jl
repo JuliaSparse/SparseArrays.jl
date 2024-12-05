@@ -4167,7 +4167,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
     return true
 end
 
-function istriu(A::AbstractSparseMatrixCSC)
+function istriu(A::AbstractSparseMatrixCSC, k::Integer=0)
     m, n = size(A)
     colptr = getcolptr(A)
     rowval = rowvals(A)
@@ -4176,7 +4176,8 @@ function istriu(A::AbstractSparseMatrixCSC)
     for col = 1:min(n, m-1)
         l1 = colptr[col+1]-1
         for i = 0 : (l1 - colptr[col])
-            if rowval[l1-i] <= col
+            if rowval[l1-i] <= col - k
+                # rows preceeding the index would also lie above the band
                 break
             end
             if _isnotzero(nzval[l1-i])
@@ -4187,7 +4188,7 @@ function istriu(A::AbstractSparseMatrixCSC)
     return true
 end
 
-function istril(A::AbstractSparseMatrixCSC)
+function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     m, n = size(A)
     colptr = getcolptr(A)
     rowval = rowvals(A)
@@ -4195,7 +4196,8 @@ function istril(A::AbstractSparseMatrixCSC)
 
     for col = 2:n
         for i = colptr[col] : (colptr[col+1]-1)
-            if rowval[i] >= col
+            if rowval[i] >= col - k
+                # subsequent rows would also lie below the band
                 break
             end
             if _isnotzero(nzval[i])

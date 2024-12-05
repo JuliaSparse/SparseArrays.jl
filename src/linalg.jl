@@ -47,11 +47,11 @@ for op ∈ (:+, :-)
     end
 end
 
-generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, alpha::Number, beta::Number) =
+@inline generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, alpha::Number, beta::Number) =
     spdensemul!(C, tA, tB, A, B, alpha, beta)
-generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, alpha::Number, beta::Number) =
+@inline generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, tA, tB, A, B, alpha, beta)
-generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, alpha::Number, beta::Number) =
+@inline generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', A, B, alpha, beta)
 
 Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
@@ -186,6 +186,23 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
         end
     end
     C
+end
+
+function *(A::Diagonal, b::AbstractSparseVector)
+    if size(A, 2) != length(b)
+        throw(
+            DimensionMismatch(lazy"The dimension of the matrix A $(size(A)) and of the vector b $(length(b))")
+        )
+    end
+    T = promote_eltype(A, b)
+    res = similar(b, T)
+    nzind_b = nonzeroinds(b)
+    nzval_b = nonzeros(b)
+    nzval_res = nonzeros(res)
+    for idx in eachindex(nzind_b)
+        nzval_res[idx] = A.diag[nzind_b[idx]] * nzval_b[idx]
+    end
+    return res
 end
 
 # Sparse matrix multiplication as described in [Gustavson, 1978]:

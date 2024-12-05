@@ -626,4 +626,17 @@ end
     @test_throws ArgumentError copytrito!(M, S, 'M')
 end
 
+@testset "istriu/istril" begin
+    for T in Any[Tridiagonal(1:3, 1:4, 1:3),
+                    Bidiagonal(1:4, 1:3, :U), Bidiagonal(1:4, 1:3, :L),
+                    Diagonal(1:4),
+                    diagm(-2=>1:2, 2=>1:2)]
+        S = sparse(T)
+        for k in -5:5
+            @test istriu(S, k) == istriu(T, k)
+            @test istril(S, k) == istril(T, k)
+        end
+    end
+end
+
 end # module
