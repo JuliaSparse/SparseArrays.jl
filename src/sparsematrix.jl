@@ -1021,7 +1021,7 @@ julia> [1.0, 0.0, 1.0]
 
 julia> sparse([1.0, 0.0, 1.0])
 3-element SparseVector{Float64, Int64} with 2 stored entries:
-       ⋮
+  [1]  =  1.0
   [3]  =  1.0
 ```
 """
