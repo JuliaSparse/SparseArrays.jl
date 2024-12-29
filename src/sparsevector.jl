@@ -511,6 +511,7 @@ FixedSparseVector(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = move_fixed(
     sparsevec(A)
 
 Convert a vector `A` into a sparse vector of length `m`.
+Numerical zeros in `A` are turned into structural zeros.
 
 # Examples
 ```jldoctest
