@@ -259,9 +259,9 @@ nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 
 """
-    rowvals(A::AbstractSparseMatrixCSC)
+    rowvals(A)
 
-Return a vector of the row indices of `A`. Any modifications to the returned
+Return a vector of the row indices of sparse array `A`. Any modifications to the returned
 vector will mutate `A` as well. Providing access to how the row indices are
 stored internally can be useful in conjunction with iterating over structural
 nonzero values. See also [`nonzeros`](@ref) and [`nzrange`](@ref).
@@ -287,10 +287,10 @@ rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 
 """
-    nzrange(A::AbstractSparseMatrixCSC, col::Integer)
+    nzrange(A, col::Integer)
 
-Return the range of indices to the structural nonzero values of a sparse matrix
-column. In conjunction with [`nonzeros`](@ref) and
+Return the range of indices to the structural nonzero values of column `col`
+of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
 [`rowvals`](@ref), this allows for convenient iterating over a sparse matrix :
 
     A = sparse(I,J,V)
@@ -994,9 +994,10 @@ float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S)
 complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
 
 """
-    sparse(A)
+    sparse(A::Union{AbstractVector, AbstractMatrix})
 
-Convert an AbstractMatrix `A` into a sparse matrix.
+Convert a vector or matrix `A` into a sparse array.
+Numerical zeros in `A` are turned into structural zeros.
 
 # Examples
 ```jldoctest
@@ -1011,6 +1012,17 @@ julia> sparse(A)
  1.0   ⋅    ⋅
   ⋅   1.0   ⋅
   ⋅    ⋅   1.0
+
+julia> [1.0, 0.0, 1.0]
+3-element Vector{Float64}:
+ 1.0
+ 0.0
+ 1.0
+
+julia> sparse([1.0, 0.0, 1.0])
+3-element SparseVector{Float64, Int64} with 2 stored entries:
+  [1]  =  1.0
+  [3]  =  1.0
 ```
 """
 sparse(A::AbstractMatrix{Tv}) where {Tv} = convert(SparseMatrixCSC{Tv}, A)
