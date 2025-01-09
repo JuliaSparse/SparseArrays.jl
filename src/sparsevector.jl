@@ -1243,7 +1243,7 @@ function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_Sp
     if anysparse(X1) || anysparse(X...)
         vcat(_hvcat_rows(rows, X1, X...)...)
     else
-	if X1 <: Number && all(Base.Fix1(<:, Number), X)
+	if X1 isa Number && all(Base.Fix2(isa, Number), X)
 		# Needed to match error type with Base Julia. See https://github.com/JuliaLang/julia/pull/56543#issuecomment-2508637550
 		matrix_len = if length(rows) == 0
 		    0
