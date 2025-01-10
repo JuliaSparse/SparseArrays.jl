@@ -11,7 +11,16 @@ using JuliaFormatter
 cd(@__DIR__)
 
 # headers
-include_dir = joinpath(SuiteSparse_jll.artifact_dir, "include", "suitesparse") |> normpath
+if length(ARGS) == 0
+    artifact_dir = SuiteSparse_jll.artifact_dir
+else
+    if isdir(ARGS[1])
+        artifact_dir = ARGS[1]
+    else
+        error("Usage: $PROGRAM_FILE <SuiteSparse artifact directory>")
+    end
+end
+include_dir = joinpath(artifact_dir, "include", "suitesparse") |> normpath
 
 cholmod_h = joinpath(include_dir, "cholmod.h")
 @assert isfile(cholmod_h)
