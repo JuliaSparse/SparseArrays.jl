@@ -7,7 +7,7 @@
 
 1. update `SuiteSparse_jll` in Yggdrasil to the desired version
 2. `cd` to this directory
-3. run `julia --project` and then in the Julia REPL, run `pkg>add SuiteSparse_jll#<COMMIT_HASH>`, where `<COMMIT_HASH>` is the commit hash corresponding to the desired version of the package
+3. run `julia --project generator.jl <SuiteSparse artifact directory>`
 
 ## How to upgrade Clang.jl
 

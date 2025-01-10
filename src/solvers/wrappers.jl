@@ -155,6 +155,27 @@ function SuiteSparse_BLAS_integer_size()
     @ccall libsuitesparseconfig.SuiteSparse_BLAS_integer_size()::Csize_t
 end
 
+@enum cholmod_query_t::UInt32 begin
+    CHOLMOD_QUERY_HAS_GPL = 0
+    CHOLMOD_QUERY_HAS_CHECK = 1
+    CHOLMOD_QUERY_HAS_CHOLESKY = 2
+    CHOLMOD_QUERY_HAS_CAMD = 3
+    CHOLMOD_QUERY_HAS_PARTITION = 4
+    CHOLMOD_QUERY_HAS_MATRIXOPS = 5
+    CHOLMOD_QUERY_HAS_MODIFY = 6
+    CHOLMOD_QUERY_HAS_SUPERNODAL = 7
+    CHOLMOD_QUERY_HAS_CUDA = 8
+    CHOLMOD_QUERY_HAS_OPENMP = 9
+end
+
+function cholmod_query(feature)
+    @ccall libcholmod.cholmod_query(feature::cholmod_query_t)::Bool
+end
+
+function cholmod_l_query(feature)
+    @ccall libcholmod.cholmod_l_query(feature::cholmod_query_t)::Bool
+end
+
 struct cholmod_method_struct
     lnz::Cdouble
     fl::Cdouble
@@ -3343,19 +3364,19 @@ const CHOLMOD_INT = 0
 
 const CHOLMOD_LONG = 2
 
-const CHOLMOD_DATE = "Mar 22, 2024"
+const CHOLMOD_DATE = "June 20, 2024"
 
 const CHOLMOD_MAIN_VERSION = 5
 
-const CHOLMOD_SUB_VERSION = 2
+const CHOLMOD_SUB_VERSION = 3
 
-const CHOLMOD_SUBSUB_VERSION = 1
+const CHOLMOD_SUBSUB_VERSION = 0
 
 SUITESPARSE_VER_CODE(main, sub) = main * 1000 + sub
 
 CHOLMOD_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 
-const CHOLMOD_VERSION = CHOLMOD_VER_CODE(5, 2)
+const CHOLMOD_VERSION = CHOLMOD_VER_CODE(5, 3)
 
 const _FILE_OFFSET_BITS = 64
 
@@ -3383,23 +3404,23 @@ const SUITESPARSE_COMPILER_XLC = 0
 
 const SUITESPARSE_TIME = SuiteSparse_time()
 
-const SUITESPARSE_DATE = "Mar 22, 2024"
+const SUITESPARSE_DATE = "Oct 10, 2024"
 
 const SUITESPARSE_MAIN_VERSION = 7
 
-const SUITESPARSE_SUB_VERSION = 7
+const SUITESPARSE_SUB_VERSION = 8
 
-const SUITESPARSE_SUBSUB_VERSION = 0
+const SUITESPARSE_SUBSUB_VERSION = 3
 
-const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(7, 7)
+const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(7, 8)
 
 function SUITESPARSE__VERCODE(main, sub, patch)
     return (main * Culonglong(1000) + sub) * Culonglong(1000) + patch
 end
 
-const SUITESPARSE__VERSION = SUITESPARSE__VERCODE(7, 7, 0)
+const SUITESPARSE__VERSION = SUITESPARSE__VERCODE(7, 8, 3)
 
-const CHOLMOD__VERSION = SUITESPARSE__VERCODE(5, 2, 1)
+const CHOLMOD__VERSION = SUITESPARSE__VERCODE(5, 3, 0)
 
 const CHOLMOD_DEVICE_SUPERNODE_BUFFERS = 6
 
@@ -3541,19 +3562,19 @@ const SPQR_RTX_EQUALS_B = 2
 
 const SPQR_RTX_EQUALS_ETB = 3
 
-const SPQR_DATE = "Mar 22, 2024"
+const SPQR_DATE = "June 20, 2024"
 
 const SPQR_MAIN_VERSION = 4
 
 const SPQR_SUB_VERSION = 3
 
-const SPQR_SUBSUB_VERSION = 3
+const SPQR_SUBSUB_VERSION = 4
 
 SPQR_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 
 const SPQR_VERSION = SPQR_VER_CODE(4, 3)
 
-const SPQR__VERSION = SUITESPARSE__VERCODE(4, 3, 3)
+const SPQR__VERSION = SUITESPARSE__VERCODE(4, 3, 4)
 
 const AMD_CONTROL = 5
 
@@ -3603,37 +3624,37 @@ const AMD_INVALID = -2
 
 const AMD_OK_BUT_JUMBLED = 1
 
-const AMD_DATE = "Mar 22, 2024"
+const AMD_DATE = "June 20, 2024"
 
 const AMD_MAIN_VERSION = 3
 
 const AMD_SUB_VERSION = 3
 
-const AMD_SUBSUB_VERSION = 2
+const AMD_SUBSUB_VERSION = 3
 
 AMD_VERSION_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 
 const AMD_VERSION = AMD_VERSION_CODE(3, 3)
 
-const AMD__VERSION = SUITESPARSE__VERCODE(3, 3, 2)
+const AMD__VERSION = SUITESPARSE__VERCODE(3, 3, 3)
 
 const UMFPACK_INFO = 90
 
 const UMFPACK_CONTROL = 20
 
-const UMFPACK_DATE = "Mar 22, 2024"
+const UMFPACK_DATE = "Sept 23, 2024"
 
 const UMFPACK_MAIN_VERSION = 6
 
 const UMFPACK_SUB_VERSION = 3
 
-const UMFPACK_SUBSUB_VERSION = 3
+const UMFPACK_SUBSUB_VERSION = 5
 
 UMFPACK_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 
 const UMFPACK_VER = UMFPACK_VER_CODE(6, 3)
 
-const UMFPACK__VERSION = SUITESPARSE__VERCODE(6, 3, 3)
+const UMFPACK__VERSION = SUITESPARSE__VERCODE(6, 3, 5)
 
 const UMFPACK_STATUS = 0
 
