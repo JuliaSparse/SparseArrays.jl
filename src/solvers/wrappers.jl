@@ -3402,8 +3402,6 @@ const SUITESPARSE_COMPILER_MSC = 0
 
 const SUITESPARSE_COMPILER_XLC = 0
 
-const SUITESPARSE_CONFIG_TIMER = clock_gettime
-
 const SUITESPARSE_TIME = SuiteSparse_time()
 
 const SUITESPARSE_DATE = "Oct 10, 2024"
