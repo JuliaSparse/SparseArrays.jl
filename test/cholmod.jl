@@ -1019,6 +1019,18 @@ end
     # @test_throws ErrorException cholesky(view(A, :, :), NoPivot())
 end
 
+@testset "solve with adjoint factorization and adjoint rhs" begin
+    n = 10
+    A = sprand(Tv, n, n, 1/n)
+    A = A + A' + 10I
+
+    B = rand(n, 2)
+    Bt = Matrix(B')
+
+    F = factorize(A')
+    @test F \ B ≈ F \ Bt'
+end
+
 end # for Tv ∈ (Float32, Float64)
 
 end # Base.USE_GPL_LIBS

@@ -15,7 +15,7 @@ import Base: (*), convert, copy, eltype, getindex, getproperty, show, size,
 using Base: require_one_based_indexing
 
 using LinearAlgebra
-using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans
+using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans, AdjOrTransStridedMat
 import LinearAlgebra: (\), AdjointFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
                  issuccess, issymmetric, ldiv!, ldlt, ldlt!, logdet,
@@ -1928,6 +1928,7 @@ function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedMatrix)
     L = adjL.parent
     return Matrix(solve(CHOLMOD_A, L, Dense(B)))
 end
+(\)(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::LinearAlgebra.AdjOrTransStridedMat) = adjL \ copy(B)
 
 const RealHermSymComplexHermSSL{Ti, Tr} = Union{
     Symmetric{Tr, SparseMatrixCSC{Tr, Ti}},
