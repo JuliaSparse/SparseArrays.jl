@@ -1026,9 +1026,12 @@ end
 
     B = rand(n, 2)
     Bt = Matrix(B')
+    Bts = sparse(B')
 
     F = factorize(A')
     @test F \ B ≈ F \ Bt'
+    @test F \ B ≈ F \ Bts'
+    @test issparse(F \ Bts')
 end
 
 end # for Tv ∈ (Float32, Float64)
