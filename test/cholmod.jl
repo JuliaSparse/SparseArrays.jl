@@ -1028,7 +1028,7 @@ end
     Bt = Matrix(B')
     Bts = sparse(B')
 
-    F = factorize(A')
+    F = cholesky(A')
     @test F \ B ≈ F \ Bt'
     @test F \ B ≈ F \ Bts'
     @test issparse(F \ Bts')
