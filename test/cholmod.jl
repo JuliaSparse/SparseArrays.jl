@@ -12,7 +12,7 @@ using SparseArrays.CHOLMOD: getcommon
 using Random
 using Serialization
 using LinearAlgebra:
-    I, cholesky, cholesky!, det, diag, eigmax, ishermitian, isposdef, issuccess, factorize,
+    I, cholesky, cholesky!, det, diag, eigmax, ishermitian, isposdef, issuccess,
     issymmetric, ldiv!, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
     PosDefException, ZeroPivotException, RowMaximum
 using SparseArrays
@@ -1028,7 +1028,7 @@ end
     Bt = Matrix(B')
     Bts = sparse(B')
 
-    F = cholesky(A')
+    F = cholesky(A)'
     @test F \ B ≈ F \ Bt'
     @test F \ B ≈ F \ Bts'
     @test issparse(F \ Bts')
