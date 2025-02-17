@@ -270,10 +270,10 @@ mutable struct Dense{Tv<:VTypes} <: DenseMatrix{Tv}
         s = unsafe_load(ptr)
         if s.xtype != xtyp(Tv)
             free!(ptr)
-            throw(CHOLMODException("xtype=$(s.xtype) not supported"))
+            throw(CHOLMODException("xtype=$(xtyp(Tv)) not supported"))
         elseif s.dtype != dtyp(Tv)
             free!(ptr)
-            throw(CHOLMODException("dtype=$(s.dtype) not supported"))
+            throw(CHOLMODException("dtype=$(dtyp(Tv)) not supported"))
         end
         obj = new(ptr)
         finalizer(free!, obj)
@@ -294,10 +294,10 @@ mutable struct Sparse{Tv<:VTypes, Ti<:ITypes} <: AbstractSparseMatrix{Tv,Ti}
             throw(CHOLMODException("Ti=$Ti does not match s.itype=$(s.itype)"))
         elseif s.xtype != xtyp(Tv)
             free!(ptr, Ti)
-            throw(CHOLMODException("xtype=$(s.xtype) not supported"))
+            throw(CHOLMODException("xtype=$(xtyp(Tv)) not supported"))
         elseif s.dtype != dtyp(Tv)
             free!(ptr, Ti)
-            throw(CHOLMODException("dtype=$(s.dtype) not supported"))
+            throw(CHOLMODException("dtype=$(dtyp(Tv)) not supported"))
         end
         A = new(ptr)
         finalizer(free!, A)
@@ -337,10 +337,10 @@ mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
             throw(CHOLMODException("Ti=$Ti does not match s.itype=$(s.itype)"))
         elseif s.xtype != xtyp(Tv) && s.xtype != CHOLMOD_PATTERN
             free!(ptr, Ti)
-            throw(CHOLMODException("xtype=$(s.xtype) not supported"))
+            throw(CHOLMODException("xtype=$(xtyp(Tv)) not supported"))
         elseif s.dtype != dtyp(Tv)
             free!(ptr, Ti)
-            throw(CHOLMODException("dtype=$(s.dtype) not supported"))
+            throw(CHOLMODException("dtype=$(dtyp(Tv)) not supported"))
         end
         F = new(ptr)
         if register_finalizer

@@ -214,10 +214,10 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
                                     nonzeros(R_)),
                     p, hpinv)
 end
-LinearAlgebra.qr(A::SparseMatrixCSC{<:Union{Float16,Float32}}; tol=_default_tol(A)) =
-    qr(convert(SparseMatrixCSC{Float64}, A); tol=tol)
-LinearAlgebra.qr(A::SparseMatrixCSC{<:Union{ComplexF16,ComplexF32}}; tol=_default_tol(A)) =
-    qr(convert(SparseMatrixCSC{ComplexF64}, A); tol=tol)
+LinearAlgebra.qr(A::SparseMatrixCSC{Float16}; tol=_default_tol(A)) =
+    qr(convert(SparseMatrixCSC{Float32}, A); tol=tol)
+LinearAlgebra.qr(A::SparseMatrixCSC{ComplexF16}; tol=_default_tol(A)) =
+    qr(convert(SparseMatrixCSC{ComplexF32}, A); tol=tol)
 LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
    tol=_default_tol(A)) where {T<:AbstractFloat} =
     throw(ArgumentError(string("matrix type ", typeof(A), "not supported. ",
