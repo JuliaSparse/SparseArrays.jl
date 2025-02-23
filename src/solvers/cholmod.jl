@@ -11,7 +11,8 @@
 module CHOLMOD
 
 import Base: (*), convert, copy, eltype, getindex, getproperty, show, size,
-             IndexStyle, IndexLinear, IndexCartesian, adjoint, axes
+             IndexStyle, IndexLinear, IndexCartesian, adjoint, axes,
+             Matrix, Vector
 using Base: require_one_based_indexing
 
 using LinearAlgebra
