@@ -983,7 +983,7 @@ function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},
 end
 function _AqldivB_kernel!(X::StridedMatrix{T}, lu::UmfpackLU{T},
                           B::StridedMatrix{T}, transposeoptype) where {T<:UMFVTypes}
-    for col in 1:size(X, 2)
+    for col in axes(X, 2)
         solve!(view(X, :, col), lu, view(B, :, col), transposeoptype)
     end
 end
@@ -1002,7 +1002,7 @@ function _AqldivB_kernel!(X::StridedMatrix{Tb}, lu::UmfpackLU{Float64},
     r = similar(B, Float64, size(B, 1))
     i = similar(B, Float64, size(B, 1))
     c = similar(B, Float64, size(B, 1))
-    for j in 1:size(B, 2)
+    for j in axes(B, 2)
         c .= real.(view(B, :, j))
         solve!(r, lu, c, transposeoptype)
         c .= imag.(view(B, :, j))

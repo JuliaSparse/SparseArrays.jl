@@ -84,8 +84,8 @@ function _spmatmul!(C, A, B, α, β)
     nzv = nonzeros(A)
     rv = rowvals(A)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
-    for k in 1:size(C, 2)
-        @inbounds for col in 1:size(A, 2)
+    for k in axes(C, 2)
+        @inbounds for col in axes(A,2)
             αxj = B[col,k] * α
             for j in nzrange(A, col)
                 C[rv[j], k] += nzv[j]*αxj
@@ -105,8 +105,8 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     nzv = nonzeros(A)
     rv = rowvals(A)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
-    for k in 1:size(C, 2)
-        @inbounds for col in 1:size(A, 2)
+    for k in axes(C, 2)
+        @inbounds for col in axes(A,2)
             tmp = zero(eltype(C))
             for j in nzrange(A, col)
                 tmp += tfun(nzv[j])*B[rv[j],k]
@@ -139,10 +139,10 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
     rv = rowvals(A)
     nzv = nonzeros(A)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
-    @inbounds for col in 1:size(A, 2), k in nzrange(A, col)
+    @inbounds for col in axes(A,2), k in nzrange(A, col)
         Aiα = nzv[k] * α
         rvk = rv[k]
-        @simd for multivec_row in 1:mX
+        @simd for multivec_row in axes(X,1)
             C[multivec_row, col] += X[multivec_row, rvk] * Aiα
         end
     end
@@ -159,7 +159,7 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
     rv = rowvals(A)
     nzv = nonzeros(A)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
-    for multivec_row in 1:mX, col in 1:size(A, 2)
+    for multivec_row in axes(X,1), col in axes(C, 2)
         @inbounds for k in nzrange(A, col)
             C[multivec_row, col] += X[multivec_row, rv[k]] * nzv[k] * α
         end
@@ -178,10 +178,10 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     rv = rowvals(B)
     nzv = nonzeros(B)
     β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
-    @inbounds for col in 1:size(B, 2), k in nzrange(B, col)
+    @inbounds for col in axes(B, 2), k in nzrange(B, col)
         Biα = tfun(nzv[k]) * α
         rvk = rv[k]
-        @simd for multivec_col in 1:mA
+        @simd for multivec_col in axes(A,1)
             C[multivec_col, rvk] += A[multivec_col, col] * Biα
         end
     end
@@ -267,7 +267,7 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     @inbounds begin
         ip = 1
         xb = fill(false, mA)
-        for i in 1:nB
+        for i in axes(B,2)
             if ip + mA - 1 > nnzC
                 nnzC += max(mA, nnzC>>2)
                 resize!(rowvalC, nnzC)
@@ -322,7 +322,7 @@ function spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
                 end
             else
                 # scan result vector (effort O(mA))
-                for k = 1:mA
+                for k in axes(A,1)
                     if xb[k]
                         xb[k] = false
                         rowvalC[ip0] = k
@@ -557,7 +557,7 @@ function dot(A::AbstractSparseMatrixCSC{T1,S1},B::AbstractSparseMatrixCSC{T2,S2}
     m, n = size(A)
     size(B) == (m,n) || throw(DimensionMismatch("matrices must have the same dimensions"))
     r = dot(zero(T1), zero(T2))
-    @inbounds for j = 1:n
+    @inbounds for j in axes(A,2)
         ia = getcolptr(A)[j]; ia_nxt = getcolptr(A)[j+1]
         ib = getcolptr(B)[j]; ib_nxt = getcolptr(B)[j+1]
         if ia < ia_nxt && ib < ib_nxt
@@ -595,7 +595,7 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
     rowvals = getrowval(A)
     nzvals = getnzval(A)
 
-    @inbounds @simd for col in 1:n
+    @inbounds @simd for col in axes(A,2)
         ycol = y[col]
         for j in nzrange(A, col)
             row = rowvals[j]
@@ -653,7 +653,7 @@ function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatri
     end
     rows = rowvals(B)
     vals = nonzeros(B)
-    @inbounds for j in 1:n
+    @inbounds for j in axes(A,2)
         for ridx in nzrange(B, j)
             i = rows[ridx]
             v = vals[ridx]
@@ -744,8 +744,8 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
     if uploc == 'U'
         if tfun === identity
             # forward multiplication for UpperTriangular SparseCSC matrices
-            for k = 1:ncolB
-                for j = 1:nrowB
+            for k in axes(B,2)
+                for j in axes(B,1)
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
                     done = unit
@@ -773,8 +773,8 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
             end
         else # tfun in (adjoint, transpose)
             # backward multiplication with adjoint and transpose of LowerTriangular CSC matrices
-            for k = 1:ncolB
-                for j = nrowB:-1:1
+            for k in axes(B,2)
+                for j in reverse(axes(B,1))
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
                     akku = Z
@@ -800,8 +800,8 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
     else # uploc == 'L'
         if tfun === identity
             # backward multiplication for LowerTriangular SparseCSC matrices
-            for k = 1:ncolB
-                for j = nrowB:-1:1
+            for k in axes(B,2)
+                for j in reverse(axes(B,1))
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
                     done = unit
@@ -829,8 +829,8 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
             end
         else # tfun in (adjoint, transpose)
             # forward multiplication for adjoint and transpose of LowerTriangular CSC matrices
-            for k = 1:ncolB
-                for j = 1:nrowB
+            for k in axes(B,2)
+                for j in axes(B,1)
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
                     akku = Z
@@ -873,8 +873,8 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
     Z = zero(eltype(C))
 
     if uploc == 'U'
-        for k = 1:ncolB
-            for j = 1:nrowB
+        for k in axes(B,2)
+            for j in axes(B,1)
                 i1 = ia[j]
                 i2 = ia[j + 1] - 1
                 done = unit
@@ -901,8 +901,8 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
             joff += nrowB
         end
     else # uploc == 'L'
-        for k = 1:ncolB
-            for j = nrowB:-1:1
+        for k in axes(B,2)
+            for j in reverse(axes(B,1))
                 i1 = ia[j]
                 i2 = ia[j + 1] - 1
                 done = unit
@@ -954,8 +954,8 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
     if uploc == 'L'
         if tfun === identity
             # forward substitution for LowerTriangular CSC matrices
-            for k in 1:ncolB
-                for j = 1:nrowB
+            for k in axes(B,2)
+                for j in axes(B,1)
                     i1 = ia[j]
                     i2 = ia[j + 1] - one(eltype(ia))
 
@@ -983,8 +983,8 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
             end
         else # tfun in (adjoint, transpose)
             # backward substitution for adjoint and transpose of LowerTriangular CSC matrices
-            for k in 1:ncolB
-                for j = nrowB:-1:1
+            for k in axes(B,2)
+                for j in reverse(axes(B,1))
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
                     akku = B[j,k]
@@ -1013,8 +1013,8 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
     else # uploc == 'U'
         if tfun === identity
             # backward substitution for UpperTriangular CSC matrices
-            for k in 1:ncolB
-                for j = nrowB:-1:1
+            for k in axes(B,2)
+                for j in reverse(axes(B,1))
                     i1 = ia[j]
                     i2 = ia[j + 1] - one(eltype(ia))
 
@@ -1042,8 +1042,8 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
             end
         else # tfun in  (adjoint, transpose)
             # forward substitution for adjoint and transpose of UpperTriangular CSC matrices
-            for k in 1:ncolB
-                for j = 1:nrowB
+            for k in axes(B,2)
+                for j in axes(B,1)
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
                     akku = B[j,k]
@@ -1091,8 +1091,8 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
 
     if uploc == 'L'
         # forward substitution for LowerTriangular CSC matrices
-        for k in 1:ncolB
-            for j = 1:nrowB
+        for k in axes(B,2)
+            for j in axes(B,1)
                 i1 = ia[j]
                 i2 = ia[j + 1] - one(eltype(ia))
 
@@ -1120,8 +1120,8 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
         end
     else # uploc == 'U'
         # backward substitution for UpperTriangular CSC matrices
-        for k in 1:ncolB
-            for j = nrowB:-1:1
+        for k in axes(B,2)
+            for j in reverse(axes(B,1))
                 i1 = ia[j]
                 i2 = ia[j + 1] - one(eltype(ia))
 
@@ -1176,8 +1176,8 @@ function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::Strided
     nzv = nonzeros(A)
     let z = T(0), sumcol=z, αxj=z, aarc=z, α = α
         β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
-        @inbounds for k = 1:m
-            for col = 1:n
+        @inbounds for k in axes(B,2)
+            for col in axes(B,1)
                 αxj = B[col,k] * α
                 sumcol = z
                 for j = nzrang(A, col)
@@ -1224,7 +1224,7 @@ function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, 
     r = zero(T)
     rvals = getrowval(A)
     nzvals = getnzval(A)
-    @inbounds for col in 1:n
+    @inbounds for col in axes(A,2)
         ycol = y[col]
         xcol = x[col]
         if _isnotzero(ycol) && _isnotzero(xcol)
@@ -1280,7 +1280,7 @@ function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rang
         end
     end
     # diagonal
-    for i in 1:m
+    for i in axes(A,1)
         r1 = Int(Acolptr[i])
         r2 = Int(Acolptr[i+1]-1)
         r1 > r2 && continue
@@ -1320,10 +1320,10 @@ function ldiv!(D::Diagonal{T}, A::AbstractSparseMatrixCSC{T}) where {T}
     nonz = nonzeros(A)
     Arowval = rowvals(A)
     b = D.diag
-    for i=1:length(b)
+    for i=axes(b,1)
         iszero(b[i]) && throw(SingularException(i))
     end
-    @inbounds for col in 1:size(A, 2), p in nzrange(A, col)
+    @inbounds for col in axes(A,2), p in nzrange(A, col)
         nonz[p] = b[Arowval[p]] \ nonz[p]
     end
     A
@@ -1543,7 +1543,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
         Tsum = promote_type(Float64,Tnorm)
         if p==1
             nA::Tsum = 0
-            for j=1:n
+            for j in axes(A,2)
                 colSum::Tsum = 0
                 for i in nzrange(A, j)
                     colSum += abs(nonzeros(A)[i])
@@ -1555,7 +1555,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             throw(ArgumentError("2-norm not yet implemented for sparse matrices. Try opnorm(Array(A)) or opnorm(A, p) where p=1 or Inf."))
         elseif p==Inf
             rowSum = zeros(Tsum,m)
-            for i=1:length(nonzeros(A))
+            for i in axes(nonzeros(A),1)
                 rowSum[rowvals(A)[i]] += abs(nonzeros(A)[i])
             end
             return convert(Tnorm, maximum(rowSum))
@@ -1689,7 +1689,7 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
         h_max = zero(real(eltype(Z)))
         h = zeros(real(eltype(Z)), n)
         h_ind = 0
-        for i = 1:n
+        for i in axes(A,1)
             h[i] = norm(Z[i,1:t], Inf)
             if h[i] > h_max
                 h_max = h[i]
@@ -1779,11 +1779,11 @@ const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMa
     resize!(rowvalC, nnzC)
 
     col = 1
-    @inbounds for j = 1:nA
+    @inbounds for j in axes(A,2)
         startA = getcolptr(A)[j]
         stopA = getcolptr(A)[j+1] - 1
         lA = stopA - startA + 1
-        for i = 1:nB
+        for i in axes(B,2)
             startB = getcolptr(B)[i]
             stopB = getcolptr(B)[i+1] - 1
             lB = stopB - startB + 1
@@ -1899,7 +1899,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     Cnzval = nonzeros(C)
     Anzval = nonzeros(A)
     resize!(Cnzval, length(Anzval))
-    for col in 1:n, p in nzrange(A, col)
+    for col in axes(A,2), p in nzrange(A, col)
         @inbounds Cnzval[p] = Anzval[p] * b[col]
     end
     C
@@ -1916,7 +1916,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     Anzval = nonzeros(A)
     Arowval = rowvals(A)
     resize!(Cnzval, length(Anzval))
-    for col in 1:n, p in nzrange(A, col)
+    for col in axes(A,2), p in nzrange(A, col)
         @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p]
     end
     C
@@ -1953,7 +1953,7 @@ function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
     szD = size(D, 1)
     (n == szD) || throw(DimensionMismatch("A has size ($m, $n) but D has size ($szD, $szD)"))
     Anzval = nonzeros(A)
-    @inbounds for col in 1:n, p in nzrange(A, col)
+    @inbounds for col in axes(A,2), p in nzrange(A, col)
          Anzval[p] = Anzval[p] * D.diag[col]
     end
     return A
@@ -1965,7 +1965,7 @@ function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
     (m == ds2) || throw(DimensionMismatch("D has size ($ds2, $ds2) but A has size ($m, $n)"))
     Anzval = nonzeros(A)
     Arowval = rowvals(A)
-    @inbounds for col in 1:n, p in nzrange(A, col)
+    @inbounds for col in axes(A,2), p in nzrange(A, col)
         Anzval[p] = D.diag[Arowval[p]] * Anzval[p]
     end
     return A
@@ -1983,7 +1983,7 @@ function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixC
     Anzval = nonzeros(A)
     Arowval = rowvals(A)
     resize!(Cnzval, length(Anzval))
-    for col in 1:n, p in nzrange(A, col)
+    for col in axes(A,2), p in nzrange(A, col)
         @inbounds Cnzval[p] = b[Arowval[p]] \ Anzval[p]
     end
     C
@@ -2000,7 +2000,7 @@ function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatri
     Cnzval = nonzeros(C)
     Anzval = nonzeros(A)
     resize!(Cnzval, length(Anzval))
-    for col in 1:n, p in nzrange(A, col)
+    for col in axes(A,2), p in nzrange(A, col)
         @inbounds Cnzval[p] = Anzval[p] / b[col]
     end
     C

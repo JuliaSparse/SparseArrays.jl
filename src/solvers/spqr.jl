@@ -146,7 +146,7 @@ Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q
 
 # From SPQR manual p. 6
 _default_tol(A::AbstractSparseMatrixCSC) =
-    20*sum(size(A))*eps()*maximum(norm(view(A, :, i)) for i in 1:size(A, 2))
+    20*sum(size(A))*eps()*maximum(norm(view(A, :, i)) for i in axes(A, 2))
 
 """
     qr(A::SparseMatrixCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) -> QRSparse
@@ -242,7 +242,7 @@ function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
     for l in size(Q.factors, 2):-1:1
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
-        for j in 1:size(A, 2)
+        for j in axes(A, 2)
             a = view(A, :, j)
             axpy!(τl*dot(h, a), h, a)
         end
@@ -255,7 +255,7 @@ function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
     tmp = similar(A, size(A, 1))
-    for l in 1:size(Q.factors, 2)
+    for l in axes(Q.factors, 2)
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
         mul!(tmp, A, h)
@@ -269,10 +269,10 @@ function LinearAlgebra.lmul!(adjQ::AdjointQ{<:Any,<:QRSparseQ}, A::StridedVecOrM
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
-    for l in 1:size(Q.factors, 2)
+    for l in axes(Q.factors, 2)
         τl = -Q.τ[l]
         h = view(Q.factors, :, l)
-        for j in 1:size(A, 2)
+        for j in axes(A, 2)
             a = view(A, :, j)
             LinearAlgebra.axpy!(τl'*dot(h, a), h, a)
         end
@@ -421,14 +421,14 @@ function _ldiv_basic(F::QRSparse, B::StridedVecOrMat)
     # Fill will zeros. These will eventually become the zeros in the basic solution
     # fill!(X, 0)
     # Apply left permutation to the solution and store in X
-    for j in 1:size(B, 2)
+    for j in axes(B, 2)
         for i in 1:length(F.rpivinv)
             @inbounds X[F.rpivinv[i], j] = B[i, j]
         end
     end
 
     # Make a view into X corresponding to the size of B
-    X0 = view(X, 1:size(B, 1), :)
+    X0 = view(X, axes(B, 1), :)
 
     # Apply Q' to B
     lmul!(adjoint(F.Q), X0)
