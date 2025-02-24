@@ -119,7 +119,7 @@ const SpBroadcasted2{Style<:SPVM,Axes,F,Args<:Tuple{SparseVecOrMat,SparseVecOrMa
 @inline numcols(A::AbstractSparseMatrixCSC) = size(A, 2)
 # numrows and numcols respectively yield size(A, 1) and size(A, 2), but avoid a branch
 @inline columns(A::AbstractCompressedVector) = 1
-@inline columns(A::AbstractSparseMatrixCSC) = 1:size(A, 2)
+@inline columns(A::AbstractSparseMatrixCSC) = axes(A,2)
 @inline colrange(A::AbstractCompressedVector, j) = 1:length(nonzeroinds(A))
 @inline colrange(A::AbstractSparseMatrixCSC, j) = nzrange(A, j)
 @inline colstartind(A::AbstractCompressedVector, j) = one(indtype(A))
@@ -311,7 +311,7 @@ function _densestructure!(A::AbstractSparseMatrixCSC)
     expandstorage!(A, nnzA)
     copyto!(getcolptr(A), 1:size(A, 1):(nnzA + 1))
     for k in _densecoloffsets(A)
-        copyto!(rowvals(A), k + 1, 1:size(A, 1))
+        copyto!(rowvals(A), k + 1, axes(A,1))
     end
     return A
 end

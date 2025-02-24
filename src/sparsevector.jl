@@ -737,11 +737,11 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
     c = 1
     rowB = 1
 
-    @inbounds for col in 1:size(A, 2)
+    @inbounds for col in axes(A,2)
         r1 = colptrA[col]
         r2 = colptrA[col+1]-1
 
-        for row in 1:size(A, 1)
+        for row in axes(A,1)
             if I[row, col]
                 while (r1 <= r2) && (rowvalA[r1] < row)
                     r1 += 1

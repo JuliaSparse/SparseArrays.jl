@@ -1025,7 +1025,7 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC{<:Any}, stype::Integer) where {Tv<:VT
         # Need to remove any non real elements in the diagonal because, in contrast to
         # BLAS/LAPACK these are not ignored by CHOLMOD. If even tiny imaginary parts are
         # present CHOLMOD will fail with a non-positive definite/zero pivot error.
-        for j = 1:size(A, 2)
+        for j = axes(A, 2)
             for ip = getcolptr(A)[j]:getcolptr(A)[j + 1] - 1
                 v = nonzeros(A)[ip]
                 unsafe_store!(Ptr{Tv}(s.x), rowvals(A)[ip] == j ? Complex(real(v)) : v, ip)
