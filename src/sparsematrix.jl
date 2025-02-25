@@ -1111,7 +1111,7 @@ end
 sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine) =
     sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
 
-function sparse(IJ::AbstractVector{Ci}, V::AbstractVector, m::Integer, n::Integer) where {Ci<:CartesianIndex}
+function sparse(IJ::AbstractVector{CartesianIndex{2}}, V::AbstractVector, m::Integer, n::Integer)
     IJ′ = reinterpret(Int, reshape(IJ, 1, :))
     return sparse(view(IJ′, 1, :), view(IJ′, 2, :), V, m, n)
 end
