@@ -1907,8 +1907,9 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
             row_exists, ind = rowcheck_index(C, row, col)
             if !row_exists
                 n_extra += 1
-                insert!(rowvals(C), ind, row)
-                insert!(nonzeros(C), ind, zero(eltype(C)))
+                nz = getcolptr(C)[end]
+                _insert!(rowvals(C), ind, row, nz)
+                _insert!(nonzeros(C), ind, zero(eltype(C)), nz)
                 C_colptr[col+1] += 1
             end
         end
