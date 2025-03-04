@@ -1914,7 +1914,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
             end
         end
     else
-        @invoke mul!(C::AbstractMatrix, A::AbstractMatrix, D::Diagonal, alpha, beta)
+        @invoke mul!(C::AbstractMatrix, A::AbstractMatrix, D::Diagonal, alpha::Number, beta::Number)
     end
     C
 end
@@ -1945,7 +1945,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
             end
         end
     else
-        @invoke mul!(C::AbstractMatrix, D::Diagonal, A::AbstractMatrix, alpha, beta)
+        @invoke mul!(C::AbstractMatrix, D::Diagonal, A::AbstractMatrix, alpha::Number, beta::Number)
     end
     C
 end
