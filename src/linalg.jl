@@ -1877,47 +1877,75 @@ inv(A::AbstractSparseMatrixCSC) = error("The inverse of a sparse matrix can ofte
 ## scale methods
 
 # Copy colptr and rowval from one sparse matrix to another
-function copyinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
-    if getcolptr(C) !== getcolptr(A)
+function copyinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC; copy_rows=true, copy_cols=true)
+    if copy_cols && getcolptr(C) !== getcolptr(A)
         resize!(getcolptr(C), length(getcolptr(A)))
         copyto!(getcolptr(C), getcolptr(A))
     end
-    if rowvals(C) !== rowvals(A)
+    if copy_rows && rowvals(C) !== rowvals(A)
         resize!(rowvals(C), length(rowvals(A)))
         copyto!(rowvals(C), rowvals(A))
     end
 end
 
 # multiply by diagonal matrix as vector
-function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
-    m, n = size(A)
-    b    = D.diag
-    lb = length(b)
-    n == lb || throw(DimensionMismatch("A has size ($m, $n) but D has size ($lb, $lb)"))
-    size(A)==size(C) || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    resize!(Cnzval, length(Anzval))
-    for col in axes(A,2), p in nzrange(A, col)
-        @inbounds Cnzval[p] = Anzval[p] * b[col]
+function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, alpha::Number, beta::Number)
+    beta_is_zero = iszero(beta)
+    rows_match = rowvals(C) == rowvals(A)
+    cols_match = getcolptr(C) == getcolptr(A)
+    identical_nzinds = rows_match && cols_match
+    if beta_is_zero || identical_nzinds
+        m, n = size(A)
+        b    = D.diag
+        lb = length(b)
+        n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
+        size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
+        identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
+        Cnzval = nonzeros(C)
+        Anzval = nonzeros(A)
+        resize!(Cnzval, length(Anzval))
+        if beta_is_zero
+            for col in axes(A,2), p in nzrange(A, col)
+                @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha
+            end
+        else
+            for col in axes(A,2), p in nzrange(A, col)
+                @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha + Cnzval[p] * beta
+            end
+        end
+    else
+        @invoke mul!(C::AbstractMatrix, A::AbstractMatrix, D::Diagonal, alpha, beta)
     end
     C
 end
 
-function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
-    m, n = size(A)
-    b    = D.diag
-    lb = length(b)
-    m == lb || throw(DimensionMismatch("D has size ($lb, $lb) but A has size ($m, $n)"))
-    size(A)==size(C) || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
-    resize!(Cnzval, length(Anzval))
-    for col in axes(A,2), p in nzrange(A, col)
-        @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p]
+function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC, alpha::Number, beta::Number)
+    beta_is_zero = iszero(beta)
+    rows_match = rowvals(C) == rowvals(A)
+    cols_match = getcolptr(C) == getcolptr(A)
+    identical_nzinds = rows_match && cols_match
+    if beta_is_zero || identical_nzinds
+        m, n = size(A)
+        b    = D.diag
+        lb = length(b)
+        m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
+        size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
+        identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
+        Cnzval = nonzeros(C)
+        Anzval = nonzeros(A)
+        Arowval = rowvals(A)
+        resize!(Cnzval, length(Anzval))
+        if beta_is_zero
+            for col in axes(A,2), p in nzrange(A, col)
+                @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p] * alpha
+            end
+        else
+            for col in axes(A,2), p in nzrange(A, col)
+                @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p] * alpha + Cnzval[p] * beta
+            end
+        end
+    else
+        @invoke mul!(C::AbstractMatrix, D::Diagonal, A::AbstractMatrix, alpha, beta)
     end
     C
 end

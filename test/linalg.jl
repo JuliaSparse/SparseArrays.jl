@@ -580,6 +580,17 @@ end
         @test lmul!(D, copy(sA)) ≈ D * dA
         @test mul!(sC, D, copy(sA)) ≈ D * dA
     end
+
+    @testset "5-arg mul!" begin
+        sA2 = similar(sA)
+        nonzeros(sA2) .= 1
+        sA3 = copy(sA2)
+        D = Diagonal(rand(size(sA,2)))
+        @test mul!(sA2, sA, D, 3, 2) ≈ dA * D * 3 + sA3 * 2
+        nonzeros(sA2) .= 1
+        D = Diagonal(rand(size(sA,1)))
+        @test mul!(sA2, D, sA, 3, 2) ≈ D * dA * 3 + sA3 * 2
+    end
 end
 
 @testset "conj" begin
