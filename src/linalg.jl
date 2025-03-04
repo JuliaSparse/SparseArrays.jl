@@ -1888,21 +1888,52 @@ function copyinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC; copy_
     end
 end
 
+@inline function rowcheck_index(A::AbstractSparseMatrixCSC, row::Integer, col::Integer)
+    nzinds = nzrange(A, col)
+    rows_col = @view rowvals(A)[nzinds]
+    # faster implementation of row ∈ rows_col, assuming that rows_col is sorted
+    row_ind_col = searchsortedfirst(rows_col, row)
+    row_exists = row_ind_col ∈ axes(rows_col,1) && rows_col[row_ind_col] == row
+    row_ind = row_ind_col + first(nzinds) - firstindex(nzinds)
+    row_exists, row_ind
+end
+
+function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
+    C_colptr = getcolptr(C)
+    for col in axes(A,2)
+        n_extra = 0
+        for ind in nzrange(A, col)
+            row = rowvals(A)[ind]
+            row_exists, ind = rowcheck_index(C, row, col)
+            if !row_exists
+                n_extra += 1
+                insert!(rowvals(C), ind, row)
+                insert!(nonzeros(C), ind, zero(eltype(C)))
+                C_colptr[col+1] += 1
+            end
+        end
+        if !iszero(n_extra)
+            @views C_colptr[col+2:end] .+= n_extra
+        end
+    end
+    C
+end
+
 # multiply by diagonal matrix as vector
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, alpha::Number, beta::Number)
+    m, n = size(A)
+    b = D.diag
+    lb = length(b)
+    n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
+    size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
     beta_is_zero = iszero(beta)
     rows_match = rowvals(C) == rowvals(A)
     cols_match = getcolptr(C) == getcolptr(A)
     identical_nzinds = rows_match && cols_match
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
     if beta_is_zero || identical_nzinds
-        m, n = size(A)
-        b    = D.diag
-        lb = length(b)
-        n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
-        size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
-        Cnzval = nonzeros(C)
-        Anzval = nonzeros(A)
         resize!(Cnzval, length(Anzval))
         if beta_is_zero
             for col in axes(A,2), p in nzrange(A, col)
@@ -1914,26 +1945,35 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
             end
         end
     else
-        @invoke mul!(C::AbstractMatrix, A::AbstractMatrix, D::Diagonal, alpha::Number, beta::Number)
+        mergeinds!(C, A)
+        for col in axes(C,2), p in nzrange(C, col)
+            row = rowvals(C)[p]
+            row_exists, row_ind_A = rowcheck_index(A, row, col)
+            if row_exists
+                @inbounds Cnzval[p] = Anzval[row_ind_A] * b[col] * alpha + Cnzval[p] * beta
+            else
+                @inbounds Cnzval[p] = Cnzval[p] * beta
+            end
+        end
     end
     C
 end
 
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC, alpha::Number, beta::Number)
+    m, n = size(A)
+    b    = D.diag
+    lb = length(b)
+    m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
+    size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
     beta_is_zero = iszero(beta)
     rows_match = rowvals(C) == rowvals(A)
     cols_match = getcolptr(C) == getcolptr(A)
     identical_nzinds = rows_match && cols_match
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
+    Arowval = rowvals(A)
     if beta_is_zero || identical_nzinds
-        m, n = size(A)
-        b    = D.diag
-        lb = length(b)
-        m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
-        size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
-        Cnzval = nonzeros(C)
-        Anzval = nonzeros(A)
-        Arowval = rowvals(A)
         resize!(Cnzval, length(Anzval))
         if beta_is_zero
             for col in axes(A,2), p in nzrange(A, col)
@@ -1945,7 +1985,16 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
             end
         end
     else
-        @invoke mul!(C::AbstractMatrix, D::Diagonal, A::AbstractMatrix, alpha::Number, beta::Number)
+        mergeinds!(C, A)
+        for col in axes(C,2), p in nzrange(C, col)
+            row = rowvals(C)[p]
+            row_exists, row_ind_A = rowcheck_index(A, row, col)
+            if row_exists
+                @inbounds Cnzval[p] = b[row_ind_A] * Anzval[row_ind_A] * alpha + Cnzval[p] * beta
+            else
+                @inbounds Cnzval[p] = Cnzval[p] * beta
+            end
+        end
     end
     C
 end
