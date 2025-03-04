@@ -445,8 +445,8 @@ end
     A = sprand(5,5,0.5)
     D = Diagonal(rand(5))
     C = copy(A)
-    m1 = @which mul!(C,A,D)
-    m2 = @which mul!(C,D,A)
+    m1 = @which mul!(C,A,D,true,false)
+    m2 = @which mul!(C,D,A,true,false)
     @test m1.module == SparseArrays
     @test m2.module == SparseArrays
 end
