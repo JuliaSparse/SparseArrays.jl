@@ -582,15 +582,16 @@ end
     end
 
     @testset "5-arg mul!" begin
-        sA2 = similar(sA)
-        @testset for (alpha, beta) in [(true, false), (true, true), (2,3)]
-            nonzeros(sA2) .= 1
-            sA3 = copy(sA2)
-            D = Diagonal(rand(size(sA,2)))
-            @test mul!(sA2, sA, D, alpha, beta) ≈ dA * D * alpha + sA3 * beta
-            nonzeros(sA2) .= 1
-            D = Diagonal(rand(size(sA,1)))
-            @test mul!(sA2, D, sA, alpha, beta) ≈ D * dA * alpha + sA3 * beta
+        for sA2 in (similar(sA), sprand(size(sA)..., 0.1))
+            @testset for (alpha, beta) in [(true, false), (true, true), (2,3)]
+                nonzeros(sA2) .= 1
+                sA3 = copy(sA2)
+                D = Diagonal(rand(size(sA,2)))
+                @test mul!(sA2, sA, D, alpha, beta) ≈ dA * D * alpha + sA3 * beta
+                nonzeros(sA2) .= 1
+                D = Diagonal(rand(size(sA,1)))
+                @test mul!(sA2, D, sA, alpha, beta) ≈ D * dA * alpha + sA3 * beta
+            end
         end
     end
 end
