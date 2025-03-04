@@ -1891,10 +1891,13 @@ end
 @inline function rowcheck_index(A::AbstractSparseMatrixCSC, row::Integer, col::Integer)
     nzinds = nzrange(A, col)
     rows_col = @view rowvals(A)[nzinds]
-    # faster implementation of row ∈ rows_col, assuming that rows_col is sorted
-    row_ind_col = searchsortedfirst(rows_col, row)
-    row_exists = row_ind_col ∈ axes(rows_col,1) && rows_col[row_ind_col] == row
-    row_ind = row_ind_col + first(nzinds) - firstindex(nzinds)
+    row_ind_col = findfirst(==(row), rows_col)
+    row_exists = !isnothing(row_ind_col)
+    # faster implementation of row ∈ rows_col and obtaining the index,
+    # assuming that rows_col is sorted
+    # row_ind_col = searchsortedfirst(rows_col, row)
+    # row_exists = row_ind_col ∈ axes(rows_col,1) && rows_col[row_ind_col] == row
+    row_ind = (row_exists ? something(row_ind_col) : length(rows_col) + 1) + first(nzinds) - firstindex(nzinds)
     row_exists, row_ind
 end
 
@@ -1907,9 +1910,8 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
             row_exists, ind = rowcheck_index(C, row, col)
             if !row_exists
                 n_extra += 1
-                nz = getcolptr(C)[end]
-                _insert!(rowvals(C), ind, row, nz)
-                _insert!(nonzeros(C), ind, zero(eltype(C)), nz)
+                insert!(rowvals(C), ind, row)
+                insert!(nonzeros(C), ind, zero(eltype(C)))
                 C_colptr[col+1] += 1
             end
         end
