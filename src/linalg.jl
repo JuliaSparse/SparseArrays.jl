@@ -1888,16 +1888,23 @@ function copyinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC; copy_
     end
 end
 
+"""
+    rowcheck_index(A::AbstractSparseMatrixCSC, row::Integer, col::Integer)
+
+Check if A[row, col] is a stored value, and return the index of the row in `rowvals(A)`.
+Returns `(row_exists, row_ind)`, where `row_exists::Bool` signifies
+whether the corresponding index is populated, and `row_ind` is the index.
+If `row_exists` is `false`, the `row_ind` is the index where the value should be inserted into
+`rowvals(A)` such that the subarray `@view rowvals(A)[nzrange(A, col)]` remains sorted.
+"""
 @inline function rowcheck_index(A::AbstractSparseMatrixCSC, row::Integer, col::Integer)
     nzinds = nzrange(A, col)
     rows_col = @view rowvals(A)[nzinds]
-    row_ind_col = findfirst(==(row), rows_col)
-    row_exists = !isnothing(row_ind_col)
     # faster implementation of row ∈ rows_col and obtaining the index,
     # assuming that rows_col is sorted
-    # row_ind_col = searchsortedfirst(rows_col, row)
-    # row_exists = row_ind_col ∈ axes(rows_col,1) && rows_col[row_ind_col] == row
-    row_ind = (row_exists ? something(row_ind_col) : length(rows_col) + 1) + first(nzinds) - firstindex(nzinds)
+    row_ind_col = searchsortedfirst(rows_col, row)
+    row_exists = row_ind_col ∈ axes(rows_col,1) && rows_col[row_ind_col] == row
+    row_ind = row_ind_col + first(nzinds) - firstindex(nzinds)
     row_exists, row_ind
 end
 
