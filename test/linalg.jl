@@ -606,14 +606,12 @@ end
             @test nonzeros(B) == [10, 0,10, 0,0,10, 0,0,10, 0,0]
         end
         for sA2 in (similar(sA), sprand(size(sA)..., 0.1))
+            nonzeros(sA2) .= 1
             @testset for (alpha, beta) in [(true, false), (true, true), (2,3)]
-                nonzeros(sA2) .= 1
-                sA3 = copy(sA2)
                 D = Diagonal(rand(size(sA,2)))
-                @test mul!(sA2, sA, D, alpha, beta) ≈ dA * D * alpha + sA3 * beta
-                nonzeros(sA2) .= 1
+                @test mul!(copy(sA2), sA, D, alpha, beta) ≈ dA * D * alpha + sA2 * beta
                 D = Diagonal(rand(size(sA,1)))
-                @test mul!(sA2, D, sA, alpha, beta) ≈ D * dA * alpha + sA3 * beta
+                @test mul!(copy(sA2), D, sA, alpha, beta) ≈ D * dA * alpha + sA2 * beta
             end
         end
     end

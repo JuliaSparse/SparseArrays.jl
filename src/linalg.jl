@@ -2000,7 +2000,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
             row = rowvals(C)[p]
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
-                @inbounds Cnzval[p] = b[row_ind_A] * Anzval[row_ind_A] * alpha + Cnzval[p] * beta
+                @inbounds Cnzval[p] = b[row] * Anzval[row_ind_A] * alpha + Cnzval[p] * beta
             else
                 @inbounds Cnzval[p] = Cnzval[p] * beta
             end
