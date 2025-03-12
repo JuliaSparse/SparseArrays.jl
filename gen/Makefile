@@ -10,4 +10,4 @@ clean:
 	rm -fr *.tar.gz SuiteSparse* 
 
 download:
-	curl -L -O https://github.com/JuliaBinaryWrappers/SuiteSparse_jll.jl/releases/download/SuiteSparse-v7.10.1%2B0/SuiteSparse.v$(VER).x86_64-linux-gnu.tar.gz
+	curl -L -O https://github.com/JuliaBinaryWrappers/SuiteSparse_jll.jl/releases/download/SuiteSparse-v$(VER)%2B0/SuiteSparse.v$(VER).x86_64-linux-gnu.tar.gz
