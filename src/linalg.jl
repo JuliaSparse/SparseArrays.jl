@@ -1908,6 +1908,42 @@ If `row_exists` is `false`, the `row_ind` is the index where the value should be
     row_exists, row_ind
 end
 
+"""
+    mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
+
+Update `C` to contain stored values corresponding to the stored indices of `A`.
+Stored indices common to `C` and `A` are not touched. Indices of `A` at which
+`C` did not have a stored value are populated with zeros after the call.
+
+# Examples
+```jldoctest
+julia> A = spzeros(3,3);
+
+julia> A[4:4:8] .= 1;
+
+julia> A
+3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+  ⋅   1.0   ⋅
+  ⋅    ⋅   1.0
+  ⋅    ⋅    ⋅
+
+julia> C = spzeros(3,3);
+
+julia> C[2:4:6] .= 2;
+
+julia> C
+3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+  ⋅    ⋅    ⋅
+ 2.0   ⋅    ⋅
+  ⋅   2.0   ⋅
+
+julia> SparseArrays.mergeinds!(C, A)
+3×3 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
+  ⋅   0.0   ⋅
+ 2.0   ⋅   0.0
+  ⋅   2.0   ⋅
+```
+"""
 function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     C_colptr = getcolptr(C)
     for col in axes(A,2)
@@ -1958,10 +1994,11 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
         mergeinds!(C, A)
         for col in axes(C,2), p in nzrange(C, col)
             row = rowvals(C)[p]
+            # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
                 @inbounds Cnzval[p] = Anzval[row_ind_A] * b[col] * alpha + Cnzval[p] * beta
-            else
+            else # A[row,col] == 0
                 @inbounds Cnzval[p] = Cnzval[p] * beta
             end
         end
@@ -1998,10 +2035,11 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
         mergeinds!(C, A)
         for col in axes(C,2), p in nzrange(C, col)
             row = rowvals(C)[p]
+            # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
                 @inbounds Cnzval[p] = b[row] * Anzval[row_ind_A] * alpha + Cnzval[p] * beta
-            else
+            else # A[row,col] == 0
                 @inbounds Cnzval[p] = Cnzval[p] * beta
             end
         end
