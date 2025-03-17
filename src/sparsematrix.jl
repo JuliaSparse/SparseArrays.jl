@@ -2283,7 +2283,7 @@ function (+)(A::Array, B::SparseMatrixCSCUnion)
     for j in axes(B,2)
         for i in nzrange(B, j)
             rowidx = rowinds[i]
-            C[rowidx,j] = A[rowidx,j] + nzvals[i] 
+            C[rowidx,j] = A[rowidx,j] + nzvals[i]
         end
     end
     return C
@@ -2452,7 +2452,7 @@ function Base._mapreduce(f, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.I
     else
         v = f(zero(T))^(nzeros)
         # Bail out early if initial reduction value is zero or if there are no stored elements
-        (v == zero(T) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
+        (_iszero(v) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
     end
 end
 
@@ -4605,6 +4605,6 @@ function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
             (uplo == 'U' && row <= col) || (uplo == 'L' && row >= col) || continue
             M[row, col] = nz[i]
         end
-    end 
+    end
     return M
 end

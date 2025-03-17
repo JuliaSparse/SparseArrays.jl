@@ -1932,7 +1932,7 @@ function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, 
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
     m == 0 && return y
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    α == zero(α) && return y
+    _iszero(α) && return y
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -1960,7 +1960,7 @@ function _At_or_Ac_mul_B!(tfun::Function,
         "Matrix A has $m columns, but vector y has a length $(length(y))"))
     m == 0 && return y
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    α == zero(α) && return y
+    _iszero(α) && return y
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -2055,7 +2055,7 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
     m == 0 && return y
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    α == zero(α) && return y
+    _iszero(α) && return y
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -2087,7 +2087,7 @@ function _At_or_Ac_mul_B!(tfun::Function,
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
     n == 0 && return y
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    α == zero(α) && return y
+    _iszero(α) && return y
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -2421,7 +2421,7 @@ import Base.fill!
 function fill!(A::Union{AbstractCompressedVector, AbstractSparseMatrixCSC}, x)
     T = eltype(A)
     xT = convert(T, x)
-    if xT == zero(T)
+    if _iszero(xT)
         fill!(nonzeros(A), xT)
     else
         _fillnonzero!(A, xT)
