@@ -1982,12 +1982,24 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
         if beta_is_zero
-            for col in axes(A,2), p in nzrange(A, col)
-                @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha
+            if isone(alpha)
+                for col in axes(A,2), p in nzrange(A, col)
+                    @inbounds Cnzval[p] = Anzval[p] * b[col]
+                end
+            else
+                for col in axes(A,2), p in nzrange(A, col)
+                    @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha
+                end
             end
         else
-            for col in axes(A,2), p in nzrange(A, col)
-                @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha + Cnzval[p] * beta
+            if isone(alpha)
+                for col in axes(A,2), p in nzrange(A, col)
+                    @inbounds Cnzval[p] = Anzval[p] * b[col] + Cnzval[p] * beta
+                end
+            else
+                for col in axes(A,2), p in nzrange(A, col)
+                    @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha + Cnzval[p] * beta
+                end
             end
         end
     else
@@ -1997,7 +2009,11 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
             # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
-                @inbounds Cnzval[p] = Anzval[row_ind_A] * b[col] * alpha + Cnzval[p] * beta
+                if isone(alpha)
+                    @inbounds Cnzval[p] = Anzval[row_ind_A] * b[col] + Cnzval[p] * beta
+                else
+                    @inbounds Cnzval[p] = Anzval[row_ind_A] * b[col] * alpha + Cnzval[p] * beta
+                end
             else # A[row,col] == 0
                 @inbounds Cnzval[p] = Cnzval[p] * beta
             end
@@ -2023,12 +2039,24 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
         if beta_is_zero
-            for col in axes(A,2), p in nzrange(A, col)
-                @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p] * alpha
+            if isone(alpha)
+                for col in axes(A,2), p in nzrange(A, col)
+                    @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p]
+                end
+            else
+                for col in axes(A,2), p in nzrange(A, col)
+                    @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p] * alpha
+                end
             end
         else
-            for col in axes(A,2), p in nzrange(A, col)
-                @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p] * alpha + Cnzval[p] * beta
+            if isone(alpha)
+                for col in axes(A,2), p in nzrange(A, col)
+                    @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p] + Cnzval[p] * beta
+                end
+            else
+                for col in axes(A,2), p in nzrange(A, col)
+                    @inbounds Cnzval[p] = b[Arowval[p]] * Anzval[p] * alpha + Cnzval[p] * beta
+                end
             end
         end
     else
@@ -2038,7 +2066,11 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
             # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
-                @inbounds Cnzval[p] = b[row] * Anzval[row_ind_A] * alpha + Cnzval[p] * beta
+                if isone(alpha)
+                    @inbounds Cnzval[p] = b[row] * Anzval[row_ind_A] + Cnzval[p] * beta
+                else
+                    @inbounds Cnzval[p] = b[row] * Anzval[row_ind_A] * alpha + Cnzval[p] * beta
+                end
             else # A[row,col] == 0
                 @inbounds Cnzval[p] = Cnzval[p] * beta
             end
