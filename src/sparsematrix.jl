@@ -3971,9 +3971,9 @@ function _blockdiag(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where
 end
 
 ## Structure query functions
-issymmetric(A::AbstractSparseMatrixCSC) = is_hermsym(A, identity)
+issymmetric(A::AbstractSparseMatrixCSC) = is_hermsym(A, transpose)
 
-ishermitian(A::AbstractSparseMatrixCSC) = is_hermsym(A, conj)
+ishermitian(A::AbstractSparseMatrixCSC) = is_hermsym(A, adjoint)
 
 function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
     m, n = size(A)
@@ -4009,6 +4009,12 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
                     return false
                 end
             else
+                # if nzrange(A, row) is empty, then A[:, row] is all zeros.
+                # Specifically, A[col, row] is zero.
+                # However, we know at this point that A[row, col] is not zero
+                # This means that the matrix is not symmetric
+                isempty(nzrange(A, row)) && return false
+
                 offset = tracker[row]
 
                 # If the matrix is unsymmetric, there might not exist
