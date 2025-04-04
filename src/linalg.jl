@@ -1312,7 +1312,7 @@ function rdiv!(A::AbstractSparseMatrixCSC{T}, D::Diagonal{T}) where T
     A
 end
 
-function ldiv!(D::Diagonal{T}, A::AbstractSparseMatrixCSC{T}) where {T}
+function ldiv!(D::Diagonal{T}, A::Union{AbstractSparseMatrixCSC{T}, AbstractSparseVector{T}}) where {T}
     # require_one_based_indexing(A)
     if size(A, 1) != length(D.diag)
         throw(DimensionMismatch("diagonal matrix is $(length(D.diag)) by $(length(D.diag)) but right hand side has $(size(A, 1)) rows"))
