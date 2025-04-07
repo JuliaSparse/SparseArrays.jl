@@ -338,6 +338,9 @@ end
             @test lmul!(transpose(copy(D)), copy(b)) ≈ transpose(MD)*bd
             @test lmul!(adjoint(copy(D)), copy(b)) ≈ MD'*bd
         end
+
+        v = sprand(eltype(D), size(D,1), 0.1)
+        @test ldiv!(D, copy(v)) == D \ Array(v)
     end
 end
 
