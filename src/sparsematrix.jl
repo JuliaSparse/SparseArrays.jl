@@ -2650,12 +2650,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
     N = nnz(A)
     L = widelength(A)
     if L == 0
-        if prod(map(length, Base.reduced_indices(A, region))) != 0
-            throw(ArgumentError("array slices must be non-empty"))
-        else
-            ri = Base.reduced_indices0(A, region)
-            return (zeros(Tv, ri), zeros(Ti, ri))
-        end
+        throw(ArgumentError("reducing over an empty collection is not allowed"))
     end
 
     colptr = getcolptr(A); rowval = rowvals(A); nzval = nonzeros(A); m = size(A, 1); n = size(A, 2)
