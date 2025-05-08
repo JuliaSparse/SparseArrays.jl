@@ -1504,8 +1504,8 @@ end
 
 Compute the Cholesky (``LL'``) factorization of `A`, reusing the symbolic
 factorization `F`. `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/
-[`Hermitian`](@ref) view of a `SparseMatrixCSC`. Note that even if `A` doesn't
-have the type tag, it must still be symmetric or Hermitian.
+[`Hermitian`](@ref) view of a `SparseMatrixCSC`. Note that if `A` doesn't
+have the type tag, itself must be symmetric or Hermitian.
 
 See also [`cholesky`](@ref).
 
@@ -1540,8 +1540,8 @@ end
 
 Compute the Cholesky factorization of a sparse positive definite matrix `A`.
 `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
-view of a `SparseMatrixCSC`. Note that even if `A` doesn't
-have the type tag, it must still be symmetric or Hermitian.
+view of a `SparseMatrixCSC`. Note that if `A` doesn't
+have the type tag, itself must be symmetric or Hermitian.
 If `perm` is not given, a fill-reducing permutation is used.
 `F = cholesky(A)` is most frequently used to solve systems of equations with `F\\b`,
 but also the methods [`diag`](@ref), [`det`](@ref), and
@@ -1671,8 +1671,8 @@ end
 
 Compute the ``LDL'`` factorization of `A`, reusing the symbolic factorization `F`.
 `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
-view of a `SparseMatrixCSC`. Note that even if `A` doesn't
-have the type tag, it must still be symmetric or Hermitian.
+view of a `SparseMatrixCSC`. Note that if `A` doesn't
+have the type tag, itself must be symmetric or Hermitian.
 
 See also [`ldlt`](@ref).
 
@@ -1713,8 +1713,8 @@ end
 
 Compute the ``LDL'`` factorization of a sparse matrix `A`.
 `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
-view of a `SparseMatrixCSC`. Note that even if `A` doesn't
-have the type tag, it must still be symmetric or Hermitian.
+view of a `SparseMatrixCSC`. Note that if `A` doesn't
+have the type tag, itself must be symmetric or Hermitian.
 A fill-reducing permutation is used. `F = ldlt(A)` is most frequently
 used to solve systems of equations `A*x = b` with `F\\b`. The returned
 factorization object `F` also supports the methods [`diag`](@ref),
