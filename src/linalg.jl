@@ -1294,7 +1294,7 @@ end
 
 \(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::Vector) = copy(A) \ B
 
-function rdiv!(A::AbstractSparseMatrixCSC{T}, D::Diagonal{T}) where T
+function rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal)
     dd = D.diag
     if (k = length(dd)) ≠ size(A, 2)
         throw(DimensionMismatch("size(A, 2)=$(size(A, 2)) should be size(D, 1)=$k"))
@@ -1312,7 +1312,7 @@ function rdiv!(A::AbstractSparseMatrixCSC{T}, D::Diagonal{T}) where T
     A
 end
 
-function ldiv!(D::Diagonal{T}, A::AbstractSparseMatrixCSC{T}) where {T}
+function ldiv!(D::Diagonal, A::Union{AbstractSparseMatrixCSC, AbstractSparseVector})
     # require_one_based_indexing(A)
     if size(A, 1) != length(D.diag)
         throw(DimensionMismatch("diagonal matrix is $(length(D.diag)) by $(length(D.diag)) but right hand side has $(size(A, 1)) rows"))

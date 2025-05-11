@@ -338,6 +338,9 @@ end
             @test lmul!(transpose(copy(D)), copy(b)) ≈ transpose(MD)*bd
             @test lmul!(adjoint(copy(D)), copy(b)) ≈ MD'*bd
         end
+
+        v = sprand(eltype(D), size(D,1), 0.1)
+        @test ldiv!(D, copy(v)) == D \ Array(v)
     end
 end
 
@@ -425,6 +428,27 @@ end
     @test issymmetric(sparse([1 0; 1 0])) == false
     @test issymmetric(sparse([0 1; 1 0])) == true
     @test issymmetric(sparse([1 1; 1 0])) == true
+
+    # test some non-trivial cases
+    local S
+    @testset "random matrices" begin
+        for sparsity in (0.1, 0.01, 0.0)
+            S = sparse(Symmetric(sprand(20, 20, sparsity)))
+            @test issymmetric(S)
+            @test ishermitian(S)
+            S = sparse(Symmetric(sprand(ComplexF64, 20, 20, sparsity)))
+            @test issymmetric(S)
+            @test !ishermitian(S) || isreal(S)
+            S = sparse(Hermitian(sprand(ComplexF64, 20, 20, sparsity)))
+            @test ishermitian(S)
+            @test !issymmetric(S) || isreal(S)
+        end
+    end
+
+    @testset "issue #605" begin
+        S = sparse([2, 3, 1], [1, 1, 3], [1, 1, 1], 3, 3)
+        @test !issymmetric(S)
+    end
 end
 
 @testset "rotations" begin
