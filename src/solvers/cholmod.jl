@@ -37,7 +37,7 @@ import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spz
 import ..increment, ..increment!
 
 using ..LibSuiteSparse
-import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_LONG
+import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_LONG, libsuitesparseconfig
 
 # # itype defines the types of integer used:
 # CHOLMOD_INT,      # all integer arrays are int
