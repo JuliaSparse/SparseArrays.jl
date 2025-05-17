@@ -174,10 +174,12 @@ function newcommon(; print = 0) # no printing from CHOLMOD by default
 end
 
 function getcommon(::Type{Int32})
+    init_once()
     return get!(newcommon, task_local_storage(), :cholmod_common)::Ref{cholmod_common}
 end
 
 function getcommon(::Type{Int64})
+    init_once()
     return get!(newcommon_l, task_local_storage(), :cholmod_common_l)::Ref{cholmod_common}
 end
 
@@ -185,7 +187,7 @@ getcommon() = getcommon(Int)
 
 const BUILD_VERSION = VersionNumber(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION, CHOLMOD_SUBSUB_VERSION)
 
-function __init__()
+const init_once = Base.OncePerProcess{Nothing}() do
     try
         ### Check if the linked library is compatible with the Julia code
         if Libdl.dlsym_e(Libdl.dlopen("libcholmod"), :cholmod_version) != C_NULL
