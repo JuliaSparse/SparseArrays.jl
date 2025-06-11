@@ -5,7 +5,7 @@ on:
     branches:
       - 'main'
       - 'release-*'
-    tags: '*'
+    tags: ['*']
 concurrency:
   # Skip intermediate builds: all builds except for builds on the `main` or `release-*` branches
   # Cancel intermediate builds: only pull request builds
@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         julia-version:
-          - 'nightly'
+          - '~1.12.0-0'
         os:
           - ubuntu-latest
           - windows-latest
@@ -29,10 +29,10 @@ jobs:
         include:
           - os: macOS-latest
             julia-arch: aarch64
-            julia-version: 'nightly'
+            julia-version: '~1.12.0-0'
           - os: macOS-13
             julia-arch: x64
-            julia-version: 'nightly'
+            julia-version: '~1.12.0-0'
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
@@ -56,7 +56,7 @@ jobs:
     strategy:
       matrix:
         julia-version:
-          - 'nightly'
+          - '~1.12.0-0'
         os:
           - ubuntu-latest
         julia-arch:
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
         with:
-          version: 'nightly'
+          version: '~1.12.0-0'
       - name: Generate docs
         run: |
           julia --project --color=yes -e 'using Pkg; Pkg.activate("docs"); Pkg.develop(PackageSpec(path = pwd()))'
