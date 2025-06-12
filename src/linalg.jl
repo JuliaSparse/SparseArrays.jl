@@ -1577,7 +1577,7 @@ function cond(A::AbstractSparseMatrixCSC, p::Real=2)
         normA = opnorm(A, Inf)
         return normA * normAinv
     elseif p == 2
-        throw(ArgumentError("2-norm condition number is not implemented for sparse matrices, try cond(Array(A), 2) instead"))
+        throw(ArgumentError("only 1- and Inf-norm condition number are implemented for sparse matrices, for 2-norm try cond(Array(A), 2) instead"))
     else
         throw(ArgumentError("second argument must be either 1 or Inf, got $p"))
     end
