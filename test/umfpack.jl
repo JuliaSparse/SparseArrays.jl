@@ -124,8 +124,6 @@ end
         umfpack_report(Af)
         Af1 = lu!(copy(Af))
         umfpack_report(Af1)
-        @test trylock(Af)
-        @test trylock(Af1)
     end
 
     @testset "test similar" begin

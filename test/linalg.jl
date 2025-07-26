@@ -604,6 +604,41 @@ end
         @test lmul!(D, copy(sA)) ≈ D * dA
         @test mul!(sC, D, copy(sA)) ≈ D * dA
     end
+
+    @testset "5-arg mul!" begin
+        @testset "merge indices" begin
+            # for zero arrays, merge and copy are identical
+            A = spzeros(size(sA))
+            SparseArrays.mergeinds!(A, sA)
+            B = spzeros(size(sA))
+            SparseArrays.copyinds!(B, sA)
+            @test all(col -> nzrange(A, col) == nzrange(B, col), axes(A,2))
+            # for arrays with different indices populated, merge should combine these
+            A = spzeros(5,5)
+            A[diagind(A,1)] .= 5
+            B = spzeros(5,5)
+            B[diagind(A,-1)] .= 10
+            SparseArrays.mergeinds!(B, A)
+            @test rowvals(B) == [2, 1,3, 2,4, 3,5, 4]
+            @test [nzrange(B,col) for col in axes(B,2)] == [1:1, 2:3, 4:5, 6:7, 8:8]
+            @test nonzeros(B) == [10, 0,10, 0,10, 0,10, 0]
+            # for arrays with overlapping indices, merge should only add the extra ones
+            A[diagind(A,2)] .= 5
+            SparseArrays.mergeinds!(B, A)
+            @test rowvals(B) == [2, 1,3, 1,2,4, 2,3,5, 3,4]
+            @test [nzrange(B,col) for col in axes(B,2)] == [1:1, 2:3, 4:6, 7:9, 10:11]
+            @test nonzeros(B) == [10, 0,10, 0,0,10, 0,0,10, 0,0]
+        end
+        for sA2 in (similar(sA), sprand(size(sA)..., 0.1))
+            nonzeros(sA2) .= 1
+            @testset for (alpha, beta) in [(true, false), (true, true), (2,3)]
+                D = Diagonal(rand(size(sA,2)))
+                @test mul!(copy(sA2), sA, D, alpha, beta) ≈ dA * D * alpha + sA2 * beta
+                D = Diagonal(rand(size(sA,1)))
+                @test mul!(copy(sA2), D, sA, alpha, beta) ≈ D * dA * alpha + sA2 * beta
+            end
+        end
+    end
 end
 
 @testset "conj" begin

@@ -37,7 +37,7 @@ import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spz
 import ..increment, ..increment!
 
 using ..LibSuiteSparse
-import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_LONG
+import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_LONG, libsuitesparseconfig
 
 # # itype defines the types of integer used:
 # CHOLMOD_INT,      # all integer arrays are int
@@ -174,10 +174,12 @@ function newcommon(; print = 0) # no printing from CHOLMOD by default
 end
 
 function getcommon(::Type{Int32})
+    init_once()
     return get!(newcommon, task_local_storage(), :cholmod_common)::Ref{cholmod_common}
 end
 
 function getcommon(::Type{Int64})
+    init_once()
     return get!(newcommon_l, task_local_storage(), :cholmod_common_l)::Ref{cholmod_common}
 end
 
@@ -185,7 +187,7 @@ getcommon() = getcommon(Int)
 
 const BUILD_VERSION = VersionNumber(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION, CHOLMOD_SUBSUB_VERSION)
 
-function __init__()
+const init_once = Base.OncePerProcess{Nothing}() do
     try
         ### Check if the linked library is compatible with the Julia code
         if Libdl.dlsym_e(Libdl.dlopen("libcholmod"), :cholmod_version) != C_NULL
@@ -231,16 +233,16 @@ function __init__()
 
         # Register gc tracked allocator if CHOLMOD is new enough
         if current_version >= v"4.0.3"
-            ccall((:SuiteSparse_config_malloc_func_set, :libsuitesparseconfig),
+            ccall((:SuiteSparse_config_malloc_func_set, libsuitesparseconfig),
                   Cvoid, (Ptr{Cvoid},), cglobal(:jl_malloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_calloc_func_set, :libsuitesparseconfig),
+            ccall((:SuiteSparse_config_calloc_func_set, libsuitesparseconfig),
                   Cvoid, (Ptr{Cvoid},), cglobal(:jl_calloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_realloc_func_set, :libsuitesparseconfig),
+            ccall((:SuiteSparse_config_realloc_func_set, libsuitesparseconfig),
                   Cvoid, (Ptr{Cvoid},), cglobal(:jl_realloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_free_func_set, :libsuitesparseconfig),
+            ccall((:SuiteSparse_config_free_func_set, libsuitesparseconfig),
                   Cvoid, (Ptr{Cvoid},), cglobal(:jl_free, Ptr{Cvoid}))
         elseif current_version >= v"3.0.0"
-            cnfg = cglobal((:SuiteSparse_config, :libsuitesparseconfig), Ptr{Cvoid})
+            cnfg = cglobal((:SuiteSparse_config, libsuitesparseconfig), Ptr{Cvoid})
             unsafe_store!(cnfg, cglobal(:jl_malloc, Ptr{Cvoid}), 1)
             unsafe_store!(cnfg, cglobal(:jl_calloc, Ptr{Cvoid}), 2)
             unsafe_store!(cnfg, cglobal(:jl_realloc, Ptr{Cvoid}), 3)
@@ -1504,8 +1506,8 @@ end
 
 Compute the Cholesky (``LL'``) factorization of `A`, reusing the symbolic
 factorization `F`. `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/
-[`Hermitian`](@ref) view of a `SparseMatrixCSC`. Note that even if `A` doesn't
-have the type tag, it must still be symmetric or Hermitian.
+[`Hermitian`](@ref) view of a `SparseMatrixCSC`. Note that if `A` doesn't
+have the type tag, it must itself be symmetric or Hermitian.
 
 See also [`cholesky`](@ref).
 
@@ -1540,8 +1542,8 @@ end
 
 Compute the Cholesky factorization of a sparse positive definite matrix `A`.
 `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
-view of a `SparseMatrixCSC`. Note that even if `A` doesn't
-have the type tag, it must still be symmetric or Hermitian.
+view of a `SparseMatrixCSC`. Note that if `A` doesn't
+have the type tag, it must itself be symmetric or Hermitian.
 If `perm` is not given, a fill-reducing permutation is used.
 `F = cholesky(A)` is most frequently used to solve systems of equations with `F\\b`,
 but also the methods [`diag`](@ref), [`det`](@ref), and
@@ -1562,6 +1564,9 @@ Setting the optional `shift` keyword argument computes the factorization of
 `A+shift*I` instead of `A`. If the `perm` argument is provided,
 it should be a permutation of `1:size(A,1)` giving the ordering to use
 (instead of CHOLMOD's default AMD ordering).
+
+See also [`ldlt`](@ref) for a similar factorization that does not require
+positive definiteness, but can be significantly slower than `cholesky`.
 
 # Examples
 
@@ -1671,8 +1676,8 @@ end
 
 Compute the ``LDL'`` factorization of `A`, reusing the symbolic factorization `F`.
 `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
-view of a `SparseMatrixCSC`. Note that even if `A` doesn't
-have the type tag, it must still be symmetric or Hermitian.
+view of a `SparseMatrixCSC`. Note that if `A` doesn't
+have the type tag, it must itself be symmetric or Hermitian.
 
 See also [`ldlt`](@ref).
 
@@ -1713,8 +1718,8 @@ end
 
 Compute the ``LDL'`` factorization of a sparse matrix `A`.
 `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@ref)/[`Hermitian`](@ref)
-view of a `SparseMatrixCSC`. Note that even if `A` doesn't
-have the type tag, it must still be symmetric or Hermitian.
+view of a `SparseMatrixCSC`. Note that if `A` doesn't
+have the type tag, it must itself be symmetric or Hermitian.
 A fill-reducing permutation is used. `F = ldlt(A)` is most frequently
 used to solve systems of equations `A*x = b` with `F\\b`. The returned
 factorization object `F` also supports the methods [`diag`](@ref),
@@ -1728,6 +1733,10 @@ To include the effects of permutation, it is typically preferable to extract
 `P'*L`) and `LtP = F.UP` (the equivalent of `L'*P`).
 The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP`.
 
+Unlike the related Cholesky factorization, the ``LDL'`` factorization does not
+require `A` to be positive definite. However, it still requires all leading
+principal minors to be well-conditioned and will fail if this is not satisfied.
+
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
@@ -1736,6 +1745,9 @@ Setting the optional `shift` keyword argument computes the factorization of
 `A+shift*I` instead of `A`. If the `perm` argument is provided,
 it should be a permutation of `1:size(A,1)` giving the ordering to use
 (instead of CHOLMOD's default AMD ordering).
+
+See also [`cholesky`](@ref) for a factorization that can be significantly
+faster than `ldlt`, but requires `A` to be positive definite.
 
 !!! note
     This method uses the CHOLMOD[^ACM887][^DavisHager2009] library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
