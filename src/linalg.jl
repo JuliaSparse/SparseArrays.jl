@@ -733,7 +733,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::LinearAlgebra.Transpose{<:Real, Union{StridedMatrix, BitMatrix}},
+    Q::LinearAlgebra.Transpose{<:Real},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
@@ -741,11 +741,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::Union{
-        LinearAlgebra.Hermitian{<:Real, Union{StridedMatrix, BitMatrix}},
-        LinearAlgebra.Hermitian{Complex{<:Real}, Union{StridedMatrix, BitMatrix}},
-        LinearAlgebra.Symmetric{<:Real, Union{StridedMatrix, BitMatrix}}
-    },
+    Q::LinearAlgebra.RealHermSymComplexHerm,
     b::AbstractSparseVector)
     return _dot_quadratic_form(a, Q, b)
 end
