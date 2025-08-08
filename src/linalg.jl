@@ -733,7 +733,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::LinearAlgebra.Transpose{<:Any, Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,DenseMatrixUnion}}},
+    Q::LinearAlgebra.Transpose{<:Any, DenseMatrixUnion},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
