@@ -952,6 +952,8 @@ end
         y = sprand(ComplexF64, 15, 0.5)
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
+        @test dot(x, collect(A), y) ≈ dot(x, A, y)
+        @test dot(y, collect(A)', x) ≈ dot(y, A', x)
     end
 
     for (T, trans) in ((Float64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)

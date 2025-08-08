@@ -723,6 +723,34 @@ function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractSparseVector)
     return s
 end
 
+function dot(
+    a::AbstractSparseVector,
+    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,DenseMatrixUnion}},
+    b::AbstractSparseVector,
+)
+    n = length(a)
+    m = length(b)
+    if size(Q) != (n, m)
+        throw(DimensionMismatch("Matrix has a size $(size(Q)) but vectors have length $n, $m"))
+    end
+    anzind = nonzeroinds(a)
+    bnzind = nonzeroinds(b)
+    anzval = nonzeros(a)
+    bnzval = nonzeros(b)
+    s = zero(Base.promote_eltype(a, Q, b))
+    if isempty(anzind) || isempty(bnzind)
+        return s
+    end
+    @inbounds for a_idx in eachindex(anzind)
+        for b_idx in eachindex(bnzind)
+            ia = anzind[a_idx]
+            ib = bnzind[b_idx]
+            s += dot(anzval[a_idx], Q[ia, ib], bnzval[b_idx])
+        end
+    end
+    return s
+end
+
 ## triangular sparse handling
 ## triangular multiplication
 function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCUnion, B::AbstractVecOrMat)
