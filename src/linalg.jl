@@ -725,7 +725,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Real,DenseMatrixUnion}},
+    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Real,<:DenseMatrixUnion}},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
@@ -733,7 +733,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::LinearAlgebra.Transpose{<:Real, DenseMatrixUnion},
+    Q::LinearAlgebra.Transpose{<:Real,<:DenseMatrixUnion},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
@@ -741,7 +741,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::LinearAlgebra.Transpose{<:Real, WrapperMatrixTypes{<:Real,DenseMatrixUnion}},
+    Q::LinearAlgebra.Transpose{<:Real,<:WrapperMatrixTypes{<:Real,<:DenseMatrixUnion}},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
@@ -749,7 +749,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::LinearAlgebra.RealHermSymComplexHerm{<:Real, DenseMatrixUnion},
+    Q::LinearAlgebra.RealHermSymComplexHerm{<:Real,<:DenseMatrixUnion},
     b::AbstractSparseVector)
     return _dot_quadratic_form(a, Q, b)
 end
@@ -757,7 +757,7 @@ end
 function dot(
     a::AbstractSparseVector,
     Q::Union{
-        LinearAlgebra.Hermitian{<:Real, DenseMatrixUnion}, LinearAlgebra.Symmetric{<:Real, DenseMatrixUnion}
+        LinearAlgebra.Hermitian{<:Real,<:DenseMatrixUnion}, LinearAlgebra.Symmetric{<:Real,<:DenseMatrixUnion}
     },
     b::AbstractSparseVector)
     return _dot_quadratic_form(a, Q, b)
