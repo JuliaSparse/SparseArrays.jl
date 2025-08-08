@@ -728,6 +728,30 @@ function dot(
     Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,DenseMatrixUnion}},
     b::AbstractSparseVector,
 )
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::LinearAlgebra.Transpose{<:Real, Union{StridedMatrix, BitMatrix}},
+    b::AbstractSparseVector,
+)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::Union{
+        LinearAlgebra.Hermitian{<:Real, Union{StridedMatrix, BitMatrix}},
+        LinearAlgebra.Hermitian{Complex{<:Real}, Union{StridedMatrix, BitMatrix}},
+        LinearAlgebra.Symmetric{<:Real, Union{StridedMatrix, BitMatrix}}
+    },
+    b::AbstractSparseVector)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+# actual function implementation called by the method dispatch
+function _dot_quadratic_form(a, Q, b)
     n = length(a)
     m = length(b)
     if size(Q) != (n, m)
