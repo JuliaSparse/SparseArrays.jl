@@ -605,7 +605,7 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
     end
     return s
 end
-function dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector)
+function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSparseVector)
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
@@ -725,7 +725,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Real,DenseMatrixUnion}},
+    Q::AbstractMatrix,
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
