@@ -761,6 +761,17 @@ function dot(
     return _dot_quadratic_form(a, Q, b)
 end
 
+function dot(
+    a::AbstractSparseVector,
+    Q::Union{
+        LinearAlgebra.Hermitian{<:Real, DenseMatrixUnion}, LinearAlgebra.Symmetric{<:Real, DenseMatrixUnion}
+    },
+    b::AbstractSparseVector)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+dot(::SparseArrays.AbstractSparseVector, ::Union{LinearAlgebra.Hermitian{<:Real, Union{StridedMatrix, BitMatrix}}, LinearAlgebra.Symmetric{<:Real, Union{StridedMatrix, BitMatrix}}}, ::SparseArrays.AbstractSparseVector)
+
 # actual function implementation called by the method dispatch
 function _dot_quadratic_form(a, Q, b)
     n = length(a)
