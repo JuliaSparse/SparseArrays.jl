@@ -725,7 +725,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Real,DenseMatrixUnion}},
+    Q::AbstractMatrix{<:Number},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
@@ -750,13 +750,6 @@ end
 function dot(
     a::AbstractSparseVector,
     Q::LinearAlgebra.RealHermSymComplexHerm{<:Real, DenseMatrixUnion},
-    b::AbstractSparseVector)
-    return _dot_quadratic_form(a, Q, b)
-end
-
-function dot(
-    a::AbstractSparseVector,
-    Q::LinearAlgebra.Hermitian{<:Real, DenseMatrixUnion},
     b::AbstractSparseVector)
     return _dot_quadratic_form(a, Q, b)
 end
