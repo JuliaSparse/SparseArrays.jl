@@ -741,6 +741,14 @@ end
 
 function dot(
     a::AbstractSparseVector,
+    Q::LinearAlgebra.Transpose{<:Any, WrapperMatrixTypes{<:Real,DenseMatrixUnion}},
+    b::AbstractSparseVector,
+)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
     Q::LinearAlgebra.RealHermSymComplexHerm{<:Any, DenseMatrixUnion},
     b::AbstractSparseVector)
     return _dot_quadratic_form(a, Q, b)
