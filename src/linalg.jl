@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, UpperOrLowerTriangular,
-    RealHermSymComplexHerm, checksquare, sym_uplo, wrap
+    RealHermSymComplexHerm, HermOrSym, checksquare, sym_uplo, wrap
 using Random: rand!
 
 const tilebufsize = 10800  # Approximately 32k/3
@@ -641,7 +641,7 @@ const WrapperMatrixTypes{T,MT} = Union{
     Hermitian{T,MT},
 }
 
-function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
+function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
     T = promote_type(eltype(A), eltype(B))
     (m, n) = size(A)
     if (m, n) != size(B)
@@ -663,7 +663,7 @@ function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatri
     return s
 end
 
-function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}})
+function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
     return conj(dot(B, A))
 end
 
@@ -1275,7 +1275,10 @@ function nzrangelo(A, i, excl=false)
     @inbounds r2 < r1 || rv[r1] >= i + excl ? r : (searchsortedfirst(view(rv, r1:r2), i + excl) + r1-1):r2
 end
 
-dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
+dot(x::AbstractVector, A::HermOrSym{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
+    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+# disambiguation
+dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Real,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
     _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
 function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, rangefun::Function, diagop::Function, odiagop::Function)
     require_one_based_indexing(x, y)
@@ -1307,9 +1310,12 @@ function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, 
     end
     return r
 end
-dot(x::SparseVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::SparseVector) =
-    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real)
-function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rangefun::Function, diagop::Function)
+dot(x::AbstractSparseVector, A::HermOrSym{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractSparseVector) =
+    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+# disambiguation
+dot(x::AbstractSparseVector, A::RealHermSymComplexHerm{<:Real,<:AbstractSparseMatrixCSC}, y::AbstractSparseVector) =
+    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+function _dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSparseVector, rangefun::Function, diagop::Function, odiagop::Function)
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
@@ -1340,7 +1346,7 @@ function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rang
         A_ptr_lo = first(rangefun(A, xi, true))
         A_ptr_hi = last(rangefun(A, xi, true))
         if A_ptr_lo <= A_ptr_hi
-            r += dot(xv, _spdot((a, y) -> a'y, A_ptr_lo, A_ptr_hi, Arowval, Anzval,
+            r += dot(xv, _spdot((a, y) -> odiagop(a)*y, A_ptr_lo, A_ptr_hi, Arowval, Anzval,
                                             1, length(ynzind), ynzind, ynzval))
         end
     end
@@ -1642,7 +1648,7 @@ function cond(A::AbstractSparseMatrixCSC, p::Real=2)
         normA = opnorm(A, Inf)
         return normA * normAinv
     elseif p == 2
-        throw(ArgumentError("2-norm condition number is not implemented for sparse matrices, try cond(Array(A), 2) instead"))
+        throw(ArgumentError("only 1- and Inf-norm condition numbers are implemented for sparse matrices, for 2-norm try cond(Array(A), 2) instead"))
     else
         throw(ArgumentError("second argument must be either 1 or Inf, got $p"))
     end
@@ -2306,7 +2312,7 @@ end
 #         return F
 #     end
 # end
-function factorize(A::LinearAlgebra.RealHermSymComplexHerm{Float64,<:AbstractSparseMatrixCSC})
+function factorize(A::RealHermSymComplexHerm{Float64,<:AbstractSparseMatrixCSC})
     F = cholesky(A; check = false)
     if LinearAlgebra.issuccess(F)
         return F
