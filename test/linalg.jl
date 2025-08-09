@@ -954,6 +954,11 @@ end
         @test dot(x, A, y) ≈ dot(x, Av, y)
         @test dot(x, collect(A), y) ≈ dot(x, A, y)
         @test dot(y, collect(A)', x) ≈ dot(y, A', x)
+        @test dot(y, transpose(collect(A)), x) ≈ dot(y, transpose(A), x)
+        @test dot(y, Hermitian(collect(A)' * collect(A)), y) ≈ dot(y, Hermitian(A' * A), y)
+        @test dot(y, Symmetric(collect(A)' * collect(A)), y) ≈ dot(y, Symmetric(A' * A), y)
+        B = BitMatrix(rand(Bool, 10, 15))
+        @test dot(x, A, y) ≈ dot(x, Matrix(A), y)
     end
 
     for (T, trans) in ((Float64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
