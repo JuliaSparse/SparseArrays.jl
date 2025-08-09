@@ -641,7 +641,7 @@ const WrapperMatrixTypes{T,MT} = Union{
     Hermitian{T,MT},
 }
 
-function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
+function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
     T = promote_type(eltype(A), eltype(B))
     (m, n) = size(A)
     if (m, n) != size(B)
@@ -663,7 +663,7 @@ function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatri
     return s
 end
 
-function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}})
+function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
     return conj(dot(B, A))
 end
 
