@@ -954,12 +954,13 @@ end
         @test dot(x, A, y) ≈ dot(x, Av, y)
     end
 
-    for (T, trans) in ((Float64, Symmetric), (ComplexF64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
+    for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)
+        xd = Vector(x)
         S = trans(B'B, uplo)
         Sd = trans(Matrix(B'B), uplo)
-        @test dot(x, S, x) ≈ dot(x, Sd, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Sd, Vector(x))
+        @test dot(x, S, x) ≈ dot(x, Sd, x) ≈ dot(xd, S, xd) ≈ dot(xd, Sd, xd)
     end
 end
 
