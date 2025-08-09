@@ -725,7 +725,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Real,<:DenseMatrixUnion}},
+    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:DenseMatrixUnion}},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
