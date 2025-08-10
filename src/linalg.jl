@@ -605,7 +605,7 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
     end
     return s
 end
-function dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector)
+function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSparseVector)
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
@@ -718,6 +718,71 @@ function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractSparseVector)
             x_idx += 1
         else
             y_idx += 1
+        end
+    end
+    return s
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:DenseMatrixUnion}},
+    b::AbstractSparseVector,
+)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::LinearAlgebra.Transpose{<:Real,<:DenseMatrixUnion},
+    b::AbstractSparseVector,
+)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::LinearAlgebra.Transpose{<:Real,<:WrapperMatrixTypes{<:Real,<:DenseMatrixUnion}},
+    b::AbstractSparseVector,
+)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::LinearAlgebra.RealHermSymComplexHerm{<:Real,<:DenseMatrixUnion},
+    b::AbstractSparseVector)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::Union{
+        LinearAlgebra.Hermitian{<:Real,<:DenseMatrixUnion}, LinearAlgebra.Symmetric{<:Real,<:DenseMatrixUnion}
+    },
+    b::AbstractSparseVector)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+# actual function implementation called by the method dispatch
+function _dot_quadratic_form(a, Q, b)
+    n = length(a)
+    m = length(b)
+    if size(Q) != (n, m)
+        throw(DimensionMismatch("Matrix has a size $(size(Q)) but vectors have length $n, $m"))
+    end
+    anzind = nonzeroinds(a)
+    bnzind = nonzeroinds(b)
+    anzval = nonzeros(a)
+    bnzval = nonzeros(b)
+    s = zero(Base.promote_eltype(a, Q, b))
+    if isempty(anzind) || isempty(bnzind)
+        return s
+    end
+    @inbounds for a_idx in eachindex(anzind)
+        for b_idx in eachindex(bnzind)
+            ia = anzind[a_idx]
+            ib = bnzind[b_idx]
+            s += dot(anzval[a_idx], Q[ia, ib], bnzval[b_idx])
         end
     end
     return s

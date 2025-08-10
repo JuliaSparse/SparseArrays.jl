@@ -952,6 +952,16 @@ end
         y = sprand(ComplexF64, 15, 0.5)
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
+        @test dot(x, collect(A), y) ≈ dot(x, A, y)
+        @test dot(y, collect(A)', x) ≈ dot(y, A', x)
+        @test dot(y, transpose(collect(A)), x) ≈ dot(y, transpose(A), x)
+        @test dot(y, Hermitian(collect(A)' * collect(A)), y) ≈ dot(y, Hermitian(A' * A), y)
+        @test dot(y, Symmetric(collect(A)' * collect(A)), y) ≈ dot(y, Symmetric(A' * A), y)
+        B = BitMatrix(rand(Bool, 10, 15))
+        @test dot(x, A, y) ≈ dot(x, Matrix(A), y)
+        @test_throws DimensionMismatch dot([x, x], A, y)
+        @test_throws DimensionMismatch dot(x, A, [y, y])
+        @test iszero(dot(spzeros(length(x)), A, y))
     end
 
     for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
