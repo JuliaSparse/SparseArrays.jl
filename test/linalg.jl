@@ -959,6 +959,9 @@ end
         @test dot(y, Symmetric(collect(A)' * collect(A)), y) ≈ dot(y, Symmetric(A' * A), y)
         B = BitMatrix(rand(Bool, 10, 15))
         @test dot(x, A, y) ≈ dot(x, Matrix(A), y)
+        @test_throws DimensionMismatch dot([x, x], A, y)
+        @test_throws DimensionMismatch dot(x, A, [y, y])
+        @test iszero(dot(spzeros(length(x)), A, y)
     end
 
     for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
