@@ -589,9 +589,13 @@ end
 
     @testset "cholesky, no permutation $Tv" begin
         Fs = cholesky(As, perm=[1:3;])
+        @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :p, :ptr])
         @test Fs.p == [1:3;]
         @test sparse(Fs.L) ≈ Lf
         @test sparse(Fs) ≈ As
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.U)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.PtL)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.UP)
         b = rand(Tv, 3)
         bs = sparse(b)
         @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
@@ -645,9 +649,18 @@ end
 
     @testset "ldlt, no permutation" begin
         Fs = ldlt(As, perm=[1:3;])
+        @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP, :p, :ptr])
         @test Fs.p == [1:3;]
         @test sparse(Fs.LD) ≈ LDf
         @test sparse(Fs) ≈ As
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.L)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.U)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.PtL)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.UP)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.D)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.DU)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.PtLD)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.DUP)
         b = rand(Tv, 3)
         bs = sparse(b)
         @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
