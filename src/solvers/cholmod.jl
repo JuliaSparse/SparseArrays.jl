@@ -1286,11 +1286,17 @@ function sparse(FC::FactorComponent{Tv,:L}) where Tv
     F = Factor(FC)
     s = unsafe_load(pointer(F))
     if s.is_ll == 0
-        throw(CHOLMODException("sparse: supported only for :LD on LDLt factorizations"))
+        _sparse_exception(F)
     end
     sparse(Sparse(F))
 end
 sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = sparse(Sparse(Factor(FC)))
+sparse(FC::FactorComponent{Tv}) where {Tv} = _sparse_exception(Factor(FC))
+function _sparse_exception(F::Factor)
+    s = unsafe_load(pointer(F))
+    details = (s.is_ll == 0) ? ":LD on LDLt" : ":L on LLt"
+    throw(CHOLMODException("sparse: supported only for $details factorizations"))
+end
 
 # Calculate the offset into the stype field of the cholmod_sparse_struct and
 # change the value
