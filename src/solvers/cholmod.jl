@@ -10,8 +10,8 @@
 
 module CHOLMOD
 
-import Base: (*), convert, copy, eltype, getindex, getproperty, show, size,
-             IndexStyle, IndexLinear, IndexCartesian, adjoint, axes,
+import Base: (*), convert, copy, eltype, getindex, getproperty, propertynames,
+             show, size, IndexStyle, IndexLinear, IndexCartesian, adjoint, axes,
              Matrix, Vector
 using Base: require_one_based_indexing
 
@@ -380,24 +380,25 @@ Base.pointer(x::Dense{Tv}) where {Tv}  = Base.unsafe_convert(Ptr{cholmod_dense},
 Base.pointer(x::Sparse{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_sparse}, x)
 Base.pointer(x::Factor{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_factor}, x)
 
+function _factor_components(is_ll)
+    is_ll ? (:L, :U, :PtL, :UP) : (:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP)
+end
+
 # FactorComponent, for encoding particular factors from a factorization
 mutable struct FactorComponent{Tv, S, Ti} <: AbstractMatrix{Tv}
     F::Factor{Tv, Ti}
 
-    function FactorComponent{Tv, S, Ti}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
-        s = unsafe_load(pointer(F))
-        if s.is_ll != 0
-            if !(S === :L || S === :U || S === :PtL || S === :UP)
-                throw(CHOLMODException(string(S, " not supported for sparse ",
-                    "LLt matrices; try :L, :U, :PtL, or :UP")))
-            end
-        elseif !(S === :L || S === :U || S === :PtL || S === :UP ||
-                S === :D || S === :LD || S === :DU || S === :PtLD || S === :DUP)
-            throw(CHOLMODException(string(S, " not supported for sparse LDLt ",
-                "matrices; try :L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, or :DUP")))
-        end
-        new(F)
-    end
+  function FactorComponent{Tv,S,Ti}(F::Factor{Tv,Ti}) where {Tv,S,Ti}
+      s = unsafe_load(pointer(F))
+      is_ll = (s.is_ll != 0)
+      components = _factor_components(is_ll)
+      if !(S in components)
+          type = is_ll ? "LLt" : "LDLt"
+          component_list = join(repr.(components), ", ")
+          throw(CHOLMODException("$(repr(S)) not supported for sparse $type factorizations; try $component_list, or :p"))
+      end
+      new(F)
+  end
 end
 function FactorComponent{Tv, S}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
     return FactorComponent{Tv, S, Ti}(F)
@@ -1394,6 +1395,11 @@ end
     else
         return FactorComponent(F, sym)
     end
+end
+
+function propertynames(F::Factor)
+    s = unsafe_load(pointer(F))
+    (_factor_components(s.is_ll != 0)..., :p, :ptr)
 end
 
 function getLd!(S::SparseMatrixCSC)
