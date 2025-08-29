@@ -10,8 +10,8 @@
 
 module CHOLMOD
 
-import Base: (*), convert, copy, eltype, getindex, getproperty, show, size,
-             IndexStyle, IndexLinear, IndexCartesian, adjoint, axes,
+import Base: (*), convert, copy, eltype, getindex, getproperty, propertynames,
+             show, size, IndexStyle, IndexLinear, IndexCartesian, adjoint, axes,
              Matrix, Vector
 using Base: require_one_based_indexing
 
@@ -380,24 +380,25 @@ Base.pointer(x::Dense{Tv}) where {Tv}  = Base.unsafe_convert(Ptr{cholmod_dense},
 Base.pointer(x::Sparse{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_sparse}, x)
 Base.pointer(x::Factor{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_factor}, x)
 
+function _factor_components(is_ll)
+    is_ll ? (:L, :U, :PtL, :UP) : (:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP)
+end
+
 # FactorComponent, for encoding particular factors from a factorization
 mutable struct FactorComponent{Tv, S, Ti} <: AbstractMatrix{Tv}
     F::Factor{Tv, Ti}
 
-    function FactorComponent{Tv, S, Ti}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
-        s = unsafe_load(pointer(F))
-        if s.is_ll != 0
-            if !(S === :L || S === :U || S === :PtL || S === :UP)
-                throw(CHOLMODException(string(S, " not supported for sparse ",
-                    "LLt matrices; try :L, :U, :PtL, or :UP")))
-            end
-        elseif !(S === :L || S === :U || S === :PtL || S === :UP ||
-                S === :D || S === :LD || S === :DU || S === :PtLD || S === :DUP)
-            throw(CHOLMODException(string(S, " not supported for sparse LDLt ",
-                "matrices; try :L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, or :DUP")))
-        end
-        new(F)
-    end
+  function FactorComponent{Tv,S,Ti}(F::Factor{Tv,Ti}) where {Tv,S,Ti}
+      s = unsafe_load(pointer(F))
+      is_ll = (s.is_ll != 0)
+      components = _factor_components(is_ll)
+      if !(S in components)
+          type = is_ll ? "LLt" : "LDLt"
+          component_list = join(repr.(components), ", ")
+          throw(CHOLMODException("$(repr(S)) not supported for sparse $type factorizations; try $component_list, or :p"))
+      end
+      new(F)
+  end
 end
 function FactorComponent{Tv, S}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
     return FactorComponent{Tv, S, Ti}(F)
@@ -1285,11 +1286,17 @@ function sparse(FC::FactorComponent{Tv,:L}) where Tv
     F = Factor(FC)
     s = unsafe_load(pointer(F))
     if s.is_ll == 0
-        throw(CHOLMODException("sparse: supported only for :LD on LDLt factorizations"))
+        _sparse_exception(F)
     end
     sparse(Sparse(F))
 end
 sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = sparse(Sparse(Factor(FC)))
+sparse(FC::FactorComponent{Tv}) where {Tv} = _sparse_exception(Factor(FC))
+function _sparse_exception(F::Factor)
+    s = unsafe_load(pointer(F))
+    details = (s.is_ll == 0) ? ":LD on LDLt" : ":L on LLt"
+    throw(CHOLMODException("sparse: supported only for $details factorizations"))
+end
 
 # Calculate the offset into the stype field of the cholmod_sparse_struct and
 # change the value
@@ -1394,6 +1401,11 @@ end
     else
         return FactorComponent(F, sym)
     end
+end
+
+function propertynames(F::Factor)
+    s = unsafe_load(pointer(F))
+    (_factor_components(s.is_ll != 0)..., :p, :ptr)
 end
 
 function getLd!(S::SparseMatrixCSC)
@@ -1555,6 +1567,12 @@ using just `L` without accounting for `P` will give incorrect answers.
 To include the effects of permutation,
 it's typically preferable to extract "combined" factors like `PtL = F.PtL`
 (the equivalent of `P'*L`) and `LtP = F.UP` (the equivalent of `L'*P`).
+The complete list of supported factors is `:L, :PtL, :UP, :U`.
+The permutation vector is available as `F.p`, defined such that `L*L' == A[p, p]`,
+
+The `L` component can be materialized as a sparse matrix using `sparse(F.L)`.
+Other components cannot be materialized directly, but can be reconstructed
+from `sparse(F.L)` and `F.p` if needed.
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
@@ -1732,6 +1750,11 @@ To include the effects of permutation, it is typically preferable to extract
 "combined" factors like `PtL = F.PtL` (the equivalent of
 `P'*L`) and `LtP = F.UP` (the equivalent of `L'*P`).
 The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP`.
+The permutation vector is available as `F.p`, defined such that `L*D*L' == A[p, p]`,
+
+The `LD` component can be materialized as a sparse matrix using `sparse(F.LD)`,
+Other components cannot be materialized directly, but can be reconstructed from
+`sparse(F.LD)` and `F.p` if needed.
 
 Unlike the related Cholesky factorization, the ``LDL'`` factorization does not
 require `A` to be positive definite. However, it still requires all leading
