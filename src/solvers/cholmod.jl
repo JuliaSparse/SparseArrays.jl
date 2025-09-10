@@ -1358,7 +1358,7 @@ end
 size(F::Factor) = (size(F, 1), size(F, 2))
 axes(A::Union{Dense,Sparse,Factor}) = map(Base.OneTo, size(A))
 
-IndexStyle(::Dense) = IndexLinear()
+IndexStyle(::Type{<:Dense}) = IndexLinear()
 
 size(FC::FactorComponent, i::Integer) = size(FC.F, i)
 size(FC::FactorComponent) = size(FC.F)
@@ -1379,7 +1379,6 @@ function getindex(A::Dense{T}, i::Integer) where {T<:VTypes}
     unsafe_load(Ptr{T}(s.x), i)
 end
 
-IndexStyle(::Sparse) = IndexCartesian()
 function getindex(A::Sparse{T}, i0::Integer, i1::Integer) where T
     s = unsafe_load(typedpointer(A))
     !(1 <= i0 <= s.nrow && 1 <= i1 <= s.ncol) && throw(BoundsError())
