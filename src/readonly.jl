@@ -13,11 +13,18 @@ ReadOnly(x::ReadOnly) = x
 Base.getproperty(x::ReadOnly, s::Symbol) = Base.getproperty(parent(x), s)
 @inline Base.parent(x::ReadOnly) = getfield(x, :parent)
 
-for i in [:length, :first, :last, :eachindex, :firstindex, :lastindex, :axes, :size]
+for i in [:length, :first, :last, :axes, :size]
     @eval Base.@propagate_inbounds @inline Base.$i(x::ReadOnly) = Base.$i(parent(x))
 end
 for i in [:iterate, :getindex, :strides]
     @eval(Base.@propagate_inbounds @inline Base.$i(x::ReadOnly, y...) = Base.$i(parent(x), y...))
+end
+
+function Base.eachindex(i::IndexLinear, x::ReadOnly)
+    eachindex(i, parent(x))
+end
+function Base.eachindex(i::IndexCartesian, x::ReadOnly)
+    eachindex(i, parent(x))
 end
 
 Base.unsafe_convert(x::Type{Ptr{T}}, A::ReadOnly) where T = Base.unsafe_convert(x, parent(A))
