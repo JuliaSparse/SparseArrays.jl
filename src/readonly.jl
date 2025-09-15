@@ -20,12 +20,8 @@ for i in [:iterate, :getindex, :strides]
     @eval(Base.@propagate_inbounds @inline Base.$i(x::ReadOnly, y...) = Base.$i(parent(x), y...))
 end
 
-function Base.eachindex(i::IndexLinear, x::ReadOnly)
-    eachindex(i, parent(x))
-end
-function Base.eachindex(i::IndexCartesian, x::ReadOnly)
-    eachindex(i, parent(x))
-end
+Base.eachindex(i::IndexLinear, x::ReadOnly) = eachindex(i, parent(x))
+Base.eachindex(i::IndexCartesian, x::ReadOnly) = eachindex(i, parent(x))
 
 Base.unsafe_convert(x::Type{Ptr{T}}, A::ReadOnly) where T = Base.unsafe_convert(x, parent(A))
 Base.elsize(::Type{ReadOnly{T,N,V}}) where {T,N,V} = Base.elsize(V)
