@@ -13,16 +13,19 @@ ReadOnly(x::ReadOnly) = x
 Base.getproperty(x::ReadOnly, s::Symbol) = Base.getproperty(parent(x), s)
 @inline Base.parent(x::ReadOnly) = getfield(x, :parent)
 
-for i in [:length, :first, :last, :eachindex, :firstindex, :lastindex, :eltype]
+for i in [:length, :first, :last, :axes, :size]
     @eval Base.@propagate_inbounds @inline Base.$i(x::ReadOnly) = Base.$i(parent(x))
 end
-for i in [:iterate, :axes, :getindex, :size, :strides]
+for i in [:iterate, :getindex, :strides]
     @eval(Base.@propagate_inbounds @inline Base.$i(x::ReadOnly, y...) = Base.$i(parent(x), y...))
 end
 
+Base.eachindex(i::IndexLinear, x::ReadOnly) = eachindex(i, parent(x))
+Base.eachindex(i::IndexCartesian, x::ReadOnly) = eachindex(i, parent(x))
+
 Base.unsafe_convert(x::Type{Ptr{T}}, A::ReadOnly) where T = Base.unsafe_convert(x, parent(A))
 Base.elsize(::Type{ReadOnly{T,N,V}}) where {T,N,V} = Base.elsize(V)
-Base.@propagate_inbounds @inline Base.setindex!(x::ReadOnly, v, ind...) = if v == getindex(parent(x), ind...)
+Base.@propagate_inbounds @inline Base.setindex!(x::ReadOnly, v, ind::Vararg{Integer}) = if v == getindex(parent(x), ind...)
         v
     else
         error("Can't change $(typeof(x)).")
