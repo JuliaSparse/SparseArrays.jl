@@ -1111,6 +1111,11 @@ end
 sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine) =
     sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
 
+function sparse(IJ::AbstractVector{CartesianIndex{2}}, V::AbstractVector, m::Integer, n::Integer)
+    IJ′ = reinterpret(Int, reshape(IJ, 1, :))
+    return sparse(view(IJ′, 1, :), view(IJ′, 2, :), V, m, n)
+end
+
 """
     sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
             m::Integer, n::Integer, combine, klasttouch::Vector{Ti},
