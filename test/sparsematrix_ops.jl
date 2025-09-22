@@ -172,6 +172,12 @@ sC = similar(sA)
 dA = Array(sA)
 
 @testset "reductions" begin
+    se33 = SparseMatrixCSC{Float64}(I, 3, 3)
+    do33 = fill(1.,3)
+    sA = sprandn(3, 7, 0.5)
+    sC = similar(sA)
+    dA = Array(sA)
+
     pA = sparse(rand(3, 7))
     p28227 = sparse(Real[0 0.5])
 
@@ -256,9 +262,48 @@ dA = Array(sA)
         end
         for f in (minimum, maximum, findmin, findmax)
             @test_throws errchecker f(spzeros(0, 1), dims=1)
-            @test isequal(f(spzeros(0, 1), dims=2), f(Matrix{Int}(I, 0, 1), dims=2))
+            @test_throws errchecker f(spzeros(0, 1), dims=2)
             @test_throws errchecker f(spzeros(0, 1), dims=(1, 2))
-            @test isequal(f(spzeros(0, 1), dims=3), f(Matrix{Int}(I, 0, 1), dims=3))
+            @test_throws errchecker f(spzeros(0, 1), dims=3)
+        end
+
+        some_exception(op) = try return (Some(op()), nothing); catch ex; return (nothing, ex); end
+        reduced_shape(sz, dims) = ntuple(d -> d in dims ? 1 : sz[d], length(sz))
+
+        @testset "$r(spzeros($T, $sz); dims=$dims)" for
+            r in (minimum, maximum, findmin, findmax, extrema, sum, prod, mapreduce, all, any, count),
+            T in (Int, Union{Missing, Int}, Number, Union{Missing, Number}, Bool, Union{Missing, Bool}),
+            sz in ((0,), (0,1), (1,0), (0,0),),
+            dims in (1, 2, (1,2))
+
+            A = spzeros(T, sz...)
+            rsz = reduced_shape(sz, dims)
+
+            v, ex = some_exception() do; r(A); end
+            if isnothing(v)
+                @test_throws typeof(ex) r(A; dims)
+                @test_throws typeof(ex) r(zeros(T, sz...))
+                @test_throws typeof(ex) r(zeros(T, sz...); dims)
+            else
+                actual = fill(something(v), rsz)
+                @test something(v) === r(zeros(T, sz...))
+                @test isequal(r(A; dims), actual)
+                @test eltype(r(A; dims)) === eltype(actual)
+            end
+
+            for f in (identity, abs, abs2)
+                v, ex = some_exception() do; r(f, A); end
+                if isnothing(v)
+                    @test_throws typeof(ex) r(f, A; dims)
+                    @test_throws typeof(ex) r(f, zeros(T, sz...))
+                    @test_throws typeof(ex) r(f, zeros(T, sz...); dims)
+                else
+                    actual = fill(something(v), rsz)
+                    @test something(v) === r(f, zeros(T, sz...))
+                    @test isequal(r(f, A; dims), actual)
+                    @test eltype(r(f, A; dims)) === eltype(actual)
+                end
+            end
         end
     end
 end
