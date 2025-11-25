@@ -27,9 +27,6 @@ jobs:
           - x64
           - x86
         include:
-          - os: ubuntu-latest
-            julia-arch: aarch64
-            julia-version: 'nightly'      
           - os: macOS-latest
             julia-arch: aarch64
             julia-version: 'nightly'
