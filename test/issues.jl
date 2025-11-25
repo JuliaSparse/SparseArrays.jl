@@ -447,8 +447,8 @@ end
     C = copy(A)
     m1 = @which mul!(C,A,D,true,false)
     m2 = @which mul!(C,D,A,true,false)
-    @test_broken m1.module == SparseArrays
-    @test_broken m2.module == SparseArrays
+    @test m1.module == SparseArrays
+    @test m2.module == SparseArrays
 end
 
 @testset "issue #31453" for T in [UInt8, Int8, UInt16, Int16, UInt32, Int32]
