@@ -232,7 +232,7 @@ function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
     rows = rowvals(A)
     vals = nonzeros(A)
     da, db = map(parent, (Da, Db))
-    for col in axes(A,2)
+    @inbounds for col in axes(A,2)
         dbcol = db[col]
         for i in nzrange(A, col)
             row = rows[i]
@@ -1351,7 +1351,7 @@ function _dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSp
         end
     end
     # diagonal
-    for i in axes(A,1)
+    @inbounds for i in axes(A,1)
         r1 = Int(Acolptr[i])
         r2 = Int(Acolptr[i+1]-1)
         r1 > r2 && continue
@@ -1391,7 +1391,7 @@ function ldiv!(D::Diagonal, A::Union{AbstractSparseMatrixCSC, AbstractSparseVect
     nonz = nonzeros(A)
     Arowval = rowvals(A)
     b = D.diag
-    for i=axes(b,1)
+    @inbounds for i=axes(b,1)
         iszero(b[i]) && throw(SingularException(i))
     end
     @inbounds for col in axes(A,2), p in nzrange(A, col)
@@ -1406,10 +1406,10 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     m,n = size(S)
     colptr = Vector{Ti}(undef, n+1)
     nnz = 0
-    for col = 1 : min(max(k+1,1), n+1)
+    @inbounds for col = 1 : min(max(k+1,1), n+1)
         colptr[col] = 1
     end
-    for col = max(k+1,1) : n
+    @inbounds for col = max(k+1,1) : n
         for c1 in nzrange(S, col)
             rowvals(S)[c1] > col - k && break
             nnz += 1
@@ -1418,7 +1418,7 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     end
     rowval = Vector{Ti}(undef, nnz)
     nzval = Vector{Tv}(undef, nnz)
-    for col = max(k+1,1) : n
+    @inbounds for col = max(k+1,1) : n
         c1 = getcolptr(S)[col]
         for c2 in colptr[col]:colptr[col+1]-1
             rowval[c2] = rowvals(S)[c1]
@@ -1434,7 +1434,7 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     colptr = Vector{Ti}(undef, n+1)
     nnz = 0
     colptr[1] = 1
-    for col = 1 : min(n, m+k)
+    @inbounds for col = 1 : min(n, m+k)
         l1 = getcolptr(S)[col+1]-1
         for c1 = 0 : (l1 - getcolptr(S)[col])
             rowvals(S)[l1 - c1] < col - k && break
@@ -1442,12 +1442,12 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
         end
         colptr[col+1] = nnz+1
     end
-    for col = max(min(n, m+k)+2,1) : n+1
+    @inbounds for col = max(min(n, m+k)+2,1) : n+1
         colptr[col] = nnz+1
     end
     rowval = Vector{Ti}(undef, nnz)
     nzval = Vector{Tv}(undef, nnz)
-    for col = 1 : min(n, m+k)
+    @inbounds for col = 1 : min(n, m+k)
         c1 = getcolptr(S)[col+1]-1
         l2 = colptr[col+1]-1
         for c2 = 0 : l2 - colptr[col]
@@ -1469,8 +1469,8 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     rowval = Vector{Ti}(undef, numnz)
     nzval = Vector{Tv}(undef, numnz)
     numnz = 0
-    colptr[1] = 1
-    for col = 1 : n
+    @inbounds colptr[1] = 1
+    @inbounds for col = 1 : n
         last_row = 0
         last_val = 0
         for k in nzrange(S, col)
@@ -1514,20 +1514,22 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     rowval_a = rowvals(a)
     nzval_a = nonzeros(a)
 
-    ptrS = 1
-    colptr[1] = 1
+    @inbounds begin
+        ptrS = 1
+        colptr[1] = 1
 
-    n == 0 && return SparseMatrixCSC(m, n, colptr, rowval, nzval)
+        n == 0 && return SparseMatrixCSC(m, n, colptr, rowval, nzval)
 
-    startA = colptr_a[1]
-    stopA = colptr_a[2]
+        startA = colptr_a[1]
+        stopA = colptr_a[2]
 
-    rA = startA : stopA - 1
-    rowvalA = rowval_a[rA]
-    nzvalA = nzval_a[rA]
-    lA = stopA - startA
+        rA = startA : stopA - 1
+        rowvalA = rowval_a[rA]
+        nzvalA = nzval_a[rA]
+        lA = stopA - startA
+    end
 
-    for col = 1:n-1
+    @inbounds for col = 1:n-1
         startB, stopB = startA, stopA
         startA = colptr_a[col+1]
         stopA = colptr_a[col+2]
@@ -1614,7 +1616,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
         Tsum = promote_type(Float64,Tnorm)
         if p==1
             nA::Tsum = 0
-            for j in axes(A,2)
+            @inbounds for j in axes(A,2)
                 colSum::Tsum = 0
                 for i in nzrange(A, j)
                     colSum += abs(nonzeros(A)[i])
@@ -1626,7 +1628,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             throw(ArgumentError("2-norm not yet implemented for sparse matrices. Try opnorm(Array(A)) or opnorm(A, p) where p=1 or Inf."))
         elseif p==Inf
             rowSum = zeros(Tsum,m)
-            for i in axes(nonzeros(A),1)
+            @inbounds for i in axes(nonzeros(A),1)
                 rowSum[rowvals(A)[i]] += abs(nonzeros(A)[i])
             end
             return convert(Tnorm, maximum(rowSum))
@@ -1683,8 +1685,8 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
 
     # Generate the block matrix
     X = Matrix{Ti}(undef, n, t)
-    X[1:n,1] .= 1
-    for j = 2:t
+    @inbounds X[1:n,1] .= 1
+    @inbounds for j = 2:t
         while true
             rand!(view(X,1:n,j), (-1, 1))
             yaux = X[1:n,j]' * X[1:n,1:j-1]
@@ -2019,8 +2021,8 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     C_colptr = getcolptr(C)
     for col in axes(A,2)
         n_extra = 0
-        for ind in nzrange(A, col)
-            row = rowvals(A)[ind]
+        for ind in @inbounds nzrange(A, col)
+            row = @inbounds rowvals(A)[ind]
             row_exists, ind = rowcheck_index(C, row, col)
             if !row_exists
                 n_extra += 1
@@ -2052,31 +2054,31 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     if beta_is_zero || identical_nzinds
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
-        if beta_is_zero
+        @inbounds if beta_is_zero
             if isone(alpha)
                 for col in axes(A,2), p in nzrange(A, col)
-                    @inbounds Cnzval[p] = Anzval[p] * b[col]
+                    Cnzval[p] = Anzval[p] * b[col]
                 end
             else
                 for col in axes(A,2), p in nzrange(A, col)
-                    @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha
+                    Cnzval[p] = Anzval[p] * b[col] * alpha
                 end
             end
         else
             if isone(alpha)
                 for col in axes(A,2), p in nzrange(A, col)
-                    @inbounds Cnzval[p] = Anzval[p] * b[col] + Cnzval[p] * beta
+                    Cnzval[p] = Anzval[p] * b[col] + Cnzval[p] * beta
                 end
             else
                 for col in axes(A,2), p in nzrange(A, col)
-                    @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha + Cnzval[p] * beta
+                    Cnzval[p] = Anzval[p] * b[col] * alpha + Cnzval[p] * beta
                 end
             end
         end
     else
         mergeinds!(C, A)
-        for col in axes(C,2), p in nzrange(C, col)
-            row = rowvals(C)[p]
+        for col in axes(C,2), p in @inbounds nzrange(C, col)
+            row = @inbounds rowvals(C)[p]
             # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
