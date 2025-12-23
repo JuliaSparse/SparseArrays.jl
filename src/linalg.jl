@@ -69,7 +69,7 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
         T = eltype(C)
         _mul!(rangefun, diagop, odiagop, C, A, B, T(alpha), T(beta))
     else
-        @stable_muladdmul LinearAlgebra._generic_matmatmul!(C, 'N', 'N', wrap(A, tA), wrap(B, tB), MulAddMul(alpha, beta))
+        @stable_muladdmul LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), MulAddMul(alpha, beta))
     end
     return C
 end
