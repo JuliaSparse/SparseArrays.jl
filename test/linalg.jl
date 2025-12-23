@@ -109,6 +109,14 @@ end
     end
 end
 
+@testset "multiplication of special sparse with dense matrix" begin
+    # this results in a call of the most generic multiplication code in LinearAlgebra.jl
+    A = randn(2, 2)
+    S = sparse(A)
+    B = rand(1, 2)'
+    @test Symmetric(S) * B ≈ Symmetric(A) * B
+end
+
 @testset "sparse transpose adjoint" begin
     A = sprand(10, 10, 0.75)
     @test A' == SparseMatrixCSC(A')
