@@ -92,7 +92,6 @@ function _spmatmul!(C, A, B, α, β)
             end
         end
     end
-    C
 end
 
 function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
@@ -114,7 +113,6 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
             C[col,k] += tmp * α
         end
     end
-    C
 end
 
 Base.@constprop :aggressive function generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, alpha::Number, beta::Number)
@@ -146,7 +144,6 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
             C[multivec_row, col] += X[multivec_row, rvk] * Aiα
         end
     end
-    C
 end
 function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCUnion2, α::Number, β::Number)
     mX, nX = size(X)
@@ -164,7 +161,6 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
             C[multivec_row, col] += X[multivec_row, rv[k]] * nzv[k] * α
         end
     end
-    C
 end
 
 function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCUnion2, α::Number, β::Number)
@@ -185,7 +181,6 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
             C[multivec_col, rvk] += A[multivec_col, col] * Biα
         end
     end
-    C
 end
 
 function *(A::Diagonal, b::AbstractSparseVector)
@@ -1259,7 +1254,6 @@ function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::Strided
             end
         end
     end
-    C
 end
 
 # row range up to (and including if excl=false) diagonal
