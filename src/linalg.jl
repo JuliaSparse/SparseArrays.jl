@@ -4,6 +4,41 @@ using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, UpperOrLower
     RealHermSymComplexHerm, HermOrSym, checksquare, sym_uplo, wrap
 using Random: rand!
 
+_fix_size(M, nrow, ncol) = M
+
+# An immutable fixed size wrapper for matrices to work around
+# the performance issue caused by https://github.com/JuliaLang/julia/issues/60409
+# This is more-of-less a stripped down version of FixedSizeArrays
+# which we can't easily use without pulling that into the standard library.
+struct _FixedSizeMatrix{Trans,R}
+    ref::R
+    nrow::Int
+    ncol::Int
+    function _FixedSizeMatrix{Trans}(ref::R, nrow, ncol) where {Trans,R}
+        new{Trans,R}(ref, nrow, ncol)
+    end
+end
+@inline Base.getindex(A::_FixedSizeMatrix{'N'}, i, j) =
+    @inbounds Core.memoryrefnew(A.ref, A.nrow * (j - 1) + i, false)[]
+@inline Base.setindex!(A::_FixedSizeMatrix{'N'}, v, i, j) =
+    @inbounds Core.memoryrefnew(A.ref, A.nrow * (j - 1) + i, false)[] = v
+
+@inline Base.getindex(A::_FixedSizeMatrix{'T'}, i, j) =
+    @inbounds transpose(Core.memoryrefnew(A.ref, A.ncol * (i - 1) + j, false)[])
+@inline Base.setindex!(A::_FixedSizeMatrix{'T'}, v, i, j) =
+    @inbounds Core.memoryrefnew(A.ref, A.ncol * (i - 1) + j, false)[] = transpose(v)
+
+@inline Base.getindex(A::_FixedSizeMatrix{'C'}, i, j) =
+    @inbounds adjoint(Core.memoryrefnew(A.ref, A.ncol * (i - 1) + j, false)[])
+@inline Base.setindex!(A::_FixedSizeMatrix{'C'}, v, i, j) =
+    @inbounds Core.memoryrefnew(A.ref, A.ncol * (i - 1) + j, false)[] = adjoint(v)
+
+@inline _fix_size(A::Matrix, nrow, ncol) = _FixedSizeMatrix{'N'}(A.ref, nrow, ncol)
+@inline _fix_size(A::Transpose{<:Any,<:Matrix}, nrow, ncol) =
+    _FixedSizeMatrix{'T'}(A.parent.ref, nrow, ncol)
+@inline _fix_size(A::Adjoint{<:Any,<:Matrix}, nrow, ncol) =
+    _FixedSizeMatrix{'C'}(A.parent.ref, nrow, ncol)
+
 const tilebufsize = 10800  # Approximately 32k/3
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
@@ -120,13 +155,15 @@ end
 function _spmatmul!(C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
-    _matmul_size_AB(C, A, B)
+    mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
     end
+    B = _fix_size(B, mB, nB)
+    C = _fix_size(C, mC, nC)
     for k in Cax2
         @inbounds for col in Aax2
             αxj = α isa Bool ? B[col,k] : B[col,k] * α
@@ -140,13 +177,15 @@ end
 function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
-    _matmul_size_AtB(C, A, B)
+    mC, nC, mA, nA, mB, nB = _matmul_size_AtB(C, A, B)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
     end
+    B = _fix_size(B, mB, nB)
+    C = _fix_size(C, mC, nC)
     for k in Cax2
         @inbounds for col in Aax2
             tmp = zero(eltype(C))
@@ -172,13 +211,15 @@ end
 function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2, α::Number, β::Number)
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
-    _matmul_size_AB(C, X, A)
+    mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
     end
+    C = _fix_size(C, mC, nC)
+    X = _fix_size(X, mX, nX)
     @inbounds for col in Aax2, k in nzrange(A, col)
         Aiα = α isa Bool ? nzv[k] : nzv[k] * α
         rvk = rv[k]
@@ -190,13 +231,15 @@ end
 function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCUnion2, α::Number, β::Number)
     Xax1 = axes(X, 1)
     Cax2 = axes(C, 2)
-    _matmul_size_AB(C, X, A)
+    mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
     end
+    C = _fix_size(C, mC, nC)
+    X = _fix_size(X, mX, nX)
     for multivec_row in Xax1, col in Cax2
         @inbounds for k in nzrange(A, col)
             C[multivec_row, col] +=
@@ -209,13 +252,15 @@ end
 function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCUnion2, α::Number, β::Number)
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
-    _matmul_size_ABt(C, A, B)
+    mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
     rv = rowvals(B)
     nzv = nonzeros(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
     end
+    C = _fix_size(C, mC, nC)
+    A = _fix_size(A, mA, nA)
     @inbounds for col in Bax2, k in nzrange(B, col)
         Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
         rvk = rv[k]
