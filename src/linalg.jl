@@ -83,7 +83,7 @@ function _spmatmul!(C, A, B, α, β)
         throw(DimensionMismatch("second dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
     nzv = nonzeros(A)
     rv = rowvals(A)
-    β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     for k in axes(C, 2)
         @inbounds for col in axes(A,2)
             αxj = B[col,k] * α
@@ -104,7 +104,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
         throw(DimensionMismatch("second dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
     nzv = nonzeros(A)
     rv = rowvals(A)
-    β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     for k in axes(C, 2)
         @inbounds for col in axes(A,2)
             tmp = zero(eltype(C))
@@ -138,7 +138,7 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
         throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the second dimension of C, $(size(C,2))"))
     rv = rowvals(A)
     nzv = nonzeros(A)
-    β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     @inbounds for col in axes(A,2), k in nzrange(A, col)
         Aiα = nzv[k] * α
         rvk = rv[k]
@@ -158,7 +158,7 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
         throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the second dimension of C, $(size(C,2))"))
     rv = rowvals(A)
     nzv = nonzeros(A)
-    β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     for multivec_row in axes(X,1), col in axes(C, 2)
         @inbounds for k in nzrange(A, col)
             C[multivec_row, col] += X[multivec_row, rv[k]] * nzv[k] * α
@@ -177,7 +177,7 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
         throw(DimensionMismatch("first dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
     rv = rowvals(B)
     nzv = nonzeros(B)
-    β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     @inbounds for col in axes(B, 2), k in nzrange(B, col)
         Biα = tfun(nzv[k]) * α
         rvk = rv[k]
@@ -1240,7 +1240,7 @@ function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::Strided
     rv = rowvals(A)
     nzv = nonzeros(A)
     let z = T(0), sumcol=z, αxj=z, aarc=z, α = α
-        β != one(β) && LinearAlgebra._rmul_or_fill!(C, β)
+        isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
         @inbounds for k in axes(B,2)
             for col in axes(B,1)
                 αxj = B[col,k] * α
