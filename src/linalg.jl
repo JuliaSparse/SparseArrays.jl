@@ -74,13 +74,51 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
     return C
 end
 
+# Slow non-inlined functions for throwing the error without messing up the caller
+@noinline function _matmul_size_error(mC, nC, mA, nA, mB, nB, At, Bt)
+    if At == 'N'
+        Anames = "first", "second"
+    else
+        Anames = "second", "first"
+    end
+    if Bt == 'N'
+        Bnames = "first", "second"
+    else
+        Bnames = "second", "first"
+    end
+    nA == mB ||
+        throw(DimensionMismatch("$(Anames[2]) dimension of A, $nA, does not match the $(Bnames[1]) dimension of B, $mB"))
+    mA == mC ||
+        throw(DimensionMismatch("$(Anames[1]) dimension of A, $mA, does not match the first dimension of C, $mC"))
+    nB == nC ||
+        throw(DimensionMismatch("$(Bnames[2]) dimension of B, $nB, does not match the second dimension of C, $nC"))
+    # unreachable
+    throw(DimensionMismatch("Unknown dimension mismatch"))
+end
+
+@inline function _matmul_size(C, A, B, ::Val{At}, ::Val{Bt}) where {At,Bt}
+    mC = size(C, 1)
+    nC = size(C, 2)
+    mA = size(A, 1)
+    nA = size(A, 2)
+    mB = size(B, 1)
+    nB = size(B, 2)
+
+    _mA, _nA = At == 'N' ? (mA, nA) : (nA, mA)
+    _mB, _nB = Bt == 'N' ? (mB, nB) : (nB, mB)
+
+    if (_nA != _mB) | (_mA != mC) | (_nB != nC)
+        _matmul_size_error(mC, nC, _mA, _nA, _mB, _nB, At, Bt)
+    end
+    return mC, nC, mA, nA, mB, nB
+end
+
+@inline _matmul_size_AB(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('N'))
+@inline _matmul_size_AtB(C, A, B) = _matmul_size(C, A, B, Val('T'), Val('N'))
+@inline _matmul_size_ABt(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('T'))
+
 function _spmatmul!(C, A, B, α, β)
-    size(A, 2) == size(B, 1) ||
-        throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the first dimension of B, $(size(B,1))"))
-    size(A, 1) == size(C, 1) ||
-        throw(DimensionMismatch("first dimension of A, $(size(A,1)), does not match the first dimension of C, $(size(C,1))"))
-    size(B, 2) == size(C, 2) ||
-        throw(DimensionMismatch("second dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
+    _matmul_size_AB(C, A, B)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -95,12 +133,7 @@ function _spmatmul!(C, A, B, α, β)
 end
 
 function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
-    size(A, 2) == size(C, 1) ||
-        throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the first dimension of C, $(size(C,1))"))
-    size(A, 1) == size(B, 1) ||
-        throw(DimensionMismatch("first dimension of A, $(size(A,1)), does not match the first dimension of B, $(size(B,1))"))
-    size(B, 2) == size(C, 2) ||
-        throw(DimensionMismatch("second dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
+    _matmul_size_AtB(C, A, B)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -127,13 +160,7 @@ Base.@constprop :aggressive function generic_matmatmul!(C::StridedMatrix, tA, tB
     return C
 end
 function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2, α::Number, β::Number)
-    mX, nX = size(X)
-    nX == size(A, 1) ||
-        throw(DimensionMismatch("second dimension of X, $nX, does not match the first dimension of A, $(size(A,1))"))
-    mX == size(C, 1) ||
-        throw(DimensionMismatch("first dimension of X, $mX, does not match the first dimension of C, $(size(C,1))"))
-    size(A, 2) == size(C, 2) ||
-        throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the second dimension of C, $(size(C,2))"))
+    _matmul_size_AB(C, X, A)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -146,13 +173,7 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
     end
 end
 function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCUnion2, α::Number, β::Number)
-    mX, nX = size(X)
-    nX == size(A, 1) ||
-        throw(DimensionMismatch("second dimension of X, $nX, does not match the first dimension of A, $(size(A,1))"))
-    mX == size(C, 1) ||
-        throw(DimensionMismatch("first dimension of X, $mX, does not match the first dimension of C, $(size(C,1))"))
-    size(A, 2) == size(C, 2) ||
-        throw(DimensionMismatch("second dimension of A, $(size(A,2)), does not match the second dimension of C, $(size(C,2))"))
+    _matmul_size_AB(C, X, A)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -164,13 +185,7 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
 end
 
 function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCUnion2, α::Number, β::Number)
-    mA, nA = size(A)
-    nA == size(B, 2) ||
-        throw(DimensionMismatch("second dimension of A, $nA, does not match the second dimension of B, $(size(B,2))"))
-    mA == size(C, 1) ||
-        throw(DimensionMismatch("first dimension of A, $mA, does not match the first dimension of C, $(size(C,1))"))
-    size(B, 1) == size(C, 2) ||
-        throw(DimensionMismatch("first dimension of B, $(size(B,2)), does not match the second dimension of C, $(size(C,2))"))
+    _matmul_size_ABt(C, A, B)
     rv = rowvals(B)
     nzv = nonzeros(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
