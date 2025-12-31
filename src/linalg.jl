@@ -124,9 +124,12 @@ function _spmatmul!(C, A, B, α, β)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
     for k in Cax2
         @inbounds for col in Aax2
-            αxj = B[col,k] * α
+            αxj = α isa Bool ? B[col,k] : B[col,k] * α
             for j in nzrange(A, col)
                 C[rv[j], k] += nzv[j]*αxj
             end
@@ -141,13 +144,16 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
     for k in Cax2
         @inbounds for col in Aax2
             tmp = zero(eltype(C))
             for j in nzrange(A, col)
                 tmp += tfun(nzv[j])*B[rv[j],k]
             end
-            C[col,k] += tmp * α
+            C[col,k] += α isa Bool ? tmp : tmp * α
         end
     end
 end
@@ -170,8 +176,11 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
     @inbounds for col in Aax2, k in nzrange(A, col)
-        Aiα = nzv[k] * α
+        Aiα = α isa Bool ? nzv[k] : nzv[k] * α
         rvk = rv[k]
         @simd for multivec_row in Xax1
             C[multivec_row, col] += X[multivec_row, rvk] * Aiα
@@ -185,9 +194,14 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
     for multivec_row in Xax1, col in Cax2
         @inbounds for k in nzrange(A, col)
-            C[multivec_row, col] += X[multivec_row, rv[k]] * nzv[k] * α
+            C[multivec_row, col] +=
+                (α isa Bool ? X[multivec_row, rv[k]] * nzv[k] :
+                X[multivec_row, rv[k]] * nzv[k] * α)
         end
     end
 end
@@ -199,8 +213,11 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     rv = rowvals(B)
     nzv = nonzeros(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
     @inbounds for col in Bax2, k in nzrange(B, col)
-        Biα = tfun(nzv[k]) * α
+        Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
         rvk = rv[k]
         @simd for multivec_col in Aax1
             C[multivec_col, rvk] += A[multivec_col, col] * Biα
