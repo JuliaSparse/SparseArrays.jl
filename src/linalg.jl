@@ -168,7 +168,8 @@ function _spmatmul!(C, A, B, α, β)
         @inbounds for col in Aax2
             αxj = α isa Bool ? B[col,k] : B[col,k] * α
             for j in nzrange(A, col)
-                C[rv[j], k] += nzv[j]*αxj
+                rvj = rv[j]
+                C[rvj, k] = muladd(nzv[j], αxj, C[rvj, k])
             end
         end
     end
@@ -184,15 +185,16 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     if α isa Bool && !α
         return
     end
+    C0 = zero(eltype(C)) # Pre-allocate for BigFloat/BigInt etc
     B = _fix_size(B, mB, nB)
     C = _fix_size(C, mC, nC)
     for k in Cax2
         @inbounds for col in Aax2
-            tmp = zero(eltype(C))
+            tmp = C0
             for j in nzrange(A, col)
-                tmp += tfun(nzv[j])*B[rv[j],k]
+                tmp = muladd(tfun(nzv[j]), B[rv[j], k], tmp)
             end
-            C[col,k] += α isa Bool ? tmp : tmp * α
+            C[col, k] = α isa Bool ? tmp + C[col, k] : muladd(tmp, α, C[col, k])
         end
     end
 end
@@ -224,7 +226,8 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
         Aiα = α isa Bool ? nzv[k] : nzv[k] * α
         rvk = rv[k]
         @simd for multivec_row in Xax1
-            C[multivec_row, col] += X[multivec_row, rvk] * Aiα
+            C[multivec_row, col] = muladd(X[multivec_row, rvk], Aiα,
+                                          C[multivec_row, col])
         end
     end
 end
@@ -240,12 +243,17 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
     end
     C = _fix_size(C, mC, nC)
     X = _fix_size(X, mX, nX)
-    for multivec_row in Xax1, col in Cax2
-        @inbounds for k in nzrange(A, col)
-            C[multivec_row, col] +=
-                (α isa Bool ? X[multivec_row, rv[k]] * nzv[k] :
-                X[multivec_row, rv[k]] * nzv[k] * α)
+    @inbounds for multivec_row in Xax1, col in Cax2
+        nzrng = nzrange(A, col)
+        if isempty(nzrng)
+            continue
         end
+        tmp = C[multivec_row, col]
+        for k in nzrng
+            tmp = muladd(X[multivec_row, rv[k]],
+                         (α isa Bool ? nzv[k] : nzv[k] * α), tmp)
+        end
+        C[multivec_row, col] = tmp
     end
 end
 
@@ -265,7 +273,7 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
         Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
         rvk = rv[k]
         @simd for multivec_col in Aax1
-            C[multivec_col, rvk] += A[multivec_col, col] * Biα
+            C[multivec_col, rvk] = muladd(A[multivec_col, col], Biα, C[multivec_col, rvk])
         end
     end
 end
