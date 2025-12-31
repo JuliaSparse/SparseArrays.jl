@@ -118,12 +118,14 @@ end
 @inline _matmul_size_ABt(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('T'))
 
 function _spmatmul!(C, A, B, α, β)
+    Cax2 = axes(C, 2)
+    Aax2 = axes(A, 2)
     _matmul_size_AB(C, A, B)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    for k in axes(C, 2)
-        @inbounds for col in axes(A,2)
+    for k in Cax2
+        @inbounds for col in Aax2
             αxj = B[col,k] * α
             for j in nzrange(A, col)
                 C[rv[j], k] += nzv[j]*αxj
@@ -133,12 +135,14 @@ function _spmatmul!(C, A, B, α, β)
 end
 
 function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
+    Cax2 = axes(C, 2)
+    Aax2 = axes(A, 2)
     _matmul_size_AtB(C, A, B)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    for k in axes(C, 2)
-        @inbounds for col in axes(A,2)
+    for k in Cax2
+        @inbounds for col in Aax2
             tmp = zero(eltype(C))
             for j in nzrange(A, col)
                 tmp += tfun(nzv[j])*B[rv[j],k]
@@ -160,24 +164,28 @@ Base.@constprop :aggressive function generic_matmatmul!(C::StridedMatrix, tA, tB
     return C
 end
 function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2, α::Number, β::Number)
+    Aax2 = axes(A, 2)
+    Xax1 = axes(X, 1)
     _matmul_size_AB(C, X, A)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    @inbounds for col in axes(A,2), k in nzrange(A, col)
+    @inbounds for col in Aax2, k in nzrange(A, col)
         Aiα = nzv[k] * α
         rvk = rv[k]
-        @simd for multivec_row in axes(X,1)
+        @simd for multivec_row in Xax1
             C[multivec_row, col] += X[multivec_row, rvk] * Aiα
         end
     end
 end
 function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCUnion2, α::Number, β::Number)
+    Xax1 = axes(X, 1)
+    Cax2 = axes(C, 2)
     _matmul_size_AB(C, X, A)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    for multivec_row in axes(X,1), col in axes(C, 2)
+    for multivec_row in Xax1, col in Cax2
         @inbounds for k in nzrange(A, col)
             C[multivec_row, col] += X[multivec_row, rv[k]] * nzv[k] * α
         end
@@ -185,14 +193,16 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
 end
 
 function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCUnion2, α::Number, β::Number)
+    Bax2 = axes(B, 2)
+    Aax1 = axes(A, 1)
     _matmul_size_ABt(C, A, B)
     rv = rowvals(B)
     nzv = nonzeros(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    @inbounds for col in axes(B, 2), k in nzrange(B, col)
+    @inbounds for col in Bax2, k in nzrange(B, col)
         Biα = tfun(nzv[k]) * α
         rvk = rv[k]
-        @simd for multivec_col in axes(A,1)
+        @simd for multivec_col in Aax1
             C[multivec_col, rvk] += A[multivec_col, col] * Biα
         end
     end
