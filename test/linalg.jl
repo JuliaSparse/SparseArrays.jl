@@ -1040,4 +1040,35 @@ end
     @test_throws DimensionMismatch D1 * S * D1
 end
 
+@testset "multiplication of sparse and dense matrices" begin
+    function test_mul(A, B)
+        expected = Matrix(A) * Matrix(B)
+        @test A * B ≈ expected
+        C = similar(expected)
+        @test mul!(C, A, B) === C
+        @test C ≈ expected
+        ElType = eltype(C)
+        vs = Any[false, true, zero(ElType), one(ElType), one(ElType) + one(ElType)]
+        for α in vs
+            for β in vs
+                C .= rand.(ElType)
+                expected′ = expected .* α .+ C .* β
+                @test mul!(C, A, B, α, β) === C
+                @test C ≈ expected′
+            end
+        end
+    end
+
+    for ElType in [Int, Float64, ComplexF64, BigFloat]
+        SP = sprand(ElType, 10, 10, 0.3)
+        D = rand(ElType, 10, 10)
+        for f1 in [identity, adjoint, transpose]
+            for f2 in [identity, adjoint, transpose]
+                test_mul(f1(SP), f2(D))
+                test_mul(f1(D), f2(SP))
+            end
+        end
+    end
+end
+
 end
