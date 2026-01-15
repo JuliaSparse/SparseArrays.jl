@@ -115,7 +115,7 @@ end
 nnz(x::AbstractCompressedVector) = length(nonzeros(x))
 function nnz(x::SparseColumnView)
     rowidx, colidx = parentindices(x)
-    return length(nzrange(parent(x), colidx))
+    return length(@inbounds nzrange(parent(x), colidx))
 end
 nnz(x::SparseVectorView) = nnz(x.parent)
 nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))

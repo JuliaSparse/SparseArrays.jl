@@ -217,13 +217,13 @@ julia> nnz(A)
 3
 ```
 """
-nnz(S::AbstractSparseMatrixCSC) = Int(getcolptr(S)[size(S, 2) + 1]) - 1
+nnz(S::AbstractSparseMatrixCSC) = @inbounds Int(getcolptr(S)[size(S, 2) + 1]) - 1
 nnz(S::ReshapedArray{<:Any,1,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
 nnz(S::SparseMatrixCSCColumnSubset) = nnz1(S)
-nnz1(S) = sum(length.(nzrange.(Ref(S), axes(S, 2))))
+nnz1(S) = @inbounds sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
 function Base._simple_count(pred, S::AbstractSparseMatrixCSC, init::T) where T
     init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
@@ -308,8 +308,8 @@ of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
 !!! warning
     Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
-nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
-nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(S.parent, S.indices[2][col])
+Base.@propagate_inbounds nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
+Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(S.parent, S.indices[2][col])
 nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangeup(S.data, i)
 nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangelo(S.data, i)
 
@@ -317,7 +317,7 @@ const AbstractSparseMatrixCSCInclAdjointAndTranspose = Union{AbstractSparseMatri
 function Base.isstored(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     @boundscheck checkbounds(A, i, j)
     rows = rowvals(A)
-    for istored in nzrange(A, j) # could do binary search if the row indices are sorted?
+    @inbounds for istored in nzrange(A, j) # could do binary search if the row indices are sorted?
         i == rows[istored] && return true
     end
     return false
@@ -326,7 +326,7 @@ end
 function Base.isstored(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Integer, j::Integer)
     @boundscheck checkbounds(A, i, j)
     cols = rowvals(parent(A))
-    for istored in nzrange(parent(A), i)
+    @inbounds for istored in nzrange(parent(A), i)
         j == cols[istored] && return true
     end
     return false
@@ -674,7 +674,7 @@ function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Numbe
     rowval = getrowval(S)
     nzval = getnzval(S)
     linear_index_col0 = 0   # Linear index before column (linear index = linear_index_col0 + row)
-    for col in axes(S, 2)
+    @inbounds for col in axes(S, 2)
         for i in nzrange(S, col)
             row = rowval[i]
             val = nzval[i]
@@ -2269,7 +2269,7 @@ function (+)(A::SparseMatrixCSCUnion, B::Array)
     C = Ref(zero(eltype(A))) .+ B
     rowinds, nzvals = rowvals(A), nonzeros(A)
     for j in axes(A,2)
-        for i in nzrange(A, j)
+        @inbounds for i in nzrange(A, j)
             rowidx = rowinds[i]
             C[rowidx,j] = nzvals[i] + B[rowidx,j]
         end
@@ -2281,7 +2281,7 @@ function (+)(A::Array, B::SparseMatrixCSCUnion)
     C = A .+ Ref(zero(eltype(B)))
     rowinds, nzvals = rowvals(B), nonzeros(B)
     for j in axes(B,2)
-        for i in nzrange(B, j)
+        @inbounds for i in nzrange(B, j)
             rowidx = rowinds[i]
             C[rowidx,j] = A[rowidx,j] + nzvals[i]
         end
@@ -2293,7 +2293,7 @@ function (-)(A::SparseMatrixCSCUnion, B::Array)
     C = Ref(zero(eltype(A))) .- B
     rowinds, nzvals = rowvals(A), nonzeros(A)
     for j in axes(A,2)
-        for i in nzrange(A, j)
+        @inbounds for i in nzrange(A, j)
             rowidx = rowinds[i]
             C[rowidx,j] = nzvals[i] - B[rowidx,j]
         end
@@ -2305,7 +2305,7 @@ function (-)(A::Array, B::SparseMatrixCSCUnion)
     C = A .- Ref(zero(eltype(B)))
     rowinds, nzvals = rowvals(B), nonzeros(B)
     for j in axes(B,2)
-        for i in nzrange(B, j)
+        @inbounds for i in nzrange(B, j)
             rowidx = rowinds[i]
             C[rowidx,j] = A[rowidx,j] - nzvals[i]
         end
@@ -4086,7 +4086,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
     rowval = rowvals(A)
     nzval = nonzeros(A)
     tracker = copy(getcolptr(A))
-    for col in axes(A,2)
+    @inbounds for col in axes(A,2)
         # `tracker` is updated such that, for symmetric matrices,
         # the loop below starts from an element at or below the
         # diagonal element of column `col`"
@@ -4165,7 +4165,7 @@ function istriu(A::AbstractSparseMatrixCSC, k::Integer=0)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
-    for col = 1:min(n, m-1)
+    @inbounds for col = 1:min(n, m-1)
         l1 = colptr[col+1]-1
         for i = 0 : (l1 - colptr[col])
             if rowval[l1-i] <= col - k
@@ -4186,7 +4186,7 @@ function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
-    for col = 2:n
+    @inbounds for col = 2:n
         for i = colptr[col] : (colptr[col+1]-1)
             if rowval[i] >= col - k
                 # subsequent rows would also lie below the band
@@ -4603,7 +4603,7 @@ function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
 
     rv = rowvals(S)
     nz = nonzeros(S)
-    for col in axes(S,2)
+    @inbounds for col in axes(S,2)
         trirange = uplo == 'U' ? (1:min(col, size(S,1))) : (col:size(S,1))
         fill!(view(M, trirange, col), zero(eltype(S)))
         for i in nzrange(S, col)
