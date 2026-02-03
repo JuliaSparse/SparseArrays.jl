@@ -639,4 +639,32 @@ end
     end
 end
 
+@testset "isdiag" begin
+    # Diagonal matrices should return true
+    @test isdiag(sparse(Diagonal(1:4)))
+    @test isdiag(sparse(Diagonal([1.0, 2.0, 3.0])))
+    @test isdiag(spzeros(5, 5))  # Empty matrix is diagonal
+
+    # Non-diagonal matrices should return false
+    @test !isdiag(sparse(Tridiagonal(1:3, 1:4, 1:3)))
+    @test !isdiag(sparse(Bidiagonal(1:4, 1:3, :U)))
+    @test !isdiag(sparse(Bidiagonal(1:4, 1:3, :L)))
+    @test !isdiag(sparse([1 2; 3 4]))
+
+    # Non-square matrices should return false
+    @test !isdiag(sparse([1 0 0; 0 2 0]))
+    @test !isdiag(sparse([1 0; 0 2; 0 0]))
+
+    # Consistency with dense isdiag
+    for T in Any[Diagonal(1:4), Tridiagonal(1:3, 1:4, 1:3),
+                 Bidiagonal(1:4, 1:3, :U), diagm(-1=>1:3, 1=>1:3)]
+        S = sparse(T)
+        @test isdiag(S) == isdiag(T)
+    end
+
+    # Explicit zeros on off-diagonal should still be diagonal
+    S = sparse([1, 2, 1], [1, 2, 2], [1.0, 2.0, 0.0])
+    @test isdiag(S)
+end
+
 end # module

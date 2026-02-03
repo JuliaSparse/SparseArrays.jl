@@ -4200,6 +4200,42 @@ function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     return true
 end
 
+"""
+    isdiag(A::AbstractSparseMatrixCSC)
+
+Test whether a sparse matrix is diagonal. Returns `true` if all non-zero elements
+are on the main diagonal.
+
+This implementation is O(nnz) by traversing the CSC structure directly, compared
+to the generic fallback which is O(n²) for an n×n matrix.
+
+# Examples
+```jldoctest
+julia> using SparseArrays
+
+julia> isdiag(sparse([1, 2, 3], [1, 2, 3], [1, 2, 3]))
+true
+
+julia> isdiag(sparse([1, 2], [1, 3], [1, 2]))
+false
+```
+"""
+function isdiag(A::AbstractSparseMatrixCSC)
+    m, n = size(A)
+    m != n && return false
+    colptr = getcolptr(A)
+    rowval = rowvals(A)
+    nzval = nonzeros(A)
+    @inbounds for col in 1:n
+        for k in colptr[col]:(colptr[col + 1] - 1)
+            if rowval[k] != col && _isnotzero(nzval[k])
+                return false
+            end
+        end
+    end
+    return true
+end
+
 _nnz(v::AbstractSparseVector) = nnz(v)
 _nnz(v::AbstractVector) = length(v)
 
