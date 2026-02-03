@@ -4222,7 +4222,6 @@ false
 """
 function isdiag(A::AbstractSparseMatrixCSC)
     m, n = size(A)
-    m != n && return false
     colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval = nonzeros(A)
