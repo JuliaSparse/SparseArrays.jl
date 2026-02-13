@@ -30,10 +30,10 @@ jobs:
           - x64
           - x86
         include:
-          - os: macOS-latest
+          - os: macOS-latest # Apple Silicon
             arch: aarch64
             version: '1.10'
-          - os: macOS-13
+          - os: macOS-15-intel # Intel
             arch: x64
             version: '1.10'
     steps:
