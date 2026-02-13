@@ -4200,6 +4200,21 @@ function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     return true
 end
 
+function isdiag(A::AbstractSparseMatrixCSC)
+    m, n = size(A)
+    colptr = getcolptr(A)
+    rowval = rowvals(A)
+    nzval = nonzeros(A)
+    @inbounds for col in 1:n
+        for k in colptr[col]:(colptr[col + 1] - 1)
+            if rowval[k] != col && _isnotzero(nzval[k])
+                return false
+            end
+        end
+    end
+    return true
+end
+
 _nnz(v::AbstractSparseVector) = nnz(v)
 _nnz(v::AbstractVector) = length(v)
 
