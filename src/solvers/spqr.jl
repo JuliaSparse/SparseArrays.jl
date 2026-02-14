@@ -117,6 +117,9 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     R::SparseMatrixCSC{Tv,Ti}
     cpiv::Vector{Ti}
     rpivinv::Vector{Ti}
+
+    _lock::ReentrantLock
+    _ldiv_workspace::Vector{Tv}   # backing storage for work buffer (resizable)
 end
 
 Base.size(F::QRSparse) = (size(F.factors, 1), size(F.R, 2))
@@ -154,6 +157,12 @@ _default_tol(A::AbstractSparseMatrixCSC) =
 Compute the `QR` factorization of a sparse matrix `A`. Fill-reducing row and column permutations
 are used such that `F.R = F.Q'*A[F.prow,F.pcol]`. The main application of this type is to
 solve least squares or underdetermined problems with [`\\`](@ref). The function calls the C library SPQR[^ACM933].
+
+!!! note
+    The returned `QRSparse` object uses an internal workspace for
+    [`ldiv!()`](@ref) calls that is protected by a lock for threadsafety. For
+    multithreaded use, create a separate copy of this object for each task with
+    `copy(F)`.
 
 !!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
@@ -212,7 +221,9 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
                                     getcolptr(R_),
                                     rowvals(R_),
                                     nonzeros(R_)),
-                    p, hpinv)
+                    p, hpinv,
+                    ReentrantLock(),
+                    Tv[])              # _ldiv_workspace (lazily sized on first solve)
 end
 LinearAlgebra.qr(A::SparseMatrixCSC{Float16}; tol=_default_tol(A)) =
     qr(convert(SparseMatrixCSC{Float32}, A); tol=tol)
@@ -354,6 +365,18 @@ function Base.propertynames(F::QRSparse, private::Bool=false)
     private ? ((public ∪ fieldnames(typeof(F)))...,) : public
 end
 
+"""
+    copy(F::QRSparse)
+
+A shallow copy of QRSparse for use in multithreaded solve applications.
+Shares the factorization data but duplicates the workspace so that
+each copy can be used independently in a different thread.
+"""
+function Base.copy(F::QRSparse)
+    QRSparse(F.factors, F.τ, F.R, F.cpiv, F.rpivinv,
+             ReentrantLock(), similar(F._ldiv_workspace))
+end
+
 function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     summary(io, F); println(io)
     println(io, "Q factor:")
@@ -406,49 +429,29 @@ function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.Bla
     return collect(reshape(reinterpret(Complex{T}, copy(transpose(reshape(x, (length(x) >> 1), 2)))), _ret_size(F, B)))
 end
 
-function _ldiv_basic(F::QRSparse, B::StridedVecOrMat)
-    if size(F, 1) != size(B, 1)
-        throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
+function _get_ldiv_workspace(F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
+    m, n = size(F)
+    k = ndims(B) == 1 ? 1 : size(B, 2)
+    wrows = max(m, n)
+
+    # Resize backing vector if needed
+    wlen = wrows * k
+    if length(F._ldiv_workspace) != wlen
+        resize!(F._ldiv_workspace, wlen)
     end
 
-    # The rank of F equal might be reduced
-    rnk = rank(F)
-
-    # allocate an array for the return value large enough to hold B and X
-    # For overdetermined problem, B is larger than X and vice versa
-    X   = similar(B, ntuple(i -> i == 1 ? max(size(F, 2), size(B, 1)) : size(B, 2), Val(ndims(B))))
-
-    # Fill will zeros. These will eventually become the zeros in the basic solution
-    # fill!(X, 0)
-    # Apply left permutation to the solution and store in X
-    for j in axes(B, 2)
-        for i in 1:length(F.rpivinv)
-            @inbounds X[F.rpivinv[i], j] = B[i, j]
-        end
-    end
-
-    # Make a view into X corresponding to the size of B
-    X0 = view(X, axes(B, 1), :)
-
-    # Apply Q' to B
-    lmul!(adjoint(F.Q), X0)
-
-    # Zero out to get basic solution
-    X[rnk + 1:end, :] .= 0
-
-    # Solve R*X = B
-    ldiv!(UpperTriangular(F.R[Base.OneTo(rnk), Base.OneTo(rnk)]),
-                        view(X0, Base.OneTo(rnk), :))
-
-    # Apply right permutation and extract solution from X
-    # NB: cpiv == [] if SPQR was called with ORDERING_FIXED
-    if length(F.cpiv) == 0
-      return getindex(X, ntuple(i -> i == 1 ? (1:size(F,2)) : :, Val(ndims(B)))...)
-    end
-    return getindex(X, ntuple(i -> i == 1 ? invperm(F.cpiv) : :, Val(ndims(B)))...)
+    # Reshape into matrix. Note that we use ReshapedArray here instead of
+    # reshape() to avoid allocations later when taking a view.
+    W = Base.ReshapedArray(F._ldiv_workspace, (wrows, k), ())
+    return W
 end
 
-(\)(F::QRSparse{T}, B::StridedVecOrMat{T}) where {T} = _ldiv_basic(F, B)
+function (\)(F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    X = similar(B, ntuple(i -> i == 1 ? size(F, 2) : size(B, 2), Val(ndims(B))))
+    # Note that we copy F here for thread-safety
+    return ldiv!(X, copy(F), B)
+end
+
 """
     (\\)(F::QRSparse, B::StridedVecOrMat)
 
@@ -472,5 +475,62 @@ julia> qr(A)\\fill(1.0, 4)
 ```
 """
 (\)(F::QRSparse, B::StridedVecOrMat) = F\convert(AbstractArray{eltype(F)}, B)
+
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    if size(F, 1) != size(B, 1)
+        throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
+    end
+    if size(F, 2) != size(X, 1)
+        throw(DimensionMismatch("size(F) = $(size(F)) but size(X) = $(size(X))"))
+    end
+    if ndims(B) > 1 && size(X, 2) != size(B, 2)
+        throw(DimensionMismatch("size(X) = $(size(X)) but size(B) = $(size(B))"))
+    end
+
+    rnk = rank(F)
+    m = size(F, 1)
+    n = size(F, 2)
+
+    @lock F._lock begin
+        W = _get_ldiv_workspace(F, B)
+
+        # Apply left permutation to B and store in W
+        for j in axes(B, 2)
+            for i in 1:length(F.rpivinv)
+                @inbounds W[F.rpivinv[i], j] = B[i, j]
+            end
+        end
+
+        # Make a view into W corresponding to the size of B
+        W0 = @view W[Base.OneTo(m), :]
+
+        # Apply Q' to permuted B
+        lmul!(adjoint(F.Q), W0)
+
+        # Solve R*X = Q'*P*B
+        ldiv!(UpperTriangular(@view(F.R[Base.OneTo(rnk), Base.OneTo(rnk)])),
+              @view(W0[Base.OneTo(rnk), :]))
+
+        # Apply right permutation: scatter solved rows into X using cpiv directly.
+        # Zero X first so free variables (beyond rank) are zero in the basic solution.
+        # NB: cpiv == [] if SPQR was called with ORDERING_FIXED
+        fill!(X, zero(T))
+        if length(F.cpiv) == 0
+            for j in axes(W, 2)
+                for i in 1:rnk
+                    @inbounds X[i, j] = W[i, j]
+                end
+            end
+        else
+            for j in axes(W, 2)
+                for i in 1:rnk
+                    @inbounds X[F.cpiv[i], j] = W[i, j]
+                end
+            end
+        end
+    end
+
+    return X
+end
 
 end # module
