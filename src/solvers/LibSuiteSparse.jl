@@ -1,6 +1,7 @@
 module LibSuiteSparse
 
 using SuiteSparse_jll
+import Libdl
 
 const TRUE  = Int32(1)
 const FALSE = Int32(0)

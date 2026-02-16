@@ -24,8 +24,6 @@ import LinearAlgebra: (\), AdjointFactorization,
 
 using SparseArrays
 using SparseArrays: getcolptr, AbstractSparseVecOrMat
-import Libdl
-
 export
     Dense,
     Factor,
