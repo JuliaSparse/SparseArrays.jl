@@ -108,6 +108,17 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     return rnk, _E, _HPinv
 end
 
+struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
+    factors::SparseMatrixCSC{Tv,Ti}
+    τ::Vector{Tv}
+    n::Int # Number of columns in original matrix
+end
+
+Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
+Base.axes(Q::QRSparseQ) = map(Base.OneTo, size(Q))
+
+Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
+
 # Struct for storing sparse QR from SPQR such that
 # A[invperm(rpivinv), cpiv] = (I - factors[:,1]*τ[1]*factors[:,1]')*...*(I - factors[:,k]*τ[k]*factors[:,k]')*R
 # with k = size(factors, 2).
@@ -115,6 +126,7 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
     R::SparseMatrixCSC{Tv,Ti}
+    Q::QRSparseQ{Tv,Ti}
     cpiv::Vector{Ti}
     rpivinv::Vector{Ti}
 
@@ -135,17 +147,6 @@ function Base.size(F::QRSparse, i::Integer)
     end
 end
 Base.axes(F::QRSparse) = map(Base.OneTo, size(F))
-
-struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
-    factors::SparseMatrixCSC{Tv,Ti}
-    τ::Vector{Tv}
-    n::Int # Number of columns in original matrix
-end
-
-Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
-Base.axes(Q::QRSparseQ) = map(Base.OneTo, size(Q))
-
-Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
 
 # From SPQR manual p. 6
 _default_tol(A::AbstractSparseMatrixCSC) =
@@ -214,13 +215,16 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
         R, E, H, HPinv, HTau)
 
     R_ = SparseMatrixCSC{Tv, Ti}(Sparse(R[]))
-    return QRSparse(SparseMatrixCSC{Tv, Ti}(Sparse(H[])),
-                    vec(Array{Tv}(CHOLMOD.Dense(HTau[]))),
-                    SparseMatrixCSC{Tv, Ti}(min(size(A)...),
-                                    size(R_, 2),
-                                    getcolptr(R_),
-                                    rowvals(R_),
-                                    nonzeros(R_)),
+    factors = SparseMatrixCSC{Tv, Ti}(Sparse(H[]))
+    τ = vec(Array{Tv}(CHOLMOD.Dense(HTau[])))
+    R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
+                                size(R_, 2),
+                                getcolptr(R_),
+                                rowvals(R_),
+                                nonzeros(R_))
+
+    return QRSparse(factors, τ, R,
+                    QRSparseQ(factors, τ, size(R, 2)),
                     p, hpinv,
                     ReentrantLock(),
                     Tv[])              # _ldiv_workspace (lazily sized on first solve)
@@ -349,9 +353,7 @@ end
 (*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
 
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
-    if d === :Q
-        return QRSparseQ(F.factors, F.τ, size(F, 2))
-    elseif d === :prow
+    if d === :prow
         return invperm(F.rpivinv)
     elseif d === :pcol
         return F.cpiv
@@ -373,7 +375,7 @@ Shares the factorization data but duplicates the workspace so that
 each copy can be used independently in a different thread.
 """
 function Base.copy(F::QRSparse)
-    QRSparse(F.factors, F.τ, F.R, F.cpiv, F.rpivinv,
+    QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv,
              ReentrantLock(), similar(F._ldiv_workspace))
 end
 
