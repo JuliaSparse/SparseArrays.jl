@@ -9,7 +9,7 @@ else
 
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
-using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
+using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, ldiv!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
@@ -150,7 +150,7 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
     @test propertynames(F) == (:R, :Q, :prow, :pcol)
-    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv)
+    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv, :_lock, :_ldiv_workspace)
 end
 
 @testset "rank" begin
@@ -178,6 +178,44 @@ end
     @test Dq.Q * V' ≈ Matrix(Dq.Q) * V'
     @test V * Dq.Q ≈ V * Matrix(Dq.Q)
     @test V' * Dq.Q ≈ V' * Matrix(Dq.Q)
+end
+
+@testset "ldiv!" begin
+    @testset "workspace reuse" begin
+        A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
+        F = qr(A)
+        b = randn(m)
+        x = zeros(n)
+
+        # First call will allocate the workspace
+        first_allocs = @allocated ldiv!(x, F, b)
+        @test length(F._ldiv_workspace) > 0
+        @test x ≈ Array(A) \ b
+
+        # Second call with same-sized RHS should reuse workspace
+        b2 = randn(m)
+        second_allocs = @allocated ldiv!(x, F, b2)
+        @test second_allocs < first_allocs
+        @test x ≈ Array(A) \ b2
+    end
+
+    @testset "dimension errors" begin
+        A = sprandn(m, n, 0.5)
+        F = qr(A)
+        @test_throws DimensionMismatch ldiv!(zeros(n), F, zeros(m - 1))
+        @test_throws DimensionMismatch ldiv!(zeros(n - 1), F, zeros(m))
+        @test_throws DimensionMismatch ldiv!(zeros(n, 2), F, zeros(m, 3))
+    end
+
+    @testset "copying QRSparse" begin
+        A = sprandn(m, n, 0.5)
+        F = qr(A)
+        F_copy = copy(F)
+
+        # These fields must not be shared
+        @test F._lock !== F_copy._lock
+        @test F._ldiv_workspace !== F_copy._ldiv_workspace
+    end
 end
 
 @testset "no strategies" begin
