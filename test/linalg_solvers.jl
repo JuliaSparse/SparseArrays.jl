@@ -128,6 +128,7 @@ end
 end
 
 @testset "sparse matrix cond" begin
+    Random.seed!(1235)
     local A = sparse(reshape([1.0], 1, 1))
     Ac = sprandn(20, 20,.5) + im*sprandn(20, 20,.5)
     Ar = sprandn(20, 20,.5) + eps()*I
