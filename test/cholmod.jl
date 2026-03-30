@@ -853,7 +853,7 @@ end
               Symmetric(Apre + 10I), Hermitian(Apre + 10I),
               Hermitian(complex(Apre)), Hermitian(complex(Apre) + 10I))
         local A, x, b
-        x = fill(1., 10)
+        x = fill(1, 10)
         b = A*x
         @test @inferred A\b ≈ x
         @test transpose(A)\b ≈ A'\b
