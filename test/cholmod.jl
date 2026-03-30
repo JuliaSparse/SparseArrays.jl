@@ -855,7 +855,7 @@ end
         local A, x, b
         x = fill(1., 10)
         b = A*x
-        @test x ≈ A\b
+        @test @inferred A\b ≈ x
         @test transpose(A)\b ≈ A'\b
     end
 end

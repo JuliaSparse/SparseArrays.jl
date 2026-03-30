@@ -1899,14 +1899,15 @@ end
 const RealHermSymComplexHermSSL{Ti, Tr} = Union{
     Symmetric{Tr, SparseMatrixCSC{Tr, Ti}},
     Hermitian{Tr, SparseMatrixCSC{Tr, Ti}},
-    Hermitian{Complex{Tr}, SparseMatrixCSC{Complex{Tr}, Ti}}} where {Ti<:ITypes, Tr<:VRealTypes}
+    Hermitian{Complex{Tr}, SparseMatrixCSC{Complex{Tr}, Ti}}} where {Ti<:ITypes, Tr<:Union{Float64, Float32, Float16}}
 
 function \(A::RealHermSymComplexHermSSL{Ti}, B::StridedVecOrMatInclAdjAndTrans) where {Ti}
+    T = typeof(one(eltype(A)) \ one(eltype(B)))
     F = cholesky(A; check = false)
     if issuccess(F)
-        return \(F, B)
+        return convert(AbstractArray{T}, \(F, B))
     else
-        return \(lu(SparseMatrixCSC{eltype(A), Ti}(A)), B)
+        return convert(AbstractArray{T}, \(lu(SparseMatrixCSC{eltype(A), Ti}(A)), B))
     end
 end
 

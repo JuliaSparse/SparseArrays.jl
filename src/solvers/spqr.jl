@@ -108,7 +108,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     return rnk, _E, _HPinv
 end
 
-struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
+struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
     n::Int # Number of columns in original matrix
@@ -132,6 +132,14 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
 
     _lock::ReentrantLock
     _ldiv_workspace::Vector{Tv}   # backing storage for work buffer (resizable)
+end
+
+function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
+    newfactors = convert(SparseMatrixCSC{Tv}, F.factors)
+    newτ = convert(Vector{Tv}, F.τ)
+    newR = convert(SparseMatrixCSC{Tv}, F.R)
+    newQ = QRSparseQ{Tv,Ti}(newfactors, newτ, size(newR, 2))
+    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock(), Tv[])
 end
 
 Base.size(F::QRSparse) = (size(F.factors, 1), size(F.R, 2))
@@ -167,9 +175,9 @@ solve least squares or underdetermined problems with [`\\`](@ref). The function 
 
 !!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with [`Float64`](@ref) or
-    `ComplexF64` elements, as of Julia v1.4 `qr` converts `A` into a copy that is
-    of type `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
+    As this library only supports sparse matrices with [`Float64`](@ref), `ComplexF64`, `Float32`, or
+    `ComplexF32` elements, calling `qr` on a matrix with a different element type will either convert it to a supported type or
+    raise an error.
 
 # Examples
 ```jldoctest
@@ -230,9 +238,9 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
                     Tv[])              # _ldiv_workspace (lazily sized on first solve)
 end
 LinearAlgebra.qr(A::SparseMatrixCSC{Float16}; tol=_default_tol(A)) =
-    qr(convert(SparseMatrixCSC{Float32}, A); tol=tol)
+    QRSparse{Float16}(qr(convert(SparseMatrixCSC{Float32}, A); tol=tol))
 LinearAlgebra.qr(A::SparseMatrixCSC{ComplexF16}; tol=_default_tol(A)) =
-    qr(convert(SparseMatrixCSC{ComplexF32}, A); tol=tol)
+    QRSparse{ComplexF16}(qr(convert(SparseMatrixCSC{ComplexF32}, A); tol=tol))
 LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
    tol=_default_tol(A)) where {T<:AbstractFloat} =
     throw(ArgumentError(string("matrix type ", typeof(A), "not supported. ",
