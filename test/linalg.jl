@@ -1040,4 +1040,47 @@ end
     @test_throws DimensionMismatch D1 * S * D1
 end
 
+@testset "multiplication of sparse and dense matrices" begin
+    function test_mul(A, B)
+        expected = Matrix(A) * Matrix(B)
+        @test A * B ≈ expected
+        C = similar(expected)
+        @test mul!(C, A, B) === C
+        @test C ≈ expected
+        ElType = eltype(C)
+        vs = Any[false, true, zero(ElType), one(ElType), one(ElType) + one(ElType)]
+        for α in vs, β in vs
+            C .= rand.(ElType)
+            expected′ = expected .* α .+ C .* β
+            @test mul!(C, A, B, α, β) === C
+            @test C ≈ expected′
+        end
+    end
+
+    for ElType in [Int, Float64, ComplexF64, BigFloat]
+        SP = sprand(ElType, 10, 10, 0.3)
+        D = rand(ElType, 10, 10)
+        fs = [identity, adjoint, transpose]
+        for f1 in fs, f2 in fs
+            test_mul(f1(SP), f2(D))
+            test_mul(f1(D), f2(SP))
+        end
+    end
+end
+
+@testset "dimension mismatch error" begin
+    fs = [rand, (x, y)->adjoint(rand(y, x)), (x, y)->transpose(rand(y, x)),
+          (x, y)->sprand(x, y, 0.5), (x, y)->adjoint(sprand(y, x, 0.5)),
+          (x, y)->transpose(sprand(y, x, 0.5))]
+    for fA in fs, fB in fs
+        mul!(zeros(6, 10), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(7, 10), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 11), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(5, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 9), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(7, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(8, 9))
+    end
+end
+
 end
