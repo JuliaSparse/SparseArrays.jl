@@ -2252,7 +2252,7 @@ function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
         if ishermitian(A)
             return \(Hermitian(A), B)
         end
-        return \(lu(A), B)
+        return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
     else
         return \(qr(A), B)
     end
