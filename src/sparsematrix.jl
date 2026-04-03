@@ -143,8 +143,8 @@ function sparse_check(n::Integer, colptr::Vector{Ti}, rowval, nzval) where Ti
     throwmonotonic(ckp, ck, k) = throw(ArgumentError("$ckp == colptr[$(k-1)] > colptr[$k] == $ck"))
 
     sparse_check_length("colptr", colptr, n+1, String) # don't check upper bound
-    ckp = Ti(1)
-    ckp == colptr[1] || throwstart(ckp)
+    ckp = colptr[1]
+    ckp == Ti(1) || throwstart(ckp)
     @inbounds for k = 2:n+1
         ck = colptr[k]
         ckp <= ck || throwmonotonic(ckp, ck, k)
