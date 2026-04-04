@@ -98,6 +98,11 @@ end
     (T = promote_op(matprod, eltype(A), eltype(B)); mul!(similar(B, T, (size(A, 1), size(B, 2))), A, B))
 
 Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::AbstractSparseMatrixCSC, _add::MulAddMul)
+    if !(tA in ('N', 'T', 'C') && tB in ('N', 'T', 'C'))
+        # redirect to most generic matmatmul code
+        LinearAlgebra._generic_matmatmul!(C, 'N', 'N', LinearAlgebra.wrap(A, tA), LinearAlgebra.wrap(B, tB), _add)
+        return C
+    end
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
         _spmul!(C, transA(A), B, _add.alpha, _add.beta)
