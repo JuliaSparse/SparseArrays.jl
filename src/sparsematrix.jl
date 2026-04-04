@@ -1041,6 +1041,7 @@ sparse(D::Diagonal) = SparseMatrixCSC(D)
 
 """
     sparse(I, J, V,[ m, n, combine])
+    sparse(IJ, V,[ m, n, combine])
 
 Create a sparse matrix `S` of dimensions `m x n` such that `S[I[k], J[k]] = V[k]`. The
 `combine` function is used to combine duplicates. If `m` and `n` are not specified, they
@@ -1061,6 +1062,12 @@ julia> Js = [1; 2; 3];
 julia> Vs = [1; 2; 3];
 
 julia> sparse(Is, Js, Vs)
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 1  ⋅  ⋅
+ ⋅  2  ⋅
+ ⋅  ⋅  3
+
+julia> sparse([CartesianIndex(i,i) for i in 1:3], Vs)
 3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
  1  ⋅  ⋅
  ⋅  2  ⋅
@@ -1331,17 +1338,27 @@ end
 
 dimlub(I) = isempty(I) ? 0 : Int(maximum(I)) #least upper bound on required sparse matrix dimension
 
+function reinterpret_cartesian(IJ::AbstractVector{CartesianIndex{2}})
+    IJ′ = reinterpret(Int, reshape(IJ, 1, :))
+    return (view(IJ′, 1, :), view(IJ′, 2, :))
+end
+
 sparse(I,J,v::Number) = sparse(I, J, fill(v,length(I)))
+sparse(IJ::AbstractVector{<:CartesianIndex{2}},v::Number) = sparse(reinterpret_cartesian(IJ)..., v)
 
 sparse(I,J,V::AbstractVector) = sparse(I, J, V, dimlub(I), dimlub(J))
+sparse(IJ::AbstractVector{<:CartesianIndex{2}},V::AbstractVector) = sparse(reinterpret_cartesian(IJ)..., V)
 
 sparse(I,J,v::Number,m,n) = sparse(I, J, fill(v,length(I)), Int(m), Int(n))
+sparse(IJ::AbstractVector{<:CartesianIndex{2}},v::Number,m,n) = sparse(reinterpret_cartesian(IJ)..., v, m, n)
 
 sparse(I,J,V::AbstractVector,m,n) = sparse(I, J, V, Int(m), Int(n), +)
+sparse(IJ::AbstractVector{<:CartesianIndex{2}},V::AbstractVector,m,n) = sparse(reinterpret_cartesian(IJ)..., V, m, n)
 
 sparse(I,J,V::AbstractVector{Bool},m,n) = sparse(I, J, V, Int(m), Int(n), |)
 
 sparse(I,J,v::Number,m,n,combine::Function) = sparse(I, J, fill(v,length(I)), Int(m), Int(n), combine)
+sparse(IJ::AbstractVector{<:CartesianIndex{2}},v::Number,m,n,combine::Function) = sparse(reinterpret_cartesian(IJ)..., v, m, n, combine)
 
 ## Transposition and permutation methods
 
