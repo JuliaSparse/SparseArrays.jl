@@ -243,7 +243,6 @@ end
     @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
 end
 
-
 @testset "in-place sparse-sparse mul!" begin
     for n in (20, 30)
         sA = sprandn(ComplexF64, n, n, 0.1); A = Array(sA)
