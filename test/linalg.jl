@@ -224,6 +224,13 @@ end
     end
 end
 
+@testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
+    A = [1 3; 2 4]
+    As = sparse(A)
+    B = [1 1; 1 1]
+    @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
+end
+
 @testset "UniformScaling" begin
     local A = sprandn(10, 10, 0.5)
     @test A + I == Array(A) + I
