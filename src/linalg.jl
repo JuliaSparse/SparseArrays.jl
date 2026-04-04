@@ -12,21 +12,13 @@ const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
 
-matprod_dest(A::SparseMatrixCSCUnion2, B::DenseTriangular, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::DenseTriangular, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCUnion2, TS) =
+matprod_dest(A, B::SparseMatrixCSCUnion2, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::SparseMatrixCSCUnion2, TS) =
+matprod_dest(A, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::DenseTriangular, B::SparseMatrixCSCUnion2, TS) =
+matprod_dest(A, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::StridedMaybeAdjOrTransMat, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::DenseTriangular, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+matprod_dest(A, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
