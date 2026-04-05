@@ -11,6 +11,8 @@ const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
 const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
+const QuasiTriangularWrapper{T} = Union{LowerTriangular{T},UnitLowerTriangular{T},
+            UpperTriangular{T},UnitUpperTriangular{T},UpperHessenberg{T}}
 
 matprod_dest(A, B::SparseMatrixCSCUnion2, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
@@ -21,6 +23,14 @@ matprod_dest(A, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
 matprod_dest(A, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
 # disambiguation
+matprod_dest(A::QuasiTriangularWrapper, B::SparseMatrixCSCUnion2, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::QuasiTriangularWrapper, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::QuasiTriangularWrapper, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::QuasiTriangularWrapper, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    similar(A, TS, (size(A, 1), size(B, 2)))
 matprod_dest(A::LinearAlgebra.BandedMatrix, B::SparseMatrixCSCUnion2, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
 matprod_dest(A::LinearAlgebra.BandedMatrix, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
