@@ -21,14 +21,16 @@ matprod_dest(A, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
 matprod_dest(A, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
 # disambiguation
-matprod_dest(A::LinearAlgebra.StructuredMatrix, B::SparseMatrixCSCUnion2, TS) =
+matprod_dest(A::LinearAlgebra.BandedMatrix, B::SparseMatrixCSCUnion2, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.StructuredMatrix, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+matprod_dest(A::LinearAlgebra.BandedMatrix, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.StructuredMatrix, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+matprod_dest(A::LinearAlgebra.BandedMatrix, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.StructuredMatrix, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+matprod_dest(A::LinearAlgebra.BandedMatrix, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::Diagonal, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
+    _matprod_dest_diag(B, TS)
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
     @eval begin
