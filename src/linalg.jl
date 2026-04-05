@@ -29,6 +29,14 @@ matprod_dest(A::LinearAlgebra.StructuredMatrix, B::HermOrSym{<:Any,<:SparseMatri
     similar(A, TS, (size(A, 1), size(B, 2)))
 matprod_dest(A::LinearAlgebra.StructuredMatrix, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::SparseMatrixCSCUnion2, B::StructuredMatrix, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::StructuredMatrix, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, B::StructuredMatrix, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, B::StructuredMatrix, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
 matprod_dest(A::LinearAlgebra.BandedMatrix, B::SparseMatrixCSCUnion2, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
 matprod_dest(A::LinearAlgebra.BandedMatrix, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
