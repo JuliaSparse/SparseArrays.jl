@@ -3417,7 +3417,7 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     (I, J) = Base.ensure_indexable(to_indices(A, (Ix, Jx)))
     checkbounds(A, I, J)
     nJ = length(J)
-    Base.setindex_shape_check(V, length(I), nJ)
+    Base.setindex_shape_check(V, Base.index_shape_nested(I, J)...)
     B = _to_same_csc(A, V, I, J)
 
     m, n = size(A)
