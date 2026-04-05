@@ -10,8 +10,8 @@
 
 module CHOLMOD
 
-import Base: (*), convert, copy, eltype, getindex, getproperty, show, size,
-             IndexStyle, IndexLinear, IndexCartesian, adjoint, axes,
+import Base: (*), convert, copy, eltype, getindex, getproperty, propertynames,
+             show, size, IndexStyle, IndexLinear, IndexCartesian, adjoint, axes,
              Matrix, Vector
 using Base: require_one_based_indexing
 
@@ -24,8 +24,6 @@ import LinearAlgebra: (\), AdjointFactorization,
 
 using SparseArrays
 using SparseArrays: getcolptr, AbstractSparseVecOrMat
-import Libdl
-
 export
     Dense,
     Factor,
@@ -174,85 +172,18 @@ function newcommon(; print = 0) # no printing from CHOLMOD by default
 end
 
 function getcommon(::Type{Int32})
-    init_once()
+    LibSuiteSparse.init_suitesparse()
     return get!(newcommon, task_local_storage(), :cholmod_common)::Ref{cholmod_common}
 end
 
 function getcommon(::Type{Int64})
-    init_once()
+    LibSuiteSparse.init_suitesparse()
     return get!(newcommon_l, task_local_storage(), :cholmod_common_l)::Ref{cholmod_common}
 end
 
 getcommon() = getcommon(Int)
 
 const BUILD_VERSION = VersionNumber(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION, CHOLMOD_SUBSUB_VERSION)
-
-const init_once = Base.OncePerProcess{Nothing}() do
-    try
-        ### Check if the linked library is compatible with the Julia code
-        if Libdl.dlsym_e(Libdl.dlopen("libcholmod"), :cholmod_version) != C_NULL
-            current_version_array = Vector{Cint}(undef, 3)
-            cholmod_version(current_version_array)
-            current_version = VersionNumber(current_version_array...)
-        else # CHOLMOD < 2.1.1 does not include cholmod_version()
-            current_version = v"0.0.0"
-        end
-
-
-        if current_version < CHOLMOD_MIN_VERSION
-            @warn """
-                CHOLMOD version incompatibility
-
-                Julia was compiled with CHOLMOD version $BUILD_VERSION. It is
-                currently linked with a version older than
-                $(CHOLMOD_MIN_VERSION). This might cause Julia to
-                terminate when working with sparse matrix factorizations,
-                e.g. solving systems of equations with \\.
-
-                It is recommended that you use Julia with a recent version
-                of CHOLMOD, or download the generic binaries
-                from www.julialang.org, which ship with the correct
-                versions of all dependencies.
-                """
-        elseif BUILD_VERSION.major != current_version.major
-            @warn """
-                CHOLMOD version incompatibility
-
-                Julia was compiled with CHOLMOD version $BUILD_VERSION. It is
-                currently linked with version $current_version.
-                This might cause Julia to terminate when working with
-                sparse matrix factorizations, e.g. solving systems of
-                equations with \\.
-
-                It is recommended that you use Julia with the same major
-                version of CHOLMOD as the one used during the build, or
-                download the generic binaries from www.julialang.org,
-                which ship with the correct versions of all dependencies.
-                """
-        end
-
-        # Register gc tracked allocator if CHOLMOD is new enough
-        if current_version >= v"4.0.3"
-            ccall((:SuiteSparse_config_malloc_func_set, libsuitesparseconfig),
-                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_malloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_calloc_func_set, libsuitesparseconfig),
-                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_calloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_realloc_func_set, libsuitesparseconfig),
-                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_realloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_free_func_set, libsuitesparseconfig),
-                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_free, Ptr{Cvoid}))
-        elseif current_version >= v"3.0.0"
-            cnfg = cglobal((:SuiteSparse_config, libsuitesparseconfig), Ptr{Cvoid})
-            unsafe_store!(cnfg, cglobal(:jl_malloc, Ptr{Cvoid}), 1)
-            unsafe_store!(cnfg, cglobal(:jl_calloc, Ptr{Cvoid}), 2)
-            unsafe_store!(cnfg, cglobal(:jl_realloc, Ptr{Cvoid}), 3)
-            unsafe_store!(cnfg, cglobal(:jl_free, Ptr{Cvoid}), 4)
-        end
-
-    catch ex
-        @error "Error during initialization of module CHOLMOD" exception=ex,catch_backtrace()
-    end
-end
 
 ####################
 # Type definitions #
@@ -380,24 +311,25 @@ Base.pointer(x::Dense{Tv}) where {Tv}  = Base.unsafe_convert(Ptr{cholmod_dense},
 Base.pointer(x::Sparse{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_sparse}, x)
 Base.pointer(x::Factor{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_factor}, x)
 
+function _factor_components(is_ll)
+    is_ll ? (:L, :U, :PtL, :UP) : (:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP)
+end
+
 # FactorComponent, for encoding particular factors from a factorization
 mutable struct FactorComponent{Tv, S, Ti} <: AbstractMatrix{Tv}
     F::Factor{Tv, Ti}
 
-    function FactorComponent{Tv, S, Ti}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
-        s = unsafe_load(pointer(F))
-        if s.is_ll != 0
-            if !(S === :L || S === :U || S === :PtL || S === :UP)
-                throw(CHOLMODException(string(S, " not supported for sparse ",
-                    "LLt matrices; try :L, :U, :PtL, or :UP")))
-            end
-        elseif !(S === :L || S === :U || S === :PtL || S === :UP ||
-                S === :D || S === :LD || S === :DU || S === :PtLD || S === :DUP)
-            throw(CHOLMODException(string(S, " not supported for sparse LDLt ",
-                "matrices; try :L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, or :DUP")))
-        end
-        new(F)
-    end
+  function FactorComponent{Tv,S,Ti}(F::Factor{Tv,Ti}) where {Tv,S,Ti}
+      s = unsafe_load(pointer(F))
+      is_ll = (s.is_ll != 0)
+      components = _factor_components(is_ll)
+      if !(S in components)
+          type = is_ll ? "LLt" : "LDLt"
+          component_list = join(repr.(components), ", ")
+          throw(CHOLMODException("$(repr(S)) not supported for sparse $type factorizations; try $component_list, or :p"))
+      end
+      new(F)
+  end
 end
 function FactorComponent{Tv, S}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
     return FactorComponent{Tv, S, Ti}(F)
@@ -1285,11 +1217,17 @@ function sparse(FC::FactorComponent{Tv,:L}) where Tv
     F = Factor(FC)
     s = unsafe_load(pointer(F))
     if s.is_ll == 0
-        throw(CHOLMODException("sparse: supported only for :LD on LDLt factorizations"))
+        _sparse_exception(F)
     end
     sparse(Sparse(F))
 end
 sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = sparse(Sparse(Factor(FC)))
+sparse(FC::FactorComponent{Tv}) where {Tv} = _sparse_exception(Factor(FC))
+function _sparse_exception(F::Factor)
+    s = unsafe_load(pointer(F))
+    details = (s.is_ll == 0) ? ":LD on LDLt" : ":L on LLt"
+    throw(CHOLMODException("sparse: supported only for $details factorizations"))
+end
 
 # Calculate the offset into the stype field of the cholmod_sparse_struct and
 # change the value
@@ -1351,7 +1289,7 @@ end
 size(F::Factor) = (size(F, 1), size(F, 2))
 axes(A::Union{Dense,Sparse,Factor}) = map(Base.OneTo, size(A))
 
-IndexStyle(::Dense) = IndexLinear()
+IndexStyle(::Type{<:Dense}) = IndexLinear()
 
 size(FC::FactorComponent, i::Integer) = size(FC.F, i)
 size(FC::FactorComponent) = size(FC.F)
@@ -1372,7 +1310,6 @@ function getindex(A::Dense{T}, i::Integer) where {T<:VTypes}
     unsafe_load(Ptr{T}(s.x), i)
 end
 
-IndexStyle(::Sparse) = IndexCartesian()
 function getindex(A::Sparse{T}, i0::Integer, i1::Integer) where T
     s = unsafe_load(typedpointer(A))
     !(1 <= i0 <= s.nrow && 1 <= i1 <= s.ncol) && throw(BoundsError())
@@ -1394,6 +1331,11 @@ end
     else
         return FactorComponent(F, sym)
     end
+end
+
+function propertynames(F::Factor)
+    s = unsafe_load(pointer(F))
+    (_factor_components(s.is_ll != 0)..., :p, :ptr)
 end
 
 function getLd!(S::SparseMatrixCSC)
@@ -1555,6 +1497,12 @@ using just `L` without accounting for `P` will give incorrect answers.
 To include the effects of permutation,
 it's typically preferable to extract "combined" factors like `PtL = F.PtL`
 (the equivalent of `P'*L`) and `LtP = F.UP` (the equivalent of `L'*P`).
+The complete list of supported factors is `:L, :PtL, :UP, :U`.
+The permutation vector is available as `F.p`, defined such that `L*L' == A[p, p]`,
+
+The `L` component can be materialized as a sparse matrix using `sparse(F.L)`.
+Other components cannot be materialized directly, but can be reconstructed
+from `sparse(F.L)` and `F.p` if needed.
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
@@ -1732,6 +1680,11 @@ To include the effects of permutation, it is typically preferable to extract
 "combined" factors like `PtL = F.PtL` (the equivalent of
 `P'*L`) and `LtP = F.UP` (the equivalent of `L'*P`).
 The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP`.
+The permutation vector is available as `F.p`, defined such that `L*D*L' == A[p, p]`,
+
+The `LD` component can be materialized as a sparse matrix using `sparse(F.LD)`,
+Other components cannot be materialized directly, but can be reconstructed from
+`sparse(F.LD)` and `F.p` if needed.
 
 Unlike the related Cholesky factorization, the ``LDL'`` factorization does not
 require `A` to be positive definite. However, it still requires all leading
@@ -1946,14 +1899,15 @@ end
 const RealHermSymComplexHermSSL{Ti, Tr} = Union{
     Symmetric{Tr, SparseMatrixCSC{Tr, Ti}},
     Hermitian{Tr, SparseMatrixCSC{Tr, Ti}},
-    Hermitian{Complex{Tr}, SparseMatrixCSC{Complex{Tr}, Ti}}} where {Ti<:ITypes, Tr<:VRealTypes}
+    Hermitian{Complex{Tr}, SparseMatrixCSC{Complex{Tr}, Ti}}} where {Ti<:ITypes, Tr<:Union{Float64, Float32, Float16}}
 
 function \(A::RealHermSymComplexHermSSL{Ti}, B::StridedVecOrMatInclAdjAndTrans) where {Ti}
+    T = typeof(one(eltype(A)) \ one(eltype(B)))
     F = cholesky(A; check = false)
     if issuccess(F)
-        return \(F, B)
+        return convert(AbstractArray{T}, \(F, B))
     else
-        return \(lu(SparseMatrixCSC{eltype(A), Ti}(A)), B)
+        return convert(AbstractArray{T}, \(lu(SparseMatrixCSC{eltype(A), Ti}(A)), B))
     end
 end
 

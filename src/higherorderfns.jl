@@ -121,7 +121,7 @@ const SpBroadcasted2{Style<:SPVM,Axes,F,Args<:Tuple{SparseVecOrMat,SparseVecOrMa
 @inline columns(A::AbstractCompressedVector) = 1
 @inline columns(A::AbstractSparseMatrixCSC) = axes(A,2)
 @inline colrange(A::AbstractCompressedVector, j) = 1:length(nonzeroinds(A))
-@inline colrange(A::AbstractSparseMatrixCSC, j) = nzrange(A, j)
+Base.@propagate_inbounds colrange(A::AbstractSparseMatrixCSC, j) = nzrange(A, j)
 @inline colstartind(A::AbstractCompressedVector, j) = one(indtype(A))
 @inline colboundind(A::AbstractCompressedVector, j) = convert(indtype(A), length(nonzeroinds(A)) + 1)
 @inline colstartind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j]

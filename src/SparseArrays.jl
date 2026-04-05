@@ -17,7 +17,7 @@ using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, m
 import Base: +, -, *, \, /, ==, zero
 import Base: Matrix, Vector
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
-    issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded,
+    issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded, isdiag,
     cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu,
     matprod_dest, generic_matvecmul!, generic_matmatmul!, copytrito!
 
@@ -34,6 +34,8 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     issparse, nonzeros, nzrange, rowvals, sparse, sparsevec, spdiagm,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
+
+public sparse!, spzeros!
 
 const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 

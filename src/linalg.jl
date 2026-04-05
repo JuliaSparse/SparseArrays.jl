@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, UpperOrLowerTriangular,
-    RealHermSymComplexHerm, checksquare, sym_uplo, wrap
+    RealHermSymComplexHerm, HermOrSym, checksquare, sym_uplo, wrap
 using Random: rand!
 
 const tilebufsize = 10800  # Approximately 32k/3
@@ -69,7 +69,7 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
         T = eltype(C)
         _mul!(rangefun, diagop, odiagop, C, A, B, T(alpha), T(beta))
     else
-        @stable_muladdmul LinearAlgebra._generic_matmatmul!(C, 'N', 'N', wrap(A, tA), wrap(B, tB), MulAddMul(alpha, beta))
+        @stable_muladdmul LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), MulAddMul(alpha, beta))
     end
     return C
 end
@@ -232,7 +232,7 @@ function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
     rows = rowvals(A)
     vals = nonzeros(A)
     da, db = map(parent, (Da, Db))
-    for col in axes(A,2)
+    @inbounds for col in axes(A,2)
         dbcol = db[col]
         for i in nzrange(A, col)
             row = rows[i]
@@ -605,7 +605,7 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
     end
     return s
 end
-function dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector)
+function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSparseVector)
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
@@ -641,7 +641,7 @@ const WrapperMatrixTypes{T,MT} = Union{
     Hermitian{T,MT},
 }
 
-function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
+function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
     T = promote_type(eltype(A), eltype(B))
     (m, n) = size(A)
     if (m, n) != size(B)
@@ -663,7 +663,7 @@ function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatri
     return s
 end
 
-function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,Union{DenseMatrixUnion,AbstractSparseMatrix}}})
+function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
     return conj(dot(B, A))
 end
 
@@ -718,6 +718,71 @@ function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractSparseVector)
             x_idx += 1
         else
             y_idx += 1
+        end
+    end
+    return s
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:DenseMatrixUnion}},
+    b::AbstractSparseVector,
+)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::LinearAlgebra.Transpose{<:Real,<:DenseMatrixUnion},
+    b::AbstractSparseVector,
+)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::LinearAlgebra.Transpose{<:Real,<:WrapperMatrixTypes{<:Real,<:DenseMatrixUnion}},
+    b::AbstractSparseVector,
+)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::LinearAlgebra.RealHermSymComplexHerm{<:Real,<:DenseMatrixUnion},
+    b::AbstractSparseVector)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+function dot(
+    a::AbstractSparseVector,
+    Q::Union{
+        LinearAlgebra.Hermitian{<:Real,<:DenseMatrixUnion}, LinearAlgebra.Symmetric{<:Real,<:DenseMatrixUnion}
+    },
+    b::AbstractSparseVector)
+    return _dot_quadratic_form(a, Q, b)
+end
+
+# actual function implementation called by the method dispatch
+function _dot_quadratic_form(a, Q, b)
+    n = length(a)
+    m = length(b)
+    if size(Q) != (n, m)
+        throw(DimensionMismatch("Matrix has a size $(size(Q)) but vectors have length $n, $m"))
+    end
+    anzind = nonzeroinds(a)
+    bnzind = nonzeroinds(b)
+    anzval = nonzeros(a)
+    bnzval = nonzeros(b)
+    s = zero(Base.promote_eltype(a, Q, b))
+    if isempty(anzind) || isempty(bnzind)
+        return s
+    end
+    @inbounds for a_idx in eachindex(anzind)
+        for b_idx in eachindex(bnzind)
+            ia = anzind[a_idx]
+            ib = bnzind[b_idx]
+            s += dot(anzval[a_idx], Q[ia, ib], bnzval[b_idx])
         end
     end
     return s
@@ -1210,7 +1275,10 @@ function nzrangelo(A, i, excl=false)
     @inbounds r2 < r1 || rv[r1] >= i + excl ? r : (searchsortedfirst(view(rv, r1:r2), i + excl) + r1-1):r2
 end
 
-dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
+dot(x::AbstractVector, A::HermOrSym{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
+    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+# disambiguation
+dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Real,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
     _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
 function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, rangefun::Function, diagop::Function, odiagop::Function)
     require_one_based_indexing(x, y)
@@ -1242,9 +1310,12 @@ function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, 
     end
     return r
 end
-dot(x::SparseVector, A::RealHermSymComplexHerm{<:Any,<:AbstractSparseMatrixCSC}, y::SparseVector) =
-    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real)
-function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rangefun::Function, diagop::Function)
+dot(x::AbstractSparseVector, A::HermOrSym{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractSparseVector) =
+    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+# disambiguation
+dot(x::AbstractSparseVector, A::RealHermSymComplexHerm{<:Real,<:AbstractSparseMatrixCSC}, y::AbstractSparseVector) =
+    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+function _dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSparseVector, rangefun::Function, diagop::Function, odiagop::Function)
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
@@ -1275,12 +1346,12 @@ function _dot(x::SparseVector, A::AbstractSparseMatrixCSC, y::SparseVector, rang
         A_ptr_lo = first(rangefun(A, xi, true))
         A_ptr_hi = last(rangefun(A, xi, true))
         if A_ptr_lo <= A_ptr_hi
-            r += dot(xv, _spdot((a, y) -> a'y, A_ptr_lo, A_ptr_hi, Arowval, Anzval,
+            r += dot(xv, _spdot((a, y) -> odiagop(a)*y, A_ptr_lo, A_ptr_hi, Arowval, Anzval,
                                             1, length(ynzind), ynzind, ynzval))
         end
     end
     # diagonal
-    for i in axes(A,1)
+    @inbounds for i in axes(A,1)
         r1 = Int(Acolptr[i])
         r2 = Int(Acolptr[i+1]-1)
         r1 > r2 && continue
@@ -1320,7 +1391,7 @@ function ldiv!(D::Diagonal, A::Union{AbstractSparseMatrixCSC, AbstractSparseVect
     nonz = nonzeros(A)
     Arowval = rowvals(A)
     b = D.diag
-    for i=axes(b,1)
+    @inbounds for i=axes(b,1)
         iszero(b[i]) && throw(SingularException(i))
     end
     @inbounds for col in axes(A,2), p in nzrange(A, col)
@@ -1335,10 +1406,10 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     m,n = size(S)
     colptr = Vector{Ti}(undef, n+1)
     nnz = 0
-    for col = 1 : min(max(k+1,1), n+1)
+    @inbounds for col = 1 : min(max(k+1,1), n+1)
         colptr[col] = 1
     end
-    for col = max(k+1,1) : n
+    @inbounds for col = max(k+1,1) : n
         for c1 in nzrange(S, col)
             rowvals(S)[c1] > col - k && break
             nnz += 1
@@ -1347,7 +1418,7 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     end
     rowval = Vector{Ti}(undef, nnz)
     nzval = Vector{Tv}(undef, nnz)
-    for col = max(k+1,1) : n
+    @inbounds for col = max(k+1,1) : n
         c1 = getcolptr(S)[col]
         for c2 in colptr[col]:colptr[col+1]-1
             rowval[c2] = rowvals(S)[c1]
@@ -1363,7 +1434,7 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     colptr = Vector{Ti}(undef, n+1)
     nnz = 0
     colptr[1] = 1
-    for col = 1 : min(n, m+k)
+    @inbounds for col = 1 : min(n, m+k)
         l1 = getcolptr(S)[col+1]-1
         for c1 = 0 : (l1 - getcolptr(S)[col])
             rowvals(S)[l1 - c1] < col - k && break
@@ -1371,12 +1442,12 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
         end
         colptr[col+1] = nnz+1
     end
-    for col = max(min(n, m+k)+2,1) : n+1
+    @inbounds for col = max(min(n, m+k)+2,1) : n+1
         colptr[col] = nnz+1
     end
     rowval = Vector{Ti}(undef, nnz)
     nzval = Vector{Tv}(undef, nnz)
-    for col = 1 : min(n, m+k)
+    @inbounds for col = 1 : min(n, m+k)
         c1 = getcolptr(S)[col+1]-1
         l2 = colptr[col+1]-1
         for c2 = 0 : l2 - colptr[col]
@@ -1398,8 +1469,8 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     rowval = Vector{Ti}(undef, numnz)
     nzval = Vector{Tv}(undef, numnz)
     numnz = 0
-    colptr[1] = 1
-    for col = 1 : n
+    @inbounds colptr[1] = 1
+    @inbounds for col = 1 : n
         last_row = 0
         last_val = 0
         for k in nzrange(S, col)
@@ -1443,20 +1514,22 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     rowval_a = rowvals(a)
     nzval_a = nonzeros(a)
 
-    ptrS = 1
-    colptr[1] = 1
+    @inbounds begin
+        ptrS = 1
+        colptr[1] = 1
 
-    n == 0 && return SparseMatrixCSC(m, n, colptr, rowval, nzval)
+        n == 0 && return SparseMatrixCSC(m, n, colptr, rowval, nzval)
 
-    startA = colptr_a[1]
-    stopA = colptr_a[2]
+        startA = colptr_a[1]
+        stopA = colptr_a[2]
 
-    rA = startA : stopA - 1
-    rowvalA = rowval_a[rA]
-    nzvalA = nzval_a[rA]
-    lA = stopA - startA
+        rA = startA : stopA - 1
+        rowvalA = rowval_a[rA]
+        nzvalA = nzval_a[rA]
+        lA = stopA - startA
+    end
 
-    for col = 1:n-1
+    @inbounds for col = 1:n-1
         startB, stopB = startA, stopA
         startA = colptr_a[col+1]
         stopA = colptr_a[col+2]
@@ -1543,7 +1616,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
         Tsum = promote_type(Float64,Tnorm)
         if p==1
             nA::Tsum = 0
-            for j in axes(A,2)
+            @inbounds for j in axes(A,2)
                 colSum::Tsum = 0
                 for i in nzrange(A, j)
                     colSum += abs(nonzeros(A)[i])
@@ -1555,7 +1628,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             throw(ArgumentError("2-norm not yet implemented for sparse matrices. Try opnorm(Array(A)) or opnorm(A, p) where p=1 or Inf."))
         elseif p==Inf
             rowSum = zeros(Tsum,m)
-            for i in axes(nonzeros(A),1)
+            @inbounds for i in axes(nonzeros(A),1)
                 rowSum[rowvals(A)[i]] += abs(nonzeros(A)[i])
             end
             return convert(Tnorm, maximum(rowSum))
@@ -1577,7 +1650,7 @@ function cond(A::AbstractSparseMatrixCSC, p::Real=2)
         normA = opnorm(A, Inf)
         return normA * normAinv
     elseif p == 2
-        throw(ArgumentError("2-norm condition number is not implemented for sparse matrices, try cond(Array(A), 2) instead"))
+        throw(ArgumentError("only 1- and Inf-norm condition numbers are implemented for sparse matrices, for 2-norm try cond(Array(A), 2) instead"))
     else
         throw(ArgumentError("second argument must be either 1 or Inf, got $p"))
     end
@@ -1612,8 +1685,8 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
 
     # Generate the block matrix
     X = Matrix{Ti}(undef, n, t)
-    X[1:n,1] .= 1
-    for j = 2:t
+    @inbounds X[1:n,1] .= 1
+    @inbounds for j = 2:t
         while true
             rand!(view(X,1:n,j), (-1, 1))
             yaux = X[1:n,j]' * X[1:n,1:j-1]
@@ -1948,8 +2021,8 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     C_colptr = getcolptr(C)
     for col in axes(A,2)
         n_extra = 0
-        for ind in nzrange(A, col)
-            row = rowvals(A)[ind]
+        for ind in @inbounds nzrange(A, col)
+            row = @inbounds rowvals(A)[ind]
             row_exists, ind = rowcheck_index(C, row, col)
             if !row_exists
                 n_extra += 1
@@ -1981,31 +2054,31 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     if beta_is_zero || identical_nzinds
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
-        if beta_is_zero
+        @inbounds if beta_is_zero
             if isone(alpha)
                 for col in axes(A,2), p in nzrange(A, col)
-                    @inbounds Cnzval[p] = Anzval[p] * b[col]
+                    Cnzval[p] = Anzval[p] * b[col]
                 end
             else
                 for col in axes(A,2), p in nzrange(A, col)
-                    @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha
+                    Cnzval[p] = Anzval[p] * b[col] * alpha
                 end
             end
         else
             if isone(alpha)
                 for col in axes(A,2), p in nzrange(A, col)
-                    @inbounds Cnzval[p] = Anzval[p] * b[col] + Cnzval[p] * beta
+                    Cnzval[p] = Anzval[p] * b[col] + Cnzval[p] * beta
                 end
             else
                 for col in axes(A,2), p in nzrange(A, col)
-                    @inbounds Cnzval[p] = Anzval[p] * b[col] * alpha + Cnzval[p] * beta
+                    Cnzval[p] = Anzval[p] * b[col] * alpha + Cnzval[p] * beta
                 end
             end
         end
     else
         mergeinds!(C, A)
-        for col in axes(C,2), p in nzrange(C, col)
-            row = rowvals(C)[p]
+        for col in axes(C,2), p in @inbounds nzrange(C, col)
+            row = @inbounds rowvals(C)[p]
             # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
@@ -2179,7 +2252,7 @@ function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
         if ishermitian(A)
             return \(Hermitian(A), B)
         end
-        return \(lu(A), B)
+        return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
     else
         return \(qr(A), B)
     end
@@ -2241,7 +2314,7 @@ end
 #         return F
 #     end
 # end
-function factorize(A::LinearAlgebra.RealHermSymComplexHerm{Float64,<:AbstractSparseMatrixCSC})
+function factorize(A::RealHermSymComplexHerm{Float64,<:AbstractSparseMatrixCSC})
     F = cholesky(A; check = false)
     if LinearAlgebra.issuccess(F)
         return F

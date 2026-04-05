@@ -109,6 +109,14 @@ end
     end
 end
 
+@testset "multiplication of special sparse with dense matrix" begin
+    # this results in a call of the most generic multiplication code in LinearAlgebra.jl
+    A = randn(2, 2)
+    S = sparse(A)
+    B = rand(1, 2)'
+    @test Symmetric(S) * B ≈ Symmetric(A) * B
+end
+
 @testset "sparse transpose adjoint" begin
     A = sprand(10, 10, 0.75)
     @test A' == SparseMatrixCSC(A')
@@ -952,13 +960,25 @@ end
         y = sprand(ComplexF64, 15, 0.5)
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
+        @test dot(x, collect(A), y) ≈ dot(x, A, y)
+        @test dot(y, collect(A)', x) ≈ dot(y, A', x)
+        @test dot(y, transpose(collect(A)), x) ≈ dot(y, transpose(A), x)
+        @test dot(y, Hermitian(collect(A)' * collect(A)), y) ≈ dot(y, Hermitian(A' * A), y)
+        @test dot(y, Symmetric(collect(A)' * collect(A)), y) ≈ dot(y, Symmetric(A' * A), y)
+        B = BitMatrix(rand(Bool, 10, 15))
+        @test dot(x, A, y) ≈ dot(x, Matrix(A), y)
+        @test_throws DimensionMismatch dot([x, x], A, y)
+        @test_throws DimensionMismatch dot(x, A, [y, y])
+        @test iszero(dot(spzeros(length(x)), A, y))
     end
 
-    for (T, trans) in ((Float64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
+    for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)
+        xd = Vector(x)
         S = trans(B'B, uplo)
-        @test dot(x, S, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Matrix(S), Vector(x))
+        Sd = trans(Matrix(B'B), uplo)
+        @test dot(x, S, x) ≈ dot(x, Sd, x) ≈ dot(xd, S, xd) ≈ dot(xd, Sd, xd)
     end
 end
 
@@ -1018,6 +1038,16 @@ end
 
     @test_throws DimensionMismatch D2 * S * D2
     @test_throws DimensionMismatch D1 * S * D1
+end
+
+@testset "type stability of linear solve" begin
+    for relty in (Float16, Float32, Float64), elty in (relty, Complex{relty})
+        A = sprand(elty, 2, 2, 1.0)
+        B = randn(elty, 2, 2)
+        b = randn(elty, 2)
+        @inferred A \ b
+        @inferred A \ B
+    end
 end
 
 end
