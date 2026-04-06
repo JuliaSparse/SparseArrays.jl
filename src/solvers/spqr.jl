@@ -154,7 +154,6 @@ function Base.size(F::QRSparse, i::Integer)
         throw(ArgumentError("second argument must be positive"))
     end
 end
-Base.axes(F::QRSparse) = map(Base.OneTo, size(F))
 
 # From SPQR manual p. 6
 _default_tol(A::AbstractSparseMatrixCSC) =
