@@ -11,52 +11,16 @@ const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
 const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
+const DenseViewWrappers{T,S} = Union{AdjOrTrans{T,S}, HermOrSym{T,S}, UpperOrLowerTriangular{T,S}, UpperHessenberg{T,S}}
+const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<:SparseMatrixCSCUnion2}}
 
-matprod_dest(A, B::SparseMatrixCSCUnion2, TS) =
+matprod_dest(A, B::QuasiSparseMatrix, TS) = similar(A, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::QuasiSparseMatrix, B, TS) = similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::QuasiSparseMatrix, B::QuasiSparseMatrix, TS) = similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::LinearAlgebra.BandedMatrix, B::QuasiSparseMatrix, TS) =
+    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(A::QuasiSparseMatrix, B::LinearAlgebra.BandedMatrix, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-# disambiguation
-matprod_dest(A::LinearAlgebra.StructuredMatrix, B::SparseMatrixCSCUnion2, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.StructuredMatrix, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.StructuredMatrix, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.StructuredMatrix, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::SparseMatrixCSCUnion2, B::LinearAlgebra.StructuredMatrix, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::LinearAlgebra.StructuredMatrix, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, B::LinearAlgebra.StructuredMatrix, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, B::LinearAlgebra.StructuredMatrix, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::SparseMatrixCSCUnion2, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.BandedMatrix, B::SparseMatrixCSCUnion2, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.BandedMatrix, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.BandedMatrix, B::HermOrSym{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.BandedMatrix, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::Diagonal, B::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    _matprod_dest_diag(B, TS)
-matprod_dest(A::UpperOrLowerTriangular{<:Any,<:SparseMatrixCSCUnion2}, B::Diagonal, TS) =
-    _matprod_dest_diag(A, TS)
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
     @eval begin
