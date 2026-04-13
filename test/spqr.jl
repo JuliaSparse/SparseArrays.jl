@@ -3,14 +3,14 @@
 module SPQRTests
 
 using Test
-using SparseArrays.SPQR
-using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
 # TODO REMOVE SECOND PREDICATE WITH SS7.1
 if Base.USE_GPL_LIBS
+using SparseArrays.SPQR
+using SparseArrays.CHOLMOD
 @testset "Sparse QR" begin
 m, n = 100, 10
 nn = 100

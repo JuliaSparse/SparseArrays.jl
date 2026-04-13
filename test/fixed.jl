@@ -152,11 +152,18 @@ end
 @testset "Test factorization" begin
     b = sprandn(10, 10, 0.99) + I
     a = fixed(b)
+    @test sparse(a) isa SparseMatrixCSC
 
-    @test (lu(a) \ randn(10); true)
-    @test b == a
-    @test (qr(a + a') \ randn(10); true)
-    @test b == a
+    if Base.USE_GPL_LIBS
+        @test (lu(a) \ randn(10); true)
+        @test b == a
+        @test (qr(a + a') \ randn(10); true)
+        @test b == a
+    else
+        @test (lu(sparse(a)) \ randn(10); true)
+        @test (qr(sparse(a + a')) \ randn(10); true)
+        @test b == a
+    end
 end
 
 always_false(x...) = false
