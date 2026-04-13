@@ -89,6 +89,26 @@ struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
     B = similar(F)
     @test typeof(B) == typeof(F)
     @test struct_eq(B, F)
+
+    C = fixed(copy(A))
+    copyto!(C, F)
+    @test C == F
+    @test struct_eq(C, F)
+
+    G = fixed(sparse([1.0 0.0; 0.0 2.0]))
+    H = fixed(sparse([1.0 3.0; 0.0 2.0]))
+    @test_throws DimensionMismatch copyto!(fixed(sprandn(9, 10, 0.3)), F)
+    @test_throws ArgumentError copyto!(G, H)
+
+    Bsame = similar(F, Float32, size(F))
+    @test Bsame isa FixedSparseCSC{Float32, eltype(rowvals(F))}
+    @test _is_fixed(Bsame)
+    @test struct_eq(Bsame, F)
+
+    Bdiff = similar(F, Float32, (size(F, 1) + 1, size(F, 2)))
+    @test typeof(Bdiff) == typeof(Bsame)
+    @test _is_fixed(Bdiff)
+    @test size(Bdiff) == (size(F, 1) + 1, size(F, 2))
 end
 @testset "SparseMatrixCSC conversions" begin
     A = sprandn(10, 10, 0.3)
