@@ -15,8 +15,6 @@ const DenseViewWrappers{T,S} = Union{AdjOrTrans{T,S}, HermOrSym{T,S}, UpperOrLow
 const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<:SparseMatrixCSCUnion2}}
 
 matprod_dest(A, B::QuasiSparseMatrix, TS) = similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::QuasiSparseMatrix, B, TS) = similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::QuasiSparseMatrix, B::QuasiSparseMatrix, TS) = similar(B, TS, (size(A, 1), size(B, 2)))
 matprod_dest(A::LinearAlgebra.BandedMatrix, B::QuasiSparseMatrix, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
 matprod_dest(A::QuasiSparseMatrix, B::LinearAlgebra.BandedMatrix, TS) =
