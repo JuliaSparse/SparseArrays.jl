@@ -236,6 +236,13 @@ end
     end
 end
 
+@testset "Column view of sparse matrix " begin
+    S = sparse(1:4, 1:4, 1:4)
+    Sv = @view S[:,1:2]
+    @test Sv * sparse(ones(2)) == Sv*ones(2) == Matrix(Sv) * ones(2)
+    @test Sv * sparse(ones(2,2)) == Sv*ones(2,2) == Matrix(Sv) * ones(2,2)
+end
+
 @testset "in-place sparse-sparse mul!" begin
     for n in (20, 30)
         sA = sprandn(ComplexF64, n, n, 0.1); A = Array(sA)
