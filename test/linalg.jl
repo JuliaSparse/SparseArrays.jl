@@ -238,7 +238,7 @@ end
 
 @testset "Column view of sparse matrix " begin
     S = sparse(1:4, 1:4, 1:4)
-    Sv = @view S[:,1:2]
+    Sv = @view S[:,3:4]
     @test Sv * sparse(ones(2)) == Sv*ones(2) == Matrix(Sv) * ones(2)
     @test Sv * sparse(ones(2,2)) == Sv*ones(2,2) == Matrix(Sv) * ones(2,2)
 end
