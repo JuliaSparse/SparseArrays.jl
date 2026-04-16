@@ -1742,7 +1742,7 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
                             repeated = true
                         end
                     end
-                    if !repeated && 2^(n-1) ≥ 2t #we need enough ±1 non-parallel vectors to exist
+                    if !repeated && 2^(n-1) ≥ 2t #we need enough non-parallel ±1 vectors
                         saux2 = S[1:n,j]' * S_old[1:n,1:t]
                         if _any_abs_eq(saux2,n)
                             repeated = true
