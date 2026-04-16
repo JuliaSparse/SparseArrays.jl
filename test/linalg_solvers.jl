@@ -162,6 +162,9 @@ end
     @test_throws ArgumentError SparseArrays.opnormestinv(Ac,0)
     @test_throws ArgumentError SparseArrays.opnormestinv(Ac,21)
     @test_throws DimensionMismatch SparseArrays.opnormestinv(sprand(3,5,.9))
+    #issue 680
+    A33 = sparse(randn(3,3))
+    @test SparseArrays.opnormestinv(A33,3) ≈ opnorm(inv(Array(A33)),1) atol=1e-4
 end
 
 @testset "factorization" begin
