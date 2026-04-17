@@ -115,7 +115,6 @@ struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
 end
 
 Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
-Base.axes(Q::QRSparseQ) = map(Base.OneTo, size(Q))
 
 Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
 

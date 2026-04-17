@@ -1287,7 +1287,6 @@ function size(F::Factor, i::Integer)
     return 1
 end
 size(F::Factor) = (size(F, 1), size(F, 2))
-axes(A::Union{Dense,Sparse,Factor}) = map(Base.OneTo, size(A))
 
 IndexStyle(::Type{<:Dense}) = IndexLinear()
 
