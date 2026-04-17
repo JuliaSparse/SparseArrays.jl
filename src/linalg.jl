@@ -62,12 +62,12 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
         _At_or_Ac_mul_B!(transpose, C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc == 'C'
         _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), alpha, beta)
-    elseif tA_uc in ('S', 'H') && tB_uc == 'N'
+    elseif tA_uc in ('S', 'H')
         rangefun = isuppercase(tA) ? nzrangeup : nzrangelo
         diagop = tA_uc == 'S' ? identity : real
         odiagop = tA_uc == 'S' ? transpose : adjoint
         T = eltype(C)
-        _mul!(rangefun, diagop, odiagop, C, A, B, T(alpha), T(beta))
+        _mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), T(alpha), T(beta))
     else
         @stable_muladdmul LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), MulAddMul(alpha, beta))
     end
