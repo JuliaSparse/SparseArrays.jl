@@ -236,6 +236,13 @@ end
     end
 end
 
+@testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
+    A = [1 3; 2 4]
+    As = sparse(A)
+    B = [1 1; 1 1]
+    @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
+end
+
 @testset "Column view of sparse matrix " begin
     S = sparse(1:4, 1:4, 1:4)
     Sv = @view S[:,3:4]
