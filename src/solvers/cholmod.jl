@@ -24,8 +24,6 @@ import LinearAlgebra: (\), AdjointFactorization,
 
 using SparseArrays
 using SparseArrays: getcolptr, AbstractSparseVecOrMat
-import Libdl
-
 export
     Dense,
     Factor,
@@ -174,83 +172,18 @@ function newcommon(; print = 0) # no printing from CHOLMOD by default
 end
 
 function getcommon(::Type{Int32})
+    LibSuiteSparse.init_suitesparse()
     return get!(newcommon, task_local_storage(), :cholmod_common)::Ref{cholmod_common}
 end
 
 function getcommon(::Type{Int64})
+    LibSuiteSparse.init_suitesparse()
     return get!(newcommon_l, task_local_storage(), :cholmod_common_l)::Ref{cholmod_common}
 end
 
 getcommon() = getcommon(Int)
 
 const BUILD_VERSION = VersionNumber(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION, CHOLMOD_SUBSUB_VERSION)
-
-function __init__()
-    try
-        ### Check if the linked library is compatible with the Julia code
-        if Libdl.dlsym_e(Libdl.dlopen("libcholmod"), :cholmod_version) != C_NULL
-            current_version_array = Vector{Cint}(undef, 3)
-            cholmod_version(current_version_array)
-            current_version = VersionNumber(current_version_array...)
-        else # CHOLMOD < 2.1.1 does not include cholmod_version()
-            current_version = v"0.0.0"
-        end
-
-
-        if current_version < CHOLMOD_MIN_VERSION
-            @warn """
-                CHOLMOD version incompatibility
-
-                Julia was compiled with CHOLMOD version $BUILD_VERSION. It is
-                currently linked with a version older than
-                $(CHOLMOD_MIN_VERSION). This might cause Julia to
-                terminate when working with sparse matrix factorizations,
-                e.g. solving systems of equations with \\.
-
-                It is recommended that you use Julia with a recent version
-                of CHOLMOD, or download the generic binaries
-                from www.julialang.org, which ship with the correct
-                versions of all dependencies.
-                """
-        elseif BUILD_VERSION.major != current_version.major
-            @warn """
-                CHOLMOD version incompatibility
-
-                Julia was compiled with CHOLMOD version $BUILD_VERSION. It is
-                currently linked with version $current_version.
-                This might cause Julia to terminate when working with
-                sparse matrix factorizations, e.g. solving systems of
-                equations with \\.
-
-                It is recommended that you use Julia with the same major
-                version of CHOLMOD as the one used during the build, or
-                download the generic binaries from www.julialang.org,
-                which ship with the correct versions of all dependencies.
-                """
-        end
-
-        # Register gc tracked allocator if CHOLMOD is new enough
-        if current_version >= v"4.0.3"
-            ccall((:SuiteSparse_config_malloc_func_set, libsuitesparseconfig),
-                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_malloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_calloc_func_set, libsuitesparseconfig),
-                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_calloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_realloc_func_set, libsuitesparseconfig),
-                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_realloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_free_func_set, libsuitesparseconfig),
-                  Cvoid, (Ptr{Cvoid},), cglobal(:jl_free, Ptr{Cvoid}))
-        elseif current_version >= v"3.0.0"
-            cnfg = cglobal((:SuiteSparse_config, libsuitesparseconfig), Ptr{Cvoid})
-            unsafe_store!(cnfg, cglobal(:jl_malloc, Ptr{Cvoid}), 1)
-            unsafe_store!(cnfg, cglobal(:jl_calloc, Ptr{Cvoid}), 2)
-            unsafe_store!(cnfg, cglobal(:jl_realloc, Ptr{Cvoid}), 3)
-            unsafe_store!(cnfg, cglobal(:jl_free, Ptr{Cvoid}), 4)
-        end
-
-    catch ex
-        @error "Error during initialization of module CHOLMOD" exception=ex,catch_backtrace()
-    end
-end
 
 ####################
 # Type definitions #
