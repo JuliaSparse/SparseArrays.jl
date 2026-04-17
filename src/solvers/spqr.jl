@@ -115,7 +115,6 @@ struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
 end
 
 Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
-Base.axes(Q::QRSparseQ) = map(Base.OneTo, size(Q))
 
 Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
 
@@ -146,7 +145,6 @@ function Base.size(F::QRSparse, i::Integer)
         throw(ArgumentError("second argument must be positive"))
     end
 end
-Base.axes(F::QRSparse) = map(Base.OneTo, size(F))
 
 # From SPQR manual p. 6
 _default_tol(A::AbstractSparseMatrixCSC) =
