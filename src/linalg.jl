@@ -62,12 +62,12 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
         _At_or_Ac_mul_B!(transpose, C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc == 'C'
         _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), alpha, beta)
-    elseif tA_uc in ('S', 'H') && tB_uc == 'N'
+    elseif tA_uc in ('S', 'H')
         rangefun = isuppercase(tA) ? nzrangeup : nzrangelo
         diagop = tA_uc == 'S' ? identity : real
         odiagop = tA_uc == 'S' ? transpose : adjoint
         T = eltype(C)
-        _mul!(rangefun, diagop, odiagop, C, A, B, T(alpha), T(beta))
+        _mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), T(alpha), T(beta))
     else
         @stable_muladdmul LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), MulAddMul(alpha, beta))
     end
@@ -117,7 +117,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     C
 end
 
-Base.@constprop :aggressive function generic_matmatmul!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, alpha::Number, beta::Number)
+Base.@constprop :aggressive function generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, alpha::Number, beta::Number, ::LinearAlgebra.BlasFlag.SyrkHerkGemm)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
         _spmul!(C, transA(A), B, alpha, beta)
@@ -128,6 +128,9 @@ Base.@constprop :aggressive function generic_matmatmul!(C::StridedMatrix, tA, tB
     end
     return C
 end
+Base.@constprop :aggressive generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, alpha::Number, beta::Number, @nospecialize(val)) =
+    LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
+
 function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2, α::Number, β::Number)
     mX, nX = size(X)
     nX == size(A, 1) ||
@@ -1742,7 +1745,7 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
                             repeated = true
                         end
                     end
-                    if !repeated
+                    if !repeated && 2^(n-1) ≥ 2t #we need enough non-parallel ±1 vectors
                         saux2 = S[1:n,j]' * S_old[1:n,1:t]
                         if _any_abs_eq(saux2,n)
                             repeated = true

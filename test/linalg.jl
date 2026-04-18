@@ -236,6 +236,20 @@ end
     end
 end
 
+@testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
+    A = [1 3; 2 4]
+    As = sparse(A)
+    B = [1 1; 1 1]
+    @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
+end
+
+@testset "Column view of sparse matrix " begin
+    S = sparse(1:4, 1:4, 1:4)
+    Sv = @view S[:,3:4]
+    @test Sv * sparse(ones(2)) == Sv*ones(2) == Matrix(Sv) * ones(2)
+    @test Sv * sparse(ones(2,2)) == Sv*ones(2,2) == Matrix(Sv) * ones(2,2)
+end
+
 @testset "in-place sparse-sparse mul!" begin
     for n in (20, 30)
         sA = sprandn(ComplexF64, n, n, 0.1); A = Array(sA)
