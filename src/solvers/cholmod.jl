@@ -1287,11 +1287,9 @@ function size(F::Factor, i::Integer)
     return 1
 end
 size(F::Factor) = (size(F, 1), size(F, 2))
-axes(A::Union{Dense,Sparse,Factor}) = map(Base.OneTo, size(A))
 
 IndexStyle(::Type{<:Dense}) = IndexLinear()
 
-size(FC::FactorComponent, i::Integer) = size(FC.F, i)
 size(FC::FactorComponent) = size(FC.F)
 
 adjoint(FC::FactorComponent{Tv,:L}) where {Tv} = FactorComponent{Tv,:U}(FC.F)
