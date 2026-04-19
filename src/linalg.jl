@@ -7,6 +7,7 @@ using Random: rand!
 const tilebufsize = 10800  # Approximately 32k/3
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
+const BiTriSym = Union{Bidiagonal,Tridiagonal,SymTridiagonal}
 const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
 const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
@@ -15,9 +16,10 @@ const DenseViewWrappers{T,S} = Union{AdjOrTrans{T,S}, HermOrSym{T,S}, UpperOrLow
 const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<:SparseMatrixCSCUnion2}}
 
 matprod_dest(A, B::QuasiSparseMatrix, TS) = similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::LinearAlgebra.BandedMatrix, B::QuasiSparseMatrix, TS) =
+# sparse products with banded matrices should return sparse arrays (Diagonal is handled by fallback)
+matprod_dest(A::BiTriSym, B::QuasiSparseMatrix, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::QuasiSparseMatrix, B::LinearAlgebra.BandedMatrix, TS) =
+matprod_dest(A::QuasiSparseMatrix, B::BiTriSym, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
