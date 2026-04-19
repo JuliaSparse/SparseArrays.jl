@@ -17,8 +17,8 @@ const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<
 
 matprod_dest(A, B::QuasiSparseMatrix, TS) = similar(A, TS, (size(A, 1), size(B, 2)))
 # sparse products with banded matrices should return sparse arrays (Diagonal is handled by fallback)
-matprod_dest(A::BiTriSym, B::QuasiSparseMatrix, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
+matprod_dest(::BiTriSym, B::QuasiSparseMatrix, TS) = similar(B, TS, size(B))
+matprod_dest(::Diagonal, B::QuasiSparseMatrix, TS) = similar(B, TS, size(B)) # disambiguation with LinearAlgebra
 matprod_dest(A::QuasiSparseMatrix, B::BiTriSym, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
 
