@@ -89,6 +89,26 @@ struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
     B = similar(F)
     @test typeof(B) == typeof(F)
     @test struct_eq(B, F)
+
+    C = fixed(copy(A))
+    copyto!(C, F)
+    @test C == F
+    @test struct_eq(C, F)
+
+    G = fixed(sparse([1.0 0.0; 0.0 2.0]))
+    H = fixed(sparse([1.0 3.0; 0.0 2.0]))
+    @test_throws DimensionMismatch copyto!(fixed(sprandn(9, 10, 0.3)), F)
+    @test_throws ArgumentError copyto!(G, H)
+
+    Bsame = similar(F, Float32, size(F))
+    @test Bsame isa FixedSparseCSC{Float32, eltype(rowvals(F))}
+    @test _is_fixed(Bsame)
+    @test struct_eq(Bsame, F)
+
+    Bdiff = similar(F, Float32, (size(F, 1) + 1, size(F, 2)))
+    @test typeof(Bdiff) == typeof(Bsame)
+    @test _is_fixed(Bdiff)
+    @test size(Bdiff) == (size(F, 1) + 1, size(F, 2))
 end
 @testset "SparseMatrixCSC conversions" begin
     A = sprandn(10, 10, 0.3)
@@ -152,11 +172,18 @@ end
 @testset "Test factorization" begin
     b = sprandn(10, 10, 0.99) + I
     a = fixed(b)
+    @test sparse(a) isa SparseMatrixCSC
 
-    @test (lu(a) \ randn(10); true)
-    @test b == a
-    @test (qr(a + a') \ randn(10); true)
-    @test b == a
+    if Base.USE_GPL_LIBS
+        @test (lu(a) \ randn(10); true)
+        @test b == a
+        @test (qr(a + a') \ randn(10); true)
+        @test b == a
+    else
+        @test (lu(sparse(a)) \ randn(10); true)
+        @test (qr(sparse(a + a')) \ randn(10); true)
+        @test b == a
+    end
 end
 
 always_false(x...) = false

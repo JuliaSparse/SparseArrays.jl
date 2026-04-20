@@ -3,8 +3,6 @@
 module CHOLMODTests
 
 using Test
-using SparseArrays.CHOLMOD
-using SparseArrays.CHOLMOD: getcommon
 using Random
 using Serialization
 using LinearAlgebra:
@@ -13,10 +11,12 @@ using LinearAlgebra:
     PosDefException, ZeroPivotException
 using SparseArrays
 using SparseArrays: getcolptr
-using SparseArrays.LibSuiteSparse
-using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
 
 if Base.USE_GPL_LIBS
+using SparseArrays.CHOLMOD
+using SparseArrays.CHOLMOD: getcommon
+using SparseArrays.LibSuiteSparse
+using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
