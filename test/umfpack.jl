@@ -8,8 +8,9 @@ using SparseArrays
 using Serialization
 using LinearAlgebra:
     LinearAlgebra, I, det, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet
-using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
+using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, increment!
 if Base.USE_GPL_LIBS
+using SparseArrays: UMFPACK
 function umfpack_report(l::UMFPACK.UmfpackLU)
     UMFPACK.umfpack_report_numeric(l, 0)
     UMFPACK.umfpack_report_symbolic(l, 0)

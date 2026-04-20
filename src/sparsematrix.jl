@@ -555,6 +555,14 @@ copy(S::AbstractSparseMatrixCSC) =
     SparseMatrixCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(rowvals(S)), copy(nonzeros(S)))
 copy(S::FixedSparseCSC) =
     FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), copy(nonzeros(S)))
+function copyto!(A::FixedSparseCSC, B::FixedSparseCSC)
+    size(A) == size(B) || throw(DimensionMismatch("cannot copy sparse matrix with different dimensions into FixedSparseCSC"))
+    nnz(A) == nnz(B) || throw(ArgumentError("cannot change fixed sparse structure via copyto!"))
+    copyto!(parent(getcolptr(A)), getcolptr(B))
+    copyto!(parent(rowvals(A)), rowvals(B))
+    copyto!(nonzeros(A), nonzeros(B))
+    return A
+end
 function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     # If the two matrices have the same length then all the
     # elements in A will be overwritten.
@@ -711,6 +719,10 @@ uninitialized values for the nonzero locations.
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
     @if_move_fixed S _sparsesimilar(S, TvNew, Ti)
+
+similar(S::FixedSparseCSC{<:Any,Ti}, ::Type{TvNew}, dims::Dims{2}) where {Ti,TvNew} =
+    dims == size(S) ? move_fixed(_sparsesimilar(S, TvNew, Ti)) :
+                      move_fixed(_sparsesimilar(S, TvNew, Ti, dims))
 
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
     @if_move_fixed S _sparsesimilar(S, TvNew, Ti, dims)
@@ -1008,6 +1020,7 @@ julia> sparse(A)
 sparse(A::AbstractMatrix{Tv}) where {Tv} = convert(SparseMatrixCSC{Tv}, A)
 
 sparse(S::AbstractSparseMatrixCSC) = copy(S)
+sparse(S::FixedSparseCSC) = SparseMatrixCSC(S)
 
 sparse(Q::AbstractQ) = SparseMatrixCSC(Q)
 
