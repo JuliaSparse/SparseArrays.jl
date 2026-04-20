@@ -2041,7 +2041,7 @@ Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A
     elseif tA == 'C'
         _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, A, x, alpha, beta)
     else
-        @stable_muladdmul LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, MulAddMul(alpha, beta))
+        LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, alpha, beta)
     end
     return y
 end
