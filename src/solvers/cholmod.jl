@@ -36,7 +36,7 @@ import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spz
 import ..increment, ..increment!
 
 using ..LibSuiteSparse
-import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_INTLONG, CHOLMOD_LONG
+import ..LibSuiteSparse: TRUE, FALSE, CHOLMOD_INT, CHOLMOD_LONG, libsuitesparseconfig
 
 # # itype defines the types of integer used:
 # CHOLMOD_INT,      # all integer arrays are int
@@ -221,16 +221,16 @@ function __init__()
 
         # Register gc tracked allocator if CHOLMOD is new enough
         if current_version >= v"4.0.3"
-            ccall((:SuiteSparse_config_malloc_func_set, :libsuitesparseconfig),
+            ccall((:SuiteSparse_config_malloc_func_set, libsuitesparseconfig),
                   Cvoid, (Ptr{Cvoid},), cglobal(:jl_malloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_calloc_func_set, :libsuitesparseconfig),
+            ccall((:SuiteSparse_config_calloc_func_set, libsuitesparseconfig),
                   Cvoid, (Ptr{Cvoid},), cglobal(:jl_calloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_realloc_func_set, :libsuitesparseconfig),
+            ccall((:SuiteSparse_config_realloc_func_set, libsuitesparseconfig),
                   Cvoid, (Ptr{Cvoid},), cglobal(:jl_realloc, Ptr{Cvoid}))
-            ccall((:SuiteSparse_config_free_func_set, :libsuitesparseconfig),
+            ccall((:SuiteSparse_config_free_func_set, libsuitesparseconfig),
                   Cvoid, (Ptr{Cvoid},), cglobal(:jl_free, Ptr{Cvoid}))
         elseif current_version >= v"3.0.0"
-            cnfg = cglobal((:SuiteSparse_config, :libsuitesparseconfig), Ptr{Cvoid})
+            cnfg = cglobal((:SuiteSparse_config, libsuitesparseconfig), Ptr{Cvoid})
             unsafe_store!(cnfg, cglobal(:jl_malloc, Ptr{Cvoid}), 1)
             unsafe_store!(cnfg, cglobal(:jl_calloc, Ptr{Cvoid}), 2)
             unsafe_store!(cnfg, cglobal(:jl_realloc, Ptr{Cvoid}), 3)

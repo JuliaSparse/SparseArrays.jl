@@ -224,6 +224,13 @@ end
     end
 end
 
+@testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
+    A = [1 3; 2 4]
+    As = sparse(A)
+    B = [1 1; 1 1]
+    @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
+end
+
 @testset "UniformScaling" begin
     local A = sprandn(10, 10, 0.5)
     @test A + I == Array(A) + I
@@ -395,6 +402,27 @@ end
     @test issymmetric(sparse([1 0; 1 0])) == false
     @test issymmetric(sparse([0 1; 1 0])) == true
     @test issymmetric(sparse([1 1; 1 0])) == true
+
+    # test some non-trivial cases
+    local S
+    @testset "random matrices" begin
+        for sparsity in (0.1, 0.01, 0.0)
+            S = sparse(Symmetric(sprand(20, 20, sparsity)))
+            @test issymmetric(S)
+            @test ishermitian(S)
+            S = sparse(Symmetric(sprand(ComplexF64, 20, 20, sparsity)))
+            @test issymmetric(S)
+            @test !ishermitian(S) || isreal(S)
+            S = sparse(Hermitian(sprand(ComplexF64, 20, 20, sparsity)))
+            @test ishermitian(S)
+            @test !issymmetric(S) || isreal(S)
+        end
+    end
+
+    @testset "issue #605" begin
+        S = sparse([2, 3, 1], [1, 1, 3], [1, 1, 1], 3, 3)
+        @test !issymmetric(S)
+    end
 end
 
 @testset "rotations" begin
@@ -824,11 +852,12 @@ end
         @test dot(x, A, y) ≈ dot(x, Av, y)
     end
 
-    for (T, trans) in ((Float64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
+    for (T, trans) in ((Float64, Symmetric), (ComplexF64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)
         S = trans(B'B, uplo)
-        @test dot(x, S, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Matrix(S), Vector(x))
+        Sd = trans(Matrix(B'B), uplo)
+        @test dot(x, S, x) ≈ dot(x, Sd, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Sd, Vector(x))
     end
 end
 
