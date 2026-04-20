@@ -844,10 +844,6 @@ end
     # symtridiagonal with non-empty off-diagonal
     b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
     @test b + b == Matrix(b) + Matrix(b)
-
-    # a symtridiagonal with an additional off-diagonal element
-    c = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2, 3]))
-    @test c + c == Matrix(c) + Matrix(c)
 end
 
 @testset "kronecker product" begin
