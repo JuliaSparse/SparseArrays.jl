@@ -128,21 +128,26 @@ end
 end
 
 @testset "sparse matrix cond" begin
+    Random.seed!(1235)
     local A = sparse(reshape([1.0], 1, 1))
-    Ac = sprandn(20, 20,.5) + im*sprandn(20, 20,.5)
-    Ar = sprandn(20, 20,.5) + eps()*I
     @test cond(A, 1) == 1.0
-    # For a discussion of the tolerance, see #14778
-    @test 0.99 <= cond(Ar, 1) \ opnorm(Ar, 1) * opnorm(inv(Array(Ar)), 1) < 3
-    @test 0.99 <= cond(Ac, 1) \ opnorm(Ac, 1) * opnorm(inv(Array(Ac)), 1) < 3
-    @test 0.99 <= cond(Ar, Inf) \ opnorm(Ar, Inf) * opnorm(inv(Array(Ar)), Inf) < 3
-    @test 0.99 <= cond(Ac, Inf) \ opnorm(Ac, Inf) * opnorm(inv(Array(Ac)), Inf) < 3
     @test_throws ArgumentError cond(A,2)
     @test_throws ArgumentError cond(A,3)
     Arect = spzeros(10, 6)
     @test_throws DimensionMismatch cond(Arect, 1)
     @test_throws ArgumentError cond(Arect,2)
     @test_throws DimensionMismatch cond(Arect, Inf)
+    Ac = sprandn(20, 20,.5) + im*sprandn(20, 20,.5)
+    Ar = sprandn(20, 20,.5) + eps()*I
+    # For a discussion of the tolerance, see #14778
+    @test 0.99 <= cond(Ar, 1) \ opnorm(Ar, 1) * opnorm(inv(Array(Ar)), 1) < 3
+    @test 0.99 <= cond(Ac, 1) \ opnorm(Ac, 1) * opnorm(inv(Array(Ac)), 1) < 3
+    @test 0.99 <= cond(Ar, Inf) \ opnorm(Ar, Inf) * opnorm(inv(Array(Ar)), Inf) < 3
+    @test 0.99 <= cond(Ac, Inf) \ opnorm(Ac, Inf) * opnorm(inv(Array(Ac)), Inf) < 3
+    #issue 680
+    A22 = sparse(randn(2,2))
+    @test 0.99 ≤ cond(Array(A22), 1) / cond(A22, 1) < 3
+    @test 0.99 ≤ cond(Array(A22), Inf) / cond(A22, Inf) < 3
 end
 
 @testset "sparse matrix opnormestinv" begin
@@ -158,6 +163,9 @@ end
     @test_throws ArgumentError SparseArrays.opnormestinv(Ac,0)
     @test_throws ArgumentError SparseArrays.opnormestinv(Ac,21)
     @test_throws DimensionMismatch SparseArrays.opnormestinv(sprand(3,5,.9))
+    #issue 680
+    A33 = sparse(randn(3,3))
+    @test SparseArrays.opnormestinv(A33,3) ≈ opnorm(inv(Array(A33)),1) atol=1e-4
 end
 
 @testset "factorization" begin

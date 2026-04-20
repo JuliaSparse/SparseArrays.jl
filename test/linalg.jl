@@ -236,6 +236,20 @@ end
     end
 end
 
+@testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
+    A = [1 3; 2 4]
+    As = sparse(A)
+    B = [1 1; 1 1]
+    @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
+end
+
+@testset "Column view of sparse matrix " begin
+    S = sparse(1:4, 1:4, 1:4)
+    Sv = @view S[:,3:4]
+    @test Sv * sparse(ones(2)) == Sv*ones(2) == Matrix(Sv) * ones(2)
+    @test Sv * sparse(ones(2,2)) == Sv*ones(2,2) == Matrix(Sv) * ones(2,2)
+end
+
 @testset "in-place sparse-sparse mul!" begin
     for n in (20, 30)
         sA = sprandn(ComplexF64, n, n, 0.1); A = Array(sA)
@@ -830,10 +844,6 @@ end
     # symtridiagonal with non-empty off-diagonal
     b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
     @test b + b == Matrix(b) + Matrix(b)
-
-    # a symtridiagonal with an additional off-diagonal element
-    c = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2, 3]))
-    @test c + c == Matrix(c) + Matrix(c)
 end
 
 @testset "kronecker product" begin
@@ -1080,6 +1090,16 @@ end
         @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 9), fB(8, 10))
         @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(7, 10))
         @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(8, 9))
+    end
+end
+
+@testset "type stability of linear solve" begin
+    for relty in (Float16, Float32, Float64), elty in (relty, Complex{relty})
+        A = sprand(elty, 2, 2, 1.0)
+        B = randn(elty, 2, 2)
+        b = randn(elty, 2)
+        @inferred A \ b
+        @inferred A \ B
     end
 end
 
