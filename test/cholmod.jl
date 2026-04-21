@@ -794,6 +794,7 @@ end
     A = cholesky(sparse(Diagonal(x.\1)))
     @test A\view(fill(1.,10),1:2:10) ≈ x
     @test A\view(Matrix(1.0I, 5, 5), :, :) ≈ Matrix(Diagonal(x))
+    @test A\view(Matrix(1.0I, 6, 5), 1:5, :) ≈ Matrix(Diagonal(x))
 end
 
 @testset "Test \\ for Factor and SparseVecOrMat" begin
