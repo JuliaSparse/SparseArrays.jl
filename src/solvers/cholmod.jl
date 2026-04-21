@@ -819,7 +819,7 @@ get_perm(FC::FactorComponent) = get_perm(Factor(FC))
 # Conversion/construction
 
 function Dense{T}(A::StridedVecOrMatInclAdjAndTrans) where T<:VTypes
-    d = allocate_dense(size(A, 1), size(A, 2), A isa StridedVecOrMat ? stride(A, 2) : size(A, 1), T)
+    d = allocate_dense(size(A, 1), size(A, 2), size(A, 1), T)
     D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(pointer(d)).x), size(A), own = false)
     copyto!(D, A)
     return d
