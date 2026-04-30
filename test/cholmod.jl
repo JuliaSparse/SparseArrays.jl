@@ -807,6 +807,16 @@ end
     @test chI \ sparseI ≈ sparseI
 end
 
+@testset "Issue 630" begin
+    sparseI = sparse(1.0I, 1, 1)
+    sparseb = sparse([1.0])
+    @test cholesky(sparseI) \ sparseb  == [1]
+    sparseI = sparse(1.0I, 2, 2)
+    sparseb = spzeros(2)
+    res = cholesky(sparseI) \ sparseb
+    @test isempty(res.nzind)
+end
+
 @testset "Real factorization and complex rhs" begin
     A = sprandn(5, 5, 0.4) |> t -> t't + I
     B = complex.(randn(5, 5), randn(5, 5))

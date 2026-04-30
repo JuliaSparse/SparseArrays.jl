@@ -990,7 +990,7 @@ function Sparse(A::SparseMatrixCSC{<:Union{ComplexF16, ComplexF32}}, stype::Inte
 end
 
 # convert SparseVectors into CHOLMOD Sparse types through a mx1 CSC matrix
-Sparse(A::SparseVector) = Sparse(SparseMatrixCSC(A))
+Sparse(A::SparseVector) = Sparse(SparseMatrixCSC(A), 0)
 function Sparse{Tv, Ti}(A::SparseMatrixCSC) where {Tv<:VTypes, Ti<:ITypes}
     o = Sparse{Tv, Ti}(A, 0)
     # check if array is symmetric and change stype if it is
@@ -1135,6 +1135,7 @@ function SparseVector{Tv, Ti}(A::Sparse{Tv, Ti}) where {Tv, Ti<:ITypes}
     end
     args = _extract_args(s, Tv)
     s.sorted == 0 && _sort_buffers!(args...);
+    _trim_nz_builder!(args...)
     return SparseVector(args[1], args[4], args[5])
 end
 
