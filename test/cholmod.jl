@@ -809,12 +809,10 @@ end
 
 @testset "Issue 630" begin
     sparseI = sparse(1.0I, 1, 1)
-    sparseb = sparse([1.0])
-    @test cholesky(sparseI) \ sparseb  == [1]
+    @test cholesky(sparseI) \ sparse([1.0]) == [1]
     sparseI = sparse(1.0I, 2, 2)
-    sparseb = spzeros(2)
-    res = cholesky(sparseI) \ sparseb
-    @test isempty(res.nzind)
+    res = cholesky(sparseI) \ spzeros(2)
+    @test isempty(nonzeros(res))
 end
 
 @testset "Real factorization and complex rhs" begin
