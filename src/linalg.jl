@@ -1313,29 +1313,14 @@ end
 # so they should return dense arrays
 const StructuredWithDenseInverse = Union{Bidiagonal,SymTridiagonal,Tridiagonal,LowerTriangular,UpperTriangular,UpperHessenberg}
 
-function (\)(A::StructuredWithDenseInverse, B::AbstractSparseMatrixCSC)
-    require_one_based_indexing(B)
-    TAB = promote_op(\, eltype(A), eltype(B))
-    ldiv!(Matrix{TAB}(undef, size(B)), A, B)
-end
-function (\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSparseMatrixCSC)
-    require_one_based_indexing(B)
-    TAB = LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))
-    ldiv!(Matrix{TAB}(undef, size(B)), A, B)
-end
-function (/)(A::AbstractSparseMatrixCSC, B::StructuredWithDenseInverse)
-    require_one_based_indexing(A)
-    TAB = promote_op(/, eltype(A), eltype(B))
-    LinearAlgebra._rdiv!(Matrix{TAB}(undef, size(A)), A, B)
-end
-function (/)(A::AbstractSparseMatrixCSC, B::Union{UnitUpperTriangular,UnitLowerTriangular})
-    require_one_based_indexing(A)
-    TAB = LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))
-    LinearAlgebra._rdiv!(Matrix{TAB}(undef, size(A)), A, B)
-end
-
-# (*)(L::DenseTriangular, B::AbstractSparseMatrixCSC) = lmul!(L, Array(B))
-
+matldiv_dest(A::StructuredWithDenseInverse, B::QuasiSparseMatrix) =
+    Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
+matldiv_dest(A::LinearAlgebra.UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
+    Matrix{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, size(B))
+matrdiv_dest(A::QuasiSparseMatrix, B::StructuredWithDenseInverse) =
+    Matrix{promote_op(/, eltype(A), eltype(B))}(undef, size(A))
+matrdiv_dest(A::QuasiSparseMatrix, B::LinearAlgebra.UnitUpperOrUnitLowerTriangular) =
+    Matrix{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, size(A))
 ## end of triangular
 
 # symmetric/Hermitian
