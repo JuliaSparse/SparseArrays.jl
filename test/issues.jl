@@ -805,6 +805,13 @@ end
                        7 16 4])
 end
 
+@testset "Issue #574" begin
+    a = spzeros(Float32, Int16, 2, 3)
+    v = spzeros(Float32, Int16, 2)
+    @test eltype(rowvals(zero(a))) <: Int16
+    @test eltype(rowvals(zero(v))) <: Int16
+end
+
 end # SparseTestsBase
 
 end # module
