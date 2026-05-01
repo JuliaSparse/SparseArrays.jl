@@ -1309,18 +1309,18 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
     C
 end
 
-function (\)(A::Union{UpperTriangular,LowerTriangular}, B::AbstractSparseMatrixCSC)
-    require_one_based_indexing(B)
-    TAB = promote_op(\, eltype(A), eltype(B))
-    ldiv!(Matrix{TAB}(undef, size(B)), A, B)
-end
-function (\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSparseMatrixCSC)
-    require_one_based_indexing(B)
-    TAB = LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))
-    ldiv!(Matrix{TAB}(undef, size(B)), A, B)
-end
-# (*)(L::DenseTriangular, B::AbstractSparseMatrixCSC) = lmul!(L, Array(B))
+# the following matrix types have typically dense inverses, even when they wrap sparse matrices
+# so they should return dense arrays
+const StructuredWithDenseInverse = Union{Bidiagonal,SymTridiagonal,Tridiagonal,LowerTriangular,UpperTriangular,UpperHessenberg}
 
+matldiv_dest(A::StructuredWithDenseInverse, B::QuasiSparseMatrix) =
+    Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
+matldiv_dest(A::LinearAlgebra.UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
+    Matrix{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, size(B))
+matrdiv_dest(A::QuasiSparseMatrix, B::StructuredWithDenseInverse) =
+    Matrix{promote_op(/, eltype(A), eltype(B))}(undef, size(A))
+matrdiv_dest(A::QuasiSparseMatrix, B::LinearAlgebra.UnitUpperOrUnitLowerTriangular) =
+    Matrix{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, size(A))
 ## end of triangular
 
 # symmetric/Hermitian
