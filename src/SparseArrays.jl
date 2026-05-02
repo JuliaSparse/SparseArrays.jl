@@ -87,7 +87,7 @@ if Base.USE_GPL_LIBS
     include("solvers/spqr.jl")
 end
 
-zero(a::AbstractSparseArray) = spzeros(eltype(a), size(a)...)
+zero(a::AbstractSparseArray{Tv,Ti}) where {Tv,Ti} = spzeros(Tv, Ti, size(a)...)
 
 LinearAlgebra.diagzero(D::Diagonal{<:AbstractSparseMatrix{T}},i,j) where {T} =
     spzeros(T, size(D.diag[i], 1), size(D.diag[j], 2))
