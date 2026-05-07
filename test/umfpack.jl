@@ -408,7 +408,7 @@ end
         umfpack_report(x.b)
     end
 
-    @testset "Reuse symbolic LU factorization" begin
+    @testset "Do/do not reuse symbolic LU factorization" for reuse ∈ (true, false)
         A1 = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
@@ -420,7 +420,7 @@ end
                 b = Tv[8., 45., -3., 3., 19.]
                 F = lu(A)
                 umfpack_report(F)
-                lu!(F, B)
+                lu!(F, B; reuse_symbolic=reuse)
                 umfpack_report(F)
                 @test F\b ≈ B\b ≈ Matrix(B)\b
 
@@ -429,48 +429,20 @@ end
                 C[4, 3] = Tv(0)
                 F = lu(A)
                 umfpack_report(F)
-                @test_throws SingularException lu!(F, C)
+                @test_throws SingularException lu!(F, C; reuse_symbolic=reuse)
                 # change of nonzero pattern
                 D = copy(B)
                 D[5, 1] = Tv(1.0)
                 F = lu(A)
                 umfpack_report(F)
-                @test_throws ArgumentError lu!(F, D)
-                umfpack_report(F)
-            end
-        end
-    end
-
-    @testset "Do not reuse symbolic LU factorization" begin
-        A1 = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
-                    increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
-                    [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
-        testtypes = [Float64, ComplexF64, Float32, ComplexF32, Float16, ComplexF16]
-        for Tv in testtypes
-            for Ti in Base.uniontypes(UMFPACK.UMFITypes)
-                A = convert(SparseMatrixCSC{Tv,Ti}, A0)
-                B = convert(SparseMatrixCSC{Tv,Ti}, A1)
-                b = Tv[8., 45., -3., 3., 19.]
-                F = lu(A)
-                umfpack_report(F)
-                lu!(F, B; reuse_symbolic=false)
-                umfpack_report(F)
-                @test F\b ≈ B\b ≈ Matrix(B)\b
-
-                # singular matrix
-                C = copy(B)
-                C[4, 3] = Tv(0)
-                F = lu(A)
-                umfpack_report(F)
-                @test_throws SingularException lu!(F, C; reuse_symbolic=false)
-                # change of nonzero pattern
-                D = copy(B)
-                D[5, 1] = Tv(1.0)
-                F = lu(A)
-                umfpack_report(F)
-                lu!(F, D; reuse_symbolic=false)
-                umfpack_report(F)
-                @test F\b ≈ D\b ≈ Matrix(D)\b
+                if reuse
+                    @test_throws ArgumentError lu!(F, D; reuse_symbolic=reuse)
+                    umfpack_report(F)
+                else
+                    lu!(F, D; reuse_symbolic=reuse)
+                    umfpack_report(F)
+                    @test F\b ≈ D\b ≈ Matrix(D)\b
+                end
             end
         end
     end
