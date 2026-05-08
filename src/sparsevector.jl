@@ -1880,16 +1880,6 @@ _fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
 _fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
 _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 
-function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) where {Ta,Tx}
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x)
-end
-
 # TODO: remove
 Base.@constprop :aggressive generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                             _add::MulAddMul = MulAddMul()) =
@@ -1977,26 +1967,6 @@ function _At_or_Ac_mul_B!(tfun::Function,
     end
     return y
 end
-
-function *(A::AdjOrTrans{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
-end
-function *(A::LinearAlgebra.HermOrSym{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
-end
-
 
 ### BLAS-2 / sparse A * sparse x -> dense y
 
@@ -2153,6 +2123,15 @@ function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x:
     return @if_move_fixed A x SparseVector(n, ynzind, ynzval)
 end
 
+matop(::typeof(\), A::Union{UpperTriangular,LowerTriangular}, b::AbstractSparseVector) =
+    Vector{promote_op(\, eltype(A), eltype(B))}(undef, length(b))
+matop(::typeof(\), A::UnitUpperOrUnitLowerTriangular, b::AbstractSparseVector) =
+    Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, length(b))
+
+matop(::typeof(/), b::AbstractSparseVector, B::Union{UpperTriangular,LowerTriangular}) =
+    Vector{promote_op(\, eltype(A), eltype(B))}(undef, length(b))
+matop(::typeof(/), b::AbstractSparseVector, B::UnitUpperOrUnitLowerTriangular) =
+    Vector{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, length(b))
 
 # define matrix division operations involving triangular matrices and sparse vectors
 # the valid left-division operations are A[t|c]_ldiv_B[!] and \
@@ -2162,17 +2141,6 @@ for isunittri in (true, false), islowertri in (true, false)
     unitstr = isunittri ? "Unit" : ""
     halfstr = islowertri ? "Lower" : "Upper"
     tritype = :(LinearAlgebra.$(Symbol(unitstr, halfstr, "Triangular")))
-
-    # build out-of-place left-division operations
-    # broad method where elements are Numbers
-    @eval function \(A::$tritype{<:TA,<:AbstractMatrix}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
-        TAb = $(isunittri ?
-            :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
-            :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
-        return LinearAlgebra.ldiv!(convert(AbstractArray{TAb}, A), convert(Array{TAb}, b))
-    end
-    # fallback where elements are not Numbers
-    @eval \(A::$tritype, b::AbstractCompressedVector) = LinearAlgebra.ldiv!(A, copy(b))
 
     # faster method requiring good view support of the
     # triangular matrix type. hence the StridedMatrix restriction.
