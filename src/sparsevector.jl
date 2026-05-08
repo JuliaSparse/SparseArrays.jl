@@ -2143,7 +2143,7 @@ for isunittri in (true, false), islowertri in (true, false)
     end
     # fallback where elements are not Numbers
     @eval \(A::$tritype, b::AbstractCompressedVector) = LinearAlgebra.ldiv!(A, copy(b))
-    
+
     # faster method requiring good view support of the
     # triangular matrix type. hence the StridedMatrix restriction.
     for (istrans, applyxform, xformtype, xformop) in (
