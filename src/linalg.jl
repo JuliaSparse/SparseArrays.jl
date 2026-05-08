@@ -16,12 +16,12 @@ const DenseViewWrappers{T,S} = Union{AdjOrTrans{T,S}, HermOrSym{T,S}, UpperOrLow
 const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<:SparseMatrixCSCUnion2}}
 const QuasiStridedMatrix = Union{StridedMatrix, DenseViewWrappers{<:Any,<:StridedMatrix}}
 
-matop(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector, TS) = Vector{TS}(undef, length(b))
-matop(::typeof(*), A, B::QuasiSparseMatrix, TS) = similar(A, TS, (size(A, 1), size(B, 2)))
+matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector, TS) = Vector{TS}(undef, length(b))
+matop_dest(::typeof(*), A, B::QuasiSparseMatrix, TS) = similar(A, TS, (size(A, 1), size(B, 2)))
 # sparse products with banded matrices should return sparse arrays (Diagonal is handled by fallback)
-matop(::typeof(*), ::BiTriSym, B::QuasiSparseMatrix, TS) = similar(B, TS, size(B))
-matop(::typeof(*), ::Diagonal, B::QuasiSparseMatrix, TS) = similar(B, TS, size(B)) # disambiguation with LinearAlgebra
-matop(::typeof(*), A::QuasiSparseMatrix, B::BiTriSym, TS) =
+matop_dest(::typeof(*), ::BiTriSym, B::QuasiSparseMatrix, TS) = similar(B, TS, size(B))
+matop_dest(::typeof(*), ::Diagonal, B::QuasiSparseMatrix, TS) = similar(B, TS, size(B)) # disambiguation with LinearAlgebra
+matop_dest(::typeof(*), A::QuasiSparseMatrix, B::BiTriSym, TS) =
     similar(A, TS, (size(A, 1), size(B, 2)))
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
