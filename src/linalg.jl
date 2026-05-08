@@ -1313,13 +1313,17 @@ end
 # so they should return dense arrays
 const StructuredWithDenseInverse = Union{Bidiagonal,SymTridiagonal,Tridiagonal,LowerTriangular,UpperTriangular,UpperHessenberg}
 
+matop_dest(::typeof(\), A::StructuredWithDenseInverse, b::AbstractSparseVector) =
+    Vector{promote_op(\, eltype(A), eltype(B))}(undef, length(b))
+matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, b::AbstractSparseVector) =
+    Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, length(b))
 matop_dest(::typeof(\), A::StructuredWithDenseInverse, B::QuasiSparseMatrix) =
     Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
-matop_dest(::typeof(\), A::LinearAlgebra.UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
+matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
     Matrix{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, size(B))
 matop_dest(::typeof(/), A::QuasiSparseMatrix, B::StructuredWithDenseInverse) =
     Matrix{promote_op(/, eltype(A), eltype(B))}(undef, size(A))
-matop_dest(::typeof(/), A::QuasiSparseMatrix, B::LinearAlgebra.UnitUpperOrUnitLowerTriangular) =
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B::UnitUpperOrUnitLowerTriangular) =
     Matrix{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, size(A))
 ## end of triangular
 

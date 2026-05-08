@@ -2160,17 +2160,6 @@ for isunittri in (true, false), islowertri in (true, false)
     halfstr = islowertri ? "Lower" : "Upper"
     tritype = :(LinearAlgebra.$(Symbol(unitstr, halfstr, "Triangular")))
 
-    # build out-of-place left-division operations
-    # broad method where elements are Numbers
-    @eval function \(A::$tritype{<:TA,<:AbstractMatrix}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
-        TAb = $(isunittri ?
-            :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
-            :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
-        return LinearAlgebra.ldiv!(convert(AbstractArray{TAb}, A), convert(Array{TAb}, b))
-    end
-    # fallback where elements are not Numbers
-    @eval \(A::$tritype, b::AbstractCompressedVector) = LinearAlgebra.ldiv!(A, copy(b))
-
     # faster method requiring good view support of the
     # triangular matrix type. hence the StridedMatrix restriction.
     for (istrans, applyxform, xformtype, xformop) in (
