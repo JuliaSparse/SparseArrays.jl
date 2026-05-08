@@ -143,8 +143,8 @@ function sparse_check(n::Integer, colptr::Vector{Ti}, rowval, nzval) where Ti
     throwmonotonic(ckp, ck, k) = throw(ArgumentError("$ckp == colptr[$(k-1)] > colptr[$k] == $ck"))
 
     sparse_check_length("colptr", colptr, n+1, String) # don't check upper bound
-    ckp = Ti(1)
-    ckp == colptr[1] || throwstart(ckp)
+    ckp = colptr[1]
+    ckp == Ti(1) || throwstart(ckp)
     @inbounds for k = 2:n+1
         ck = colptr[k]
         ckp <= ck || throwmonotonic(ckp, ck, k)
@@ -312,6 +312,8 @@ Base.@propagate_inbounds nzrange(S::AbstractSparseMatrixCSC, col::Integer) = get
 Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(S.parent, S.indices[2][col])
 nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangeup(S.data, i)
 nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangelo(S.data, i)
+
+indtype(S::SparseMatrixCSCColumnSubset{<:Any,Ti}) where {Ti} = Ti
 
 const AbstractSparseMatrixCSCInclAdjointAndTranspose = Union{AbstractSparseMatrixCSC,Adjoint{<:Any,<:AbstractSparseMatrixCSC},Transpose{<:Any,<:AbstractSparseMatrixCSC}}
 function Base.isstored(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)

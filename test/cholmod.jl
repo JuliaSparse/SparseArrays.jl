@@ -794,6 +794,7 @@ end
     A = cholesky(sparse(Diagonal(x.\1)))
     @test A\view(fill(1.,10),1:2:10) ≈ x
     @test A\view(Matrix(1.0I, 5, 5), :, :) ≈ Matrix(Diagonal(x))
+    @test A\view(Matrix(1.0I, 6, 5), 1:5, :) ≈ Matrix(Diagonal(x))
 end
 
 @testset "Test \\ for Factor and SparseVecOrMat" begin
@@ -804,6 +805,14 @@ end
     @test chI \ sparseb ≈ sparseb
     @test chI \ sparseB ≈ sparseB
     @test chI \ sparseI ≈ sparseI
+end
+
+@testset "Issue 630" begin
+    sparseI = sparse(1.0I, 1, 1)
+    @test cholesky(sparseI) \ sparse([1.0]) == [1]
+    sparseI = sparse(1.0I, 2, 2)
+    res = cholesky(sparseI) \ spzeros(2)
+    @test isempty(nonzeros(res))
 end
 
 @testset "Real factorization and complex rhs" begin
@@ -853,9 +862,9 @@ end
               Symmetric(Apre + 10I), Hermitian(Apre + 10I),
               Hermitian(complex(Apre)), Hermitian(complex(Apre) + 10I))
         local A, x, b
-        x = fill(1., 10)
+        x = fill(1, 10)
         b = A*x
-        @test x ≈ A\b
+        @test @inferred A\b ≈ x
         @test transpose(A)\b ≈ A'\b
     end
 end

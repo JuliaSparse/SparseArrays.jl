@@ -108,6 +108,16 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     return rnk, _E, _HPinv
 end
 
+struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
+    factors::SparseMatrixCSC{Tv,Ti}
+    τ::Vector{Tv}
+    n::Int # Number of columns in original matrix
+end
+
+Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
+
+Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
+
 # Struct for storing sparse QR from SPQR such that
 # A[invperm(rpivinv), cpiv] = (I - factors[:,1]*τ[1]*factors[:,1]')*...*(I - factors[:,k]*τ[k]*factors[:,k]')*R
 # with k = size(factors, 2).
@@ -115,8 +125,20 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
     R::SparseMatrixCSC{Tv,Ti}
+    Q::QRSparseQ{Tv,Ti}
     cpiv::Vector{Ti}
     rpivinv::Vector{Ti}
+
+    _lock::ReentrantLock
+    _ldiv_workspace::Vector{Tv}   # backing storage for work buffer (resizable)
+end
+
+function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
+    newfactors = convert(SparseMatrixCSC{Tv}, F.factors)
+    newτ = convert(Vector{Tv}, F.τ)
+    newR = convert(SparseMatrixCSC{Tv}, F.R)
+    newQ = QRSparseQ{Tv,Ti}(newfactors, newτ, size(newR, 2))
+    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock(), Tv[])
 end
 
 Base.size(F::QRSparse) = (size(F.factors, 1), size(F.R, 2))
@@ -131,18 +153,6 @@ function Base.size(F::QRSparse, i::Integer)
         throw(ArgumentError("second argument must be positive"))
     end
 end
-Base.axes(F::QRSparse) = map(Base.OneTo, size(F))
-
-struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
-    factors::SparseMatrixCSC{Tv,Ti}
-    τ::Vector{Tv}
-    n::Int # Number of columns in original matrix
-end
-
-Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
-Base.axes(Q::QRSparseQ) = map(Base.OneTo, size(Q))
-
-Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
 
 # From SPQR manual p. 6
 _default_tol(A::AbstractSparseMatrixCSC) =
@@ -156,10 +166,16 @@ are used such that `F.R = F.Q'*A[F.prow,F.pcol]`. The main application of this t
 solve least squares or underdetermined problems with [`\\`](@ref). The function calls the C library SPQR[^ACM933].
 
 !!! note
+    The returned `QRSparse` object uses an internal workspace for
+    [`ldiv!()`](@ref) calls that is protected by a lock for threadsafety. For
+    multithreaded use, create a separate copy of this object for each task with
+    `copy(F)`.
+
+!!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with [`Float64`](@ref) or
-    `ComplexF64` elements, as of Julia v1.4 `qr` converts `A` into a copy that is
-    of type `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
+    As this library only supports sparse matrices with [`Float64`](@ref), `ComplexF64`, `Float32`, or
+    `ComplexF32` elements, calling `qr` on a matrix with a different element type will either convert it to a supported type or
+    raise an error.
 
 # Examples
 ```jldoctest
@@ -205,19 +221,24 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
         R, E, H, HPinv, HTau)
 
     R_ = SparseMatrixCSC{Tv, Ti}(Sparse(R[]))
-    return QRSparse(SparseMatrixCSC{Tv, Ti}(Sparse(H[])),
-                    vec(Array{Tv}(CHOLMOD.Dense(HTau[]))),
-                    SparseMatrixCSC{Tv, Ti}(min(size(A)...),
-                                    size(R_, 2),
-                                    getcolptr(R_),
-                                    rowvals(R_),
-                                    nonzeros(R_)),
-                    p, hpinv)
+    factors = SparseMatrixCSC{Tv, Ti}(Sparse(H[]))
+    τ = vec(Array{Tv}(CHOLMOD.Dense(HTau[])))
+    R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
+                                size(R_, 2),
+                                getcolptr(R_),
+                                rowvals(R_),
+                                nonzeros(R_))
+
+    return QRSparse(factors, τ, R,
+                    QRSparseQ(factors, τ, size(R, 2)),
+                    p, hpinv,
+                    ReentrantLock(),
+                    Tv[])              # _ldiv_workspace (lazily sized on first solve)
 end
 LinearAlgebra.qr(A::SparseMatrixCSC{Float16}; tol=_default_tol(A)) =
-    qr(convert(SparseMatrixCSC{Float32}, A); tol=tol)
+    QRSparse{Float16}(qr(convert(SparseMatrixCSC{Float32}, A); tol=tol))
 LinearAlgebra.qr(A::SparseMatrixCSC{ComplexF16}; tol=_default_tol(A)) =
-    qr(convert(SparseMatrixCSC{ComplexF32}, A); tol=tol)
+    QRSparse{ComplexF16}(qr(convert(SparseMatrixCSC{ComplexF32}, A); tol=tol))
 LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
    tol=_default_tol(A)) where {T<:AbstractFloat} =
     throw(ArgumentError(string("matrix type ", typeof(A), "not supported. ",
@@ -338,9 +359,7 @@ end
 (*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
 
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
-    if d === :Q
-        return QRSparseQ(F.factors, F.τ, size(F, 2))
-    elseif d === :prow
+    if d === :prow
         return invperm(F.rpivinv)
     elseif d === :pcol
         return F.cpiv
@@ -352,6 +371,18 @@ end
 function Base.propertynames(F::QRSparse, private::Bool=false)
     public = (:R, :Q, :prow, :pcol)
     private ? ((public ∪ fieldnames(typeof(F)))...,) : public
+end
+
+"""
+    copy(F::QRSparse)
+
+A shallow copy of QRSparse for use in multithreaded solve applications.
+Shares the factorization data but duplicates the workspace so that
+each copy can be used independently in a different thread.
+"""
+function Base.copy(F::QRSparse)
+    QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv,
+             ReentrantLock(), similar(F._ldiv_workspace))
 end
 
 function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
@@ -406,49 +437,29 @@ function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.Bla
     return collect(reshape(reinterpret(Complex{T}, copy(transpose(reshape(x, (length(x) >> 1), 2)))), _ret_size(F, B)))
 end
 
-function _ldiv_basic(F::QRSparse, B::StridedVecOrMat)
-    if size(F, 1) != size(B, 1)
-        throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
+function _get_ldiv_workspace(F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
+    m, n = size(F)
+    k = ndims(B) == 1 ? 1 : size(B, 2)
+    wrows = max(m, n)
+
+    # Resize backing vector if needed
+    wlen = wrows * k
+    if length(F._ldiv_workspace) != wlen
+        resize!(F._ldiv_workspace, wlen)
     end
 
-    # The rank of F equal might be reduced
-    rnk = rank(F)
-
-    # allocate an array for the return value large enough to hold B and X
-    # For overdetermined problem, B is larger than X and vice versa
-    X   = similar(B, ntuple(i -> i == 1 ? max(size(F, 2), size(B, 1)) : size(B, 2), Val(ndims(B))))
-
-    # Fill will zeros. These will eventually become the zeros in the basic solution
-    # fill!(X, 0)
-    # Apply left permutation to the solution and store in X
-    for j in axes(B, 2)
-        for i in 1:length(F.rpivinv)
-            @inbounds X[F.rpivinv[i], j] = B[i, j]
-        end
-    end
-
-    # Make a view into X corresponding to the size of B
-    X0 = view(X, axes(B, 1), :)
-
-    # Apply Q' to B
-    lmul!(adjoint(F.Q), X0)
-
-    # Zero out to get basic solution
-    X[rnk + 1:end, :] .= 0
-
-    # Solve R*X = B
-    ldiv!(UpperTriangular(F.R[Base.OneTo(rnk), Base.OneTo(rnk)]),
-                        view(X0, Base.OneTo(rnk), :))
-
-    # Apply right permutation and extract solution from X
-    # NB: cpiv == [] if SPQR was called with ORDERING_FIXED
-    if length(F.cpiv) == 0
-      return getindex(X, ntuple(i -> i == 1 ? (1:size(F,2)) : :, Val(ndims(B)))...)
-    end
-    return getindex(X, ntuple(i -> i == 1 ? invperm(F.cpiv) : :, Val(ndims(B)))...)
+    # Reshape into matrix. Note that we use ReshapedArray here instead of
+    # reshape() to avoid allocations later when taking a view.
+    W = Base.ReshapedArray(F._ldiv_workspace, (wrows, k), ())
+    return W
 end
 
-(\)(F::QRSparse{T}, B::StridedVecOrMat{T}) where {T} = _ldiv_basic(F, B)
+function (\)(F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    X = similar(B, ntuple(i -> i == 1 ? size(F, 2) : size(B, 2), Val(ndims(B))))
+    # Note that we copy F here for thread-safety
+    return ldiv!(X, copy(F), B)
+end
+
 """
     (\\)(F::QRSparse, B::StridedVecOrMat)
 
@@ -472,5 +483,77 @@ julia> qr(A)\\fill(1.0, 4)
 ```
 """
 (\)(F::QRSparse, B::StridedVecOrMat) = F\convert(AbstractArray{eltype(F)}, B)
+
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    if size(F, 1) != size(B, 1)
+        throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
+    end
+    if size(F, 2) != size(X, 1)
+        throw(DimensionMismatch("size(F) = $(size(F)) but size(X) = $(size(X))"))
+    end
+    if ndims(B) > 1 && size(X, 2) != size(B, 2)
+        throw(DimensionMismatch("size(X) = $(size(X)) but size(B) = $(size(B))"))
+    end
+
+    rnk = rank(F)
+    m = size(F, 1)
+    n = size(F, 2)
+
+    @lock F._lock begin
+        W = _get_ldiv_workspace(F, B)
+
+        # Apply left permutation to B and store in W
+        for j in axes(B, 2)
+            for i in 1:length(F.rpivinv)
+                @inbounds W[F.rpivinv[i], j] = B[i, j]
+            end
+        end
+
+        # Make a view into W corresponding to the size of B
+        W0 = @view W[Base.OneTo(m), :]
+
+        # Apply Q' to permuted B
+        lmul!(adjoint(F.Q), W0)
+
+        # Solve R*X = Q'*P*B
+        #
+        # We call generic_trimatdiv! directly instead of going through
+        # ldiv!(UpperTriangular(R_sub), ...) for two reasons:
+        # 1. UpperTriangular requires a square matrix, but F.R is m×n
+        #    so we can only take a column view R[:, 1:rnk] (which is
+        #    m×rnk, not square). A row+column view R[1:rnk, 1:rnk]
+        #    would be square but doesn't match SparseMatrixCSCView,
+        #    causing dispatch to a slow generic fallback.
+        # 2. generic_trimatdiv! is what UpperTriangular ldiv! dispatches
+        #    to anyway — calling it directly with uploc='U', isunitc='N',
+        #    tfun=identity is equivalent. The back-substitution loop
+        #    iterates over axes(B,1) = 1:rnk and searchsortedlast
+        #    excludes entries with row > j, so the extra rows in the
+        #    column view are never accessed.
+        W_rnk = @view(W0[Base.OneTo(rnk), :])
+        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', identity,
+                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
+
+        # Apply right permutation: scatter solved rows into X using cpiv directly.
+        # Zero X first so free variables (beyond rank) are zero in the basic solution.
+        # NB: cpiv == [] if SPQR was called with ORDERING_FIXED
+        fill!(X, zero(T))
+        if length(F.cpiv) == 0
+            for j in axes(W, 2)
+                for i in 1:rnk
+                    @inbounds X[i, j] = W[i, j]
+                end
+            end
+        else
+            for j in axes(W, 2)
+                for i in 1:rnk
+                    @inbounds X[F.cpiv[i], j] = W[i, j]
+                end
+            end
+        end
+    end
+
+    return X
+end
 
 end # module
