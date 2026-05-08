@@ -2123,15 +2123,6 @@ function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x:
     return @if_move_fixed A x SparseVector(n, ynzind, ynzval)
 end
 
-matop_dest(::typeof(\), A::Union{UpperTriangular,LowerTriangular}, b::AbstractSparseVector) =
-    Vector{promote_op(\, eltype(A), eltype(B))}(undef, length(b))
-matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, b::AbstractSparseVector) =
-    Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, length(b))
-
-matop_dest(::typeof(/), b::AbstractSparseVector, B::Union{UpperTriangular,LowerTriangular}) =
-    Vector{promote_op(\, eltype(A), eltype(B))}(undef, length(b))
-matop_dest(::typeof(/), b::AbstractSparseVector, B::UnitUpperOrUnitLowerTriangular) =
-    Vector{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, length(b))
 
 # define matrix division operations involving triangular matrices and sparse vectors
 # the valid left-division operations are A[t|c]_ldiv_B[!] and \
@@ -2142,6 +2133,17 @@ for isunittri in (true, false), islowertri in (true, false)
     halfstr = islowertri ? "Lower" : "Upper"
     tritype = :(LinearAlgebra.$(Symbol(unitstr, halfstr, "Triangular")))
 
+    # build out-of-place left-division operations
+    # broad method where elements are Numbers
+    @eval function \(A::$tritype{<:TA,<:AbstractMatrix}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
+        TAb = $(isunittri ?
+            :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
+            :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
+        return LinearAlgebra.ldiv!(convert(AbstractArray{TAb}, A), convert(Array{TAb}, b))
+    end
+    # fallback where elements are not Numbers
+    @eval \(A::$tritype, b::AbstractCompressedVector) = LinearAlgebra.ldiv!(A, copy(b))
+    
     # faster method requiring good view support of the
     # triangular matrix type. hence the StridedMatrix restriction.
     for (istrans, applyxform, xformtype, xformop) in (
