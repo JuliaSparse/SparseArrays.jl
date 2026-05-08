@@ -1313,13 +1313,13 @@ end
 # so they should return dense arrays
 const StructuredWithDenseInverse = Union{Bidiagonal,SymTridiagonal,Tridiagonal,LowerTriangular,UpperTriangular,UpperHessenberg}
 
-matldiv_dest(A::StructuredWithDenseInverse, B::QuasiSparseMatrix) =
+matop_dest(::typeof(\), A::StructuredWithDenseInverse, B::QuasiSparseMatrix) =
     Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
-matldiv_dest(A::LinearAlgebra.UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
+matop_dest(::typeof(\), A::LinearAlgebra.UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
     Matrix{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, size(B))
-matrdiv_dest(A::QuasiSparseMatrix, B::StructuredWithDenseInverse) =
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B::StructuredWithDenseInverse) =
     Matrix{promote_op(/, eltype(A), eltype(B))}(undef, size(A))
-matrdiv_dest(A::QuasiSparseMatrix, B::LinearAlgebra.UnitUpperOrUnitLowerTriangular) =
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B::LinearAlgebra.UnitUpperOrUnitLowerTriangular) =
     Matrix{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, size(A))
 ## end of triangular
 
