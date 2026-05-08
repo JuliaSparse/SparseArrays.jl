@@ -819,7 +819,7 @@ get_perm(FC::FactorComponent) = get_perm(Factor(FC))
 # Conversion/construction
 
 function Dense{T}(A::StridedVecOrMatInclAdjAndTrans) where T<:VTypes
-    d = allocate_dense(size(A, 1), size(A, 2), A isa StridedVecOrMat ? stride(A, 2) : size(A, 1), T)
+    d = allocate_dense(size(A, 1), size(A, 2), size(A, 1), T)
     D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(pointer(d)).x), size(A), own = false)
     copyto!(D, A)
     return d
@@ -990,7 +990,7 @@ function Sparse(A::SparseMatrixCSC{<:Union{ComplexF16, ComplexF32}}, stype::Inte
 end
 
 # convert SparseVectors into CHOLMOD Sparse types through a mx1 CSC matrix
-Sparse(A::SparseVector) = Sparse(SparseMatrixCSC(A))
+Sparse(A::SparseVector) = Sparse(SparseMatrixCSC(A), 0)
 function Sparse{Tv, Ti}(A::SparseMatrixCSC) where {Tv<:VTypes, Ti<:ITypes}
     o = Sparse{Tv, Ti}(A, 0)
     # check if array is symmetric and change stype if it is
@@ -1135,6 +1135,7 @@ function SparseVector{Tv, Ti}(A::Sparse{Tv, Ti}) where {Tv, Ti<:ITypes}
     end
     args = _extract_args(s, Tv)
     s.sorted == 0 && _sort_buffers!(args...);
+    _trim_nz_builder!(args...)
     return SparseVector(args[1], args[4], args[5])
 end
 

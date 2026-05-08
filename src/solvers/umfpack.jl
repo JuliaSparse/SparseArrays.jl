@@ -471,7 +471,8 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
     return lu!(F; reuse_symbolic, check, q)
 end
 
-function lu!(F::UmfpackLU; check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
+function lu!(F::UmfpackLU{Tv, Ti}; check::Bool=true, reuse_symbolic::Bool=true,
+  q=nothing) where {Tv, Ti}
     if !reuse_symbolic && _isnotnull(F.symbolic)
         F.symbolic = Symbolic{Tv, Ti}(C_NULL)
     end

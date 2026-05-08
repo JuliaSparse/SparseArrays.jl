@@ -19,7 +19,7 @@ import Base: Matrix, Vector
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
     issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded, isdiag,
     cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu,
-    matop_dest, generic_matvecmul!, generic_matmatmul!, generic_matmatmul_wrapper!, copytrito!
+    matop_dest, generic_matvecmul!, generic_matmatmul!, generic_matmatmul_wrapper!, copytrito!, nonzeroinds
 
 import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Complex,
     conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin,
@@ -87,7 +87,7 @@ if Base.USE_GPL_LIBS
     include("solvers/spqr.jl")
 end
 
-zero(a::AbstractSparseArray) = spzeros(eltype(a), size(a)...)
+zero(a::AbstractSparseArray{Tv,Ti}) where {Tv,Ti} = spzeros(Tv, Ti, size(a)...)
 
 LinearAlgebra.diagzero(D::Diagonal{<:AbstractSparseMatrix{T}},i,j) where {T} =
     spzeros(T, size(D.diag[i], 1), size(D.diag[j], 2))
