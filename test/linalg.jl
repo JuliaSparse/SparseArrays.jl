@@ -138,10 +138,10 @@ end
                     SymTridiagonal(ones(5), ones(4)))
             M = St*T
             @test M ≈ Matrix(St) * Matrix(T)
-            @test M isa SparseMatrixCSC
+            @test issparse(M)
             N = T*St
             @test N ≈ Matrix(T) * Matrix(St)
-            @test N isa SparseMatrixCSC
+            @test issparse(N)
         end
     end
 end
