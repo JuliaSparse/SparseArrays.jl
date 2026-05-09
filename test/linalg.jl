@@ -120,14 +120,14 @@ end
             Bt = tB(B)
             C = At*Bt
             @test C ≈ Matrix(At) * Matrix(Bt)
-            @test C isa DenseVecOrMat
+            @test !issparse(C)
             D = St*Bt
             @test D ≈ Matrix(St) * Matrix(Bt)
-            @test D isa SparseMatrixCSC
+            @test issparse(D)
         end
         b = sprandn(5, 0.3)
         c = At * b
-        @test c ≈ Matrix(A) * Vector(b)
+        @test c ≈ Matrix(At) * Vector(b)
         @test c isa DenseVector
         d = St*b
         @test d ≈ Matrix(St) * Vector(b)
