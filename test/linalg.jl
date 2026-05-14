@@ -110,12 +110,13 @@ end
 end
 
 @testset "destination array density in multiplication" begin
-    for tA in (adjoint, transpose, Hermitian, Symmetric, UpperTriangular, UpperHessenberg)
+    wrappers = (adjoint, transpose, Hermitian, Symmetric, UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperHessenberg)
+    for tA in wrappers
         A = randn(5,5)
         At = tA(A)
         S = sprandn(5,5,0.3)
         St = tA(S)
-        for tB in (adjoint, transpose, Hermitian, Symmetric, UpperTriangular, UpperHessenberg)
+        for tB in wrappers
             B = sprandn(5,5, 0.3)
             Bt = tB(B)
             C = At*Bt
