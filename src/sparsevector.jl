@@ -1880,16 +1880,6 @@ _fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
 _fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
 _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 
-function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) where {Ta,Tx}
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x)
-end
-
 # TODO: remove
 Base.@constprop :aggressive generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                             _add::MulAddMul = MulAddMul()) =
@@ -1976,26 +1966,6 @@ function _At_or_Ac_mul_B!(tfun::Function,
     end
     return
 end
-
-function *(A::AdjOrTrans{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
-end
-function *(A::LinearAlgebra.HermOrSym{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
-end
-
 
 ### BLAS-2 / sparse A * sparse x -> dense y
 

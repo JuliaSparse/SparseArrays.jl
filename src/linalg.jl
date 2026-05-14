@@ -42,27 +42,27 @@ end
 const tilebufsize = 10800  # Approximately 32k/3
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
+const BiTriSym = Union{Bidiagonal,Tridiagonal,SymTridiagonal}
 const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
 const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
+const DenseViewWrappers{T,S} = Union{AdjOrTrans{T,S}, HermOrSym{T,S}, UpperOrLowerTriangular{T,S}, UpperHessenberg{T,S}}
+const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<:SparseMatrixCSCUnion2}}
+const QuasiStridedMatrix = Union{StridedMatrix, DenseViewWrappers{<:Any,<:StridedMatrix}}
 
-matprod_dest(A::SparseMatrixCSCUnion2, B::DenseTriangular, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, B::DenseTriangular, TS) =
-    similar(B, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCUnion2, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::SparseMatrixCSCUnion2, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::DenseTriangular, B::SparseMatrixCSCUnion2, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::StridedMaybeAdjOrTransMat, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::Union{BitMatrix,AdjOrTrans{<:Any,BitMatrix}}, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
-matprod_dest(A::DenseTriangular, B::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion2}, TS) =
-    similar(A, TS, (size(A, 1), size(B, 2)))
+matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
+    Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
+matop_dest(::typeof(*), A, B::QuasiSparseMatrix) =
+    similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
+# sparse products with banded matrices should return sparse arrays (Diagonal is handled by fallback)
+matop_dest(::typeof(*), A::BiTriSym, B::QuasiSparseMatrix) =
+    similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
+# needed for disambiguation with LinearAlgebra
+matop_dest(::typeof(*), A::Diagonal, B::QuasiSparseMatrix) =
+    similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
+matop_dest(::typeof(*), A::QuasiSparseMatrix, B::BiTriSym) =
+    similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
 
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
     @eval begin

@@ -109,6 +109,44 @@ end
     end
 end
 
+@testset "destination array density in multiplication" begin
+    wrappers = (adjoint, transpose, Hermitian, Symmetric, UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperHessenberg)
+    for tA in wrappers
+        A = randn(5,5)
+        At = tA(A)
+        S = sprandn(5,5,0.3)
+        St = tA(S)
+        for tB in wrappers
+            B = sprandn(5,5, 0.3)
+            Bt = tB(B)
+            C = At*Bt
+            @test C ≈ Matrix(At) * Matrix(Bt)
+            @test !issparse(C)
+            D = St*Bt
+            @test D ≈ Matrix(St) * Matrix(Bt)
+            @test issparse(D)
+        end
+        b = sprandn(5, 0.3)
+        c = At * b
+        @test c ≈ Matrix(At) * Vector(b)
+        @test c isa DenseVector
+        d = St*b
+        @test d ≈ Matrix(St) * Vector(b)
+        @test d isa SparseVector
+        for T in (Diagonal(randn(5)),
+                    Bidiagonal(ones(5), ones(4), :U),
+                    Tridiagonal(ones(4), ones(5), ones(4)),
+                    SymTridiagonal(ones(5), ones(4)))
+            M = St*T
+            @test M ≈ Matrix(St) * Matrix(T)
+            @test issparse(M)
+            N = T*St
+            @test N ≈ Matrix(T) * Matrix(St)
+            @test issparse(N)
+        end
+    end
+end
+
 @testset "multiplication of special sparse with dense matrix" begin
     # this results in a call of the most generic multiplication code in LinearAlgebra.jl
     A = randn(2, 2)
