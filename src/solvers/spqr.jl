@@ -115,7 +115,6 @@ struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
 end
 
 Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
-Base.axes(Q::QRSparseQ) = map(Base.OneTo, size(Q))
 
 Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
 
@@ -154,7 +153,6 @@ function Base.size(F::QRSparse, i::Integer)
         throw(ArgumentError("second argument must be positive"))
     end
 end
-Base.axes(F::QRSparse) = map(Base.OneTo, size(F))
 
 # From SPQR manual p. 6
 _default_tol(A::AbstractSparseMatrixCSC) =
@@ -518,8 +516,23 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
         lmul!(adjoint(F.Q), W0)
 
         # Solve R*X = Q'*P*B
-        ldiv!(UpperTriangular(@view(F.R[Base.OneTo(rnk), Base.OneTo(rnk)])),
-              @view(W0[Base.OneTo(rnk), :]))
+        #
+        # We call generic_trimatdiv! directly instead of going through
+        # ldiv!(UpperTriangular(R_sub), ...) for two reasons:
+        # 1. UpperTriangular requires a square matrix, but F.R is m×n
+        #    so we can only take a column view R[:, 1:rnk] (which is
+        #    m×rnk, not square). A row+column view R[1:rnk, 1:rnk]
+        #    would be square but doesn't match SparseMatrixCSCView,
+        #    causing dispatch to a slow generic fallback.
+        # 2. generic_trimatdiv! is what UpperTriangular ldiv! dispatches
+        #    to anyway — calling it directly with uploc='U', isunitc='N',
+        #    tfun=identity is equivalent. The back-substitution loop
+        #    iterates over axes(B,1) = 1:rnk and searchsortedlast
+        #    excludes entries with row > j, so the extra rows in the
+        #    column view are never accessed.
+        W_rnk = @view(W0[Base.OneTo(rnk), :])
+        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', identity,
+                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
 
         # Apply right permutation: scatter solved rows into X using cpiv directly.
         # Zero X first so free variables (beyond rank) are zero in the basic solution.

@@ -1880,16 +1880,6 @@ _fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
 _fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
 _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 
-function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) where {Ta,Tx}
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x)
-end
-
 # TODO: remove
 Base.@constprop :aggressive generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                             _add::MulAddMul = MulAddMul()) =
@@ -1930,9 +1920,9 @@ function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, 
         "Matrix A has $n columns, but vector x has a length $(length(x))"))
     length(y) == m || throw(DimensionMismatch(
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
-    m == 0 && return y
+    m == 0 && return
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    _iszero(α) && return y
+    _iszero(α) && return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -1946,7 +1936,6 @@ function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, 
             end
         end
     end
-    return y
 end
 
 function _At_or_Ac_mul_B!(tfun::Function,
@@ -1958,14 +1947,14 @@ function _At_or_Ac_mul_B!(tfun::Function,
         "Matrix A has $n rows, but vector x has a length $(length(x))"))
     length(y) == m || throw(DimensionMismatch(
         "Matrix A has $m columns, but vector y has a length $(length(y))"))
-    m == 0 && return y
+    m == 0 && return
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    _iszero(α) && return y
+    _iszero(α) && return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
     _nnz = length(xnzind)
-    _nnz == 0 && return y
+    _nnz == 0 && return
 
     Ty = promote_op(matprod, eltype(A), eltype(x))
     @inbounds for j = 1:m
@@ -1975,28 +1964,8 @@ function _At_or_Ac_mul_B!(tfun::Function,
         end
         y[j] += s * α
     end
-    return y
+    return
 end
-
-function *(A::AdjOrTrans{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
-end
-function *(A::LinearAlgebra.HermOrSym{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
-end
-
 
 ### BLAS-2 / sparse A * sparse x -> dense y
 
@@ -2041,7 +2010,7 @@ Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A
     elseif tA == 'C'
         _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, A, x, alpha, beta)
     else
-        @stable_muladdmul LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, MulAddMul(alpha, beta))
+        LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, alpha, beta)
     end
     return y
 end
@@ -2053,9 +2022,9 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
         "Matrix A has $n columns, but vector x has a length $(length(x))"))
     length(y) == m || throw(DimensionMismatch(
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
-    m == 0 && return y
+    m == 0 && return
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    _iszero(α) && return y
+    _iszero(α) && return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -2073,7 +2042,6 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
             end
         end
     end
-    return y
 end
 
 function _At_or_Ac_mul_B!(tfun::Function,
@@ -2085,9 +2053,9 @@ function _At_or_Ac_mul_B!(tfun::Function,
         "Matrix A has $n columns, but vector x has a length $(length(x))"))
     length(y) == n || throw(DimensionMismatch(
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
-    n == 0 && return y
+    n == 0 && return
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    _iszero(α) && return y
+    _iszero(α) && return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -2102,7 +2070,6 @@ function _At_or_Ac_mul_B!(tfun::Function,
                    1, mx, xnzind, xnzval)
         @inbounds y[j] += s * α
     end
-    return y
 end
 
 

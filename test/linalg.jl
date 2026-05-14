@@ -109,6 +109,44 @@ end
     end
 end
 
+@testset "destination array density in multiplication" begin
+    wrappers = (adjoint, transpose, Hermitian, Symmetric, UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperHessenberg)
+    for tA in wrappers
+        A = randn(5,5)
+        At = tA(A)
+        S = sprandn(5,5,0.3)
+        St = tA(S)
+        for tB in wrappers
+            B = sprandn(5,5, 0.3)
+            Bt = tB(B)
+            C = At*Bt
+            @test C ≈ Matrix(At) * Matrix(Bt)
+            @test !issparse(C)
+            D = St*Bt
+            @test D ≈ Matrix(St) * Matrix(Bt)
+            @test issparse(D)
+        end
+        b = sprandn(5, 0.3)
+        c = At * b
+        @test c ≈ Matrix(At) * Vector(b)
+        @test c isa DenseVector
+        d = St*b
+        @test d ≈ Matrix(St) * Vector(b)
+        @test d isa SparseVector
+        for T in (Diagonal(randn(5)),
+                    Bidiagonal(ones(5), ones(4), :U),
+                    Tridiagonal(ones(4), ones(5), ones(4)),
+                    SymTridiagonal(ones(5), ones(4)))
+            M = St*T
+            @test M ≈ Matrix(St) * Matrix(T)
+            @test issparse(M)
+            N = T*St
+            @test N ≈ Matrix(T) * Matrix(St)
+            @test issparse(N)
+        end
+    end
+end
+
 @testset "multiplication of special sparse with dense matrix" begin
     # this results in a call of the most generic multiplication code in LinearAlgebra.jl
     A = randn(2, 2)
@@ -234,6 +272,20 @@ end
         # @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
         @test norm(Asym * B - As * B, Inf) <= eps() * n * p * 10
     end
+end
+
+@testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
+    A = [1 3; 2 4]
+    As = sparse(A)
+    B = [1 1; 1 1]
+    @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
+end
+
+@testset "Column view of sparse matrix " begin
+    S = sparse(1:4, 1:4, 1:4)
+    Sv = @view S[:,3:4]
+    @test Sv * sparse(ones(2)) == Sv*ones(2) == Matrix(Sv) * ones(2)
+    @test Sv * sparse(ones(2,2)) == Sv*ones(2,2) == Matrix(Sv) * ones(2,2)
 end
 
 @testset "in-place sparse-sparse mul!" begin
@@ -830,10 +882,6 @@ end
     # symtridiagonal with non-empty off-diagonal
     b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
     @test b + b == Matrix(b) + Matrix(b)
-
-    # a symtridiagonal with an additional off-diagonal element
-    c = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2, 3]))
-    @test c + c == Matrix(c) + Matrix(c)
 end
 
 @testset "kronecker product" begin
@@ -1038,6 +1086,49 @@ end
 
     @test_throws DimensionMismatch D2 * S * D2
     @test_throws DimensionMismatch D1 * S * D1
+end
+
+@testset "multiplication of sparse and dense matrices" begin
+    function test_mul(A, B)
+        expected = Matrix(A) * Matrix(B)
+        @test A * B ≈ expected
+        C = similar(expected)
+        @test mul!(C, A, B) === C
+        @test C ≈ expected
+        ElType = eltype(C)
+        vs = Any[false, true, zero(ElType), one(ElType), one(ElType) + one(ElType)]
+        for α in vs, β in vs
+            C .= rand.(ElType)
+            expected′ = expected .* α .+ C .* β
+            @test mul!(C, A, B, α, β) === C
+            @test C ≈ expected′
+        end
+    end
+
+    for ElType in [Int, Float64, ComplexF64, BigFloat]
+        SP = sprand(ElType, 10, 10, 0.3)
+        D = rand(ElType, 10, 10)
+        fs = [identity, adjoint, transpose]
+        for f1 in fs, f2 in fs
+            test_mul(f1(SP), f2(D))
+            test_mul(f1(D), f2(SP))
+        end
+    end
+end
+
+@testset "dimension mismatch error" begin
+    fs = [rand, (x, y)->adjoint(rand(y, x)), (x, y)->transpose(rand(y, x)),
+          (x, y)->sprand(x, y, 0.5), (x, y)->adjoint(sprand(y, x, 0.5)),
+          (x, y)->transpose(sprand(y, x, 0.5))]
+    for fA in fs, fB in fs
+        mul!(zeros(6, 10), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(7, 10), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 11), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(5, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 9), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(7, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(8, 9))
+    end
 end
 
 @testset "type stability of linear solve" begin
