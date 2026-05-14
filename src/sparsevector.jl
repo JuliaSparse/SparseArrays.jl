@@ -1682,6 +1682,7 @@ Base._all(f, A::SparseVectorUnion, ::Colon) =
     iszero(length(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
 function Base.mapreducedim!(f, op, R::AbstractVector, A::SparseVectorUnion)
+    isempty(A) && return R
     # dim1 reduction could be safely replaced with a mapreduce
     if length(R) == 1
         I = firstindex(R)
