@@ -1230,7 +1230,7 @@ function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, 
     @inbounds for col in axes(A,2)
         ycol = y[col]
         xcol = x[col]
-        if _isnotzero(ycol) && _isnotzero(xcol)
+        if _isnotzero(ycol) || _isnotzero(xcol)
             for k in rangefun(A, col)
                 i = rvals[k]
                 Aij = nzvals[k]
