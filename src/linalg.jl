@@ -1314,9 +1314,9 @@ end
 const StructuredWithDenseInverse = Union{Bidiagonal,SymTridiagonal,Tridiagonal,LowerTriangular,UpperTriangular,UpperHessenberg}
 
 matop_dest(::typeof(\), A::StructuredWithDenseInverse, b::AbstractSparseVector) =
-    Vector{promote_op(\, eltype(A), eltype(B))}(undef, length(b))
+    Vector{promote_op(\, eltype(A), eltype(b))}(undef, length(b))
 matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, b::AbstractSparseVector) =
-    Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, length(b))
+    Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(b))}(undef, length(b))
 matop_dest(::typeof(\), A::StructuredWithDenseInverse, B::QuasiSparseMatrix) =
     Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
 matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
