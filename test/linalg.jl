@@ -157,7 +157,8 @@ end
                 UnitLowerTriangular,
                 UpperTriangular,
                 UnitUpperTriangular,
-                UpperHessenberg
+                # UpperHessenberg,
+                a -> UpperHessenberg(float(a))
                 )
     for T in wrappers
         A = T(O)
@@ -165,17 +166,17 @@ end
         bd = Array(bs)
         x = A \ bs
         @test x ≈ A \ bd
-        @test !issparse(x) broken=(T in (SymTridiagonal, UpperHessenberg))
+        @test !issparse(x)
         Bs = sprandn(10, 3, 0.2)
         Bd = Matrix(Bs)
         X = A \ Bs
         @test X ≈ A \ Bd
-        @test !issparse(X) broken=(T in (SymTridiagonal, UpperHessenberg))
+        @test !issparse(X)
         Cs = copy(Bs')
         Cd = Matrix(Cs)
         Y = Cs / A
         @test Y ≈ Cd / A
-        @test !issparse(Y) broken=(T in (SymTridiagonal, UpperHessenberg))
+        @test !issparse(Y)
     end
     b, B = ones(Int, 10), ones(Int, 10, 10)
     for T in (UnitLowerTriangular, UnitUpperTriangular)
