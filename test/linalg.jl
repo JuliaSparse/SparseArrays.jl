@@ -925,21 +925,34 @@ end
 end
 
 @testset "generalized dot product" begin
-    for i = 1:5
-        A = sprand(ComplexF64, 10, 15, 0.4)
-        Av = view(A, :, :)
-        x = sprand(ComplexF64, 10, 0.5)
-        y = sprand(ComplexF64, 15, 0.5)
+    A = sprand(ComplexF64, 10, 15, 1.0)
+    A15 = sprand(ComplexF64, 15, 15, 1.0)
+    Av = view(A, :, :)
+    vx = sprand(ComplexF64, 10, 0.5)
+    vy = sprand(ComplexF64, 15, 0.5)
+    vy2 = sprand(ComplexF64, 15, 0.5)
+    for (x, y, y2) in ((vx, vy, vy2), (Vector(vx), Vector(vy), Vector(vy2)))
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
+        @test dot(x, collect(A), y) ≈ dot(x, A, y)
+        @test dot(y, collect(A)', x) ≈ dot(y, A', x)
+        @test dot(y, transpose(collect(A)), x) ≈ dot(y, transpose(A), x)
+        @test dot(y, Hermitian(collect(A15)), y2) ≈ dot(y, Hermitian(A15), y2)
+        @test dot(y, Symmetric(collect(A15)), y2) ≈ dot(y, Symmetric(A15), y2)
+        B = BitMatrix(rand(Bool, 10, 15))
+        @test dot(x, A, y) ≈ dot(x, Matrix(A), y)
+        @test_throws DimensionMismatch dot([x, x], A, y)
+        @test_throws DimensionMismatch dot(x, A, [y, y])
+        @test iszero(dot(spzeros(length(x)), A, y))
     end
 
     for (T, trans) in ((Float64, Symmetric), (ComplexF64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)
-        S = trans(B'B, uplo)
-        Sd = trans(Matrix(B'B), uplo)
-        @test dot(x, S, x) ≈ dot(x, Sd, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Sd, Vector(x))
+        xd = Vector(x)
+        S = trans(B, uplo)
+        Sd = trans(Matrix(B), uplo)
+        @test dot(x, S, x) ≈ dot(x, Sd, x) ≈ dot(xd, S, xd) ≈ dot(xd, Sd, xd)
     end
 end
 
@@ -999,6 +1012,49 @@ end
 
     @test_throws DimensionMismatch D2 * S * D2
     @test_throws DimensionMismatch D1 * S * D1
+end
+
+@testset "multiplication of sparse and dense matrices" begin
+    function test_mul(A, B)
+        expected = Matrix(A) * Matrix(B)
+        @test A * B ≈ expected
+        C = similar(expected)
+        @test mul!(C, A, B) === C
+        @test C ≈ expected
+        ElType = eltype(C)
+        vs = Any[false, true, zero(ElType), one(ElType), one(ElType) + one(ElType)]
+        for α in vs, β in vs
+            C .= rand.(ElType)
+            expected′ = expected .* α .+ C .* β
+            @test mul!(C, A, B, α, β) === C
+            @test C ≈ expected′
+        end
+    end
+
+    for ElType in [Int, Float64, ComplexF64, BigFloat]
+        SP = sprand(ElType, 10, 10, 0.3)
+        D = rand(ElType, 10, 10)
+        fs = [identity, adjoint, transpose]
+        for f1 in fs, f2 in fs
+            test_mul(f1(SP), f2(D))
+            test_mul(f1(D), f2(SP))
+        end
+    end
+end
+
+@testset "dimension mismatch error" begin
+    fs = [rand, (x, y)->adjoint(rand(y, x)), (x, y)->transpose(rand(y, x)),
+          (x, y)->sprand(x, y, 0.5), (x, y)->adjoint(sprand(y, x, 0.5)),
+          (x, y)->transpose(sprand(y, x, 0.5))]
+    for fA in fs, fB in fs
+        mul!(zeros(6, 10), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(7, 10), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 11), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(5, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 9), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(7, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(8, 9))
+    end
 end
 
 end
