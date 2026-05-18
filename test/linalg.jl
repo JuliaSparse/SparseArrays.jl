@@ -151,13 +151,13 @@ end
     O = diagm(-1 => fill(-1, 9), 0 => fill(2, 10), 1 => fill(-1, 9))
     wrappers = (a -> Bidiagonal(a, :U),
                 a -> Bidiagonal(a, :L),
-                # SymTridiagonal,
+                SymTridiagonal,
                 Tridiagonal,
                 LowerTriangular,
                 UnitLowerTriangular,
                 UpperTriangular,
                 UnitUpperTriangular,
-                # UpperHessenberg
+                UpperHessenberg
                 )
     for T in wrappers
         A = T(O)
