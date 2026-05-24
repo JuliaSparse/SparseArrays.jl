@@ -22,6 +22,9 @@ else
 end
 include_dir = joinpath(artifact_dir, "include", "suitesparse") |> normpath
 
+config_h = joinpath(include_dir, "SuiteSparse_config.h")
+@assert isfile(config_h)
+
 cholmod_h = joinpath(include_dir, "cholmod.h")
 @assert isfile(cholmod_h)
 
@@ -42,7 +45,7 @@ options["general"]["output_file_path"] = joinpath(@__DIR__, "..", "src/solvers/w
 args = get_default_args()
 push!(args, "-I$include_dir")
 
-header_files = [cholmod_h, SuiteSparseQR_C_h, umfpack_h]
+header_files = [config_h, cholmod_h, SuiteSparseQR_C_h, umfpack_h]
 
 ctx = create_context(header_files, args, options)
 

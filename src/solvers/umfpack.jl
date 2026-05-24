@@ -471,7 +471,8 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
     return lu!(F; reuse_symbolic, check, q)
 end
 
-function lu!(F::UmfpackLU; check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
+function lu!(F::UmfpackLU{Tv, Ti}; check::Bool=true, reuse_symbolic::Bool=true,
+  q=nothing) where {Tv, Ti}
     if !reuse_symbolic && _isnotnull(F.symbolic)
         F.symbolic = Symbolic{Tv, Ti}(C_NULL)
     end
@@ -1036,6 +1037,7 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
     # the control and info arrays
     _defaults = Symbol(umf_nm("defaults", Tv, Ti))
     @eval function get_umfpack_control(::Type{$Tv}, ::Type{$Ti})
+        LibSuiteSparse.init_suitesparse()
         control = Vector{Float64}(undef, UMFPACK_CONTROL)
         $_defaults(control)
         # Put julia's config here
