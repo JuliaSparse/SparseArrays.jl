@@ -85,7 +85,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        Ti === Int64 ? 
+        Ti === Int64 ?
             cholmod_l_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti)) :
             cholmod_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti))
     end
@@ -100,7 +100,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         # Free memory allocated by SPQR. This call will make sure that the
         # correct deallocator function is called and that the memory count in
         # the common struct is updated
-        Ti === Int64 ? 
+        Ti === Int64 ?
             cholmod_l_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti)) :
             cholmod_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti))
     end
