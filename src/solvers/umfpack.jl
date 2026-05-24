@@ -325,7 +325,7 @@ is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation i
 zero-based copy is made.
 
 The `control` vector defaults to the Julia SparseArrays package's default configuration for UMFPACK (NB: this is modified from the UMFPACK defaults to
-disable iterative refinement), but can be changed by passing a vector of length `UMFPACK_CONTROL`, see the UMFPACK manual for possible configurations. 
+disable iterative refinement), but can be changed by passing a vector of length `UMFPACK_CONTROL`, see the UMFPACK manual for possible configurations.
 For example to reenable iterative refinement:
 
     umfpack_control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int64) # read Julia default configuration for a Float64 sparse matrix
@@ -333,7 +333,7 @@ For example to reenable iterative refinement:
     umfpack_control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0 # reenable iterative refinement (2 is UMFPACK default max iterative refinement steps)
 
     Alu = lu(A; control = umfpack_control)
-    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement  
+    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement
 
 The individual components of the factorization `F` can be accessed by indexing:
 

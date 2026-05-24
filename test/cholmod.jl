@@ -1017,7 +1017,7 @@ end
     end
 
     f = ones(size(K, 1))
-    u = K \ f
+    u = K \ f
     residual = norm(f - K * u) / norm(f)
     @test residual < 1e-6
 end
