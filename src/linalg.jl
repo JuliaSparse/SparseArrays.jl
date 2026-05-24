@@ -1309,18 +1309,24 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::
     C
 end
 
-function (\)(A::Union{UpperTriangular,LowerTriangular}, B::AbstractSparseMatrixCSC)
-    require_one_based_indexing(B)
-    TAB = promote_op(\, eltype(A), eltype(B))
-    ldiv!(Matrix{TAB}(undef, size(B)), A, B)
-end
-function (\)(A::Union{UnitUpperTriangular,UnitLowerTriangular}, B::AbstractSparseMatrixCSC)
-    require_one_based_indexing(B)
-    TAB = LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))
-    ldiv!(Matrix{TAB}(undef, size(B)), A, B)
-end
-# (*)(L::DenseTriangular, B::AbstractSparseMatrixCSC) = lmul!(L, Array(B))
-
+matop_dest(::typeof(\), A, b::AbstractSparseVector) =
+    Vector{promote_op(\, eltype(A), eltype(b))}(undef, length(b))
+matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, b::AbstractSparseVector) =
+    Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(b))}(undef, length(b))
+matop_dest(::typeof(\), A::Diagonal, b::AbstractSparseVector) =
+    similar(b , promote_op(\, eltype(A), eltype(b)))
+matop_dest(::typeof(\), A, B::QuasiSparseMatrix) =
+    Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
+matop_dest(::typeof(\), A::Diagonal, B::QuasiSparseMatrix) =
+    similar(B , promote_op(\, eltype(A), eltype(B)), size(B))
+matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
+    Matrix{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, size(B))
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B) =
+    Matrix{promote_op(/, eltype(A), eltype(B))}(undef, size(A))
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B::UnitUpperOrUnitLowerTriangular) =
+    Matrix{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, size(A))
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B::Diagonal) =
+    similar(A , promote_op(/, eltype(A), eltype(B)), size(A))
 ## end of triangular
 
 # symmetric/Hermitian
