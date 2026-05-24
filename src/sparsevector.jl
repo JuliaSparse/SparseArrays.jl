@@ -1704,7 +1704,7 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
         m == n && return val, index
         nzinds = nonzeroinds(x)
         zeroval = f(zero(T))
-        $comp(val, zeroval) && return val, nzinds[index]
+        ($comp(val, zeroval) || isnan(val)) && return val, nzinds[index]
         # we need to find the first zero, which could be stored or implicit
         # we try to avoid findfirst(iszero, x)
         sindex = findfirst(_iszero, nzvals) # first stored zero, if any
