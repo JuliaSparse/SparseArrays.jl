@@ -4513,7 +4513,7 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
         iidx = searchsortedfirst(@view(rows[rr]), i)
         has_i = iidx <= length(rr) && rows[rr[iidx]] == i
 
-        jrange = has_i ? (iidx:last(rr)) : rr
+        jrange = has_i ? (rr[iidx]:last(rr)) : rr
         jidx = searchsortedlast(@view(rows[jrange]), j)
         has_j = jidx != 0 && rows[jrange[jidx]] == j
 
@@ -4529,16 +4529,16 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
             rows[rr[iidx]] = j
             jidx == 0 && continue
             rotate_range = rr[iidx]:jrange[jidx]
-            circshift!(@view(vals[rotate_range]), 1)
-            circshift!(@view(rows[rotate_range]), 1)
+            circshift!(@view(vals[rotate_range]), -1)
+            circshift!(@view(rows[rotate_range]), -1)
         else
             # Same as i, but in the opposite direction
             @assert has_j
             rows[jrange[jidx]] = i
             iidx > length(rr) && continue
             rotate_range = rr[iidx]:jrange[jidx]
-            circshift!(@view(vals[rotate_range]), -1)
-            circshift!(@view(rows[rotate_range]), -1)
+            circshift!(@view(vals[rotate_range]), 1)
+            circshift!(@view(rows[rotate_range]), 1)
         end
     end
     return nothing
