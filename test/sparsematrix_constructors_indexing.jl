@@ -1426,6 +1426,21 @@ using Base: swaprows!, swapcols!
         f!(Scopy, i, j); f!(Sdense, i, j)
         @test Scopy == Sdense
     end
+
+    for (A, i, j) in (
+            (sparse([1.0  2.0  3.0;
+                     0.0  0.0  0.0;
+                     4.0  5.0  6.0]), 1, 2),
+            (sparse([1.0  0.0  5.0;
+                     0.0  2.0  0.0;
+                     0.0  3.0  6.0;
+                     7.0  4.0  0.0]), 1, 2),
+            (sparse(reshape([1.0, 2.0, 3.0, 4.0, 0.0, 0.0], 6, 1)), 2, 6))
+        Scopy = copy(A)
+        Sdense = Array(A)
+        swaprows!(Scopy, i, j); swaprows!(Sdense, i, j)
+        @test Scopy == Sdense
+    end
 end
 
 @testset "sprandn with type $T" for T in (Float64, Float32, Float16, ComplexF64, ComplexF32, ComplexF16)
