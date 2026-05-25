@@ -1052,6 +1052,11 @@ end
         @test all(!iszero, v)
         @test !any(iszero, v)
     end
+
+    let v = sparse([0, NaN]) #issue #714
+        @test findmin(v) === (NaN, 2)
+        @test findmax(v) === (NaN, 2)
+    end
 end
 
 ### linalg
