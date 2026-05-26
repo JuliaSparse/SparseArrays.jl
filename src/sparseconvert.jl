@@ -280,4 +280,3 @@ function _sparse_gen(m, n, newcolptr, newrowval, newnzval)
     newcolptr[1] = 1
     SparseMatrixCSC(m, n, newcolptr, newrowval, newnzval)
 end
-

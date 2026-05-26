@@ -118,7 +118,7 @@ end
     @test f(x, y, z) == 0
     t = similar(x)
     @test typeof(t) == typeof(x)
-    @test struct_eq(t, x)    
+    @test struct_eq(t, x)
 end
 
 @testset "Issue #190" begin
