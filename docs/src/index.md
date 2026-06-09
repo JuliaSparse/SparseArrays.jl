@@ -85,7 +85,7 @@ struct SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
 end
 ```
 
-As for [`SparseMatrixCSC`](@ref), the `SparseVector` type can also contain explicitly
+Like [`SparseMatrixCSC`](@ref), the `SparseVector` type can also contain explicitly
 stored zeros. (See [Sparse Matrix Storage](@ref man-csc).).
 
 ## Sparse Vector and Matrix Constructors

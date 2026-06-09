@@ -115,7 +115,7 @@ end
 nnz(x::AbstractCompressedVector) = length(nonzeros(x))
 function nnz(x::SparseColumnView)
     rowidx, colidx = parentindices(x)
-    return length(nzrange(parent(x), colidx))
+    return length(@inbounds nzrange(parent(x), colidx))
 end
 nnz(x::SparseVectorView) = nnz(x.parent)
 nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))
@@ -737,11 +737,11 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
     c = 1
     rowB = 1
 
-    @inbounds for col in 1:size(A, 2)
+    @inbounds for col in axes(A,2)
         r1 = colptrA[col]
         r2 = colptrA[col+1]-1
 
-        for row in 1:size(A, 1)
+        for row in axes(A,1)
             if I[row, col]
                 while (r1 <= r2) && (rowvalA[r1] < row)
                     r1 += 1
@@ -1704,7 +1704,7 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
         m == n && return val, index
         nzinds = nonzeroinds(x)
         zeroval = f(zero(T))
-        $comp(val, zeroval) && return val, nzinds[index]
+        ($comp(val, zeroval) || isnan(val)) && return val, nzinds[index]
         # we need to find the first zero, which could be stored or implicit
         # we try to avoid findfirst(iszero, x)
         sindex = findfirst(_iszero, nzvals) # first stored zero, if any
@@ -1880,16 +1880,6 @@ _fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
 _fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
 _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 
-function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) where {Ta,Tx}
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x)
-end
-
 # TODO: remove
 Base.@constprop :aggressive generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                             _add::MulAddMul = MulAddMul()) =
@@ -1930,9 +1920,9 @@ function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, 
         "Matrix A has $n columns, but vector x has a length $(length(x))"))
     length(y) == m || throw(DimensionMismatch(
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
-    m == 0 && return y
+    m == 0 && return
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    α == zero(α) && return y
+    _iszero(α) && return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -1946,7 +1936,6 @@ function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, 
             end
         end
     end
-    return y
 end
 
 function _At_or_Ac_mul_B!(tfun::Function,
@@ -1958,14 +1947,14 @@ function _At_or_Ac_mul_B!(tfun::Function,
         "Matrix A has $n rows, but vector x has a length $(length(x))"))
     length(y) == m || throw(DimensionMismatch(
         "Matrix A has $m columns, but vector y has a length $(length(y))"))
-    m == 0 && return y
+    m == 0 && return
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    α == zero(α) && return y
+    _iszero(α) && return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
     _nnz = length(xnzind)
-    _nnz == 0 && return y
+    _nnz == 0 && return
 
     Ty = promote_op(matprod, eltype(A), eltype(x))
     @inbounds for j = 1:m
@@ -1975,28 +1964,8 @@ function _At_or_Ac_mul_B!(tfun::Function,
         end
         y[j] += s * α
     end
-    return y
+    return
 end
-
-function *(A::AdjOrTrans{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
-end
-function *(A::LinearAlgebra.HermOrSym{<:Any,<:StridedMatrix}, x::AbstractSparseVector)
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    length(x) == n || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
-    Ty = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{Ty}(undef, m)
-    mul!(y, A, x, true, false)
-end
-
 
 ### BLAS-2 / sparse A * sparse x -> dense y
 
@@ -2041,7 +2010,7 @@ Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A
     elseif tA == 'C'
         _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, A, x, alpha, beta)
     else
-        @stable_muladdmul LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, MulAddMul(alpha, beta))
+        LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, alpha, beta)
     end
     return y
 end
@@ -2053,9 +2022,9 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
         "Matrix A has $n columns, but vector x has a length $(length(x))"))
     length(y) == m || throw(DimensionMismatch(
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
-    m == 0 && return y
+    m == 0 && return
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    α == zero(α) && return y
+    _iszero(α) && return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -2073,7 +2042,6 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
             end
         end
     end
-    return y
 end
 
 function _At_or_Ac_mul_B!(tfun::Function,
@@ -2085,9 +2053,9 @@ function _At_or_Ac_mul_B!(tfun::Function,
         "Matrix A has $n columns, but vector x has a length $(length(x))"))
     length(y) == n || throw(DimensionMismatch(
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
-    n == 0 && return y
+    n == 0 && return
     β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    α == zero(α) && return y
+    _iszero(α) && return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -2102,7 +2070,6 @@ function _At_or_Ac_mul_B!(tfun::Function,
                    1, mx, xnzind, xnzval)
         @inbounds y[j] += s * α
     end
-    return y
 end
 
 
@@ -2162,17 +2129,6 @@ for isunittri in (true, false), islowertri in (true, false)
     unitstr = isunittri ? "Unit" : ""
     halfstr = islowertri ? "Lower" : "Upper"
     tritype = :(LinearAlgebra.$(Symbol(unitstr, halfstr, "Triangular")))
-
-    # build out-of-place left-division operations
-    # broad method where elements are Numbers
-    @eval function \(A::$tritype{<:TA,<:AbstractMatrix}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
-        TAb = $(isunittri ?
-            :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
-            :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
-        return LinearAlgebra.ldiv!(convert(AbstractArray{TAb}, A), convert(Array{TAb}, b))
-    end
-    # fallback where elements are not Numbers
-    @eval \(A::$tritype, b::AbstractCompressedVector) = LinearAlgebra.ldiv!(A, copy(b))
 
     # faster method requiring good view support of the
     # triangular matrix type. hence the StridedMatrix restriction.
@@ -2421,7 +2377,7 @@ import Base.fill!
 function fill!(A::Union{AbstractCompressedVector, AbstractSparseMatrixCSC}, x)
     T = eltype(A)
     xT = convert(T, x)
-    if xT == zero(T)
+    if _iszero(xT)
         fill!(nonzeros(A), xT)
     else
         _fillnonzero!(A, xT)

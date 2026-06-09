@@ -589,9 +589,13 @@ end
 
     @testset "cholesky, no permutation $Tv" begin
         Fs = cholesky(As, perm=[1:3;])
+        @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :p, :ptr])
         @test Fs.p == [1:3;]
         @test sparse(Fs.L) ≈ Lf
         @test sparse(Fs) ≈ As
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.U)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.PtL)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.UP)
         b = rand(Tv, 3)
         bs = sparse(b)
         @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
@@ -645,9 +649,18 @@ end
 
     @testset "ldlt, no permutation" begin
         Fs = ldlt(As, perm=[1:3;])
+        @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP, :p, :ptr])
         @test Fs.p == [1:3;]
         @test sparse(Fs.LD) ≈ LDf
         @test sparse(Fs) ≈ As
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.L)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.U)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.PtL)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.UP)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.D)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.DU)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.PtLD)
+        @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.DUP)
         b = rand(Tv, 3)
         bs = sparse(b)
         @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
@@ -781,6 +794,7 @@ end
     A = cholesky(sparse(Diagonal(x.\1)))
     @test A\view(fill(1.,10),1:2:10) ≈ x
     @test A\view(Matrix(1.0I, 5, 5), :, :) ≈ Matrix(Diagonal(x))
+    @test A\view(Matrix(1.0I, 6, 5), 1:5, :) ≈ Matrix(Diagonal(x))
 end
 
 @testset "Test \\ for Factor and SparseVecOrMat" begin
@@ -791,6 +805,14 @@ end
     @test chI \ sparseb ≈ sparseb
     @test chI \ sparseB ≈ sparseB
     @test chI \ sparseI ≈ sparseI
+end
+
+@testset "Issue 630" begin
+    sparseI = sparse(1.0I, 1, 1)
+    @test cholesky(sparseI) \ sparse([1.0]) == [1]
+    sparseI = sparse(1.0I, 2, 2)
+    res = cholesky(sparseI) \ spzeros(2)
+    @test isempty(nonzeros(res))
 end
 
 @testset "Real factorization and complex rhs" begin
@@ -840,9 +862,9 @@ end
               Symmetric(Apre + 10I), Hermitian(Apre + 10I),
               Hermitian(complex(Apre)), Hermitian(complex(Apre) + 10I))
         local A, x, b
-        x = fill(1., 10)
+        x = fill(1, 10)
         b = A*x
-        @test x ≈ A\b
+        @test @inferred A\b ≈ x
         @test transpose(A)\b ≈ A'\b
     end
 end
@@ -1004,7 +1026,7 @@ end
     end
 
     f = ones(size(K, 1))
-    u = K \ f
+    u = K \ f
     residual = norm(f - K * u) / norm(f)
     @test residual < 1e-6
 end

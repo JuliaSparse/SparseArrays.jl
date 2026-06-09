@@ -263,9 +263,11 @@ has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
 # auto magick resize, should this only expand and not shrink?
-getworkspace(F::UmfpackLU) = @lock F.lock begin
-    return resize!(F.workspace, F, has_refinement(F); expand_only=true)
+function getworkspace(F::UmfpackLU)
+    @lock F.lock begin
+        return resize!(F.workspace, F, has_refinement(F); expand_only = true)
     end
+end
 
 UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
         Vector{Ti}(undef, size(F, 2)),
@@ -297,29 +299,12 @@ Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
 
 Base.transpose(F::UmfpackLU) = TransposeFactorization(F)
 
-function Base.lock(f::Function, F::UmfpackLU)
-    lock(F)
-    try
-        f()
-    finally
-        unlock(F)
-    end
-end
-Base.lock(F::UmfpackLU) = if !trylock(F.lock)
-    @info """waiting for UmfpackLU's lock, it's safe to ignore this message.
-    see the documentation for Umfpack""" maxlog = 1
-    lock(F.lock)
-end
-
-@inline Base.trylock(F::UmfpackLU) = trylock(F.lock)
-@inline Base.unlock(F::UmfpackLU) = unlock(F.lock)
-
 show_umf_ctrl(F::UmfpackLU, level::Real=2.0) =
-    @lock F show_umf_ctrl(F.control, level)
+    @lock F.lock show_umf_ctrl(F.control, level)
 
 
 show_umf_info(F::UmfpackLU, level::Real=2.0) =
-    @lock F show_umf_info(F.control, F.info, level)
+    @lock F.lock show_umf_info(F.control, F.info, level)
 
 
 """
@@ -340,7 +325,7 @@ is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation i
 zero-based copy is made.
 
 The `control` vector defaults to the Julia SparseArrays package's default configuration for UMFPACK (NB: this is modified from the UMFPACK defaults to
-disable iterative refinement), but can be changed by passing a vector of length `UMFPACK_CONTROL`, see the UMFPACK manual for possible configurations. 
+disable iterative refinement), but can be changed by passing a vector of length `UMFPACK_CONTROL`, see the UMFPACK manual for possible configurations.
 For example to reenable iterative refinement:
 
     umfpack_control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int64) # read Julia default configuration for a Float64 sparse matrix
@@ -348,7 +333,7 @@ For example to reenable iterative refinement:
     umfpack_control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0 # reenable iterative refinement (2 is UMFPACK default max iterative refinement steps)
 
     Alu = lu(A; control = umfpack_control)
-    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement  
+    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement
 
 The individual components of the factorization `F` can be accessed by indexing:
 
@@ -486,7 +471,8 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
     return lu!(F; reuse_symbolic, check, q)
 end
 
-function lu!(F::UmfpackLU; check::Bool=true, reuse_symbolic::Bool=true, q=nothing)
+function lu!(F::UmfpackLU{Tv, Ti}; check::Bool=true, reuse_symbolic::Bool=true,
+  q=nothing) where {Tv, Ti}
     if !reuse_symbolic && _isnotnull(F.symbolic)
         F.symbolic = Symbolic{Tv, Ti}(C_NULL)
     end
@@ -598,7 +584,7 @@ for itype in UmfpackIndexTypes
     @eval begin
         function umfpack_symbolic!(U::UmfpackLU{Float64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             _isnotnull(U.symbolic) && return U
-            @lock U begin
+            @lock U.lock begin
                 tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 if q === nothing
                     @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
@@ -613,7 +599,7 @@ for itype in UmfpackIndexTypes
         end
         function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype}, q::Union{Nothing, StridedVector{$itype}})
             _isnotnull(U.symbolic) && return U
-            @lock U begin
+            @lock U.lock begin
                 tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 if q === nothing
                     @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
@@ -627,7 +613,7 @@ for itype in UmfpackIndexTypes
             return U
         end
         function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric=true, q=nothing)
-            @lock U begin
+            @lock U.lock begin
                 (reuse_numeric && _isnotnull(U.numeric)) && return U
                 if _isnull(U.symbolic)
                     umfpack_symbolic!(U, q)
@@ -643,7 +629,7 @@ for itype in UmfpackIndexTypes
             return U
         end
         function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric=true, q=nothing)
-            @lock U begin
+            @lock U.lock begin
                 (reuse_numeric && _isnotnull(U.numeric)) && return U
                 _isnull(U.symbolic) && umfpack_symbolic!(U, q)
                 tmp = Ref{Ptr{Cvoid}}(C_NULL)
@@ -672,7 +658,7 @@ for itype in UmfpackIndexTypes
             if workspace_W_size(lu) > length(workspace.W)
                 throw(ArgumentError("W should be larger than `workspace_W_size(Af)`"))
             end
-            @lock lu begin
+            @lock lu.lock begin
                 umfpack_numeric!(lu)
                 (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
 
@@ -697,7 +683,7 @@ for itype in UmfpackIndexTypes
             if workspace_W_size(lu) > length(workspace.W)
                 throw(ArgumentError("W should be larger than `workspace_W_size(Af)`"))
             end
-            @lock lu begin
+            @lock lu.lock begin
                 umfpack_numeric!(lu)
                 (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
                 @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
@@ -707,14 +693,14 @@ for itype in UmfpackIndexTypes
         end
         function det(lu::UmfpackLU{Float64,$itype})
             mx = Ref{Float64}(zero(Float64))
-            @lock lu @isok($det_r(mx, C_NULL, lu.numeric, lu.info))
+            @lock lu.lock @isok($det_r(mx, C_NULL, lu.numeric, lu.info))
             mx[]
         end
 
         function det(lu::UmfpackLU{ComplexF64,$itype})
             mx = Ref{Float64}(zero(Float64))
             mz = Ref{Float64}(zero(Float64))
-            @lock lu @isok($det_z(mx, mz, C_NULL, lu.numeric, lu.info))
+            @lock lu.lock @isok($det_z(mx, mz, C_NULL, lu.numeric, lu.info))
             complex(mx[], mz[])
         end
         function logabsdet(F::UmfpackLU{T, $itype}) where {T<:Union{Float64,ComplexF64}} # return log(abs(det)) and sign(det)
@@ -983,7 +969,7 @@ function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},
 end
 function _AqldivB_kernel!(X::StridedMatrix{T}, lu::UmfpackLU{T},
                           B::StridedMatrix{T}, transposeoptype) where {T<:UMFVTypes}
-    for col in 1:size(X, 2)
+    for col in axes(X, 2)
         solve!(view(X, :, col), lu, view(B, :, col), transposeoptype)
     end
 end
@@ -1002,7 +988,7 @@ function _AqldivB_kernel!(X::StridedMatrix{Tb}, lu::UmfpackLU{Float64},
     r = similar(B, Float64, size(B, 1))
     i = similar(B, Float64, size(B, 1))
     c = similar(B, Float64, size(B, 1))
-    for j in 1:size(B, 2)
+    for j in axes(B, 2)
         c .= real.(view(B, :, j))
         solve!(r, lu, c, transposeoptype)
         c .= imag.(view(B, :, j))
@@ -1030,7 +1016,7 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
 
     _report_symbolic = Symbol(umf_nm("report_symbolic", Tv, Ti))
     @eval umfpack_report_symbolic(lu::UmfpackLU{$Tv,$Ti}, level::Real=4; q=nothing) =
-        @lock lu begin
+        @lock lu.lock begin
             umfpack_symbolic!(lu, q)
             old_prl = lu.control[JL_UMFPACK_PRL]
             lu.control[JL_UMFPACK_PRL] = level
@@ -1040,7 +1026,7 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
         end
     _report_numeric = Symbol(umf_nm("report_numeric", Tv, Ti))
     @eval umfpack_report_numeric(lu::UmfpackLU{$Tv,$Ti}, level::Real=4; q=nothing) =
-        @lock lu begin
+        @lock lu.lock begin
             umfpack_numeric!(lu; q)
             old_prl = lu.control[JL_UMFPACK_PRL]
             lu.control[JL_UMFPACK_PRL] = level
@@ -1051,6 +1037,7 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
     # the control and info arrays
     _defaults = Symbol(umf_nm("defaults", Tv, Ti))
     @eval function get_umfpack_control(::Type{$Tv}, ::Type{$Ti})
+        LibSuiteSparse.init_suitesparse()
         control = Vector{Float64}(undef, UMFPACK_CONTROL)
         $_defaults(control)
         # Put julia's config here

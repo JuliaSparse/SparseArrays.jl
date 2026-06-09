@@ -109,6 +109,90 @@ end
     end
 end
 
+@testset "destination array density in multiplication" begin
+    wrappers = (adjoint, transpose, Hermitian, Symmetric, UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperHessenberg)
+    for tA in wrappers
+        A = randn(5,5)
+        At = tA(A)
+        S = sprandn(5,5,0.3)
+        St = tA(S)
+        for tB in wrappers
+            B = sprandn(5,5, 0.3)
+            Bt = tB(B)
+            C = At*Bt
+            @test C ≈ Matrix(At) * Matrix(Bt)
+            @test !issparse(C)
+            D = St*Bt
+            @test D ≈ Matrix(St) * Matrix(Bt)
+            @test issparse(D)
+        end
+        b = sprandn(5, 0.3)
+        c = At * b
+        @test c ≈ Matrix(At) * Vector(b)
+        @test c isa DenseVector
+        d = St*b
+        @test d ≈ Matrix(St) * Vector(b)
+        @test d isa SparseVector
+        for T in (Diagonal(randn(5)),
+                    Bidiagonal(ones(5), ones(4), :U),
+                    Tridiagonal(ones(4), ones(5), ones(4)),
+                    SymTridiagonal(ones(5), ones(4)))
+            M = St*T
+            @test M ≈ Matrix(St) * Matrix(T)
+            @test issparse(M)
+            N = T*St
+            @test N ≈ Matrix(T) * Matrix(St)
+            @test issparse(N)
+        end
+    end
+end
+
+@testset "destination array density in solves" begin
+    O = diagm(-1 => fill(-1, 9), 0 => fill(2, 10), 1 => fill(-1, 9))
+    wrappers = (a -> Bidiagonal(a, :U),
+                a -> Bidiagonal(a, :L),
+                SymTridiagonal,
+                Tridiagonal,
+                LowerTriangular,
+                UnitLowerTriangular,
+                UpperTriangular,
+                UnitUpperTriangular,
+                # UpperHessenberg,
+                a -> UpperHessenberg(float(a))
+                )
+    for T in wrappers
+        A = T(O)
+        bs = sprandn(10, 0.3)
+        bd = Array(bs)
+        x = A \ bs
+        @test x ≈ A \ bd
+        @test !issparse(x)
+        Bs = sprandn(10, 3, 0.2)
+        Bd = Matrix(Bs)
+        X = A \ Bs
+        @test X ≈ A \ Bd
+        @test !issparse(X)
+        Cs = copy(Bs')
+        Cd = Matrix(Cs)
+        Y = Cs / A
+        @test Y ≈ Cd / A
+        @test !issparse(Y)
+    end
+    b, B = ones(Int, 10), ones(Int, 10, 10)
+    for T in (UnitLowerTriangular, UnitUpperTriangular)
+        A = T(O)
+        @test eltype(A \ b) == eltype(A \ B) == eltype(B / A) == Int
+    end
+end
+
+@testset "multiplication of special sparse with dense matrix" begin
+    # this results in a call of the most generic multiplication code in LinearAlgebra.jl
+    A = randn(2, 2)
+    S = sparse(A)
+    B = rand(1, 2)'
+    @test Symmetric(S) * B ≈ Symmetric(A) * B
+end
+
 @testset "sparse transpose adjoint" begin
     A = sprand(10, 10, 0.75)
     @test A' == SparseMatrixCSC(A')
@@ -182,6 +266,7 @@ begin
         AW = tr(wr(A))
         MAW = tr(wr(MA))
         @test AW \ B ≈ MAW \ B
+        @test !issparse(AW \ B)
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW \ B ≈ AW \ B
@@ -226,6 +311,20 @@ end
         # @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
         @test norm(Asym * B - As * B, Inf) <= eps() * n * p * 10
     end
+end
+
+@testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
+    A = [1 3; 2 4]
+    As = sparse(A)
+    B = [1 1; 1 1]
+    @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
+end
+
+@testset "Column view of sparse matrix " begin
+    S = sparse(1:4, 1:4, 1:4)
+    Sv = @view S[:,3:4]
+    @test Sv * sparse(ones(2)) == Sv*ones(2) == Matrix(Sv) * ones(2)
+    @test Sv * sparse(ones(2,2)) == Sv*ones(2,2) == Matrix(Sv) * ones(2,2)
 end
 
 @testset "in-place sparse-sparse mul!" begin
@@ -338,6 +437,9 @@ end
             @test lmul!(transpose(copy(D)), copy(b)) ≈ transpose(MD)*bd
             @test lmul!(adjoint(copy(D)), copy(b)) ≈ MD'*bd
         end
+
+        v = sprand(eltype(D), size(D,1), 0.1)
+        @test ldiv!(D, copy(v)) == D \ Array(v)
     end
 end
 
@@ -425,6 +527,27 @@ end
     @test issymmetric(sparse([1 0; 1 0])) == false
     @test issymmetric(sparse([0 1; 1 0])) == true
     @test issymmetric(sparse([1 1; 1 0])) == true
+
+    # test some non-trivial cases
+    local S
+    @testset "random matrices" begin
+        for sparsity in (0.1, 0.01, 0.0)
+            S = sparse(Symmetric(sprand(20, 20, sparsity)))
+            @test issymmetric(S)
+            @test ishermitian(S)
+            S = sparse(Symmetric(sprand(ComplexF64, 20, 20, sparsity)))
+            @test issymmetric(S)
+            @test !ishermitian(S) || isreal(S)
+            S = sparse(Hermitian(sprand(ComplexF64, 20, 20, sparsity)))
+            @test ishermitian(S)
+            @test !issymmetric(S) || isreal(S)
+        end
+    end
+
+    @testset "issue #605" begin
+        S = sparse([2, 3, 1], [1, 1, 3], [1, 1, 1], 3, 3)
+        @test !issymmetric(S)
+    end
 end
 
 @testset "rotations" begin
@@ -579,6 +702,41 @@ end
         @test Array(D * sA) ≈ D * dA
         @test lmul!(D, copy(sA)) ≈ D * dA
         @test mul!(sC, D, copy(sA)) ≈ D * dA
+    end
+
+    @testset "5-arg mul!" begin
+        @testset "merge indices" begin
+            # for zero arrays, merge and copy are identical
+            A = spzeros(size(sA))
+            SparseArrays.mergeinds!(A, sA)
+            B = spzeros(size(sA))
+            SparseArrays.copyinds!(B, sA)
+            @test all(col -> nzrange(A, col) == nzrange(B, col), axes(A,2))
+            # for arrays with different indices populated, merge should combine these
+            A = spzeros(5,5)
+            A[diagind(A,1)] .= 5
+            B = spzeros(5,5)
+            B[diagind(A,-1)] .= 10
+            SparseArrays.mergeinds!(B, A)
+            @test rowvals(B) == [2, 1,3, 2,4, 3,5, 4]
+            @test [nzrange(B,col) for col in axes(B,2)] == [1:1, 2:3, 4:5, 6:7, 8:8]
+            @test nonzeros(B) == [10, 0,10, 0,10, 0,10, 0]
+            # for arrays with overlapping indices, merge should only add the extra ones
+            A[diagind(A,2)] .= 5
+            SparseArrays.mergeinds!(B, A)
+            @test rowvals(B) == [2, 1,3, 1,2,4, 2,3,5, 3,4]
+            @test [nzrange(B,col) for col in axes(B,2)] == [1:1, 2:3, 4:6, 7:9, 10:11]
+            @test nonzeros(B) == [10, 0,10, 0,0,10, 0,0,10, 0,0]
+        end
+        for sA2 in (similar(sA), sprand(size(sA)..., 0.1))
+            nonzeros(sA2) .= 1
+            @testset for (alpha, beta) in [(true, false), (true, true), (2,3)]
+                D = Diagonal(rand(size(sA,2)))
+                @test mul!(copy(sA2), sA, D, alpha, beta) ≈ dA * D * alpha + sA2 * beta
+                D = Diagonal(rand(size(sA,1)))
+                @test mul!(copy(sA2), D, sA, alpha, beta) ≈ D * dA * alpha + sA2 * beta
+            end
+        end
     end
 end
 
@@ -763,10 +921,6 @@ end
     # symtridiagonal with non-empty off-diagonal
     b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
     @test b + b == Matrix(b) + Matrix(b)
-
-    # a symtridiagonal with an additional off-diagonal element
-    c = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2, 3]))
-    @test c + c == Matrix(c) + Matrix(c)
 end
 
 @testset "kronecker product" begin
@@ -886,20 +1040,34 @@ end
 end
 
 @testset "generalized dot product" begin
-    for i = 1:5
-        A = sprand(ComplexF64, 10, 15, 0.4)
-        Av = view(A, :, :)
-        x = sprand(ComplexF64, 10, 0.5)
-        y = sprand(ComplexF64, 15, 0.5)
+    A = sprand(ComplexF64, 10, 15, 1.0)
+    A15 = sprand(ComplexF64, 15, 15, 1.0)
+    Av = view(A, :, :)
+    vx = sprand(ComplexF64, 10, 0.5)
+    vy = sprand(ComplexF64, 15, 0.5)
+    vy2 = sprand(ComplexF64, 15, 0.5)
+    for (x, y, y2) in ((vx, vy, vy2), (Vector(vx), Vector(vy), Vector(vy2)))
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
+        @test dot(x, collect(A), y) ≈ dot(x, A, y)
+        @test dot(y, collect(A)', x) ≈ dot(y, A', x)
+        @test dot(y, transpose(collect(A)), x) ≈ dot(y, transpose(A), x)
+        @test dot(y, Hermitian(collect(A15)), y2) ≈ dot(y, Hermitian(A15), y2)
+        @test dot(y, Symmetric(collect(A15)), y2) ≈ dot(y, Symmetric(A15), y2)
+        B = BitMatrix(rand(Bool, 10, 15))
+        @test dot(x, A, y) ≈ dot(x, Matrix(A), y)
+        @test_throws DimensionMismatch dot([x, x], A, y)
+        @test_throws DimensionMismatch dot(x, A, [y, y])
+        @test iszero(dot(spzeros(length(x)), A, y))
     end
 
-    for (T, trans) in ((Float64, Symmetric), (ComplexF64, Hermitian)), uplo in (:U, :L)
+    for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)
-        S = trans(B'B, uplo)
-        @test dot(x, S, x) ≈ dot(Vector(x), S, Vector(x)) ≈ dot(Vector(x), Matrix(S), Vector(x))
+        xd = Vector(x)
+        S = trans(B, uplo)
+        Sd = trans(Matrix(B), uplo)
+        @test dot(x, S, x) ≈ dot(x, Sd, x) ≈ dot(xd, S, xd) ≈ dot(xd, Sd, xd)
     end
 end
 
@@ -959,6 +1127,59 @@ end
 
     @test_throws DimensionMismatch D2 * S * D2
     @test_throws DimensionMismatch D1 * S * D1
+end
+
+@testset "multiplication of sparse and dense matrices" begin
+    function test_mul(A, B)
+        expected = Matrix(A) * Matrix(B)
+        @test A * B ≈ expected
+        C = similar(expected)
+        @test mul!(C, A, B) === C
+        @test C ≈ expected
+        ElType = eltype(C)
+        vs = Any[false, true, zero(ElType), one(ElType), one(ElType) + one(ElType)]
+        for α in vs, β in vs
+            C .= rand.(ElType)
+            expected′ = expected .* α .+ C .* β
+            @test mul!(C, A, B, α, β) === C
+            @test C ≈ expected′
+        end
+    end
+
+    for ElType in [Int, Float64, ComplexF64, BigFloat]
+        SP = sprand(ElType, 10, 10, 0.3)
+        D = rand(ElType, 10, 10)
+        fs = [identity, adjoint, transpose]
+        for f1 in fs, f2 in fs
+            test_mul(f1(SP), f2(D))
+            test_mul(f1(D), f2(SP))
+        end
+    end
+end
+
+@testset "dimension mismatch error" begin
+    fs = [rand, (x, y)->adjoint(rand(y, x)), (x, y)->transpose(rand(y, x)),
+          (x, y)->sprand(x, y, 0.5), (x, y)->adjoint(sprand(y, x, 0.5)),
+          (x, y)->transpose(sprand(y, x, 0.5))]
+    for fA in fs, fB in fs
+        mul!(zeros(6, 10), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(7, 10), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 11), fA(6, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(5, 8), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 9), fB(8, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(7, 10))
+        @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(8, 9))
+    end
+end
+
+@testset "type stability of linear solve" begin
+    for relty in (Float16, Float32, Float64), elty in (relty, Complex{relty})
+        A = sprand(elty, 2, 2, 1.0)
+        B = randn(elty, 2, 2)
+        b = randn(elty, 2)
+        @inferred A \ b
+        @inferred A \ B
+    end
 end
 
 end

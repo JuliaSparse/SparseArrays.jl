@@ -7,12 +7,21 @@ if Base.get_bool_env("SPARSEARRAYS_AQUA_TEST", false)
     include("ambiguous.jl")
 end
 
-for file in readlines(joinpath(@__DIR__, "testgroups"))
-    file == "" && continue # skip empty lines
-    include(file * ".jl")
-end
+include("allowscalar.jl")
+include("fixed.jl")
+include("higherorderfns.jl")
+include("sparsematrix_constructors_indexing.jl")
+include("sparsematrix_ops.jl")
+include("sparsevector.jl")
+include("issues.jl")
 
 if Base.USE_GPL_LIBS
+
+    include("cholmod.jl")
+    include("umfpack.jl")
+    include("spqr.jl")
+    include("linalg.jl")
+    include("linalg_solvers.jl")
 
     nt = @static if isdefined(Threads, :maxthreadid)
         Threads.maxthreadid()

@@ -1,15 +1,10 @@
 # How to auto-generate the wrappers
 
 1. `cd` to this directory
-2. run `julia --project generator.jl`, then you could find the updated wrappers in the `lib` folder
+2. Update the SuiteSparse version in `Makefile`
+3. run `make`, then you could find the updated wrappers in the `lib` folder
 
-## How to upgrade SuiteSparse_jll
-
-1. update `SuiteSparse_jll` in Yggdrasil to the desired version
-2. `cd` to this directory
-3. run `julia --project generator.jl <SuiteSparse artifact directory>`
-
-## How to upgrade Clang.jl
+# How to upgrade Clang.jl
 
 1. `cd` to this directory
 2. if you want to change major version, change the compat bound in `Project.toml`.

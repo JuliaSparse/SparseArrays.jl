@@ -445,8 +445,8 @@ end
     A = sprand(5,5,0.5)
     D = Diagonal(rand(5))
     C = copy(A)
-    m1 = @which mul!(C,A,D)
-    m2 = @which mul!(C,D,A)
+    m1 = @which mul!(C,A,D,true,false)
+    m2 = @which mul!(C,D,A,true,false)
     @test m1.module == SparseArrays
     @test m2.module == SparseArrays
 end
@@ -803,6 +803,13 @@ end
     @test x == sparse([9 8 1
                        0 72 3
                        7 16 4])
+end
+
+@testset "Issue #574" begin
+    a = spzeros(Float32, Int16, 2, 3)
+    v = spzeros(Float32, Int16, 2)
+    @test eltype(rowvals(zero(a))) <: Int16
+    @test eltype(rowvals(zero(v))) <: Int16
 end
 
 end # SparseTestsBase

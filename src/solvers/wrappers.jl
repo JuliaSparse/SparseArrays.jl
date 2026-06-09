@@ -6,14 +6,6 @@ function SuiteSparse_config_printf_func_get()
     @ccall libsuitesparseconfig.SuiteSparse_config_printf_func_get()::Ptr{Cvoid}
 end
 
-function cholmod_version(version)
-    @ccall libcholmod.cholmod_version(version::Ptr{Cint})::Cint
-end
-
-function cholmod_l_version(version)
-    @ccall libcholmod.cholmod_l_version(version::Ptr{Cint})::Cint
-end
-
 function SuiteSparse_config_malloc_func_get()
     @ccall libsuitesparseconfig.SuiteSparse_config_malloc_func_get()::Ptr{Cvoid}
 end
@@ -153,6 +145,14 @@ end
 
 function SuiteSparse_BLAS_integer_size()
     @ccall libsuitesparseconfig.SuiteSparse_BLAS_integer_size()::Csize_t
+end
+
+function cholmod_version(version)
+    @ccall libcholmod.cholmod_version(version::Ptr{Cint})::Cint
+end
+
+function cholmod_l_version(version)
+    @ccall libcholmod.cholmod_l_version(version::Ptr{Cint})::Cint
 end
 
 @enum cholmod_query_t::UInt32 begin
@@ -3348,38 +3348,6 @@ function umfpack_toc(stats)
     @ccall libumfpack.umfpack_toc(stats::Ptr{Cdouble})::Cvoid
 end
 
-const CHOLMOD_PATTERN = 0
-
-const CHOLMOD_REAL = 1
-
-const CHOLMOD_COMPLEX = 2
-
-const CHOLMOD_ZOMPLEX = 3
-
-const CHOLMOD_DOUBLE = 0
-
-const CHOLMOD_SINGLE = 4
-
-const CHOLMOD_INT = 0
-
-const CHOLMOD_LONG = 2
-
-const CHOLMOD_DATE = "June 20, 2024"
-
-const CHOLMOD_MAIN_VERSION = 5
-
-const CHOLMOD_SUB_VERSION = 3
-
-const CHOLMOD_SUBSUB_VERSION = 0
-
-SUITESPARSE_VER_CODE(main, sub) = main * 1000 + sub
-
-CHOLMOD_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
-
-const CHOLMOD_VERSION = CHOLMOD_VER_CODE(5, 3)
-
-const _FILE_OFFSET_BITS = 64
-
 const SUITESPARSE_OPENMP_MAX_THREADS = 1
 
 const SUITESPARSE_OPENMP_GET_NUM_THREADS = 1
@@ -3404,23 +3372,55 @@ const SUITESPARSE_COMPILER_XLC = 0
 
 const SUITESPARSE_TIME = SuiteSparse_time()
 
-const SUITESPARSE_DATE = "Oct 10, 2024"
+const SUITESPARSE_DATE = "Mar 6, 2025"
 
 const SUITESPARSE_MAIN_VERSION = 7
 
-const SUITESPARSE_SUB_VERSION = 8
+const SUITESPARSE_SUB_VERSION = 10
 
-const SUITESPARSE_SUBSUB_VERSION = 3
+const SUITESPARSE_SUBSUB_VERSION = 1
 
-const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(7, 8)
+SUITESPARSE_VER_CODE(main, sub) = main * 1000 + sub
+
+const SUITESPARSE_VERSION = SUITESPARSE_VER_CODE(7, 10)
 
 function SUITESPARSE__VERCODE(main, sub, patch)
     return (main * Culonglong(1000) + sub) * Culonglong(1000) + patch
 end
 
-const SUITESPARSE__VERSION = SUITESPARSE__VERCODE(7, 8, 3)
+const SUITESPARSE__VERSION = SUITESPARSE__VERCODE(7, 10, 1)
 
-const CHOLMOD__VERSION = SUITESPARSE__VERCODE(5, 3, 0)
+const CHOLMOD_PATTERN = 0
+
+const CHOLMOD_REAL = 1
+
+const CHOLMOD_COMPLEX = 2
+
+const CHOLMOD_ZOMPLEX = 3
+
+const CHOLMOD_DOUBLE = 0
+
+const CHOLMOD_SINGLE = 4
+
+const CHOLMOD_INT = 0
+
+const CHOLMOD_LONG = 2
+
+const CHOLMOD_DATE = "Feb 20, 2025"
+
+const CHOLMOD_MAIN_VERSION = 5
+
+const CHOLMOD_SUB_VERSION = 3
+
+const CHOLMOD_SUBSUB_VERSION = 1
+
+CHOLMOD_VER_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
+
+const CHOLMOD_VERSION = CHOLMOD_VER_CODE(5, 3)
+
+const _FILE_OFFSET_BITS = 64
+
+const CHOLMOD__VERSION = SUITESPARSE__VERCODE(5, 3, 1)
 
 const CHOLMOD_DEVICE_SUPERNODE_BUFFERS = 6
 
