@@ -25,6 +25,7 @@ import LinearAlgebra: (\), AdjointFactorization,
 using SparseArrays
 using SparseArrays: getcolptr, AbstractSparseVecOrMat
 export
+    CholmodWorkspace,
     Dense,
     Factor,
     Sparse
@@ -1915,7 +1916,55 @@ const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjO
     throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
         " consider to convert B to a dense array"))
 
-# in-place ldiv!
+"""
+    CholmodWorkspace()
+
+Reusable workspace for allocation-free calls to `ldiv!(x, L, b, ws)` with a
+CHOLMOD [`Factor`](@ref).
+
+`cholmod_solve2` allocates two temporary dense matrices (Y and E) on every solve.
+A `CholmodWorkspace` holds those buffers across calls so that CHOLMOD reuses them
+instead of reallocating. It also pre-allocates the `cholmod_dense_struct` wrappers
+for `x` and `b`, eliminating all Julia-side heap allocations per solve.
+
+The workspace is finalizer-protected: the CHOLMOD-managed Y and E buffers are freed
+automatically when the workspace is garbage-collected. A single workspace can be
+reused across calls with different arrays or a different number of RHS columns;
+CHOLMOD will resize Y and E as needed.
+
+# Example
+```julia
+F  = cholesky(A)
+ws = CholmodWorkspace()
+for b in rhs_list
+    ldiv!(x, F, b, ws)
+end
+```
+"""
+mutable struct CholmodWorkspace
+    dense_x::cholmod_dense_struct
+    dense_b::cholmod_dense_struct
+    X::Ref{Ptr{cholmod_dense_struct}}
+    Y::Ref{Ptr{cholmod_dense_struct}}
+    E::Ref{Ptr{cholmod_dense_struct}}
+
+    function CholmodWorkspace()
+        ws = new(
+            cholmod_dense_struct(), # all fields written in ldiv! before use
+            cholmod_dense_struct(),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL))
+        )
+        finalizer(ws) do w
+            w.Y[] != C_NULL && free!(w.Y[])
+            w.E[] != C_NULL && free!(w.E[])
+        end
+        ws
+    end
+end
+
+# in-place ldiv! and optional allocation-free ldiv!
 for TI in IndexTypes
     @eval function ldiv!(x::StridedVecOrMat{T},
                          L::Factor{T, $TI},
@@ -1968,6 +2017,69 @@ for TI in IndexTypes
         end
         if E_Handle != C_NULL
             free!(E_Handle)
+        end
+        @assert !iszero(status)
+
+        return x
+    end
+
+    @eval function ldiv!(x::StridedVecOrMat{T},
+                         L::Factor{T, $TI},
+                         b::StridedVecOrMat{T},
+                         ws::CholmodWorkspace) where {T<:VTypes}
+        if x === b
+            throw(ArgumentError("output array must not be aliased with input array"))
+        end
+        if size(L, 1) != size(b, 1)
+            throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
+                "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
+        end
+        if size(L, 2) != size(x, 1)
+            throw(DimensionMismatch("Factorization and solution should match sizes. " *
+                "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
+        end
+        if size(x, 2) != size(b, 2)
+            throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
+                "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
+        end
+        if !issuccess(L)
+            s = unsafe_load(pointer(L))
+            if s.is_ll == 1
+                throw(LinearAlgebra.PosDefException(s.minor))
+            else
+                throw(LinearAlgebra.ZeroPivotException(s.minor))
+            end
+        end
+
+        # Update all fields of the reused cholmod_dense_structs on every call,
+        # since T, dimensions, and data pointers may all change between calls.
+        ws.dense_x.nrow  = size(x, 1)
+        ws.dense_x.ncol  = size(x, 2)
+        ws.dense_x.nzmax = length(x)
+        ws.dense_x.d     = stride(x, 2)
+        ws.dense_x.x     = pointer(x)
+        ws.dense_x.z     = C_NULL
+        ws.dense_x.xtype = xtyp(T)
+        ws.dense_x.dtype = dtyp(T)
+
+        ws.dense_b.nrow  = size(b, 1)
+        ws.dense_b.ncol  = size(b, 2)
+        ws.dense_b.nzmax = length(b)
+        ws.dense_b.d     = stride(b, 2)
+        ws.dense_b.x     = pointer(b)
+        ws.dense_b.z     = C_NULL
+        ws.dense_b.xtype = xtyp(T)
+        ws.dense_b.dtype = dtyp(T)
+
+        ws.X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(ws.dense_x))
+        Bptr = Ptr{cholmod_dense_struct}(pointer_from_objref(ws.dense_b))
+        status = GC.@preserve x b ws begin
+            $(cholname(:solve2, TI))(
+                CHOLMOD_A, L,
+                Bptr, C_NULL,
+                ws.X, C_NULL,
+                ws.Y, ws.E,
+                getcommon($TI))
         end
         @assert !iszero(status)
 
