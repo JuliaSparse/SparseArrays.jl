@@ -1919,28 +1919,29 @@ const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjO
 """
     CholmodWorkspace()
 
-Reusable workspace for allocation-free calls to `ldiv!(x, L, b, ws)` with a
-CHOLMOD [`Factor`](@ref).
+Reusable workspace for allocation-free calls to `ldiv!(x, L, b, ws)`.
 
 `cholmod_solve2` allocates two temporary dense matrices (Y and E) on every solve.
 A `CholmodWorkspace` holds those buffers across calls so that CHOLMOD reuses them
 instead of reallocating. It also pre-allocates the `cholmod_dense_struct` wrappers
-for `x` and `b`, eliminating all Julia-side heap allocations per solve.
+for `x` and `b`.
+This eliminates all Julia-side heap allocations per solve.
 
-The workspace is finalizer-protected: the CHOLMOD-managed Y and E buffers are freed
-automatically when the workspace is garbage-collected. A single workspace can be
-reused across calls with different arrays or a different number of RHS columns;
-CHOLMOD will resize Y and E as needed.
+A finalizer frees Y adn E automatically when the worspace is garbage-collected.
+
+A single workspace can be reused across calls with different arrays or a different number of RHS columns since
+CHOLMOD will resize Y and E.
 
 # Example
 ```julia
-F  = cholesky(A)
+F = cholesky(A)
 ws = CholmodWorkspace()
 for b in rhs_list
     ldiv!(x, F, b, ws)
 end
 ```
 """
+
 mutable struct CholmodWorkspace
     dense_x::cholmod_dense_struct
     dense_b::cholmod_dense_struct
@@ -1950,7 +1951,7 @@ mutable struct CholmodWorkspace
 
     function CholmodWorkspace()
         ws = new(
-            cholmod_dense_struct(), # all fields written in ldiv! before use
+            cholmod_dense_struct(), # all fields will be written in ldiv! before use
             cholmod_dense_struct(),
             Ref(Ptr{cholmod_dense_struct}(C_NULL)),
             Ref(Ptr{cholmod_dense_struct}(C_NULL)),
@@ -2051,8 +2052,7 @@ for TI in IndexTypes
             end
         end
 
-        # Update all fields of the reused cholmod_dense_structs on every call,
-        # since T, dimensions, and data pointers may all change between calls.
+        # Update all cholmod_dense_structs fields on every call in case dimensions or T change
         ws.dense_x.nrow  = size(x, 1)
         ws.dense_x.ncol  = size(x, 2)
         ws.dense_x.nzmax = length(x)
