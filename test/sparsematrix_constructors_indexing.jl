@@ -985,7 +985,6 @@ Base.zero(::Type{MockTropical{T}}) where {T} = MockTropical{T}(typemin(T))
 Base.zero(x::MockTropical{T}) where {T} = zero(MockTropical{T})
 Base.one(::Type{MockTropical{T}}) where {T} = MockTropical{T}(zero(T))
 Base.one(x::MockTropical{T}) where {T} = one(MockTropical{T})
-Base.:*(a::MockTropical, b::Bool) = b ? a : zero(a)
 Base.:*(a::MockTropical{T}, b::MockTropical{T}) where {T} = MockTropical{T}(a.n + b.n)
 Base.:+(a::MockTropical{T}, b::MockTropical{T}) where {T} = MockTropical{T}(max(a.n, b.n))
 
