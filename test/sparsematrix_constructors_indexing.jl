@@ -976,6 +976,27 @@ end
     @test one(sparse([1 1; 1 1]))::SparseMatrixCSC == [1 0; 0 1]
 end
 
+struct MockTropical{T} <: Number begin
+    n::T
+    end
+end
+MockTropical{T}(x::MockTropical{T}) where {T} = x
+Base.zero(::Type{MockTropical{T}}) where {T} = MockTropical{T}(typemin(T))
+Base.zero(x::MockTropical{T}) where {T} = zero(MockTropical{T})
+Base.one(::Type{MockTropical{T}}) where {T} = MockTropical{T}(zero(T))
+Base.one(x::MockTropical{T}) where {T} = one(MockTropical{T})
+Base.:*(a::MockTropical, b::Bool) = b ? a : zero(a)
+Base.:*(a::MockTropical{T}, b::MockTropical{T}) where {T} = MockTropical{T}(a.n + b.n)
+Base.:+(a::MockTropical{T}, b::MockTropical{T}) where {T} = MockTropical{T}(max(a.n, b.n))
+
+@testset "issue #731" begin
+    x = MockTropical{Float64}(1.0)
+    B = sparse([1, 2], [1,2], [x, x])
+    C = [one(x) zero(x); zero(x) one(x)]
+    @test one(B) == C
+    @test B^0 == C
+end
+
 @testset "sparsevec" begin
     local A = sparse(fill(1, 5, 5))
     @test sparsevec(A) == fill(1, 25)

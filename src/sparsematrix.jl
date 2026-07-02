@@ -2205,7 +2205,7 @@ end
 import Base._one
 function Base._one(unit::T, S::AbstractSparseMatrixCSC) where T
     size(S, 1) == size(S, 2) || throw(DimensionMismatch("multiplicative identity only defined for square matrices"))
-    return SparseMatrixCSC{T}(I, size(S, 1), size(S, 2))
+    return SparseMatrixCSC{T}(unit * I, size(S, 1), size(S, 2))
 end
 
 ## SparseMatrixCSC construction from UniformScaling
