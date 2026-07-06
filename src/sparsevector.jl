@@ -683,6 +683,9 @@ function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     return @if_move_fixed x SparseVector(length(I), [rowvals(x)[i] - first(I) + 1 for i = r1:r2], nonzeros(x)[r1:r2])
 end
 
+getindex(M::AdjOrTrans{T,<:AbstractSparseMatrixCSC{T}}, i, ::Colon) where {T} =
+    map!(wrapperop(M), M.parent[:,i])
+
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
     let M = A[I, [J]]
