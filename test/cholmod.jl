@@ -303,6 +303,15 @@ end
     @inferred ldiv!(X2, factor, B)
     @test X2 ≈ X
 
+    # reuse across multiple calls (Y/E buffers kept in workspace)
+    fill!(x2, 0)
+    ldiv!(x2, factor, b)
+    @test x2 ≈ x
+
+    # Y/E buffers are reused across calls, remaining 16 bytes come from CHOLMOD internals
+    allocs = @allocated ldiv!(x2, factor, b)
+    @test allocs <= 16
+
     c = fill(Tv(1), size(x, 1) + 1)
     C = fill(Tv(1), size(X, 1) + 1, size(X, 2))
     y = fill(Tv(1), size(x, 1) + 1)
@@ -315,46 +324,26 @@ end
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
-@testset "ldiv! with CholmodWorkspace $Tv $Ti" begin
-    local A, x, x2, b, X, X2, B
+@testset "copy(Factor) workspace isolation $Tv $Ti" begin
+    local A, x, b, x2, x3
     A = sprand(10, 10, 0.1)
     A = I + A * A'
     A = convert(SparseMatrixCSC{Tv,Ti}, A)
     factor = cholesky(A)
-    ws = CHOLMOD.CholmodWorkspace()
+    factor2 = copy(factor)
 
     x = fill(Tv(1), 10)
     b = A * x
     x2 = zero(x)
-    ldiv!(x2, factor, b, ws)
+    x3 = zero(x)
+
+    ldiv!(x2, factor, b)
+    ldiv!(x3, factor2, b)
     @test x2 ≈ x
+    @test x3 ≈ x
 
-    # reuse workspace
-    X = fill(Tv(1), 10, 5)
-    B = A * X
-    X2 = zero(X)
-    ldiv!(X2, factor, B, ws)
-    @test X2 ≈ X
-
-    # workspace is reusable across calls
-    fill!(x2, 0)
-    ldiv!(x2, factor, b, ws)
-    @test x2 ≈ x
-
-    # allocation reduction
-    allocs = @allocated ldiv!(x2, factor, b, ws)
-    @test allocs <= 16
-
-    c = fill(Tv(1), size(x, 1) + 1)
-    C = fill(Tv(1), size(X, 1) + 1, size(X, 2))
-    y = fill(Tv(1), size(x, 1) + 1)
-    Y = fill(Tv(1), size(X, 1) + 1, size(X, 2))
-    @test_throws DimensionMismatch ldiv!(y, factor, b, ws)
-    @test_throws DimensionMismatch ldiv!(Y, factor, B, ws)
-    @test_throws DimensionMismatch ldiv!(x2, factor, c, ws)
-    @test_throws DimensionMismatch ldiv!(X2, factor, C, ws)
-    @test_throws DimensionMismatch ldiv!(X2, factor, b, ws)
-    @test_throws DimensionMismatch ldiv!(x2, factor, B, ws)
+    # Verify each copy has its own independent workspace
+    @test factor.workspace !== factor2.workspace
 end
 
 end #end for Ti ∈ itypes
