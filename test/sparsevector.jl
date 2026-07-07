@@ -299,6 +299,7 @@ end
             for t in (transpose, adjoint)
                 xt = t(x)
                 @test xt[1,:] == t.(x[:,1])
+                @test xt[2:4,:] == t(x[:,2:4])
             end
         end
     end
