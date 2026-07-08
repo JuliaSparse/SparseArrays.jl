@@ -291,8 +291,8 @@ mutable struct CholmodWorkspace
             Ref(Ptr{cholmod_dense_struct}(C_NULL))
         )
         finalizer(ws) do w
-            w.Y[] != C_NULL && free!(w.Y[])
-            w.E[] != C_NULL && free!(w.E[])
+            free!(w.Y[])
+            free!(w.E[])
         end
         ws
     end
