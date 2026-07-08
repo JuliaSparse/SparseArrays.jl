@@ -324,7 +324,7 @@ end
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
-@testset "copy(Factor) workspace isolation $Tv $Ti" begin
+@testset "copy(Factor) buffer isolation $Tv $Ti" begin
     local A, x, b, x2, x3
     A = sprand(10, 10, 0.1)
     A = I + A * A'
@@ -342,8 +342,8 @@ end
     @test x2 ≈ x
     @test x3 ≈ x
 
-    # Verify each copy has its own independent workspace
-    @test factor.workspace !== factor2.workspace
+    # Verify each copy has its own independent buffers
+    @test getfield(factor, :Y) !== getfield(factor2, :Y)
 end
 
 end #end for Ti ∈ itypes

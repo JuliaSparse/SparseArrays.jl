@@ -258,49 +258,15 @@ function Sparse(p::Ptr{cholmod_sparse})
     Sparse{jlxtype(s.xtype, s.dtype)}(p)
 end
 
-"""
-    CholmodWorkspace()
-
-Reusable workspace for allocation-free CHOLMOD solves.
-
-`cholmod_solve2` allocates two temporary dense matrices (Y and E) on every solve.
-A `CholmodWorkspace` holds those buffers across calls so that CHOLMOD reuses them
-instead of reallocating. It also pre-allocates the `cholmod_dense_struct` wrappers
-for `x` and `b`, eliminating all Julia-side heap allocations per solve.
-
-Each [`Factor`](@ref) embeds its own workspace and uses it automatically in
-`ldiv!(x, F, b)`. For multi-thread solves with a single factor, use `copy(F)`
-for every thread so each copy gets its own independent workspace and lock.
-
-The workspace is finalizer-protected. The Y and E buffers are freed automatically
-when the workspace is garbage-collected.
-"""
-mutable struct CholmodWorkspace
+# Factor stores its own temporary CHOLMOD Y/E buffers for use in ldiv!
+# and pre-allocates cholmod_dense_struct wrappers
+mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
+    ptr::Ptr{cholmod_factor}
     dense_x::cholmod_dense_struct
     dense_b::cholmod_dense_struct
     X::Ref{Ptr{cholmod_dense_struct}}
     Y::Ref{Ptr{cholmod_dense_struct}}
     E::Ref{Ptr{cholmod_dense_struct}}
-
-    function CholmodWorkspace()
-        ws = new(
-            cholmod_dense_struct(), # all fields will be written in ldiv! before use
-            cholmod_dense_struct(),
-            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
-            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
-            Ref(Ptr{cholmod_dense_struct}(C_NULL))
-        )
-        finalizer(ws) do w
-            free!(w.Y[])
-            free!(w.E[])
-        end
-        ws
-    end
-end
-
-mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
-    ptr::Ptr{cholmod_factor}
-    workspace::CholmodWorkspace
     lock::ReentrantLock
     function Factor{Tv, Ti}(ptr::Ptr{cholmod_factor}, register_finalizer = true) where {Tv, Ti}
         if ptr == C_NULL
@@ -318,9 +284,15 @@ mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
             free!(ptr, Ti)
             throw(CHOLMODException("dtype=$(dtyp(Tv)) not supported"))
         end
-        F = new(ptr, CholmodWorkspace(), ReentrantLock())
+        F = new(ptr,
+            cholmod_dense_struct(),
+            cholmod_dense_struct(),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            ReentrantLock())
         if register_finalizer
-            finalizer(free!, F)
+            finalizer(free!, F) # includes Y/E buffers
         end
         return F
     end
@@ -352,8 +324,6 @@ end
 Base.pointer(x::Dense{Tv}) where {Tv}  = Base.unsafe_convert(Ptr{cholmod_dense}, x)
 Base.pointer(x::Sparse{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_sparse}, x)
 Base.pointer(x::Factor{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_factor}, x)
-
-getworkspace(F::Factor) = F.workspace
 
 function _factor_components(is_ll)
     is_ll ? (:L, :U, :PtL, :UP) : (:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP)
@@ -1258,7 +1228,11 @@ end
 
 free!(A::Dense)  = free!(pointer(A))
 free!(A::Sparse{<:Any, Ti}) where Ti = free!(pointer(A), Ti)
-free!(F::Factor{<:Any, Ti}) where Ti = free!(pointer(F), Ti)
+function free!(F::Factor{<:Any, Ti}) where Ti
+    free!(getfield(F, :Y)[])
+    free!(getfield(F, :E)[])
+    free!(pointer(F), Ti)
+end
 
 nnz(F::Factor) = nnz(Sparse(F))
 
@@ -1343,7 +1317,7 @@ end
 @inline function getproperty(F::Factor, sym::Symbol)
     if sym === :p
         return get_perm(F)
-    elseif sym === :ptr || sym === :workspace || sym === :lock # add workspace and lock
+    elseif sym === :ptr || sym === :lock
         return getfield(F, sym)
     else
         return FactorComponent(F, sym)
@@ -1931,44 +1905,46 @@ const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjO
     throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
         " consider to convert B to a dense array"))
 
-# Julia array -> fill ws.dense_b fields and return pointer to it
+# Julia array -> fill dense_b fields and return pointer to it
 # CHOLMOD Dense object -> struct is already set up by CHOLMOD, return b.ptr directly
-@inline function _setup_bptr(b::StridedVecOrMat{T}, ws::CholmodWorkspace) where T<:VTypes
-    ws.dense_b.nrow  = size(b, 1)
-    ws.dense_b.ncol  = size(b, 2)
-    ws.dense_b.nzmax = length(b)
-    ws.dense_b.d     = stride(b, 2)
-    ws.dense_b.x     = pointer(b)
-    ws.dense_b.z     = C_NULL
-    ws.dense_b.xtype = xtyp(T)
-    ws.dense_b.dtype = dtyp(T)
-    return Ptr{cholmod_dense_struct}(pointer_from_objref(ws.dense_b))
+@inline function _setup_bptr(b::StridedVecOrMat{T}, dense_b::cholmod_dense_struct) where T<:VTypes
+    dense_b.nrow  = size(b, 1)
+    dense_b.ncol  = size(b, 2)
+    dense_b.nzmax = length(b)
+    dense_b.d     = stride(b, 2)
+    dense_b.x     = pointer(b)
+    dense_b.z     = C_NULL
+    dense_b.xtype = xtyp(T)
+    dense_b.dtype = dtyp(T)
+    return Ptr{cholmod_dense_struct}(pointer_from_objref(dense_b))
 end
-@inline _setup_bptr(b::Dense{<:VTypes}, ::CholmodWorkspace) = b.ptr
+@inline _setup_bptr(b::Dense{<:VTypes}, ::cholmod_dense_struct) = b.ptr
 
 for TI in IndexTypes
-    @eval function solve!(x::StridedVecOrMat{T},
-                          L::Factor{T, $TI},
-                          b::StridedVecOrMat{T};
-                          ws = getworkspace(L)) where {T<:VTypes}
+    @eval function solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T}) where {T<:VTypes}
         @lock L.lock begin
-            ws.dense_x.nrow  = size(x, 1)
-            ws.dense_x.ncol  = size(x, 2)
-            ws.dense_x.nzmax = length(x)
-            ws.dense_x.d     = stride(x, 2)
-            ws.dense_x.x     = pointer(x)
-            ws.dense_x.z     = C_NULL
-            ws.dense_x.xtype = xtyp(T)
-            ws.dense_x.dtype = dtyp(T)
+            dense_x = getfield(L, :dense_x)
+            X = getfield(L, :X)
+            Y = getfield(L, :Y)
+            E = getfield(L, :E)
 
-            ws.X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(ws.dense_x))
-            Bptr = _setup_bptr(b, ws)
-            status = GC.@preserve x b ws begin
+            dense_x.nrow  = size(x, 1)
+            dense_x.ncol  = size(x, 2)
+            dense_x.nzmax = length(x)
+            dense_x.d     = stride(x, 2)
+            dense_x.x     = pointer(x)
+            dense_x.z     = C_NULL
+            dense_x.xtype = xtyp(T)
+            dense_x.dtype = dtyp(T)
+
+            X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
+            Bptr = _setup_bptr(b, getfield(L, :dense_b))
+            status = GC.@preserve x b L begin
                 $(cholname(:solve2, TI))(
                     CHOLMOD_A, L,
                     Bptr, C_NULL,
-                    ws.X, C_NULL,
-                    ws.Y, ws.E,
+                    X, C_NULL,
+                    Y, E,
                     getcommon($TI))
             end
             @assert !iszero(status)
