@@ -294,6 +294,14 @@ end
             bIv[I] .= true
             @test Array(r) == Array(x)[bIv]
         end
+
+        let x = sprand(ComplexF64, 10, 10, 0.5)
+            for t in (transpose, adjoint)
+                xt = t(x)
+                @test xt[1,:] == t.(x[:,1])
+                @test xt[2:4,:] == t(x[:,2:4])
+            end
+        end
     end
     @testset "index with colon" begin
         @test issparse(spzeros(0)[:])
