@@ -11,7 +11,7 @@ using LinearAlgebra: wrapperop
 ### Types
 
 """
-    SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
+    SparseVector{Tv<:Union{Number,Missing},Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
 
 Vector type for storing sparse vectors. Can be created by passing the length of the vector,
 a *sorted* vector of non-zero indices, and a vector of non-zero values.
@@ -33,12 +33,12 @@ sparse([5, 6, 0, 7])
 
 yields the same sparse vector.
 """
-struct SparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
+struct SparseVector{Tv<:Union{Number,Missing},Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
     nzind::Vector{Ti}   # Indices of stored values
     nzval::Vector{Tv}   # Stored values, typically nonzeros
 
-    function SparseVector{Tv,Ti}(n::Integer, nzind::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti<:Integer}
+    function SparseVector{Tv,Ti}(n::Integer, nzind::Vector{Ti}, nzval::Vector{Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer}
         n >= 0 || throw(ArgumentError("The number of elements must be non-negative."))
         length(nzind) == length(nzval) ||
             throw(ArgumentError("index and value vectors must be the same length"))
@@ -57,12 +57,12 @@ SparseVector{Tv, Ti}(::UndefInitializer, (n,)::Tuple{Integer}) where {Tv, Ti}  =
 
 Experimental AbstractCompressedVector whose non-zero index are fixed.
 """
-struct FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
+struct FixedSparseVector{Tv<:Union{Number,Missing},Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
     nzind::ReadOnly{Ti,1,Vector{Ti}}   # Indices of stored values
     nzval::Vector{Tv}   # Stored values, typically nonzeros
 
-    function FixedSparseVector{Tv,Ti}(n::Integer, nzind::ReadOnly{Ti,1,Vector{Ti}}, nzval::Vector{Tv}) where {Tv,Ti<:Integer}
+    function FixedSparseVector{Tv,Ti}(n::Integer, nzind::ReadOnly{Ti,1,Vector{Ti}}, nzval::Vector{Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer}
         n >= 0 || throw(ArgumentError("The number of elements must be non-negative."))
         length(nzind) == length(nzval) ||
             throw(ArgumentError("index and value vectors must be the same length"))
@@ -70,10 +70,10 @@ struct FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     end
 end
 @inline _is_fixed(::FixedSparseVector) = true
-FixedSparseVector(n::Integer, nzind::ReadOnly{Ti,1,Vector{Ti}}, nzval::Vector{Tv}) where {Tv,Ti<:Integer} =
+FixedSparseVector(n::Integer, nzind::ReadOnly{Ti,1,Vector{Ti}}, nzval::Vector{Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer} =
     FixedSparseVector{Tv,Ti}(n, nzind, nzval)
 
-FixedSparseVector(n::Integer, nzind::Vector{<:Integer}, nzval::Vector) =
+FixedSparseVector(n::Integer, nzind::Vector{<:Integer}, nzval::Vector{<:Union{Number,Missing}}) =
     FixedSparseVector(n, ReadOnly(nzind), nzval)
 
 FixedSparseVector(s::AbstractSparseVector) = FixedSparseVector(length(s), copy(nonzeroinds(s)), copy(nonzeros(s)))
@@ -242,15 +242,15 @@ spzeros(len::Integer) = spzeros(Float64, len)
 spzeros(dims::Tuple{<:Integer}) = spzeros(Float64, dims[1])
 spzeros(::Type{T}, len::Integer) where {T} = SparseVector(len, Int[], T[])
 spzeros(::Type{T}, dims::Tuple{<:Integer}) where {T} = spzeros(T, dims[1])
-spzeros(::Type{Tv}, ::Type{Ti}, len::Integer) where {Tv,Ti<:Integer} = SparseVector(len, Ti[], Tv[])
-spzeros(::Type{Tv}, ::Type{Ti}, dims::Tuple{<:Integer}) where {Tv,Ti<:Integer} = spzeros(Tv, Ti, dims[1])
+spzeros(::Type{Tv}, ::Type{Ti}, len::Integer) where {Tv<:Union{Number,Missing},Ti<:Integer} = SparseVector(len, Ti[], Tv[])
+spzeros(::Type{Tv}, ::Type{Ti}, dims::Tuple{<:Integer}) where {Tv<:Union{Number,Missing},Ti<:Integer} = spzeros(Tv, Ti, dims[1])
 fixed(x::AbstractSparseVector) = FixedSparseVector(x)
 move_fixed(x::AbstractSparseVector) = FixedSparseVector(length(x), nonzeroinds(x), nonzeros(x))
 LinearAlgebra.fillstored!(x::AbstractCompressedVector, y) = (fill!(nonzeros(x), y); x)
 
 ### Construction from lists of indices and values
 
-function _sparsevector!(I::Vector{<:Integer}, V::Vector, len::Integer)
+function _sparsevector!(I::Vector{<:Integer}, V::Vector{<:Union{Number,Missing}}, len::Integer)
     # pre-condition: no duplicate indices in I
     if !isempty(I)
         p = sortperm(I)
@@ -260,7 +260,7 @@ function _sparsevector!(I::Vector{<:Integer}, V::Vector, len::Integer)
     SparseVector(len, I, V)
 end
 
-function _sparsevector!(I::Vector{<:Integer}, V::Vector, len::Integer, combine::Function)
+function _sparsevector!(I::Vector{<:Integer}, V::Vector{<:Union{Number,Missing}}, len::Integer, combine::Function)
     if !isempty(I)
         p = sortperm(I)
         permute!(I, p)
@@ -324,7 +324,7 @@ julia> sparsevec([1, 3, 1, 2, 2], [true, true, false, false, false])
   [3]  =  1
 ```
 """
-function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector, combine::Function)
+function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector{<:Union{Number,Missing}}, combine::Function)
     require_one_based_indexing(I, V)
     length(I) == length(V) ||
         throw(ArgumentError("index and value vectors must be the same length"))
@@ -338,7 +338,7 @@ function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector, combine::Fun
     _sparsevector!(Vector(I), Vector(V), len, combine)
 end
 
-function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector, len::Integer, combine::Function)
+function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector{<:Union{Number,Missing}}, len::Integer, combine::Function)
     require_one_based_indexing(I, V)
     length(I) == length(V) ||
         throw(ArgumentError("index and value vectors must be the same length"))
@@ -385,7 +385,7 @@ julia> sparsevec(Dict(1 => 3, 2 => 2))
   [2]  =  2
 ```
 """
-function sparsevec(dict::AbstractDict{Ti,Tv}) where {Tv,Ti<:Integer}
+function sparsevec(dict::AbstractDict{Ti,Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer}
     m = length(dict)
     nzind = Vector{Ti}(undef, m)
     nzval = Vector{Tv}(undef, m)
@@ -406,7 +406,7 @@ function sparsevec(dict::AbstractDict{Ti,Tv}) where {Tv,Ti<:Integer}
     _sparsevector!(nzind, nzval, len)
 end
 
-function sparsevec(dict::AbstractDict{Ti,Tv}, len::Integer) where {Tv,Ti<:Integer}
+function sparsevec(dict::AbstractDict{Ti,Tv}, len::Integer) where {Tv<:Union{Number,Missing},Ti<:Integer}
     m = length(dict)
     nzind = Vector{Ti}(undef, m)
     nzval = Vector{Tv}(undef, m)
@@ -427,7 +427,7 @@ end
 
 ### Element access
 
-@RCI @propagate_inbounds function setindex!(x::AbstractCompressedVector{Tv,Ti}, v::Tv, i::Ti) where {Tv,Ti<:Integer}
+@RCI @propagate_inbounds function setindex!(x::AbstractCompressedVector{Tv,Ti}, v::Tv, i::Ti) where {Tv<:Union{Number,Missing},Ti<:Integer}
     @boundscheck checkbounds(x, i)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
@@ -445,7 +445,7 @@ end
     return x
 end
 
-@RCI @propagate_inbounds setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
+@RCI @propagate_inbounds setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv<:Union{Number,Missing},Ti<:Integer} =
     setindex!(x, convert(Tv, v), convert(Ti, i))
 
 
@@ -494,7 +494,7 @@ end
 ### Conversion
 
 # convert SparseMatrixCSC to SparseVector
-function SparseVector{Tv,Ti}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti<:Integer}
+function SparseVector{Tv,Ti}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Union{Number,Missing},Ti<:Integer}
     size(s, 2) == 1 || throw(ArgumentError("The input argument must have a single-column."))
     SparseVector(size(s, 1), rowvals(s), nonzeros(s))
 end
@@ -522,8 +522,8 @@ julia> sparsevec([1.0, 2.0, 0.0, 0.0, 3.0, 0.0])
   [5]  =  3.0
 ```
 """
-sparsevec(a::AbstractVector{T}) where {T} = SparseVector{T, Int}(a)
-sparsevec(a::AbstractArray) = sparsevec(vec(a))
+sparsevec(a::AbstractVector{T}) where {T<:Union{Number,Missing}} = SparseVector{T, Int}(a)
+sparsevec(a::AbstractArray{<:Union{Number,Missing}}) = sparsevec(vec(a))
 sparsevec(a::AbstractSparseArray) = vec(a)
 sparsevec(a::AbstractSparseVector) = vec(a)
 sparse(a::AbstractVector) = sparsevec(a)

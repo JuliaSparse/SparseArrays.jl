@@ -9,14 +9,14 @@
 # Assumes that 0   <= length(nzval) < typemax(Ti)
 
 """
-    SparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
+    SparseMatrixCSC{Tv<:Union{Number,Missing},Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
 
 Matrix type for storing sparse matrices in the
 [Compressed Sparse Column](@ref man-csc) format. The standard way
 of constructing SparseMatrixCSC is through the [`sparse`](@ref) function.
 See also [`spzeros`](@ref), [`spdiagm`](@ref) and [`sprand`](@ref).
 """
-struct SparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
+struct SparseMatrixCSC{Tv<:Union{Number,Missing},Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     m::Int                  # Number of rows
     n::Int                  # Number of columns
     colptr::Vector{Ti}      # Column i is in colptr[i]:(colptr[i+1]-1)
@@ -24,7 +24,7 @@ struct SparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     nzval::Vector{Tv}       # Stored values, typically nonzeros
 
     function SparseMatrixCSC{Tv,Ti}(m::Integer, n::Integer, colptr::Vector{Ti},
-                            rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti<:Integer}
+                            rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
         _goodbuffers(Int(m), Int(n), colptr, rowval, nzval) ||
             throw(ArgumentError("Invalid buffers for SparseMatrixCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
@@ -57,11 +57,11 @@ SparseMatrixCSC{Tv,Ti}(::UndefInitializer, m::Integer, n::Integer) where {Tv, Ti
 SparseMatrixCSC{Tv,Ti}(::UndefInitializer, mn::NTuple{2,Integer}) where {Tv, Ti} = spzeros(Tv, Ti, mn...)
 
 """
-    FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
+    FixedSparseCSC{Tv<:Union{Number,Missing},Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
 
 Experimental AbstractSparseMatrixCSC whose non-zero index are fixed.
 """
-struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
+struct FixedSparseCSC{Tv<:Union{Number,Missing},Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     m::Int                  # Number of rows
     n::Int                  # Number of columns
     colptr::ReadOnly{Ti,1,Vector{Ti}} # Column i is in colptr[i]:(colptr[i+1]-1)
@@ -71,7 +71,7 @@ struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     function FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer,
                             colptr::ReadOnly{Ti,1,Vector{Ti}},
                             rowval::ReadOnly{Ti,1,Vector{Ti}},
-                            nzval::Vector{Tv}) where {Tv,Ti<:Integer}
+                            nzval::Vector{Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer}
         sparse_check_Ti(m, n, Ti)
         _goodbuffers(Int(m), Int(n), parent(colptr), parent(rowval), nzval) ||
             throw(ArgumentError("Invalid buffers for FixedSparseCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
@@ -82,7 +82,7 @@ end
 FixedSparseCSC(m::Integer, n::Integer,
     colptr::ReadOnly{Ti,1,Vector{Ti}},
     rowval::ReadOnly{Ti,1,Vector{Ti}},
-    nzval::Vector{Tv}) where {Tv,Ti<:Integer} =
+    nzval::Vector{Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer} =
     FixedSparseCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
     FixedSparseCSC{Tv,Ti}(m, n, ReadOnly(colptr), ReadOnly(rowval), nzval)
@@ -337,7 +337,7 @@ end
 Base.replace_in_print_matrix(A::AbstractSparseMatrixCSCInclAdjointAndTranspose, i::Integer, j::Integer, s::AbstractString) =
     Base.isstored(A, i, j) ? s : Base.replace_with_centered_mark(s)
 
-function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose, dims::Tuple{Vararg{Base.OneTo}})
+function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose, ::Tuple{Vararg{Base.OneTo}})
     _checkbuffers(S)
 
     xnnz = nnz(S)
@@ -1069,7 +1069,7 @@ julia> sparse(Is, Js, Vs)
  ⋅  ⋅  3
 ```
 """
-function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
+function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv<:Union{Number,Missing},Ti<:Integer}
     require_one_based_indexing(I, J, V)
     coolen = length(I)
     if length(J) != coolen || length(V) != coolen
@@ -1117,7 +1117,7 @@ sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::I
     sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
             m::Integer, n::Integer, combine, klasttouch::Vector{Ti},
             csrrowptr::Vector{Ti}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
-            [csccolptr::Vector{Ti}], [cscrowval::Vector{Ti}, cscnzval::Vector{Tv}] ) where {Tv,Ti<:Integer}
+            [csccolptr::Vector{Ti}], [cscrowval::Vector{Ti}, cscnzval::Vector{Tv}] ) where {Tv<:Union{Number,Missing},Ti<:Integer}
 
 Parent of and expert driver for [`sparse`](@ref);
 see [`sparse`](@ref) for basic usage. This method
@@ -1164,7 +1164,7 @@ counting sorts.
 function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
         m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
-        csccolptr::Vector{Ti}, cscrowval::Vector{Ti}, cscnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
+        csccolptr::Vector{Ti}, cscrowval::Vector{Ti}, cscnzval::Vector{Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer,Tj<:Integer}
 
     require_one_based_indexing(I, J, V)
     sparse_check_Ti(m, n, Ti)
@@ -1290,14 +1290,14 @@ end
 function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
         V::AbstractVector{Tv}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
         csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
-        csccolptr::Vector{Ti}) where {Tv,Ti<:Integer,Tj<:Integer}
+        csccolptr::Vector{Ti}) where {Tv<:Union{Number,Missing},Ti<:Integer,Tj<:Integer}
     sparse!(I, J, V, m, n, combine, klasttouch,
             csrrowptr, csrcolval, csrnzval,
             csccolptr, Vector{Ti}(), Vector{Tv}())
 end
 function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti},
         V::AbstractVector{Tv}, m::Integer, n::Integer, combine, klasttouch::Vector{Tj},
-        csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv}) where {Tv,Ti<:Integer,Tj<:Integer}
+        csrrowptr::Vector{Tj}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv}) where {Tv<:Union{Number,Missing},Ti<:Integer,Tj<:Integer}
     sparse!(I, J, V, m, n, combine, klasttouch,
             csrrowptr, csrcolval, csrnzval,
             Vector{Ti}(undef, n+1), Vector{Ti}(), Vector{Tv}())
@@ -1323,7 +1323,7 @@ respectively.
     This method requires Julia version 1.10 or later.
 """
 function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
-                 m::Integer=dimlub(I), n::Integer=dimlub(J), combine::Function=+) where {Tv, Ti<:Integer}
+                 m::Integer=dimlub(I), n::Integer=dimlub(J), combine::Function=+) where {Tv<:Union{Number,Missing}, Ti<:Integer}
     klasttouch = Vector{Ti}(undef, n)
     csrrowptr  = Vector{Ti}(undef, m + 1)
     csrcolval  = Vector{Ti}(undef, length(I))
@@ -2113,16 +2113,16 @@ julia> spzeros(Float32, 4)
 ```
 """
 spzeros(m::Integer, n::Integer) = spzeros(Float64, m, n)
-spzeros(::Type{Tv}, m::Integer, n::Integer) where {Tv} = spzeros(Tv, Int, m, n)
-function spzeros(::Type{Tv}, ::Type{Ti}, m::Integer, n::Integer) where {Tv, Ti}
+spzeros(::Type{Tv}, m::Integer, n::Integer) where {Tv<:Union{Number,Missing}} = spzeros(Tv, Int, m, n)
+function spzeros(::Type{Tv}, ::Type{Ti}, m::Integer, n::Integer) where {Tv<:Union{Number,Missing}, Ti}
     ((m < 0) || (n < 0)) && throw(ArgumentError("invalid Array dimensions"))
     SparseMatrixCSC(m, n, fill(one(Ti), n+1), Vector{Ti}(), Vector{Tv}())
 end
 # de-splatting variants
-function spzeros(::Type{Tv}, ::Type{Ti}, sz::Tuple{Integer,Integer}) where {Tv, Ti}
+function spzeros(::Type{Tv}, ::Type{Ti}, sz::Tuple{Integer,Integer}) where {Tv<:Union{Number,Missing}, Ti}
     spzeros(Tv, Ti, sz[1], sz[2])
 end
-spzeros(::Type{Tv}, sz::Tuple{Integer,Integer}) where {Tv} = spzeros(Tv, Int, sz[1], sz[2])
+spzeros(::Type{Tv}, sz::Tuple{Integer,Integer}) where {Tv<:Union{Number,Missing}} = spzeros(Tv, Int, sz[1], sz[2])
 spzeros(sz::Tuple{Integer,Integer}) = spzeros(Float64, Int, sz[1], sz[2])
 
 """
@@ -2141,10 +2141,10 @@ For additional documentation and an expert driver, see `SparseArrays.spzeros!`.
 spzeros(I::AbstractVector, J::AbstractVector) = spzeros(Float64, I, J)
 spzeros(I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) = spzeros(Float64, I, J, m, n)
 spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector) where {Tv} = spzeros(Tv, I, J, dimlub(I), dimlub(J))
-function spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) where {Tv}
+function spzeros(::Type{Tv}, I::AbstractVector, J::AbstractVector, m::Integer, n::Integer) where {Tv<:Union{Number,Missing}}
     return spzeros(Tv, AbstractVector{Int}(I), AbstractVector{Int}(J), m, n)
 end
-function spzeros(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer) where {Tv, Ti<:Integer}
+function spzeros(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer) where {Tv<:Union{Number,Missing}, Ti<:Integer}
     if length(I) != length(J)
         throw(ArgumentError("length(I) = $(length(I)) does not match length(J) = $(length(J))"))
     end
@@ -2157,7 +2157,7 @@ end
 """
     spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer,
              klasttouch::Vector{Ti}, csrrowptr::Vector{Ti}, csrcolval::Vector{Ti},
-             [csccolptr::Vector{Ti}], [cscrowval::Vector{Ti}, cscnzval::Vector{Tv}]) where {Tv,Ti<:Integer}
+             [csccolptr::Vector{Ti}], [cscrowval::Vector{Ti}, cscnzval::Vector{Tv}]) where {Tv<:Union{Number,Missing},Ti<:Integer}
 
 Parent of and expert driver for `spzeros(I, J)` allowing user to provide preallocated
 storage for intermediate objects. This method is to `spzeros` what `SparseArrays.sparse!` is
@@ -2170,7 +2170,7 @@ lengths.
 function spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti}, m::Integer, n::Integer,
         klasttouch::Vector{Ti}, csrrowptr::Vector{Ti}, csrcolval::Vector{Ti},
         csccolptr::Vector{Ti}=Ti[], cscrowval::Vector{Ti}=Ti[], cscnzval::Vector{Tv}=Tv[]
-    ) where {Tv, Ti<:Integer}
+    ) where {Tv<:Union{Number,Missing}, Ti<:Integer}
     # We can pass V = csrnzval = cscnzval since V and csrnzval are unused in sparse! if used
     # to only build the sparsity pattern (which is indicated by passing combine=nothing).
     return sparse!(I, J, cscnzval, m, n, nothing, klasttouch,
@@ -2195,7 +2195,7 @@ Arguments `m` and `n` defaults to `maximum(I)` and `maximum(J)`.
     This method requires Julia version 1.10 or later.
 """
 function spzeros!(::Type{Tv}, I::AbstractVector{Ti}, J::AbstractVector{Ti},
-                  m::Integer=dimlub(I), n::Integer=dimlub(J)) where {Tv, Ti <: Integer}
+                  m::Integer=dimlub(I), n::Integer=dimlub(J)) where {Tv <: Union{Number,Missing}, Ti <: Integer}
     klasttouch = Vector{Ti}(undef, n)
     csrrowptr  = Vector{Ti}(undef, m + 1)
     csrcolval  = Vector{Ti}(undef, length(I))
@@ -2212,7 +2212,7 @@ end
 SparseMatrixCSC{Tv,Ti}(s::UniformScaling, m::Integer, n::Integer) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(s, Dims((m, n)))
 SparseMatrixCSC{Tv}(s::UniformScaling, m::Integer, n::Integer) where {Tv} = SparseMatrixCSC{Tv}(s, Dims((m, n)))
 SparseMatrixCSC(s::UniformScaling, m::Integer, n::Integer) = SparseMatrixCSC(s, Dims((m, n)))
-SparseMatrixCSC{Tv}(s::UniformScaling, dims::Dims{2}) where {Tv} = SparseMatrixCSC{Tv,Int}(s, dims)
+SparseMatrixCSC{Tv}(s::UniformScaling, dims::Dims{2}) where {Tv<:Union{Number,Missing}} = SparseMatrixCSC{Tv,Int}(s, dims)
 SparseMatrixCSC(s::UniformScaling, dims::Dims{2}) = SparseMatrixCSC{eltype(s)}(s, dims)
 function SparseMatrixCSC{Tv,Ti}(s::UniformScaling, dims::Dims{2}) where {Tv,Ti}
     @boundscheck first(dims) < 0 && throw(ArgumentError("first dimension invalid ($(first(dims)) < 0)"))
@@ -2246,8 +2246,8 @@ end
 
 sparse(s::UniformScaling, dims::Dims{2}) = SparseMatrixCSC(s, dims)
 sparse(s::UniformScaling, m::Integer, n::Integer) = sparse(s, Dims((m, n)))
-sparse(::Type{Tv}, s::UniformScaling, m::Integer, n::Integer) where {Tv} = SparseMatrixCSC{Tv}(s, Dims((m, n)))
-sparse(::Type{Tv}, ::Type{Ti}, s::UniformScaling, m::Integer, n::Integer) where {Tv, Ti} = SparseMatrixCSC{Tv, Ti}(s, Dims((m, n)))
+sparse(::Type{Tv}, s::UniformScaling, m::Integer, n::Integer) where {Tv<:Union{Number,Missing}} = SparseMatrixCSC{Tv}(s, Dims((m, n)))
+sparse(::Type{Tv}, ::Type{Ti}, s::UniformScaling, m::Integer, n::Integer) where {Tv<:Union{Number,Missing}, Ti} = SparseMatrixCSC{Tv, Ti}(s, Dims((m, n)))
 
 # TODO: More appropriate location?
 function conj!(A::AbstractSparseMatrixCSC)
@@ -2799,7 +2799,7 @@ end
 getindex_traverse_col(::AbstractUnitRange, lo::Integer, hi::Integer) = lo:hi
 getindex_traverse_col(I::StepRange, lo::Integer, hi::Integer) = step(I) > 0 ? (lo:1:hi) : (hi:-1:lo)
 
-function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::AbstractVector) where {Tv,Ti<:Integer}
+function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::AbstractVector) where {Tv<:Union{Number,Missing},Ti<:Integer}
     require_one_based_indexing(A, I, J)
     # Ranges for indexing rows
     (m, n) = size(A)
@@ -3184,10 +3184,10 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
 end
 
 # logical getindex
-getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{Bool}) = error("Cannot index with AbstractRange{Bool}")
-getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{<:Integer}) = error("Cannot index with AbstractRange{Bool}")
+getindex(A::AbstractSparseMatrixCSC{<:Union{Missing, Number},<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{Bool}) = error("Cannot index with AbstractRange{Bool}")
+getindex(A::AbstractSparseMatrixCSC{<:Union{Missing, Number},<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{<:Integer}) = error("Cannot index with AbstractRange{Bool}")
 
-getindex(A::AbstractSparseMatrixCSC, I::AbstractRange{<:Integer}, J::AbstractVector{Bool}) = A[I,findall(J)]
+getindex(A::AbstractSparseMatrixCSC{<:Union{Missing, Number},<:Integer}, I::AbstractRange{<:Integer}, J::AbstractVector{Bool}) = A[I,findall(J)]
 getindex(A::AbstractSparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = A[I,findall(J)]
 getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = A[findall(I),J]
 getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = A[findall(I),findall(J)]
@@ -3199,7 +3199,7 @@ getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{
 # dispatch helper for #29034
 @RCI setindex!(A::AbstractSparseMatrixCSC, _v, _i::Integer, _j::Integer) = _setindex_scalar!(A, _v, _i, _j)
 
-function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _j::Integer) where {Tv,Ti<:Integer}
+function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _j::Integer) where {Tv<:Union{Number,Missing},Ti<:Integer}
     v = convert(Tv, _v)
     i = convert(Ti, _i)
     j = convert(Ti, _j)
@@ -3243,7 +3243,7 @@ function _insert!(v::Vector, pos::Integer, item, nz::Integer)
     end
 end
 
-function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
+function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where {Tv<:Union{Number,Missing}}
     A = V.parent
     I, J = V.indices
     if isempty(I) || isempty(J); return A; end
@@ -3303,7 +3303,7 @@ and j in J, assigns x to A[i,j] if A[i,j] is a presently-stored entry, and alloc
 assigns x to A[i,j] if A[i,j] is not presently stored.
 """
 function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
-        I::Union{Integer, AbstractVector{<:Integer}}, J::Union{Integer, AbstractVector{<:Integer}}) where Tv
+        I::Union{Integer, AbstractVector{<:Integer}}, J::Union{Integer, AbstractVector{<:Integer}}) where {Tv<:Union{Number,Missing}}
     require_one_based_indexing(A, I, J)
     m, n = size(A)
     lenI = length(I)
@@ -3418,9 +3418,9 @@ _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractMatrix, I...) where {
 _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractMatrix, i::Integer, J) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, (1, length(J))))
 _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVector, I...) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, map(length, I)))
 
-setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::Integer) where {Tv} = _setindex_scalar!(A, B, I, J)
+setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::Integer) where {Tv<:Union{Number,Missing}} = _setindex_scalar!(A, B, I, J)
 
-function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::Union{Integer, AbstractVector{<:Integer}, Colon}, Jx::Union{Integer, AbstractVector{<:Integer}, Colon}) where {Tv,Ti<:Integer}
+function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::Union{Integer, AbstractVector{<:Integer}, Colon}, Jx::Union{Integer, AbstractVector{<:Integer}, Colon}) where {Tv<:Union{Number,Missing},Ti<:Integer}
     require_one_based_indexing(A, V, Ix, Jx)
     (I, J) = Base.ensure_indexable(to_indices(A, (Ix, Jx)))
     checkbounds(A, I, J)
@@ -4042,7 +4042,7 @@ julia> blockdiag(sparse(2I, 3, 3), sparse(4I, 2, 2))
 """
 blockdiag() = spzeros(promote_type(), Int, 0, 0)
 
-function blockdiag(X::AbstractSparseMatrixCSC{Tv, Ti}...) where {Tv, Ti <: Integer}
+function blockdiag(X::AbstractSparseMatrixCSC{Tv, Ti}...) where {Tv <: Union{Number,Missing}, Ti <: Integer}
     _blockdiag(Tv, Ti, X...)
 end
 
@@ -4052,7 +4052,7 @@ function blockdiag(X::AbstractSparseMatrixCSC...)
     _blockdiag(Tv, Ti, X...)
 end
 
-function _blockdiag(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where {Tv, Ti <: Integer}
+function _blockdiag(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where {Tv <: Union{Number,Missing}, Ti <: Integer}
     num = length(X)
     mX = Int[ size(x, 1) for x in X ]
     nX = Int[ size(x, 2) for x in X ]
