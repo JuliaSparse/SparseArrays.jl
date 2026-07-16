@@ -690,7 +690,7 @@ argument specifies a random number generator, see [Random Numbers](@ref).
 ```jldoctest; setup = :(using Random; Random.seed!(0))
 julia> sprandn(2, 2, 0.75)
 2×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
- -1.20577     ⋅
+ -1.20577       ⋅
   0.311817  -0.234641
 ```
 """
@@ -720,9 +720,9 @@ are still allocated, and a matrix additionally allocates a column pointer of
 ```jldoctest
 julia> spzeros(3, 3)
 3×3 SparseMatrixCSC{Float64, Int64} with 0 stored entries:
-  ⋅    ⋅    ⋅
-  ⋅    ⋅    ⋅
-  ⋅    ⋅    ⋅
+ ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅
 
 julia> spzeros(Float32, 4)
 4-element SparseVector{Float32, Int64} with 0 stored entries

@@ -153,8 +153,11 @@ julia> I = [1, 4, 3, 5]; J = [4, 7, 18, 9]; V = [1, 2, -5, 3];
 
 julia> S = sparse(I,J,V)
 5×18 SparseMatrixCSC{Int64, Int64} with 4 stored entries:
-⎡⠀⠈⠀⠀⠀⠀⠀⠀⢀⎤
-⎣⠀⠀⠀⠂⡀⠀⠀⠀⠀⎦
+ ⋅  ⋅  ⋅  1  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅   ⋅
+ ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅   ⋅
+ ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  -5
+ ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  2  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅   ⋅
+ ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  3  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅  ⋅   ⋅
 
 julia> R = sparsevec(I,V)
 5-element SparseVector{Int64, Int64} with 4 stored entries:
@@ -504,9 +507,9 @@ julia> nnz(dropzeros!(B))
 
 julia> fkeep!((i, j, v) -> i == j, B)
 3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
-  ⋅    ⋅    ⋅
-  ⋅   3.0   ⋅
-  ⋅    ⋅   4.0
+ ⋅   ⋅    ⋅
+ ⋅  3.0   ⋅
+ ⋅   ⋅   4.0
 ```
 
 ## Correspondence of dense and sparse methods
