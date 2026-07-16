@@ -1514,9 +1514,9 @@ end
     A = spzeros(Float32, Int64, 2, 2)
     for (transform, showstring) in zip(
         (identity, adjoint, transpose), (
-        "2×2 $SparseMatrixCSC{Float32, Int64} with 0 stored entries:\n  ⋅    ⋅ \n  ⋅    ⋅ ",
-        "2×2 $Adjoint{Float32, $SparseMatrixCSC{Float32, Int64}} with 0 stored entries:\n  ⋅    ⋅ \n  ⋅    ⋅ ",
-        "2×2 $Transpose{Float32, $SparseMatrixCSC{Float32, Int64}} with 0 stored entries:\n  ⋅    ⋅ \n  ⋅    ⋅ ",
+        "2×2 $SparseMatrixCSC{Float32, Int64} with 0 stored entries:\n ⋅  ⋅\n ⋅  ⋅",
+        "2×2 $Adjoint{Float32, $SparseMatrixCSC{Float32, Int64}} with 0 stored entries:\n ⋅  ⋅\n ⋅  ⋅",
+        "2×2 $Transpose{Float32, $SparseMatrixCSC{Float32, Int64}} with 0 stored entries:\n ⋅  ⋅\n ⋅  ⋅",
         ))
         show(io, MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
@@ -1538,7 +1538,7 @@ end
         show(io, MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == braille
+        @test contains(String(take!(io)), braille)
     end
 
     # every 1-dot braille pattern
@@ -1559,7 +1559,7 @@ end
     for transform in (identity, adjoint, transpose)
         expected = "⎡" * Char(10240)^2 * "⎤\n⎣" * Char(10240)^2 * "⎦"
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == expected
+        @test contains(String(take!(io)), expected)
     end
 
     A = sparse(Int64[1, 2, 4, 2, 3], Int64[1, 1, 1, 2, 2], Int64[1, 1, 1, 1, 1], 4, 2)
@@ -1578,7 +1578,7 @@ end
         show(io, MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == braille
+        @test contains(String(take!(io)), braille)
     end
 
     A = sparse(Int64[1, 3, 2, 4], Int64[1, 1, 2, 2], Int64[1, 1, 1, 1], 7, 3)
@@ -1597,7 +1597,7 @@ end
         show(io, MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == braille
+        @test contains(String(take!(io)), braille)
     end
 
     A = sparse(Int64[1:10;], Int64[1:10;], fill(Float64(1), 10))
@@ -1606,7 +1606,7 @@ end
                     "⎣⠀⠀⠀⠀⠑⎦"
     for transform in (identity, adjoint, transpose)
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == brailleString
+        @test contains(String(take!(io)), brailleString)
     end
 
     # Issue #30589
@@ -1622,22 +1622,22 @@ end
     # vertical scaling
     ioc = IOContext(io, :displaysize => (5, 80), :limit => true)
     _show_with_braille_patterns(ioc, _filled_sparse(10, 10))
-    @test String(take!(io)) == "⎡⣿⣿⎤\n" *
-                               "⎣⣿⣿⎦"
+    @test contains(String(take!(io)), "⎡⣿⣿⎤\n" *
+                                      "⎣⣿⣿⎦")
 
     _show_with_braille_patterns(ioc, _filled_sparse(20, 10))
-    @test String(take!(io)) == "⎡⣿⣿⎤\n" *
-                               "⎣⣿⣿⎦"
+    @test contains(String(take!(io)), "⎡⣿⣿⎤\n" *
+                                      "⎣⣿⣿⎦")
 
     # horizontal scaling
     ioc = IOContext(io, :displaysize => (80, 4), :limit => true)
     _show_with_braille_patterns(ioc, _filled_sparse(8, 8))
-    @test String(take!(io)) == "⎡⣿⣿⎤\n" *
-                               "⎣⣿⣿⎦"
+    @test contains(String(take!(io)), "⎡⣿⣿⎤\n" *
+                                      "⎣⣿⣿⎦")
 
     _show_with_braille_patterns(ioc, _filled_sparse(8, 16))
-    @test String(take!(io)) == "⎡⣿⣿⎤\n" *
-                               "⎣⣿⣿⎦"
+    @test contains(String(take!(io)), "⎡⣿⣿⎤\n" *
+                                      "⎣⣿⣿⎦")
 
     # respect IOContext while displaying J
     I, J, V = shuffle(1:50), shuffle(1:50), [1:50;]

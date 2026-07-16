@@ -352,7 +352,6 @@ function Base.show(io::IO, ::MIME"text/plain", S::AbstractSparseMatrixCSCInclAdj
 
     screen = displaysize(io)
     get(io, :limit, false) && screen[1] <= 4 && return print(io, ": …")
-    println(io, ":")
 
     show_circular(io, S) && return
     io = IOContext(io, :compact=>true, :typeinfo=>eltype(S), :SHOWN_SET=>S)
@@ -433,7 +432,7 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
     # `scaleHeight` and `scaleWidth` accordingly. Note that each available
     # character can contain up to 4 braille dots in its height (⡇) and up to
     # 2 braille dots in its width (⠉).
-    if get(io, :limit, true) && (m > 4maxHeight || n > 2maxWidth)
+    if get(io, :limit, false) && (m > 4maxHeight || n > 2maxWidth)
         s = min(2maxWidth / n, 4maxHeight / m)
         scaleHeight = floor(Int, s * m)
         scaleWidth = floor(Int, s * n)
@@ -521,6 +520,8 @@ function _show_with_dotted_zeros(io::IO, S::AbstractSparseMatrixCSCInclAdjointAn
     colwidths = [max.((0, 0), align[findall(==(col), cols)]...) for col in axes(S,2)]
     displaysize(io)[2] < sum(sum.(colwidths) .+ 2) && return _show_with_braille_patterns(io, S)
 
+    println(io, ":")
+
     try
         zero(eltype(S))
     catch
@@ -535,12 +536,26 @@ function _show_with_dotted_zeros(io::IO, S::AbstractSparseMatrixCSCInclAdjointAn
             if isempty(index) # no value here, print an aligned dot
                 l, r = cld(l+r-1, 2) + 1, div(l+r-1, 2) + 1
                 print(io, " "^l * "⋅" * (col==axes(S,2)[end] ? "" : " "^r))
-            else
+            else try # print the element with 1 space of buffer on each side
                 l, r = (l+1, r+1) .- align[index[]]
                 print(io, " "^l)
                 isassigned(vals, index[]) ? show(io, vals[index[]]) : print(io, "#undef")
                 col == axes(S,2)[end] || print(io, " "^r)
-            end
+            catch # if there's 2+ entries, index[] errors. default to summing
+                  # entries, but print red to warn user that something's wrong
+                elm = any(!isassigned(vals, ind) for ind in index) ? "#undef" :
+                    try repr(sum(vals[index]); context=:compact=>true) catch e "#NaN" end
+
+                if length(elm) <= l+r # give up on alignment, center item in the column
+                    l, r = cld(l+r-length(elm), 2) + 1, div(l+r-length(elm), 2) + 1
+                else # len of new item does not fit in column
+                    elm = "▒"^(l+r)
+                    l, r = 1, 1
+                end
+
+                printstyled(io, " "^l, elm, color=:red)
+                col == axes(S,2)[end] || print(io, " "^r)
+            end end
         end
         row == axes(S,1)[end] || println(io)
     end
@@ -688,7 +703,7 @@ function _sparse_copyto!(dest::AbstractMatrix, src::AbstractSparseMatrixCSC)
     @inbounds for col in axes(src, 2), ptr in nzrange(src, col)
         row = rowvals(src)[ptr]
         val = nonzeros(src)[ptr]
-        dest[isrc[row, col]] = val
+        dest[isrc[row, col]] += val
     end
     return dest
 end
@@ -712,7 +727,7 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
         if row in rows
             val = nonzeros(src′)[ptr]
             I = Rdest[lin[row, col]]
-            dest[I] = val
+            dest[I] += val
         end
     end
     return dest
@@ -737,7 +752,7 @@ function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Numbe
         for i in nzrange(S, col)
             row = rowval[i]
             val = nzval[i]
-            A[linear_index_col0+row] = val
+            A[linear_index_col0+row] += val
         end
         linear_index_col0 += num_rows
     end
@@ -1962,9 +1977,9 @@ julia> A = sparse([1, 2, 3], [1, 2, 3], [1.0, 0.0, 1.0])
 
 julia> dropzeros(A)
 3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
- 1.0   ⋅    ⋅
-  ⋅    ⋅    ⋅
-  ⋅    ⋅   1.0
+ 1.0  ⋅   ⋅
+  ⋅   ⋅   ⋅
+  ⋅   ⋅  1.0
 ```
 """
 dropzeros(A::AbstractSparseMatrixCSC) = dropzeros!(copy(A))
@@ -2134,7 +2149,7 @@ argument specifies a random number generator, see [Random Numbers](@ref).
 ```jldoctest; setup = :(using Random; Random.seed!(0))
 julia> sprandn(2, 2, 0.75)
 2×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
- -1.20577     ⋅
+ -1.20577       ⋅
   0.311817  -0.234641
 ```
 """
@@ -2161,9 +2176,9 @@ specified.
 ```jldoctest
 julia> spzeros(3, 3)
 3×3 SparseMatrixCSC{Float64, Int64} with 0 stored entries:
-  ⋅    ⋅    ⋅
-  ⋅    ⋅    ⋅
-  ⋅    ⋅    ⋅
+ ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅
 
 julia> spzeros(Float32, 4)
 4-element SparseVector{Float32, Int64} with 0 stored entries
