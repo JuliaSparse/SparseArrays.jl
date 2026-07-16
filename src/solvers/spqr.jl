@@ -192,8 +192,8 @@ Q factor:
 4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
- -1.41421    ⋅
-   ⋅       -1.41421
+ -1.41421      ⋅
+     ⋅     -1.41421
 Row permutation:
 4-element Vector{Int64}:
  1
@@ -471,10 +471,10 @@ when the problem is underdetermined.
 ```jldoctest
 julia> A = sparse([1,2,4], [1,1,1], [1.0,1.0,1.0], 4, 2)
 4×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
- 1.0   ⋅
- 1.0   ⋅
-  ⋅    ⋅
- 1.0   ⋅
+ 1.0  ⋅
+ 1.0  ⋅
+  ⋅   ⋅
+ 1.0  ⋅
 
 julia> qr(A)\\fill(1.0, 4)
 2-element Vector{Float64}:
