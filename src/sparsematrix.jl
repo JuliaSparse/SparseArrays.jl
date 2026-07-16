@@ -334,10 +334,7 @@ function Base.isstored(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Intege
     return false
 end
 
-Base.replace_in_print_matrix(A::AbstractSparseMatrixCSCInclAdjointAndTranspose, i::Integer, j::Integer, s::AbstractString) =
-    Base.isstored(A, i, j) ? s : Base.replace_with_centered_mark(s)
-
-function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose, dims::Tuple{Vararg{Base.OneTo}})
+function Base.summary(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
     _checkbuffers(S)
 
     xnnz = nnz(S)
@@ -347,12 +344,23 @@ function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTran
     nothing
 end
 
-# called by `show(io, MIME("text/plain"), ::AbstractSparseMatrixCSCInclAdjointAndTranspose)`
-function Base.print_array(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
-    if max(size(S)...) < 16
-        Base.print_matrix(io, S)
-    else
+using Base: show_circular
+function Base.show(io::IO, ::MIME"text/plain", S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+    isempty(S) && get(io, :compact, false) && return show(io, S)
+    summary(io, S)
+    isempty(S) && return
+
+    screen = displaysize(io)
+    get(io, :limit, false) && screen[1] <= 4 && return print(io, ": …")
+    println(io, ":")
+
+    show_circular(io, S) && return
+    io = IOContext(io, :compact=>true, :typeinfo=>eltype(S), :SHOWN_SET=>S)
+
+    if (screen[1] < size(S, 1) + 4) | (screen[2] < 3size(S, 2))
         _show_with_braille_patterns(io, S)
+    else
+        _show_with_dotted_zeros(io, S)
     end
 end
 
@@ -405,7 +413,15 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
     # The maximal number of characters we allow to display the matrix
     local maxHeight::Int, maxWidth::Int
     maxHeight = displaysize(io)[1] - 4 # -4 from [Prompt, header, newline after elements, new prompt]
-    maxWidth = displaysize(io)[2] ÷ 2
+    maxWidth = displaysize(io)[2] - 2 # -2 from brackets
+
+    warn = false
+    try
+        zero(eltype(S))
+    catch
+        warn = true
+        maxHeight -= 1
+    end
 
     # In the process of generating the braille pattern to display the nonzero
     # structure of `S`, we need to be able to scale the matrix `S` to a
@@ -450,6 +466,13 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
     rvals = rowvals(parent(S))
     rowscale = max(1, scaleHeight - 1) / max(1, m - 1)
     colscale = max(1, scaleWidth - 1) / max(1, n - 1)
+
+    if rowscale != 1 || colscale != 1
+        print(io, " (downscaled to fit on screen)")
+    end
+    println(io, ":")
+    warn && printstyled(stderr, "WARNING: could not find generic zero for given elements. expect errors and wrong results\n", color=:red)
+
     if isa(S, AbstractSparseMatrixCSC)
         @inbounds for j in axes(S,2)
             # Scale the column index `j` to the best matching column index
@@ -487,6 +510,40 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
         end
     end
     foreach(c -> print(io, Char(c)), @view brailleGrid[1:end-1])
+end
+
+using Base: alignment
+function _show_with_dotted_zeros(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+    rows, cols, vals = rowvals(parent(S)), ColumnIndices(parent(S)), nonzeros(parent(S))
+    (S isa Adjoint) | (S isa Transpose) && ((rows, cols) = (cols, rows))
+
+    align = [isassigned(vals, ind) ? alignment(io, vals[ind]) : (3, 3) for ind in eachindex(vals)]
+    colwidths = [max.((0, 0), align[findall(==(col), cols)]...) for col in axes(S,2)]
+    displaysize(io)[2] < sum(sum.(colwidths) .+ 2) && return _show_with_braille_patterns(io, S)
+
+    try
+        zero(eltype(S))
+    catch
+        printstyled(stderr, "WARNING: could not find generic zero for given elements. expect errors and wrong results\n", color=:red)
+    end
+
+    for row in axes(S,1)
+        for col in axes(S,2)
+            index =       findall(==(col), cols)
+            index = index[findall(==(row), rows[index])]
+            l, r = colwidths[col]
+            if isempty(index) # no value here, print an aligned dot
+                l, r = cld(l+r-1, 2) + 1, div(l+r-1, 2) + 1
+                print(io, " "^l * "⋅" * (col==axes(S,2)[end] ? "" : " "^r))
+            else
+                l, r = (l+1, r+1) .- align[index[]]
+                print(io, " "^l)
+                isassigned(vals, index[]) ? show(io, vals[index[]]) : print(io, "#undef")
+                col == axes(S,2)[end] || print(io, " "^r)
+            end
+        end
+        row == axes(S,1)[end] || println(io)
+    end
 end
 
 for QT in (:LinAlgLeftQs, :LQPackedQ)
