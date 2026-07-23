@@ -68,10 +68,9 @@ jobs:
           version: ${{ matrix.julia-version }}
           arch: ${{ matrix.julia-arch }}
       - uses: julia-actions/cache@v3
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
-        env:
-          SPARSEARRAYS_AQUA_TEST: true
+      - name: Run Aqua and ambiguity tests
+        run: |
+          julia --color=yes -e 'using Pkg; Pkg.activate(temp=true); Pkg.develop(path=pwd()); Pkg.add(name="Aqua", version="0.8"); include(joinpath(pwd(), "test", "ambiguous.jl"))'
   docs:
     runs-on: ubuntu-latest
     steps:
