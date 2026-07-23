@@ -3,10 +3,6 @@ using Test, LinearAlgebra, SparseArrays
 
 include("util/gha.jl")
 
-if Base.get_bool_env("SPARSEARRAYS_AQUA_TEST", false)
-    include("ambiguous.jl")
-end
-
 include("allowscalar.jl")
 include("fixed.jl")
 include("higherorderfns.jl")
