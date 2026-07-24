@@ -520,6 +520,15 @@ end
     nonzeros(A)[end - 3]  = 2.0
     @test issymmetric(A) == false
 
+    # stored zeros must not cause out-of-bounds access when the
+    # partner column runs out of stored entries
+    A = sparse([3, 1], [2, 3], [1.0, 0.0], 3, 3)
+    @test issymmetric(A) == false
+    @test ishermitian(A) == false
+    A = sparse([1, 2], [2, 1], [0.0, 0.0], 2, 2)
+    @test issymmetric(A) == true
+    @test ishermitian(A) == true
+
     # 16521
     @test issymmetric(sparse([0 0; 1 0])) == false
     @test issymmetric(sparse([0 1; 0 0])) == false
