@@ -1952,22 +1952,22 @@ for TI in IndexTypes
         dense_b, dense_b_ptr = wrap_dense_and_ptr(b)
 
         X_Handle = Ptr{cholmod_dense_struct}(dense_x_ptr)
-        Y_Handle = Ptr{cholmod_dense_struct}(C_NULL)
-        E_Handle = Ptr{cholmod_dense_struct}(C_NULL)
+        Y_Handle = Ref(Ptr{cholmod_dense_struct}(C_NULL))
+        E_Handle = Ref(Ptr{cholmod_dense_struct}(C_NULL))
         status = GC.@preserve x dense_x b dense_b begin
             $(cholname(:solve2, TI))(
                 CHOLMOD_A, L,
                 Ref(dense_b), C_NULL,
                 Ref(X_Handle), C_NULL,
-                Ref(Y_Handle),
-                Ref(E_Handle),
+                Y_Handle,
+                E_Handle,
                 getcommon($TI))
         end
-        if Y_Handle != C_NULL
-            free!(Y_Handle)
+        if Y_Handle[] != C_NULL
+            free!(Y_Handle[])
         end
-        if E_Handle != C_NULL
-            free!(E_Handle)
+        if E_Handle[] != C_NULL
+            free!(E_Handle[])
         end
         @assert !iszero(status)
 
