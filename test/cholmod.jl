@@ -324,6 +324,25 @@ end
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
+@testset "ldiv! no memory leak $Tv $Ti" begin
+    local A, b, x, F
+    A = sprand(10, 10, 0.1)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    F = cholesky(A)
+    b = A * fill(Tv(1), 10)
+    x = zero(b)
+
+    ldiv!(x, F, b) # allocate buffers
+    GC.gc()
+    before = getcommon(Ti)[].memory_inuse
+    for _ in 1:1000
+        ldiv!(x, F, b)
+    end
+    after = getcommon(Ti)[].memory_inuse
+    @test before == after
+end
+
 @testset "copy(Factor) buffer isolation $Tv $Ti" begin
     local A, x, b, x2, x3
     A = sprand(10, 10, 0.1)
