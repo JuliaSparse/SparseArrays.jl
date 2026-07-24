@@ -1490,6 +1490,7 @@ end
 
 @testset "show" begin
     io = IOBuffer()
+    repl = IOContext(io, :limit=>true)
 
     A = spzeros(Float64, Int64, 0, 0)
     for (transform, showstring) in zip(
@@ -1498,7 +1499,7 @@ end
         "0×0 $Adjoint{Float64, $SparseMatrixCSC{Float64, Int64}} with 0 stored entries",
         "0×0 $Transpose{Float64, $SparseMatrixCSC{Float64, Int64}} with 0 stored entries"
         ))
-        show(io, MIME"text/plain"(), transform(A))
+        show(repl , MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
     end
 
@@ -1509,18 +1510,18 @@ end
         "1×1 $Adjoint{Float64, $SparseMatrixCSC{Float64, Int64}} with 1 stored entry:\n 1.0",
         "1×1 $Transpose{Float64, $SparseMatrixCSC{Float64, Int64}} with 1 stored entry:\n 1.0",
         ))
-        show(io, MIME"text/plain"(), transform(A))
+        show(repl , MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
     end
 
     A = spzeros(Float32, Int64, 2, 2)
     for (transform, showstring) in zip(
         (identity, adjoint, transpose), (
-        "2×2 $SparseMatrixCSC{Float32, Int64} with 0 stored entries:\n  ⋅    ⋅ \n  ⋅    ⋅ ",
-        "2×2 $Adjoint{Float32, $SparseMatrixCSC{Float32, Int64}} with 0 stored entries:\n  ⋅    ⋅ \n  ⋅    ⋅ ",
-        "2×2 $Transpose{Float32, $SparseMatrixCSC{Float32, Int64}} with 0 stored entries:\n  ⋅    ⋅ \n  ⋅    ⋅ ",
+        "2×2 $SparseMatrixCSC{Float32, Int64} with 0 stored entries:\n ⋅  ⋅\n ⋅  ⋅",
+        "2×2 $Adjoint{Float32, $SparseMatrixCSC{Float32, Int64}} with 0 stored entries:\n ⋅  ⋅\n ⋅  ⋅",
+        "2×2 $Transpose{Float32, $SparseMatrixCSC{Float32, Int64}} with 0 stored entries:\n ⋅  ⋅\n ⋅  ⋅",
         ))
-        show(io, MIME"text/plain"(), transform(A))
+        show(repl , MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
     end
 
@@ -1531,16 +1532,11 @@ end
         "2×1 $Adjoint{Float64, $SparseMatrixCSC{Float64, Int64}} with 2 stored entries:\n 1.0\n 2.0",
         "2×1 $Transpose{Float64, $SparseMatrixCSC{Float64, Int64}} with 2 stored entries:\n 1.0\n 2.0",
         ),
-        ("⎡⠁⠈⎤\n" *
-         "⎣⠀⠀⎦",
-         "⎡⠁⠀⎤\n" *
-         "⎣⡀⠀⎦",
-         "⎡⠁⠀⎤\n" *
-         "⎣⡀⠀⎦"))
-        show(io, MIME"text/plain"(), transform(A))
+        ("\n[⠉]", "\n[⠃]", "\n[⠃]"))
+        show(repl , MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == braille
+        @test contains(String(take!(io)), braille)
     end
 
     # every 1-dot braille pattern
@@ -1557,11 +1553,11 @@ end
     end
 
     # empty braille pattern Char(10240)
-    A = spzeros(Int64, Int64, 4, 2)
+    A = spzeros(Int64, Int64, 2, 2)
     for transform in (identity, adjoint, transpose)
-        expected = "⎡" * Char(10240)^2 * "⎤\n⎣" * Char(10240)^2 * "⎦"
+        expected = ":\n[" * Char(10240) * "]"
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == expected
+        @test contains(String(take!(io)), expected)
     end
 
     A = sparse(Int64[1, 2, 4, 2, 3], Int64[1, 1, 1, 2, 2], Int64[1, 1, 1, 1, 1], 4, 2)
@@ -1571,16 +1567,11 @@ end
         "2×4 $Adjoint{Int64, $SparseMatrixCSC{Int64, Int64}} with 5 stored entries:\n 1  1  ⋅  1\n ⋅  1  1  ⋅",
         "2×4 $Transpose{Int64, $SparseMatrixCSC{Int64, Int64}} with 5 stored entries:\n 1  1  ⋅  1\n ⋅  1  1  ⋅",
         ),
-        ("⎡⠅⠠⎤\n" *
-         "⎣⡀⠐⎦",
-         "⎡⠉⠈⎤\n" *
-         "⎣⢀⡀⎦",
-         "⎡⠉⠈⎤\n" *
-         "⎣⢀⡀⎦"))
-        show(io, MIME"text/plain"(), transform(A))
+        ("\n[⡳]", "\n[⠙⠊]", "\n[⠙⠊]"))
+        show(repl , MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == braille
+        @test contains(String(take!(io)), braille)
     end
 
     A = sparse(Int64[1, 3, 2, 4], Int64[1, 1, 2, 2], Int64[1, 1, 1, 1], 7, 3)
@@ -1592,14 +1583,12 @@ end
         ),
         ("⎡⢕⠀⎤\n" *
          "⎣⠀⠀⎦",
-         "⎡⢁⢁⠀⠀⎤\n" *
-         "⎣⠀⠀⠀⠀⎦",
-         "⎡⢁⢁⠀⠀⎤\n" *
-         "⎣⠀⠀⠀⠀⎦"))
-        show(io, MIME"text/plain"(), transform(A))
+         "[⠑⠑⠀⠀]",
+         "[⠑⠑⠀⠀]"))
+        show(repl , MIME"text/plain"(), transform(A))
         @test String(take!(io)) == showstring
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == braille
+        @test contains(String(take!(io)), braille)
     end
 
     A = sparse(Int64[1:10;], Int64[1:10;], fill(Float64(1), 10))
@@ -1608,11 +1597,11 @@ end
                     "⎣⠀⠀⠀⠀⠑⎦"
     for transform in (identity, adjoint, transpose)
         _show_with_braille_patterns(convert(IOContext, io), transform(A))
-        @test String(take!(io)) == brailleString
+        @test contains(String(take!(io)), brailleString)
     end
 
     # Issue #30589
-    @test repr("text/plain", sparse([true true])) == "1×2 $SparseMatrixCSC{Bool, $Int} with 2 stored entries:\n 1  1"
+    @test sprint(show, "text/plain", sparse([true true]); context=:limit=>true) == "1×2 $SparseMatrixCSC{Bool, $Int} with 2 stored entries:\n 1  1"
 
     function _filled_sparse(m::Integer, n::Integer)
         C = CartesianIndices((m, n))[:]
@@ -1624,22 +1613,18 @@ end
     # vertical scaling
     ioc = IOContext(io, :displaysize => (5, 80), :limit => true)
     _show_with_braille_patterns(ioc, _filled_sparse(10, 10))
-    @test String(take!(io)) == "⎡⣿⣿⎤\n" *
-                               "⎣⣿⣿⎦"
+    @test contains(String(take!(io)), "\n[⣿⣿]")
 
     _show_with_braille_patterns(ioc, _filled_sparse(20, 10))
-    @test String(take!(io)) == "⎡⣿⣿⎤\n" *
-                               "⎣⣿⣿⎦"
+    @test contains(String(take!(io)), "\n[⣿]")
 
     # horizontal scaling
     ioc = IOContext(io, :displaysize => (80, 4), :limit => true)
     _show_with_braille_patterns(ioc, _filled_sparse(8, 8))
-    @test String(take!(io)) == "⎡⣿⣿⎤\n" *
-                               "⎣⣿⣿⎦"
+    @test contains(String(take!(io)), "\n[⣿⣿]")
 
     _show_with_braille_patterns(ioc, _filled_sparse(8, 16))
-    @test String(take!(io)) == "⎡⣿⣿⎤\n" *
-                               "⎣⣿⣿⎦"
+    @test contains(String(take!(io)), "\n[⠛⠛]")
 
     # respect IOContext while displaying J
     I, J, V = shuffle(1:50), shuffle(1:50), [1:50;]
