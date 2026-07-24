@@ -303,6 +303,15 @@ end
     @inferred ldiv!(X2, factor, B)
     @test X2 ≈ X
 
+    # reuse across multiple calls (Y/E buffers kept in workspace)
+    fill!(x2, 0)
+    ldiv!(x2, factor, b)
+    @test x2 ≈ x
+
+    # Y/E buffers are reused across calls, remaining 16 bytes come from CHOLMOD internals
+    allocs = @allocated ldiv!(x2, factor, b)
+    @test allocs <= 16
+
     c = fill(Tv(1), size(x, 1) + 1)
     C = fill(Tv(1), size(X, 1) + 1, size(X, 2))
     y = fill(Tv(1), size(x, 1) + 1)
@@ -313,6 +322,47 @@ end
     @test_throws DimensionMismatch ldiv!(X2, factor, C)
     @test_throws DimensionMismatch ldiv!(X2, factor, b)
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
+end
+
+@testset "ldiv! no memory leak $Tv $Ti" begin
+    local A, b, x, F
+    A = sprand(10, 10, 0.1)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    F = cholesky(A)
+    b = A * fill(Tv(1), 10)
+    x = zero(b)
+
+    ldiv!(x, F, b) # allocate buffers
+    GC.gc()
+    before = getcommon(Ti)[].memory_inuse
+    for _ in 1:1000
+        ldiv!(x, F, b)
+    end
+    after = getcommon(Ti)[].memory_inuse
+    @test before == after
+end
+
+@testset "copy(Factor) buffer isolation $Tv $Ti" begin
+    local A, x, b, x2, x3
+    A = sprand(10, 10, 0.1)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    factor = cholesky(A)
+    factor2 = copy(factor)
+
+    x = fill(Tv(1), 10)
+    b = A * x
+    x2 = zero(x)
+    x3 = zero(x)
+
+    ldiv!(x2, factor, b)
+    ldiv!(x3, factor2, b)
+    @test x2 ≈ x
+    @test x3 ≈ x
+
+    # Verify each copy has its own independent buffers
+    @test getfield(factor, :Y) !== getfield(factor2, :Y)
 end
 
 end #end for Ti ∈ itypes
