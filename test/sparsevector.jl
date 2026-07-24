@@ -294,6 +294,14 @@ end
             bIv[I] .= true
             @test Array(r) == Array(x)[bIv]
         end
+
+        let x = sprand(ComplexF64, 10, 10, 0.5)
+            for t in (transpose, adjoint)
+                xt = t(x)
+                @test xt[1,:] == t.(x[:,1])
+                @test xt[2:4,:] == t(x[:,2:4])
+            end
+        end
     end
     @testset "index with colon" begin
         @test issparse(spzeros(0)[:])
@@ -1342,6 +1350,10 @@ end
         floattypes = (Float32, Float64, BigFloat)
         complextypes = (ComplexF32, ComplexF64)
         eltypes = (inttypes..., floattypes..., complextypes...)
+        # The full eltype cross product compiles thousands of specializations
+        # (several CI minutes); do it only for the core types and pair the
+        # remaining eltypes with Float64.
+        coretypes = (Int64, Float64, ComplexF64)
 
         for eltypemat in eltypes
             (densemat, sparsemat) = eltypemat in inttypes ? (denseintmat, sparseintmat) :
@@ -1355,6 +1367,8 @@ end
                            LinearAlgebra.UnitLowerTriangular(sparsemat), LinearAlgebra.UnitUpperTriangular(sparsemat) )
 
             for eltypevec in eltypes
+                (eltypemat in coretypes && eltypevec in coretypes) ||
+                    eltypemat == Float64 || eltypevec == Float64 || continue
                 spvecs = eltypevec in inttypes ? sparseintvecs :
                          eltypevec in floattypes ? sparsefloatvecs :
                          eltypevec in complextypes && sparsecomplexvecs
