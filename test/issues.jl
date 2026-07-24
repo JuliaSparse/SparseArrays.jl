@@ -759,14 +759,14 @@ let
     @test repr(B) == "sparse([1, 2, 3], [1, 2, 3], $T12960[#undef, #undef, #undef], 3, 3)"
     @test occursin(
         " #undef     ⋅       ⋅\n    ⋅    #undef     ⋅\n    ⋅       ⋅    #undef",
-        repr(MIME("text/plain"), B),
+        sprint(show, MIME("text/plain"), B; context=:limit=>true),
     )
 
     B[1,2] = T12960()
     @test repr(B)  == "sparse([1, 1, 2, 3], [1, 2, 2, 3], $T12960[#undef, $T12960(), #undef, #undef], 3, 3)"
     @test occursin(
         "\n #undef     T12960()     ⋅\n    ⋅    #undef          ⋅\n    ⋅         ⋅       #undef",
-        repr(MIME("text/plain"), B),
+        sprint(show, MIME("text/plain"), B; context=:limit=>true),
     )
 end
 
@@ -823,14 +823,16 @@ end
 
 @testset "Issue #618" begin
     x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [1.0, 1.0, 1.0, 1.0])
-    @test contains(repr(MIME"text/plain"(), x), "2.0")
-    x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [7.0, 7.0, 1.0, 1.0])
-    @test contains(repr(MIME"text/plain"(), x), "▒▒▒")
+    @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "2.0")
+    x = SparseMatrixCSC(11, 11, [1; 112; 113; [114 for i=1:9]], [[1 for i=1:111]; 2; 3], [[9 for i=1:111]; 1; 1.])
+    @test !contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "▒▒▒")
+    x = SparseMatrixCSC(11, 11, [1; 113; 114; [115 for i=1:9]], [[1 for i=1:112]; 2; 3], [[9 for i=1:112]; 1; 1.])
+    @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "▒▒▒")
     x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [7.0, 'o', 1.0, 1.0])
-    @test contains(repr(MIME"text/plain"(), x), "#NaN")
+    @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "#NaN")
     v = similar(Any[1, 2, 3, 4]); v[2:4] = [1.0, 1.0, 1.0]
     x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], v)
-    @test contains(repr(MIME"text/plain"(), x), "#undef")
+    @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "#undef")
 
     x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [1, 1, 1, 1])
     @test 2 == Matrix(x)[1,1]

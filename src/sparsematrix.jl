@@ -350,13 +350,17 @@ function Base.show(io::IO, ::MIME"text/plain", S::AbstractSparseMatrixCSCInclAdj
     summary(io, S)
     isempty(S) && return
 
-    screen = displaysize(io)
-    get(io, :limit, false) && screen[1] <= 4 && return print(io, ": …")
+    if get(io, :limit, false)
+        screen = get(io, :displaysize, displaysize(io))::Tuple{Int, Int}
+        screen[1] <= 4 && return print(io, ": …")
+    else
+        screen = typemax(Int), typemax(Int)
+    end
 
     show_circular(io, S) && return
     io = IOContext(io, :compact=>true, :typeinfo=>eltype(S), :SHOWN_SET=>S)
 
-    if (screen[1] < size(S, 1) + 4) | (screen[2] < 3size(S, 2))
+    if !get(io, :limit, false) || (screen[1] < size(S, 1) + 4) | (screen[2] < 3size(S, 2))
         _show_with_braille_patterns(io, S)
     else
         _show_with_dotted_zeros(io, S)
@@ -407,8 +411,11 @@ end
 const brailleBlocks = UInt16['⠁', '⠂', '⠄', '⡀', '⠈', '⠐', '⠠', '⢀']
 function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
     # The maximum number of characters we allow to display the matrix
-    h, w = get(io, :limit, false) ? displaysize(io) .- (4, 2) : (typemax(Int)÷4, typemax(Int)÷2)
-    m, n = size(S)
+    h, w = if get(io, :limit, false)::Bool
+        get(io, :displysize, displaysize(io)) .- (4, 2)
+    else
+        typemax(Int)÷4, typemax(Int)÷2
+    end::Tuple{Int, Int}
 
     warn = false
     try
@@ -421,8 +428,8 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
     # In order to prevent aliasing, we only scale down by full integers.
     # While 1 to 1/2 is a big jump, it's less noticeable as you get bigger.
     # Note each character has 4 dots of height and 2 dots of width.
-    scale = max(n÷2w, m÷4h) + 1
-    char_h, char_w = fld1(m, 4scale), fld1(n, 2scale)
+    scale = maximum(cld.(size(S), (4h, 2w)))
+    char_h, char_w = cld.(size(S), (4scale, 2scale))
 
     scale != 1 && print(io, " (displaying at 1/$scale scale)")
     println(io, ":")
@@ -439,12 +446,12 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
 
     if S isa AbstractSparseMatrixCSC
         for cords in zip(rinds, cinds)
-            row, col = fld1.(cords, scale) |>x-> fldmod1.(x, (4, 2))
+            row, col = cld.(cords, scale) |>x-> fldmod1.(x, (4, 2))
             brailleGrid[col[1]+1, row[1]] |= brailleBlocks[row[2] + 4(col[2]-1)]
         end
     else # swap rows / cols for adj and transpose
         for cords in zip(rinds, cinds)
-            col, row = fld1.(cords, scale) |>x-> fldmod1.(x, (2, 4))
+            col, row = cld.(cords, scale) |>x-> fldmod1.(x, (2, 4))
             brailleGrid[col[1]+1, row[1]] |= brailleBlocks[row[2] + 4(col[2]-1)]
         end
     end
@@ -457,7 +464,7 @@ function _show_with_dotted_zeros(io::IO, S::AbstractSparseMatrixCSCInclAdjointAn
     (S isa Adjoint) | (S isa Transpose) && ((rows, cols) = (cols, rows))
 
     align = [isassigned(vals, ind) ? alignment(io, vals[ind]) : (3, 3) for ind in eachindex(vals)]
-    colwidths = [max.((0, 0), align[findall(==(col), cols)]...) for col in axes(S,2)]
+    colwidths = [maximum.((first,last), Ref(align[findall(==(col), cols)]);init=0) for col in axes(S,2)]
     displaysize(io)[2] < sum(sum.(colwidths) .+ 2) && return _show_with_braille_patterns(io, S)
 
     println(io, ":")
@@ -476,26 +483,25 @@ function _show_with_dotted_zeros(io::IO, S::AbstractSparseMatrixCSCInclAdjointAn
             if isempty(index) # no value here, print an aligned dot
                 l, r = cld(l+r-1, 2) + 1, div(l+r-1, 2) + 1
                 print(io, " "^l * "⋅" * (col==axes(S,2)[end] ? "" : " "^r))
-            else try # print the element with 1 space of buffer on each side
+            elseif length(index) == 1 # print the element with 1 space of buffer on each side
                 l, r = (l+1, r+1) .- align[index[]]
                 print(io, " "^l)
                 isassigned(vals, index[]) ? show(io, vals[index[]]) : print(io, "#undef")
                 col == axes(S,2)[end] || print(io, " "^r)
-            catch # if there's 2+ entries, index[] errors. default to summing
-                  # entries, but print red to warn user that something's wrong
+            else # default to summing entries, but print red to warn user that something's wrong
                 elm = any(!isassigned(vals, ind) for ind in index) ? "#undef" :
-                    try repr(sum(vals[index]); context=:compact=>true) catch e "#NaN" end
+                    try repr(sum(vals[index]); context=io) catch e "#NaN" end
 
-                if length(elm) <= l+r # give up on alignment, center item in the column
-                    l, r = cld(l+r-length(elm), 2) + 1, div(l+r-length(elm), 2) + 1
-                else # len of new item does not fit in column
+                l, r = if textwidth(elm) <= l+r+2 # give up on alignment, just center item
+                    cld(l+r-textwidth(elm), 2) + 1, fld(l+r-textwidth(elm), 2) + 1
+                else # new item does not fit in column
                     elm = "▒"^(l+r)
-                    l, r = 1, 1
+                    1, 1
                 end
 
                 printstyled(io, " "^l, elm, color=:red)
                 col == axes(S,2)[end] || print(io, " "^r)
-            end end
+            end
         end
         row == axes(S,1)[end] || println(io)
     end
