@@ -2205,7 +2205,7 @@ end
 import Base._one
 function Base._one(unit::T, S::AbstractSparseMatrixCSC) where T
     size(S, 1) == size(S, 2) || throw(DimensionMismatch("multiplicative identity only defined for square matrices"))
-    return SparseMatrixCSC{T}(I, size(S, 1), size(S, 2))
+    return _spscaling(T, Int, unit, size(S, 1), size(S, 2))
 end
 
 ## SparseMatrixCSC construction from UniformScaling
@@ -2217,13 +2217,19 @@ SparseMatrixCSC(s::UniformScaling, dims::Dims{2}) = SparseMatrixCSC{eltype(s)}(s
 function SparseMatrixCSC{Tv,Ti}(s::UniformScaling, dims::Dims{2}) where {Tv,Ti}
     @boundscheck first(dims) < 0 && throw(ArgumentError("first dimension invalid ($(first(dims)) < 0)"))
     @boundscheck last(dims) < 0 && throw(ArgumentError("second dimension invalid ($(last(dims)) < 0)"))
-    iszero(s.λ) && return spzeros(Tv, Ti, dims...)
-    m, n, k = dims..., min(dims...)
-    nzval = fill!(Vector{Tv}(undef, k), Tv(s.λ))
+    return _spscaling(Tv, Ti, s.λ, dims...)
+end
+
+function _spscaling(::Type{Tv}, ::Type{Ti}, λ, m, n) where {Tv,Ti<:Integer}
+    iszero(λ) && return spzeros(Tv, Ti, m, n)
+    k = min(m, n)
+    nzval = fill!(Vector{Tv}(undef, k), Tv(λ))
     rowval = copyto!(Vector{Ti}(undef, k), 1:k)
     colptr = copyto!(Vector{Ti}(undef, n + 1), 1:(k + 1))
-    for i in (k + 2):(n + 1) colptr[i] = (k + 1) end
-    SparseMatrixCSC{Tv,Ti}(dims..., colptr, rowval, nzval)
+    for i in (k + 2):(n + 1)
+        colptr[i] = (k + 1)
+    end
+    return SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
 
 Base.iszero(A::AbstractSparseMatrixCSC) = iszero(nzvalview(A))
