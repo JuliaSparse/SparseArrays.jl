@@ -258,8 +258,16 @@ function Sparse(p::Ptr{cholmod_sparse})
     Sparse{jlxtype(s.xtype, s.dtype)}(p)
 end
 
+# Factor stores its own temporary CHOLMOD Y/E buffers for use in ldiv!
+# and pre-allocates cholmod_dense_struct wrappers
 mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
     ptr::Ptr{cholmod_factor}
+    dense_x::cholmod_dense_struct
+    dense_b::cholmod_dense_struct
+    X::Ref{Ptr{cholmod_dense_struct}}
+    Y::Ref{Ptr{cholmod_dense_struct}}
+    E::Ref{Ptr{cholmod_dense_struct}}
+    lock::ReentrantLock
     function Factor{Tv, Ti}(ptr::Ptr{cholmod_factor}, register_finalizer = true) where {Tv, Ti}
         if ptr == C_NULL
             throw(ArgumentError("factorization construction failed for " *
@@ -276,9 +284,15 @@ mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
             free!(ptr, Ti)
             throw(CHOLMODException("dtype=$(dtyp(Tv)) not supported"))
         end
-        F = new(ptr)
+        F = new(ptr,
+            cholmod_dense_struct(),
+            cholmod_dense_struct(),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            ReentrantLock())
         if register_finalizer
-            finalizer(free!, F)
+            finalizer(free!, F) # includes Y/E buffers
         end
         return F
     end
@@ -857,32 +871,6 @@ function Base.convert(::Type{Dense{Tnew}}, A::Dense{T}) where {Tnew, T}
 end
 Base.convert(::Type{Dense{T}}, A::Dense{T}) where T = A
 
-# Just calling Dense(x) or Dense(b) will allocate new
-# `cholmod_dense_struct`s in CHOLMOD. Instead, we want to reuse
-# the existing memory. We can do this by creating new
-# `cholmod_dense_struct`s and filling them manually.
-function wrap_dense_and_ptr(x::StridedVecOrMat{T}) where {T <: VTypes}
-    dense_x = cholmod_dense_struct()
-    dense_x.nrow = size(x, 1)
-    dense_x.ncol = size(x, 2)
-    dense_x.nzmax = length(x)
-    dense_x.d = stride(x, 2)
-    dense_x.x = pointer(x)
-    dense_x.z = C_NULL
-    dense_x.xtype = xtyp(eltype(x))
-    dense_x.dtype = dtyp(eltype(x))
-    return dense_x, pointer_from_objref(dense_x)
-end
-# We need to use a special handling for the case of `Dense`
-# input arrays since the `pointer` refers to the pointer to the
-# `cholmod_dense`, not to the array values themselves as for
-# standard arrays.
-function wrap_dense_and_ptr(x::Dense{T}) where {T <: VTypes}
-    dense_x_ptr = x.ptr
-    dense_x = unsafe_load(dense_x_ptr)
-    return dense_x, pointer_from_objref(dense_x)
-end
-
 # This constructor assumes zero based colptr and rowval
 function Sparse(m::Integer, n::Integer,
         colptr0::Vector{Ti}, rowval0::Vector{Ti},
@@ -1240,7 +1228,11 @@ end
 
 free!(A::Dense)  = free!(pointer(A))
 free!(A::Sparse{<:Any, Ti}) where Ti = free!(pointer(A), Ti)
-free!(F::Factor{<:Any, Ti}) where Ti = free!(pointer(F), Ti)
+function free!(F::Factor{<:Any, Ti}) where Ti
+    free!(getfield(F, :Y)[])
+    free!(getfield(F, :E)[])
+    free!(pointer(F), Ti)
+end
 
 nnz(F::Factor) = nnz(Sparse(F))
 
@@ -1325,8 +1317,8 @@ end
 @inline function getproperty(F::Factor, sym::Symbol)
     if sym === :p
         return get_perm(F)
-    elseif sym === :ptr
-        return getfield(F, :ptr)
+    elseif sym === :ptr || sym === :lock
+        return getfield(F, sym)
     else
         return FactorComponent(F, sym)
     end
@@ -1433,11 +1425,11 @@ end
 
 function cholesky!(F::Factor{Tv}, A::Sparse{Tv};
                    shift::Real=0.0, check::Bool = true) where Tv
-    # Compute the numerical factorization
-    @cholmod_param final_ll = true begin
-        factorize_p!(A, shift, F)
+    @lock F.lock begin
+        @cholmod_param final_ll = true begin
+            factorize_p!(A, shift, F)
+        end
     end
-
     check && (issuccess(F) || throw(LinearAlgebra.PosDefException(1)))
     return F
 end
@@ -1608,12 +1600,10 @@ LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}}
 
 function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
-    # Makes it an LDLt
-    change_factor!(F, false, false, true, false)
-
-    # Compute the numerical factorization
-    factorize_p!(A, shift, F)
-
+    @lock F.lock begin
+        change_factor!(F, false, false, true, false)
+        factorize_p!(A, shift, F)
+    end
     check && (issuccess(F) || throw(LinearAlgebra.ZeroPivotException(1)))
     return F
 end
@@ -1915,8 +1905,52 @@ const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjO
     throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
         " consider to convert B to a dense array"))
 
-# in-place ldiv!
+# Julia array -> fill dense_b fields and return pointer to it
+# CHOLMOD Dense object -> struct is already set up by CHOLMOD, return b.ptr directly
+@inline function _setup_bptr(b::StridedVecOrMat{T}, dense_b::cholmod_dense_struct) where T<:VTypes
+    dense_b.nrow  = size(b, 1)
+    dense_b.ncol  = size(b, 2)
+    dense_b.nzmax = length(b)
+    dense_b.d     = stride(b, 2)
+    dense_b.x     = pointer(b)
+    dense_b.z     = C_NULL
+    dense_b.xtype = xtyp(T)
+    dense_b.dtype = dtyp(T)
+    return Ptr{cholmod_dense_struct}(pointer_from_objref(dense_b))
+end
+@inline _setup_bptr(b::Dense{<:VTypes}, ::cholmod_dense_struct) = b.ptr
+
 for TI in IndexTypes
+    @eval function solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T}) where {T<:VTypes}
+        @lock L.lock begin
+            dense_x = getfield(L, :dense_x)
+            X = getfield(L, :X)
+            Y = getfield(L, :Y)
+            E = getfield(L, :E)
+
+            dense_x.nrow  = size(x, 1)
+            dense_x.ncol  = size(x, 2)
+            dense_x.nzmax = length(x)
+            dense_x.d     = stride(x, 2)
+            dense_x.x     = pointer(x)
+            dense_x.z     = C_NULL
+            dense_x.xtype = xtyp(T)
+            dense_x.dtype = dtyp(T)
+
+            X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
+            Bptr = _setup_bptr(b, getfield(L, :dense_b))
+            status = GC.@preserve x b L begin
+                $(cholname(:solve2, TI))(
+                    CHOLMOD_A, L,
+                    Bptr, C_NULL,
+                    X, C_NULL,
+                    Y, E,
+                    getcommon($TI))
+            end
+            @assert !iszero(status)
+        end
+    end
+
     @eval function ldiv!(x::StridedVecOrMat{T},
                          L::Factor{T, $TI},
                          b::StridedVecOrMat{T}) where {T<:VTypes}
@@ -1943,34 +1977,7 @@ for TI in IndexTypes
                 throw(LinearAlgebra.ZeroPivotException(s.minor))
             end
         end
-
-        # Just calling Dense(x) or Dense(b) will allocate new
-        # `cholmod_dense_struct`s in CHOLMOD. Instead, we want to reuse
-        # the existing memory. We can do this by creating new
-        # `cholmod_dense_struct`s and filling them manually.
-        dense_x, dense_x_ptr = wrap_dense_and_ptr(x)
-        dense_b, dense_b_ptr = wrap_dense_and_ptr(b)
-
-        X_Handle = Ptr{cholmod_dense_struct}(dense_x_ptr)
-        Y_Handle = Ref(Ptr{cholmod_dense_struct}(C_NULL))
-        E_Handle = Ref(Ptr{cholmod_dense_struct}(C_NULL))
-        status = GC.@preserve x dense_x b dense_b begin
-            $(cholname(:solve2, TI))(
-                CHOLMOD_A, L,
-                Ref(dense_b), C_NULL,
-                Ref(X_Handle), C_NULL,
-                Y_Handle,
-                E_Handle,
-                getcommon($TI))
-        end
-        if Y_Handle[] != C_NULL
-            free!(Y_Handle[])
-        end
-        if E_Handle[] != C_NULL
-            free!(E_Handle[])
-        end
-        @assert !iszero(status)
-
+        solve!(x, L, b)
         return x
     end
 end
