@@ -46,14 +46,34 @@ jobs:
       - run: julia --color=yes .ci/test_and_change_uuid.jl
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
-        env:
-          SPARSEARRAYS_AQUA_TEST: true
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v4
         with:
           file: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  aqua-test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        version:
+          - '1.10'
+        os:
+          - ubuntu-latest
+        arch:
+          - x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.version }}
+          arch: ${{ matrix.arch }}
+      - uses: julia-actions/cache@v2
+      - run: julia --color=yes .ci/test_and_change_uuid.jl
+      - name: Run Aqua and ambiguity tests
+        run: |
+          julia --color=yes -e 'using Pkg; Pkg.activate(temp=true); Pkg.develop(path=pwd()); Pkg.add(name="Aqua", version="0.8"); include(joinpath(pwd(), "test", "ambiguous.jl"))'
   docs:
     runs-on: ubuntu-latest
     steps:
