@@ -1483,7 +1483,7 @@ function _binarymap(f::Function,
                     y::AbstractSparseVector{Ty},
                     mode::Int) where {Tx,Ty}
     0 <= mode <= 2 || throw(ArgumentError("Incorrect mode $mode."))
-    R = Base.Broadcast.combine_eltypes(f, (x, y))
+    R = Base.promote_typejoin_union(Base.promote_op(f, Tx, Ty))
     I = promote_type(eltype(nonzeroinds(x)), eltype(nonzeroinds(y)))
     n = length(x)
     length(y) == n || throw(DimensionMismatch(

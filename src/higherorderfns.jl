@@ -174,7 +174,7 @@ end
 
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
     # Avoid calculating f(zero) unless necessary as it may fail.
-    entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
+    entrytypeC = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, (A, Bs...))...))
     indextypeC = _promote_indtype(A, Bs...)
     r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
@@ -214,7 +214,7 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
     fofzeros = f(_zeros_eltypes(A, Bs...)...)
     fpreszeros = _iszero(fofzeros)
     indextypeC = _promote_indtype(A, Bs...)
-    entrytypeC = Base.Broadcast.combine_eltypes(f, (A, Bs...))
+    entrytypeC = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, (A, Bs...))...))
     shapeC = to_shape(Base.Broadcast.combine_axes(A, Bs...))
     maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
     C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
