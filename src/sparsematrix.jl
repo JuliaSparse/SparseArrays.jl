@@ -351,7 +351,7 @@ function Base.show(io::IO, ::MIME"text/plain", S::AbstractSparseMatrixCSCInclAdj
     isempty(S) && return
 
     if get(io, :limit, false)
-        screen = get(io, :displaysize, displaysize(io))::Tuple{Int, Int}
+        screen = displaysize(io)::Tuple{Int, Int}
         screen[1] <= 4 && return print(io, ": …")
     else
         screen = typemax(Int), typemax(Int)
@@ -415,7 +415,7 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
                                      rinds=rowvals(parent(S)), cinds=colvals(parent(S)))
     # The maximum number of characters we allow to display the matrix
     h, w = if get(io, :limit, false)::Bool
-        get(io, :displysize, displaysize(io)) .- (4, 2)
+        displaysize(io) .- (4, 2)
     else
         typemax(Int)÷4, typemax(Int)÷2
     end::Tuple{Int, Int}
@@ -433,7 +433,7 @@ function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjoi
     scale = maximum(cld.(size(S), (4h, 2w)))
     char_h, char_w = cld.(size(S), (4scale, 2scale))
 
-    scale != 1 && print(io, " (displaying at 1/$scale scale)")
+    scale != 1 && print(io, ", displaying at 1/$scale scale")
     println(io, ":")
     warn && printstyled(stderr, "WARNING: could not find generic zero for given elements. expect errors and wrong results\n", color=:red)
 
@@ -649,7 +649,7 @@ function _sparse_copyto!(dest::AbstractMatrix, src::AbstractSparseMatrixCSC)
     @inbounds for col in axes(src, 2), ptr in nzrange(src, col)
         row = rowvals(src)[ptr]
         val = nonzeros(src)[ptr]
-        dest[isrc[row, col]] += val
+        dest[isrc[row, col]] = val
     end
     return dest
 end
@@ -673,7 +673,7 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
         if row in rows
             val = nonzeros(src′)[ptr]
             I = Rdest[lin[row, col]]
-            dest[I] += val
+            dest[I] = val
         end
     end
     return dest
@@ -698,7 +698,7 @@ function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Numbe
         for i in nzrange(S, col)
             row = rowval[i]
             val = nzval[i]
-            A[linear_index_col0+row] += val
+            A[linear_index_col0+row] = val
         end
         linear_index_col0 += num_rows
     end
