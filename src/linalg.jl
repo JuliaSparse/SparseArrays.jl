@@ -4,6 +4,8 @@ using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, UpperOrLower
     RealHermSymComplexHerm, HermOrSym, checksquare, sym_uplo, wrap
 using Random: rand!
 
+import LinearAlgebra: _uppercase, _isuppercase
+
 _fix_size(M, nrow, ncol) = M
 
 # An immutable fixed size wrapper for matrices to work around
@@ -90,7 +92,7 @@ end
     spdensemul!(C, tA, 'N', A, B, alpha, beta)
 
 Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
-    tA_uc, tB_uc = uppercase(tA), uppercase(tB)
+    tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
     if tA_uc == 'N'
         _spmatmul!(C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc == 'T'
@@ -98,7 +100,7 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
     elseif tA_uc == 'C'
         _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc in ('S', 'H')
-        rangefun = isuppercase(tA) ? nzrangeup : nzrangelo
+        rangefun = _isuppercase(tA) ? nzrangeup : nzrangelo
         diagop = tA_uc == 'S' ? identity : real
         odiagop = tA_uc == 'S' ? transpose : adjoint
         T = eltype(C)
@@ -452,7 +454,7 @@ end
 
 Base.@constprop :aggressive function generic_matmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::SparseMatrixCSCUnion2,
                             B::SparseMatrixCSCUnion2, alpha::Number, beta::Number)
-    tA_uc, tB_uc = uppercase(tA), uppercase(tB)
+    tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
     Anew, ta = tA_uc in ('S', 'H') ? (wrap(A, tA), oftype(tA, 'N')) : (A, tA)
     Bnew, tb = tB_uc in ('S', 'H') ? (wrap(B, tB), oftype(tB, 'N')) : (B, tB)
     @stable_muladdmul _generic_matmatmul!(C, ta, tb, Anew, Bnew, MulAddMul(alpha, beta))
