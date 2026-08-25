@@ -4141,7 +4141,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
                 # We therefore "catch up" here while making sure that
                 # the elements are actually zero.
                 while row2 < col
-                    if _isnotzero(nzval[offset])
+                    if _isnotzero(nzval[offset]) || offset >= length(rowval) || offset > colptr[row+1] - 1
                         return false
                     end
                     offset += 1
