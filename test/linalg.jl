@@ -548,6 +548,11 @@ end
         S = sparse([2, 3, 1], [1, 1, 3], [1, 1, 1], 3, 3)
         @test !issymmetric(S)
     end
+
+    @testset "issue #748" begin
+        S = sparse([3,3,4,1,2], [1,2,2,3,4], ones(Int,5), 4, 4)
+        @test !issymmetric(S)
+    end
 end
 
 @testset "rotations" begin

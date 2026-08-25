@@ -4130,7 +4130,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
 
                 # If the matrix is unsymmetric, there might not exist
                 # a rowval[offset]
-                if offset > length(rowval)
+                if offset > length(rowval) || offset > colptr[row+1] - 1
                     return false
                 end
 
