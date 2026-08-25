@@ -4,13 +4,7 @@ using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, UpperOrLower
     RealHermSymComplexHerm, HermOrSym, checksquare, sym_uplo, wrap
 using Random: rand!
 
-if isdefined(LinearAlgebra, :_uppercase)
-    const _uppercase = LinearAlgebra._uppercase
-    const _isuppercase = LinearAlgebra._isuppercase
-else
-    const _uppercase = uppercase
-    const _isuppercase = isuppercase
-end
+import LinearAlgebra: _uppercase, _isuppercase
 
 _fix_size(M, nrow, ncol) = M
 
