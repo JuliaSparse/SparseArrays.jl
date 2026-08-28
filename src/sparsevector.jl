@@ -1898,8 +1898,11 @@ Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatri
     end
     return y
 end
+
+LinearAlgebra._mul!(y::AbstractVector, A::UpperOrLowerTriangular, x::AbstractSparseVector,
+                    alpha::Number, beta::Number) = mul!(y, 'N', A, x, alpha, beta)
 function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
-                            alpha::Number, beta::Number)
+                alpha::Number, beta::Number)
     @assert tA == 'N'
     Adata = parent(A)
     if Adata isa Transpose
