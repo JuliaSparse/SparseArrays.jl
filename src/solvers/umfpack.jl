@@ -274,12 +274,12 @@ UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, T
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
 UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
 
+# Not using similar helps if the actual needed size has changed as it would need to be resized again
 """
     copy(F::UmfpackLU, [ws::UmfpackWS])::UmfpackLU
 A shallow copy of UmfpackLU to use in multithreaded solve applications.
 This function duplicates the working space, control, info and lock fields.
 """
-# Not using similar helps if the actual needed size has changed as it would need to be resized again
 Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
     UmfpackLU(
         F.symbolic,

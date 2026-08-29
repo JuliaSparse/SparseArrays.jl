@@ -4,6 +4,8 @@ using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, UpperOrLower
     RealHermSymComplexHerm, HermOrSym, checksquare, sym_uplo, wrap
 using Random: rand!
 
+import LinearAlgebra: _uppercase, _isuppercase
+
 _fix_size(M, nrow, ncol) = M
 
 # An immutable fixed size wrapper for matrices to work around
@@ -82,15 +84,15 @@ for op ∈ (:+, :-)
     end
 end
 
-@inline generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, alpha::Number, beta::Number) =
+mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, alpha::Number, beta::Number) =
     spdensemul!(C, tA, tB, A, B, alpha, beta)
-@inline generic_matmatmul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::AbstractTriangular, alpha::Number, beta::Number) =
-    spdensemul!(C, tA, tB, A, B, alpha, beta)
-@inline generic_matvecmul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, alpha::Number, beta::Number) =
+LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number) =
+    spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
+mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', A, B, alpha, beta)
 
 Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
-    tA_uc, tB_uc = uppercase(tA), uppercase(tB)
+    tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
     if tA_uc == 'N'
         _spmatmul!(C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc == 'T'
@@ -98,7 +100,7 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
     elseif tA_uc == 'C'
         _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc in ('S', 'H')
-        rangefun = isuppercase(tA) ? nzrangeup : nzrangelo
+        rangefun = _isuppercase(tA) ? nzrangeup : nzrangelo
         diagop = tA_uc == 'S' ? identity : real
         odiagop = tA_uc == 'S' ? transpose : adjoint
         T = eltype(C)
@@ -450,9 +452,9 @@ function estimate_mulsize(m::Integer, nnzA::Integer, n::Integer, nnzB::Integer, 
     p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0 # (1-(1-p)^n)*m*k
 end
 
-Base.@constprop :aggressive function generic_matmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::SparseMatrixCSCUnion2,
+Base.@constprop :aggressive function mul!(C::SparseMatrixCSCUnion2, tA, tB, A::SparseMatrixCSCUnion2,
                             B::SparseMatrixCSCUnion2, alpha::Number, beta::Number)
-    tA_uc, tB_uc = uppercase(tA), uppercase(tB)
+    tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
     Anew, ta = tA_uc in ('S', 'H') ? (wrap(A, tA), oftype(tA, 'N')) : (A, tA)
     Bnew, tb = tB_uc in ('S', 'H') ? (wrap(B, tB), oftype(tB, 'N')) : (B, tB)
     @stable_muladdmul _generic_matmatmul!(C, ta, tb, Anew, Bnew, MulAddMul(alpha, beta))
