@@ -159,6 +159,8 @@ begin
     rng = Random.MersenneTwister(0)
     n = 1000
     B = ones(n)
+    s = sprandn(n, 0.05)
+    sd = Vector(s)
     A = sprand(rng, n, n, 0.01)
     MA = Matrix(A)
     lA = sprand(rng, n, n+10, 0.01)
@@ -168,6 +170,7 @@ begin
         AW = tr(wr(A))
         MAW = tr(wr(MA))
         @test AW * B ≈ MAW * B
+        @test AW * s ≈ MAW * s ≈ MAW * sd
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
@@ -179,6 +182,7 @@ begin
         AW = tr(wr(a))
         MAW = tr(wr(ma))
         @test AW * B ≈ MAW * B
+        @test AW * s ≈ MAW * s ≈ MAW * sd
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(a)+I a], :, (n+1):2n)))
         @test vAW * B ≈ AW * B

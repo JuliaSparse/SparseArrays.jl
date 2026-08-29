@@ -1890,11 +1890,7 @@ function (*)(A::_StridedOrTriangularMatrix{Ta}, x::AbstractSparseVector{Tx}) whe
     mul!(y, A, x)
 end
 
-# TODO: remove
-Base.@constprop :aggressive generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
-                                            _add::MulAddMul = MulAddMul()) =
-    generic_matvecmul!(y, tA, A, x, _add.alpha, _add.beta)
-Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
+Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                                         alpha::Number, beta::Number)
     if tA == 'N'
         _spmul!(y, A, x, alpha, beta)
@@ -1907,11 +1903,11 @@ Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A
     end
     return y
 end
-# TODO: remove
-generic_matvecmul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector, _add::MulAddMul = MulAddMul()) =
-    generic_matvecmul!(y, tA, A, x, _add.alpha, _add.beta)
-function generic_matvecmul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
-                            alpha::Number, beta::Number)
+
+LinearAlgebra._mul!(y::AbstractVector, A::UpperOrLowerTriangular, x::AbstractSparseVector,
+                    alpha::Number, beta::Number) = mul!(y, 'N', A, x, alpha, beta)
+function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
+                alpha::Number, beta::Number)
     @assert tA == 'N'
     Adata = parent(A)
     if Adata isa Transpose
@@ -2027,11 +2023,7 @@ function densemv(A::AbstractSparseMatrixCSC, x::AbstractSparseVector; trans::Abs
 end
 
 # * and mul!
-# TODO: remove
-Base.@constprop :aggressive generic_matvecmul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
-                            _add::MulAddMul = MulAddMul()) =
-    generic_matvecmul!(y, tA, A, x, _add.alpha, _add.beta)
-Base.@constprop :aggressive function generic_matvecmul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
+Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
                                                         alpha::Number, beta::Number)
     if tA == 'N'
         _spmul!(y, A, x, alpha, beta)
