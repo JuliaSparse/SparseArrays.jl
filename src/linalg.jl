@@ -46,6 +46,8 @@ const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
 const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
 const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
+const DenseViewWrappers{T,S} = Union{AdjOrTrans{T,S}, HermOrSym{T,S}, UpperOrLowerTriangular{T,S}, UpperHessenberg{T,S}}
+const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<:SparseMatrixCSCUnion2}}
 
 matprod_dest(A::SparseMatrixCSCUnion2, B::DenseTriangular, TS) =
     similar(B, TS, (size(A, 1), size(B, 2)))
