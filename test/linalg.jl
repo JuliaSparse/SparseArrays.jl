@@ -159,6 +159,8 @@ begin
     rng = Random.MersenneTwister(0)
     n = 1000
     B = ones(n)
+    s = sprandn(n, 0.05)
+    sd = Vector(s)
     A = sprand(rng, n, n, 0.01)
     MA = Matrix(A)
     lA = sprand(rng, n, n+10, 0.01)
@@ -168,6 +170,7 @@ begin
         AW = tr(wr(A))
         MAW = tr(wr(MA))
         @test AW * B ≈ MAW * B
+        @test AW * s ≈ MAW * s ≈ MAW * sd
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
@@ -179,6 +182,7 @@ begin
         AW = tr(wr(a))
         MAW = tr(wr(ma))
         @test AW * B ≈ MAW * B
+        @test AW * s ≈ MAW * s ≈ MAW * sd
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(a)+I a], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
@@ -443,6 +447,15 @@ end
     nonzeros(A)[end - 3]  = 2.0
     @test issymmetric(A) == false
 
+    # stored zeros must not cause out-of-bounds access when the
+    # partner column runs out of stored entries
+    A = sparse([3, 1], [2, 3], [1.0, 0.0], 3, 3)
+    @test issymmetric(A) == false
+    @test ishermitian(A) == false
+    A = sparse([1, 2], [2, 1], [0.0, 0.0], 2, 2)
+    @test issymmetric(A) == true
+    @test ishermitian(A) == true
+
     # 16521
     @test issymmetric(sparse([0 0; 1 0])) == false
     @test issymmetric(sparse([0 1; 0 0])) == false
@@ -470,6 +483,30 @@ end
     @testset "issue #605" begin
         S = sparse([2, 3, 1], [1, 1, 3], [1, 1, 1], 3, 3)
         @test !issymmetric(S)
+    end
+
+    @testset "issue #748" begin
+        for S in [
+            sparse([3,3,4,1,2], [1,2,2,3,4], ones(Int,5), 4, 4),
+            sparse([1,3,3,4,1,2], [1,1,2,2,3,4], ones(Int,6), 4, 4),
+            sparse([2,3,1,3,4,1,2], [1,1,2,2,2,3,4], ones(Int,7), 4, 4),
+            sparse([1,2,3,1,3,4,1,2], [1,1,1,2,2,2,3,4], ones(Int,8), 4, 4),
+            sparse([3,2,3,4,1,2], [1,2,2,2,3,4], ones(Int,6), 4, 4),
+            sparse([1,3,2,3,4,1,2], [1,1,2,2,2,3,4], ones(Int,7), 4, 4),
+            sparse([2,3,1,2,3,4,1,2], [1,1,2,2,2,2,3,4], ones(Int,8), 4, 4),
+            sparse([1,2,3,1,2,3,4,1,2], [1,1,1,2,2,2,2,3,4], ones(Int,9), 4, 4),
+            sparse([3,3,4,1,2,4], [1,2,2,3,4,4], ones(Int,6), 4, 4),
+            sparse([1,3,3,4,1,2,4], [1,1,2,2,3,4,4], ones(Int,7), 4, 4),
+            sparse([2,3,1,3,4,1,2,4], [1,1,2,2,2,3,4,4], ones(Int,8), 4, 4),
+            sparse([1,2,3,1,3,4,1,2,4], [1,1,1,2,2,2,3,4,4], ones(Int,9), 4, 4),
+            sparse([3,2,3,4,1,2,4], [1,2,2,2,3,4,4], ones(Int,7), 4, 4),
+            sparse([1,3,2,3,4,1,2,4], [1,1,2,2,2,3,4,4], ones(Int,8), 4, 4),
+            sparse([2,3,1,2,3,4,1,2,4], [1,1,2,2,2,2,3,4,4], ones(Int,9), 4, 4),
+            sparse([1,2,3,1,2,3,4,1,2,4], [1,1,1,2,2,2,2,3,4,4], ones(Int,10), 4, 4),
+            SparseMatrixCSC(6, 6, [1,1,2,3,4,5,6], [4,4,3,6,1], [0,1,1,1,0]),
+        ]
+            @test !issymmetric(S)
+        end
     end
 end
 

@@ -4124,7 +4124,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
 
                 # If the matrix is unsymmetric, there might not exist
                 # a rowval[offset]
-                if offset > length(rowval)
+                if offset > colptr[row+1] - 1
                     return false
                 end
 
@@ -4139,8 +4139,13 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
                         return false
                     end
                     offset += 1
-                    row2 = rowval[offset]
                     tracker[row] += 1
+                    # Column `row` ran out of stored entries before
+                    # reaching row `col`, so A[col, row] does not exist
+                    if offset > colptr[row+1] - 1
+                        return false
+                    end
+                    row2 = rowval[offset]
                 end
 
                 # Non zero A[i,j] exists but A[j,i] does not exist
