@@ -173,12 +173,12 @@ end
 
 function getcommon(::Type{Int32})
     LibSuiteSparse.init_suitesparse()
-    return get!(newcommon, task_local_storage(), :cholmod_common)::Ref{cholmod_common}
+    return get!(newcommon, task_local_storage(), :cholmod_common)::Base.RefValue{cholmod_common}
 end
 
 function getcommon(::Type{Int64})
     LibSuiteSparse.init_suitesparse()
-    return get!(newcommon_l, task_local_storage(), :cholmod_common_l)::Ref{cholmod_common}
+    return get!(newcommon_l, task_local_storage(), :cholmod_common_l)::Base.RefValue{cholmod_common}
 end
 
 getcommon() = getcommon(Int)
@@ -264,9 +264,9 @@ mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
     ptr::Ptr{cholmod_factor}
     dense_x::cholmod_dense_struct
     dense_b::cholmod_dense_struct
-    X::Ref{Ptr{cholmod_dense_struct}}
-    Y::Ref{Ptr{cholmod_dense_struct}}
-    E::Ref{Ptr{cholmod_dense_struct}}
+    X::Base.RefValue{Ptr{cholmod_dense_struct}}
+    Y::Base.RefValue{Ptr{cholmod_dense_struct}}
+    E::Base.RefValue{Ptr{cholmod_dense_struct}}
     lock::ReentrantLock
     function Factor{Tv, Ti}(ptr::Ptr{cholmod_factor}, register_finalizer = true) where {Tv, Ti}
         if ptr == C_NULL

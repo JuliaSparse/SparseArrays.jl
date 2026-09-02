@@ -368,6 +368,12 @@ end
 end #end for Ti ∈ itypes
 
 for Tv ∈ (Float32, Float64)
+@testset "per-type buffers should be concretely typed" begin
+    @test @inferred(SparseArrays.CHOLMOD.getcommon()) isa Base.RefValue
+    F = cholesky(sparse(Tv[2 1; 1 2]))
+    @test @inferred((F -> getfield(F, :Y)[])(F)) isa Ptr
+end
+
 @testset "Issue #9915" begin
     sparseI = sparse(Tv(1.0)I, 2, 2)
     @test sparseI \ sparseI == sparseI
