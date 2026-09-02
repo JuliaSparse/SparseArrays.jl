@@ -100,6 +100,7 @@ const init_suitesparse = Base.OncePerProcess{Nothing}() do
     catch ex
         @error "Error during initialization of module LibSuiteSparse" exception=ex,catch_backtrace()
     end
+    return nothing
 end
 
 # exports
