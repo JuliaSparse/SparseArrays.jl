@@ -635,6 +635,10 @@ end
     # promotion
     @test spdiagm(0 => [1,2], 1 => [3.5], -1 => [4+5im]) == [1 3.5; 4+5im 2]
 
+    # sparse eltypes should infer well, even for a `Vararg` tail of unknown length
+    @test Base.infer_return_type(SparseArrays.spdiagm_eltype,
+              Tuple{Vararg{Pair{Int,Vector{Float64}}}}) === Core.Typeof(Float64)
+
     # convenience constructor
     @test spdiagm(x)::SparseMatrixCSC == diagm(x)
     @test nnz(spdiagm(x)) == count(!iszero, x)
