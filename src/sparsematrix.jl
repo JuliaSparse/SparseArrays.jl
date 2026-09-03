@@ -1069,7 +1069,7 @@ julia> sparse(Is, Js, Vs)
  ⋅  ⋅  3
 ```
 """
-function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
+function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine::F) where {Tv,Ti<:Integer,F}
     require_one_based_indexing(I, J, V)
     coolen = length(I)
     if length(J) != coolen || length(V) != coolen
@@ -1110,7 +1110,7 @@ function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{
     end
 end
 
-sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine) =
+sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine::F) where {F} =
     sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
 
 """
@@ -4237,6 +4237,14 @@ end
 _nzvals(v::AbstractSparseVector) = nonzeros(v)
 _nzvals(v::AbstractVector) = v
 
+# Promoted element type of the diagonals, mirroring `Base.promote_eltypeof`
+spdiagm_eltype(p::Pair) = eltype(p.second)
+spdiagm_eltype(p::Pair, q::Pair, rest::Pair...) =
+    (@inline; promote_type(promote_type(eltype(p.second), eltype(q.second)),
+                           spdiagm_eltype(rest...)))
+spdiagm_eltype(p::Pair, q::Pair) = promote_type(eltype(p.second), eltype(q.second))
+spdiagm_eltype(kv::Pair{<:Integer,<:AbstractVector{T}}...) where {T} = T
+
 function spdiagm_internal(kv::Pair{<:Integer,<:AbstractVector}...)
     ncoeffs = 0
     for p in kv
@@ -4244,7 +4252,7 @@ function spdiagm_internal(kv::Pair{<:Integer,<:AbstractVector}...)
     end
     I = Vector{Int}(undef, ncoeffs)
     J = Vector{Int}(undef, ncoeffs)
-    V = Vector{promote_type(map(x -> eltype(x.second), kv)...)}(undef, ncoeffs)
+    V = Vector{spdiagm_eltype(kv...)}(undef, ncoeffs)
     i = 0
     m = 0
     n = 0
