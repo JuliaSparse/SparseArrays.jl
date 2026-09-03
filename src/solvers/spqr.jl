@@ -220,9 +220,9 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
         C_NULL, C_NULL, C_NULL, C_NULL,
         R, E, H, HPinv, HTau)
 
-    R_ = SparseMatrixCSC{Tv, Ti}(Sparse(R[]))
-    factors = SparseMatrixCSC{Tv, Ti}(Sparse(H[]))
-    τ = vec(Array{Tv}(CHOLMOD.Dense(HTau[])))
+    R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(R[]))
+    factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(H[]))
+    τ = vec(Array{Tv}(CHOLMOD.Dense{Tv}(HTau[])))
     R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                 size(R_, 2),
                                 getcolptr(R_),
