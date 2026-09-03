@@ -2396,7 +2396,7 @@ function Base.reducedim_initarray(A::AbstractSparseMatrixCSC, region, v0, ::Type
 end
 
 # General mapreduce
-function _mapreducezeros(f, op, ::Type{T}, nzeros::Integer, v0) where T
+function _mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G,T}
     nzeros == 0 && return v0
 
     # Reduce over first zero
@@ -2415,7 +2415,7 @@ function _mapreducezeros(f, op, ::Type{T}, nzeros::Integer, v0) where T
     v
 end
 
-function Base._mapreduce(f, op, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
+function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where {F,G,T}
     z = nnz(A)
     n = widelength(A)
     if z == 0
@@ -2430,11 +2430,11 @@ function Base._mapreduce(f, op, ::Base.IndexCartesian, A::AbstractSparseMatrixCS
 end
 
 # Specialized mapreduce for +/*/min/max/_extrema_rf
-_mapreducezeros(f, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {T} =
+_mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? op(zero(v0), v0) : op(f(zero(T))*nzeros, v0)
-_mapreducezeros(f, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {T} =
+_mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? op(one(v0), v0) : op(f(zero(T))^nzeros, v0)
-_mapreducezeros(f, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {T} =
+_mapreducezeros(f::F, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
@@ -2445,7 +2445,7 @@ Base._any(f, A::AbstractSparseMatrixCSC, ::Colon) =
 Base._all(f, A::AbstractSparseMatrixCSC, ::Colon) =
     iszero(widelength(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
-function Base._mapreduce(f, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
+function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where {F,T}
     nnzA = nnz(A)
     nzeros = widelength(A) - nnzA
     if nzeros == 0
@@ -2495,7 +2495,7 @@ function _mapreducecols!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC{Tv,
     R
 end
 
-function Base._mapreducedim!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC{T}) where T
+function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::AbstractSparseMatrixCSC{T}) where {F,G,T}
     require_one_based_indexing(A, R)
     lsiz = Base.check_reducedims(R,A)
     isempty(A) && return R
