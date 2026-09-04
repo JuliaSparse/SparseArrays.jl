@@ -324,7 +324,7 @@ julia> sparsevec([1, 3, 1, 2, 2], [true, true, false, false, false])
   [3]  =  1
 ```
 """
-function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector, combine::Function)
+function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector, combine::F) where {F<:Function}
     require_one_based_indexing(I, V)
     length(I) == length(V) ||
         throw(ArgumentError("index and value vectors must be the same length"))
@@ -338,7 +338,7 @@ function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector, combine::Fun
     _sparsevector!(Vector(I), Vector(V), len, combine)
 end
 
-function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector, len::Integer, combine::Function)
+function sparsevec(I::AbstractVector{<:Integer}, V::AbstractVector, len::Integer, combine::F) where {F<:Function}
     require_one_based_indexing(I, V)
     length(I) == length(V) ||
         throw(ArgumentError("index and value vectors must be the same length"))
@@ -363,10 +363,10 @@ sparsevec(I::AbstractVector, V::Union{Bool, AbstractVector{Bool}}) =
 sparsevec(I::AbstractVector, V::Union{Bool, AbstractVector{Bool}}, len::Integer) =
     sparsevec(I, V, len, |)
 
-sparsevec(I::AbstractVector, v::Number, combine::Function) =
+sparsevec(I::AbstractVector, v::Number, combine::F) where {F<:Function} =
     sparsevec(I, fill(v, length(I)), combine)
 
-sparsevec(I::AbstractVector, v::Number, len::Integer, combine::Function) =
+sparsevec(I::AbstractVector, v::Number, len::Integer, combine::F) where {F<:Function} =
     sparsevec(I, fill(v, length(I)), len, combine)
 
 
@@ -1664,7 +1664,7 @@ end
 Base.reducedim_initarray(A::SparseVectorUnion, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 
-function Base._mapreduce(f, op, ::IndexCartesian, A::SparseVectorUnion)
+function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorUnion) where {F,G}
     T = eltype(A)
     isempty(A) && return Base.mapreduce_empty(f, op, T)
     z = nnz(A)
@@ -1681,7 +1681,7 @@ Base._any(f, A::SparseVectorUnion, ::Colon) =
 Base._all(f, A::SparseVectorUnion, ::Colon) =
     iszero(length(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
-function Base.mapreducedim!(f, op, R::AbstractVector, A::SparseVectorUnion)
+function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorUnion) where {F,G}
     # dim1 reduction could be safely replaced with a mapreduce
     if length(R) == 1
         I = firstindex(R)

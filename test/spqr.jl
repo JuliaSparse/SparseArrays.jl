@@ -110,16 +110,17 @@ end
     @test (F.Q*F.R)::SparseMatrixCSC == A[F.prow,F.pcol]
 end
 
-@testset "Issue #585 for element type: $eltyA" for eltyA in (Float64, Float32, ComplexF64, ComplexF32)
+@testset "Issue #585 for element type: $eltyA" for eltyA in (Float64, Float32, Float16, ComplexF64, ComplexF32, ComplexF16)
     A = sparse(eltyA[1 0; 0 1])
     F = qr(A)
     @test eltype(F.Q) == eltype(F.R) == eltyA
 end
 
-@testset "Complementing issue #585 for element type: $eltyA" for (eltyA, eltyB) in [(Float16, Float32), (ComplexF16, ComplexF32)]
-    A = sparse(eltyA[1 0; 0 1])
+@testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, ComplexF32, Float16, ComplexF16)
+    A = sprandn(eltyA, m, n, 0.3)
     F = qr(A)
-    @test eltype(F.Q) == eltype(F.R) == eltyB
+    @test eltype(F.Q) == eltype(F.R) == eltyA
+    @test Matrix(F.Q) * F.R ≈ A[F.prow, F.pcol]
 end
 
 @testset "select ordering overdetermined" begin

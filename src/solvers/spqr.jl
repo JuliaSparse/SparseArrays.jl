@@ -45,7 +45,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         E::Union{Ref{Ptr{Ti}}    , Ptr{Cvoid}} = C_NULL,
         H::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
         HPinv::Union{Ref{Ptr{Ti}}, Ptr{Cvoid}} = C_NULL,
-        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
+        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
 
     ordering ∈ ORDERINGS || error("unknown ordering $ordering")
 
@@ -108,7 +108,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     return rnk, _E, _HPinv
 end
 
-struct QRSparseQ{Tv<:CHOLMOD.VTypes,Ti<:Integer} <: AbstractQ{Tv}
+struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
     n::Int # Number of columns in original matrix
@@ -131,6 +131,14 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
 
     _lock::ReentrantLock
     _ldiv_workspace::Vector{Tv}   # backing storage for work buffer (resizable)
+end
+
+function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
+    newfactors = convert(SparseMatrixCSC{Tv}, F.factors)
+    newτ = convert(Vector{Tv}, F.τ)
+    newR = convert(SparseMatrixCSC{Tv}, F.R)
+    newQ = QRSparseQ{Tv,Ti}(newfactors, newτ, size(newR, 2))
+    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock(), Tv[])
 end
 
 Base.size(F::QRSparse) = (size(F.factors, 1), size(F.R, 2))
@@ -200,7 +208,7 @@ Column permutation:
 
 [^ACM933]: Foster, L. V., & Davis, T. A. (2013). Algorithm 933: Reliable Calculation of Numerical Rank, Null Space Bases, Pseudoinverse Solutions, and Basic Solutions Using SuitesparseQR. ACM Trans. Math. Softw., 40(1). [doi:10.1145/2513109.2513116](https://doi.org/10.1145/2513109.2513116)
 """
-function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
+function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
     R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
     E     = Ref{Ptr{Ti}}()
     H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
@@ -212,9 +220,9 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
         C_NULL, C_NULL, C_NULL, C_NULL,
         R, E, H, HPinv, HTau)
 
-    R_ = SparseMatrixCSC{Tv, Ti}(Sparse(R[]))
-    factors = SparseMatrixCSC{Tv, Ti}(Sparse(H[]))
-    τ = vec(Array{Tv}(CHOLMOD.Dense(HTau[])))
+    R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(R[]))
+    factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(H[]))
+    τ = vec(Array{Tv}(CHOLMOD.Dense{Tv}(HTau[])))
     R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                 size(R_, 2),
                                 getcolptr(R_),
@@ -227,10 +235,10 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
                     ReentrantLock(),
                     Tv[])              # _ldiv_workspace (lazily sized on first solve)
 end
-LinearAlgebra.qr(A::SparseMatrixCSC{Float16}; tol=_default_tol(A)) =
-    qr(convert(SparseMatrixCSC{Float32}, A); tol=tol)
-LinearAlgebra.qr(A::SparseMatrixCSC{ComplexF16}; tol=_default_tol(A)) =
-    qr(convert(SparseMatrixCSC{ComplexF32}, A); tol=tol)
+LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{Float16, Float32}} =
+    QRSparse{Tv}(qr(convert(SparseMatrixCSC{Float64}, A); tol, ordering))
+LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{ComplexF16, ComplexF32}} =
+    QRSparse{Tv}(qr(convert(SparseMatrixCSC{ComplexF64}, A); tol, ordering))
 LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
    tol=_default_tol(A)) where {T<:AbstractFloat} =
     throw(ArgumentError(string("matrix type ", typeof(A), "not supported. ",
