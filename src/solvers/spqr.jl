@@ -173,9 +173,9 @@ solve least squares or underdetermined problems with [`\\`](@ref). The function 
 
 !!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with [`Float64`](@ref), `ComplexF64`, `Float32`, or
-    `ComplexF32` elements, calling `qr` on a matrix with a different element type will either convert it to a supported type or
-    raise an error.
+    As this library only supports sparse matrices with [`Float64`](@ref) or
+    `ComplexF64` elements, as of Julia v1.4 `qr` converts `A` into a copy that is
+    of type `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
 
 # Examples
 ```jldoctest
