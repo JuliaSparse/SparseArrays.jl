@@ -114,6 +114,8 @@ end
 
 Return a tuple `(I, J, V)` where `I` and `J` are the row and column indices of the stored
 ("structurally non-zero") values in sparse matrix `A`, and `V` is a vector of the values.
+`A` may also be the adjoint or transpose of a sparse matrix or vector, in which case the
+values in `V` are correspondingly adjointed or transposed.
 
 # Examples
 ```jldoctest

@@ -924,6 +924,25 @@ function findnz(x::SparseVectorUnion)
     return (I, V)
 end
 
+function findnz(x::AdjOrTransSparseVectorUnion)
+    p = parent(x)
+    numnz = nnz(p)
+    I = ones(indtype(p), numnz)
+    J = Vector{indtype(p)}(undef, numnz)
+    V = Vector{eltype(x)}(undef, numnz)
+
+    nzind = nonzeroinds(p)
+    nzval = nonzeros(p)
+    f = wrapperop(x)
+
+    @inbounds for i = 1 : numnz
+        J[i] = nzind[i]
+        V[i] = f(nzval[i])
+    end
+
+    return (I, J, V)
+end
+
 function _sparse_findnextnz(v::AbstractCompressedVector, i::Integer)
     n = searchsortedfirst(nonzeroinds(v), i)
     if n > length(nonzeroinds(v))

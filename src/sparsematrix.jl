@@ -1958,6 +1958,11 @@ function findnz(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     return (I, J, V)
 end
 
+# Materializing the (conjugate) transpose is linear in `nnz` and yields the
+# indices in column-major order of the wrapped matrix, consistent with the
+# `AbstractSparseMatrixCSC` method above.
+findnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = findnz(copy(S))
+
 function _sparse_findnextnz(m::AbstractSparseMatrixCSC, ij::CartesianIndex{2})
     row, col = Tuple(ij)
     col > size(m, 2) && return nothing
