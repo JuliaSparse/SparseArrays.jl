@@ -50,6 +50,30 @@ end
     end
 end
 
+@testset "isequal walks stored entries only (issue #561)" begin
+    n = 10^5
+    A = spzeros(n, n); A[1, 1] = 1
+    B = spzeros(n, n); B[1, 1] = 1
+    @test isequal(A, B) && A == B
+    @test @elapsed(isequal(A, B)) < 0.1
+    B[n, n] = 2
+    @test !isequal(A, B) && A != B
+    @test !isequal(spzeros(2, 3), spzeros(3, 2))
+    # isequal semantics for NaN and signed zeros must match dense arrays
+    X = sparse([1, 2, 3], [1, 1, 2], [NaN, -0.0, 2.0], 3, 3)
+    for Y in (sparse([1, 2, 3], [1, 1, 2], [NaN, -0.0, 2.0], 3, 3),
+              sparse([1, 3], [1, 2], [NaN, 2.0], 3, 3),
+              sparse([1, 2, 3], [1, 1, 2], [NaN, 0.0, 2.0], 3, 3),
+              sparse([1, 2, 3, 3], [1, 1, 2, 3], [NaN, -0.0, 2.0, 0.0], 3, 3),
+              sparse([1, 2, 3], [1, 1, 2], [1.0, -0.0, 2.0], 3, 3),
+              sparse([2, 2, 3], [1, 2, 2], [NaN, -0.0, 2.0], 3, 3),
+              sparse([1, 2, 3], [1, 1, 2], [NaN, -0.0, 2], 3, 3))
+        @test isequal(X, Y) == isequal(Matrix(X), Matrix(Y))
+        @test isequal(Y, X) == isequal(Matrix(Y), Matrix(X))
+        @test (X == Y) == (Matrix(X) == Matrix(Y))
+    end
+end
+
 @testset "iszero specialization for SparseMatrixCSC" begin
     @test !iszero(sparse(I, 3, 3))                  # test failure
     @test iszero(spzeros(3, 3))                     # test success with no stored entries

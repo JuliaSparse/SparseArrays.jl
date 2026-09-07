@@ -356,6 +356,32 @@ end
     @test SparseArrays.dropstored!(x, 5) == SparseVector(10, [7, 9], [7.0, 9.0])
 end
 
+@testset "isequal walks stored entries only (issue #561)" begin
+    n = 10^9
+    v1 = spzeros(n); v1[1] = 1
+    v2 = spzeros(n); v2[1] = 1
+    @test isequal(v1, v2) && v1 == v2
+    @test @elapsed(isequal(v1, v2)) < 0.1
+    v2[n] = 2
+    @test !isequal(v1, v2) && v1 != v2
+    @test isequal(v1', v1') && isequal(transpose(v1), transpose(v1))
+    @test !isequal(v1', v2') && !isequal(transpose(v1), transpose(v2))
+    # isequal semantics for NaN and signed zeros must match dense arrays
+    x = sparsevec([1, 3, 5], [NaN, -0.0, 2.0], 6)
+    for y in (sparsevec([1, 3, 5], [NaN, -0.0, 2.0], 6),   # identical
+              sparsevec([1, 5], [NaN, 2.0], 6),            # -0.0 stored vs implicit 0.0
+              sparsevec([1, 3, 5], [NaN, 0.0, 2.0], 6),    # -0.0 vs stored 0.0
+              sparsevec([1, 2, 5], [NaN, 0.0, 2.0], 6),    # explicit stored zero
+              sparsevec([1, 3, 5], [1.0, -0.0, 2.0], 6),   # NaN vs number
+              sparsevec([2, 3, 5], [NaN, -0.0, 2.0], 6),   # NaN vs implicit zero
+              sparsevec([1, 3, 5], [NaN, -0.0, 2], 6))     # different eltype
+        @test isequal(x, y) == isequal(Vector(x), Vector(y))
+        @test isequal(y, x) == isequal(Vector(y), Vector(x))
+        @test (x == y) == (Vector(x) == Vector(y))
+    end
+    @test !isequal(spzeros(3), spzeros(4))
+end
+
 @testset "findall and findnz" begin
     @test findall(!iszero, spv_x1) == findall(!iszero, x1_full)
     @test findall(spv_x1 .> 1) == findall(x1_full .> 1)

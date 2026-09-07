@@ -2337,7 +2337,11 @@ function (-)(A::Array, B::SparseMatrixCSCUnion)
 end
 
 ## full equality
-function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
+# Compare two CSC matrices by walking their stored entries only. `eq` is the elementwise
+# predicate (`==` or `isequal`); stored entries without a counterpart are compared against
+# the implicit zero of the other matrix so that e.g. `isequal(-0.0, 0.0)` and
+# `isequal(NaN, NaN)` behave as they do for dense arrays.
+function _iseq(eq::F, A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) where {F}
     size(A1) != size(A2) && return false
     @inbounds for i in axes(A1, 2)
         nz1, nz2 = nzrange(A1,i), nzrange(A2,i)
@@ -2346,27 +2350,30 @@ function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
         while j1 <= last(nz1) && j2 <= last(nz2)
             r1, r2 = rowvals(A1)[j1], rowvals(A2)[j2]
             if r1 == r2
-                nonzeros(A1)[j1] != nonzeros(A2)[j2] && return false
+                eq(nonzeros(A1)[j1], nonzeros(A2)[j2]) || return false
                 j1 += 1
                 j2 += 1
             elseif r1 < r2
-                !iszero(nonzeros(A1)[j1]) && return false
+                _iszero_under(eq, nonzeros(A1)[j1]) || return false
                 j1 += 1
             else # r1 > r2
-                !iszero(nonzeros(A2)[j2]) && return false
+                _iszero_under(eq, nonzeros(A2)[j2]) || return false
                 j2 += 1
             end
         end
         # finish off any left-overs:
         for j = j1:last(nz1)
-            !iszero(nonzeros(A1)[j]) && return false
+            _iszero_under(eq, nonzeros(A1)[j]) || return false
         end
         for j = j2:last(nz2)
-            !iszero(nonzeros(A2)[j]) && return false
+            _iszero_under(eq, nonzeros(A2)[j]) || return false
         end
     end
     return true
 end
+
+==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(==, A1, A2)
+Base.isequal(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(isequal, A1, A2)
 
 ## Explicit efficient comparisons with transposed arrays
 
