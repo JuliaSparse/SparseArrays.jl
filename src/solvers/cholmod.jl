@@ -1307,11 +1307,24 @@ function getindex(A::Sparse{T}, i0::Integer, i1::Integer) where T
     s.stype < 0 && i0 < i1 && return conj(A[i1,i0])
     s.stype > 0 && i0 > i1 && return conj(A[i1,i0])
 
+    # in an unpacked matrix the entries of column `i1` stop after `nz[i1]`
+    # entries rather than at `p[i1 + 1]`
     r1 = Int(unsafe_load(s.p, i1) + 1)
-    r2 = Int(unsafe_load(s.p, i1 + 1))
+    r2 = s.packed != 0 ? Int(unsafe_load(s.p, i1 + 1)) :
+                         r1 + Int(unsafe_load(s.nz, i1)) - 1
     (r1 > r2) && return zero(T)
-    r1 += Int(searchsortedfirst(view(unsafe_wrap(Array, s.i, (s.nzmax,), own = false), r1:r2), i0 - 1) - 1)
-    ((r1 > r2) || (unsafe_load(s.i, r1) + 1 != i0)) ? zero(T) : unsafe_load(Ptr{T}(s.x), r1)
+
+    # CHOLMOD only guarantees that the row indices of a column are sorted when
+    # `sorted` is set, so a binary search is only valid in that case
+    rows = view(unsafe_wrap(Array, s.i, (s.nzmax,), own = false), r1:r2)
+    if s.sorted != 0
+        k = searchsortedfirst(rows, i0 - 1)
+        (k > length(rows) || rows[k] + 1 != i0) && return zero(T)
+    else
+        k = findfirst(==(i0 - 1), rows)
+        k === nothing && return zero(T)
+    end
+    return unsafe_load(Ptr{T}(s.x), r1 + k - 1)
 end
 
 @inline function getproperty(F::Factor, sym::Symbol)

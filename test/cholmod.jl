@@ -1112,6 +1112,31 @@ end
     @test issparse(F \ Bts')
 end
 
+@testset "getindex with unsorted or unpacked buffers (#758), Ti = $Ti" for Ti ∈ itypes
+    # the product of two matrices with sorted row indices need not be sorted
+    A = sparse(Ti[2, 1, 2], Ti[1, 2, 2], Tv[1, 2, 3])
+    S = CHOLMOD.Sparse(A)
+    P = S'S
+    @test Array(P) == Matrix(sparse(P)) == Matrix(A'A)
+    @test P[1, 2] == (A'A)[1, 2]
+    @test_throws BoundsError P[0, 1]
+    @test_throws BoundsError P[1, 3]
+
+    # a matrix that is both unsorted and unpacked: room for three entries is
+    # reserved in every column, column 1 stores rows 3 and 1 in that order,
+    # column 2 stores row 2 and column 3 is empty
+    U = CHOLMOD.allocate_sparse(3, 3, 9, false, false, 0, Tv, Ti)
+    s = unsafe_load(CHOLMOD.typedpointer(U))
+    unsafe_wrap(Array, s.p, 4) .= Ti[0, 3, 6, 9]
+    unsafe_wrap(Array, s.nz, 3) .= Ti[2, 1, 0]
+    rowval = unsafe_wrap(Array, s.i, 9)
+    nzval = unsafe_wrap(Array, Ptr{Tv}(s.x), 9)
+    rowval[1], nzval[1] = 2, 10 # U[3, 1]
+    rowval[2], nzval[2] = 0, 20 # U[1, 1]
+    rowval[4], nzval[4] = 1, 30 # U[2, 2]
+    @test Array(U) == Tv[20 0 0; 0 30 0; 10 0 0]
+end
+
 end # for Tv ∈ (Float32, Float64)
 
 end # Base.USE_GPL_LIBS
