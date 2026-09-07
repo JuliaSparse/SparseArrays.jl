@@ -29,6 +29,27 @@ end
     @test nnz(zero(sparse(fill(1,5,5)))) == 0
 end
 
+@testset "findnz for adjoint/transpose (issue #632)" begin
+    A = sparse([1, 1, 2, 3], [1, 2, 3, 2], [1.0+2.0im, 3.0, 4.0-1.0im, 0.0], 3, 4)
+    for T in (Float64, ComplexF64), op in (adjoint, transpose)
+        B = op(T == Float64 ? real(A) : A)
+        I, J, V = findnz(B)
+        @test (I, J, V) == findnz(SparseMatrixCSC(B))
+        @test issorted(collect(zip(J, I)))  # column-major order of the wrapper
+        @test all(B[i, j] == v for (i, j, v) in zip(I, J, V))
+        @test length(I) == nnz(B)
+        @test typeof(I) == typeof(J) == Vector{Int} && eltype(V) == T
+        @test all(isempty, findnz(op(spzeros(T, 2, 3))))
+    end
+    x = sparsevec([2, 4], [1.0+im, 0.0], 5)
+    for op in (adjoint, transpose)
+        I, J, V = findnz(op(x))
+        @test I == [1, 1] && J == [2, 4] && V == op.([1.0+im, 0.0])
+        @test (I, J, V) == findnz(sparse(op(x)))
+        @test all(isempty, findnz(op(spzeros(3))))
+    end
+end
+
 @testset "iszero specialization for SparseMatrixCSC" begin
     @test !iszero(sparse(I, 3, 3))                  # test failure
     @test iszero(spzeros(3, 3))                     # test success with no stored entries
