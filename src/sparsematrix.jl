@@ -2237,9 +2237,19 @@ Base.iszero(A::AbstractSparseMatrixCSC) = iszero(nzvalview(A))
 function Base.isone(A::AbstractSparseMatrixCSC)
     m, n = size(A)
     m == n && getcolptr(A)[n+1] >= n+1 || return false
-    for j in axes(A,2), k in getcolptr(A)[j]:(getcolptr(A)[j+1] - 1)
-        i, x = rowvals(A)[k], nonzeros(A)[k]
-        ifelse(i == j, isone(x), iszero(x)) || return false
+    for j in axes(A,2)
+        founddiag = false
+        for k in getcolptr(A)[j]:(getcolptr(A)[j+1] - 1)
+            i, x = rowvals(A)[k], nonzeros(A)[k]
+            if i == j
+                isone(x) || return false
+                founddiag = true
+            else
+                iszero(x) || return false
+            end
+        end
+        # every column must have a stored diagonal entry equal to one
+        founddiag || return false
     end
     return true
 end
