@@ -46,6 +46,12 @@ end
     @test !isone(spzeros(3, 3))     # test failure for too few stored entries
     @test !isone(sparse(2I, 3, 3))  # test failure for non-one diagonal entries
     @test !isone(sparse(Bidiagonal(fill(1, 3), fill(1, 2), :U))) # test failure for non-zero off-diag entries
+    # issue #763: stored zeros must not be counted towards the diagonal
+    M = sparse([1 0; 1 1]) * sparse([1 0; -1 0])
+    @test nnz(M) == 2 && !isone(M) && !isone(Matrix(M))
+    @test !isone(SparseMatrixCSC(2, 2, [1, 3, 3], [1, 2], [1, 0]))
+    @test !isone(SparseMatrixCSC(2, 2, [1, 2, 3], [1, 1], [1, 0]))
+    @test isone(SparseMatrixCSC(2, 2, [1, 3, 4], [1, 2, 2], [1, 0, 1]))  # stored zero off-diagonal is fine
 end
 
 @testset "indtype" begin
