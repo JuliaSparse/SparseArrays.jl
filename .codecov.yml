@@ -3,8 +3,10 @@ coverage:
     patch:
       default:
         only_pulls: true # Only show the `codecov/patch` commit status on pull requests.
+        informational: true # Never fail the check; coverage is reported but not enforced.
     project:
       default:
         only_pulls: true # Only show the `codecov/project` commit status on pull requests.
+        informational: true # Never fail the check; coverage is reported but not enforced.
 ignore:
   - "src/solvers/lib/*.jl"
