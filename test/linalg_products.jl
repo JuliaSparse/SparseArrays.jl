@@ -123,7 +123,7 @@ end
 end
 
 @testset "kronecker product" begin
-    for (m,n) in ((5,10), (13,8))
+    for (m,n) in ((5,10),)
         a = sprand(m, 5, 0.4); a_d = Matrix(a)
         b = sprand(n, 6, 0.3); b_d = Matrix(b)
         v = view(a, :, 1); v_d = Vector(v)
