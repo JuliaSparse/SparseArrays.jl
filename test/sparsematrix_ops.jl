@@ -50,12 +50,13 @@ end
     end
 end
 
-@testset "isequal walks stored entries only (issue #561)" begin
-    n = 10^5
+@testset "isequal semantics match dense (issue #561)" begin
+    # The stored-entries-only complexity guarantee is checked with an operation-counting
+    # eltype below ("== and isequal walk stored entries only").
+    n = 100
     A = spzeros(n, n); A[1, 1] = 1
     B = spzeros(n, n); B[1, 1] = 1
     @test isequal(A, B) && A == B
-    @test @elapsed(isequal(A, B)) < 0.1
     B[n, n] = 2
     @test !isequal(A, B) && A != B
     @test !isequal(spzeros(2, 3), spzeros(3, 2))
@@ -75,13 +76,12 @@ end
 end
 
 @testset "isequal for adjoint/transpose of sparse matrices" begin
-    n = 10^5
+    n = 100
     A = spzeros(n, n); A[1, 1] = 1
     B = copy(A)
     for (L, R) in ((A', B'), (transpose(A), transpose(B)), (A, B'), (A', B),
                    (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
         @test isequal(L, R)
-        @test @elapsed(isequal(L, R)) < 0.1
     end
     A[1, 2] = 1; B[2, 1] = 1
     @test isequal(A, B') && isequal(A', B) && !isequal(A', B') && !isequal(A, B)
@@ -639,6 +639,29 @@ Base.zero(::Type{Counting{T}}) where {T} = Counting(zero(T))
 Base.zero(x::Counting) = Counting(zero(x.elt))
 Base.adjoint(x::Counting) = Counting(adjoint(x.elt))
 Base.transpose(x::Counting) = Counting(transpose(x.elt))
+Base.isequal(x::Counting, y::Counting) = (stepcounter(); isequal(x.elt, y.elt))
+
+# Deterministic replacement for wall-clock guards: with a counting eltype, a comparison
+# that walks only stored entries performs at most nnz(A) + nnz(B) element comparisons,
+# whereas the generic AbstractArray fallback performs length(A) of them.
+@testset "== and isequal walk stored entries only (issues #561, #766, #768)" begin
+    n = 1000
+    v = sparsevec([1, n ÷ 2], Counting.([1.0, 2.0]), n)
+    w = sparsevec([1, n ÷ 2, n], Counting.([1.0, 0.0, 3.0]), n)
+    A = sparse([1, n ÷ 2], [1, n], Counting.([1.0, 2.0]), n, n)
+    B = sparse([1, n ÷ 2, 7], [1, n, 7], Counting.([1.0, 2.0, 0.0]), n, n)
+    for (x, y) in ((v, v), (v, w), (w, v), (v', w'), (transpose(v), transpose(w)),
+                   (A, A), (A, B), (B, A), (A', B'), (transpose(A), transpose(B)),
+                   (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
+        budget = nnz(parent(x isa Union{Adjoint,Transpose} ? x : x') ) +
+                 nnz(parent(y isa Union{Adjoint,Transpose} ? y : y'))
+        for eq in (==, isequal)
+            resetcounter()
+            eq(x, y)
+            @test getcounter() <= budget
+        end
+    end
+end
 
 @testset "Comparisons to adjoints are efficient" for
     A in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)],

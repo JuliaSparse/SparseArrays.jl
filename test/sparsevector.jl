@@ -356,12 +356,13 @@ end
     @test SparseArrays.dropstored!(x, 5) == SparseVector(10, [7, 9], [7.0, 9.0])
 end
 
-@testset "isequal walks stored entries only (issue #561)" begin
-    n = 10^9
+@testset "isequal semantics match dense (issue #561)" begin
+    # The stored-entries-only complexity guarantee is checked with an operation-counting
+    # eltype in sparsematrix_ops.jl ("== and isequal walk stored entries only").
+    n = 1000
     v1 = spzeros(n); v1[1] = 1
     v2 = spzeros(n); v2[1] = 1
     @test isequal(v1, v2) && v1 == v2
-    @test @elapsed(isequal(v1, v2)) < 0.1
     v2[n] = 2
     @test !isequal(v1, v2) && v1 != v2
     @test isequal(v1', v1') && isequal(transpose(v1), transpose(v1))
