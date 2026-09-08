@@ -2378,41 +2378,52 @@ Base.isequal(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(i
 ## Explicit efficient comparisons with transposed arrays
 
 # Check whether all nonzero elements of A are equal to the respective elements in B
-function nzeq(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+# under the elementwise predicate `eq` (`==` or `isequal`)
+function nzeq(eq::F, A::AbstractSparseMatrixCSC, B::AbstractMatrix) where {F}
     @inbounds for j in axes(A,2)
         for k in nzrange(A, j)
             i = rowvals(A)[k]
             val = nonzeros(A)[k]
-            val ≠ B[i,j] && return false
+            eq(val, B[i,j]) || return false
         end
     end
     return true
 end
 # Peel off `Adjoint` and `Transpose` from first argument
-nzeq(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
-     B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
-    nzeq(A', B')
-nzeq(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
-     B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
-    nzeq(transpose(A), transpose(B))
+# `B` may be a nested wrapper such as `Adjoint{<:Any,<:Transpose}` (from `A' == transpose(B)`),
+# hence the loose `AbstractMatrix` bound: `B` is only ever indexed
+nzeq(eq::F, A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+     B::AbstractMatrix) where {F} =
+    nzeq(eq, A', B')
+nzeq(eq::F, A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+     B::AbstractMatrix) where {F} =
+    nzeq(eq, transpose(A), transpose(B))
 
 # Compare by walking both matrices
 # (We could further optimize the case `AbstractSparseMatrixCSC ==
 # Adjoint(Transpose(AbstractSparseMatrixCSC))` more efficiently, i.e.
 # the case where the RHS is both adjoint and transposed, i.e. where it
 # is in CSC format again.)
-function ==(A::AbstractSparseMatrixCSC,
-            B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose})
+function _iseq(eq::F, A::AbstractSparseMatrixCSC,
+               B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) where {F}
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # Compare nonzero elements
-    return nzeq(A, B) && nzeq(B, A)
+    return nzeq(eq, A, B) && nzeq(eq, B, A)
 end
+==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) =
+    _iseq(==, A, B)
+Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) =
+    _iseq(isequal, A, B)
 # Peel off `Adjoint` and `Transpose` from first argument
 ==(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
     A' == B'
 ==(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
     transpose(A) == transpose(B)
+Base.isequal(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    isequal(A', B')
+Base.isequal(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    isequal(transpose(A), transpose(B))
 
 ## Reductions
 
