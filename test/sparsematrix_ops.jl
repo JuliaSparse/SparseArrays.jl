@@ -74,6 +74,41 @@ end
     end
 end
 
+@testset "isequal for adjoint/transpose of sparse matrices" begin
+    n = 10^5
+    A = spzeros(n, n); A[1, 1] = 1
+    B = copy(A)
+    for (L, R) in ((A', B'), (transpose(A), transpose(B)), (A, B'), (A', B),
+                   (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
+        @test isequal(L, R)
+        @test @elapsed(isequal(L, R)) < 0.1
+    end
+    A[1, 2] = 1; B[2, 1] = 1
+    @test isequal(A, B') && isequal(A', B) && !isequal(A', B') && !isequal(A, B)
+    @test !isequal(spzeros(2, 3)', spzeros(2, 3))
+    # adjoint vs transpose of a complex matrix nests wrappers (`Adjoint{<:Any,<:Transpose}`)
+    C = sparse([1, 2], [2, 3], [1.0im, 2.0], 3, 3)
+    @test C' == transpose(conj(C)) && isequal(C', transpose(conj(C)))
+    @test C' != transpose(C) && !isequal(C', transpose(C))
+    # isequal semantics for NaN, signed zeros and conjugation must match dense arrays
+    X = sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, -0.0, 2.0, 1.0im], 3, 3)
+    for Y in (sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, -0.0, 2.0, 1.0im], 3, 3),
+              sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, -0.0, 2.0, -1.0im], 3, 3),
+              sparse([1, 1, 2, 3], [1, 2, 3, 1], [NaN, -0.0, 2.0, 1.0im], 3, 3),
+              sparse([1, 1, 2, 3], [1, 2, 3, 1], [NaN, -0.0, 2.0, -1.0im], 3, 3),
+              sparse([1, 3, 1], [1, 2, 3], [NaN, 2.0, 1.0im], 3, 3),
+              sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, 0.0, 2.0, 1.0im], 3, 3),
+              sparse([1, 2, 3, 1, 3], [1, 1, 2, 3, 3], [NaN, -0.0, 2.0, 1.0im, 0.0], 3, 3),
+              sparse([1, 2, 3, 1], [1, 1, 2, 3], [1.0, -0.0, 2.0, 1.0im], 3, 3))
+        for (L, R) in ((X', Y'), (transpose(X), transpose(Y)), (X, Y'), (X', Y),
+                       (X, transpose(Y)), (transpose(X), Y), (X', transpose(Y)))
+            @test isequal(L, R) == isequal(Matrix(L), Matrix(R))
+            @test isequal(R, L) == isequal(Matrix(R), Matrix(L))
+            @test (L == R) == (Matrix(L) == Matrix(R))
+        end
+    end
+end
+
 @testset "iszero specialization for SparseMatrixCSC" begin
     @test !iszero(sparse(I, 3, 3))                  # test failure
     @test iszero(spzeros(3, 3))                     # test success with no stored entries
