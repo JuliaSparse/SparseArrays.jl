@@ -34,6 +34,8 @@ jobs:
           # Only one job runs with coverage instrumentation and forced bounds checking
           # (`--check-bounds=yes`). Both invalidate precompiled code, and the test suite
           # is 95%+ JIT time, so they multiply the wall time of every job they are on.
+          # The other jobs use `--check-bounds=auto` (Julia's default, matching the
+          # precompiled code); `no` would break the tests that expect a `BoundsError`.
           - os: ubuntu-latest
             julia-arch: x64
             coverage: true
@@ -48,7 +50,7 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
         with:
           coverage: ${{ matrix.coverage == true }}
-          check_bounds: ${{ matrix.coverage == true && 'yes' || 'no' }}
+          check_bounds: ${{ matrix.coverage == true && 'yes' || 'auto' }}
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.coverage == true
       - uses: codecov/codecov-action@v7
