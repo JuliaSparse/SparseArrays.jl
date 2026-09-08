@@ -209,10 +209,10 @@ julia> A = sparse(2I, 3, 3)
 
 julia> getcolptr(A)
 4-element Vector{Int64}:
-1
-2
-3
-4
+ 1
+ 2
+ 3
+ 4
 ```
 """
 getcolptr(S::SorF)     = getfield(S, :colptr)
