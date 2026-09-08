@@ -965,42 +965,57 @@ end
 
 ## Explicit efficient comparisons with vectors
 
-function ==(A::AbstractCompressedVector,
-            B::AbstractCompressedVector)
+# Is `x` equal to the implicit zero of a sparse array under the predicate `eq`?
+# Uses `zero(x)` rather than `zero(eltype(...))` so that non-numeric element types such
+# as `Any` still work as long as the stored values themselves are numbers.
+_iszero_under(eq::F, x) where {F} = eq(x, zero(x))
+
+# Compare two compressed vectors by walking their stored entries only. `eq` is the
+# elementwise predicate (`==` or `isequal`); stored entries without a counterpart are
+# compared against the implicit zero of the other vector so that e.g. `isequal(-0.0, 0.0)`
+# and `isequal(NaN, NaN)` behave as they do for dense arrays.
+function _iseq(eq::F, A::AbstractCompressedVector, B::AbstractCompressedVector) where {F}
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # Compare nonzero elements
     i, j = 1, 1
     @inbounds while i <= nnz(A) && j <= nnz(B)
         if nonzeroinds(A)[i] == nonzeroinds(B)[j]
-            nonzeros(A)[i] == nonzeros(B)[j] || return false
+            eq(nonzeros(A)[i], nonzeros(B)[j]) || return false
             i += 1
             j += 1
         elseif nonzeroinds(A)[i] <= nonzeroinds(B)[j]
-            iszero(nonzeros(A)[i]) || return false
+            _iszero_under(eq, nonzeros(A)[i]) || return false
             i += 1
         else # nonzeroinds(A)[i] >= nonzeroinds(B)[j]
-            iszero(nonzeros(B)[j]) || return false
+            _iszero_under(eq, nonzeros(B)[j]) || return false
             j += 1
         end
     end
 
     @inbounds for k in i:nnz(A)
-        iszero(nonzeros(A)[k]) || return false
+        _iszero_under(eq, nonzeros(A)[k]) || return false
     end
 
     @inbounds for k in j:nnz(B)
-        iszero(nonzeros(B)[k]) || return false
+        _iszero_under(eq, nonzeros(B)[k]) || return false
     end
 
     return true
 end
 
+==(A::AbstractCompressedVector, B::AbstractCompressedVector) = _iseq(==, A, B)
+Base.isequal(A::AbstractCompressedVector, B::AbstractCompressedVector) = _iseq(isequal, A, B)
+
 ==(A::Transpose{<:Any,<:AbstractCompressedVector},
     B::Transpose{<:Any,<:AbstractCompressedVector}) = transpose(A) == transpose(B)
+Base.isequal(A::Transpose{<:Any,<:AbstractCompressedVector},
+    B::Transpose{<:Any,<:AbstractCompressedVector}) = isequal(transpose(A), transpose(B))
 
 ==(A::Adjoint{<:Any,<:AbstractCompressedVector},
     B::Adjoint{<:Any,<:AbstractCompressedVector}) = adjoint(A) == adjoint(B)
+Base.isequal(A::Adjoint{<:Any,<:AbstractCompressedVector},
+    B::Adjoint{<:Any,<:AbstractCompressedVector}) = isequal(adjoint(A), adjoint(B))
 
 ### getindex
 
