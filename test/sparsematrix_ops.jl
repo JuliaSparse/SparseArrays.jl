@@ -804,6 +804,44 @@ end
         @test_throws UndefKeywordError sort!(copy(A))
     end
 
+    @testset "empty and zero-size matrices" begin
+        # `Base.sort` on a zero-size *dense* matrix throws `ArgumentError: step cannot be
+        # zero`, so there is no dense reference to compare against here; the sparse methods
+        # just return the (empty) matrix unchanged
+        @testset "size = ($m, $n)" for (m, n) in ((0, 3), (3, 0), (0, 0))
+            A = spzeros(m, n)
+            for dims in (1, 2)
+                B = copy(A)
+                @test sort!(B; dims) === B
+                @test size(B) == (m, n)
+                @test nnz(B) == 0
+                @test B == A
+                S = sort(A; dims)
+                @test S isa SparseMatrixCSC{Float64,Int}
+                @test size(S) == (m, n)
+                @test nnz(S) == 0
+            end
+        end
+
+        # structurally empty, but not zero-size: here dense does give a reference
+        @testset "all structural zeros, size = ($m, $n)" for (m, n) in ((1, 1), (5, 4))
+            A = spzeros(m, n)
+            for dims in (1, 2)
+                B = sort!(copy(A); dims)
+                @test Matrix(B) == sort(Matrix(A); dims)
+                @test nnz(B) == 0
+                @test getcolptr(B) == getcolptr(A)
+            end
+        end
+
+        # a single column/row that is entirely structural next to a populated one
+        A = SparseMatrixCSC(4, 3, [1, 1, 5, 5], [1, 2, 3, 4], [1.0, -2.0, 0.0, 3.0])
+        for dims in (1, 2)
+            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+            @test nnz(sort(A; dims)) == nnz(A)
+        end
+    end
+
     @testset "stored zeros" begin
         # column 1 stores an explicit zero next to structural zeros
         A = SparseMatrixCSC(4, 2, [1, 3, 4], [1, 3, 2], [0.0, -1.0, 2.0])
