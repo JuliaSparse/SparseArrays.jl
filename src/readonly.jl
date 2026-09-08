@@ -43,3 +43,8 @@ Base.copy(x::ReadOnly) = ReadOnly(copy(parent(x)))
     parent(x) == parent(y)
 
 Base.dataids(::ReadOnly) = tuple()
+
+# Forward the sparse array interface to the parent, so that a `ReadOnly` wrapping a
+# sparse array behaves like one. `issparse` already forwards through `parent`.
+nnz(x::ReadOnly) = nnz(parent(x))
+indtype(x::ReadOnly) = indtype(parent(x))
