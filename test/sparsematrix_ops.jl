@@ -74,13 +74,27 @@ end
     end
 end
 
+@testset "hash walks stored entries only" begin
+    n = 10^5
+    A = spzeros(n, n); A[1, 1] = 1
+    hash(A)   # warm up
+    @test @elapsed(hash(A)) < 0.1
+    B = copy(A); B[2, 2] = 0.0   # explicitly stored zero must not change the hash
+    @test hash(B) == hash(A) && isequal(B, A)
+    for m in (2, 10, 200), X in (sprand(m, m, 0.1), sprandn(m, m, 0.3), spzeros(m, m))
+        k = min(3, nnz(X)); nonzeros(X)[1:k] .= [NaN, -0.0, 0.0][1:k]
+        @test hash(X) == hash(Matrix(X))
+        @test hash(X, UInt(7)) == hash(Matrix(X), UInt(7))
+    end
+end
+
 @testset "isequal for adjoint/transpose of sparse matrices" begin
     n = 10^5
     A = spzeros(n, n); A[1, 1] = 1
     B = copy(A)
     for (L, R) in ((A', B'), (transpose(A), transpose(B)), (A, B'), (A', B),
                    (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
-        @test isequal(L, R)
+        @test isequal(L, R)   # also warms up before timing
         @test @elapsed(isequal(L, R)) < 0.1
     end
     A[1, 2] = 1; B[2, 1] = 1

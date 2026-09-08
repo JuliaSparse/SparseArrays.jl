@@ -1290,6 +1290,22 @@ end
         @test findprev(!iszero, z_sp, T(4)) isa keytype(z_sp)
         @test findprev(!iszero, z_sp, T(5)) isa keytype(z_sp)
     end
+
+    # The sparse methods must actually extend `Base.findnext`/`Base.findprev` and skip
+    # implicit zeros for predicates other than `!iszero`, e.g. the `!isequal(elt)` that
+    # `Base.hash` uses to skip runs of equal values.
+    @test SparseArrays.findnext === Base.findnext && SparseArrays.findprev === Base.findprev
+    n = 10^9
+    big = spzeros(n); big[1] = 1; big[n ÷ 2] = -0.0
+    @test findprev(!isequal(0.0), big, n) == n ÷ 2   # also warms up before timing
+    @test findprev(!isequal(-0.0), big, n ÷ 2) == n ÷ 2 - 1   # implicit 0.0 is not isequal(-0.0)
+    @test findnext(!isequal(0.0), big, 2) == n ÷ 2
+    @test findnext(!isequal(0.0), big, n ÷ 2 + 1) === nothing
+    @test @elapsed(findprev(!isequal(0.0), big, n)) < 0.1
+    for i in keys(y), f in (!isequal(0.0), !isequal(-0.0), !isequal(7.0), !isequal(NaN))
+        @test findnext(f, y, i) == findnext(f, y_sp, i)
+        @test findprev(f, y, i) == findprev(f, y_sp, i)
+    end
 end
 
 _length_or_count_or_five(::Colon) = 5

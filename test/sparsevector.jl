@@ -382,6 +382,20 @@ end
     @test !isequal(spzeros(3), spzeros(4))
 end
 
+@testset "hash walks stored entries only" begin
+    n = 10^9
+    v = spzeros(n); v[1] = 1
+    hash(v)   # warm up
+    @test @elapsed(hash(v)) < 0.1
+    w = copy(v); w[2] = 0.0   # explicitly stored zero must not change the hash
+    @test hash(w) == hash(v) && isequal(w, v)
+    for len in (5, 100, 40000), x in (sprand(len, 0.1), sprandn(len, 0.3), spzeros(len))
+        k = min(3, nnz(x)); nonzeros(x)[1:k] .= [NaN, -0.0, 0.0][1:k]
+        @test hash(x) == hash(Vector(x))
+        @test hash(x, UInt(7)) == hash(Vector(x), UInt(7))
+    end
+end
+
 @testset "findall and findnz" begin
     @test findall(!iszero, spv_x1) == findall(!iszero, x1_full)
     @test findall(spv_x1 .> 1) == findall(x1_full .> 1)
