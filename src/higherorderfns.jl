@@ -95,6 +95,7 @@ is_supported_sparse_broadcast(::AbstractSparseArray, rest...) = is_supported_spa
 is_supported_sparse_broadcast(::StructuredMatrix, rest...) = is_supported_sparse_broadcast(rest...)
 is_supported_sparse_broadcast(::Array, rest...) = is_supported_sparse_broadcast(rest...)
 is_supported_sparse_broadcast(t::Union{Transpose, Adjoint}, rest...) = is_supported_sparse_broadcast(t.parent, rest...)
+is_supported_sparse_broadcast(v::SubArray, rest...) = is_supported_sparse_broadcast(parent(v), rest...)
 is_supported_sparse_broadcast(x, rest...) = axes(x) === () && is_supported_sparse_broadcast(rest...)
 is_supported_sparse_broadcast(x::Ref, rest...) = is_supported_sparse_broadcast(rest...)
 
