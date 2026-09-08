@@ -317,6 +317,12 @@ const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCUnion{Tv,Ti},SparseTriangular{Tv
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::SparseOrTri) = spmatmul(copy(A), B)
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(copy(A), copy(B))
 
+# Adjoint/transpose of a sparse matrix times a `Diagonal` (issue #619). Materializing the
+# adjoint is O(nnz), and so is the diagonal scaling, whereas the generic fallback for
+# `AbstractMatrix * Diagonal` is far slower.
+*(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal) = copy(A) * D
+*(D::Diagonal, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = D * copy(A)
+
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCUnion, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
     (size(Da, 2) == size(A,1) && size(A,2) == size(Db,1)) ||
@@ -760,6 +766,38 @@ end
 
 function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
     return conj(dot(B, A))
+end
+
+# Frobenius dot of the adjoint/transpose of a CSC matrix with a CSC matrix (issue #627).
+# `A[i,j] == op(P[j,i])` with `P = parent(A)`, so column `j` of `B` is matched against
+# row `j` of `P`. Walking the columns of `B` in order means the row index `j` we look
+# for in each column of `P` is nondecreasing, so one cursor per column of `P` suffices:
+# O(nnz(P) + nnz(B) + size(P, 2)) time and O(size(P, 2)) extra memory, instead of a
+# binary search into `P` for every stored entry of `B`.
+function dot(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC)
+    m, n = size(A)
+    size(B) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n) but B has size $(size(B))"))
+    P = parent(A)
+    op = LinearAlgebra.wrapperop(A)
+    r = dot(op(zero(eltype(P))), zero(eltype(B)))
+    Prows, Pvals, Pcolptr = rowvals(P), nonzeros(P), getcolptr(P)
+    Brows, Bvals = rowvals(B), nonzeros(B)
+    cursor = Pcolptr[1:m]   # cursor[i] indexes into column i of P, i.e. row i of A
+    @inbounds for j in axes(B, 2)
+        for k in nzrange(B, j)
+            i = Brows[k]
+            p = cursor[i]
+            pend = Pcolptr[i+1]
+            while p < pend && Prows[p] < j
+                p += 1
+            end
+            cursor[i] = p
+            if p < pend && Prows[p] == j
+                r += dot(op(Pvals[p]), Bvals[k])
+            end
+        end
+    end
+    return r
 end
 
 function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractVector)

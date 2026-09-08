@@ -694,6 +694,27 @@ end
     @test Diagonal(b) * dA == mul!(sC, Diagonal(b), sA)
     @test Diagonal(b) * dA == lmul!(Diagonal(b), copy(sA))
 
+    # adjoint/transpose of a sparse matrix times Diagonal (issue #619)
+    for T in (Float64, ComplexF64), W in (adjoint, transpose)
+        S = sprand(T, 7, 3, 0.5); M = Matrix(S)
+        Dl = Diagonal(randn(T, 3)); Dr = Diagonal(randn(T, 7))
+        @test W(S) * Dr isa SparseMatrixCSC
+        @test Dl * W(S) isa SparseMatrixCSC
+        @test W(S) * Dr ≈ W(M) * Dr
+        @test Dl * W(S) ≈ Dl * W(M)
+        @test Dl * W(S) * Dr ≈ Dl * W(M) * Dr
+        @test_throws DimensionMismatch W(S) * Dl
+        @test_throws DimensionMismatch Dr * W(S)
+        # mixed eltypes promote
+        Di = Diagonal(1:7)
+        @test W(S) * Di ≈ W(M) * Di
+    end
+    n = 10^4
+    S = sprand(n, n, 1e-3); Dn = Diagonal(rand(n))
+    S' * Dn; Dn * S'   # warm up
+    @test @elapsed(S' * Dn) < 20 * @elapsed(S * Dn) + 0.01
+    @test @elapsed(Dn * S') < 20 * @elapsed(Dn * S) + 0.01
+
     @test dA * 0.5            == sA * 0.5
     @test dA * 0.5            == mul!(sC, sA, 0.5)
     @test dA * 0.5            == rmul!(copy(sA), 0.5)
@@ -1059,6 +1080,13 @@ end
             @test dot(WA,TB) ≈ dot(WA, Matrix(TB))
             @test dot(TA,WB) ≈ dot(Matrix(TA), WB)
             @test dot(TA,WC) ≈ dot(Matrix(TA), WC)
+            # lazy adjoint/transpose of a sparse matrix (issue #627)
+            @test dot(W(A), TB) ≈ dot(WA, Matrix(TB))
+            @test dot(TA, W(B)) ≈ dot(Matrix(TA), WB)
+            @test dot(W(A), TB) ≈ dot(TA, TB)
+            @test dot(W(C), TB) ≈ dot(WC, Matrix(TB))
+            @test dot(W(A), sparse(WC)) ≈ dot(WA, WC)
+            @test_throws DimensionMismatch dot(W(A), B)
         end
         for M in (A, B, C)
             D = Diagonal(M * M')
@@ -1078,6 +1106,25 @@ end
     @test_throws DimensionMismatch dot(sprand(5,5,0.2),sprand(5,6,0.2))
     @test_throws DimensionMismatch dot(rand(5,5),sprand(5,6,0.2))
     @test_throws DimensionMismatch dot(sprand(5,5,0.2),rand(5,6))
+    # stored zeros, empty columns, and non-square shapes with a lazy adjoint (issue #627)
+    for W in (adjoint, transpose)
+        A = sparse([1, 3, 3, 5], [1, 1, 4, 2], [1.0im, 0.0, 2.0, 3.0], 6, 4)
+        B = sparse([1, 2, 4, 4], [3, 3, 1, 6], [1.0, 0.0, 4.0im, 5.0], 4, 6)
+        @test dot(W(A), B) ≈ dot(W(Matrix(A)), Matrix(B))
+        @test dot(B, W(A)) ≈ dot(Matrix(B), W(Matrix(A)))
+        @test dot(W(spzeros(6, 4)), B) == 0
+        @test dot(W(A), spzeros(4, 6)) == 0
+        # Int eltype and small matrices with `Any`-free result type
+        Ai = sparse([1, 2], [2, 1], [1, 2], 2, 2)
+        @test dot(W(Ai), Ai) == dot(W(Matrix(Ai)), Matrix(Ai)) == 4
+        @test dot(W(Ai), Ai) isa Int
+    end
+    # stays O(nnz): both operands large and sparse
+    n = 10^4
+    A = sprand(n, n, 1e-3); At = copy(A')
+    dot(A', A); dot(A, A')   # warm up
+    @test dot(A', A) ≈ dot(At, A)
+    @test @elapsed(dot(A', A)) < 20 * @elapsed(dot(At, A)) + 0.01
 end
 
 @testset "generalized dot product" begin
