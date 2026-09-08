@@ -194,10 +194,11 @@ const SparseMatrixCSCUnion2{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, Spars
 """
         getcolptr(S)
 
-Return the vector of column start indices in an AbstractSparseMatrixCSC pointing
-into [`nonzeros`](@ref) and [`rowvals`](@ref). Any modifications to the returned
-vector will mutate `A` as well. Providing access to the column start indices
-can be useful in preconditioners and sparse direct solvers.
+Return the vector of column start indices in an `AbstractSparseMatrixCSC` pointing
+into [`nonzeros`](@ref) and [`rowvals`](@ref). The returned vector aliases `S`,
+but implementations with fixed sparsity may make it read-only. When it is
+writable, modifications to it mutate `S`. Providing access to the column start
+indices can be useful in preconditioners and sparse direct solvers.
 
 # Examples
 ```jldoctest
