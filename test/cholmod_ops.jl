@@ -27,11 +27,12 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
 for Ti ∈ itypes, Tv ∈ (Float32, Float64)
 Random.seed!(123)
 
+# `Ti` and `Tv` come from the file-level loop; iterating `Ti` here as well used to run
+# this testset twice per outer iteration with identical arguments.
 @testset "Core functionality ($elty, $elty2)" for
     elty in (Tv, Complex{Tv}),
     Tv2 in (Float32, Float64),
-    elty2 in (Tv2, Complex{Tv2}),
-    Ti ∈ itypes
+    elty2 in (Tv2, Complex{Tv2})
     A1 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
     A2 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
     A1pd = A1'A1 + 10I
