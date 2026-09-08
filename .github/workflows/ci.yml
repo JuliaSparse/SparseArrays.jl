@@ -13,19 +13,20 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
+    name: test (${{ matrix.os }}, ${{ matrix.julia-arch }}, ${{ matrix.julia-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        julia-version:
-          - 'nightly'
         os:
           - ubuntu-latest
           - windows-latest
         julia-arch:
           - x64
           - x86
+        julia-version:
+          - 'nightly'
         include:
           - os: macOS-latest
             julia-arch: aarch64
@@ -56,6 +57,7 @@ jobs:
           file: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
   aqua-test:
+    name: aqua-test (${{ matrix.os }}, ${{ matrix.julia-arch }}, ${{ matrix.julia-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
@@ -63,12 +65,12 @@ jobs:
       contents: read
     strategy:
       matrix:
-        julia-version:
-          - 'nightly'
         os:
           - ubuntu-latest
         julia-arch:
           - x64
+        julia-version:
+          - 'nightly'
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
