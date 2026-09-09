@@ -1966,13 +1966,13 @@ SparseVecOrMat{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
 # Strided right-hand sides, such as views of dense arrays (#496), are handed to CHOLMOD as
 # they are, in the precision of the factor. CHOLMOD solves a real factor against a complex
 # right-hand side natively, so a complex one (#120) stays complex in that precision.
-densetype(::Type{T}, ::Type{S}) where {T<:VTypes, S} = S <: Complex ? Complex{real(T)} : T
-function dense_solve(L, B::StridedVecOrMatInclAdjAndTrans)
-    X = L \ Dense{densetype(eltype(L), eltype(B))}(B)
+rhs_eltype(::Type{T}, ::Type{S}) where {T<:VTypes, S} = S <: Complex ? Complex{real(T)} : T
+function strided_solve(L, B::StridedVecOrMatInclAdjAndTrans)
+    X = L \ Dense{rhs_eltype(eltype(L), eltype(B))}(B)
     return B isa AbstractVector ? Vector(X) : Matrix(X)
 end
 
-(\)(L::FactorComponent{T}, B::StridedVecOrMatInclAdjAndTrans) where {T<:VTypes} = dense_solve(L, B)
+(\)(L::FactorComponent{T}, B::StridedVecOrMatInclAdjAndTrans) where {T<:VTypes} = strided_solve(L, B)
 function (\)(L::FactorComponent, B::SparseVector)
     sparsevec(L\Sparse(B))
 end
@@ -1987,11 +1987,11 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 \(adjL::Adjoint{<:Any,<:FactorComponent}, B::FactorComponentRHS) = (L = parent(adjL); adjoint(L)\B)
 
 (\)(L::Factor{T}, B::Dense{T2}) where {T<:VTypes, T2<:VTypes} = solve(CHOLMOD_A, L, B)
-(\)(L::Factor{T}, B::StridedVecOrMatInclAdjAndTrans) where {T<:VTypes} = dense_solve(L, B)
+(\)(L::Factor{T}, B::StridedVecOrMatInclAdjAndTrans) where {T<:VTypes} = strided_solve(L, B)
 # The explicit typevars avoid an ambiguity with `\(::Factorization{T}, ::VecOrMat{Complex{T}})`
 # in LinearAlgebra/factorization.jl, which is otherwise neither more nor less specific than
 # the strided method above.
-(\)(L::Factor{T}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = dense_solve(L, B)
+(\)(L::Factor{T}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = strided_solve(L, B)
 
 (\)(L::Factor, B::Sparse) = spsolve(CHOLMOD_A, L, B)
 # When right hand side is sparse, we have to ensure that the rhs is not marked as symmetric.
@@ -2006,8 +2006,8 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 \(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
 
 # These mirror the `Factor` methods above, `VecOrMat` tie-breaker included.
-\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedVecOrMatInclAdjAndTrans) = dense_solve(adjL, B)
-(\)(adjL::AdjointFactorization{T,<:Factor}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = dense_solve(adjL, B)
+\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedVecOrMatInclAdjAndTrans) = strided_solve(adjL, B)
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = strided_solve(adjL, B)
 (\)(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::AdjOrTransAbsMat) = adjL \ copy(B)
 
 const RealHermSymComplexHermSSL{Ti, Tr} = Union{
