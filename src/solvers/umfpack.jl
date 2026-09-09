@@ -178,6 +178,7 @@ mutable struct Numeric{Tv,Ti}
     function Numeric{Tv, Ti}(p) where {Tv<:UMFVTypes, Ti<:UMFITypes}
         return finalizer(new{Tv, Ti}(p)) do num
             umfpack_free_numeric(num, Tv, Ti)
+            num.p = C_NULL
         end
     end
 end
@@ -188,6 +189,7 @@ mutable struct Symbolic{Tv, Ti}
     function Symbolic{Tv, Ti}(p) where {Tv<:UMFVTypes, Ti<:UMFITypes}
         return finalizer(new{Tv, Ti}(p)) do sym
             umfpack_free_symbolic(sym, Tv, Ti)
+            sym.p = C_NULL
         end
     end
 end
