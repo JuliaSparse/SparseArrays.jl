@@ -1981,8 +1981,11 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 
 (\)(L::Factor{T}, B::Dense{T2}) where {T<:VTypes, T2<:VTypes} = solve(CHOLMOD_A, L, B)
 # Explicit typevars are necessary to avoid ambiguities with defs in linalg/factorizations.jl.
-# Keep the complex-RHS specializations more specific than the real `Strided*` methods below,
-# including for views (issue #120).
+# The strided methods keep complex views (issue #120) off the real `Strided*` methods
+# below; the explicit Vector and Matrix methods are still needed, since LinearAlgebra's
+# `\(::Factorization{T}, ::VecOrMat{Complex{T}})` is otherwise ambiguous with them.
+(\)(L::Factor{T}, B::Vector{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
+(\)(L::Factor{T}, B::Matrix{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
 (\)(L::Factor{T}, B::StridedVector{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
 (\)(L::Factor{T}, B::StridedMatrix{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
 (\)(L::Factor{T}, B::Adjoint{<:Any, <:StridedMatrix{Complex{T}}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
@@ -2006,7 +2009,9 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 \(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
 
 # Explicit typevars are necessary to avoid ambiguities with defs in LinearAlgebra/factorizations.jl.
-# These mirror the `Factor` methods above so complex views are not converted to a real RHS.
+# These mirror the `Factor` methods above, explicit Vector and Matrix methods included.
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::Vector{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::Matrix{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::StridedVector{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::StridedMatrix{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::Adjoint{<:Any,<:StridedMatrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
