@@ -785,10 +785,11 @@ end
 @testset "sort/sort! of a sparse matrix" begin
     # `sort` of a dense matrix with `size(M, dims) == 0` errors in Base, so those cases are
     # compared against the input itself rather than against a dense reference
-    # `dims = 2` covers the transposed shapes, so only one orientation of each is listed
+    # `dims = 2` covers the transposed shapes, so only one orientation of each is listed;
+    # fully structural matrices are covered by the "empty and zero-size matrices" testset
     @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (0, 3), (1, 9),
                                                             (20, 13)),
-                                                 d in (0.0, 0.3, 1.0)
+                                                 d in (0.3, 1.0)
         A = sprand(m, n, d)
         M = Matrix(A)
         for dims in (1, 2), kws in ((;), (; rev=true), (; by=abs), (; alg=Base.DEFAULT_STABLE))
