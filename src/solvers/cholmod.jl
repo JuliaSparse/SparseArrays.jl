@@ -2053,6 +2053,27 @@ end
 
 for TI in IndexTypes
     @eval function solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T}) where {T<:VTypes}
+        # CHOLMOD's solve2 reuses the caller-provided X handle only if it is
+        # large enough and its xtype/dtype match the factor; otherwise it calls
+        # cholmod_free_dense on the handle, which would free() the Julia-owned
+        # dense_x struct.  In the reuse branch it also overwrites X->d with
+        # n, so the output must be a contiguous column-major buffer.  Verify
+        # these invariants here so CHOLMOD can never take the other branch.
+        n = size(L, 1)
+        if size(x, 1) != n || size(b, 1) != n || size(x, 2) != size(b, 2)
+            throw(DimensionMismatch("solution has size $(size(x)), RHS has size $(size(b)), " *
+                "but the factorization is $(n)×$(n)"))
+        end
+        if stride(x, 1) != 1 || stride(x, 2) != n
+            throw(ArgumentError("solution array must be a contiguous column-major array"))
+        end
+        if stride(b, 1) != 1
+            throw(ArgumentError("RHS array must have unit column stride"))
+        end
+        s = unsafe_load(pointer(L))
+        if xtyp(T) != s.xtype || dtyp(T) != s.dtype
+            throw(ArgumentError("element type of the solution array does not match the factorization"))
+        end
         @lock L.lock begin
             dense_x = getfield(L, :dense_x)
             X = getfield(L, :X)
@@ -2099,6 +2120,14 @@ for TI in IndexTypes
         if size(x, 2) != size(b, 2)
             throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
                 "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
+        end
+        if stride(x, 1) != 1 || stride(x, 2) != size(x, 1)
+            throw(ArgumentError("solution array must be a contiguous column-major array " *
+                "(e.g. a Vector, Matrix, or view(M, :, 1:k)); got strides $(strides(x)) for size $(size(x))"))
+        end
+        if stride(b, 1) != 1
+            throw(ArgumentError("RHS array must have unit stride along its first dimension; " *
+                "got strides $(strides(b)) for size $(size(b))"))
         end
         if !issuccess(L)
             s = unsafe_load(pointer(L))

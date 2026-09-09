@@ -376,6 +376,29 @@ end
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
+@testset "ldiv! into views $Tv $Ti" begin
+    local A, F, X, B
+    A = sprand(6, 6, 0.3)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    F = cholesky(A)
+    X = Tv[i + j for i in 1:6, j in 1:3]
+    B = A * X
+
+    # contiguous column view output is fine
+    P = zeros(Tv, 6, 5)
+    @test ldiv!(view(P, :, 1:3), F, B) ≈ X
+    # non-contiguous outputs are rejected: CHOLMOD overwrites the leading dimension of the output
+    Q = zeros(Tv, 9, 3)
+    @test_throws ArgumentError ldiv!(view(Q, 1:6, :), F, B)
+    q = zeros(Tv, 12)
+    @test_throws ArgumentError ldiv!(view(q, 1:2:11), F, B[:, 1])
+    # a strided RHS is fine: CHOLMOD only reads it
+    R = zeros(Tv, 9, 3)
+    R[1:6, :] .= B
+    @test ldiv!(zeros(Tv, 6, 3), F, view(R, 1:6, :)) ≈ X
+end
+
 @testset "ldiv! no memory leak $Tv $Ti" begin
     local A, b, x, F
     A = sprand(10, 10, 0.1)
