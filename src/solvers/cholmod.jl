@@ -1682,11 +1682,24 @@ To include the effects of permutation, it is typically preferable to extract
 "combined" factors like `PtL = F.PtL` (the equivalent of
 `P'*L`) and `LtP = F.UP` (the equivalent of `L'*P`).
 The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP`.
-The permutation vector is available as `F.p`, defined such that `L*D*L' == A[p, p]`,
+Each one acts as the matrix its name spells out, so that for instance `F.PtL \\ b`
+solves with `P'*L` and `F.LD \\ b` solves with the product `L*D`.
+The permutation vector is available as `F.p`, defined such that `L*D*L' == A[p, p]`.
 
-The `LD` component can be materialized as a sparse matrix using `sparse(F.LD)`,
-Other components cannot be materialized directly, but can be reconstructed from
-`sparse(F.LD)` and `F.p` if needed.
+Of these, only `LD` can be materialized, with `sparse(F.LD)`. Beware that the
+matrix it returns is *not* the product `L*D`: it is CHOLMOD's packed ``LDL'``
+factor, which stores `L` with its unit diagonal overwritten by the diagonal of
+`D`. Solving with it is therefore not the same as solving with `F.LD`. Unpack it
+as
+
+```julia
+LD = sparse(F.LD)
+D = Diagonal(diag(LD))   # equivalently, Diagonal(diag(F))
+L = tril(LD, -1) + I     # unit lower triangular
+```
+
+after which `L*D*L' == A[F.p, F.p]`. The remaining components cannot be
+materialized directly, but can be reconstructed from `L`, `D` and `F.p`.
 
 Unlike the related Cholesky factorization, the ``LDL'`` factorization does not
 require `A` to be positive definite. However, it still requires all leading
