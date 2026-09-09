@@ -805,3 +805,16 @@ end
 end
 
 end # module
+
+@testset "issue #47 - broadcasting against a dense vector must not preallocate the dense size" begin
+    A = sprand(2000, 2000, 1e-3)
+    x = rand(2000)
+    y = rand(2000)
+    @test A .* x == Diagonal(x) * A
+    @test A .* y' == A * Diagonal(y)
+    @test A .+ x == Matrix(A) .+ x
+    A .* x; A .* y'; # warmup for @allocated
+    # the dense-size bound would be 2000 * 2000 * (8 + 8) bytes = 64 MB
+    @test @allocated(A .* x) < 2^20
+    @test @allocated(A .* y') < 2^20
+end
