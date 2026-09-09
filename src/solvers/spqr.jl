@@ -158,6 +158,13 @@ end
 _default_tol(A::AbstractSparseMatrixCSC) =
     20*sum(size(A))*eps()*maximum(norm(view(A, :, i)) for i in axes(A, 2))
 
+# Return the pointer held by `r` and clear `r`, transferring ownership to the caller.
+function _take!(r::Ref{Ptr{T}}) where T
+    p = r[]
+    r[] = C_NULL
+    return p
+end
+
 """
     qr(A::SparseMatrixCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) -> QRSparse
 
@@ -208,13 +215,6 @@ Column permutation:
 
 [^ACM933]: Foster, L. V., & Davis, T. A. (2013). Algorithm 933: Reliable Calculation of Numerical Rank, Null Space Bases, Pseudoinverse Solutions, and Basic Solutions Using SuitesparseQR. ACM Trans. Math. Softw., 40(1). [doi:10.1145/2513109.2513116](https://doi.org/10.1145/2513109.2513116)
 """
-# Return the pointer held by `r` and clear `r`, transferring ownership to the caller.
-function _take!(r::Ref{Ptr{T}}) where T
-    p = r[]
-    r[] = C_NULL
-    return p
-end
-
 function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
     # Initialize all output pointers to NULL so that the frees below never
     # see garbage if SPQR returns without writing one of them.
