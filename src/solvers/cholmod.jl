@@ -726,7 +726,16 @@ for TI ∈ IndexTypes
         return F
     end
 
+    # CHOLMOD solves a real factor against a complex right-hand side of the same precision
+    # natively, giving a complex solution, so that combination goes straight to the library
+    # as well; any other mismatch promotes in the untyped `solve` below
     function solve(sys::Integer, F::Factor{Tv, $TI}, B::Dense{Tv}) where Tv<:VTypes
+        return _solve(sys, F, B)
+    end
+    function solve(sys::Integer, F::Factor{Tv, $TI}, B::Dense{Complex{Tv}}) where Tv<:VRealTypes
+        return _solve(sys, F, B)
+    end
+    function _solve(sys::Integer, F::Factor{<:VTypes, $TI}, B::Dense{Tv}) where Tv<:VTypes
         if size(F,1) != size(B,1)
             throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
                 "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
@@ -1958,18 +1967,16 @@ end
 
 SparseVecOrMat{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
 
-# strided right-hand sides, such as views of dense arrays, are handed to CHOLMOD as they
-# are (issue #496), converted to the eltype of the factor as for `Factor`
-function (\)(L::FactorComponent{T}, b::StridedVector) where {T<:VTypes}
-    reshape(Matrix(L\Dense{T}(b)), length(b))
+# Strided right-hand sides, such as views of dense arrays (#496), are handed to CHOLMOD as
+# they are, in the precision of the factor. CHOLMOD solves a real factor against a complex
+# right-hand side natively, so a complex one (#120) stays complex in that precision.
+densetype(::Type{T}, ::Type{S}) where {T<:VTypes, S} = S <: Complex ? Complex{real(T)} : T
+function dense_solve(L, B::StridedVecOrMatInclAdjAndTrans)
+    X = L \ Dense{densetype(eltype(L), eltype(B))}(B)
+    return B isa AbstractVector ? Vector(X) : Matrix(X)
 end
-function (\)(L::FactorComponent{T}, B::Union{StridedMatrix, Adjoint{<:Any,<:StridedVecOrMat}, Transpose{<:Any,<:StridedVecOrMat}}) where {T<:VTypes}
-    Matrix(L\Dense{T}(B))
-end
-# a real factor component is a real linear map, so a complex right-hand side is solved
-# for by its real and imaginary parts, as for `Factor` below
-(\)(L::FactorComponent{T}, B::StridedVecOrMatInclAdjAndTrans{Complex{T}}) where {T<:VRealTypes} =
-    complex.(L\real(B), L\imag(B))
+
+(\)(L::FactorComponent{T}, B::StridedVecOrMatInclAdjAndTrans) where {T<:VTypes} = dense_solve(L, B)
 function (\)(L::FactorComponent, B::SparseVector)
     sparsevec(L\Sparse(B))
 end
@@ -1984,18 +1991,11 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 \(adjL::Adjoint{<:Any,<:FactorComponent}, B::FactorComponentRHS) = (L = parent(adjL); adjoint(L)\B)
 
 (\)(L::Factor{T}, B::Dense{T2}) where {T<:VTypes, T2<:VTypes} = solve(CHOLMOD_A, L, B)
-# A real factor solves for a complex right-hand side by its real and imaginary parts. The
-# strided method keeps complex views (issue #120) off the real `Strided*` methods below.
-# Explicit typevars are necessary to avoid ambiguities with defs in linalg/factorizations.jl,
-# and the `VecOrMat` method is needed alongside the strided one because LinearAlgebra's
-# `\(::Factorization{T}, ::VecOrMat{Complex{T}})` is otherwise ambiguous with it.
-(\)(L::Factor{T}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
-(\)(L::Factor{T}, B::StridedVecOrMatInclAdjAndTrans{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
-
-(\)(L::Factor{T}, b::StridedVector) where {T<:VTypes} = Vector(L\Dense{T}(b))
-(\)(L::Factor{T}, B::StridedMatrix) where {T<:VTypes} = Matrix(L\Dense{T}(B))
-(\)(L::Factor{T}, B::Adjoint{<:Any, <:StridedMatrix}) where {T<:VTypes} = Matrix(L\Dense{T}(B))
-(\)(L::Factor{T}, B::Transpose{<:Any, <:StridedMatrix}) where {T<:VTypes} = Matrix(L\Dense{T}(B))
+(\)(L::Factor{T}, B::StridedVecOrMatInclAdjAndTrans) where {T<:VTypes} = dense_solve(L, B)
+# The explicit typevars avoid an ambiguity with `\(::Factorization{T}, ::VecOrMat{Complex{T}})`
+# in LinearAlgebra/factorization.jl, which is otherwise neither more nor less specific than
+# the strided method above.
+(\)(L::Factor{T}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = dense_solve(L, B)
 
 (\)(L::Factor, B::Sparse) = spsolve(CHOLMOD_A, L, B)
 # When right hand side is sparse, we have to ensure that the rhs is not marked as symmetric.
@@ -2010,16 +2010,8 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 \(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
 
 # These mirror the `Factor` methods above, `VecOrMat` tie-breaker included.
-(\)(adjL::AdjointFactorization{T,<:Factor}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
-(\)(adjL::AdjointFactorization{T,<:Factor}, B::StridedVecOrMatInclAdjAndTrans{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
-function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, b::StridedVector)
-    L = parent(adjL)
-    return Vector(solve(CHOLMOD_A, L, Dense(b)))
-end
-function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedMatrix)
-    L = parent(adjL)
-    return Matrix(solve(CHOLMOD_A, L, Dense(B)))
-end
+\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedVecOrMatInclAdjAndTrans) = dense_solve(adjL, B)
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = dense_solve(adjL, B)
 (\)(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::AdjOrTransAbsMat) = adjL \ copy(B)
 
 const RealHermSymComplexHermSSL{Ti, Tr} = Union{

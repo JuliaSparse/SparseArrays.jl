@@ -185,6 +185,15 @@ Random.seed!(123)
             @test G \ Zt' ≈ conj(hcat(2zref, 3zref))
             @test G \ transpose(Zt) ≈ hcat(2zref, 3zref)
         end
+        # a complex right-hand side of the other precision is solved in the precision of
+        # the (real) factor, as a real one is
+        Z2 = Complex{Tv === Float64 ? Float32 : Float64}.(Z)
+        for G in (F, F', F.L, F.PtL')
+            X = G \ Z2
+            @test eltype(X) === Complex{Tv}
+            @test X ≈ G \ Z rtol=sqrt(eps(Float32))
+            @test G \ view(Z2, :, 1) ≈ X[:, 1] rtol=sqrt(eps(Float32))
+        end
         # the discourse example: a column of a dense workspace matrix
         W = zeros(Tv, n, 2); W[:, 1] .= b
         y = F.PtL \ view(W, :, 1)
