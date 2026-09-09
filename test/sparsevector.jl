@@ -511,13 +511,12 @@ end
         copyto!(x2, x) # copyto!(SparseVector, AbstractVector)
         @test Vector(x2) == collect(x)
     end
-    @testset "copyto! into views of sparse arrays (#401)" begin
-        # a column view of a sparse matrix: the column's stored entries in the covered
-        # rows are replaced, the rest of the column and matrix are untouched
+    # copyto! into a column view of a sparse matrix splices the source into the column,
+    # leaving the rest of the column and the matrix untouched (#401)
+    let
         for Ti in (Int64, Int32), (m, n) in ((6, 4), (1, 1)), trial in 1:2
             M = SparseMatrixCSC{Float64,Ti}(sprand(m, n, rand()))
-            j = rand(1:n)
-            lB = rand(0:m)
+            j = rand(1:n); lB = rand(0:m)
             for src in (sprand(lB, rand()), rand(lB))
                 A = copy(M); D = Matrix(M)
                 @test copyto!(view(A, :, j), src) isa SubArray
@@ -533,16 +532,21 @@ end
                 @test Matrix(A) == D
             end
         end
-        # stored zeros in the source are kept as stored zeros
         A = sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)
-        copyto!(view(A, :, 1), SparseVector(3, [2], [0.0]))
+        copyto!(view(A, :, 1), SparseVector(3, [2], [0.0])) # stored zeros stay stored
         @test nnz(A) == 1 && A == spzeros(3, 2)
         @test_throws BoundsError copyto!(view(spzeros(3, 3), :, 1), sparsevec([1.0, 2, 3, 4]))
-        # views of a sparse vector, partial or whole
+        # #401: the fallback cost O(length(column)); the splice costs the entries moved
+        A = sprand(10^6, 3, 1e-6); s = sparsevec([10], [1.0], 10^6)
+        copyto!(view(A, :, 2), s)
+        @test A[10, 2] == 1.0 && nnz(view(A, :, 2)) == 1
+        @test (@allocated copyto!(view(A, :, 2), s)) < 2^12
+    end
+    # ... and likewise into a view of a sparse vector, partial or whole
+    let
         for Ti in (Int64, Int32), n in (1, 7), trial in 1:2
             v = SparseVector{Float64,Ti}(sprand(n, rand()))
-            lo = rand(1:n); hi = rand(lo-1:n)
-            lB = rand(0:hi-lo+1)
+            lo = rand(1:n); hi = rand(lo-1:n); lB = rand(0:hi-lo+1)
             for src in (sprand(lB, rand()), rand(lB))
                 x = copy(v); d = Vector(v)
                 copyto!(view(x, lo:hi), src)
@@ -558,13 +562,6 @@ end
         src = SparseVector(4, [2, 4], [1.0, 2.0]); x = spzeros(9)
         copyto!(view(x, 3:6), src)
         @test nonzeroinds(src) == [2, 4] && x == sparsevec([4, 6], [1.0, 2.0], 9)
-        # the issue's example, at a cost proportional to the stored entries rather than
-        # to the length of the column
-        M = spzeros(3, 3); copyto!(@view(M[:, 2]), spzeros(3)); @test M == spzeros(3, 3)
-        A = sprand(10^6, 3, 1e-6); s = sparsevec([10], [1.0], 10^6)
-        copyto!(view(A, :, 2), s)
-        @test A[10, 2] == 1.0 && nnz(view(A, :, 2)) == 1
-        @test (@allocated copyto!(view(A, :, 2), s)) < 2^12
     end
     let x = 1:9, x1 = spzeros(length(x)), x2 = spzeros(length(x)-1)
         @test_throws ArgumentError copy!(x2, x)
