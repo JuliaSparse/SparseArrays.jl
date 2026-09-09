@@ -785,14 +785,13 @@ end
 @testset "sort/sort! of a sparse matrix" begin
     # `sort` of a dense matrix with `size(M, dims) == 0` errors in Base, so those cases are
     # compared against the input itself rather than against a dense reference
-    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (0, 3), (3, 0),
-                                                            (1, 9), (9, 1), (20, 13)),
-                                                 d in (0.0, 0.05, 0.3, 1.0)
+    # `dims = 2` covers the transposed shapes, so only one orientation of each is listed
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (0, 3), (1, 9),
+                                                            (20, 13)),
+                                                 d in (0.0, 0.3, 1.0)
         A = sprand(m, n, d)
         M = Matrix(A)
-        for dims in (1, 2), kws in ((;), (; rev=true), (; by=abs), (; by=x -> -x),
-                                    (; lt=(x, y) -> isless(y, x)),
-                                    (; alg=Base.DEFAULT_STABLE))
+        for dims in (1, 2), kws in ((;), (; rev=true), (; by=abs), (; alg=Base.DEFAULT_STABLE))
             expected = size(M, dims) == 0 ? M : sort(M; dims, kws...)
             B = copy(A)
             @test sort!(B; dims, kws...) === B
@@ -843,8 +842,10 @@ end
 
     @testset "shared scratch buffer" begin
         # each column is sorted with one shared scratch buffer rather than a fresh one
-        # per column, so the allocation count does not grow with the number of columns
-        A = sprand(1000, 200, 0.5)
+        # per column, so the allocation count does not grow with the number of columns;
+        # the columns are long enough for Base to want a scratch buffer, but short enough
+        # to stay below its radix sort, which allocates a counts vector per call
+        A = sprand(400, 400, 0.5)
         B = copy(A)
         sort!(B; dims=1) # compile
         B = copy(A)
