@@ -241,13 +241,34 @@ mutable struct Sparse{Tv<:VTypes, Ti<:ITypes} <: AbstractSparseMatrix{Tv,Ti}
     end
 end
 
+# Free a raw CHOLMOD pointer using the Common that matches the itype stored in
+# the struct. Used by the type-detecting constructors below when they fail
+# before the inner constructor (which does its own cleanup) is reached. If the
+# itype is not a valid CHOLMOD itype, the native-int Common is used: CHOLMOD
+# releases the memory either way; only the Common's bookkeeping can differ.
+function free_by_itype!(ptr::Union{Ptr{cholmod_sparse}, Ptr{cholmod_factor}}, itype)
+    if itype == CHOLMOD_INT
+        return free!(ptr, Int32)
+    elseif itype == CHOLMOD_LONG && Int64 <: ITypes
+        return free!(ptr, Int64)
+    else
+        return free!(ptr, Int)
+    end
+end
+
 function Sparse{Tv}(ptr::Ptr{cholmod_sparse}) where Tv
     if ptr == C_NULL
         throw(ArgumentError("sparse matrix construction failed for " *
             "unknown reasons. Please submit a bug report."))
     end
     s = unsafe_load(ptr)
-    return Sparse{Tv, jlitype(s.itype)}(ptr)
+    Ti = try
+        jlitype(s.itype)
+    catch
+        free_by_itype!(ptr, s.itype)
+        rethrow()
+    end
+    return Sparse{Tv, Ti}(ptr)
 end
 
 # Useful when reading in files, but not type stable
@@ -257,7 +278,13 @@ function Sparse(p::Ptr{cholmod_sparse})
                             "unknown reasons. Please submit a bug report."))
     end
     s = unsafe_load(p)
-    Sparse{jlxtype(s.xtype, s.dtype)}(p)
+    Tv = try
+        jlxtype(s.xtype, s.dtype)
+    catch
+        free_by_itype!(p, s.itype)
+        rethrow()
+    end
+    return Sparse{Tv}(p)
 end
 
 # Factor stores its own temporary CHOLMOD Y/E buffers for use in ldiv!
@@ -306,7 +333,13 @@ function Factor{Tv}(ptr::Ptr{cholmod_factor}) where Tv
                 "unknown reasons. Please submit a bug report."))
     end
     s = unsafe_load(ptr)
-    return Factor{Tv, jlitype(s.itype)}(ptr)
+    Ti = try
+        jlitype(s.itype)
+    catch
+        free_by_itype!(ptr, s.itype)
+        rethrow()
+    end
+    return Factor{Tv, Ti}(ptr)
 end
 
 const SuiteSparseStruct = Union{cholmod_dense, cholmod_sparse, cholmod_factor}
@@ -521,6 +554,12 @@ for TI ∈ IndexTypes
         # Warning! Important that finalizer doesn't modify the global Common struct.
         $(cholname(:free_factor, TI))(Ref(ptr), getcommon($TI)) == TRUE
     end
+    # Dense buffers allocated through an explicitly typed Common (e.g. the Y/E
+    # workspaces that cholmod_solve2 allocates for a Factor{_, $TI}) must be
+    # released through the same Common to keep its allocation counts balanced.
+    function free!(ptr::Ptr{cholmod_dense}, ::Type{$TI})
+        $(cholname(:free_dense, TI))(Ref(ptr), getcommon($TI)) == TRUE
+    end
     function aat(A::Sparse{Tv, $TI}, fset::Vector{<:Integer}, mode::Integer) where Tv<:VRealTypes
         Sparse{Tv, $TI}($(cholname(:aat, TI))(A, convert(Vector{$TI}, fset), length(fset), mode, getcommon($TI)))
     end
@@ -729,12 +768,23 @@ for TI ∈ IndexTypes
     # As this currently double copies.
     function change_xdtype(A::Sparse{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
         s = $(cholname(:copy_sparse, TI))(A, getcommon($TI))
-        $(cholname(:sparse_xtype, TI))(xdtyp(Tnew), s, getcommon($TI))
+        try
+            $(cholname(:sparse_xtype, TI))(xdtyp(Tnew), s, getcommon($TI))
+        catch
+            # the error handler may throw from inside CHOLMOD; don't leak the copy
+            free!(s, $TI)
+            rethrow()
+        end
         return Sparse{Tnew, $TI}(s)
     end
     function change_xdtype(F::Factor{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
         c = $(cholname(:copy_factor, TI))(F, getcommon($TI))
-        $(cholname(:factor_xtype, TI))(xdtyp(Tnew), c, getcommon($TI))
+        try
+            $(cholname(:factor_xtype, TI))(xdtyp(Tnew), c, getcommon($TI))
+        catch
+            free!(c, $TI)
+            rethrow()
+        end
         return Factor{Tnew, $TI}(c)
     end
 end
@@ -861,7 +911,13 @@ function Dense(ptr::Ptr{cholmod_dense})
             "unknown reasons. Please submit a bug report."))
     end
     s = unsafe_load(ptr)
-    return Dense{jlxtype(s.xtype, s.dtype)}(ptr)
+    Tv = try
+        jlxtype(s.xtype, s.dtype)
+    catch
+        free!(ptr)
+        rethrow()
+    end
+    return Dense{Tv}(ptr)
 end
 
 function Base.convert(::Type{Dense{Tnew}}, A::Dense{T}) where {Tnew, T}
@@ -1047,8 +1103,9 @@ function Base.convert(::Type{Sparse{Tnew, Inew}}, A::Sparse{Tv, Ti}) where {Tnew
         si = unsafe_wrap(Array, s.i, (s.nzmax,), own = false)
         copyto!(si, ai)
         if !Bool(a.packed)
-            anz = unsafe_wrap(Array, a.nz, (a.ncol + 1,), own = false)
-            snz = unsafe_wrap(Array, s.nz, (s.ncol + 1,), own = false)
+            # nz has length ncol (not ncol + 1 like p)
+            anz = unsafe_wrap(Array, a.nz, (a.ncol,), own = false)
+            snz = unsafe_wrap(Array, s.nz, (s.ncol,), own = false)
             copyto!(snz, anz)
         end
         if a.x != C_NULL
@@ -1234,8 +1291,9 @@ end
 free!(A::Dense)  = free!(pointer(A))
 free!(A::Sparse{<:Any, Ti}) where Ti = free!(pointer(A), Ti)
 function free!(F::Factor{<:Any, Ti}) where Ti
-    free!(getfield(F, :Y)[])
-    free!(getfield(F, :E)[])
+    # Y/E were allocated by cholmod(_l)_solve2 with getcommon(Ti)
+    free!(getfield(F, :Y)[], Ti)
+    free!(getfield(F, :E)[], Ti)
     free!(pointer(F), Ti)
 end
 
