@@ -176,19 +176,26 @@ Random.seed!(123)
         zview = @view z[:]
         Zview = @view Z[:, 1:2]
 
-        @test chma \ zview ≈ chma \ z
-        @test chma \ Zview ≈ chma \ Z[:, 1:2]
-        @test chma' \ zview ≈ chma' \ z
-        @test chma' \ Zview ≈ chma' \ Z[:, 1:2]
-
-        # The wrapper cases need a square view so the transposed RHS still
-        # has the factor's leading dimension.
-        Zsquare = hcat((j * z for j in 1:n)...)
-        Zsquareview = @view Zsquare[:, 1:n]
-        @test chma \ Zsquareview' ≈ chma \ Matrix(Zsquareview')
-        @test chma \ transpose(Zsquareview) ≈ chma \ Matrix(transpose(Zsquareview))
-        @test chma' \ Zsquareview' ≈ chma' \ Matrix(Zsquareview')
-        @test chma' \ transpose(Zsquareview) ≈ chma' \ Matrix(transpose(Zsquareview))
+        Zt = Matrix(transpose(Z))
+        Ztview = @view Zt[1:2, :]
+        for F in (chma, chma')
+            @test F \ z ≈ complex.(F \ real(z), F \ imag(z))
+            @test F \ zview ≈ F \ z
+            @test F \ Zview ≈ F \ Z[:, 1:2]
+            @test F \ Ztview' ≈ F \ Matrix(Ztview')   # the adjoint conjugates
+            @test F \ transpose(Ztview) ≈ F \ Z[:, 1:2]
+        end
+        # factor components are real linear maps too
+        for sym in (:L, :U, :PtL, :UP)
+            C = getproperty(chma, sym)
+            ref = complex.(C \ real(z), C \ imag(z))
+            @test C \ z ≈ ref
+            @test C \ zview ≈ ref
+            @test C' \ zview ≈ complex.(C' \ real(z), C' \ imag(z))
+            @test C \ Zview ≈ hcat(ref, 2ref)
+            @test C \ transpose(Ztview) ≈ hcat(ref, 2ref)
+            @test C \ Ztview' ≈ conj(hcat(ref, 2ref))
+        end
     end
 
     @testset "eltype" begin
