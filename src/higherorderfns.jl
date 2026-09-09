@@ -144,6 +144,16 @@ function expandstorage!(A::SparseVecOrMat, maxstored)
     return maxstored
 end
 
+# Grow C's storage while filling column `j`, `needed` being the index of the entry about
+# to be stored: double, or extrapolate the density of the completed columns, whichever is
+# larger, capped at `maxstored`. Growing on demand keeps the loose `maxstored` (the dense
+# size, for a sparse matrix against a dense-ish vector) from being allocated up front.
+function _growstorage!(C::SparseVecOrMat, spaceC::Int, needed::Int, j, maxstored)
+    # over `j - 1`, not `j`: column `j` is partial, and overestimating costs fewer regrowths
+    extrapolated = cld(widemul(needed, numcols(C)), max(Int(j) - 1, 1))
+    return expandstorage!(C, Int(min(maxstored, max(needed, 2 * spaceC, extrapolated))))
+end
+
 _checkbuffers(S::AbstractSparseMatrixCSC) = (@assert length(getcolptr(S)) == size(S, 2) + 1 && getcolptr(S)[end] - 1 == length(rowvals(S)) == length(nonzeros(S)); S)
 _checkbuffers(S::AbstractCompressedVector) = (@assert length(storedvals(S)) == length(storedinds(S)); S)
 
@@ -215,7 +225,10 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
     indextypeC = _promote_indtype(A, Bs...)
     entrytypeC = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, (A, Bs...))...))
     shapeC = to_shape(Base.Broadcast.combine_axes(A, Bs...))
-    maxnnzC = fpreszeros ? _checked_maxnnzbcres(shapeC, A, Bs...) : _densennz(shapeC)
+    # `_checked_maxnnzbcres` can be as large as the dense size, so start from the inputs'
+    # stored entries and let the kernels grow the storage on demand (see `_growstorage!`).
+    maxnnzC = fpreszeros ? min(_checked_maxnnzbcres(shapeC, A, Bs...), _sumnnzs(A, Bs...)) :
+                           _densennz(shapeC)
     C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
     r = fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
                         _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
@@ -503,7 +516,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where
             for Ak in bccolrangejA
                 Cx = f(storedvals(A)[Ak])
                 if isfixed || _isnotzero(Cx)
-                    Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A)))
+                    Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A)))
                     storedinds(C)[Ck] = storedinds(A)[Ak]
                     storedvals(C)[Ck] = Cx
                     Ck += 1
@@ -523,7 +536,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where
             # densely populate C's jth column with fofAx.
             if isfixed || _isnotzero(fofAx)
                 for Ci::indtype(C) in 1:numrows(C)
-                    Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A)))
+                    Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = fofAx
                     Ck += 1
@@ -536,6 +549,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where
     return _checkbuffers(C)
 end
 function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
+    isempty(C) && return _finishempty!(C)
     # For information on this code, see comments in similar code in _broadcast_zeropres! above
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
@@ -626,7 +640,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                 # Ai == Bi and termination cases. Hence the ordering of the conditional
                 # chain above differs from that in the corresponding map code.
                 if isfixed || _isnotzero(Cx)
-                    Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
+                    Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = Cx
                     Ck += 1
@@ -644,7 +658,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
             Cx = f(Ax, Bx)
             if isfixed || _isnotzero(Cx)
                 for Ci::indtype(C) in 1:numrows(C)
-                    Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
+                    Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = Cx
                     Ck += 1
@@ -665,7 +679,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                 while Bk < stopBk
                     Cx = f(Ax, storedvals(B)[Bk])
                     if isfixed || _isnotzero(Cx)
-                        Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
+                        Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = storedinds(B)[Bk]
                         storedvals(C)[Ck] = Cx
                         Ck += 1
@@ -684,7 +698,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                         Cx = fvAzB
                     end
                     if isfixed || _isnotzero(Cx)
-                        Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
+                        Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = Ci
                         storedvals(C)[Ck] = Cx
                         Ck += 1
@@ -706,7 +720,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                 while Ak < stopAk
                     Cx = f(storedvals(A)[Ak], Bx)
                     if isfixed || _isnotzero(Cx)
-                        Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
+                        Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = storedinds(A)[Ak]
                         storedvals(C)[Ck] = Cx
                         Ck += 1
@@ -725,7 +739,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                         Cx = fzAvB
                     end
                     if isfixed || _isnotzero(Cx)
-                        Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
+                        Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = Ci
                         storedvals(C)[Ck] = Cx
                         Ck += 1
@@ -739,6 +753,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
     return _checkbuffers(C)
 end
 function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
+    isempty(C) && return _finishempty!(C)
     # For information on this code, see comments in similar code in _broadcast_zeropres! above
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
@@ -916,7 +931,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMa
                 args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
                 Cx = f(args...)
                 if isfixed || _isnotzero(Cx)
-                    Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), As)))
+                    Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), As)))
                     storedinds(C)[Ck] = activerow
                     storedvals(C)[Ck] = Cx
                     Ck += 1
@@ -933,7 +948,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMa
                     Cx = defaultCx
                 end
                 if isfixed || _isnotzero(Cx)
-                    Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), As)))
+                    Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), As)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = Cx
                     Ck += 1
