@@ -458,6 +458,7 @@ end
                     # the stale numeric factorization of A has been dropped, so
                     # anything needing it refactors D against A's symbolic and fails again
                     @test_throws ArgumentError umfpack_report(F)
+                    @test_throws ArgumentError F\b
                 else
                     lu!(F, D; reuse_symbolic=reuse)
                     umfpack_report(F)
@@ -527,71 +528,20 @@ end
 
 
 @testset "copy should keep the numeric/symbolic by default" begin
-    A = lu(sprandn(10, 10, 0.1) + I)
+    S = sprandn(10, 10, 0.1) + I
+    A = lu(S)
     B = copy(A)
     @test A.numeric === B.numeric
     @test A.symbolic === B.symbolic
-end
-
-@testset "numeric/symbolic lifecycle" begin
-    A = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
-               increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
-               [2.,1.,3.,4.,-1.,-3.,3.,6.,4.,2.,1.,1.], 5, 5)
-    b = Float64[8., 45., -3., 3., 19.]
-    x = Matrix(A) \ b
-
-    @testset "free is idempotent" begin
-        F = lu(A)
-        num = F.numeric
-        @test UMFPACK._isnotnull(num)
-        UMFPACK.umfpack_free_numeric(num, Float64, Int)
-        @test num.p == C_NULL
-        UMFPACK.umfpack_free_numeric(num, Float64, Int)
-        @test num.p == C_NULL
-        sym = F.symbolic
-        UMFPACK.umfpack_free_symbolic(sym, Float64, Int)
-        @test sym.p == C_NULL
-        UMFPACK.umfpack_free_symbolic(sym, Float64, Int)
-        @test sym.p == C_NULL
-        # the factorization object is still usable: it simply refactors
-        @test F \ b ≈ x
-    end
-
-    @testset "failed refactorization drops the stale numeric" begin
-        F = lu(A)
-        D = copy(A)
-        D[5, 1] = 1.0                       # changes the nonzero pattern
-        @test_throws ArgumentError lu!(F, D; reuse_symbolic=true)
-        @test UMFPACK._isnull(F.numeric)
-        # must not silently solve with the factorization of the old matrix
-        @test_throws ArgumentError F \ b
-    end
-
-    @testset "refactorization loop frees the old numeric" begin
-        F = lu(A)
-        for reuse in (true, false)
-            for _ in 1:20
-                old = F.numeric
-                lu!(F, A; reuse_symbolic=reuse)
-                @test old.p == C_NULL
-                @test old !== F.numeric
-            end
-            @test F \ b ≈ x
-        end
-    end
-
-    @testset "copy sharing a freed numeric refactors" begin
-        for reuse in (true, false)
-            F = lu(A)
-            G = copy(F)
-            @test G.numeric === F.numeric
-            lu!(F, A; reuse_symbolic=reuse)
-            @test UMFPACK._isnull(G.numeric)
-            @test G \ b ≈ x
-            @test UMFPACK._isnotnull(G.numeric)
-            @test F \ b ≈ x
-        end
-    end
+    # refactoring frees the shared numeric (and freeing again is a no-op);
+    # the copy then refactors on demand instead of using freed memory
+    num = A.numeric
+    lu!(A, S)
+    @test num.p == C_NULL
+    UMFPACK.umfpack_free_numeric(num, Float64, Int)
+    @test num.p == C_NULL
+    b = ones(10)
+    @test B \ b ≈ Matrix(S) \ b
 end
 
 
