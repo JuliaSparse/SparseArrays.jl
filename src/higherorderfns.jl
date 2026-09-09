@@ -146,15 +146,17 @@ end
 
 # Grow the storage of `C` while filling column `j`, `needed` being the index of the
 # entry about to be stored. The new size is the larger of twice the current size and
-# the number of entries the result will have if the remaining columns are as dense
-# as the ones processed so far, capped at `maxstored`, the upper bound on the number
-# of stored entries the result can have. Growing on demand rather than allocating
+# the number of entries the result will have if the remaining columns are as dense as
+# the ones completed so far, capped at `maxstored`, the upper bound on the number of
+# stored entries the result can have. Growing on demand rather than allocating
 # `maxstored` up front matters because the bound is loose: broadcasting a sparse
 # matrix against a dense-ish vector has a bound of the full dense size even though
-# the result is usually no denser than the inputs. The extrapolation keeps the
-# number of reallocations small when the result really is dense.
+# the result is usually no denser than the inputs. Extrapolating from the completed
+# columns (`j - 1` of them, since column `j` is only partly filled) rather than from
+# `j` overestimates rather than underestimates the result, so a result that really is
+# dense reaches `maxstored` in a single step instead of a couple of them.
 function _growstorage!(C::SparseVecOrMat, spaceC::Int, needed::Int, j, maxstored)
-    extrapolated = cld(widemul(needed, numcols(C)), Int(j))
+    extrapolated = cld(widemul(needed, numcols(C)), max(Int(j) - 1, 1))
     return expandstorage!(C, Int(min(maxstored, max(needed, 2 * spaceC, extrapolated))))
 end
 
