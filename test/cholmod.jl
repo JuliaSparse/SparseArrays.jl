@@ -148,6 +148,28 @@ Random.seed!(123)
     @test size(chmal) == size(A)
     @test size(chmal, 1) == size(A, 1)
 
+    @testset "factor component solves with views (#496)" begin
+        F = cholesky(A)
+        B = Matrix{Tv}(hcat(b, 2b, 3b))
+        Bt = Matrix(transpose(B[:, 2:3]))
+        for sym in (:L, :U, :PtL, :UP)
+            C = getproperty(F, sym)
+            ref = C \ Vector(b)
+            @test C \ view(B, :, 1) ≈ ref
+            @test C \ view(B, :, 2) ≈ 2ref
+            @test C \ view(B, 1:n, 1) ≈ ref
+            @test C \ view(B, :, 2:3) ≈ hcat(2ref, 3ref)
+            @test C \ Bt' ≈ hcat(2ref, 3ref)
+            @test C \ transpose(Bt) ≈ hcat(2ref, 3ref)
+            @test C' \ view(B, :, 1) ≈ C' \ Vector(b)
+            @test C' \ view(B, :, 2:3) ≈ C' \ B[:, 2:3]
+        end
+        # the discourse example: a column of a dense workspace matrix
+        W = zeros(Tv, n, 2); W[:, 1] .= b
+        y = F.PtL \ view(W, :, 1)
+        @test F.PtL' \ y ≈ F \ b
+    end
+
     @testset "eltype" begin
         @test eltype(Dense(fill(Tv(1.), 3))) == Tv
         @test eltype(A) == Tv

@@ -1858,11 +1858,13 @@ end
 
 SparseVecOrMat{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
 
-function (\)(L::FactorComponent, b::Vector)
-    reshape(Matrix(L\Dense(b)), length(b))
+# strided right-hand sides, such as views of dense arrays, are handed to CHOLMOD as they
+# are (issue #496), converted to the eltype of the factor as for `Factor`
+function (\)(L::FactorComponent{T}, b::StridedVector) where {T<:VTypes}
+    reshape(Matrix(L\Dense{T}(b)), length(b))
 end
-function (\)(L::FactorComponent, B::Matrix)
-    Matrix(L\Dense(B))
+function (\)(L::FactorComponent{T}, B::Union{StridedMatrix, Adjoint{<:Any,<:StridedMatrix}, Transpose{<:Any,<:StridedMatrix}}) where {T<:VTypes}
+    Matrix(L\Dense{T}(B))
 end
 function (\)(L::FactorComponent, B::SparseVector)
     sparsevec(L\Sparse(B))
@@ -1873,7 +1875,9 @@ end
 (\)(L::FactorComponent, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::FactorComponent, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 
-\(adjL::Adjoint{<:Any,<:FactorComponent}, B::Union{VecOrMat,SparseVecOrMat}) = (L = parent(adjL); adjoint(L)\B)
+const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
+                                 Adjoint{<:Any,<:SparseMatrixCSC}, Transpose{<:Any,<:SparseMatrixCSC}}
+\(adjL::Adjoint{<:Any,<:FactorComponent}, B::FactorComponentRHS) = (L = parent(adjL); adjoint(L)\B)
 
 (\)(L::Factor{T}, B::Dense{T2}) where {T<:VTypes, T2<:VTypes} = solve(CHOLMOD_A, L, B)
 # Explicit typevars are necessary to avoid ambiguities with defs in linalg/factorizations.jl
