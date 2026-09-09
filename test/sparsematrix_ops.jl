@@ -825,9 +825,9 @@ end
         @test_throws ArgumentError sort!(copy(A); dims=3)
         @test_throws ArgumentError sort!(copy(A); dims=0)
         @test_throws UndefKeywordError sort!(copy(A))
-        # keywords are validated even when every column is structurally empty
-        Z = spzeros(3, 3)
-        for dims in (1, 2)
+        # keywords are validated even when every column is structurally empty, or when
+        # there are no columns (or rows) at all
+        for Z in (spzeros(3, 3), spzeros(3, 0), spzeros(0, 3)), dims in (1, 2)
             @test_throws MethodError sort!(copy(Z); dims, banana=:blue)
             @test_throws TypeError sort!(copy(Z); dims, rev=1)
         end
