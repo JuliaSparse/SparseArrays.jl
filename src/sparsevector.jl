@@ -117,7 +117,7 @@ function nnz(x::SparseColumnView)
     rowidx, colidx = parentindices(x)
     return length(@inbounds nzrange(parent(x), colidx))
 end
-nnz(x::SparseVectorView) = nnz(x.parent)
+nnz(x::SparseVectorView) = nnz(parent(x))
 nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))
 
 """
@@ -684,9 +684,9 @@ function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
 end
 
 getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Integer, ::Colon) =
-    map!(wrapperop(M), M.parent[:,i])
+    map!(wrapperop(M), parent(M)[:,i])
 getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::AbstractVector, ::Colon) =
-    copy(wrapperop(M)(M.parent[:,i]))
+    copy(wrapperop(M)(parent(M)[:,i]))
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
@@ -854,7 +854,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
     return @if_move_fixed A SparseVector(n, rowvalB, nzvalB)
 end
 
-Base.copy(a::SubArray{<:Any,<:Any,<:Union{SparseVector, AbstractSparseMatrixCSC}}) = a.parent[a.indices...]
+Base.copy(a::SubArray{<:Any,<:Any,<:Union{SparseVector, AbstractSparseMatrixCSC}}) = parent(a)[a.indices...]
 
 function findall(x::SparseVectorUnion)
     return findall(identity, x)
@@ -2114,7 +2114,7 @@ function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
 end
 
 *(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
-    _At_or_Ac_mul_B((a,b) -> wrapperop(xA)(a) * b, xA.parent, x, promote_op(matprod, eltype(xA), eltype(x)))
+    _At_or_Ac_mul_B((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
 
 function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
                          Tv = promote_op(matprod, TvA, TvX)) where {TvA,TiA,TvX,TiX}
