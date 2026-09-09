@@ -1788,7 +1788,7 @@ searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
     sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
 
 Sort `A` in place along dimension `dims`, keeping only its stored entries and moving them to
-their sorted positions, so that `nnz(A)` is unchanged and no zeros are stored. Within each
+their sorted positions without adding new stored entries, so that `nnz(A)` is unchanged. Within each
 column (or row), stored values that compare equal to zero under the ordering are grouped
 after the structural zeros, so the result may differ from the dense `sort!` for orderings
 that do not distinguish stored values from zero (such as `by = iszero`).
