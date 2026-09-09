@@ -1777,6 +1777,64 @@ function permute(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer}
     unchecked_noalias_permute!(X, A, p, q, C)
 end
 
+## Sorting
+
+#sorting TODO: integrate with `Base.Sort.IEEEFloatOptimization`'s partitioning by zero
+searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
+    rev::Union{Bool,Nothing}=nothing, order::Base.Order.Ordering=Forward, kws...) =
+        searchsortedfirst(v, x, Base.Order.ord(lt,by,rev,order))
+
+"""
+Sort the stored entries of each column of `A` in place, rewriting the row indices so that
+the values sorting before `zero(eltype(A))` end up at the top of their column and the
+remaining values at the bottom, with the structural zeros in between. `nnz(A)` and the
+column pointers are left untouched.
+"""
+function _sortcolumns!(A::AbstractSparseMatrixCSC; kws...)
+    require_one_based_indexing(A)
+    rows = rowvals(A)
+    vals = nonzeros(A)
+    m = size(A, 1)
+    z = zero(eltype(A))
+    for j in axes(A, 2)
+        r = nzrange(A, j)
+        isempty(r) && continue
+        col = view(vals, r)
+        sort!(col; kws...)
+        # `i-1` stored values sort before the structural zeros and `length(r)-i+1` after
+        i = searchsortedfirst_discard_keywords(col, z; kws...)
+        k = first(r)
+        @inbounds for t in 1:i-1
+            rows[k] = t
+            k += 1
+        end
+        @inbounds for t in (m - length(r) + i):m
+            rows[k] = t
+            k += 1
+        end
+    end
+    return A
+end
+
+function Base.sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
+    if dims == 1
+        _sortcolumns!(A; kws...)
+    elseif dims == 2
+        # the rows of `A` are the columns of `transpose(A)`, which is cheap to form and
+        # cheap to transpose back once its columns are sorted
+        At = ftranspose(A, identity)
+        _sortcolumns!(At; kws...)
+        transpose!(A, At)
+    else
+        throw(ArgumentError(lazy"dimension out of range, got dims = $dims, expected 1 or 2"))
+    end
+    return A
+end
+
+# the generic `Base.sort` for matrices goes through `permutedims`/`reshape` and does not
+# return a `SparseMatrixCSC` for `dims = 1`
+Base.sort(A::AbstractSparseMatrixCSC; kws...) = sort!(copy(A); kws...)
+
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
 function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function

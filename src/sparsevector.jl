@@ -2272,10 +2272,8 @@ function _densifystarttolastnz!(x::SparseVector)
     x
 end
 
-#sorting TODO: integrate with `Base.Sort.IEEEFloatOptimization`'s partitioning by zero
-searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
-    rev::Union{Bool,Nothing}=nothing, order::Base.Order.Ordering=Forward, kws...) =
-        searchsortedfirst(v,x,Base.Order.ord(lt,by,rev,order))
+# `searchsortedfirst_discard_keywords` is defined alongside the sparse matrix sorting
+# methods in sparsematrix.jl
 function sort!(x::AbstractCompressedVector; kws...)
     nz = nonzeros(x)
     sort!(nz; kws...)

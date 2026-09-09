@@ -782,4 +782,97 @@ end
     @test isdiag(S)
 end
 
+@testset "sort/sort! of a sparse matrix" begin
+    # `sort` of a dense 0-dimension-along-`dims` matrix errors in Base, so those sizes are
+    # compared against the input itself rather than against a dense reference
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (0, 3), (3, 0),
+                                                            (1, 9), (9, 1), (20, 13)),
+                                                 d in (0.0, 0.05, 0.3, 1.0)
+        A = sprand(m, n, d)
+        M = Matrix(A)
+        for dims in (1, 2), kws in ((;), (; rev=true), (; by=abs), (; by=x -> -x),
+                                    (; lt=(x, y) -> isless(y, x)),
+                                    (; alg=Base.DEFAULT_STABLE))
+            expected = (m == 0 || n == 0) ? M : sort(M; dims, kws...)
+            B = copy(A)
+            @test sort!(B; dims, kws...) === B
+            @test B isa SparseMatrixCSC
+            @test Matrix(B) == expected
+            # sorting only moves the stored entries around
+            @test nnz(B) == nnz(A)
+            S = sort(A; dims, kws...)
+            @test S isa SparseMatrixCSC
+            @test Matrix(S) == expected
+            @test A == sparse(M) # `sort` leaves its argument alone
+        end
+    end
+
+    @testset "index type $Ti" for Ti in (Int32, Int64)
+        A = SparseMatrixCSC{Float64,Ti}(sprand(11, 7, 0.4))
+        for dims in (1, 2)
+            @test sort(A; dims) isa SparseMatrixCSC{Float64,Ti}
+            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+        end
+    end
+
+    @testset "keyword arguments" begin
+        A = sprand(50, 50, 0.1)
+        # `scratch` is forwarded to the underlying `sort!` and ignored by the search for
+        # where the structural zeros belong (see #335)
+        @test Matrix(sort!(copy(A); dims=1, scratch=Vector{Float64}(undef, 50))) ==
+            sort(Matrix(A); dims=1)
+        @test_throws MethodError sort!(copy(A); dims=1, banana=:blue)
+        @test_throws ArgumentError sort!(copy(A); dims=3)
+        @test_throws ArgumentError sort!(copy(A); dims=0)
+        @test_throws UndefKeywordError sort!(copy(A))
+    end
+
+    @testset "empty and zero-size matrices" begin
+        # `Base.sort` on a zero-size *dense* matrix throws `ArgumentError: step cannot be
+        # zero`, so there is no dense reference to compare against here; the sparse methods
+        # just return the (empty) matrix unchanged
+        @testset "size = ($m, $n)" for (m, n) in ((0, 3), (3, 0), (0, 0))
+            A = spzeros(m, n)
+            for dims in (1, 2)
+                B = copy(A)
+                @test sort!(B; dims) === B
+                @test size(B) == (m, n)
+                @test nnz(B) == 0
+                @test B == A
+                S = sort(A; dims)
+                @test S isa SparseMatrixCSC{Float64,Int}
+                @test size(S) == (m, n)
+                @test nnz(S) == 0
+            end
+        end
+
+        # structurally empty, but not zero-size: here dense does give a reference
+        @testset "all structural zeros, size = ($m, $n)" for (m, n) in ((1, 1), (5, 4))
+            A = spzeros(m, n)
+            for dims in (1, 2)
+                B = sort!(copy(A); dims)
+                @test Matrix(B) == sort(Matrix(A); dims)
+                @test nnz(B) == 0
+                @test getcolptr(B) == getcolptr(A)
+            end
+        end
+
+        # a single column/row that is entirely structural next to a populated one
+        A = SparseMatrixCSC(4, 3, [1, 1, 5, 5], [1, 2, 3, 4], [1.0, -2.0, 0.0, 3.0])
+        for dims in (1, 2)
+            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+            @test nnz(sort(A; dims)) == nnz(A)
+        end
+    end
+
+    @testset "stored zeros" begin
+        # column 1 stores an explicit zero next to structural zeros
+        A = SparseMatrixCSC(4, 2, [1, 3, 4], [1, 3, 2], [0.0, -1.0, 2.0])
+        for dims in (1, 2)
+            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+            @test nnz(sort(A; dims)) == nnz(A)
+        end
+    end
+end
+
 end # module
