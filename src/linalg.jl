@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using LinearAlgebra: AbstractTriangular, StridedMaybeAdjOrTransMat, UpperOrLowerTriangular,
+using LinearAlgebra: AbstractTriangular, UpperOrLowerTriangular,
     RealHermSymComplexHerm, HermOrSym, checksquare, sym_uplo, wrap
 using Random: rand!
 
@@ -46,9 +46,7 @@ const tilebufsize = 10800  # Approximately 32k/3
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
 const BiTriSym = Union{Bidiagonal,Tridiagonal,SymTridiagonal}
 const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
-const DenseTriangular  = UpperOrLowerTriangular{<:Any,<:DenseMatrixUnion}
 const DenseInputVector = Union{StridedVector, BitVector}
-const DenseVecOrMat = Union{DenseMatrixUnion, DenseInputVector}
 const DenseViewWrappers{T,S} = Union{AdjOrTrans{T,S}, HermOrSym{T,S}, UpperOrLowerTriangular{T,S}, UpperHessenberg{T,S}}
 const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<:SparseMatrixCSCUnion2}}
 const QuasiStridedMatrix = Union{StridedMatrix, DenseViewWrappers{<:Any,<:StridedMatrix}}
@@ -104,7 +102,7 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
         diagop = tA_uc == 'S' ? identity : real
         odiagop = tA_uc == 'S' ? transpose : adjoint
         T = eltype(C)
-        _mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), T(alpha), T(beta))
+        _symherm_mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), T(alpha), T(beta))
     else
         LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
     end
@@ -457,9 +455,11 @@ Base.@constprop :aggressive function mul!(C::SparseMatrixCSCUnion2, tA, tB, A::S
     tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
     Anew, ta = tA_uc in ('S', 'H') ? (wrap(A, tA), oftype(tA, 'N')) : (A, tA)
     Bnew, tb = tB_uc in ('S', 'H') ? (wrap(B, tB), oftype(tB, 'N')) : (B, tB)
-    @stable_muladdmul _generic_matmatmul!(C, ta, tb, Anew, Bnew, MulAddMul(alpha, beta))
+    @stable_muladdmul _generic_spmatmatmul!(C, ta, tb, Anew, Bnew, MulAddMul(alpha, beta))
 end
-function _generic_matmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::AbstractVecOrMat,
+# Sparse-destination counterpart of `LinearAlgebra._generic_matmatmul!` (which this file also
+# calls, qualified, for dense destinations); named distinctly so the two are not confused.
+function _generic_spmatmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::AbstractVecOrMat,
                                 B::AbstractVecOrMat, _add::MulAddMul)
     @assert tA in ('N', 'T', 'C') && tB in ('N', 'T', 'C')
     require_one_based_indexing(C, A, B)
@@ -636,16 +636,11 @@ function _generic_matmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::AbstractVecOrM
     C
 end
 
-if VERSION < v"1.10.0-DEV.299"
-    top_set_bit(x::Base.BitInteger) = 8 * sizeof(x) - leading_zeros(x)
-else
-    top_set_bit(x::Base.BitInteger) = Base.top_set_bit(x)
-end
 # determine if sort! shall be used or the whole column be scanned
 # based on empirical data on i7-3610QM CPU
 # measuring runtimes of the scanning and sorting loops of the algorithm.
 # The parameters 6 and 3 might be modified for different architectures.
-prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * top_set_bit(nz) * nz < m
+prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < m
 
 # Frobenius dot/inner product: trace(A'B)
 function dot(A::AbstractSparseMatrixCSC{T1,S1},B::AbstractSparseMatrixCSC{T2,S2}) where {T1,T2,S1,S2}
@@ -1333,7 +1328,7 @@ matop_dest(::typeof(/), A::QuasiSparseMatrix, B::Diagonal) =
 
 # symmetric/Hermitian
 
-function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::StridedVecOrMat{T}, A, B, α, β) where T
+function _symherm_mul!(nzrang::Function, diagop::Function, odiagop::Function, C::StridedVecOrMat{T}, A, B, α, β) where T
     n = size(A, 2)
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
@@ -2405,15 +2400,6 @@ function factorize(A::AbstractSparseMatrixCSC)
     end
 end
 
-# function factorize(A::Symmetric{Float64,AbstractSparseMatrixCSC{Float64,Ti}}) where Ti
-#     F = cholesky(A)
-#     if LinearAlgebra.issuccess(F)
-#         return F
-#     else
-#         ldlt!(F, A)
-#         return F
-#     end
-# end
 function factorize(A::RealHermSymComplexHerm{Float64,<:AbstractSparseMatrixCSC})
     F = cholesky(A; check = false)
     if LinearAlgebra.issuccess(F)
