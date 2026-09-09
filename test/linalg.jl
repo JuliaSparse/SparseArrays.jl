@@ -2,10 +2,11 @@ module SparseLinalgTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr
+using SparseArrays: AbstractSparseMatrixCSC, nonzeroinds, getcolptr, rowvals, nonzeros, fixed, _is_fixed
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
+include("util/mulcount.jl")
 
 sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
@@ -694,7 +695,7 @@ end
     @test Diagonal(b) * dA == mul!(sC, Diagonal(b), sA)
     @test Diagonal(b) * dA == lmul!(Diagonal(b), copy(sA))
 
-    # adjoint/transpose of a sparse matrix times Diagonal (issue #619)
+    # adjoint/transpose of a sparse matrix with a Diagonal (issue #619)
     for T in (Float64, ComplexF64), W in (adjoint, transpose)
         S = sprand(T, 7, 3, 0.5); M = Matrix(S)
         Dl = Diagonal(randn(T, 3)); Dr = Diagonal(randn(T, 7))
@@ -708,12 +709,52 @@ end
         # mixed eltypes promote
         Di = Diagonal(1:7)
         @test W(S) * Di ≈ W(M) * Di
+        # 3- and 5-argument mul! reach the same kernels
+        C = similar(W(S))
+        @test mul!(C, W(S), Dr) === C
+        @test C ≈ W(M) * Dr
+        @test mul!(C, Dl, W(S)) === C
+        @test C ≈ Dl * W(M)
+        C0 = sprand(T, 3, 7, 0.5)
+        @test mul!(copy(C0), W(S), Dr, 2, 3) ≈ 2 * W(M) * Dr + 3 * Matrix(C0)
+        @test mul!(copy(C0), Dl, W(S), 2, 3) ≈ 2 * Dl * W(M) + 3 * Matrix(C0)
+        @test mul!(copy(C0), W(S), Dr, 2, 0) ≈ 2 * W(M) * Dr
+        @test_throws DimensionMismatch mul!(C, W(S), Dl)
+        @test_throws DimensionMismatch mul!(similar(S), Dl, W(S))
+        # a destination with another index type goes through a materialized copy
+        C32 = SparseMatrixCSC{T,Int32}(spzeros(3, 7))
+        @test mul!(C32, Dl, W(S)) ≈ Dl * W(M)
+        # so does a destination aliasing the parent
+        Q = sprand(T, 5, 5, 0.5); MQ = Matrix(Q); Dq = Diagonal(randn(T, 5))
+        @test mul!(Q, W(Q), Dq) ≈ W(MQ) * Dq
+        Q = sprand(T, 5, 5, 0.5); MQ = Matrix(Q)
+        @test mul!(Q, Dq, W(Q)) ≈ Dq * W(MQ)
+        # fixed operands are read, never written
+        F = fixed(S)
+        @test W(F) * Dr isa AbstractSparseMatrixCSC
+        @test W(F) * Dr ≈ W(M) * Dr
+        @test Dl * W(F) isa AbstractSparseMatrixCSC
+        @test Dl * W(F) ≈ Dl * W(M)
+        @test F == S
     end
-    n = 10^4
-    S = sprand(n, n, 1e-3); Dn = Diagonal(rand(n))
-    S' * Dn; Dn * S'   # warm up
-    @test @elapsed(S' * Dn) < 20 * @elapsed(S * Dn) + 0.01
-    @test @elapsed(Dn * S') < 20 * @elapsed(Dn * S) + 0.01
+    # a Diagonal times a fixed matrix keeps the structure, and the fixedness, of the input
+    F = fixed(sA)
+    let Dl = Diagonal(randn(3)), Dr = Diagonal(randn(7))
+        @test Dl * F ≈ Dl * dA
+        @test F * Dr ≈ dA * Dr
+        @test _is_fixed(Dl * F) && _is_fixed(F * Dr)
+    end
+    # the kernels touch only the stored entries: exactly nnz(S) scalar multiplications,
+    # whereas the generic Diagonal kernel visits every element of the result
+    S = mulcount_sparse(sprand(20, 30, 0.2))
+    Dl = Diagonal(MulCount.(rand(30))); Dr = Diagonal(MulCount.(rand(20)))
+    for W in (adjoint, transpose)
+        @test mulcount(() -> W(S) * Dr) == nnz(S)
+        @test mulcount(() -> Dl * W(S)) == nnz(S)
+        C = similar(W(S))
+        @test mulcount(() -> mul!(C, W(S), Dr)) == nnz(S)
+        @test mulcount(() -> mul!(C, Dl, W(S))) == nnz(S)
+    end
 
     @test dA * 0.5            == sA * 0.5
     @test dA * 0.5            == mul!(sC, sA, 0.5)

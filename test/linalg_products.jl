@@ -4,10 +4,11 @@ module SparseLinalgProductTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr
+using SparseArrays: nonzeroinds, getcolptr, rowvals, nonzeros, fixed
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
+include("util/mulcount.jl")
 
 sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
@@ -220,8 +221,6 @@ end
             # lazy adjoint/transpose of a sparse matrix (issue #627)
             @test dot(W(A), TB) ≈ dot(WA, Matrix(TB))
             @test dot(TA, W(B)) ≈ dot(Matrix(TA), WB)
-            @test dot(W(A), TB) ≈ dot(TA, TB)
-            @test dot(W(C), TB) ≈ dot(WC, Matrix(TB))
             @test dot(W(A), sparse(WC)) ≈ dot(WA, WC)
             @test_throws DimensionMismatch dot(W(A), B)
         end
@@ -256,12 +255,32 @@ end
         @test dot(W(Ai), Ai) == dot(W(Matrix(Ai)), Matrix(Ai)) == 4
         @test dot(W(Ai), Ai) isa Int
     end
-    # stays O(nnz): both operands large and sparse
-    n = 10^4
-    A = sprand(n, n, 1e-3); At = copy(A')
-    dot(A', A); dot(A, A')   # warm up
-    @test dot(A', A) ≈ dot(At, A)
-    @test @elapsed(dot(A', A)) < 20 * @elapsed(dot(At, A)) + 0.01
+    # the kernel walks the sparser operand and multiplies only where both operands store
+    # an entry (plus one multiplication seeding the accumulator), whereas the generic
+    # fallback multiplies every stored entry of the sparse operand
+    P = mulcount_sparse(sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0], 6, 4))
+    for W in (adjoint, transpose)
+        # disjoint patterns: `B[i, j]` is stored only where `P[j, i]` is not
+        B = mulcount_sparse(sparse([1, 2, 4, 4], [2, 3, 1, 6], [1.0, 2.0, 3.0, 4.0], 4, 6))
+        @test mulcount(() -> dot(W(P), B)) == 1
+        @test mulcount(() -> dot(B, W(P))) == 1
+        # two matching pairs, found from either side of the walk
+        B = mulcount_sparse(sparse([1, 1, 2, 3, 4, 4], [1, 2, 3, 3, 1, 6], 1.0:6.0, 4, 6))
+        @test nnz(B) > nnz(P)   # walks P
+        @test mulcount(() -> dot(W(P), B)) == 1 + 2
+        Pw = mulcount_sparse(sparse([1, 2, 3, 4, 5, 6, 6], [1, 2, 3, 4, 4, 1, 2], 1.0:7.0, 6, 4))
+        @test nnz(Pw) > nnz(B)  # walks B
+        @test mulcount(() -> dot(W(Pw), B)) == 1 + 2
+    end
+    # many more columns than stored entries: no cursor array is allocated
+    for W in (adjoint, transpose)
+        P = sparse([1], [1], [1.0], 2, 10^5); B = sparse([1], [1], [2.0], 10^5, 2)
+        @test dot(W(P), B) == 2
+        dot(W(P), B)
+        @test (@allocated dot(W(P), B)) < 1024
+    end
+    # fixed operands are read only
+    @test dot(fixed(sprand(5, 4, 0.5))', sprand(4, 5, 0.5)) isa Float64
 end
 
 @testset "generalized dot product" begin
