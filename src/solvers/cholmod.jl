@@ -726,16 +726,12 @@ for TI ∈ IndexTypes
         return F
     end
 
-    # CHOLMOD solves a real factor against a complex right-hand side of the same precision
-    # natively, giving a complex solution, so that combination goes straight to the library
-    # as well; any other mismatch promotes in the untyped `solve` below
-    function solve(sys::Integer, F::Factor{Tv, $TI}, B::Dense{Tv}) where Tv<:VTypes
-        return _solve(sys, F, B)
-    end
-    function solve(sys::Integer, F::Factor{Tv, $TI}, B::Dense{Complex{Tv}}) where Tv<:VRealTypes
-        return _solve(sys, F, B)
-    end
-    function _solve(sys::Integer, F::Factor{<:VTypes, $TI}, B::Dense{Tv}) where Tv<:VTypes
+    # A right-hand side matching the factor goes straight to the library, and so does a
+    # complex one against a real factor of the same precision, which CHOLMOD solves
+    # natively for a complex solution; any other mismatch promotes in the untyped `solve`
+    # below. `Complex` accepts only real parameters, so `Complex{Tf}` is unmatchable for a
+    # complex `Tf` and the union then admits `Tf` alone, as intended.
+    function solve(sys::Integer, F::Factor{Tf, $TI}, B::Dense{Tv}) where {Tf<:VTypes, Tv<:Union{Tf,Complex{Tf}}}
         if size(F,1) != size(B,1)
             throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
                 "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
