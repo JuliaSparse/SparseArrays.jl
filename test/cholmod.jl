@@ -324,6 +324,65 @@ end
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
+@testset "ldiv! into views $Tv $Ti" begin
+    local A, F, X, B, P
+    A = sprand(6, 6, 0.3)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    F = cholesky(A)
+    X = Tv[i + j for i in 1:6, j in 1:3]
+    B = A * X
+
+    # contiguous column view of a larger matrix: leading columns
+    P = zeros(Tv, 6, 5)
+    x = view(P, :, 1:3)
+    @test ldiv!(x, F, B) ≈ X
+    @test P[:, 1:3] ≈ X
+    @test iszero(P[:, 4:5])
+
+    # contiguous column view: trailing columns
+    fill!(P, 0)
+    x = view(P, :, 3:5)
+    @test ldiv!(x, F, B) ≈ X
+    @test P[:, 3:5] ≈ X
+    @test iszero(P[:, 1:2])
+
+    # contiguous vector view
+    p = zeros(Tv, 10)
+    xv = view(p, 3:8)
+    @test ldiv!(xv, F, B[:, 1]) ≈ X[:, 1]
+    @test p[3:8] ≈ X[:, 1]
+
+    # non-contiguous output (column stride larger than the number of rows)
+    # must be rejected: CHOLMOD overwrites the leading dimension of the
+    # output and would write to the wrong locations
+    Q = zeros(Tv, 9, 3)
+    @test_throws ArgumentError ldiv!(view(Q, 1:6, :), F, B)
+    @test iszero(Q)
+    q = zeros(Tv, 12)
+    @test_throws ArgumentError ldiv!(view(q, 1:2:11), F, B[:, 1])
+    @test_throws ArgumentError CHOLMOD.solve!(view(Q, 1:6, :), F, B)
+    @test_throws ArgumentError CHOLMOD.solve!(view(q, 1:2:11), F, B[:, 1])
+    @test_throws DimensionMismatch CHOLMOD.solve!(zeros(Tv, 7, 3), F, B)
+    # a single-column view is a contiguous vector and is fine
+    @test ldiv!(view(Q, 1:6, 1), F, B[:, 1]) ≈ X[:, 1]
+    @test Q[1:6, 1] ≈ X[:, 1]
+    @test iszero(Q[7:9, :]) && iszero(Q[:, 2:3])
+
+    # a strided RHS is fine: CHOLMOD only reads it, honouring its leading dimension
+    R = zeros(Tv, 9, 3)
+    R[1:6, :] .= B
+    Y = zeros(Tv, 6, 3)
+    @test ldiv!(Y, F, view(R, 1:6, :)) ≈ X
+    @test ldiv!(Y[:, 1], F, view(R, 1:6, 1)) ≈ X[:, 1]
+    # ... but it must have unit stride along the first dimension
+    @test_throws ArgumentError ldiv!(Y[:, 1], F, view(q, 1:2:11))
+
+    # the solve works for a plain Matrix after the view calls
+    @test ldiv!(Y, F, B) ≈ X
+    @test F \ B ≈ X
+end
+
 @testset "ldiv! no memory leak $Tv $Ti" begin
     local A, b, x, F
     A = sprand(10, 10, 0.1)
