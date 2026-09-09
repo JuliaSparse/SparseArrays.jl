@@ -5,7 +5,7 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
-using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, copy_similar
+using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, AdjointFactorization, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C, SuiteSparseQR_i_C
 
 # ordering options */
@@ -439,9 +439,11 @@ LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 # This definition is similar to the definition in factorization.jl except that
 # here we have to use \ instead of ldiv! because of limitations in SPQR
 
+const AdjointQRSparse{Tv} = AdjointFactorization{Tv,<:QRSparse{Tv}}
+
 ## Two helper methods
-_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
-_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
+_ret_size(F::Union{QRSparse,AdjointQRSparse}, b::AbstractVector) = (size(F, 2),)
+_ret_size(F::Union{QRSparse,AdjointQRSparse}, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
 # |z1|z3|  reinterpret  |x1|x2|x3|x4|  transpose  |x1|y1|  reshape  |x1|y1|x3|y3|
@@ -570,6 +572,130 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
             for j in axes(W, 2)
                 for i in 1:rnk
                     @inbounds X[F.cpiv[i], j] = W[i, j]
+                end
+            end
+        end
+    end
+
+    return X
+end
+
+function (\)(Fadj::AdjointQRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
+    # See the QRSparse method above for the layout of the reinterpretation
+    require_one_based_indexing(Fadj, B)
+    c2r = reshape(copy(transpose(reinterpret(T, reshape(B, (1, length(B)))))), size(B, 1), 2*size(B, 2))
+    x = Fadj\c2r
+    return collect(reshape(reinterpret(Complex{T}, copy(transpose(reshape(x, (length(x) >> 1), 2)))), _ret_size(Fadj, B)))
+end
+
+function (\)(Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    X = similar(B, ntuple(i -> i == 1 ? size(Fadj, 2) : size(B, 2), Val(ndims(B))))
+    # Note that we copy the parent factorization here for thread-safety
+    return ldiv!(X, adjoint(copy(parent(Fadj))), B)
+end
+
+"""
+    (\\)(F::AdjointFactorization{<:Any,<:QRSparse}, B::StridedVecOrMat)
+
+Solve the underdetermined system ``A^*x=b`` when `F` is the sparse QR factorization of the
+tall matrix ``A``, i.e. `F = qr(A)` with `size(A, 1) >= size(A, 2)`. The minimum-norm
+solution is returned; when ``A`` is rank deficient, the equations corresponding to the
+dependent columns of ``A`` are dropped, mirroring the basic solution returned by
+`F \\ B`. Overdetermined systems are not supported here as they would require a
+factorization of ``A^*`` rather than of ``A``.
+
+# Examples
+```jldoctest
+julia> A = sparse([1,2,3,4,1,2,3,4], [1,1,1,1,2,2,2,2], [1.0,1.0,1.0,1.0,1.0,-1.0,1.0,-1.0])
+4×2 SparseMatrixCSC{Float64, Int64} with 8 stored entries:
+ 1.0   1.0
+ 1.0  -1.0
+ 1.0   1.0
+ 1.0  -1.0
+
+julia> x = qr(A)'\\[4.0, 0.0]
+4-element Vector{Float64}:
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+
+julia> A'x
+2-element Vector{Float64}:
+ 4.0
+ 0.0
+```
+"""
+(\)(Fadj::AdjointQRSparse, B::StridedVecOrMat) = Fadj\convert(AbstractArray{eltype(Fadj)}, B)
+
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    F = parent(Fadj)
+    m, n = size(F)
+    # Solving A'x = b for a wide A would be an overdetermined problem requiring a
+    # least-squares solve with R', which the triangular solve below cannot provide
+    if m < n
+        throw(DimensionMismatch("overdetermined systems are not supported"))
+    end
+    if n != size(B, 1)
+        throw(DimensionMismatch("size(Fadj) = $(size(Fadj)) but size(B) = $(size(B))"))
+    end
+    if m != size(X, 1)
+        throw(DimensionMismatch("size(Fadj) = $(size(Fadj)) but size(X) = $(size(X))"))
+    end
+    if ndims(B) > 1 && size(X, 2) != size(B, 2)
+        throw(DimensionMismatch("size(X) = $(size(X)) but size(B) = $(size(B))"))
+    end
+
+    rnk = rank(F)
+
+    # With A[prow, pcol] == Q*R we have A' == Pcol*R'*Q'*Prow, so x = Prow'*Q*(R' \ Pcol'*b)
+    @lock F._lock begin
+        # Workspace has max(m, n) == m rows, which is what Q acts on
+        W = _get_ldiv_workspace(F, B)
+
+        # Gather the column permutation of B into the leading n rows of W
+        # NB: cpiv == [] if SPQR was called with ORDERING_FIXED
+        if length(F.cpiv) == 0
+            for j in axes(W, 2)
+                for i in 1:n
+                    @inbounds W[i, j] = B[i, j]
+                end
+            end
+        else
+            for j in axes(W, 2)
+                for i in 1:n
+                    @inbounds W[i, j] = B[F.cpiv[i], j]
+                end
+            end
+        end
+
+        # Zero the free variables so that Q*W is the minimum-norm solution. When A is
+        # rank deficient this also drops the equations that the leading block of R
+        # cannot represent, which is the counterpart of the basic solution above.
+        for j in axes(W, 2)
+            for i in (rnk + 1):m
+                @inbounds W[i, j] = zero(T)
+            end
+        end
+
+        # Solve R'*W = Pcol'*B by forward substitution. See the ldiv! above for why
+        # generic_trimatdiv! is called directly rather than through LowerTriangular.
+        W_rnk = @view(W[Base.OneTo(rnk), :])
+        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', adjoint,
+                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
+
+        # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W
+        lmul!(F.Q, @view(W[Base.OneTo(m), :]))
+        if length(F.rpivinv) == 0
+            for j in axes(W, 2)
+                for i in 1:m
+                    @inbounds X[i, j] = W[i, j]
+                end
+            end
+        else
+            for j in axes(W, 2)
+                for i in 1:m
+                    @inbounds X[i, j] = W[F.rpivinv[i], j]
                 end
             end
         end
