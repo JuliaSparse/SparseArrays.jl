@@ -439,9 +439,23 @@ end
     @test CHOLMOD.norm_dense(bDense, 2) ≈ norm(b)
     @test CHOLMOD.check_dense(bDense)
 
+    # Conversion of Dense to SparseMatrixCSC (used by sparse concatenation)
+    S = sparse(A)
+    @test SparseMatrixCSC(ADense) isa SparseMatrixCSC{elty, Int}
+    @test SparseMatrixCSC(ADense) == S
+    @test SparseMatrixCSC{elty}(ADense) == S
+    @test SparseMatrixCSC{elty, Int32}(ADense) isa SparseMatrixCSC{elty, Int32}
+    @test SparseMatrixCSC{elty, Int32}(ADense) == S
+    @test convert(SparseMatrixCSC, ADense) == S
+    @test sparse(ADense) == S
+    @test hcat(S, ADense) isa SparseMatrixCSC
+    @test hcat(S, ADense) == [A A]
+    @test vcat(ADense, S) == [A; A]
+
     AA = CHOLMOD.eye(3, Tv)
     unsafe_store!(convert(Ptr{Csize_t}, pointer(AA)), 2, 1) # change size, but not stride, of Dense
     @test convert(Matrix, AA) == Matrix(I, 2, 3)
+    @test SparseMatrixCSC(AA) == sparse(I, 2, 3) # stride differs from nrow
 end
 
 @testset "Low level interface" begin
