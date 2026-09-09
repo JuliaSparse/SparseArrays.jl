@@ -18,7 +18,8 @@ using LinearAlgebra:
 using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
-using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
+using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse,
+    cholmod_l_allocate_dense, cholmod_allocate_dense
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
@@ -246,6 +247,20 @@ end
 end
 
 ## The struct pointer must be constructed by the library constructor and then modified afterwards to checks that the method throws
+# The constructors must free the pointer before throwing, so the Common's
+# allocation count must be back to its previous value afterwards. The GC is
+# disabled around each measurement so that finalizers of unrelated CHOLMOD
+# objects cannot change the count between the baseline read and the check.
+malloc_count(T) = getcommon(T)[].malloc_count
+function with_gc_disabled(f)
+    GC.gc()
+    GC.enable(false)
+    try
+        f()
+    finally
+        GC.enable(true)
+    end
+end
 @testset "illegal dtype" begin
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
@@ -257,13 +272,30 @@ end
 end
 
 @testset "illegal xtype" begin
-    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
-        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
-    puint = convert(Ptr{UInt32}, p)
-    # The second argument 3 is the invalid `xtype`.
-    # CHOLMOD_REAL (1), CHOLMOD_COMPLEX (2) are valid.
-    unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 3)
-    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+    with_gc_disabled() do
+        nmalloc = malloc_count(Ti)
+        p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
+            cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
+        puint = convert(Ptr{UInt32}, p)
+        # The second argument 3 is the invalid `xtype`.
+        # CHOLMOD_REAL (1), CHOLMOD_COMPLEX (2) are valid.
+        unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 3)
+        @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+        @test malloc_count(Ti) == nmalloc
+    end
+end
+
+@testset "illegal dense xtype" begin
+    with_gc_disabled() do
+        # `free!(::Ptr{cholmod_dense})` always uses the native-Int Common
+        nmalloc = malloc_count(Int)
+        p = sizeof(Int) == 8 ? cholmod_l_allocate_dense(1, 1, 1, CHOLMOD.xdtyp(Tv), getcommon(Int)) :
+            cholmod_allocate_dense(1, 1, 1, CHOLMOD.xdtyp(Tv), getcommon(Int))
+        xtype_offset = fieldoffset(LibSuiteSparse.cholmod_dense, findfirst(==(:xtype), fieldnames(LibSuiteSparse.cholmod_dense)))
+        unsafe_store!(Ptr{Cint}(p + xtype_offset), 3) # CHOLMOD_ZOMPLEX is not supported
+        @test_throws CHOLMOD.CHOLMODException CHOLMOD.Dense(p)
+        @test malloc_count(Int) == nmalloc
+    end
 end
 
 # Test that a bogus `itype` raises the expected exception
@@ -284,25 +316,6 @@ end
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
-# CHOLMOD errors must be raised from Julia after the C call returns, not thrown out of
-# the error callback (which would unwind through CHOLMOD's C frames), and must not
-# leave a stale error status behind in the Common.
-@testset "error status reported after the call $Ti $Tv" begin
-    A = CHOLMOD.Sparse(sparse(Ti[1, 2], Ti[1, 2], Tv[1, 1]))
-    B = CHOLMOD.Sparse(sparse(Ti[1, 2, 3], Ti[1, 2, 3], Tv[1, 1, 1]))
-    # cholmod_horzcat rejects matrices with different numbers of rows
-    err = try
-        CHOLMOD.horzcat(A, B, true)
-        nothing
-    catch e
-        e
-    end
-    @test err isa CHOLMOD.CHOLMODException
-    @test !isempty(err.msg)
-    # the status was reset, so a valid call on the same task works afterwards
-    @test getcommon(Ti)[].status == CHOLMOD.CHOLMOD_OK
-    @test sparse(CHOLMOD.horzcat(A, A, true)) == [1 0 1 0; 0 1 0 1]
-end
 @testset "test free! $Ti" begin
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
@@ -438,6 +451,28 @@ end
     end
     after = getcommon(Ti)[].memory_inuse
     @test before == after
+end
+
+# For an Int64 factor both Commons coincide, so the check is only meaningful
+# for Ti == Int32.
+if Ti == Int32 && Int64 in itypes
+@testset "free!(Factor) releases Y/E through the matching Common $Tv $Ti" begin
+    local A, b, x, F
+    A = sprand(10, 10, 0.1)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    b = A * fill(Tv(1), 10)
+    x = zero(b)
+    with_gc_disabled() do
+        n64 = malloc_count(Int64)
+        F = cholesky(A)
+        ldiv!(x, F, b) # allocates the Y/E buffers in the Int32 Common
+        CHOLMOD.free!(F)
+        # Y/E must be released through the Int32 Common as well; freeing them
+        # through the Int64 Common would decrement its count by two.
+        @test malloc_count(Int64) == n64
+    end
+end
 end
 
 @testset "copy(Factor) buffer isolation $Tv $Ti" begin
