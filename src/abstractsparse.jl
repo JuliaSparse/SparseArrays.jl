@@ -45,7 +45,14 @@ abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv
 """
     issparse(S)
 
-Returns `true` if `S` is sparse, and `false` otherwise.
+Returns `true` if `S` is sparse or wraps a sparse array, and `false` otherwise.
+
+`issparse` is a classification predicate. A `true` result does not guarantee
+support for a particular `SparseArrays` operation (such as `nnz`, `nonzeros`,
+or `findnz`), a particular sparse storage format, or that `sparse(S)` is an
+identity or efficient operation. Code requiring a particular sparse interface
+should dispatch on the relevant abstract type or operation instead of branching
+on `issparse`.
 
 # Examples
 ```jldoctest
