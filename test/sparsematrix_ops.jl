@@ -75,6 +75,20 @@ end
     end
 end
 
+@testset "hash matches dense" begin
+    # The stored-entries-only complexity guarantee is checked with an operation-counting
+    # eltype below ("hash walks stored entries only").
+    n = 1000
+    A = spzeros(n, n); A[1, 1] = 1
+    B = copy(A); B[2, 2] = 0.0   # explicitly stored zero must not change the hash
+    @test hash(B) == hash(A) && isequal(B, A)
+    for m in (2, 10, 200), X in (sprand(m, m, 0.1), sprandn(m, m, 0.3), spzeros(m, m))
+        k = min(3, nnz(X)); nonzeros(X)[1:k] .= [NaN, -0.0, 0.0][1:k]
+        @test hash(X) == hash(Matrix(X))
+        @test hash(X, UInt(7)) == hash(Matrix(X), UInt(7))
+    end
+end
+
 @testset "isequal for adjoint/transpose of sparse matrices" begin
     n = 100
     A = spzeros(n, n); A[1, 1] = 1
@@ -661,6 +675,23 @@ Base.isequal(x::Counting, y::Counting) = (stepcounter(); isequal(x.elt, y.elt))
             @test getcounter() <= budget
         end
     end
+end
+
+# `Base.hash` on a large array skips runs of equal values with `findprev(!isequal(elt), A, i)`.
+# Each such call on a sparse array costs at most nnz(A) + 1 element comparisons and `hash`
+# makes only a handful of them, whereas the generic `findprev` performs up to length(A).
+@testset "hash walks stored entries only (issue #570)" begin
+    n = 10^5
+    v = sparsevec([1, n ÷ 2], Counting.([1.0, 2.0]), n)
+    w = sparsevec([1, n ÷ 2, n], Counting.([1.0, 0.0, 3.0]), n)
+    A = sparse([1, n ÷ 2], [1, n], Counting.([1.0, 2.0]), n, n)
+    B = sparse([1, n ÷ 2, 7], [1, n, 7], Counting.([1.0, 2.0, 0.0]), n, n)
+    for x in (v, w, A, B)
+        resetcounter()
+        hash(x)
+        @test getcounter() <= 8 * (nnz(x) + 1)
+    end
+    @test hash(v) == hash(Vector(v)) && hash(w) == hash(Vector(w))
 end
 
 @testset "Comparisons to adjoints are efficient" for
