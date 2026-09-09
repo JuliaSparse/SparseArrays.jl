@@ -50,9 +50,11 @@ Returns `true` if `S` is sparse or wraps a sparse array, and `false` otherwise.
 `issparse` is a classification predicate. A `true` result does not guarantee
 support for a particular `SparseArrays` operation (such as `nnz`, `nonzeros`,
 or `findnz`), a particular sparse storage format, or that `sparse(S)` is an
-identity or efficient operation. Code requiring a particular sparse interface
-should dispatch on the relevant abstract type or operation instead of branching
-on `issparse`.
+identity or efficient operation. Likewise, `false` means that `S` is not recognized
+as sparse by `SparseArrays`, not that it is dense: an array type that does not
+subtype `AbstractSparseArray` or wrap one yields `false` regardless of its storage.
+Code requiring a particular sparse interface should dispatch on the relevant
+abstract type or operation instead of branching on `issparse`.
 
 # Examples
 ```jldoctest
