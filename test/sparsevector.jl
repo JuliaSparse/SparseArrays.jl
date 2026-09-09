@@ -4,7 +4,7 @@ module SparseVectorTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr
+using SparseArrays: nonzeroinds, getcolptr, rowvals
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
@@ -510,6 +510,62 @@ end
         x2 = spzeros(length(x))
         copyto!(x2, x) # copyto!(SparseVector, AbstractVector)
         @test Vector(x2) == collect(x)
+    end
+    @testset "copyto! into views of sparse arrays (#401)" begin
+        # a column view of a sparse matrix: the column's stored entries in the covered
+        # rows are replaced, the rest of the column and matrix are untouched
+        for Ti in (Int64, Int32), (m, n) in ((6, 4), (1, 1), (10, 3)), trial in 1:5
+            M = SparseMatrixCSC{Float64,Ti}(sprand(m, n, rand()))
+            j = rand(1:n)
+            lB = rand(0:m)
+            for src in (sprand(lB, rand()), rand(lB), SparseVector{Float64,Int32}(sprand(lB, 0.5)))
+                A = copy(M); D = Matrix(M)
+                @test copyto!(view(A, :, j), src) isa SubArray
+                copyto!(view(D, :, j), Vector(src))
+                @test Matrix(A) == D
+                @test A isa SparseMatrixCSC{Float64,Ti}
+                @test issorted(rowvals(A)[nzrange(A, j)])
+            end
+            if n > 1   # another column of the same matrix as the source
+                A = copy(M); D = Matrix(M); j2 = mod1(j + 1, n)
+                copyto!(view(A, :, j), view(A, :, j2))
+                copyto!(view(D, :, j), view(D, :, j2))
+                @test Matrix(A) == D
+            end
+        end
+        # stored zeros in the source are kept as stored zeros
+        A = sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)
+        copyto!(view(A, :, 1), SparseVector(3, [2], [0.0]))
+        @test nnz(A) == 1 && A == spzeros(3, 2)
+        @test_throws BoundsError copyto!(view(spzeros(3, 3), :, 1), sparsevec([1.0, 2, 3, 4]))
+        # views of a sparse vector, partial or whole
+        for Ti in (Int64, Int32), n in (1, 7, 20), trial in 1:5
+            v = SparseVector{Float64,Ti}(sprand(n, rand()))
+            lo = rand(1:n); hi = rand(lo-1:n)
+            lB = rand(0:hi-lo+1)
+            for src in (sprand(lB, rand()), rand(lB))
+                x = copy(v); d = Vector(v)
+                copyto!(view(x, lo:hi), src)
+                copyto!(view(d, lo:hi), Vector(src))
+                @test Vector(x) == d
+                @test issorted(nonzeroinds(x)) && allunique(nonzeroinds(x))
+                @test src == src   # the source is left alone
+            end
+            x = copy(v); d = Vector(v); src = sprand(n, 0.5)
+            copyto!(view(x, :), src); copyto!(view(d, :), Vector(src))
+            @test Vector(x) == d
+        end
+        # the source is not modified, even when its index type matches the parent's
+        src = SparseVector(4, [2, 4], [1.0, 2.0]); x = spzeros(9)
+        copyto!(view(x, 3:6), src)
+        @test nonzeroinds(src) == [2, 4] && x == sparsevec([4, 6], [1.0, 2.0], 9)
+        # the issue's example, at a cost proportional to the stored entries rather than
+        # to the length of the column
+        M = spzeros(3, 3); copyto!(@view(M[:, 2]), spzeros(3)); @test M == spzeros(3, 3)
+        A = sprand(10^6, 3, 1e-6); s = sparsevec([10], [1.0], 10^6)
+        copyto!(view(A, :, 2), s)
+        @test A[10, 2] == 1.0 && nnz(view(A, :, 2)) == 1
+        @test (@allocated copyto!(view(A, :, 2), s)) < 2^12
     end
     let x = 1:9, x1 = spzeros(length(x)), x2 = spzeros(length(x)-1)
         @test_throws ArgumentError copy!(x2, x)
