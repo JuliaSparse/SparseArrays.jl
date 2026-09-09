@@ -302,10 +302,12 @@ dA = Array(sA)
 
         # case where f(0) would throw
         @test f(x->sqrt(x-1), pA .+ 1) ≈ f(sqrt.(pA))
-        # these actually throw due to #10533
-        # @test f(x->sqrt(x-1), pA .+ 1, dims=1) ≈ f(sqrt(pA), dims=1)
-        # @test f(x->sqrt(x-1), pA .+ 1, dims=2) ≈ f(sqrt(pA), dims=2)
-        # @test f(x->sqrt(x-1), pA .+ 1, dims=3) ≈ f(pA)
+        # `sum` still evaluates the map at the structural zero and throws here
+        if f !== sum
+            @test f(x->sqrt(x-1), pA .+ 1, dims=1) ≈ f(sqrt.(pA), dims=1)
+            @test f(x->sqrt(x-1), pA .+ 1, dims=2) ≈ f(sqrt.(pA), dims=2)
+            @test f(x->sqrt(x-1), pA .+ 1, dims=3) ≈ f(sqrt.(pA), dims=3)
+        end
     end
 
     @testset "logical reductions" begin
@@ -635,17 +637,10 @@ end
 struct Counting{T} <: Number
     elt::T
 end
-@static if VERSION ≥ v"1.8"
-    counter::Int = 0
-    resetcounter() = (global counter; counter=0)
-    stepcounter() = (global counter; counter+=1)
-    getcounter() = (global counter; counter)
-else
-    const counter = Ref(0)
-    resetcounter() = (global counter; counter[]=0)
-    stepcounter() = (global counter; counter[]+=1)
-    getcounter() = (global counter; counter[])
-end
+counter::Int = 0
+resetcounter() = (global counter; counter=0)
+stepcounter() = (global counter; counter+=1)
+getcounter() = (global counter; counter)
 Base.:(==)(x::Counting, y::Counting) = (stepcounter(); x.elt==y.elt)
 Base.promote_rule(::Type{Counting{T}}, ::Type{Counting{U}}) where {T,U} = Counting{promote_rule(T, U)}
 Base.iszero(x::Counting) = iszero(x.elt)

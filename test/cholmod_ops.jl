@@ -16,7 +16,7 @@ using Serialization
 using LinearAlgebra:
     I, cholesky, cholesky!, cond, det, diag, eigmax, ishermitian, isposdef, issuccess,
     issymmetric, ldiv!, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
-    PosDefException, ZeroPivotException, RowMaximum
+    PosDefException, ZeroPivotException, RowMaximum, NoPivot
 using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
@@ -665,9 +665,8 @@ end
     @test issuccess(cholesky(view(A, :, :)))
     @test issuccess(cholesky(Symmetric(view(A, :, :))))
     @test_throws ErrorException cholesky(view(A, :, :), RowMaximum())
-    # turn on once two-arg cholesky is made to forward any PivotingStrategy argument
-    # @test_throws ErrorException cholesky(A, NoPivot())
-    # @test_throws ErrorException cholesky(view(A, :, :), NoPivot())
+    @test issuccess(cholesky(A, NoPivot()))
+    @test issuccess(cholesky(view(A, :, :), NoPivot()))
 end
 
 @testset "solve with adjoint factorization and adjoint rhs" begin
