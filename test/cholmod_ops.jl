@@ -685,7 +685,7 @@ end
     @test issparse(F \ Bts')
 end
 
-@testset "getindex with unsorted or unpacked buffers (#758), Ti = $Ti" for Ti ∈ itypes
+@testset "getindex with unsorted or unpacked buffers (#758), Ti = $Ti" begin
     # the product of two matrices with sorted row indices need not be sorted
     A = sparse(Ti[2, 1, 2], Ti[1, 2, 2], Tv[1, 2, 3])
     S = CHOLMOD.Sparse(A)

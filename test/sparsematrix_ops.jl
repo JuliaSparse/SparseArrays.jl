@@ -695,8 +695,10 @@ end
 end
 
 @testset "Comparisons to adjoints are efficient" for
-    A in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)],
-    B in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)]
+    # The counting guard below distinguishes stored-entry traversal from the generic
+    # length(A) fallback, so these do not need to be large matrices.
+    A in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)],
+    B in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)]
     if size(A) == size(B)
         A = Counting.(A)
         B = Counting.(B)
