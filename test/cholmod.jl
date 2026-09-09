@@ -148,10 +148,14 @@ Random.seed!(123)
     @test size(chmal) == size(A)
     @test size(chmal, 1) == size(A, 1)
 
-    @testset "factor component solves with views (#496)" begin
+    @testset "factor and component solves with views (#496, #120)" begin
         F = cholesky(A)
         B = Matrix{Tv}(hcat(b, 2b, 3b))
         Bt = Matrix(transpose(B[:, 2:3]))
+        # complex right-hand sides for the real factor (#120), which LinearAlgebra handles
+        # for `Vector` and `Matrix` but not for views or adjoint/transpose wrappers of them
+        Z = complex.(B, 2B)
+        Zt = Matrix(transpose(Z[:, 2:3]))
         for sym in (:L, :U, :PtL, :UP)
             C = getproperty(F, sym)
             ref = C \ Vector(b)
@@ -163,39 +167,28 @@ Random.seed!(123)
             @test C \ transpose(Bt) ≈ hcat(2ref, 3ref)
             @test C' \ view(B, :, 1) ≈ C' \ Vector(b)
             @test C' \ view(B, :, 2:3) ≈ C' \ B[:, 2:3]
+            # a real factor component is a real linear map, so it solves for a complex
+            # right-hand side componentwise
+            zref = complex.(ref, 2ref)
+            @test C \ Z[:, 1] ≈ zref
+            @test C \ view(Z, :, 1) ≈ zref
+            @test C \ view(Z, :, 2:3) ≈ hcat(2zref, 3zref)
+            @test C \ Zt' ≈ conj(hcat(2zref, 3zref))   # the adjoint conjugates
+            @test C \ transpose(Zt) ≈ hcat(2zref, 3zref)
+            @test C' \ view(Z, :, 1) ≈ complex.(C' \ Vector(b), 2(C' \ Vector(b)))
+        end
+        for G in (F, F')
+            zref = complex.(G \ Vector(b), 2(G \ Vector(b)))
+            @test G \ Z[:, 1] ≈ zref
+            @test G \ view(Z, :, 1) ≈ zref
+            @test G \ view(Z, :, 2:3) ≈ hcat(2zref, 3zref)
+            @test G \ Zt' ≈ conj(hcat(2zref, 3zref))
+            @test G \ transpose(Zt) ≈ hcat(2zref, 3zref)
         end
         # the discourse example: a column of a dense workspace matrix
         W = zeros(Tv, n, 2); W[:, 1] .= b
         y = F.PtL \ view(W, :, 1)
         @test F.PtL' \ y ≈ F \ b
-    end
-
-    @testset "real factor solves with complex strided right-hand sides (#120)" begin
-        z = complex.(b, 2b)
-        Z = hcat(z, 2z, 3z)
-        zview = @view z[:]
-        Zview = @view Z[:, 1:2]
-
-        Zt = Matrix(transpose(Z))
-        Ztview = @view Zt[1:2, :]
-        for F in (chma, chma')
-            @test F \ z ≈ complex.(F \ real(z), F \ imag(z))
-            @test F \ zview ≈ F \ z
-            @test F \ Zview ≈ F \ Z[:, 1:2]
-            @test F \ Ztview' ≈ F \ Matrix(Ztview')   # the adjoint conjugates
-            @test F \ transpose(Ztview) ≈ F \ Z[:, 1:2]
-        end
-        # factor components are real linear maps too
-        for sym in (:L, :U, :PtL, :UP)
-            C = getproperty(chma, sym)
-            ref = complex.(C \ real(z), C \ imag(z))
-            @test C \ z ≈ ref
-            @test C \ zview ≈ ref
-            @test C' \ zview ≈ complex.(C' \ real(z), C' \ imag(z))
-            @test C \ Zview ≈ hcat(ref, 2ref)
-            @test C \ transpose(Ztview) ≈ hcat(ref, 2ref)
-            @test C \ Ztview' ≈ conj(hcat(ref, 2ref))
-        end
     end
 
     @testset "eltype" begin
