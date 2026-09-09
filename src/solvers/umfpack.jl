@@ -4,6 +4,8 @@ module UMFPACK
 
 export UmfpackLU
 
+public rcond
+
 import Base: (\), getproperty, show, size
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans
@@ -43,6 +45,8 @@ import ..LibSuiteSparse:
     ## Sizes of Control and Info arrays for returning information from solver
     UMFPACK_INFO,
     UMFPACK_CONTROL,
+    # index of the info array in ZERO BASED indexing
+    UMFPACK_RCOND,
     # index of the control arrays in ZERO BASED indexing
     UMFPACK_PRL,
     UMFPACK_DENSE_ROW,
@@ -95,6 +99,7 @@ const JL_UMFPACK_SCALE = UMFPACK_SCALE + 1
 const JL_UMFPACK_FRONT_ALLOC_INIT = UMFPACK_FRONT_ALLOC_INIT + 1
 const JL_UMFPACK_DROPTOL = UMFPACK_DROPTOL + 1
 const JL_UMFPACK_IRSTEP = UMFPACK_IRSTEP + 1
+const JL_UMFPACK_RCOND = UMFPACK_RCOND + 1
 
 struct MatrixIllConditionedException <: Exception
     msg::String
@@ -927,6 +932,42 @@ function nnz(lu::UmfpackLU)
 end
 
 LinearAlgebra.issuccess(lu::UmfpackLU) = lu.status == UMFPACK_OK
+
+"""
+    rcond(F::UmfpackLU) -> Float64
+
+Return UMFPACK's rough estimate of the reciprocal condition number of the
+factorized matrix, computed from the diagonal of the factor alone: the smallest
+entry of `abs.(diag(F.U))` divided by the largest.
+
+This is much cheaper than a norm-based estimate such as `cond(A, 1)`, but also
+much cruder, and it describes the matrix UMFPACK actually factorized rather
+than `A` itself. UMFPACK scales the rows of `A` before factorizing by default
+(see `F.Rs`), so for instance every diagonal matrix reports `1`. Unlike the
+Cholesky-based [`CHOLMOD.rcond`](@ref SparseArrays.CHOLMOD.rcond), the value
+is neither an upper nor a lower bound on `1 / cond(A, 2)`. Use it to detect a
+singular or badly pivoted factorization, not to measure conditioning.
+
+Returns `0` if the matrix is singular, and `1` if the matrix is 1-by-1.
+
+# Examples
+```jldoctest
+julia> F = lu(sparse([1.0 3.0; 0.0 1.0]));
+
+julia> SparseArrays.UMFPACK.rcond(F)
+0.25
+
+julia> minimum(abs, diag(F.U)) / maximum(abs, diag(F.U))
+0.25
+
+julia> SparseArrays.UMFPACK.rcond(lu(sparse([1.0 2.0; 0.0 0.0]); check=false))
+0.0
+```
+"""
+function rcond(F::UmfpackLU)
+    umfpack_numeric!(F)        # ensure the numeric decomposition exists
+    return F.info[JL_UMFPACK_RCOND]
+end
 
 ### Solve with Factorization
 

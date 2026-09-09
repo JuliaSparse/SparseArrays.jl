@@ -29,6 +29,8 @@ export
     Factor,
     Sparse
 
+public rcond
+
 import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spzeros, nnz,
     sparsevec
 
@@ -546,6 +548,9 @@ for TI ∈ IndexTypes
 
     function check_factor(F::Factor{Tv, $TI}) where Tv<:VTypes
         $(cholname(:check_factor, TI))(F, getcommon($TI)) != 0
+    end
+    function rcond(F::Factor{Tv, $TI}) where Tv<:VTypes
+        $(cholname(:rcond, TI))(F, getcommon($TI))
     end
     nnz(A::Sparse{<:VTypes, $TI}) = $(cholname(:nnz, TI))(A, getcommon($TI))
 
@@ -2049,6 +2054,41 @@ function logdet(F::Factor{Tv}) where Tv<:VTypes
 end
 
 det(L::Factor) = exp(logdet(L))
+
+"""
+    rcond(F::CHOLMOD.Factor) -> Float64
+
+Return CHOLMOD's rough estimate of the reciprocal condition number of the
+factorized matrix, computed from the diagonal of the factor alone: the smallest
+entry of `abs.(diag(F))` divided by the largest, squared when `F` is an `LL'`
+factorization so that the result estimates the reciprocal condition number of
+the factorized matrix rather than of its factor.
+
+This is much cheaper than a norm-based estimate such as `cond(A, 1)`, but also
+much cruder. For positive definite `A` it is exact when `A` is diagonal, and
+otherwise an upper bound on `1 / cond(A, 2)`, so it can report a matrix as far
+better conditioned than it is. Use it to detect a badly conditioned or singular
+factorization, not to measure conditioning accurately. The LU counterpart is
+[`UMFPACK.rcond`](@ref SparseArrays.UMFPACK.rcond).
+
+Returns `0` if the matrix is singular or the factor has a zero or `NaN` on its
+diagonal, and `1` if the matrix is 1-by-1. `NaN` is never returned.
+
+# Examples
+```jldoctest
+julia> A = sparse(Diagonal([1.0, 2.0, 4.0]));
+
+julia> SparseArrays.CHOLMOD.rcond(cholesky(A))
+0.25
+
+julia> SparseArrays.CHOLMOD.rcond(ldlt(A))
+0.25
+
+julia> SparseArrays.CHOLMOD.rcond(cholesky(sparse(Diagonal([1.0, 0.0])); check=false))
+0.0
+```
+"""
+rcond
 
 function issuccess(F::Factor)
     s = unsafe_load(pointer(F))

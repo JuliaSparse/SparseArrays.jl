@@ -14,7 +14,7 @@ using SparseArrays.CHOLMOD: getcommon
 using Random
 using Serialization
 using LinearAlgebra:
-    I, cholesky, cholesky!, det, diag, eigmax, ishermitian, isposdef, issuccess,
+    I, cholesky, cholesky!, cond, det, diag, eigmax, ishermitian, isposdef, issuccess,
     issymmetric, ldiv!, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
     PosDefException, ZeroPivotException, RowMaximum
 using SparseArrays
@@ -708,6 +708,21 @@ end
     rowval[2], nzval[2] = 0, 20 # U[1, 1]
     rowval[4], nzval[4] = 1, 30 # U[2, 2]
     @test Array(U) == Tv[20 0 0; 0 30 0; 10 0 0]
+end
+
+@testset "rcond (#118)" begin
+    D = SparseMatrixCSC{Tv,Ti}(sparse(Diagonal(Tv[1, 2, 4])))
+    # exact for a diagonal matrix, and the same estimate from LL' and LDL'
+    @test CHOLMOD.rcond(cholesky(D)) === 0.25
+    @test CHOLMOD.rcond(ldlt(D)) === 0.25
+    # 1-by-1 and singular special cases
+    @test CHOLMOD.rcond(cholesky(SparseMatrixCSC{Tv,Ti}(sparse(Diagonal(Tv[3]))))) === 1.0
+    S = SparseMatrixCSC{Tv,Ti}(sparse(Diagonal(Tv[1, 0])))
+    @test CHOLMOD.rcond(cholesky(S; check=false)) === 0.0
+    # the estimate never reports a matrix as worse conditioned than it is
+    B = sprandn(Tv, 20, 20, 0.4)
+    C = SparseMatrixCSC{Tv,Ti}(B*B' + 20I)
+    @test CHOLMOD.rcond(cholesky(C)) >= 1/cond(Matrix{Float64}(C), 2) - sqrt(eps(Tv))
 end
 
 end # for Tv ∈ (Float32, Float64)
