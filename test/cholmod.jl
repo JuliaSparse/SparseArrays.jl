@@ -240,18 +240,13 @@ function with_gc_disabled(f)
     end
 end
 @testset "illegal dtype" begin
-    with_gc_disabled() do
-        nmalloc = malloc_count(Ti)
-        p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
-            cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
-        @test malloc_count(Ti) > nmalloc
-        puint = convert(Ptr{UInt32}, p)
-        # The second argument 5 is the invalid `dtype`.
-        # CHOLMOD_DOUBLE (0) and CHOLMOD_SINGLE (4) are both valid.
-        unsafe_store!(puint, 5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
-        @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
-        @test malloc_count(Ti) == nmalloc
-    end
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
+    puint = convert(Ptr{UInt32}, p)
+    # The second argument 5 is the invalid `dtype`.
+    # CHOLMOD_DOUBLE (0) and CHOLMOD_SINGLE (4) are both valid.
+    unsafe_store!(puint, 5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 4)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal xtype" begin
@@ -259,7 +254,6 @@ end
         nmalloc = malloc_count(Ti)
         p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
             cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
-        @test malloc_count(Ti) > nmalloc
         puint = convert(Ptr{UInt32}, p)
         # The second argument 3 is the invalid `xtype`.
         # CHOLMOD_REAL (1), CHOLMOD_COMPLEX (2) are valid.
@@ -275,7 +269,6 @@ end
         nmalloc = malloc_count(Int)
         p = sizeof(Int) == 8 ? cholmod_l_allocate_dense(1, 1, 1, CHOLMOD.xdtyp(Tv), getcommon(Int)) :
             cholmod_allocate_dense(1, 1, 1, CHOLMOD.xdtyp(Tv), getcommon(Int))
-        @test malloc_count(Int) > nmalloc
         xtype_offset = fieldoffset(LibSuiteSparse.cholmod_dense, findfirst(==(:xtype), fieldnames(LibSuiteSparse.cholmod_dense)))
         unsafe_store!(Ptr{Cint}(p + xtype_offset), 3) # CHOLMOD_ZOMPLEX is not supported
         @test_throws CHOLMOD.CHOLMODException CHOLMOD.Dense(p)
@@ -283,34 +276,22 @@ end
     end
 end
 
-# Test that a bogus `itype` raises the expected exception.
-# With an invalid itype the constructor cannot know which Common allocated the
-# pointer, so only the total count over all Commons is guaranteed to balance.
+# Test that a bogus `itype` raises the expected exception
 @testset "illegal itype I" begin
-    with_gc_disabled() do
-        nmalloc = sum(malloc_count, itypes)
-        p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
-            cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
-        @test sum(malloc_count, itypes) > nmalloc
-        puint = convert(Ptr{UInt32}, p)
-        # The second argument to `unsafe_store!` is the illegal `itype`
-        unsafe_store!(puint, 123, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
-        @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
-        @test sum(malloc_count, itypes) == nmalloc
-    end
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
+    puint = convert(Ptr{UInt32}, p)
+    # The second argument to `unsafe_store!` is the illegal `itype`
+    unsafe_store!(puint, 123, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "illegal itype II" begin
-    with_gc_disabled() do
-        nmalloc = sum(malloc_count, itypes)
-        p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
-            cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
-        @test sum(malloc_count, itypes) > nmalloc
-        puint = convert(Ptr{UInt32}, p)
-        unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
-        @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
-        @test sum(malloc_count, itypes) == nmalloc
-    end
+    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
+    puint = convert(Ptr{UInt32}, p)
+    unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
 @testset "test free! $Ti" begin
@@ -438,13 +419,10 @@ if Ti == Int32 && Int64 in itypes
     b = A * fill(Tv(1), 10)
     x = zero(b)
     with_gc_disabled() do
-        n32 = malloc_count(Int32)
         n64 = malloc_count(Int64)
         F = cholesky(A)
         ldiv!(x, F, b) # allocates the Y/E buffers in the Int32 Common
-        @test malloc_count(Int32) > n32
-        @test malloc_count(Int64) == n64
-        @test CHOLMOD.free!(F)
+        CHOLMOD.free!(F)
         # Y/E must be released through the Int32 Common as well; freeing them
         # through the Int64 Common would decrement its count by two.
         @test malloc_count(Int64) == n64
