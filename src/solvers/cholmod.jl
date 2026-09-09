@@ -1980,12 +1980,13 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 \(adjL::Adjoint{<:Any,<:FactorComponent}, B::FactorComponentRHS) = (L = parent(adjL); adjoint(L)\B)
 
 (\)(L::Factor{T}, B::Dense{T2}) where {T<:VTypes, T2<:VTypes} = solve(CHOLMOD_A, L, B)
-# Explicit typevars are necessary to avoid ambiguities with defs in linalg/factorizations.jl
-# Likewise the two following explicit Vector and Matrix defs (rather than a single VecOrMat)
-(\)(L::Factor{T}, B::Vector{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
-(\)(L::Factor{T}, B::Matrix{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
-(\)(L::Factor{T}, B::Adjoint{<:Any, <:Matrix{Complex{T}}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
-(\)(L::Factor{T}, B::Transpose{<:Any, <:Matrix{Complex{T}}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
+# Explicit typevars are necessary to avoid ambiguities with defs in linalg/factorizations.jl.
+# Keep the complex-RHS specializations more specific than the real `Strided*` methods below,
+# including for views (issue #120).
+(\)(L::Factor{T}, B::StridedVector{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
+(\)(L::Factor{T}, B::StridedMatrix{Complex{T}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
+(\)(L::Factor{T}, B::Adjoint{<:Any, <:StridedMatrix{Complex{T}}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
+(\)(L::Factor{T}, B::Transpose{<:Any, <:StridedMatrix{Complex{T}}}) where {T<:VRealTypes} = complex.(L\real(B), L\imag(B))
 
 (\)(L::Factor{T}, b::StridedVector) where {T<:VTypes} = Vector(L\Dense{T}(b))
 (\)(L::Factor{T}, B::StridedMatrix) where {T<:VTypes} = Matrix(L\Dense{T}(B))
@@ -2004,12 +2005,12 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 \(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = parent(adjL); spsolve(CHOLMOD_A, L, B))
 \(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
 
-# Explicit typevars are necessary to avoid ambiguities with defs in LinearAlgebra/factorizations.jl
-# Likewise the two following explicit Vector and Matrix defs (rather than a single VecOrMat)
-(\)(adjL::AdjointFactorization{T,<:Factor}, B::Vector{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
-(\)(adjL::AdjointFactorization{T,<:Factor}, B::Matrix{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
-(\)(adjL::AdjointFactorization{T,<:Factor}, B::Adjoint{<:Any,Matrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
-(\)(adjL::AdjointFactorization{T,<:Factor}, B::Transpose{<:Any,Matrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
+# Explicit typevars are necessary to avoid ambiguities with defs in LinearAlgebra/factorizations.jl.
+# These mirror the `Factor` methods above so complex views are not converted to a real RHS.
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::StridedVector{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::StridedMatrix{Complex{T}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::Adjoint{<:Any,<:StridedMatrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
+(\)(adjL::AdjointFactorization{T,<:Factor}, B::Transpose{<:Any,<:StridedMatrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
 function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, b::StridedVector)
     L = parent(adjL)
     return Vector(solve(CHOLMOD_A, L, Dense(b)))

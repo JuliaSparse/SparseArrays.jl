@@ -170,6 +170,27 @@ Random.seed!(123)
         @test F.PtL' \ y ≈ F \ b
     end
 
+    @testset "real factor solves with complex strided right-hand sides (#120)" begin
+        z = complex.(b, 2b)
+        Z = hcat(z, 2z, 3z)
+        zview = @view z[:]
+        Zview = @view Z[:, 1:2]
+
+        @test chma \ zview ≈ chma \ z
+        @test chma \ Zview ≈ chma \ Z[:, 1:2]
+        @test chma' \ zview ≈ chma' \ z
+        @test chma' \ Zview ≈ chma' \ Z[:, 1:2]
+
+        # The wrapper cases need a square view so the transposed RHS still
+        # has the factor's leading dimension.
+        Zsquare = hcat((j * z for j in 1:n)...)
+        Zsquareview = @view Zsquare[:, 1:n]
+        @test chma \ Zsquareview' ≈ chma \ Matrix(Zsquareview')
+        @test chma \ transpose(Zsquareview) ≈ chma \ Matrix(transpose(Zsquareview))
+        @test chma' \ Zsquareview' ≈ chma' \ Matrix(Zsquareview')
+        @test chma' \ transpose(Zsquareview) ≈ chma' \ Matrix(transpose(Zsquareview))
+    end
+
     @testset "eltype" begin
         @test eltype(Dense(fill(Tv(1.), 3))) == Tv
         @test eltype(A) == Tv
