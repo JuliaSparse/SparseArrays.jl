@@ -455,7 +455,10 @@ end
                 umfpack_report(F)
                 if reuse
                     @test_throws ArgumentError lu!(F, D; reuse_symbolic=reuse)
-                    umfpack_report(F)
+                    # the stale numeric factorization of A has been dropped, so
+                    # anything needing it refactors D against A's symbolic and fails again
+                    @test_throws ArgumentError umfpack_report(F)
+                    @test_throws ArgumentError F\b
                 else
                     lu!(F, D; reuse_symbolic=reuse)
                     umfpack_report(F)
@@ -525,10 +528,20 @@ end
 
 
 @testset "copy should keep the numeric/symbolic by default" begin
-    A = lu(sprandn(10, 10, 0.1) + I)
+    S = sprandn(10, 10, 0.1) + I
+    A = lu(S)
     B = copy(A)
     @test A.numeric === B.numeric
     @test A.symbolic === B.symbolic
+    # refactoring frees the shared numeric (and freeing again is a no-op);
+    # the copy then refactors on demand instead of using freed memory
+    num = A.numeric
+    lu!(A, S)
+    @test num.p == C_NULL
+    UMFPACK.umfpack_free_numeric(num, Float64, Int)
+    @test num.p == C_NULL
+    b = ones(10)
+    @test B \ b ≈ Matrix(S) \ b
 end
 
 
