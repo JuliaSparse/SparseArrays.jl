@@ -119,9 +119,50 @@ struct CHOLMODException <: Exception
     msg::String
 end
 
+# CHOLMOD (and SPQR, which shares the Common) invoke this callback from inside their
+# C/C++ frames. Throwing a Julia exception here would unwind through those frames,
+# skipping their cleanup and leaking every allocation in flight, so the callback only
+# records the message. `check_status` raises the exception from Julia after the ccall
+# has returned. Positive statuses are warnings (e.g. `CHOLMOD_NOT_POSDEF`); CHOLMOD
+# stores them in `Common.status` and callers inspect them there. Only the first error
+# is kept: a failing routine may report follow-up errors while cleaning up (e.g.
+# `cholmod_read_sparse` reports "argument missing" after "indices out of range").
 function error_handler(status::Cint, file::Cstring, line::Cint, message::Cstring)::Cvoid
-    status < 0 && throw(CHOLMODException(unsafe_string(message)))
+    if status < 0
+        tls = task_local_storage()
+        haskey(tls, :cholmod_error_message) || (tls[:cholmod_error_message] = unsafe_string(message))
+    end
     nothing
+end
+
+# Throw `CHOLMODException` if the last CHOLMOD/SPQR call through `common` failed.
+# The status is reset so that a stale error cannot fire on a subsequent call.
+function check_status(common::Base.RefValue{cholmod_common})
+    if common[].status < 0
+        common[].status = CHOLMOD_OK
+        msg = pop!(task_local_storage(), :cholmod_error_message, "CHOLMOD error")::String
+        throw(CHOLMODException(msg))
+    end
+    return nothing
+end
+
+# Evaluate a call whose `getcommon(...)` argument identifies the Common in use and
+# run `check_status` on that Common once the call has returned.
+macro checked(ex)
+    Meta.isexpr(ex, :call) || error("@checked expects a function call, got $ex")
+    isgetcommon(a) = Meta.isexpr(a, :call) &&
+        (a.args[1] === :getcommon || a.args[1] == :(CHOLMOD.getcommon))
+    i = findlast(isgetcommon, ex.args)
+    i === nothing && error("@checked: no `getcommon(...)` argument in $ex")
+    common, result = gensym(:common), gensym(:result)
+    call = copy(ex)
+    call.args[i] = common
+    return esc(quote
+        local $common = $(ex.args[i])
+        local $result = $call
+        $(GlobalRef(@__MODULE__, :check_status))($common)
+        $result
+    end)
 end
 
 const CHOLMOD_MIN_VERSION = v"2.1.1"
@@ -402,25 +443,25 @@ Factor(FC::FactorComponent) = FC.F
 
 @static if sizeof(Int) == 4
     function allocate_dense(m::Integer, n::Integer, d::Integer, ::Type{Tv}) where {Tv<:VTypes}
-        Dense{Tv}(cholmod_allocate_dense(m, n, d, xdtyp(Tv), getcommon()))
+        Dense{Tv}(@checked cholmod_allocate_dense(m, n, d, xdtyp(Tv), getcommon()))
     end
     function free!(p::Ptr{cholmod_dense})
         cholmod_free_dense(Ref(p), getcommon()) == TRUE
     end
     function zeros(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-        Dense{Tv}(cholmod_zeros(m, n, xdtyp(Tv), getcommon()))
+        Dense{Tv}(@checked cholmod_zeros(m, n, xdtyp(Tv), getcommon()))
     end
     function ones(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-        Dense{Tv}(cholmod_ones(m, n, xdtyp(Tv), getcommon()))
+        Dense{Tv}(@checked cholmod_ones(m, n, xdtyp(Tv), getcommon()))
     end
     function eye(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-        Dense{Tv}(cholmod_eye(m, n, xdtyp(Tv), getcommon()))
+        Dense{Tv}(@checked cholmod_eye(m, n, xdtyp(Tv), getcommon()))
     end
     function copy(A::Dense{Tv}) where Tv<:VTypes
-        Dense{Tv}(cholmod_copy_dense(A, getcommon()))
+        Dense{Tv}(@checked cholmod_copy_dense(A, getcommon()))
     end
     function check_dense(A::Dense{Tv}) where Tv<:VTypes
-        cholmod_check_dense(pointer(A), getcommon()) != 0
+        (@checked cholmod_check_dense(pointer(A), getcommon())) != 0
     end
     function norm_dense(D::Dense{Tv}, p::Integer) where Tv<:VTypes
         s = unsafe_load(pointer(D))
@@ -431,29 +472,29 @@ Factor(FC::FactorComponent) = FC.F
         elseif p != 0 && p != 1
             throw(ArgumentError("second argument must be either 0 (Inf norm), 1, or 2"))
         end
-        cholmod_norm_dense(D, p, getcommon())
+        @checked cholmod_norm_dense(D, p, getcommon())
     end
 else
     function allocate_dense(m::Integer, n::Integer, d::Integer, ::Type{Tv}) where {Tv<:VTypes}
-        Dense{Tv}(cholmod_l_allocate_dense(m, n, d, xdtyp(Tv), getcommon()))
+        Dense{Tv}(@checked cholmod_l_allocate_dense(m, n, d, xdtyp(Tv), getcommon()))
     end
     function free!(p::Ptr{cholmod_dense})
         cholmod_l_free_dense(Ref(p), getcommon()) == TRUE
     end
     function zeros(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-        Dense{Tv}(cholmod_l_zeros(m, n, xdtyp(Tv), getcommon()))
+        Dense{Tv}(@checked cholmod_l_zeros(m, n, xdtyp(Tv), getcommon()))
     end
     function ones(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-        Dense{Tv}(cholmod_l_ones(m, n, xdtyp(Tv), getcommon()))
+        Dense{Tv}(@checked cholmod_l_ones(m, n, xdtyp(Tv), getcommon()))
     end
     function eye(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
-        Dense{Tv}(cholmod_l_eye(m, n, xdtyp(Tv), getcommon()))
+        Dense{Tv}(@checked cholmod_l_eye(m, n, xdtyp(Tv), getcommon()))
     end
     function copy(A::Dense{Tv}) where Tv<:VTypes
-        Dense{Tv}(cholmod_l_copy_dense(A, getcommon()))
+        Dense{Tv}(@checked cholmod_l_copy_dense(A, getcommon()))
     end
     function check_dense(A::Dense{Tv}) where Tv<:VTypes
-        cholmod_l_check_dense(pointer(A), getcommon()) != 0
+        (@checked cholmod_l_check_dense(pointer(A), getcommon())) != 0
     end
 
     function norm_dense(D::Dense{Tv}, p::Integer) where Tv<:VTypes
@@ -465,7 +506,7 @@ else
         elseif p != 0 && p != 1
             throw(ArgumentError("second argument must be either 0 (Inf norm), 1, or 2"))
         end
-        cholmod_l_norm_dense(D, p, getcommon())
+        @checked cholmod_l_norm_dense(D, p, getcommon())
     end
 end
 
@@ -538,12 +579,12 @@ for TI ∈ IndexTypes
     typedpointer(x::Factor{<:Any, $TI}) = Ptr{$(cholname(:factor_struct_typed, TI))}(pointer(x))
 
     function sort!(S::Sparse{<:VTypes, $TI})
-        $(cholname(:sort, TI))(S, getcommon($TI))
+        @checked $(cholname(:sort, TI))(S, getcommon($TI))
         return S
     end
     function allocate_sparse(nrow::Integer, ncol::Integer, nzmax::Integer,
         sorted::Bool, packed::Bool, stype::Integer, ::Type{Tv}, ::Type{$TI}) where {Tv<:VTypes}
-        Sparse{Tv, $TI}($(cholname(:allocate_sparse, TI))(nrow, ncol, nzmax, sorted,
+        Sparse{Tv, $TI}(@checked $(cholname(:allocate_sparse, TI))(nrow, ncol, nzmax, sorted,
             packed, stype, xdtyp(Tv), getcommon($TI)))
     end
     function free!(ptr::Ptr{cholmod_sparse}, ::Type{$TI})
@@ -561,70 +602,70 @@ for TI ∈ IndexTypes
         $(cholname(:free_dense, TI))(Ref(ptr), getcommon($TI)) == TRUE
     end
     function aat(A::Sparse{Tv, $TI}, fset::Vector{<:Integer}, mode::Integer) where Tv<:VRealTypes
-        Sparse{Tv, $TI}($(cholname(:aat, TI))(A, convert(Vector{$TI}, fset), length(fset), mode, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:aat, TI))(A, convert(Vector{$TI}, fset), length(fset), mode, getcommon($TI)))
     end
 
     function sparse_to_dense(A::Sparse{Tv, $TI}) where Tv<:VTypes
-        Dense{Tv}($(cholname(:sparse_to_dense, TI))(A, getcommon($TI)))
+        Dense{Tv}(@checked $(cholname(:sparse_to_dense, TI))(A, getcommon($TI)))
     end
     function dense_to_sparse(D::Dense{Tv}, ::Type{$TI}) where Tv<:VTypes
-        Sparse{Tv, $TI}($(cholname(:dense_to_sparse, TI))(D, true, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:dense_to_sparse, TI))(D, true, getcommon($TI)))
     end
 
     function factor_to_sparse!(F::Factor{Tv, $TI}) where Tv<:VTypes
         ss = unsafe_load(pointer(F))
         ss.xtype == CHOLMOD_PATTERN && throw(CHOLMODException("only numeric factors are supported"))
-        Sparse{Tv, $TI}($(cholname(:factor_to_sparse, TI))(F, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:factor_to_sparse, TI))(F, getcommon($TI)))
     end
     # changing single <=> double precision is not supported
     function change_factor!(F::Factor{Tv, $TI}, to_ll::Bool, to_super::Bool, to_packed::Bool,
         to_monotonic::Bool) where Tv<:VTypes
-        $(cholname(:change_factor, TI))(xtyp(Tv), to_ll, to_super, to_packed, to_monotonic, F, getcommon($TI)) == TRUE
+        (@checked $(cholname(:change_factor, TI))(xtyp(Tv), to_ll, to_super, to_packed, to_monotonic, F, getcommon($TI))) == TRUE
     end
     function check_sparse(A::Sparse{Tv, $TI}) where Tv<:VTypes
-        $(cholname(:check_sparse, TI))(A, getcommon($TI)) != 0
+        (@checked $(cholname(:check_sparse, TI))(A, getcommon($TI))) != 0
     end
 
     function check_factor(F::Factor{Tv, $TI}) where Tv<:VTypes
-        $(cholname(:check_factor, TI))(F, getcommon($TI)) != 0
+        (@checked $(cholname(:check_factor, TI))(F, getcommon($TI))) != 0
     end
     function rcond(F::Factor{Tv, $TI}) where Tv<:VTypes
-        $(cholname(:rcond, TI))(F, getcommon($TI))
+        @checked $(cholname(:rcond, TI))(F, getcommon($TI))
     end
-    nnz(A::Sparse{<:VTypes, $TI}) = $(cholname(:nnz, TI))(A, getcommon($TI))
+    nnz(A::Sparse{<:VTypes, $TI}) = @checked $(cholname(:nnz, TI))(A, getcommon($TI))
 
     function speye(m::Integer, n::Integer, ::Type{Tv}, ::Type{$TI}) where Tv<:VTypes
-        Sparse{Tv, $TI}($(cholname(:speye, TI))(m, n, xdtyp(Tv), getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:speye, TI))(m, n, xdtyp(Tv), getcommon($TI)))
     end
 
     function spzeros(m::Integer, n::Integer, nzmax::Integer, ::Type{Tv}, ::Type{$TI}) where Tv<:VTypes
-        Sparse{Tv, $TI}($(cholname(:spzeros, TI))(m, n, nzmax, xdtyp(Tv), getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:spzeros, TI))(m, n, nzmax, xdtyp(Tv), getcommon($TI)))
     end
 
     function transpose_(A::Sparse{Tv, $TI}, values::Integer) where Tv<:VTypes
-        Sparse{Tv, $TI}($(cholname(:transpose, TI))(A, values, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:transpose, TI))(A, values, getcommon($TI)))
     end
 
     function copy(F::Factor{Tv, $TI}) where Tv<:VTypes
-        Factor{Tv, $TI}($(cholname(:copy_factor, TI))(F, getcommon($TI)))
+        Factor{Tv, $TI}(@checked $(cholname(:copy_factor, TI))(F, getcommon($TI)))
     end
     function copy(A::Sparse{Tv, $TI}) where Tv<:VTypes
-        Sparse{Tv, $TI}($(cholname(:copy_sparse, TI))(A, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:copy_sparse, TI))(A, getcommon($TI)))
     end
     function copy(A::Sparse{Tv, $TI}, stype::Integer, mode::Integer) where Tv<:VRealTypes
-        Sparse{Tv, $TI}($(cholname(:copy, TI))(A, stype, mode, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:copy, TI))(A, stype, mode, getcommon($TI)))
     end
 
     function print_sparse(A::Sparse{Tv, $TI}, name::String) where Tv<:VTypes
         isascii(name) || error("non-ASCII name: $name")
         @cholmod_param print = 3 begin
-            $(cholname(:print_sparse, TI))(A, name, getcommon($TI))
+            @checked $(cholname(:print_sparse, TI))(A, name, getcommon($TI))
         end
         nothing
     end
     function print_factor(F::Factor{Tv, $TI}, name::String) where Tv<:VTypes
         @cholmod_param print = 3 begin
-            $(cholname(:print_factor, TI))(F, name, getcommon($TI))
+            @checked $(cholname(:print_factor, TI))(F, name, getcommon($TI))
         end
         nothing
     end
@@ -636,18 +677,18 @@ for TI ∈ IndexTypes
         if lA.ncol != lB.nrow
             throw(DimensionMismatch("inner matrix dimensions do not fit"))
         end
-        return Sparse{Tv, $TI}($(cholname(:ssmult, TI))(A, B, stype, values, sorted, getcommon($TI)))
+        return Sparse{Tv, $TI}(@checked $(cholname(:ssmult, TI))(A, B, stype, values, sorted, getcommon($TI)))
     end
 
     function norm_sparse(A::Sparse{Tv, $TI}, norm::Integer) where Tv<:VTypes
         if norm != 0 && norm != 1
             throw(ArgumentError("norm argument must be either 0 or 1"))
         end
-        $(cholname(:norm_sparse, TI))(A, norm, getcommon($TI))
+        @checked $(cholname(:norm_sparse, TI))(A, norm, getcommon($TI))
     end
 
     function horzcat(A::Sparse{Tv, $TI}, B::Sparse{Tv, $TI}, values::Bool) where Tv<:VRealTypes
-        Sparse{Tv, $TI}($(cholname(:horzcat, TI))(A, B, values, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:horzcat, TI))(A, B, values, getcommon($TI)))
     end
 
     function scale!(S::Dense{Tv}, scale::Integer, A::Sparse{Tv, $TI}) where Tv<:VTypes
@@ -674,7 +715,7 @@ for TI ∈ IndexTypes
         end
 
         sA = unsafe_load(pointer(A))
-        $(cholname(:scale, TI))(S, scale, A, getcommon($TI))
+        @checked $(cholname(:scale, TI))(S, scale, A, getcommon($TI))
         return A
     end
 
@@ -686,12 +727,12 @@ for TI ∈ IndexTypes
         if nc != size(X, 1)
             throw(DimensionMismatch("incompatible dimensions, $nc and $(size(X,1))"))
         end
-        $(cholname(:sdmult, TI))(A, transpose, [real(α), imag(α)], [real(β), imag(β)], X, Y, getcommon($TI))
+        @checked $(cholname(:sdmult, TI))(A, transpose, [real(α), imag(α)], [real(β), imag(β)], X, Y, getcommon($TI))
         Y
     end
 
     function vertcat(A::Sparse{Tv, $TI}, B::Sparse{Tv, $TI}, values::Bool) where Tv<:VRealTypes
-        Sparse{Tv, $TI}($(cholname(:vertcat, TI))(A, B, values, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:vertcat, TI))(A, B, values, getcommon($TI)))
     end
 
     function symmetry(A::Sparse{Tv, $TI}, option::Integer) where Tv<:VTypes
@@ -699,7 +740,7 @@ for TI ∈ IndexTypes
         pmatched = Ref{$TI}()
         nzoffdiag = Ref{$TI}()
         nzdiag = Ref{$TI}()
-        rv = $(cholname(:symmetry, TI))(A, option, xmatched, pmatched,
+        rv = @checked $(cholname(:symmetry, TI))(A, option, xmatched, pmatched,
                                 nzoffdiag, nzdiag, getcommon($TI))
         rv, xmatched[], pmatched[], nzoffdiag[], nzdiag[]
     end
@@ -707,20 +748,20 @@ for TI ∈ IndexTypes
     # For analyze, analyze_p, and factorize_p!, the Common argument must be
     # supplied in order to control if the factorization is LLt or LDLt
     function analyze(A::Sparse{Tv, $TI}) where Tv<:VTypes
-        return Factor{Tv, $TI}($(cholname(:analyze, TI))(A, getcommon($TI)))
+        return Factor{Tv, $TI}(@checked $(cholname(:analyze, TI))(A, getcommon($TI)))
     end
     function analyze_p(A::Sparse{Tv, $TI}, perm::Vector{$TI}) where Tv<:VTypes
         length(perm) != size(A,1) && throw(BoundsError())
-        Factor{Tv, $TI}($(cholname(:analyze_p, TI))(A, perm, C_NULL, 0, getcommon($TI)))
+        Factor{Tv, $TI}(@checked $(cholname(:analyze_p, TI))(A, perm, C_NULL, 0, getcommon($TI)))
     end
     function factorize!(A::Sparse{Tv, $TI}, F::Factor{Tv, $TI}) where Tv<:VTypes
-        $(cholname(:factorize, TI))(A, F, getcommon($TI))
+        @checked $(cholname(:factorize, TI))(A, F, getcommon($TI))
         return F
     end
     function factorize_p!(A::Sparse{Tv, $TI}, β::Real, F::Factor{Tv, $TI}) where Tv<:VTypes
         # note that β is passed as a complex number (double beta[2]),
         # but the CHOLMOD manual says that only beta[0] (real part) is used
-        $(cholname(:factorize_p, TI))(A, Float64[β, 0], C_NULL, 0, F, getcommon($TI))
+        @checked $(cholname(:factorize_p, TI))(A, Float64[β, 0], C_NULL, 0, F, getcommon($TI))
         return F
     end
 
@@ -737,7 +778,7 @@ for TI ∈ IndexTypes
                 throw(LinearAlgebra.ZeroPivotException(s.minor))
             end
         end
-        Dense{Tv}($(cholname(:solve, TI))(sys, F, B, getcommon($TI)))
+        Dense{Tv}(@checked $(cholname(:solve, TI))(sys, F, B, getcommon($TI)))
     end
 
     function spsolve(sys::Integer, F::Factor{Tv, $TI}, B::Sparse{Tv, $TI}) where Tv<:VTypes
@@ -745,15 +786,15 @@ for TI ∈ IndexTypes
             throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
                 "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
         end
-        Sparse{Tv, $TI}($(cholname(:spsolve, TI))(sys, F, B, getcommon($TI)))
+        Sparse{Tv, $TI}(@checked $(cholname(:spsolve, TI))(sys, F, B, getcommon($TI)))
     end
     # Autodetects the types
     # TODO: does this need another Sparse method to autodetect index type?
     function read_sparse(file::Libc.FILE, ::Type{$TI})
-        Sparse($(cholname(:read_sparse, TI))(file.ptr, getcommon($TI)))
+        Sparse(@checked $(cholname(:read_sparse, TI))(file.ptr, getcommon($TI)))
     end
     function read_sparse(file::Libc.FILE, ::Type{Tv}, ::Type{$TI}) where Tv
-        Sparse($(cholname(:read_sparse2, TI))(file.ptr, dtyp(Tv), getcommon($TI)))
+        Sparse(@checked $(cholname(:read_sparse2, TI))(file.ptr, dtyp(Tv), getcommon($TI)))
     end
     function lowrankupdowndate!(F::Factor{Tv, $TI}, C::Sparse{Tv, $TI}, update::Cint) where Tv<:VTypes
         lF = unsafe_load(pointer(F))
@@ -761,26 +802,26 @@ for TI ∈ IndexTypes
         if lF.n != lC.nrow
             throw(DimensionMismatch("matrix dimensions do not fit"))
         end
-        $(cholname(:updown, TI))(update, C, F, getcommon($TI))
+        @checked $(cholname(:updown, TI))(update, C, F, getcommon($TI))
         return F
     end
     # TODO: Change these to new methods in CHOLMOD v5.2 when available.
     # As this currently double copies.
     function change_xdtype(A::Sparse{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
-        s = $(cholname(:copy_sparse, TI))(A, getcommon($TI))
+        s = @checked $(cholname(:copy_sparse, TI))(A, getcommon($TI))
         try
-            $(cholname(:sparse_xtype, TI))(xdtyp(Tnew), s, getcommon($TI))
+            @checked $(cholname(:sparse_xtype, TI))(xdtyp(Tnew), s, getcommon($TI))
         catch
-            # the error handler may throw from inside CHOLMOD; don't leak the copy
+            # @checked throws on a CHOLMOD error status; don't leak the copy
             free!(s, $TI)
             rethrow()
         end
         return Sparse{Tnew, $TI}(s)
     end
     function change_xdtype(F::Factor{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
-        c = $(cholname(:copy_factor, TI))(F, getcommon($TI))
+        c = @checked $(cholname(:copy_factor, TI))(F, getcommon($TI))
         try
-            $(cholname(:factor_xtype, TI))(xdtyp(Tnew), c, getcommon($TI))
+            @checked $(cholname(:factor_xtype, TI))(xdtyp(Tnew), c, getcommon($TI))
         catch
             free!(c, $TI)
             rethrow()
@@ -2088,7 +2129,7 @@ for TI in IndexTypes
             X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
             Bptr = _setup_bptr(b, getfield(L, :dense_b))
             status = GC.@preserve x b L begin
-                $(cholname(:solve2, TI))(
+                @checked $(cholname(:solve2, TI))(
                     CHOLMOD_A, L,
                     Bptr, C_NULL,
                     X, C_NULL,
