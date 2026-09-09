@@ -439,6 +439,11 @@ end
     @test CHOLMOD.norm_dense(bDense, 2) ≈ norm(b)
     @test CHOLMOD.check_dense(bDense)
 
+    S = sparse(A)
+    @test SparseMatrixCSC(ADense)::SparseMatrixCSC{elty, Int} == S
+    @test SparseMatrixCSC{elty}(ADense)::SparseMatrixCSC{elty, Int} == S
+    @test SparseMatrixCSC{elty, Int32}(ADense)::SparseMatrixCSC{elty, Int32} == S
+
     AA = CHOLMOD.eye(3, Tv)
     unsafe_store!(convert(Ptr{Csize_t}, pointer(AA)), 2, 1) # change size, but not stride, of Dense
     @test convert(Matrix, AA) == Matrix(I, 2, 3)

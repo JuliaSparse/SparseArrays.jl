@@ -1271,8 +1271,8 @@ end
 _sparse(x::Number) = sparsevec([1], [x], 1)
 _sparse(A) = _makesparse(A)
 _makesparse(x::Number) = x
-_makesparse(x::AbstractVector) = convert(SparseVector, issparse(x) ? x : sparse(x))::SparseVector
-_makesparse(x::AbstractMatrix) = convert(SparseMatrixCSC, issparse(x) ? x : sparse(x))::SparseMatrixCSC
+_makesparse(x::AbstractVector) = convert(SparseVector, x)::SparseVector
+_makesparse(x::AbstractMatrix) = convert(SparseMatrixCSC, x)::SparseMatrixCSC
 anysparse() = false
 anysparse(X) = X isa AbstractArray && issparse(X)
 anysparse(X, Xs...) = anysparse(X) || anysparse(Xs...)

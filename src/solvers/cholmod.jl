@@ -1144,6 +1144,21 @@ function SparseMatrixCSC{Tv,Ti}(A::Sparse{Tv, Ti}) where {Tv, Ti<:ITypes}
 end
 SparseMatrixCSC(A::Sparse{Tv, Ti}) where {Tv, Ti} = SparseMatrixCSC{Tv, Ti}(A)
 
+# Wrap the CHOLMOD buffer as a strided `Array` so that the fast `StridedMatrix`
+# constructor is used, instead of reading every entry through the slow
+# bounds-checked `getindex` on `Dense`.
+SparseMatrixCSC(D::Dense{Tv}) where {Tv} = SparseMatrixCSC{Tv, Int}(D)
+SparseMatrixCSC{Tv}(D::Dense) where {Tv} = SparseMatrixCSC{Tv, Int}(D)
+function SparseMatrixCSC{Tv, Ti}(D::Dense{Td}) where {Tv, Ti, Td}
+    s = unsafe_load(pointer(D))
+    nrow, ncol, d = Int(s.nrow), Int(s.ncol), Int(s.d)
+    GC.@preserve D begin
+        buf = unsafe_wrap(Array, Ptr{Td}(s.x), (d, ncol); own = false)
+        M = d == nrow ? buf : view(buf, 1:nrow, :)
+        return SparseMatrixCSC{Tv, Ti}(M)
+    end
+end
+
 function Symmetric{Tv,SparseMatrixCSC{Tv,Ti}}(A::Sparse{Tv, Ti}) where {Tv<:VRealTypes, Ti<:ITypes}
     s = unsafe_load(typedpointer(A))
     issymmetric(A) || throw(ArgumentError("matrix is not symmetric"))
@@ -1205,7 +1220,7 @@ function sparse(F::Factor)
     A
 end
 
-sparse(D::Dense) = sparse(Sparse(D))
+sparse(D::Dense) = SparseMatrixCSC(D)
 
 function sparse(FC::FactorComponent{Tv,:L}) where Tv
     F = Factor(FC)
