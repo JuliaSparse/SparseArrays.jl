@@ -369,7 +369,7 @@ end
         end
     end
 
-    @testset "rcond (#118) for $Tv, $Ti" for Tv in (Float64, ComplexF64), Ti in (Int32, Int64)
+    @testset "rcond (#118) for $Tv, $Ti" for Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
         # the number is min/max of |diag(U)| of the row-scaled matrix UMFPACK factorized
         F = lu(SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 3; 0 1])))
         @test UMFPACK.rcond(F) === 0.25
