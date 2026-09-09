@@ -435,6 +435,34 @@ end
     @test A .+ ntuple(identity, N) isa Matrix
 end
 
+@testset "broadcast[!] over views of dense and sparse arrays (#508)" begin
+    N, p = 10, 0.4
+    V = sprand(N, p)
+    A = sprand(N, N, p)
+    Z = copy(A)
+    C = rand(N)
+    M = rand(N, N)
+    # views of dense arrays should not force a dense result
+    for X in (view(M, :, :), view(M, 1:N, 1:N), view(M, collect(1:N), :), view(M, :, :)')
+        fX = Array(X)
+        @test broadcast(+, A, X)::SparseMatrixCSC == sparse(broadcast(+, Array(A), fX))
+        @test broadcast(*, A, X)::SparseMatrixCSC == sparse(broadcast(*, Array(A), fX))
+        @test broadcast!(*, Z, A, X) == sparse(broadcast(*, Array(A), fX))
+        # the structural zeros of A must be preserved by a zero-preserving op
+        @test nnz(broadcast(*, A, X)) <= nnz(A)
+    end
+    for x in (view(C, :), view(C, 1:N), view(C, collect(1:N)))
+        @test broadcast(*, V, x)::SparseVector == sparse(broadcast(*, Array(V), Array(x)))
+        @test nnz(broadcast(*, V, x)) <= nnz(V)
+    end
+    # views of sparse arrays likewise
+    S = sprand(N, 2N, p)
+    @test broadcast(*, A, view(S, :, 1:N))::SparseMatrixCSC ==
+        sparse(broadcast(*, Array(A), Array(S[:, 1:N])))
+    # a view of an unsupported array still diverts to generic dense broadcast
+    @test broadcast(*, A, view(PermutedDimsArray(M, (2, 1)), :, :)) isa Matrix
+end
+
 @testset "map[!] over combinations of sparse and structured matrices" begin
     N, p = 10, 0.4
     A = sprand(N, N, p)

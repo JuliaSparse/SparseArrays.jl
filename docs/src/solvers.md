@@ -29,8 +29,10 @@ SparseArrays.CHOLMOD.lowrankdowndate
 SparseArrays.CHOLMOD.lowrankdowndate!
 SparseArrays.CHOLMOD.lowrankupdowndate!
 SparseArrays.CHOLMOD.ldlt
+SparseArrays.CHOLMOD.rcond
 SparseArrays.SPQR.qr
 SparseArrays.UMFPACK.lu
+SparseArrays.UMFPACK.rcond
 ```
 
 ```@meta

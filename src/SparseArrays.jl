@@ -11,18 +11,18 @@ using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
     AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, MulAddMul,
-    UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, @stable_muladdmul
+    UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, @stable_muladdmul, isbanded
 
 
 import Base: +, -, *, \, /, ==, zero
 import Base: Matrix, Vector
 import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
-    issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isbanded, isdiag,
-    cond, diagm, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu,
+    issymmetric, istril, istriu, lu, tr, transpose!, tril!, triu!, isdiag,
+    cond, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu,
     matop_dest, copytrito!, nonzeroinds
 
 import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Complex,
-    conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin,
+    conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin, findnext, findprev,
     float, getindex, imag, inv, kron, kron!, length, map, maximum, minimum, permute!, real,
     rot180, rotl90, rotr90, setindex!, show, similar, size, sum, transpose,
     vcat, hcat, hvcat, cat, vec, reverse, reverse!

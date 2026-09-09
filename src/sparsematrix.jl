@@ -254,7 +254,7 @@ julia> nonzeros(A)
 ```
 """
 nonzeros(S::SorF) = getfield(S, :nzval)
-nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(S.parent)
+nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(parent(S))
 nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 
@@ -282,7 +282,7 @@ julia> rowvals(A)
 ```
 """
 rowvals(S::SorF) = getfield(S, :rowval)
-rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(S.parent)
+rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
 rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 
@@ -309,7 +309,7 @@ of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
     Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
 Base.@propagate_inbounds nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
-Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(S.parent, S.indices[2][col])
+Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(parent(S), S.indices[2][col])
 nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangeup(S.data, i)
 nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangelo(S.data, i)
 
@@ -380,7 +380,7 @@ end
 function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
     _checkbuffers(_S)
     # can't use `findnz`, because that expects all values not to be #undef
-    S = _S isa Adjoint || _S isa Transpose ? _S.parent : _S
+    S = _S isa Adjoint || _S isa Transpose ? parent(_S) : _S
     I = rowvals(S)
     K = nonzeros(S)
     m, n = size(S)
@@ -1472,9 +1472,9 @@ end
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)
 transpose(A::AbstractSparseMatrixCSC) = Transpose(A)
 Base.copy(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(A.parent, x -> adjoint(copy(x)), eltype(A))
+    ftranspose(parent(A), x -> adjoint(copy(x)), eltype(A))
 Base.copy(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(A.parent, x -> transpose(copy(x)), eltype(A))
+    ftranspose(parent(A), x -> transpose(copy(x)), eltype(A))
 function Base.permutedims(A::AbstractSparseMatrixCSC, (a,b))
     (a, b) == (2, 1) && return ftranspose(A, identity)
     (a, b) == (1, 2) && return copy(A)
@@ -1776,6 +1776,64 @@ function permute(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer}
     _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, getcolptr(X))
     unchecked_noalias_permute!(X, A, p, q, C)
 end
+
+## Sorting
+
+#sorting TODO: integrate with `Base.Sort.IEEEFloatOptimization`'s partitioning by zero
+searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
+    rev::Union{Bool,Nothing}=nothing, order::Base.Order.Ordering=Forward, kws...) =
+        searchsortedfirst(v, x, Base.Order.ord(lt,by,rev,order))
+
+"""
+Sort the stored entries of each column of `A` in place, rewriting the row indices so that
+the values sorting before `zero(eltype(A))` end up at the top of their column and the
+remaining values at the bottom, with the structural zeros in between. `nnz(A)` and the
+column pointers are left untouched.
+"""
+function _sortcolumns!(A::AbstractSparseMatrixCSC; kws...)
+    require_one_based_indexing(A)
+    rows = rowvals(A)
+    vals = nonzeros(A)
+    m = size(A, 1)
+    z = zero(eltype(A))
+    for j in axes(A, 2)
+        r = nzrange(A, j)
+        isempty(r) && continue
+        col = view(vals, r)
+        sort!(col; kws...)
+        # `i-1` stored values sort before the structural zeros and `length(r)-i+1` after
+        i = searchsortedfirst_discard_keywords(col, z; kws...)
+        k = first(r)
+        @inbounds for t in 1:i-1
+            rows[k] = t
+            k += 1
+        end
+        @inbounds for t in (m - length(r) + i):m
+            rows[k] = t
+            k += 1
+        end
+    end
+    return A
+end
+
+function Base.sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
+    if dims == 1
+        _sortcolumns!(A; kws...)
+    elseif dims == 2
+        # the rows of `A` are the columns of `transpose(A)`, which is cheap to form and
+        # cheap to transpose back once its columns are sorted
+        At = ftranspose(A, identity)
+        _sortcolumns!(At; kws...)
+        transpose!(A, At)
+    else
+        throw(ArgumentError(lazy"dimension out of range, got dims = $dims, expected 1 or 2"))
+    end
+    return A
+end
+
+# the generic `Base.sort` for matrices goes through `permutedims`/`reshape` and does not
+# return a `SparseMatrixCSC` for `dims = 1`
+Base.sort(A::AbstractSparseMatrixCSC; kws...) = sort!(copy(A); kws...)
 
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
@@ -2101,9 +2159,12 @@ LinearAlgebra.fillstored!(S::AbstractSparseMatrixCSC, x) = (fill!(nzvalview(S), 
     spzeros([type,]m[,n])
 
 Create a sparse vector of length `m` or sparse matrix of size `m x n`. This
-sparse array will not contain any nonzero values. No storage will be allocated
-for nonzero values during construction. The type defaults to [`Float64`](@ref) if not
-specified.
+sparse array will not contain any nonzero values, and no storage is allocated
+for them. The type defaults to [`Float64`](@ref) if not specified.
+
+This does not make the call allocation-free: the empty index and value buffers
+are still allocated, and a matrix additionally allocates a column pointer of
+`n + 1` entries, so an `m x n` matrix uses memory proportional to `n`.
 
 # Examples
 ```jldoctest
@@ -3277,7 +3338,7 @@ function _insert!(v::Vector, pos::Integer, item, nz::Integer)
 end
 
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
-    A = V.parent
+    A = parent(V)
     I, J = V.indices
     if isempty(I) || isempty(J); return A; end
     # lt=≤ to check for strict sorting

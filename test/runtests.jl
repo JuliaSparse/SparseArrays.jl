@@ -9,8 +9,8 @@ testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsevector.jl", "issues.jl"]
 
 if Base.USE_GPL_LIBS
-    append!(testfiles, ["cholmod.jl", "umfpack.jl", "spqr.jl", "linalg.jl",
-                        "linalg_solvers.jl"])
+    append!(testfiles, ["cholmod.jl", "cholmod_ops.jl", "umfpack.jl", "spqr.jl",
+                        "linalg.jl", "linalg_products.jl", "linalg_solvers.jl"])
     if Sys.iswindows() && is_github_actions_ci()
         @warn "Skipping `threads` tests on Windows on GitHub Actions CI"
     else

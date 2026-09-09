@@ -4,6 +4,8 @@ module UMFPACK
 
 export UmfpackLU
 
+public rcond
+
 import Base: (\), getproperty, show, size
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans
@@ -43,6 +45,8 @@ import ..LibSuiteSparse:
     ## Sizes of Control and Info arrays for returning information from solver
     UMFPACK_INFO,
     UMFPACK_CONTROL,
+    # index of the info array in ZERO BASED indexing
+    UMFPACK_RCOND,
     # index of the control arrays in ZERO BASED indexing
     UMFPACK_PRL,
     UMFPACK_DENSE_ROW,
@@ -95,6 +99,7 @@ const JL_UMFPACK_SCALE = UMFPACK_SCALE + 1
 const JL_UMFPACK_FRONT_ALLOC_INIT = UMFPACK_FRONT_ALLOC_INIT + 1
 const JL_UMFPACK_DROPTOL = UMFPACK_DROPTOL + 1
 const JL_UMFPACK_IRSTEP = UMFPACK_IRSTEP + 1
+const JL_UMFPACK_RCOND = UMFPACK_RCOND + 1
 
 struct MatrixIllConditionedException <: Exception
     msg::String
@@ -258,7 +263,7 @@ workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
 const ATLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
-has_refinement(F::ATLU) = has_refinement(F.parent)
+has_refinement(F::ATLU) = has_refinement(parent(F))
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
@@ -272,7 +277,7 @@ end
 UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
         Vector{Ti}(undef, size(F, 2)),
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
-UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
+UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(parent(F), refinement)
 
 # Not using similar helps if the actual needed size has changed as it would need to be resized again
 """
@@ -928,6 +933,42 @@ end
 
 LinearAlgebra.issuccess(lu::UmfpackLU) = lu.status == UMFPACK_OK
 
+"""
+    rcond(F::UmfpackLU) -> Float64
+
+Return UMFPACK's rough estimate of the reciprocal condition number of the
+factorized matrix, computed from the diagonal of the factor alone: the smallest
+entry of `abs.(diag(F.U))` divided by the largest.
+
+This is much cheaper than a norm-based estimate such as `cond(A, 1)`, but also
+much cruder, and it describes the matrix UMFPACK actually factorized rather
+than `A` itself. UMFPACK scales the rows of `A` before factorizing by default
+(see `F.Rs`), so for instance every diagonal matrix reports `1`. Unlike the
+Cholesky-based [`CHOLMOD.rcond`](@ref SparseArrays.CHOLMOD.rcond), the value
+is neither an upper nor a lower bound on `1 / cond(A, 2)`. Use it to detect a
+singular or badly pivoted factorization, not to measure conditioning.
+
+Returns `0` if the matrix is singular, and `1` if the matrix is 1-by-1.
+
+# Examples
+```jldoctest
+julia> F = lu(sparse([1.0 3.0; 0.0 1.0]));
+
+julia> SparseArrays.UMFPACK.rcond(F)
+0.25
+
+julia> minimum(abs, diag(F.U)) / maximum(abs, diag(F.U))
+0.25
+
+julia> SparseArrays.UMFPACK.rcond(lu(sparse([1.0 2.0; 0.0 0.0]); check=false))
+0.0
+```
+"""
+function rcond(F::UmfpackLU)
+    umfpack_numeric!(F)        # ensure the numeric decomposition exists
+    return F.info[JL_UMFPACK_RCOND]
+end
+
 ### Solve with Factorization
 
 ldiv!(lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
@@ -946,15 +987,15 @@ ldiv!(adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOr
 ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
 ldiv!(X::StridedVecOrMat{T}, translu::TransposeFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
+    (lu = parent(translu); _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
 ldiv!(X::StridedVecOrMat{T}, adjlu::AdjointFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
+    (lu = parent(adjlu); _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
 ldiv!(X::StridedVecOrMat{Tb}, translu::TransposeFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
-    (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
+    (lu = parent(translu); _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
 ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
-    (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
+    (lu = parent(adjlu); _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype)
     if size(X, 2) != size(B, 2)

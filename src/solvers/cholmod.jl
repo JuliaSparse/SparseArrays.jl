@@ -29,6 +29,8 @@ export
     Factor,
     Sparse
 
+public rcond
+
 import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spzeros, nnz,
     sparsevec
 
@@ -546,6 +548,9 @@ for TI ∈ IndexTypes
 
     function check_factor(F::Factor{Tv, $TI}) where Tv<:VTypes
         $(cholname(:check_factor, TI))(F, getcommon($TI)) != 0
+    end
+    function rcond(F::Factor{Tv, $TI}) where Tv<:VTypes
+        $(cholname(:rcond, TI))(F, getcommon($TI))
     end
     nnz(A::Sparse{<:VTypes, $TI}) = $(cholname(:nnz, TI))(A, getcommon($TI))
 
@@ -1682,11 +1687,24 @@ To include the effects of permutation, it is typically preferable to extract
 "combined" factors like `PtL = F.PtL` (the equivalent of
 `P'*L`) and `LtP = F.UP` (the equivalent of `L'*P`).
 The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP`.
-The permutation vector is available as `F.p`, defined such that `L*D*L' == A[p, p]`,
+Each one acts as the matrix its name spells out, so that for instance `F.PtL \\ b`
+solves with `P'*L` and `F.LD \\ b` solves with the product `L*D`.
+The permutation vector is available as `F.p`, defined such that `L*D*L' == A[p, p]`.
 
-The `LD` component can be materialized as a sparse matrix using `sparse(F.LD)`,
-Other components cannot be materialized directly, but can be reconstructed from
-`sparse(F.LD)` and `F.p` if needed.
+Of these, only `LD` can be materialized, with `sparse(F.LD)`. Beware that the
+matrix it returns is *not* the product `L*D`: it is CHOLMOD's packed ``LDL'``
+factor, which stores `L` with its unit diagonal overwritten by the diagonal of
+`D`. Solving with it is therefore not the same as solving with `F.LD`. Unpack it
+as
+
+```julia
+LD = sparse(F.LD)
+D = Diagonal(diag(LD))   # equivalently, Diagonal(diag(F))
+L = tril(LD, -1) + I     # unit lower triangular
+```
+
+after which `L*D*L' == A[F.p, F.p]`. The remaining components cannot be
+materialized directly, but can be reconstructed from `L`, `D` and `F.p`.
 
 Unlike the related Cholesky factorization, the ``LDL'`` factorization does not
 require `A` to be positive definite. However, it still requires all leading
@@ -1878,9 +1896,9 @@ end
 (\)(L::Factor, B::SparseVector) = sparsevec(spsolve(CHOLMOD_A, L, Sparse(B)))
 
 # the eltype restriction is necessary for disambiguation with the B::StridedMatrix below
-\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::Dense) = (L = adjL.parent; solve(CHOLMOD_A, L, B))
-\(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = adjL.parent; spsolve(CHOLMOD_A, L, B))
-\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = adjL.parent; \(adjoint(L), Sparse(B)))
+\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::Dense) = (L = parent(adjL); solve(CHOLMOD_A, L, B))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = parent(adjL); spsolve(CHOLMOD_A, L, B))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
 
 # Explicit typevars are necessary to avoid ambiguities with defs in LinearAlgebra/factorizations.jl
 # Likewise the two following explicit Vector and Matrix defs (rather than a single VecOrMat)
@@ -1889,11 +1907,11 @@ end
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::Adjoint{<:Any,Matrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::Transpose{<:Any,Matrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
 function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, b::StridedVector)
-    L = adjL.parent
+    L = parent(adjL)
     return Vector(solve(CHOLMOD_A, L, Dense(b)))
 end
 function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedMatrix)
-    L = adjL.parent
+    L = parent(adjL)
     return Matrix(solve(CHOLMOD_A, L, Dense(B)))
 end
 (\)(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::AdjOrTransAbsMat) = adjL \ copy(B)
@@ -2036,6 +2054,41 @@ function logdet(F::Factor{Tv}) where Tv<:VTypes
 end
 
 det(L::Factor) = exp(logdet(L))
+
+"""
+    rcond(F::CHOLMOD.Factor) -> Float64
+
+Return CHOLMOD's rough estimate of the reciprocal condition number of the
+factorized matrix, computed from the diagonal of the factor alone: the smallest
+entry of `abs.(diag(F))` divided by the largest, squared when `F` is an `LL'`
+factorization so that the result estimates the reciprocal condition number of
+the factorized matrix rather than of its factor.
+
+This is much cheaper than a norm-based estimate such as `cond(A, 1)`, but also
+much cruder. For positive definite `A` it is exact when `A` is diagonal, and
+otherwise an upper bound on `1 / cond(A, 2)`, so it can report a matrix as far
+better conditioned than it is. Use it to detect a badly conditioned or singular
+factorization, not to measure conditioning accurately. The LU counterpart is
+[`UMFPACK.rcond`](@ref SparseArrays.UMFPACK.rcond).
+
+Returns `0` if the matrix is singular or the factor has a zero or `NaN` on its
+diagonal, and `1` if the matrix is 1-by-1. `NaN` is never returned.
+
+# Examples
+```jldoctest
+julia> A = sparse(Diagonal([1.0, 2.0, 4.0]));
+
+julia> SparseArrays.CHOLMOD.rcond(cholesky(A))
+0.25
+
+julia> SparseArrays.CHOLMOD.rcond(ldlt(A))
+0.25
+
+julia> SparseArrays.CHOLMOD.rcond(cholesky(sparse(Diagonal([1.0, 0.0])); check=false))
+0.0
+```
+"""
+rcond
 
 function issuccess(F::Factor)
     s = unsafe_load(pointer(F))
