@@ -295,6 +295,38 @@ end
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
     @test CHOLMOD.free!(p, Ti)
+
+    # Object-level free! must null the wrapper's pointer so that a second
+    # free! (and the finalizer) is a no-op rather than a double free.
+    D = CHOLMOD.Dense(rand(Tv, 3))
+    @test CHOLMOD.free!(D)
+    @test getfield(D, :ptr) == C_NULL
+    @test_throws ArgumentError pointer(D)
+    @test !CHOLMOD.free!(D)
+
+    S = CHOLMOD.Sparse(convert(SparseMatrixCSC{Tv,Ti}, sparse(I, 3, 3)))
+    @test CHOLMOD.free!(S)
+    @test getfield(S, :ptr) == C_NULL
+    @test_throws ArgumentError pointer(S)
+    @test !CHOLMOD.free!(S)
+
+    # A Factor that has been used in ldiv! owns Y/E scratch buffers; free! must
+    # release them and null the handles as well as the factor pointer.
+    A = convert(SparseMatrixCSC{Tv,Ti}, sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    F = cholesky(A)
+    b = fill(Tv(1), 3)
+    ldiv!(similar(b), F, b)
+    # cholmod_solve2 always allocates Y; E is only allocated when needed.
+    @test getfield(F, :Y)[] != C_NULL
+    @test CHOLMOD.free!(F)
+    @test getfield(F, :ptr) == C_NULL
+    @test getfield(F, :Y)[] == C_NULL
+    @test getfield(F, :E)[] == C_NULL
+    @test_throws ArgumentError pointer(F)
+    @test !CHOLMOD.free!(F)
+
+    D = S = F = nothing
+    GC.gc()
 end
 
 @testset "Check common is still in default state" begin
@@ -416,6 +448,39 @@ end
     @test getfield(factor, :Y) !== getfield(factor2, :Y)
 end
 
+@testset "temporaries stay rooted while reading raw pointers $Tv $Ti" begin
+    # The conversions below read through the raw CHOLMOD buffers of a wrapper
+    # that is otherwise dead after `unsafe_load(pointer(A))`. If the wrapper is
+    # not kept rooted, a GC triggered by an allocation during the copy can run
+    # its finalizer and free the buffers mid-read. Not a deterministic
+    # reproducer, but exercises the preserved paths under GC pressure.
+    local S, SPD, Fref
+    S = convert(SparseMatrixCSC{Tv,Ti}, sprand(400, 300, 0.05))
+    SPD = convert(SparseMatrixCSC{Tv,Ti}, S[1:300, :] * S[1:300, :]' + 300I)
+    Fref = cholesky(SPD)
+    for _ in 1:20
+        @test SparseMatrixCSC(CHOLMOD.Sparse(S)) == S
+        GC.gc(false)
+        @test sparse(CHOLMOD.Sparse(S)) == S
+        GC.gc(false)
+        @test sparsevec(CHOLMOD.Sparse(S[:, 1])) == S[:, 1]
+        GC.gc(false)
+        @test sparse(CHOLMOD.Sparse(Symmetric(SPD))) == Symmetric(SPD)
+        GC.gc(false)
+        @test diag(cholesky(SPD)) ≈ diag(Fref)
+        GC.gc(false)
+        @test cholesky(SPD).p == Fref.p
+        GC.gc(false)
+        @test CHOLMOD.get_perm(ldlt(SPD)) == ldlt(SPD).p
+        GC.gc(false)
+        @test CHOLMOD.Sparse(S)[7, 3] == S[7, 3]
+        @test CHOLMOD.Dense(Vector(S[:, 2]))[5] == S[5, 2]
+        GC.gc(false)
+        @test Matrix(CHOLMOD.Dense(Matrix(S[1:20, 1:20]))) == Matrix(S[1:20, 1:20])
+        GC.gc(false)
+    end
+end
+
 end #end for Ti ∈ itypes
 
 for Tv ∈ (Float32, Float64)
@@ -489,6 +554,11 @@ end
 
     @test CHOLMOD.norm_dense(bDense, 2) ≈ norm(b)
     @test CHOLMOD.check_dense(bDense)
+
+    S = sparse(A)
+    @test SparseMatrixCSC(ADense)::SparseMatrixCSC{elty, Int} == S
+    @test SparseMatrixCSC{elty}(ADense)::SparseMatrixCSC{elty, Int} == S
+    @test SparseMatrixCSC{elty, Int32}(ADense)::SparseMatrixCSC{elty, Int32} == S
 
     AA = CHOLMOD.eye(3, Tv)
     unsafe_store!(convert(Ptr{Csize_t}, pointer(AA)), 2, 1) # change size, but not stride, of Dense

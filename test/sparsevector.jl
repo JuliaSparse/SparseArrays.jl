@@ -383,6 +383,20 @@ end
     @test !isequal(spzeros(3), spzeros(4))
 end
 
+@testset "hash matches dense" begin
+    # The stored-entries-only complexity guarantee is checked with an operation-counting
+    # eltype in sparsematrix_ops.jl ("hash walks stored entries only").
+    n = 10^5
+    v = spzeros(n); v[1] = 1
+    w = copy(v); w[2] = 0.0   # explicitly stored zero must not change the hash
+    @test hash(w) == hash(v) && isequal(w, v)
+    for len in (5, 100, 40000), x in (sprand(len, 0.1), sprandn(len, 0.3), spzeros(len))
+        k = min(3, nnz(x)); nonzeros(x)[1:k] .= [NaN, -0.0, 0.0][1:k]
+        @test hash(x) == hash(Vector(x))
+        @test hash(x, UInt(7)) == hash(Vector(x), UInt(7))
+    end
+end
+
 @testset "findall and findnz" begin
     @test findall(!iszero, spv_x1) == findall(!iszero, x1_full)
     @test findall(spv_x1 .> 1) == findall(x1_full .> 1)
@@ -1600,6 +1614,19 @@ end
         @test Vector(sort(x, by=abs)) == sort(Vector(x), by=abs)
         @test Vector(sort(x, by=sign)) == sort(Vector(x), by=sign)
         @test Vector(sort(x, by=inv)) == sort(Vector(x), by=inv)
+    end
+    # the ordering is only evaluated at zero when there are structural zeros to place
+    let x = sparsevec(1:4, [3, 1, -2, 2])
+        @test Vector(sort(x, by = v -> 1 ÷ v)) == sort(Vector(x), by = v -> 1 ÷ v)
+    end
+    # fixed vectors have read-only indices: `sort!` refuses and `sort` copies
+    let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 15), f = SparseArrays.fixed(x)
+        @test_throws ArgumentError sort!(f)
+        @test f == x
+        s = sort(f)
+        @test s isa SparseVector
+        @test Vector(s) == sort(Vector(x))
+        @test f == x
     end
 end
 @testset "fill!" begin

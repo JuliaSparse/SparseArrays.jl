@@ -263,7 +263,7 @@ workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
 const ATLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
-has_refinement(F::ATLU) = has_refinement(F.parent)
+has_refinement(F::ATLU) = has_refinement(parent(F))
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
@@ -277,7 +277,7 @@ end
 UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
         Vector{Ti}(undef, size(F, 2)),
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
-UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(F.parent, refinement)
+UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(parent(F), refinement)
 
 # Not using similar helps if the actual needed size has changed as it would need to be resized again
 """
@@ -987,15 +987,15 @@ ldiv!(adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOr
 ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
 ldiv!(X::StridedVecOrMat{T}, translu::TransposeFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
+    (lu = parent(translu); _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
 ldiv!(X::StridedVecOrMat{T}, adjlu::AdjointFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}) where {T<:UMFVTypes} =
-    (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
+    (lu = parent(adjlu); _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
     _Aq_ldiv_B!(X, lu, B, UMFPACK_A)
 ldiv!(X::StridedVecOrMat{Tb}, translu::TransposeFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
-    (lu = translu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
+    (lu = parent(translu); _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat))
 ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}) where {Tb<:Complex} =
-    (lu = adjlu.parent; _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
+    (lu = parent(adjlu); _Aq_ldiv_B!(X, lu, B, UMFPACK_At))
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype)
     if size(X, 2) != size(B, 2)

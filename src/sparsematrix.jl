@@ -254,7 +254,7 @@ julia> nonzeros(A)
 ```
 """
 nonzeros(S::SorF) = getfield(S, :nzval)
-nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(S.parent)
+nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(parent(S))
 nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 
@@ -282,7 +282,7 @@ julia> rowvals(A)
 ```
 """
 rowvals(S::SorF) = getfield(S, :rowval)
-rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(S.parent)
+rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
 rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 
@@ -309,7 +309,7 @@ of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
     Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
 Base.@propagate_inbounds nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
-Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(S.parent, S.indices[2][col])
+Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(parent(S), S.indices[2][col])
 nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangeup(S.data, i)
 nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangelo(S.data, i)
 
@@ -380,7 +380,7 @@ end
 function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
     _checkbuffers(_S)
     # can't use `findnz`, because that expects all values not to be #undef
-    S = _S isa Adjoint || _S isa Transpose ? _S.parent : _S
+    S = _S isa Adjoint || _S isa Transpose ? parent(_S) : _S
     I = rowvals(S)
     K = nonzeros(S)
     m, n = size(S)
@@ -1472,9 +1472,9 @@ end
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)
 transpose(A::AbstractSparseMatrixCSC) = Transpose(A)
 Base.copy(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(A.parent, x -> adjoint(copy(x)), eltype(A))
+    ftranspose(parent(A), x -> adjoint(copy(x)), eltype(A))
 Base.copy(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(A.parent, x -> transpose(copy(x)), eltype(A))
+    ftranspose(parent(A), x -> transpose(copy(x)), eltype(A))
 function Base.permutedims(A::AbstractSparseMatrixCSC, (a,b))
     (a, b) == (2, 1) && return ftranspose(A, identity)
     (a, b) == (1, 2) && return copy(A)
@@ -1785,38 +1785,23 @@ searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
         searchsortedfirst(v, x, Base.Order.ord(lt,by,rev,order))
 
 """
-Sort the stored entries of each column of `A` in place, rewriting the row indices so that
-the values sorting before `zero(eltype(A))` end up at the top of their column and the
-remaining values at the bottom, with the structural zeros in between. `nnz(A)` and the
-column pointers are left untouched.
-"""
-function _sortcolumns!(A::AbstractSparseMatrixCSC; kws...)
-    require_one_based_indexing(A)
-    rows = rowvals(A)
-    vals = nonzeros(A)
-    m = size(A, 1)
-    z = zero(eltype(A))
-    for j in axes(A, 2)
-        r = nzrange(A, j)
-        isempty(r) && continue
-        col = view(vals, r)
-        sort!(col; kws...)
-        # `i-1` stored values sort before the structural zeros and `length(r)-i+1` after
-        i = searchsortedfirst_discard_keywords(col, z; kws...)
-        k = first(r)
-        @inbounds for t in 1:i-1
-            rows[k] = t
-            k += 1
-        end
-        @inbounds for t in (m - length(r) + i):m
-            rows[k] = t
-            k += 1
-        end
-    end
-    return A
-end
+    sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
 
+Sort `A` in place along dimension `dims`, moving its stored entries to their sorted
+positions without adding new stored entries, so that `nnz(A)` is unchanged. Within each
+column (or row), stored values that compare equal to zero under the ordering are grouped
+after the structural zeros, so the result may differ from the dense `sort!` for orderings
+that do not distinguish stored values from zero (such as `by = iszero`).
+
+`A` may not be a `FixedSparseCSC`, since its row indices are read-only; use
+[`sort`](@ref) instead.
+
+The remaining keyword arguments are those of `sort!` for a `Vector`.
+"""
 function Base.sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
+    if _is_fixed(A)
+        throw(ArgumentError("cannot sort! a FixedSparseCSC in place, its row indices are read-only"))
+    end
     if dims == 1
         _sortcolumns!(A; kws...)
     elseif dims == 2
@@ -1831,9 +1816,31 @@ function Base.sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
     return A
 end
 
-# the generic `Base.sort` for matrices goes through `permutedims`/`reshape` and does not
-# return a `SparseMatrixCSC` for `dims = 1`
-Base.sort(A::AbstractSparseMatrixCSC; kws...) = sort!(copy(A); kws...)
+# each column view is sorted through the sparse vector `sort!`; one scratch buffer is
+# shared between the columns so that Base does not allocate a fresh one per column
+function _sortcolumns!(A::AbstractSparseMatrixCSC; scratch=nothing, kws...)
+    require_one_based_indexing(A)
+    scratch = something(scratch, Vector{eltype(A)}(undef, 0))
+    for j in axes(A, 2)
+        sort!(view(A, :, j); scratch, kws...)
+    end
+    # with no columns there is nothing to sort, but the keywords are still validated
+    size(A, 2) == 0 && sort!(view(nonzeros(A), 1:0); scratch, kws...)
+    return A
+end
+
+"""
+    sort(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
+
+Return a sorted copy of `A` along dimension `dims` as a `SparseMatrixCSC`, keeping only the
+stored entries of `A`. See [`sort!`](@ref) for the treatment of stored values that compare
+equal to zero.
+"""
+Base.sort(A::AbstractSparseMatrixCSC; kws...) =
+    # the generic `Base.sort` for matrices goes through `permutedims`/`reshape` and does
+    # not return a `SparseMatrixCSC` for `dims = 1`; `copy` of a `FixedSparseCSC` shares
+    # its read-only structure, so convert to a writable `SparseMatrixCSC` in that case
+    sort!(_is_fixed(A) ? SparseMatrixCSC(A) : copy(A); kws...)
 
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
@@ -3338,7 +3345,7 @@ function _insert!(v::Vector, pos::Integer, item, nz::Integer)
 end
 
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
-    A = V.parent
+    A = parent(V)
     I, J = V.indices
     if isempty(I) || isempty(J); return A; end
     # lt=≤ to check for strict sorting

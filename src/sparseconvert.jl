@@ -119,7 +119,7 @@ _sparsem(A::SparseMatrixCSCSymmHerm) = _sparsem(A.uplo == 'U' ? nzrangeup : nzra
 _sparsem(A::UpperTriangular{T,<:AbstractSparseMatrix}) where T = triu(A.data)
 _sparsem(A::LowerTriangular{T,<:AbstractSparseMatrix}) where T = tril(A.data)
 # view of sparse matrix
-_sparsem(S::SubArray{<:Any,2,<:AbstractSparseMatrixCSC}) = getindex(S.parent,S.indices...)
+_sparsem(S::SubArray{<:Any,2,<:AbstractSparseMatrixCSC}) = getindex(parent(S),S.indices...)
 
 # 4 cases: (Symmetric|Hermitian) variants (:U|:L)
 function _sparsem(fnzrange::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv}
@@ -219,7 +219,7 @@ end
 # 8 cases: (Transpose|Adjoint){Tv,[Unit](Upper|Lower)Triangular}
 function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparse}) where {Tv}
 
-    sA = taA.parent
+    sA = parent(taA)
     A = sA.data
     rowval = rowvals(A)
     nzval = nonzeros(A)
