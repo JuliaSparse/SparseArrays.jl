@@ -52,7 +52,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = spqr_call(
+    rnk  = CHOLMOD.@checked spqr_call(
         ordering,       # all, except 3:given treated as 0:fixed
         tol,            # columns with 2-norm <= tol treated as 0
         econ,           # e = max(min(m,econ),rank(A))

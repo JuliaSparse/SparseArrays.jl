@@ -261,6 +261,26 @@ end
     unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
+
+# CHOLMOD errors must be raised from Julia after the C call returns, not thrown out of
+# the error callback (which would unwind through CHOLMOD's C frames), and must not
+# leave a stale error status behind in the Common.
+@testset "error status reported after the call $Ti $Tv" begin
+    A = CHOLMOD.Sparse(sparse(Ti[1, 2], Ti[1, 2], Tv[1, 1]))
+    B = CHOLMOD.Sparse(sparse(Ti[1, 2, 3], Ti[1, 2, 3], Tv[1, 1, 1]))
+    # cholmod_horzcat rejects matrices with different numbers of rows
+    err = try
+        CHOLMOD.horzcat(A, B, true)
+        nothing
+    catch e
+        e
+    end
+    @test err isa CHOLMOD.CHOLMODException
+    @test !isempty(err.msg)
+    # the status was reset, so a valid call on the same task works afterwards
+    @test getcommon(Ti)[].status == CHOLMOD.CHOLMOD_OK
+    @test sparse(CHOLMOD.horzcat(A, A, true)) == [1 0 1 0; 0 1 0 1]
+end
 @testset "test free! $Ti" begin
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
