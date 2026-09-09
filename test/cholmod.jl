@@ -265,6 +265,38 @@ end
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
     @test CHOLMOD.free!(p, Ti)
+
+    # Object-level free! must null the wrapper's pointer so that a second
+    # free! (and the finalizer) is a no-op rather than a double free.
+    D = CHOLMOD.Dense(rand(Tv, 3))
+    @test CHOLMOD.free!(D)
+    @test getfield(D, :ptr) == C_NULL
+    @test_throws ArgumentError pointer(D)
+    @test !CHOLMOD.free!(D)
+
+    S = CHOLMOD.Sparse(convert(SparseMatrixCSC{Tv,Ti}, sparse(I, 3, 3)))
+    @test CHOLMOD.free!(S)
+    @test getfield(S, :ptr) == C_NULL
+    @test_throws ArgumentError pointer(S)
+    @test !CHOLMOD.free!(S)
+
+    # A Factor that has been used in ldiv! owns Y/E scratch buffers; free! must
+    # release them and null the handles as well as the factor pointer.
+    A = convert(SparseMatrixCSC{Tv,Ti}, sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    F = cholesky(A)
+    b = fill(Tv(1), 3)
+    ldiv!(similar(b), F, b)
+    # cholmod_solve2 always allocates Y; E is only allocated when needed.
+    @test getfield(F, :Y)[] != C_NULL
+    @test CHOLMOD.free!(F)
+    @test getfield(F, :ptr) == C_NULL
+    @test getfield(F, :Y)[] == C_NULL
+    @test getfield(F, :E)[] == C_NULL
+    @test_throws ArgumentError pointer(F)
+    @test !CHOLMOD.free!(F)
+
+    D = S = F = nothing
+    GC.gc()
 end
 
 @testset "Check common is still in default state" begin
