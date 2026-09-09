@@ -612,6 +612,80 @@ end
     @test B ≈ mapreduce(identity, +, Matrix(A), dims=2)
 end
 
+@testset "reductions along a dimension are sparse (#43)" begin
+    # every reduction with a `zero` for its result returns a sparse matrix of the reduced
+    # shape that agrees with the dense result
+    reductions = (
+        (X; dims) -> sum(X; dims), (X; dims) -> prod(X; dims),
+        (X; dims) -> maximum(X; dims), (X; dims) -> minimum(X; dims),
+        (X; dims) -> sum(abs2, X; dims), (X; dims) -> maximum(abs, X; dims),
+        (X; dims) -> count(x -> x > 0.5, X; dims),
+        (X; dims) -> any(x -> x > 0.5, X; dims), (X; dims) -> all(x -> x >= 0, X; dims),
+        (X; dims) -> mapreduce(x -> x + 1, +, X; dims),   # f(0) != 0: dense result
+        (X; dims) -> prod(x -> x + 1, X; dims),
+        (X; dims) -> sum(X; dims, init = 2.5),
+    )
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (1, 9), (9, 1), (30, 20)),
+                                                 d in (0.0, 0.2, 1.0)
+        A = sprand(m, n, d)
+        M = Matrix(A)
+        for dims in (1, 2, (1, 2), 3), f in reductions
+            rs = f(A; dims)
+            rd = f(M; dims)
+            @test rs isa SparseMatrixCSC
+            @test size(rs) == size(rd)
+            @test Matrix(rs) ≈ rd
+        end
+    end
+    # only rows and columns that store something get an entry, unless the reduction of a
+    # structurally empty slice is nonzero
+    A = sparse([1, 2], [1, 1], [-1.0, 1.0], 4, 3)
+    @test nnz(sum(A; dims = 1)) == 1   # a stored, cancelled zero
+    @test nnz(sum(A; dims = 2)) == 2
+    @test nnz(prod(A; dims = 2)) == 4 && iszero(prod(A; dims = 2))
+    @test nnz(mapreduce(x -> x + 1, +, A; dims = 2)) == 4
+    @test Matrix(sum(A; dims = 2)) == sum(Matrix(A); dims = 2)
+    # stored and negative zeros survive as they do densely
+    A = sparse([1, 3], [2, 2], [0.0, -0.0], 4, 3)
+    @test isequal(Matrix(sum(A; dims = 1)), sum(Matrix(A); dims = 1))
+    @test isequal(Matrix(sum(A; dims = 2)), sum(Matrix(A); dims = 2))
+    # reductions over empty dimensions
+    for (m, n) in ((0, 4), (4, 0), (0, 0)), dims in (1, 2)
+        A = spzeros(m, n)
+        @test sum(A; dims) isa SparseMatrixCSC
+        @test size(sum(A; dims)) == size(sum(Matrix(A); dims))
+        @test Matrix(prod(A; dims)) == prod(Matrix(A); dims)
+    end
+    # results without a zero, such as the tuples of `extrema`, stay dense
+    A = sprand(5, 4, 0.5)
+    @test extrema(A; dims = 1) isa Matrix
+    @test extrema(A; dims = 1) == extrema(Matrix(A); dims = 1)
+    # the index type is kept
+    A = SparseMatrixCSC{Float64,Int32}(sprand(7, 4, 0.4))
+    @test sum(A; dims = 2) isa SparseMatrixCSC{Float64,Int32}
+    @test sum(A; dims = 1) isa SparseMatrixCSC{Float64,Int32}
+    # hypersparse: only the rows that store something are visited, so reducing along the
+    # rows of a tall matrix costs no more than a few hundred bytes beyond the result
+    A = sparse([5, 10^6, 5], [1, 2, 3], [1.0, 2.0, 3.0], 10^6, 3)
+    r = sum(A; dims = 2)
+    @test nnz(r) == 2 && r[5] == 4.0 && r[10^6] == 2.0
+    @test nnz(sum(A; dims = 1)) == 3
+    sum(A; dims = 2)
+    @test (@allocated sum(A; dims = 2)) < 2^12
+    # destinations: `sum!` resets its destination first, as for dense, while
+    # `mapreducedim!` folds into whatever it already stores
+    A = sprand(8, 6, 0.4); M = Matrix(A)
+    @test sum!(zeros(8, 1), A) ≈ sum(M; dims = 2)
+    @test sum!(spzeros(8, 1), A) ≈ sum(M; dims = 2)
+    @test sum!(spzeros(1, 6), A) ≈ sum(M; dims = 1)
+    R = sparse([2], [1], [1.0], 8, 1)   # partially stored
+    @test Base.mapreducedim!(identity, +, R, A) ≈ sum(M; dims = 2) .+ [0; 1; 0; 0; 0; 0; 0; 0]
+    R = sparse(ones(8, 1))              # fully stored
+    @test Base.mapreducedim!(identity, +, R, A) ≈ sum(M; dims = 2) .+ 1
+    R = sparse(ones(1, 6))
+    @test Base.mapreducedim!(identity, +, R, A) ≈ sum(M; dims = 1) .+ 1
+end
+
 @testset "oneunit of sparse matrix" begin
     A = sparse([Second(0) Second(0); Second(0) Second(0)])
     @test oneunit(sprand(2, 2, 0.5)) isa SparseMatrixCSC{Float64}

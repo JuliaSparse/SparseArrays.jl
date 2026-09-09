@@ -673,7 +673,10 @@ end
 end
 
 @testset "Issue #27836" begin
-    @test minimum(sparse([1, 2], [1, 2], ones(Int32, 2)), dims = 1) isa Matrix
+    # the result keeps the reduced eltype (and is sparse, see #43)
+    r = minimum(sparse([1, 2], [1, 2], ones(Int32, 2)), dims = 1)
+    @test r isa SparseMatrixCSC{Int32}
+    @test r == [0 0]
 end
 
 @testset "Issue #30118" begin

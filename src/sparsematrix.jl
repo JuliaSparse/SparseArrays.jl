@@ -2495,11 +2495,20 @@ Base.isequal(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose
 
 ## Reductions
 
-# In general, output of sparse matrix reductions will not be sparse,
-# and computing reductions along columns into SparseMatrixCSC is
-# non-trivial, so use Arrays for output. Array element type is given by `R`.
-function Base.reducedim_initarray(A::AbstractSparseMatrixCSC, region, v0, ::Type{R}) where {R}
-    fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
+# Reductions along a dimension of a sparse matrix return a sparse matrix (issue #43): the
+# result only stores an entry for the rows or columns that store one themselves, unless
+# the reduction of a structurally empty slice is nonzero. The initial array is therefore
+# structurally empty when the initial value is zero, and fully stored otherwise.
+function Base.reducedim_initarray(A::AbstractSparseMatrixCSC{<:Any,Ti}, region, v0, ::Type{R}) where {R,Ti}
+    m, n = Base.to_shape(Base.reduced_indices(A, region))
+    if !applicable(zero, R)
+        # no structural zero for the result, e.g. the tuples of `extrema`: reduce densely
+        return fill!(Array{R}(undef, m, n), v0)
+    elseif isequal(v0, zero(R))
+        return spzeros(R, Ti, m, n)
+    else
+        return SparseMatrixCSC(m, n, Ti[1 + m*j for j in 0:n], repeat(Ti.(1:m), n), fill!(Vector{R}(undef, m*n), v0))
+    end
 end
 
 # General mapreduce
@@ -2563,6 +2572,120 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
         # Bail out early if initial reduction value is zero or if there are no stored elements
         (_iszero(v) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
     end
+end
+
+# Reduction of a sparse matrix into a sparse destination. A fully stored destination is
+# reduced into as the dense array its stored values form; a structurally empty one is
+# filled without touching the slices that store nothing, so the cost stays proportional to
+# the stored entries plus the length of the result; anything in between is rare and goes
+# through the element-wise kernel below.
+function Base._mapreducedim!(f::F, op::G, R::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC{T}) where {F,G,T}
+    require_one_based_indexing(A, R)
+    Base.check_reducedims(R, A)
+    isempty(A) && return R
+    if nnz(R) == length(R)
+        Base._mapreducedim!(f, op, reshape(view(nonzeros(R), 1:nnz(R)), size(R)), A)
+    elseif nnz(R) != 0
+        invoke(Base._mapreducedim!, Tuple{F,G,AbstractArray,AbstractSparseMatrixCSC{T}}, f, op, R, A)
+    elseif size(R) == (1, 1)
+        R[1, 1] = op(zero(eltype(R)), mapreduce(f, op, A))
+    elseif size(R, 1) == 1
+        _mapreducerows_sparse!(f, op, R, A)
+    elseif size(R, 2) == 1
+        _mapreducecols_sparse!(f, op, R, A)
+    else
+        # reduction over a dimension beyond 2: `R` has the shape of `A`
+        copyto!(R, op.(zero(eltype(R)), f.(A)))
+    end
+    return R
+end
+
+# `R` is a structurally empty `1 x n` sparse matrix: its columns are built in order
+function _mapreducerows_sparse!(f, op, R::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC{T}) where T
+    colptr = getcolptr(A)
+    nzval = nonzeros(A)
+    m, n = size(A)
+    z = zero(eltype(R))
+    # the reduction of a column that stores nothing, stored only when it is nonzero
+    zempty = m == 0 ? z : _mapreducezeros(f, op, T, m, z)
+    store_empty = !isequal(zempty, z)
+    Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
+    nstored = store_empty ? n : count(col -> colptr[col+1] > colptr[col], 1:n)
+    resize!(Rrowval, nstored)
+    fill!(Rrowval, 1)
+    resize!(Rnzval, nstored)
+    k = 0
+    @inbounds for col in 1:n
+        rng = colptr[col]:colptr[col+1]-1
+        if isempty(rng)
+            store_empty || (Rcolptr[col+1] = k + 1; continue)
+            v = zempty
+        else
+            r = z
+            @simd for j in rng
+                r = op(r, f(nzval[j]))
+            end
+            v = _mapreducezeros(f, op, T, m - length(rng), r)
+        end
+        k += 1
+        Rnzval[k] = v
+        Rcolptr[col+1] = k + 1
+    end
+    return R
+end
+
+# `R` is a structurally empty `m x 1` sparse matrix. With enough stored entries its value
+# vector serves as a dense workspace of length `m` that is then compressed in place; a
+# hypersparse `A` instead has its stored entries sorted by row so that only the rows storing
+# something are ever visited.
+function _mapreducecols_sparse!(f, op, R::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC{T}) where T
+    m, n = size(A)
+    z = zero(eltype(R))
+    zempty = n == 0 ? z : _mapreducezeros(f, op, T, n, z)
+    store_empty = !isequal(zempty, z)
+    Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
+    resize!(Rrowval, 0)
+    resize!(Rnzval, 0)
+    if store_empty || 8 * nnz(A) >= m
+        resize!(Rnzval, m)
+        fill!(Rnzval, z)
+        _mapreducecols!(f, op, Rnzval, A)
+        resize!(Rrowval, m)
+        if store_empty
+            Rrowval .= 1:m
+        else
+            k = 0
+            @inbounds for i in 1:m
+                w = Rnzval[i]
+                if !isequal(w, z)
+                    k += 1
+                    Rrowval[k] = i
+                    Rnzval[k] = w
+                end
+            end
+            resize!(Rrowval, k)
+            resize!(Rnzval, k)
+        end
+    else
+        rows = view(rowvals(A), 1:nnz(A))
+        vals = view(nonzeros(A), 1:nnz(A))
+        perm = sortperm(rows; alg=Base.Sort.DEFAULT_STABLE)   # keeps each row's entries in column order
+        s = 1
+        @inbounds while s <= length(perm)
+            row = rows[perm[s]]
+            r = op(z, f(vals[perm[s]]))
+            t = s + 1
+            while t <= length(perm) && rows[perm[t]] == row
+                r = op(r, f(vals[perm[t]]))
+                t += 1
+            end
+            push!(Rrowval, row)
+            push!(Rnzval, _mapreducezeros(f, op, T, n - (t - s), r))
+            s = t
+        end
+    end
+    Rcolptr[2] = length(Rnzval) + 1
+    return R
 end
 
 # General mapreducedim
