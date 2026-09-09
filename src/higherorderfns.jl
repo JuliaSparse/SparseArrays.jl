@@ -557,6 +557,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where
     return _checkbuffers(C)
 end
 function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
+    isempty(C) && return _finishempty!(C)
     # For information on this code, see comments in similar code in _broadcast_zeropres! above
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
@@ -760,6 +761,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
     return _checkbuffers(C)
 end
 function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
+    isempty(C) && return _finishempty!(C)
     # For information on this code, see comments in similar code in _broadcast_zeropres! above
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)

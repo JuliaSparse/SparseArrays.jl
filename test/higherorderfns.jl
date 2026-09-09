@@ -573,6 +573,10 @@ end
     @test spzeros(1,0) .* spzeros(2,1) == zeros(2,0)
     @test spzeros(1,2) .+ spzeros(0,1) == zeros(0,2)
     @test spzeros(1,2) .* spzeros(0,1) == zeros(0,2)
+    # a result with no rows must not be densified even when f(0, ...) != 0; the
+    # non-zero-preserving kernels used to build a colptr with a zero step and throw
+    @test ((x, y) -> x + y + 1).(spzeros(1,2), spzeros(0,1)) == fill(1.0, 0, 2)
+    @test broadcast!(x -> x + 1, spzeros(0,2), spzeros(0,1)) == fill(1.0, 0, 2)
 end
 
 @testset "sparse vector broadcast of two arguments" begin
