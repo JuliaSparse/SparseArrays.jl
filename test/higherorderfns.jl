@@ -555,15 +555,14 @@ end
     @test A .^ BF[:,1] == AF .^ BF[:,1]
     @test BF[:,1] .^ A == BF[:,1] .^ AF
 
-    # broadcasting against a dense-ish vector grows the result's storage on demand
-    # instead of preallocating the upper bound on its stored entries, which for these
-    # shapes is the dense size (#47)
+    # broadcasting against a dense-ish vector grows storage on demand instead of
+    # preallocating the bound, which for these shapes is the dense size (#47)
     M, v = sprand(200, 200, 0.01), rand(200)
     @test M .* v == Array(M) .* v   # sparse result
     @test M .* v' == Array(M) .* v'
-    @test M .+ v == Array(M) .+ v   # dense result, so the storage does grow to the bound
+    @test M .+ v == Array(M) .+ v   # dense result: does grow to the bound
     M .* v; M .* v' # warmup for @allocated
-    # preallocating the bound would take at least 200 * 200 * (8 + 8) bytes = 640 KB
+    # the bound would be 200 * 200 * (8 + 8) bytes = 640 KB
     @test @allocated(M .* v) < 2^16
     @test @allocated(M .* v') < 2^16
 
@@ -573,8 +572,7 @@ end
     @test spzeros(1,0) .* spzeros(2,1) == zeros(2,0)
     @test spzeros(1,2) .+ spzeros(0,1) == zeros(0,2)
     @test spzeros(1,2) .* spzeros(0,1) == zeros(0,2)
-    # a result with no rows must not be densified even when f(0, ...) != 0; the
-    # non-zero-preserving kernels used to build a colptr with a zero step and throw
+    # a result with no rows must not be densified, even when f(0, ...) != 0: zero colptr step
     @test ((x, y) -> x + y + 1).(spzeros(1,2), spzeros(0,1)) == fill(1.0, 0, 2)
     @test broadcast!(x -> x + 1, spzeros(0,2), spzeros(0,1)) == fill(1.0, 0, 2)
 end

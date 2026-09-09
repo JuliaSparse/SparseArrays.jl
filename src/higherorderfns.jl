@@ -144,18 +144,12 @@ function expandstorage!(A::SparseVecOrMat, maxstored)
     return maxstored
 end
 
-# Grow the storage of `C` while filling column `j`, `needed` being the index of the
-# entry about to be stored. The new size is the larger of twice the current size and
-# the number of entries the result will have if the remaining columns are as dense as
-# the ones completed so far, capped at `maxstored`, the upper bound on the number of
-# stored entries the result can have. Growing on demand rather than allocating
-# `maxstored` up front matters because the bound is loose: broadcasting a sparse
-# matrix against a dense-ish vector has a bound of the full dense size even though
-# the result is usually no denser than the inputs. Extrapolating from the completed
-# columns (`j - 1` of them, since column `j` is only partly filled) rather than from
-# `j` overestimates rather than underestimates the result, so a result that really is
-# dense reaches `maxstored` in a single step instead of a couple of them.
+# Grow C's storage while filling column `j`, `needed` being the index of the entry about
+# to be stored: double, or extrapolate the density of the completed columns, whichever is
+# larger, capped at `maxstored`. Growing on demand keeps the loose `maxstored` (the dense
+# size, for a sparse matrix against a dense-ish vector) from being allocated up front.
 function _growstorage!(C::SparseVecOrMat, spaceC::Int, needed::Int, j, maxstored)
+    # over `j - 1`, not `j`: column `j` is partial, and overestimating costs fewer regrowths
     extrapolated = cld(widemul(needed, numcols(C)), max(Int(j) - 1, 1))
     return expandstorage!(C, Int(min(maxstored, max(needed, 2 * spaceC, extrapolated))))
 end
@@ -231,10 +225,8 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
     indextypeC = _promote_indtype(A, Bs...)
     entrytypeC = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, (A, Bs...))...))
     shapeC = to_shape(Base.Broadcast.combine_axes(A, Bs...))
-    # In the zero-preserving case the bound `_checked_maxnnzbcres` can be as large as
-    # the dense size (e.g. a sparse matrix against a dense vector), so start from the
-    # combined number of stored entries of the inputs and let the kernels grow the
-    # storage on demand (see `_growstorage!`).
+    # `_checked_maxnnzbcres` can be as large as the dense size, so start from the inputs'
+    # stored entries and let the kernels grow the storage on demand (see `_growstorage!`).
     maxnnzC = fpreszeros ? min(_checked_maxnnzbcres(shapeC, A, Bs...), _sumnnzs(A, Bs...)) :
                            _densennz(shapeC)
     C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
