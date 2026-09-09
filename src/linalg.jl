@@ -37,9 +37,9 @@ end
 
 @inline _fix_size(A::Matrix, nrow, ncol) = _FixedSizeMatrix{'N'}(A.ref, nrow, ncol)
 @inline _fix_size(A::Transpose{<:Any,<:Matrix}, nrow, ncol) =
-    _FixedSizeMatrix{'T'}(A.parent.ref, nrow, ncol)
+    _FixedSizeMatrix{'T'}(parent(A).ref, nrow, ncol)
 @inline _fix_size(A::Adjoint{<:Any,<:Matrix}, nrow, ncol) =
-    _FixedSizeMatrix{'C'}(A.parent.ref, nrow, ncol)
+    _FixedSizeMatrix{'C'}(parent(A).ref, nrow, ncol)
 
 const tilebufsize = 10800  # Approximately 32k/3
 
@@ -2355,7 +2355,7 @@ end
 for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
     @eval begin
         function \(xformA::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::AbstractVecOrMat)
-            A = xformA.parent
+            A = parent(xformA)
             require_one_based_indexing(A, B)
             m, n = size(A)
             if m == n

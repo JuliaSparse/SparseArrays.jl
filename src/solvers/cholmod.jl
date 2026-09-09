@@ -1896,9 +1896,9 @@ end
 (\)(L::Factor, B::SparseVector) = sparsevec(spsolve(CHOLMOD_A, L, Sparse(B)))
 
 # the eltype restriction is necessary for disambiguation with the B::StridedMatrix below
-\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::Dense) = (L = adjL.parent; solve(CHOLMOD_A, L, B))
-\(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = adjL.parent; spsolve(CHOLMOD_A, L, B))
-\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = adjL.parent; \(adjoint(L), Sparse(B)))
+\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::Dense) = (L = parent(adjL); solve(CHOLMOD_A, L, B))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = parent(adjL); spsolve(CHOLMOD_A, L, B))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
 
 # Explicit typevars are necessary to avoid ambiguities with defs in LinearAlgebra/factorizations.jl
 # Likewise the two following explicit Vector and Matrix defs (rather than a single VecOrMat)
@@ -1907,11 +1907,11 @@ end
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::Adjoint{<:Any,Matrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::Transpose{<:Any,Matrix{Complex{T}}}) where {T<:VRealTypes} = complex.(adjL\real(B), adjL\imag(B))
 function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, b::StridedVector)
-    L = adjL.parent
+    L = parent(adjL)
     return Vector(solve(CHOLMOD_A, L, Dense(b)))
 end
 function \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedMatrix)
-    L = adjL.parent
+    L = parent(adjL)
     return Matrix(solve(CHOLMOD_A, L, Dense(B)))
 end
 (\)(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::AdjOrTransAbsMat) = adjL \ copy(B)
