@@ -825,9 +825,13 @@ end
 read_sparse(file::IO, Ti) = read_sparse(file, Float64, Ti)
 
 function get_perm(F::Factor)
-    s = unsafe_load(typedpointer(F))
-    p = unsafe_wrap(Array, s.Perm, s.n, own = false)
-    p .+ 1
+    # `F` must stay rooted while we read through the raw `Perm` pointer;
+    # otherwise the finalizer of a temporary `F` could free it mid-copy.
+    GC.@preserve F begin
+        s = unsafe_load(typedpointer(F))
+        p = unsafe_wrap(Array, s.Perm, s.n, own = false) .+ 1
+    end
+    return p
 end
 get_perm(FC::FactorComponent) = get_perm(Factor(FC))
 
@@ -839,8 +843,10 @@ get_perm(FC::FactorComponent) = get_perm(Factor(FC))
 
 function Dense{T}(A::StridedVecOrMatInclAdjAndTrans) where T<:VTypes
     d = allocate_dense(size(A, 1), size(A, 2), size(A, 1), T)
-    D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(pointer(d)).x), size(A), own = false)
-    copyto!(D, A)
+    GC.@preserve d begin
+        D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(pointer(d)).x), size(A), own = false)
+        copyto!(D, A)
+    end
     return d
 end
 
@@ -1106,10 +1112,18 @@ function Vector{T}(D::Dense{T}) where T
 end
 Vector(D::Dense{T}) where {T} = Vector{T}(D)
 
-function _extract_args(s, ::Type{T}) where {T<:VTypes}
-    return (s.nrow, s.ncol, increment(unsafe_wrap(Array, s.p, (s.ncol + 1,), own = false)),
-        increment(unsafe_wrap(Array, s.i, (s.nzmax,), own = false)),
-        copy(unsafe_wrap(Array, Ptr{T}(s.x), (s.nzmax,), own = false)))
+# Copies the CHOLMOD buffers of `A` into Julia-owned arrays. `A` is kept rooted
+# for the duration of the copies: the wrapper is otherwise dead after
+# `unsafe_load`, so if it is a temporary its finalizer could free the buffers
+# while they are still being read.
+function _extract_args(A::Sparse, ::Type{T}) where {T<:VTypes}
+    GC.@preserve A begin
+        s = unsafe_load(typedpointer(A))
+        args = (s.nrow, s.ncol, increment(unsafe_wrap(Array, s.p, (s.ncol + 1,), own = false)),
+            increment(unsafe_wrap(Array, s.i, (s.nzmax,), own = false)),
+            copy(unsafe_wrap(Array, Ptr{T}(s.x), (s.nzmax,), own = false)))
+    end
+    return args
 end
 
 # Trim extra elements in rowval and nzval left around sometimes by CHOLMOD rutines
@@ -1126,7 +1140,7 @@ function SparseVector{Tv, Ti}(A::Sparse{Tv, Ti}) where {Tv, Ti<:ITypes}
         throw(ArgumentError("matrix has stype != 0. Convert to matrix " *
             "with stype == 0 before converting to SparseVector"))
     end
-    args = _extract_args(s, Tv)
+    args = _extract_args(A, Tv)
     s.sorted == 0 && _sort_buffers!(args...);
     _trim_nz_builder!(args...)
     return SparseVector(args[1], args[4], args[5])
@@ -1138,7 +1152,7 @@ function SparseMatrixCSC{Tv,Ti}(A::Sparse{Tv, Ti}) where {Tv, Ti<:ITypes}
         throw(ArgumentError("matrix has stype != 0. Convert to matrix " *
             "with stype == 0 before converting to SparseMatrixCSC"))
     end
-    args = _extract_args(s, Tv)
+    args = _extract_args(A, Tv)
     s.sorted == 0 && _sort_buffers!(args...);
     return SparseMatrixCSC(_trim_nz_builder!(args...)...)
 end
@@ -1162,7 +1176,7 @@ end
 function Symmetric{Tv,SparseMatrixCSC{Tv,Ti}}(A::Sparse{Tv, Ti}) where {Tv<:VRealTypes, Ti<:ITypes}
     s = unsafe_load(typedpointer(A))
     issymmetric(A) || throw(ArgumentError("matrix is not symmetric"))
-    args = _extract_args(s, Tv)
+    args = _extract_args(A, Tv)
     s.sorted == 0 && _sort_buffers!(args...)
     Symmetric(SparseMatrixCSC(_trim_nz_builder!(args...)...), s.stype > 0 ? :U : :L)
 end
@@ -1171,7 +1185,7 @@ convert(T::Type{Symmetric{Tv,SparseMatrixCSC{Tv,Ti}}}, A::Sparse{Tv, Ti}) where 
 function Hermitian{Tv,SparseMatrixCSC{Tv, Ti}}(A::Sparse{Tv, Ti}) where {Tv<:VTypes, Ti<:ITypes}
     s = unsafe_load(typedpointer(A))
     ishermitian(A) || throw(ArgumentError("matrix is not Hermitian"))
-    args = _extract_args(s, Tv)
+    args = _extract_args(A, Tv)
     s.sorted == 0 && _sort_buffers!(args...)
     Hermitian(SparseMatrixCSC(_trim_nz_builder!(args...)...), s.stype > 0 ? :U : :L)
 end
@@ -1340,35 +1354,41 @@ adjoint(FC::FactorComponent{Tv,:PtLD}) where {Tv} = FactorComponent{Tv,:DUP}(FC.
 adjoint(FC::FactorComponent{Tv,:DUP}) where {Tv} = FactorComponent{Tv,:PtLD}(FC.F)
 
 function getindex(A::Dense{T}, i::Integer) where {T<:VTypes}
-    s = unsafe_load(pointer(A))
-    0 < i <= s.nrow*s.ncol || throw(BoundsError())
-    unsafe_load(Ptr{T}(s.x), i)
+    GC.@preserve A begin
+        s = unsafe_load(pointer(A))
+        0 < i <= s.nrow*s.ncol || throw(BoundsError())
+        x = unsafe_load(Ptr{T}(s.x), i)
+    end
+    return x
 end
 
 function getindex(A::Sparse{T}, i0::Integer, i1::Integer) where T
-    s = unsafe_load(typedpointer(A))
-    !(1 <= i0 <= s.nrow && 1 <= i1 <= s.ncol) && throw(BoundsError())
-    s.stype < 0 && i0 < i1 && return conj(A[i1,i0])
-    s.stype > 0 && i0 > i1 && return conj(A[i1,i0])
+    GC.@preserve A begin
+        s = unsafe_load(typedpointer(A))
+        !(1 <= i0 <= s.nrow && 1 <= i1 <= s.ncol) && throw(BoundsError())
+        s.stype < 0 && i0 < i1 && return conj(A[i1,i0])
+        s.stype > 0 && i0 > i1 && return conj(A[i1,i0])
 
-    # in an unpacked matrix the entries of column `i1` stop after `nz[i1]`
-    # entries rather than at `p[i1 + 1]`
-    r1 = Int(unsafe_load(s.p, i1) + 1)
-    r2 = s.packed != 0 ? Int(unsafe_load(s.p, i1 + 1)) :
-                         r1 + Int(unsafe_load(s.nz, i1)) - 1
-    (r1 > r2) && return zero(T)
+        # in an unpacked matrix the entries of column `i1` stop after `nz[i1]`
+        # entries rather than at `p[i1 + 1]`
+        r1 = Int(unsafe_load(s.p, i1) + 1)
+        r2 = s.packed != 0 ? Int(unsafe_load(s.p, i1 + 1)) :
+                             r1 + Int(unsafe_load(s.nz, i1)) - 1
+        (r1 > r2) && return zero(T)
 
-    # CHOLMOD only guarantees that the row indices of a column are sorted when
-    # `sorted` is set, so a binary search is only valid in that case
-    rows = view(unsafe_wrap(Array, s.i, (s.nzmax,), own = false), r1:r2)
-    if s.sorted != 0
-        k = searchsortedfirst(rows, i0 - 1)
-        (k > length(rows) || rows[k] + 1 != i0) && return zero(T)
-    else
-        k = findfirst(==(i0 - 1), rows)
-        k === nothing && return zero(T)
+        # CHOLMOD only guarantees that the row indices of a column are sorted when
+        # `sorted` is set, so a binary search is only valid in that case
+        rows = view(unsafe_wrap(Array, s.i, (s.nzmax,), own = false), r1:r2)
+        if s.sorted != 0
+            k = searchsortedfirst(rows, i0 - 1)
+            (k > length(rows) || rows[k] + 1 != i0) && return zero(T)
+        else
+            k = findfirst(==(i0 - 1), rows)
+            k === nothing && return zero(T)
+        end
+        x = unsafe_load(Ptr{T}(s.x), r1 + k - 1)
     end
-    return unsafe_load(Ptr{T}(s.x), r1 + k - 1)
+    return x
 end
 
 @inline function getproperty(F::Factor, sym::Symbol)
@@ -2054,32 +2074,34 @@ end
 
 ## Other convenience methods
 function diag(F::Factor{Tv, Ti}) where {Tv, Ti}
-    f = unsafe_load(typedpointer(F))
-    fsuper = f.super
-    fpi = f.pi
-    res = Base.zeros(Tv, Int(f.n))
-    xv  = Ptr{Tv}(f.x)
-    if f.is_super!=0
-        px = f.px
-        pos = 1
-        for i in 1:f.nsuper
-            base = unsafe_load(px, i) + 1
-            res[pos] = unsafe_load(xv, base)
-            pos += 1
-            for j in 1:unsafe_load(fsuper, i + 1) - unsafe_load(fsuper, i) - 1
-                res[pos] = unsafe_load(xv, base + j*(unsafe_load(fpi, i + 1) -
-                    unsafe_load(fpi, i) + 1))
+    GC.@preserve F begin
+        f = unsafe_load(typedpointer(F))
+        fsuper = f.super
+        fpi = f.pi
+        res = Base.zeros(Tv, Int(f.n))
+        xv  = Ptr{Tv}(f.x)
+        if f.is_super!=0
+            px = f.px
+            pos = 1
+            for i in 1:f.nsuper
+                base = unsafe_load(px, i) + 1
+                res[pos] = unsafe_load(xv, base)
                 pos += 1
+                for j in 1:unsafe_load(fsuper, i + 1) - unsafe_load(fsuper, i) - 1
+                    res[pos] = unsafe_load(xv, base + j*(unsafe_load(fpi, i + 1) -
+                        unsafe_load(fpi, i) + 1))
+                    pos += 1
+                end
             end
-        end
-    else
-        c0 = f.p
-        r0 = f.i
-        xv = Ptr{Tv}(f.x)
-        for j in 1:f.n
-            jj = unsafe_load(c0, j) + 1
-            @assert(unsafe_load(r0, jj) == j - 1)
-            res[j] = unsafe_load(xv, jj)
+        else
+            c0 = f.p
+            r0 = f.i
+            xv = Ptr{Tv}(f.x)
+            for j in 1:f.n
+                jj = unsafe_load(c0, j) + 1
+                @assert(unsafe_load(r0, jj) == j - 1)
+                res[j] = unsafe_load(xv, jj)
+            end
         end
     end
     res

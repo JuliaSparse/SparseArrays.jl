@@ -397,6 +397,39 @@ end
     @test getfield(factor, :Y) !== getfield(factor2, :Y)
 end
 
+@testset "temporaries stay rooted while reading raw pointers $Tv $Ti" begin
+    # The conversions below read through the raw CHOLMOD buffers of a wrapper
+    # that is otherwise dead after `unsafe_load(pointer(A))`. If the wrapper is
+    # not kept rooted, a GC triggered by an allocation during the copy can run
+    # its finalizer and free the buffers mid-read. Not a deterministic
+    # reproducer, but exercises the preserved paths under GC pressure.
+    local S, SPD, Fref
+    S = convert(SparseMatrixCSC{Tv,Ti}, sprand(400, 300, 0.05))
+    SPD = convert(SparseMatrixCSC{Tv,Ti}, S[1:300, :] * S[1:300, :]' + 300I)
+    Fref = cholesky(SPD)
+    for _ in 1:20
+        @test SparseMatrixCSC(CHOLMOD.Sparse(S)) == S
+        GC.gc(false)
+        @test sparse(CHOLMOD.Sparse(S)) == S
+        GC.gc(false)
+        @test sparsevec(CHOLMOD.Sparse(S[:, 1])) == S[:, 1]
+        GC.gc(false)
+        @test sparse(CHOLMOD.Sparse(Symmetric(SPD))) == Symmetric(SPD)
+        GC.gc(false)
+        @test diag(cholesky(SPD)) ≈ diag(Fref)
+        GC.gc(false)
+        @test cholesky(SPD).p == Fref.p
+        GC.gc(false)
+        @test CHOLMOD.get_perm(ldlt(SPD)) == ldlt(SPD).p
+        GC.gc(false)
+        @test CHOLMOD.Sparse(S)[7, 3] == S[7, 3]
+        @test CHOLMOD.Dense(Vector(S[:, 2]))[5] == S[5, 2]
+        GC.gc(false)
+        @test Matrix(CHOLMOD.Dense(Matrix(S[1:20, 1:20]))) == Matrix(S[1:20, 1:20])
+        GC.gc(false)
+    end
+end
+
 end #end for Ti ∈ itypes
 
 for Tv ∈ (Float32, Float64)
