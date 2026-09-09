@@ -1,6 +1,6 @@
 using Test, SparseArrays, LinearAlgebra
 using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCSC, FixedSparseVector, ReadOnly,
-    getcolptr, rowvals, nonzeros, nonzeroinds, _is_fixed, fixed, move_fixed, fkeep!
+    getcolptr, rowvals, nonzeros, nonzeroinds, _is_fixed, fixed, move_fixed, fkeep!, indtype
 
 @testset "ReadOnly" begin
     v = randn(100)
@@ -35,6 +35,14 @@ end
     @test rowvals(A) !== rowvals(B)
     @test nonzeros(A) == nonzeros(B)
     @test nonzeros(A) === nonzeros(B)
+
+    # a ReadOnly wrapping a sparse array forwards the sparse array interface
+    for X in (A, A[:, 1], SparseMatrixCSC{Float64,Int32}(A))
+        R = ReadOnly(X)
+        @test issparse(R)
+        @test nnz(R) == nnz(X)
+        @test indtype(R) === indtype(X)
+    end
 end
 
 struct_eq(A, B, C...) = struct_eq(A, B) && struct_eq(B, C...)

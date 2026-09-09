@@ -2101,9 +2101,12 @@ LinearAlgebra.fillstored!(S::AbstractSparseMatrixCSC, x) = (fill!(nzvalview(S), 
     spzeros([type,]m[,n])
 
 Create a sparse vector of length `m` or sparse matrix of size `m x n`. This
-sparse array will not contain any nonzero values. No storage will be allocated
-for nonzero values during construction. The type defaults to [`Float64`](@ref) if not
-specified.
+sparse array will not contain any nonzero values, and no storage is allocated
+for them. The type defaults to [`Float64`](@ref) if not specified.
+
+This does not make the call allocation-free: the empty index and value buffers
+are still allocated, and a matrix additionally allocates a column pointer of
+`n + 1` entries, so an `m x n` matrix uses memory proportional to `n`.
 
 # Examples
 ```jldoctest
