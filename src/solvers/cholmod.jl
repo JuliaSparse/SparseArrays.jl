@@ -1231,12 +1231,36 @@ function change_stype!(A::Sparse, i::Integer)
     return A
 end
 
-free!(A::Dense)  = free!(pointer(A))
-free!(A::Sparse{<:Any, Ti}) where Ti = free!(pointer(A), Ti)
+# The object-level `free!` methods release the CHOLMOD memory and null the
+# wrapper's pointer so that a subsequent `free!` (in particular the finalizer
+# registered in the inner constructor) is a no-op instead of a double free.
+# They return `true` if memory was released and `false` if there was nothing
+# to release (the pointer was already null).
+function free!(A::Dense)
+    p = getfield(A, :ptr)
+    p == C_NULL && return false
+    setfield!(A, :ptr, Ptr{cholmod_dense}(C_NULL))
+    return free!(p)
+end
+function free!(A::Sparse{<:Any, Ti}) where Ti
+    p = getfield(A, :ptr)
+    p == C_NULL && return false
+    setfield!(A, :ptr, Ptr{cholmod_sparse}(C_NULL))
+    return free!(p, Ti)
+end
 function free!(F::Factor{<:Any, Ti}) where Ti
-    free!(getfield(F, :Y)[])
-    free!(getfield(F, :E)[])
-    free!(pointer(F), Ti)
+    # Release the Y/E scratch buffers used by `solve!` and null the handles so
+    # that a later `ldiv!` allocates fresh ones instead of reusing freed memory.
+    Y = getfield(F, :Y)
+    E = getfield(F, :E)
+    y, e = Y[], E[]
+    Y[] = E[] = Ptr{cholmod_dense_struct}(C_NULL)
+    y == C_NULL || free!(y)
+    e == C_NULL || free!(e)
+    p = getfield(F, :ptr)
+    p == C_NULL && return false
+    setfield!(F, :ptr, Ptr{cholmod_factor}(C_NULL))
+    return free!(p, Ti)
 end
 
 nnz(F::Factor) = nnz(Sparse(F))
