@@ -2272,18 +2272,45 @@ function _densifystarttolastnz!(x::SparseVector)
     x
 end
 
-# `searchsortedfirst_discard_keywords` is defined alongside the sparse matrix sorting
-# methods in sparsematrix.jl
-function sort!(x::AbstractCompressedVector; kws...)
+"""
+    sort!(x::AbstractCompressedVector; kws...)
+    sort!(x::SparseColumnView; kws...)
+
+Sort the stored entries of `x` in place and rewrite the stored indices so that the values
+sorting before `zero(eltype(x))` end up at the start of `x` and the remaining values at the
+end, with the structural zeros in between. Stored values that compare equal to zero under
+the ordering are placed after the structural zeros. `nnz(x)` is left untouched.
+
+A column view `view(A, :, j)` of a sparse matrix is sorted through the same method, which is
+how [`sort!`](@ref) of a sparse matrix sorts each column.
+
+`x` may not be a fixed sparse vector, nor a column view of a fixed sparse matrix, since its
+stored indices are read-only.
+"""
+function sort!(x::Union{AbstractCompressedVector, SparseColumnView}; kws...)
+    if _is_fixed(x) || (x isa SubArray && _is_fixed(parent(x)))
+        throw(ArgumentError("cannot sort! a fixed sparse array in place, its stored indices are read-only"))
+    end
     nz = nonzeros(x)
-    sort!(nz; kws...)
-    i = searchsortedfirst_discard_keywords(nz, zero(eltype(x)); kws...)
     I = nonzeroinds(x)
     Base.require_one_based_indexing(x, nz, I)
+    sort!(nz; kws...)
+    n = length(x)
+    k = length(nz)
+    # `i-1` stored values sort before the structural zeros and `k-i+1` after; only
+    # evaluate the ordering at zero when there are structural zeros to place
+    # (`searchsortedfirst_discard_keywords` is defined alongside the sparse matrix sorting
+    # methods in sparsematrix.jl)
+    i = k == n ? k + 1 : searchsortedfirst_discard_keywords(nz, zero(eltype(x)); kws...)
     I[1:i-1] .= 1:i-1
-    I[i:end] .= i+length(x)-length(nz):length(x)
+    I[i:end] .= i+n-k:n
     x
 end
+
+# `copy` of a fixed sparse vector is fixed, so sort into a writable copy instead
+Base.sort(x::AbstractCompressedVector; kws...) =
+    sort!(_is_fixed(x) ? SparseVector(length(x), copy(parent(nonzeroinds(x))), copy(nonzeros(x))) :
+                         copy(x); kws...)
 
 function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
     if _is_fixed(x)

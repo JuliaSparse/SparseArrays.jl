@@ -1601,6 +1601,19 @@ end
         @test Vector(sort(x, by=sign)) == sort(Vector(x), by=sign)
         @test Vector(sort(x, by=inv)) == sort(Vector(x), by=inv)
     end
+    # the ordering is only evaluated at zero when there are structural zeros to place
+    let x = sparsevec(1:4, [3, 1, -2, 2])
+        @test Vector(sort(x, by = v -> 1 ÷ v)) == sort(Vector(x), by = v -> 1 ÷ v)
+    end
+    # fixed vectors have read-only indices: `sort!` refuses and `sort` copies
+    let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 15), f = SparseArrays.fixed(x)
+        @test_throws ArgumentError sort!(f)
+        @test f == x
+        s = sort(f)
+        @test s isa SparseVector
+        @test Vector(s) == sort(Vector(x))
+        @test f == x
+    end
 end
 @testset "fill!" begin
     for Tv in [Float32, Float64, Int64, Int32, ComplexF64]
