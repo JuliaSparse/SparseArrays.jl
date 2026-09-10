@@ -3524,9 +3524,8 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
 end
 
 # Nonscalar A[I,J] = B: Convert B to a SparseMatrixCSC of the appropriate shape first
-_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractMatrix, I...) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, V)
-_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractMatrix, i::Integer, J) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, (1, length(J))))
-_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVector, I...) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, map(length, I)))
+# (reshape also fixes a 1×n V assigned to A[:, j], which the shape check allows; see #569)
+_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I...) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, map(length, I)))
 
 setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::Integer) where {Tv} = _setindex_scalar!(A, B, I, J)
 

@@ -1340,6 +1340,8 @@ _length_or_count_or_five(x) = length(x)
         @test setindex!(spzeros(5, 5), Array(V), I, J) == setindex!(zeros(5,5), V, I, J)
     end
     @test setindex!(spzeros(5, 5), 1:25, :) == setindex!(zeros(5,5), 1:25, :) == reshape(1:25, 5, 5)
+    # a 1×n matrix value into a column is reshaped rather than silently zeroed, see #569
+    @test setindex!(sparse(1.0I, 5, 5), reshape(1.0:5.0, 1, 5), :, 2) == setindex!(Matrix(1.0I, 5, 5), reshape(1.0:5.0, 1, 5), :, 2)
     @test setindex!(spzeros(5, 5), (25:-1:1).+spzeros(25), :) == setindex!(zeros(5,5), (25:-1:1).+spzeros(25), :) == reshape(25:-1:1, 5, 5)
     for X in (1:20, sparse(1:20), reshape(sparse(1:20), 20, 1), (1:20) .+ spzeros(20, 1), collect(1:20), collect(reshape(1:20, 20, 1)))
         @test setindex!(spzeros(5, 5), X, 6:25) == setindex!(zeros(5,5), 1:20, 6:25)
