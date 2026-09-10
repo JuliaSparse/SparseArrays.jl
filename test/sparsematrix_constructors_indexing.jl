@@ -834,7 +834,9 @@ end
             times = Float64[0,0,0]
             best = [typemax(Float64), 0]
             for searchtype in [0, 1, 2]
-                GC.gc()
+                # stabilizes the debug timings below, but forces 180 full
+                # collections across these loops which dominates the file's GC time
+                # GC.gc()
                 tres = @timed test_getindex_algs(S, I, J, searchtype)
                 res[searchtype+1] = tres[1]
                 times[searchtype+1] = tres[2]
@@ -890,9 +892,9 @@ end
     for I in IA
         Isorted = sort(I)
         for S in SA
-            GC.gc()
+            # GC.gc() # see comment above
             ru = @timed S[I, J]
-            GC.gc()
+            # GC.gc()
             rs = @timed S[Isorted, Jsorted]
             if debug
                 @printf(" %7d | %7d | %7d | %4.2e | %4.2e | %4.2e | %4.2e |\n", round(Int,nnz(S)/size(S, 2)), length(I), length(J), rs[2], ru[2], rs[3], ru[3])
@@ -1288,6 +1290,27 @@ end
         @test findprev(!iszero, z_sp, T(4)) isa keytype(z_sp)
         @test findprev(!iszero, z_sp, T(5)) isa keytype(z_sp)
     end
+
+    # The sparse methods must actually extend `Base.findnext`/`Base.findprev` and skip
+    # implicit zeros for predicates other than `!iszero`, e.g. the `!isequal(elt)` that
+    # `Base.hash` uses to skip runs of equal values.
+    @test SparseArrays.findnext === Base.findnext && SparseArrays.findprev === Base.findprev
+    n = 10^9
+    big = spzeros(n); big[1] = 1; big[n ÷ 2] = -0.0
+    @test findprev(!isequal(0.0), big, n) == n ÷ 2
+    @test findprev(!isequal(-0.0), big, n ÷ 2) == n ÷ 2 - 1   # implicit 0.0 is not isequal(-0.0)
+    @test findnext(!isequal(0.0), big, 2) == n ÷ 2
+    @test findnext(!isequal(0.0), big, n ÷ 2 + 1) === nothing
+    # the predicate is evaluated once on the implicit zero and then on stored entries only
+    calls = Ref(0)
+    counted = x -> (calls[] += 1; !isequal(x, 0.0))
+    @test findprev(counted, big, n) == n ÷ 2 && calls[] <= nnz(big) + 1
+    calls[] = 0
+    @test findnext(counted, big, 2) == n ÷ 2 && calls[] <= nnz(big) + 1
+    for i in keys(y), f in (!isequal(0.0), !isequal(-0.0), !isequal(7.0), !isequal(NaN))
+        @test findnext(f, y, i) == findnext(f, y_sp, i)
+        @test findprev(f, y, i) == findprev(f, y_sp, i)
+    end
 end
 
 _length_or_count_or_five(::Colon) = 5
@@ -1469,16 +1492,6 @@ end
 @testset "sprandn with invalid type $T" for T in (AbstractFloat, Complex)
     @test_throws MethodError sprandn(T, 5, 5, 0.5)
 end
-
-# TODO: Re-enable after completing the SparseArrays.jl migration
-#
-# @testset "method ambiguity" begin
-#     # Ambiguity test is run inside a clean process.
-#     # https://github.com/JuliaLang/julia/issues/28804
-#     script = joinpath(@__DIR__, "ambiguous_exec.jl")
-#     cmd = `$(Base.julia_cmd()) --startup-file=no $script`
-#     @test success(pipeline(cmd; stdout=stdout, stderr=stderr))
-# end
 
 @testset "count specializations" begin
     # count should throw for sparse arrays for which zero(eltype) does not exist

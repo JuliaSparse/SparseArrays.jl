@@ -356,6 +356,47 @@ end
     @test SparseArrays.dropstored!(x, 5) == SparseVector(10, [7, 9], [7.0, 9.0])
 end
 
+@testset "isequal semantics match dense (issue #561)" begin
+    # The stored-entries-only complexity guarantee is checked with an operation-counting
+    # eltype in sparsematrix_ops.jl ("== and isequal walk stored entries only").
+    n = 1000
+    v1 = spzeros(n); v1[1] = 1
+    v2 = spzeros(n); v2[1] = 1
+    @test isequal(v1, v2) && v1 == v2
+    v2[n] = 2
+    @test !isequal(v1, v2) && v1 != v2
+    @test isequal(v1', v1') && isequal(transpose(v1), transpose(v1))
+    @test !isequal(v1', v2') && !isequal(transpose(v1), transpose(v2))
+    # isequal semantics for NaN and signed zeros must match dense arrays
+    x = sparsevec([1, 3, 5], [NaN, -0.0, 2.0], 6)
+    for y in (sparsevec([1, 3, 5], [NaN, -0.0, 2.0], 6),   # identical
+              sparsevec([1, 5], [NaN, 2.0], 6),            # -0.0 stored vs implicit 0.0
+              sparsevec([1, 3, 5], [NaN, 0.0, 2.0], 6),    # -0.0 vs stored 0.0
+              sparsevec([1, 2, 5], [NaN, 0.0, 2.0], 6),    # explicit stored zero
+              sparsevec([1, 3, 5], [1.0, -0.0, 2.0], 6),   # NaN vs number
+              sparsevec([2, 3, 5], [NaN, -0.0, 2.0], 6),   # NaN vs implicit zero
+              sparsevec([1, 3, 5], [NaN, -0.0, 2], 6))     # different eltype
+        @test isequal(x, y) == isequal(Vector(x), Vector(y))
+        @test isequal(y, x) == isequal(Vector(y), Vector(x))
+        @test (x == y) == (Vector(x) == Vector(y))
+    end
+    @test !isequal(spzeros(3), spzeros(4))
+end
+
+@testset "hash matches dense" begin
+    # The stored-entries-only complexity guarantee is checked with an operation-counting
+    # eltype in sparsematrix_ops.jl ("hash walks stored entries only").
+    n = 10^5
+    v = spzeros(n); v[1] = 1
+    w = copy(v); w[2] = 0.0   # explicitly stored zero must not change the hash
+    @test hash(w) == hash(v) && isequal(w, v)
+    for len in (5, 100, 40000), x in (sprand(len, 0.1), sprandn(len, 0.3), spzeros(len))
+        k = min(3, nnz(x)); nonzeros(x)[1:k] .= [NaN, -0.0, 0.0][1:k]
+        @test hash(x) == hash(Vector(x))
+        @test hash(x, UInt(7)) == hash(Vector(x), UInt(7))
+    end
+end
+
 @testset "findall and findnz" begin
     @test findall(!iszero, spv_x1) == findall(!iszero, x1_full)
     @test findall(spv_x1 .> 1) == findall(x1_full .> 1)
@@ -1350,6 +1391,10 @@ end
         floattypes = (Float32, Float64, BigFloat)
         complextypes = (ComplexF32, ComplexF64)
         eltypes = (inttypes..., floattypes..., complextypes...)
+        # The full eltype cross product compiles thousands of specializations
+        # (several CI minutes); do it only for the core types and pair the
+        # remaining eltypes with Float64.
+        coretypes = (Int64, Float64, ComplexF64)
 
         for eltypemat in eltypes
             (densemat, sparsemat) = eltypemat in inttypes ? (denseintmat, sparseintmat) :
@@ -1363,6 +1408,8 @@ end
                            LinearAlgebra.UnitLowerTriangular(sparsemat), LinearAlgebra.UnitUpperTriangular(sparsemat) )
 
             for eltypevec in eltypes
+                (eltypemat in coretypes && eltypevec in coretypes) ||
+                    eltypemat == Float64 || eltypevec == Float64 || continue
                 spvecs = eltypevec in inttypes ? sparseintvecs :
                          eltypevec in floattypes ? sparsefloatvecs :
                          eltypevec in complextypes && sparsecomplexvecs
@@ -1567,6 +1614,19 @@ end
         @test Vector(sort(x, by=abs)) == sort(Vector(x), by=abs)
         @test Vector(sort(x, by=sign)) == sort(Vector(x), by=sign)
         @test Vector(sort(x, by=inv)) == sort(Vector(x), by=inv)
+    end
+    # the ordering is only evaluated at zero when there are structural zeros to place
+    let x = sparsevec(1:4, [3, 1, -2, 2])
+        @test Vector(sort(x, by = v -> 1 ÷ v)) == sort(Vector(x), by = v -> 1 ÷ v)
+    end
+    # fixed vectors have read-only indices: `sort!` refuses and `sort` copies
+    let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 15), f = SparseArrays.fixed(x)
+        @test_throws ArgumentError sort!(f)
+        @test f == x
+        s = sort(f)
+        @test s isa SparseVector
+        @test Vector(s) == sort(Vector(x))
+        @test f == x
     end
 end
 @testset "fill!" begin

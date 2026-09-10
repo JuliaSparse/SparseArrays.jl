@@ -38,7 +38,8 @@ const init_suitesparse = Base.OncePerProcess{Nothing}() do
         if Libdl.dlsym_e(Libdl.dlopen("libsuitesparseconfig"), :SuiteSparse_version) != C_NULL
             current_version_array = Vector{Cint}(undef, 3)
             SuiteSparse_version(current_version_array)
-            current_version = VersionNumber(current_version_array...)
+            (major, minor, patch) = current_version_array
+            current_version = VersionNumber(major, minor, patch)
         else # SuiteSparse < 4.2.0 does not include SuiteSparse_version()
             current_version = v"0.0.0"
         end
@@ -99,6 +100,7 @@ const init_suitesparse = Base.OncePerProcess{Nothing}() do
     catch ex
         @error "Error during initialization of module LibSuiteSparse" exception=ex,catch_backtrace()
     end
+    return nothing
 end
 
 # exports

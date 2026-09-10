@@ -4,7 +4,7 @@ module SparseTests
 
 using Test
 using SparseArrays
-using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero
+using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, fixed, _is_fixed
 using LinearAlgebra
 using Printf: @printf # for debug
 using Random
@@ -29,6 +29,100 @@ end
     @test nnz(zero(sparse(fill(1,5,5)))) == 0
 end
 
+@testset "findnz for adjoint/transpose (issue #632)" begin
+    A = sparse([1, 1, 2, 3], [1, 2, 3, 2], [1.0+2.0im, 3.0, 4.0-1.0im, 0.0], 3, 4)
+    for T in (Float64, ComplexF64), op in (adjoint, transpose)
+        B = op(T == Float64 ? real(A) : A)
+        I, J, V = findnz(B)
+        @test (I, J, V) == findnz(SparseMatrixCSC(B))
+        @test issorted(collect(zip(J, I)))  # column-major order of the wrapper
+        @test all(B[i, j] == v for (i, j, v) in zip(I, J, V))
+        @test length(I) == nnz(B)
+        @test typeof(I) == typeof(J) == Vector{Int} && eltype(V) == T
+        @test all(isempty, findnz(op(spzeros(T, 2, 3))))
+    end
+    x = sparsevec([2, 4], [1.0+im, 0.0], 5)
+    for op in (adjoint, transpose)
+        I, J, V = findnz(op(x))
+        @test I == [1, 1] && J == [2, 4] && V == op.([1.0+im, 0.0])
+        @test (I, J, V) == findnz(sparse(op(x)))
+        @test all(isempty, findnz(op(spzeros(3))))
+    end
+end
+
+@testset "isequal semantics match dense (issue #561)" begin
+    # The stored-entries-only complexity guarantee is checked with an operation-counting
+    # eltype below ("== and isequal walk stored entries only").
+    n = 100
+    A = spzeros(n, n); A[1, 1] = 1
+    B = spzeros(n, n); B[1, 1] = 1
+    @test isequal(A, B) && A == B
+    B[n, n] = 2
+    @test !isequal(A, B) && A != B
+    @test !isequal(spzeros(2, 3), spzeros(3, 2))
+    # isequal semantics for NaN and signed zeros must match dense arrays
+    X = sparse([1, 2, 3], [1, 1, 2], [NaN, -0.0, 2.0], 3, 3)
+    for Y in (sparse([1, 2, 3], [1, 1, 2], [NaN, -0.0, 2.0], 3, 3),
+              sparse([1, 3], [1, 2], [NaN, 2.0], 3, 3),
+              sparse([1, 2, 3], [1, 1, 2], [NaN, 0.0, 2.0], 3, 3),
+              sparse([1, 2, 3, 3], [1, 1, 2, 3], [NaN, -0.0, 2.0, 0.0], 3, 3),
+              sparse([1, 2, 3], [1, 1, 2], [1.0, -0.0, 2.0], 3, 3),
+              sparse([2, 2, 3], [1, 2, 2], [NaN, -0.0, 2.0], 3, 3),
+              sparse([1, 2, 3], [1, 1, 2], [NaN, -0.0, 2], 3, 3))
+        @test isequal(X, Y) == isequal(Matrix(X), Matrix(Y))
+        @test isequal(Y, X) == isequal(Matrix(Y), Matrix(X))
+        @test (X == Y) == (Matrix(X) == Matrix(Y))
+    end
+end
+
+@testset "hash matches dense" begin
+    # The stored-entries-only complexity guarantee is checked with an operation-counting
+    # eltype below ("hash walks stored entries only").
+    n = 1000
+    A = spzeros(n, n); A[1, 1] = 1
+    B = copy(A); B[2, 2] = 0.0   # explicitly stored zero must not change the hash
+    @test hash(B) == hash(A) && isequal(B, A)
+    for m in (2, 10, 200), X in (sprand(m, m, 0.1), sprandn(m, m, 0.3), spzeros(m, m))
+        k = min(3, nnz(X)); nonzeros(X)[1:k] .= [NaN, -0.0, 0.0][1:k]
+        @test hash(X) == hash(Matrix(X))
+        @test hash(X, UInt(7)) == hash(Matrix(X), UInt(7))
+    end
+end
+
+@testset "isequal for adjoint/transpose of sparse matrices" begin
+    n = 100
+    A = spzeros(n, n); A[1, 1] = 1
+    B = copy(A)
+    for (L, R) in ((A', B'), (transpose(A), transpose(B)), (A, B'), (A', B),
+                   (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
+        @test isequal(L, R)
+    end
+    A[1, 2] = 1; B[2, 1] = 1
+    @test isequal(A, B') && isequal(A', B) && !isequal(A', B') && !isequal(A, B)
+    @test !isequal(spzeros(2, 3)', spzeros(2, 3))
+    # adjoint vs transpose of a complex matrix nests wrappers (`Adjoint{<:Any,<:Transpose}`)
+    C = sparse([1, 2], [2, 3], [1.0im, 2.0], 3, 3)
+    @test C' == transpose(conj(C)) && isequal(C', transpose(conj(C)))
+    @test C' != transpose(C) && !isequal(C', transpose(C))
+    # isequal semantics for NaN, signed zeros and conjugation must match dense arrays
+    X = sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, -0.0, 2.0, 1.0im], 3, 3)
+    for Y in (sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, -0.0, 2.0, 1.0im], 3, 3),
+              sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, -0.0, 2.0, -1.0im], 3, 3),
+              sparse([1, 1, 2, 3], [1, 2, 3, 1], [NaN, -0.0, 2.0, 1.0im], 3, 3),
+              sparse([1, 1, 2, 3], [1, 2, 3, 1], [NaN, -0.0, 2.0, -1.0im], 3, 3),
+              sparse([1, 3, 1], [1, 2, 3], [NaN, 2.0, 1.0im], 3, 3),
+              sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, 0.0, 2.0, 1.0im], 3, 3),
+              sparse([1, 2, 3, 1, 3], [1, 1, 2, 3, 3], [NaN, -0.0, 2.0, 1.0im, 0.0], 3, 3),
+              sparse([1, 2, 3, 1], [1, 1, 2, 3], [1.0, -0.0, 2.0, 1.0im], 3, 3))
+        for (L, R) in ((X', Y'), (transpose(X), transpose(Y)), (X, Y'), (X', Y),
+                       (X, transpose(Y)), (transpose(X), Y), (X', transpose(Y)))
+            @test isequal(L, R) == isequal(Matrix(L), Matrix(R))
+            @test isequal(R, L) == isequal(Matrix(R), Matrix(L))
+            @test (L == R) == (Matrix(L) == Matrix(R))
+        end
+    end
+end
+
 @testset "iszero specialization for SparseMatrixCSC" begin
     @test !iszero(sparse(I, 3, 3))                  # test failure
     @test iszero(spzeros(3, 3))                     # test success with no stored entries
@@ -46,6 +140,12 @@ end
     @test !isone(spzeros(3, 3))     # test failure for too few stored entries
     @test !isone(sparse(2I, 3, 3))  # test failure for non-one diagonal entries
     @test !isone(sparse(Bidiagonal(fill(1, 3), fill(1, 2), :U))) # test failure for non-zero off-diag entries
+    # issue #763: stored zeros must not be counted towards the diagonal
+    M = sparse([1 0; 1 1]) * sparse([1 0; -1 0])
+    @test nnz(M) == 2 && !isone(M) && !isone(Matrix(M))
+    @test !isone(SparseMatrixCSC(2, 2, [1, 3, 3], [1, 2], [1, 0]))
+    @test !isone(SparseMatrixCSC(2, 2, [1, 2, 3], [1, 1], [1, 0]))
+    @test isone(SparseMatrixCSC(2, 2, [1, 3, 4], [1, 2, 2], [1, 0, 1]))  # stored zero off-diagonal is fine
 end
 
 @testset "indtype" begin
@@ -202,10 +302,12 @@ dA = Array(sA)
 
         # case where f(0) would throw
         @test f(x->sqrt(x-1), pA .+ 1) ≈ f(sqrt.(pA))
-        # these actually throw due to #10533
-        # @test f(x->sqrt(x-1), pA .+ 1, dims=1) ≈ f(sqrt(pA), dims=1)
-        # @test f(x->sqrt(x-1), pA .+ 1, dims=2) ≈ f(sqrt(pA), dims=2)
-        # @test f(x->sqrt(x-1), pA .+ 1, dims=3) ≈ f(pA)
+        # `sum` still evaluates the map at the structural zero and throws here
+        if f !== sum
+            @test f(x->sqrt(x-1), pA .+ 1, dims=1) ≈ f(sqrt.(pA), dims=1)
+            @test f(x->sqrt(x-1), pA .+ 1, dims=2) ≈ f(sqrt.(pA), dims=2)
+            @test f(x->sqrt(x-1), pA .+ 1, dims=3) ≈ f(sqrt.(pA), dims=3)
+        end
     end
 
     @testset "logical reductions" begin
@@ -535,17 +637,10 @@ end
 struct Counting{T} <: Number
     elt::T
 end
-@static if VERSION ≥ v"1.8"
-    counter::Int = 0
-    resetcounter() = (global counter; counter=0)
-    stepcounter() = (global counter; counter+=1)
-    getcounter() = (global counter; counter)
-else
-    const counter = Ref(0)
-    resetcounter() = (global counter; counter[]=0)
-    stepcounter() = (global counter; counter[]+=1)
-    getcounter() = (global counter; counter[])
-end
+counter::Int = 0
+resetcounter() = (global counter; counter=0)
+stepcounter() = (global counter; counter+=1)
+getcounter() = (global counter; counter)
 Base.:(==)(x::Counting, y::Counting) = (stepcounter(); x.elt==y.elt)
 Base.promote_rule(::Type{Counting{T}}, ::Type{Counting{U}}) where {T,U} = Counting{promote_rule(T, U)}
 Base.iszero(x::Counting) = iszero(x.elt)
@@ -553,10 +648,52 @@ Base.zero(::Type{Counting{T}}) where {T} = Counting(zero(T))
 Base.zero(x::Counting) = Counting(zero(x.elt))
 Base.adjoint(x::Counting) = Counting(adjoint(x.elt))
 Base.transpose(x::Counting) = Counting(transpose(x.elt))
+Base.isequal(x::Counting, y::Counting) = (stepcounter(); isequal(x.elt, y.elt))
+
+# Deterministic replacement for wall-clock guards: with a counting eltype, a comparison
+# that walks only stored entries performs at most nnz(A) + nnz(B) element comparisons,
+# whereas the generic AbstractArray fallback performs length(A) of them.
+@testset "== and isequal walk stored entries only (issues #561, #766, #768)" begin
+    n = 1000
+    v = sparsevec([1, n ÷ 2], Counting.([1.0, 2.0]), n)
+    w = sparsevec([1, n ÷ 2, n], Counting.([1.0, 0.0, 3.0]), n)
+    A = sparse([1, n ÷ 2], [1, n], Counting.([1.0, 2.0]), n, n)
+    B = sparse([1, n ÷ 2, 7], [1, n, 7], Counting.([1.0, 2.0, 0.0]), n, n)
+    for (x, y) in ((v, v), (v, w), (w, v), (v', w'), (transpose(v), transpose(w)),
+                   (A, A), (A, B), (B, A), (A', B'), (transpose(A), transpose(B)),
+                   (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
+        budget = nnz(parent(x isa Union{Adjoint,Transpose} ? x : x') ) +
+                 nnz(parent(y isa Union{Adjoint,Transpose} ? y : y'))
+        for eq in (==, isequal)
+            resetcounter()
+            eq(x, y)
+            @test getcounter() <= budget
+        end
+    end
+end
+
+# `Base.hash` on a large array skips runs of equal values with `findprev(!isequal(elt), A, i)`.
+# Each such call on a sparse array costs at most nnz(A) + 1 element comparisons and `hash`
+# makes only a handful of them, whereas the generic `findprev` performs up to length(A).
+@testset "hash walks stored entries only (issue #570)" begin
+    n = 10^5
+    v = sparsevec([1, n ÷ 2], Counting.([1.0, 2.0]), n)
+    w = sparsevec([1, n ÷ 2, n], Counting.([1.0, 0.0, 3.0]), n)
+    A = sparse([1, n ÷ 2], [1, n], Counting.([1.0, 2.0]), n, n)
+    B = sparse([1, n ÷ 2, 7], [1, n, 7], Counting.([1.0, 2.0, 0.0]), n, n)
+    for x in (v, w, A, B)
+        resetcounter()
+        hash(x)
+        @test getcounter() <= 8 * (nnz(x) + 1)
+    end
+    @test hash(v) == hash(Vector(v)) && hash(w) == hash(Vector(w))
+end
 
 @testset "Comparisons to adjoints are efficient" for
-    A in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)],
-    B in Any[sparse(1*I(10000)), sprandn(10000, 10000, 0.00001), sprandn(ComplexF64, 100, 100, 0.9)]
+    # The counting guard below distinguishes stored-entry traversal from the generic
+    # length(A) fallback, so these do not need to be large matrices.
+    A in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)],
+    B in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)]
     if size(A) == size(B)
         A = Counting.(A)
         B = Counting.(B)
@@ -671,6 +808,163 @@ end
     # Explicit zeros on off-diagonal should still be diagonal
     S = sparse([1, 2, 1], [1, 2, 2], [1.0, 2.0, 0.0])
     @test isdiag(S)
+end
+
+@testset "sort/sort! of a sparse matrix" begin
+    # `sort` of a dense matrix with `size(M, dims) == 0` errors in Base, so those cases are
+    # compared against the input itself rather than against a dense reference
+    # `dims = 2` covers the transposed shapes, so only one orientation of each is listed;
+    # fully structural matrices are covered by the "empty and zero-size matrices" testset
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (0, 3), (1, 9),
+                                                            (20, 13)),
+                                                 d in (0.3, 1.0)
+        A = sprand(m, n, d)
+        M = Matrix(A)
+        for dims in (1, 2), kws in ((;), (; rev=true), (; by=abs), (; alg=Base.DEFAULT_STABLE))
+            expected = size(M, dims) == 0 ? M : sort(M; dims, kws...)
+            B = copy(A)
+            @test sort!(B; dims, kws...) === B
+            @test B isa SparseMatrixCSC
+            @test Matrix(B) == expected
+            # sorting only moves the stored entries around
+            @test nnz(B) == nnz(A)
+            S = sort(A; dims, kws...)
+            @test S isa SparseMatrixCSC
+            @test Matrix(S) == expected
+            @test A == sparse(M) # `sort` leaves its argument alone
+        end
+    end
+
+    @testset "index type $Ti" for Ti in (Int32, Int64)
+        A = SparseMatrixCSC{Float64,Ti}(sprand(11, 7, 0.4))
+        for dims in (1, 2)
+            @test sort(A; dims) isa SparseMatrixCSC{Float64,Ti}
+            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+        end
+    end
+
+    @testset "keyword arguments" begin
+        A = sprand(50, 50, 0.1)
+        # `scratch` is forwarded to the underlying `sort!` and ignored by the search for
+        # where the structural zeros belong (see #335)
+        @test Matrix(sort!(copy(A); dims=1, scratch=Vector{Float64}(undef, 50))) ==
+            sort(Matrix(A); dims=1)
+        @test_throws MethodError sort!(copy(A); dims=1, banana=:blue)
+        @test_throws ArgumentError sort!(copy(A); dims=3)
+        @test_throws ArgumentError sort!(copy(A); dims=0)
+        @test_throws UndefKeywordError sort!(copy(A))
+        # keywords are validated even when every column is structurally empty, or when
+        # there are no columns (or rows) at all
+        for Z in (spzeros(3, 3), spzeros(3, 0), spzeros(0, 3)), dims in (1, 2)
+            @test_throws MethodError sort!(copy(Z); dims, banana=:blue)
+            @test_throws TypeError sort!(copy(Z); dims, rev=1)
+        end
+        # the ordering is only evaluated at zero when there are structural zeros to place,
+        # so a `by` that is undefined at zero works on fully stored columns as it does for
+        # dense matrices
+        F = sparse([1 2; 3 4])
+        for dims in (1, 2)
+            @test Matrix(sort(F; dims, by = x -> 1 ÷ x)) == sort(Matrix(F); dims, by = x -> 1 ÷ x)
+        end
+        @test_throws DivideError sort(sparse([1 0; 3 4]); dims=1, by = x -> 1 ÷ x)
+    end
+
+    @testset "shared scratch buffer" begin
+        # each column is sorted with one shared scratch buffer rather than a fresh one
+        # per column, so the allocation count does not grow with the number of columns;
+        # the columns are long enough for Base to want a scratch buffer, but short enough
+        # to stay below its radix sort, which allocates a counts vector per call
+        A = sprand(400, 400, 0.5)
+        B = copy(A)
+        sort!(B; dims=1) # compile
+        B = copy(A)
+        nallocs = @allocations sort!(B; dims=1)
+        @test nallocs < size(A, 2)
+        @test Matrix(B) == sort(Matrix(A); dims=1)
+    end
+
+    @testset "column views" begin
+        A = sprand(7, 4, 0.5)
+        M = Matrix(A)
+        for j in axes(A, 2), kws in ((;), (; rev=true), (; by=abs))
+            B = copy(A)
+            c = view(B, :, j)
+            @test sort!(c; kws...) === c
+            @test nnz(B) == nnz(A)
+            expected = copy(M)
+            sort!(view(expected, :, j); kws...)
+            @test Matrix(B) == expected
+        end
+    end
+
+    @testset "fixed matrices" begin
+        A = sprand(6, 5, 0.4)
+        F = fixed(A)
+        for dims in (1, 2)
+            # `sort!` refuses to touch the read-only structure and leaves `F` intact
+            @test_throws ArgumentError sort!(F; dims)
+            @test F == A
+            # `sort` returns a writable copy
+            S = sort(F; dims)
+            @test S isa SparseMatrixCSC
+            @test !_is_fixed(S)
+            @test Matrix(S) == sort(Matrix(A); dims)
+            @test F == A
+        end
+        Z = fixed(spzeros(3, 3))
+        for dims in (1, 2)
+            @test_throws ArgumentError sort!(Z; dims)
+            @test sort(Z; dims) == Z
+        end
+    end
+
+    @testset "empty and zero-size matrices" begin
+        # `Base.sort` on a *dense* matrix with `size(M, dims) == 0` throws
+        # `ArgumentError: step cannot be zero`, so there is no dense reference to compare
+        # against for every `dims` here; the sparse methods just return the (empty) matrix
+        # unchanged
+        @testset "size = ($m, $n)" for (m, n) in ((0, 3), (3, 0), (0, 0))
+            A = spzeros(m, n)
+            for dims in (1, 2)
+                B = copy(A)
+                @test sort!(B; dims) === B
+                @test size(B) == (m, n)
+                @test nnz(B) == 0
+                @test B == A
+                S = sort(A; dims)
+                @test S isa SparseMatrixCSC{Float64,Int}
+                @test size(S) == (m, n)
+                @test nnz(S) == 0
+            end
+        end
+
+        # structurally empty, but not zero-size: here dense does give a reference
+        @testset "all structural zeros, size = ($m, $n)" for (m, n) in ((1, 1), (5, 4))
+            A = spzeros(m, n)
+            for dims in (1, 2)
+                B = sort!(copy(A); dims)
+                @test Matrix(B) == sort(Matrix(A); dims)
+                @test nnz(B) == 0
+                @test getcolptr(B) == getcolptr(A)
+            end
+        end
+
+        # a single column/row that is entirely structural next to a populated one
+        A = SparseMatrixCSC(4, 3, [1, 1, 5, 5], [1, 2, 3, 4], [1.0, -2.0, 0.0, 3.0])
+        for dims in (1, 2)
+            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+            @test nnz(sort(A; dims)) == nnz(A)
+        end
+    end
+
+    @testset "stored zeros" begin
+        # column 1 stores an explicit zero next to structural zeros
+        A = SparseMatrixCSC(4, 2, [1, 3, 4], [1, 3, 2], [0.0, -1.0, 2.0])
+        for dims in (1, 2)
+            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+            @test nnz(sort(A; dims)) == nnz(A)
+        end
+    end
 end
 
 end # module

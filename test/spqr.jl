@@ -116,6 +116,13 @@ end
     @test eltype(F.Q) == eltype(F.R) == eltyA
 end
 
+@testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, ComplexF32, Float16, ComplexF16)
+    A = sprandn(eltyA, m, n, 0.3)
+    F = qr(A)
+    @test eltype(F.Q) == eltype(F.R) == eltyA
+    @test Matrix(F.Q) * F.R ≈ A[F.prow, F.pcol]
+end
+
 @testset "select ordering overdetermined" begin
      A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
      b = randn(m)

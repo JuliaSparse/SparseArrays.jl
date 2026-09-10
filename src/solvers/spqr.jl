@@ -45,14 +45,14 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         E::Union{Ref{Ptr{Ti}}    , Ptr{Cvoid}} = C_NULL,
         H::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
         HPinv::Union{Ref{Ptr{Ti}}, Ptr{Cvoid}} = C_NULL,
-        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
+        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
 
     ordering ∈ ORDERINGS || error("unknown ordering $ordering")
 
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = spqr_call(
+    rnk  = CHOLMOD.@checked spqr_call(
         ordering,       # all, except 3:given treated as 0:fixed
         tol,            # columns with 2-norm <= tol treated as 0
         econ,           # e = max(min(m,econ),rank(A))
@@ -158,6 +158,13 @@ end
 _default_tol(A::AbstractSparseMatrixCSC) =
     20*sum(size(A))*eps()*maximum(norm(view(A, :, i)) for i in axes(A, 2))
 
+# Return the pointer held by `r` and clear `r`, transferring ownership to the caller.
+function _take!(r::Ref{Ptr{T}}) where T
+    p = r[]
+    r[] = C_NULL
+    return p
+end
+
 """
     qr(A::SparseMatrixCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) -> QRSparse
 
@@ -173,9 +180,9 @@ solve least squares or underdetermined problems with [`\\`](@ref). The function 
 
 !!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with [`Float64`](@ref), `ComplexF64`, `Float32`, or
-    `ComplexF32` elements, calling `qr` on a matrix with a different element type will either convert it to a supported type or
-    raise an error.
+    As this library only supports sparse matrices with [`Float64`](@ref) or
+    `ComplexF64` elements, as of Julia v1.4 `qr` converts `A` into a copy that is
+    of type `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
 
 # Examples
 ```jldoctest
@@ -208,11 +215,13 @@ Column permutation:
 
 [^ACM933]: Foster, L. V., & Davis, T. A. (2013). Algorithm 933: Reliable Calculation of Numerical Rank, Null Space Bases, Pseudoinverse Solutions, and Basic Solutions Using SuitesparseQR. ACM Trans. Math. Softw., 40(1). [doi:10.1145/2513109.2513116](https://doi.org/10.1145/2513109.2513116)
 """
-function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
-    R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    E     = Ref{Ptr{Ti}}()
-    H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    HPinv = Ref{Ptr{Ti}}()
+function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
+    # Initialize all output pointers to NULL so that the frees below never
+    # see garbage if SPQR returns without writing one of them.
+    R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}(C_NULL)
+    E     = Ref{Ptr{Ti}}(C_NULL)
+    H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}(C_NULL)
+    HPinv = Ref{Ptr{Ti}}(C_NULL)
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
     # SPQR doesn't accept symmetric matrices so we explicitly set the stype
@@ -220,9 +229,22 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
         C_NULL, C_NULL, C_NULL, C_NULL,
         R, E, H, HPinv, HTau)
 
-    R_ = SparseMatrixCSC{Tv, Ti}(Sparse(R[]))
-    factors = SparseMatrixCSC{Tv, Ti}(Sparse(H[]))
-    τ = vec(Array{Tv}(CHOLMOD.Dense(HTau[])))
+    # Wrap the C-allocated outputs. Each wrapper constructor frees its own
+    # pointer if it throws (or owns it via a finalizer once constructed), but
+    # the siblings that have not been wrapped yet would leak, so hand each
+    # pointer over by clearing its Ref first and free whatever is still held
+    # in a Ref before rethrowing.
+    local R_, factors, τ
+    try
+        R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(R)))
+        factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(H)))
+        τ = vec(Array{Tv}(CHOLMOD.Dense{Tv}(_take!(HTau))))
+    catch
+        R[] != C_NULL && free!(R[], Ti)
+        H[] != C_NULL && free!(H[], Ti)
+        HTau[] != C_NULL && free!(HTau[])
+        rethrow()
+    end
     R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                 size(R_, 2),
                                 getcolptr(R_),
@@ -235,10 +257,10 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
                     ReentrantLock(),
                     Tv[])              # _ldiv_workspace (lazily sized on first solve)
 end
-LinearAlgebra.qr(A::SparseMatrixCSC{Float16}; tol=_default_tol(A)) =
-    QRSparse{Float16}(qr(convert(SparseMatrixCSC{Float32}, A); tol=tol))
-LinearAlgebra.qr(A::SparseMatrixCSC{ComplexF16}; tol=_default_tol(A)) =
-    QRSparse{ComplexF16}(qr(convert(SparseMatrixCSC{ComplexF32}, A); tol=tol))
+LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{Float16, Float32}} =
+    QRSparse{Tv}(qr(convert(SparseMatrixCSC{Float64}, A); tol, ordering))
+LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{ComplexF16, ComplexF32}} =
+    QRSparse{Tv}(qr(convert(SparseMatrixCSC{ComplexF64}, A); tol, ordering))
 LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
    tol=_default_tol(A)) where {T<:AbstractFloat} =
     throw(ArgumentError(string("matrix type ", typeof(A), "not supported. ",

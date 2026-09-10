@@ -254,7 +254,7 @@ julia> nonzeros(A)
 ```
 """
 nonzeros(S::SorF) = getfield(S, :nzval)
-nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(S.parent)
+nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(parent(S))
 nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 
@@ -282,7 +282,7 @@ julia> rowvals(A)
 ```
 """
 rowvals(S::SorF) = getfield(S, :rowval)
-rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(S.parent)
+rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
 rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 
@@ -309,7 +309,7 @@ of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
     Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
 Base.@propagate_inbounds nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
-Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(S.parent, S.indices[2][col])
+Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(parent(S), S.indices[2][col])
 nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangeup(S.data, i)
 nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangelo(S.data, i)
 
@@ -393,7 +393,7 @@ colvals(C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = Vector{Ti}(ColumnIndi
 function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
     _checkbuffers(_S)
     # can't use `findnz`, because that expects all values not to be #undef
-    S = _S isa Adjoint || _S isa Transpose ? _S.parent : _S
+    S = _S isa Adjoint || _S isa Transpose ? parent(_S) : _S
     I = rowvals(S)
     K = nonzeros(S)
     m, n = size(S)
@@ -1087,7 +1087,7 @@ julia> sparse(Is, Js, Vs)
  ⋅  ⋅  3
 ```
 """
-function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine) where {Tv,Ti<:Integer}
+function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine::F) where {Tv,Ti<:Integer,F}
     require_one_based_indexing(I, J, V)
     coolen = length(I)
     if length(J) != coolen || length(V) != coolen
@@ -1128,7 +1128,7 @@ function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{
     end
 end
 
-sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine) =
+sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine::F) where {F} =
     sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
 
 """
@@ -1490,9 +1490,9 @@ end
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)
 transpose(A::AbstractSparseMatrixCSC) = Transpose(A)
 Base.copy(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(A.parent, x -> adjoint(copy(x)), eltype(A))
+    ftranspose(parent(A), x -> adjoint(copy(x)), eltype(A))
 Base.copy(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(A.parent, x -> transpose(copy(x)), eltype(A))
+    ftranspose(parent(A), x -> transpose(copy(x)), eltype(A))
 function Base.permutedims(A::AbstractSparseMatrixCSC, (a,b))
     (a, b) == (2, 1) && return ftranspose(A, identity)
     (a, b) == (1, 2) && return copy(A)
@@ -1795,6 +1795,71 @@ function permute(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer}
     unchecked_noalias_permute!(X, A, p, q, C)
 end
 
+## Sorting
+
+#sorting TODO: integrate with `Base.Sort.IEEEFloatOptimization`'s partitioning by zero
+searchsortedfirst_discard_keywords(v::AbstractVector, x; lt=isless, by=identity,
+    rev::Union{Bool,Nothing}=nothing, order::Base.Order.Ordering=Forward, kws...) =
+        searchsortedfirst(v, x, Base.Order.ord(lt,by,rev,order))
+
+"""
+    sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
+
+Sort `A` in place along dimension `dims`, moving its stored entries to their sorted
+positions without adding new stored entries, so that `nnz(A)` is unchanged. Within each
+column (or row), stored values that compare equal to zero under the ordering are grouped
+after the structural zeros, so the result may differ from the dense `sort!` for orderings
+that do not distinguish stored values from zero (such as `by = iszero`).
+
+`A` may not be a `FixedSparseCSC`, since its row indices are read-only; use
+[`sort`](@ref) instead.
+
+The remaining keyword arguments are those of `sort!` for a `Vector`.
+"""
+function Base.sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
+    if _is_fixed(A)
+        throw(ArgumentError("cannot sort! a FixedSparseCSC in place, its row indices are read-only"))
+    end
+    if dims == 1
+        _sortcolumns!(A; kws...)
+    elseif dims == 2
+        # the rows of `A` are the columns of `transpose(A)`, which is cheap to form and
+        # cheap to transpose back once its columns are sorted
+        At = ftranspose(A, identity)
+        _sortcolumns!(At; kws...)
+        transpose!(A, At)
+    else
+        throw(ArgumentError(lazy"dimension out of range, got dims = $dims, expected 1 or 2"))
+    end
+    return A
+end
+
+# each column view is sorted through the sparse vector `sort!`; one scratch buffer is
+# shared between the columns so that Base does not allocate a fresh one per column
+function _sortcolumns!(A::AbstractSparseMatrixCSC; scratch=nothing, kws...)
+    require_one_based_indexing(A)
+    scratch = something(scratch, Vector{eltype(A)}(undef, 0))
+    for j in axes(A, 2)
+        sort!(view(A, :, j); scratch, kws...)
+    end
+    # with no columns there is nothing to sort, but the keywords are still validated
+    size(A, 2) == 0 && sort!(view(nonzeros(A), 1:0); scratch, kws...)
+    return A
+end
+
+"""
+    sort(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
+
+Return a sorted copy of `A` along dimension `dims` as a `SparseMatrixCSC`, keeping only the
+stored entries of `A`. See [`sort!`](@ref) for the treatment of stored values that compare
+equal to zero.
+"""
+Base.sort(A::AbstractSparseMatrixCSC; kws...) =
+    # the generic `Base.sort` for matrices goes through `permutedims`/`reshape` and does
+    # not return a `SparseMatrixCSC` for `dims = 1`; `copy` of a `FixedSparseCSC` shares
+    # its read-only structure, so convert to a writable `SparseMatrixCSC` in that case
+    sort!(_is_fixed(A) ? SparseMatrixCSC(A) : copy(A); kws...)
+
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
 function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
@@ -1976,6 +2041,11 @@ function findnz(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     return (I, J, V)
 end
 
+# Materializing the (conjugate) transpose is linear in `nnz` and yields the
+# indices in column-major order of the wrapped matrix, consistent with the
+# `AbstractSparseMatrixCSC` method above.
+findnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = findnz(copy(S))
+
 function _sparse_findnextnz(m::AbstractSparseMatrixCSC, ij::CartesianIndex{2})
     row, col = Tuple(ij)
     col > size(m, 2) && return nothing
@@ -2114,9 +2184,12 @@ LinearAlgebra.fillstored!(S::AbstractSparseMatrixCSC, x) = (fill!(nzvalview(S), 
     spzeros([type,]m[,n])
 
 Create a sparse vector of length `m` or sparse matrix of size `m x n`. This
-sparse array will not contain any nonzero values. No storage will be allocated
-for nonzero values during construction. The type defaults to [`Float64`](@ref) if not
-specified.
+sparse array will not contain any nonzero values, and no storage is allocated
+for them. The type defaults to [`Float64`](@ref) if not specified.
+
+This does not make the call allocation-free: the empty index and value buffers
+are still allocated, and a matrix additionally allocates a column pointer of
+`n + 1` entries, so an `m x n` matrix uses memory proportional to `n`.
 
 # Examples
 ```jldoctest
@@ -2255,9 +2328,19 @@ Base.iszero(A::AbstractSparseMatrixCSC) = iszero(nzvalview(A))
 function Base.isone(A::AbstractSparseMatrixCSC)
     m, n = size(A)
     m == n && getcolptr(A)[n+1] >= n+1 || return false
-    for j in axes(A,2), k in getcolptr(A)[j]:(getcolptr(A)[j+1] - 1)
-        i, x = rowvals(A)[k], nonzeros(A)[k]
-        ifelse(i == j, isone(x), iszero(x)) || return false
+    for j in axes(A,2)
+        founddiag = false
+        for k in getcolptr(A)[j]:(getcolptr(A)[j+1] - 1)
+            i, x = rowvals(A)[k], nonzeros(A)[k]
+            if i == j
+                isone(x) || return false
+                founddiag = true
+            else
+                iszero(x) || return false
+            end
+        end
+        # every column must have a stored diagonal entry equal to one
+        founddiag || return false
     end
     return true
 end
@@ -2340,7 +2423,11 @@ function (-)(A::Array, B::SparseMatrixCSCUnion)
 end
 
 ## full equality
-function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
+# Compare two CSC matrices by walking their stored entries only. `eq` is the elementwise
+# predicate (`==` or `isequal`); stored entries without a counterpart are compared against
+# the implicit zero of the other matrix so that e.g. `isequal(-0.0, 0.0)` and
+# `isequal(NaN, NaN)` behave as they do for dense arrays.
+function _iseq(eq::F, A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) where {F}
     size(A1) != size(A2) && return false
     @inbounds for i in axes(A1, 2)
         nz1, nz2 = nzrange(A1,i), nzrange(A2,i)
@@ -2349,66 +2436,80 @@ function ==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC)
         while j1 <= last(nz1) && j2 <= last(nz2)
             r1, r2 = rowvals(A1)[j1], rowvals(A2)[j2]
             if r1 == r2
-                nonzeros(A1)[j1] != nonzeros(A2)[j2] && return false
+                eq(nonzeros(A1)[j1], nonzeros(A2)[j2]) || return false
                 j1 += 1
                 j2 += 1
             elseif r1 < r2
-                !iszero(nonzeros(A1)[j1]) && return false
+                _iszero_under(eq, nonzeros(A1)[j1]) || return false
                 j1 += 1
             else # r1 > r2
-                !iszero(nonzeros(A2)[j2]) && return false
+                _iszero_under(eq, nonzeros(A2)[j2]) || return false
                 j2 += 1
             end
         end
         # finish off any left-overs:
         for j = j1:last(nz1)
-            !iszero(nonzeros(A1)[j]) && return false
+            _iszero_under(eq, nonzeros(A1)[j]) || return false
         end
         for j = j2:last(nz2)
-            !iszero(nonzeros(A2)[j]) && return false
+            _iszero_under(eq, nonzeros(A2)[j]) || return false
         end
     end
     return true
 end
 
+==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(==, A1, A2)
+Base.isequal(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(isequal, A1, A2)
+
 ## Explicit efficient comparisons with transposed arrays
 
 # Check whether all nonzero elements of A are equal to the respective elements in B
-function nzeq(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+# under the elementwise predicate `eq` (`==` or `isequal`)
+function nzeq(eq::F, A::AbstractSparseMatrixCSC, B::AbstractMatrix) where {F}
     @inbounds for j in axes(A,2)
         for k in nzrange(A, j)
             i = rowvals(A)[k]
             val = nonzeros(A)[k]
-            val ≠ B[i,j] && return false
+            eq(val, B[i,j]) || return false
         end
     end
     return true
 end
 # Peel off `Adjoint` and `Transpose` from first argument
-nzeq(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
-     B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
-    nzeq(A', B')
-nzeq(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
-     B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
-    nzeq(transpose(A), transpose(B))
+# `B` may be a nested wrapper such as `Adjoint{<:Any,<:Transpose}` (from `A' == transpose(B)`),
+# hence the loose `AbstractMatrix` bound: `B` is only ever indexed
+nzeq(eq::F, A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+     B::AbstractMatrix) where {F} =
+    nzeq(eq, A', B')
+nzeq(eq::F, A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+     B::AbstractMatrix) where {F} =
+    nzeq(eq, transpose(A), transpose(B))
 
 # Compare by walking both matrices
 # (We could further optimize the case `AbstractSparseMatrixCSC ==
 # Adjoint(Transpose(AbstractSparseMatrixCSC))` more efficiently, i.e.
 # the case where the RHS is both adjoint and transposed, i.e. where it
 # is in CSC format again.)
-function ==(A::AbstractSparseMatrixCSC,
-            B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose})
+function _iseq(eq::F, A::AbstractSparseMatrixCSC,
+               B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) where {F}
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # Compare nonzero elements
-    return nzeq(A, B) && nzeq(B, A)
+    return nzeq(eq, A, B) && nzeq(eq, B, A)
 end
+==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) =
+    _iseq(==, A, B)
+Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) =
+    _iseq(isequal, A, B)
 # Peel off `Adjoint` and `Transpose` from first argument
 ==(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
     A' == B'
 ==(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
     transpose(A) == transpose(B)
+Base.isequal(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    isequal(A', B')
+Base.isequal(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+    isequal(transpose(A), transpose(B))
 
 ## Reductions
 
@@ -2420,7 +2521,7 @@ function Base.reducedim_initarray(A::AbstractSparseMatrixCSC, region, v0, ::Type
 end
 
 # General mapreduce
-function _mapreducezeros(f, op, ::Type{T}, nzeros::Integer, v0) where T
+function _mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G,T}
     nzeros == 0 && return v0
 
     # Reduce over first zero
@@ -2439,7 +2540,7 @@ function _mapreducezeros(f, op, ::Type{T}, nzeros::Integer, v0) where T
     v
 end
 
-function Base._mapreduce(f, op, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
+function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where {F,G,T}
     z = nnz(A)
     n = widelength(A)
     if z == 0
@@ -2454,11 +2555,11 @@ function Base._mapreduce(f, op, ::Base.IndexCartesian, A::AbstractSparseMatrixCS
 end
 
 # Specialized mapreduce for +/*/min/max/_extrema_rf
-_mapreducezeros(f, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {T} =
+_mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? op(zero(v0), v0) : op(f(zero(T))*nzeros, v0)
-_mapreducezeros(f, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {T} =
+_mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? op(one(v0), v0) : op(f(zero(T))^nzeros, v0)
-_mapreducezeros(f, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {T} =
+_mapreducezeros(f::F, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
@@ -2469,7 +2570,7 @@ Base._any(f, A::AbstractSparseMatrixCSC, ::Colon) =
 Base._all(f, A::AbstractSparseMatrixCSC, ::Colon) =
     iszero(widelength(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
-function Base._mapreduce(f, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where T
+function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where {F,T}
     nnzA = nnz(A)
     nzeros = widelength(A) - nnzA
     if nzeros == 0
@@ -2519,7 +2620,7 @@ function _mapreducecols!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC{Tv,
     R
 end
 
-function Base._mapreducedim!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC{T}) where T
+function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::AbstractSparseMatrixCSC{T}) where {F,G,T}
     require_one_based_indexing(A, R)
     lsiz = Base.check_reducedims(R,A)
     isempty(A) && return R
@@ -3262,7 +3363,7 @@ function _insert!(v::Vector, pos::Integer, item, nz::Integer)
 end
 
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
-    A = V.parent
+    A = parent(V)
     I, J = V.indices
     if isempty(I) || isempty(J); return A; end
     # lt=≤ to check for strict sorting
@@ -4148,7 +4249,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
 
                 # If the matrix is unsymmetric, there might not exist
                 # a rowval[offset]
-                if offset > length(rowval)
+                if offset > colptr[row+1] - 1
                     return false
                 end
 
@@ -4163,8 +4264,13 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
                         return false
                     end
                     offset += 1
-                    row2 = rowval[offset]
                     tracker[row] += 1
+                    # Column `row` ran out of stored entries before
+                    # reaching row `col`, so A[col, row] does not exist
+                    if offset > colptr[row+1] - 1
+                        return false
+                    end
+                    row2 = rowval[offset]
                 end
 
                 # Non zero A[i,j] exists but A[j,i] does not exist
@@ -4256,6 +4362,14 @@ end
 _nzvals(v::AbstractSparseVector) = nonzeros(v)
 _nzvals(v::AbstractVector) = v
 
+# Promoted element type of the diagonals, mirroring `Base.promote_eltypeof`
+spdiagm_eltype(p::Pair) = eltype(p.second)
+spdiagm_eltype(p::Pair, q::Pair, rest::Pair...) =
+    (@inline; promote_type(promote_type(eltype(p.second), eltype(q.second)),
+                           spdiagm_eltype(rest...)))
+spdiagm_eltype(p::Pair, q::Pair) = promote_type(eltype(p.second), eltype(q.second))
+spdiagm_eltype(kv::Pair{<:Integer,<:AbstractVector{T}}...) where {T} = T
+
 function spdiagm_internal(kv::Pair{<:Integer,<:AbstractVector}...)
     ncoeffs = 0
     for p in kv
@@ -4263,7 +4377,7 @@ function spdiagm_internal(kv::Pair{<:Integer,<:AbstractVector}...)
     end
     I = Vector{Int}(undef, ncoeffs)
     J = Vector{Int}(undef, ncoeffs)
-    V = Vector{promote_type(map(x -> eltype(x.second), kv)...)}(undef, ncoeffs)
+    V = Vector{spdiagm_eltype(kv...)}(undef, ncoeffs)
     i = 0
     m = 0
     n = 0
