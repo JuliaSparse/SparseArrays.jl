@@ -37,6 +37,14 @@ end
     @test SparseMatrixCSC{eltype(a)}(Array(a)) == a
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
     @test collect(a) == a
+    # issue #54
+    b = SparseMatrixCSC{ComplexF64,Int32}(a)
+    @test promote_type(typeof(a), typeof(b)) === SparseMatrixCSC{ComplexF64,Int}
+    @test promote_type(typeof(a), Matrix{ComplexF64}) === Matrix{ComplexF64}
+    @test promote_type(Matrix{Int}, typeof(a)) === Matrix{Float64}
+    @test promote_type(SparseMatrixCSC{Int8,Int}, SparseMatrixCSC{Int16,Int}) === SparseMatrixCSC{Int16,Int}
+    @test promote(a, b) == (a, b)
+    @test eltype([a, b]) === SparseMatrixCSC{ComplexF64,Int}
 end
 
 @testset "sparse matrix construction" begin

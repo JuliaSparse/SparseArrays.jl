@@ -579,6 +579,13 @@ convert(T::Type{<:SparseVector}, m::AbstractVector) = m isa T ? m : T(m)
 convert(T::Type{<:SparseVector}, m::AbstractSparseMatrixCSC) = T(m)
 convert(T::Type{<:AbstractSparseMatrixCSC}, v::AbstractCompressedVector) = T(v)
 
+function promote_rule(::Type{SparseVector{Tv1,Ti1}}, ::Type{SparseVector{Tv2,Ti2}}) where {Tv1,Ti1,Tv2,Ti2}
+    Ti = promote_type(Ti1, Ti2)
+    return Base.el_same(promote_type(Tv1, Tv2), SparseVector{Tv1,Ti}, SparseVector{Tv2,Ti})
+end
+promote_rule(::Type{Vector{Tv1}}, ::Type{<:SparseVector{Tv2}}) where {Tv1,Tv2} =
+    Base.el_same(promote_type(Tv1, Tv2), Vector{Tv1}, Vector{Tv2})
+
 ### copying
 function prep_sparsevec_copy_dest!(A::AbstractCompressedVector, lB, nnzB)
     lA = length(A)
