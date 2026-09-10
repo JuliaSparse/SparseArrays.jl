@@ -215,13 +215,13 @@ julia> A = sparse(2I, 3, 3)
  ⋅  2  ⋅
  ⋅  ⋅  2
 
-julia> SparseArrays.getrowval(A)
+julia> getrowval(A)
 3-element Vector{Int64}:
  1
  2
  3
 
-julia> SparseArrays.getrowval(sparsevec([2, 5], [3.0, 4.0]))
+julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
 2-element Vector{Int64}:
  2
  5
@@ -252,13 +252,13 @@ julia> A = sparse(2I, 3, 3)
  ⋅  2  ⋅
  ⋅  ⋅  2
 
-julia> SparseArrays.getnzval(A)
+julia> getnzval(A)
 3-element Vector{Int64}:
  2
  2
  2
 
-julia> SparseArrays.getnzval(sparsevec([2, 5], [3.0, 4.0]))
+julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
 2-element Vector{Float64}:
  3.0
  4.0
@@ -378,8 +378,8 @@ of sparse array `A`. In conjunction with [`getrowval`](@ref) and
 [`getnzval`](@ref), this allows for convenient iterating over a sparse matrix :
 
     A = sparse(I,J,V)
-    rows = SparseArrays.getrowval(A)
-    vals = SparseArrays.getnzval(A)
+    rows = getrowval(A)
+    vals = getnzval(A)
     m, n = size(A)
     for j = 1:n
        for i in nzrange(A, j)

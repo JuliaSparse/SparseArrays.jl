@@ -4,7 +4,7 @@ module SparseVectorTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr, getrowval, getnzval
+using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
