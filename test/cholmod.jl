@@ -149,10 +149,14 @@ Random.seed!(123)
     @test size(chmal) == size(A)
     @test size(chmal, 1) == size(A, 1)
 
-    @testset "factor component solves with views (#496)" begin
+    @testset "factor and component solves with views (#496, #120)" begin
         F = cholesky(A)
         B = Matrix{Tv}(hcat(b, 2b, 3b))
         Bt = Matrix(transpose(B[:, 2:3]))
+        # complex right-hand sides for the real factor (#120), which LinearAlgebra handles
+        # for `Vector` and `Matrix` but not for views or adjoint/transpose wrappers of them
+        Z = complex.(B, 2B)
+        Zt = Matrix(transpose(Z[:, 2:3]))
         for sym in (:L, :U, :PtL, :UP)
             C = getproperty(F, sym)
             ref = C \ Vector(b)
@@ -164,6 +168,32 @@ Random.seed!(123)
             @test C \ transpose(Bt) ≈ hcat(2ref, 3ref)
             @test C' \ view(B, :, 1) ≈ C' \ Vector(b)
             @test C' \ view(B, :, 2:3) ≈ C' \ B[:, 2:3]
+            # a real factor component is a real linear map, so it solves for a complex
+            # right-hand side componentwise
+            zref = complex.(ref, 2ref)
+            @test C \ Z[:, 1] ≈ zref
+            @test C \ view(Z, :, 1) ≈ zref
+            @test C \ view(Z, :, 2:3) ≈ hcat(2zref, 3zref)
+            @test C \ Zt' ≈ conj(hcat(2zref, 3zref))   # the adjoint conjugates
+            @test C \ transpose(Zt) ≈ hcat(2zref, 3zref)
+            @test C' \ view(Z, :, 1) ≈ complex.(C' \ Vector(b), 2(C' \ Vector(b)))
+        end
+        for G in (F, F')
+            zref = complex.(G \ Vector(b), 2(G \ Vector(b)))
+            @test G \ Z[:, 1] ≈ zref
+            @test G \ view(Z, :, 1) ≈ zref
+            @test G \ view(Z, :, 2:3) ≈ hcat(2zref, 3zref)
+            @test G \ Zt' ≈ conj(hcat(2zref, 3zref))
+            @test G \ transpose(Zt) ≈ hcat(2zref, 3zref)
+        end
+        # a complex right-hand side of the other precision is solved in the precision of
+        # the (real) factor, as a real one is
+        Z2 = Complex{Tv === Float64 ? Float32 : Float64}.(Z)
+        for G in (F, F', F.L, F.PtL')
+            X = G \ Z2
+            @test eltype(X) === Complex{Tv}
+            @test X ≈ G \ Z rtol=sqrt(eps(Float32))
+            @test G \ view(Z2, :, 1) ≈ X[:, 1] rtol=sqrt(eps(Float32))
         end
         # the discourse example: a column of a dense workspace matrix
         W = zeros(Tv, n, 2); W[:, 1] .= b
