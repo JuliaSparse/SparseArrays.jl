@@ -35,7 +35,7 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
 
-public sparse!, spzeros!
+public sparse!, spzeros!, getrowval, getnzval
 
 const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 

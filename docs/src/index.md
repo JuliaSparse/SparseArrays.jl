@@ -235,6 +235,8 @@ SparseArrays.sparse_hvcat
 SparseArrays.blockdiag
 SparseArrays.sprand
 SparseArrays.sprandn
+SparseArrays.getnzval
+SparseArrays.getrowval
 SparseArrays.nonzeros
 SparseArrays.rowvals
 SparseArrays.nzrange
