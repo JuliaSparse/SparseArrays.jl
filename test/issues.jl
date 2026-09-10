@@ -812,6 +812,55 @@ end
     @test eltype(rowvals(zero(v))) <: Int16
 end
 
+@testset "SuiteSparse library directory override (#250)" begin
+    L = SparseArrays.LibSuiteSparse
+    @test isdir(L.libdir())
+    @test_throws ArgumentError L.set_libdir!(joinpath(L.libdir(), "does-not-exist"))
+    mktempdir() do dir
+        # The preference is looked up at first resolution; resolve once against a project
+        # that carries it, without loading anything.
+        proj = joinpath(dir, "proj")
+        mkdir(proj)
+        write(joinpath(proj, "Project.toml"), "[deps]\nSparseArrays = \"$(L.SPARSEARRAYS_UUID)\"\n")
+        write(joinpath(proj, "LocalPreferences.toml"), "[SparseArrays]\nsuitesparse_libdir = $(repr(dir))\n")
+        saved = L._libdir[]
+        pushfirst!(LOAD_PATH, proj)
+        try
+            L._libdir[] = nothing
+            @test L._override_dir() == dir
+        finally
+            popfirst!(LOAD_PATH)
+            L._libdir[] = saved
+        end
+        if Base.USE_GPL_LIBS
+            # Load a copy of the bundled libraries from another directory in fresh processes.
+            for name in keys(L.SUITESPARSE_LIBRARIES)
+                src = L._jll_path(name)
+                cp(src, joinpath(dir, basename(src)); follow_symlinks=true)
+            end
+            check = """
+                using SparseArrays, LinearAlgebra, Libdl, Test
+                L = SparseArrays.LibSuiteSparse
+                @test samefile(L.libdir(), $(repr(dir)))
+                A = sparse([4.0 1; 1 3]); b = [1.0, 2.0]; x = Matrix(A) \\ b
+                @test cholesky(A) \\ b ≈ x
+                @test lu(A) \\ b ≈ x
+                @test qr(A) \\ b ≈ x
+                for lib in L.SUITESPARSE_LIBRARIES
+                    @test samefile(dirname(dlpath(lib)), $(repr(dir)))
+                end
+                @test_throws ArgumentError L.set_libdir!(nothing)
+                """
+            loadpath = "JULIA_LOAD_PATH" => join(Base.load_path(), Sys.iswindows() ? ";" : ":")
+            for (script, env) in [(check, [L.LIBDIR_ENV => dir, loadpath]),
+                                  ("using SparseArrays; SparseArrays.LibSuiteSparse.set_libdir!($(repr(dir)))\n" * check, [loadpath])]
+                cmd = addenv(`$(Base.julia_cmd()) --startup-file=no -e $script`, env...)
+                @test success(pipeline(cmd; stderr))
+            end
+        end
+    end
+end
+
 end # SparseTestsBase
 
 end # module

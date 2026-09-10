@@ -1,10 +1,129 @@
 module LibSuiteSparse
 
-using SuiteSparse_jll
+import SuiteSparse_jll
 import Libdl
+using Libdl: LazyLibrary
 
 const TRUE  = Int32(1)
 const FALSE = Int32(0)
+
+## Library loading
+#
+# SparseArrays owns the `LazyLibrary` handles for the SuiteSparse libraries it calls
+# rather than using SuiteSparse_jll's, so the whole set can be redirected to another
+# directory (#250). Without an override each library resolves to the same file
+# SuiteSparse_jll would open. Paths are resolved at first `dlopen`, so the override
+# only has to be in place before the first solver call.
+
+const SPARSEARRAYS_UUID = Base.UUID("2f01184e-e22b-5df5-ae63-d93ebab69eaf")
+const LIBDIR_ENV = "JULIA_SUITESPARSE_LIBDIR"
+const LIBDIR_PREFERENCE = "suitesparse_libdir"
+
+# nothing = not resolved yet, "" = no override
+const _libdir = Ref{Union{Nothing,String}}(nothing)
+const _libdir_lock = ReentrantLock()
+
+# Path SuiteSparse_jll would load for library `name`, without loading it.
+function _jll_path(name::Symbol)
+    lib = getfield(SuiteSparse_jll, name)
+    lib isa LazyLibrary && return string(lib.path)
+    # Older stubs dlopen in `__init__` and record the resolved path in `<name>_path`.
+    path = getfield(SuiteSparse_jll, Symbol(name, :_path))::String
+    return isempty(path) ? String(lib) : path
+end
+
+function _override_dir()
+    # Nothing loaded while generating a pkgimage may be cached in it.
+    Base.generating_output() && return ""
+    @lock _libdir_lock begin
+        dir = _libdir[]
+        if dir === nothing
+            dir = get(ENV, LIBDIR_ENV, "")
+            if isempty(dir)
+                pref = get(Base.get_preferences(SPARSEARRAYS_UUID), LIBDIR_PREFERENCE, nothing)
+                dir = pref isa AbstractString ? String(pref) : ""
+            end
+            isempty(dir) || (dir = abspath(expanduser(dir)))
+            _libdir[] = dir
+        end
+        return dir::String
+    end
+end
+
+struct SuiteSparseLibPath
+    name::Symbol
+end
+function Base.string(p::SuiteSparseLibPath)
+    path = _jll_path(p.name)
+    dir = _override_dir()
+    return isempty(dir) ? path : joinpath(dir, basename(path))
+end
+Base.print(io::IO, p::SuiteSparseLibPath) = print(io, string(p))
+
+# The BLAS/LAPACK and compiler runtime libraries SuiteSparse_jll declares as dependencies.
+# Loading libblastrampoline through its LazyLibrary (rather than letting the OS loader pull
+# it in as a DT_NEEDED of libcholmod) is what runs LinearAlgebra's BLAS forwarding callback.
+const _system_deps = LazyLibrary[getfield(SuiteSparse_jll, n)
+    for n in (:libblastrampoline, :libstdcxx, :libgcc_s)
+    if isdefined(SuiteSparse_jll, n) && getfield(SuiteSparse_jll, n) isa LazyLibrary]
+
+const libsuitesparseconfig = LazyLibrary(SuiteSparseLibPath(:libsuitesparseconfig))
+const libamd     = LazyLibrary(SuiteSparseLibPath(:libamd);     dependencies = [libsuitesparseconfig])
+const libcamd    = LazyLibrary(SuiteSparseLibPath(:libcamd);    dependencies = [libsuitesparseconfig])
+const libcolamd  = LazyLibrary(SuiteSparseLibPath(:libcolamd);  dependencies = [libsuitesparseconfig])
+const libccolamd = LazyLibrary(SuiteSparseLibPath(:libccolamd); dependencies = [libsuitesparseconfig])
+const libcholmod = LazyLibrary(SuiteSparseLibPath(:libcholmod);
+    dependencies = [libsuitesparseconfig, libamd, libcamd, libccolamd, libcolamd, _system_deps...])
+const libspqr    = LazyLibrary(SuiteSparseLibPath(:libspqr);
+    dependencies = [libsuitesparseconfig, libcholmod, _system_deps...])
+const libumfpack = LazyLibrary(SuiteSparseLibPath(:libumfpack);
+    dependencies = [libsuitesparseconfig, libamd, libcholmod, _system_deps...])
+
+const SUITESPARSE_LIBRARIES = (; libsuitesparseconfig, libamd, libcamd, libcolamd, libccolamd,
+                                 libcholmod, libspqr, libumfpack)
+
+_isloaded(lib::LazyLibrary) = (@atomic :acquire lib.handle) != C_NULL
+
+"""
+    LibSuiteSparse.libdir()
+
+Return the directory the SuiteSparse libraries are loaded from, or will be loaded from
+if none has been loaded yet. See [`set_libdir!`](@ref LibSuiteSparse.set_libdir!).
+"""
+function libdir()
+    dir = _override_dir()
+    return isempty(dir) ? dirname(_jll_path(:libsuitesparseconfig)) : dir
+end
+
+"""
+    LibSuiteSparse.set_libdir!(dir)
+    LibSuiteSparse.set_libdir!(nothing)
+
+Load the SuiteSparse libraries from `dir` instead of the copies bundled with Julia, or
+restore the bundled copies with `nothing`. `dir` must contain the whole set of libraries
+(`libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod`,
+`libspqr` and `libumfpack`) under the same file names as the bundled ones, built from
+the same major SuiteSparse version.
+
+The libraries are loaded on first use, so this must be called before the first solver
+call. It throws once any of them has been loaded. The directory can also be set with the
+`$LIBDIR_ENV` environment variable or the `$LIBDIR_PREFERENCE` preference of SparseArrays;
+`set_libdir!` takes precedence over both.
+"""
+function set_libdir!(dir::Union{AbstractString,Nothing})
+    @lock _libdir_lock begin
+        loaded = [String(k) for (k, lib) in pairs(SUITESPARSE_LIBRARIES) if _isloaded(lib)]
+        isempty(loaded) || throw(ArgumentError(
+            "the SuiteSparse library directory cannot be changed after loading $(join(loaded, ", "))"))
+        if dir === nothing
+            _libdir[] = ""
+        else
+            isdir(dir) || throw(ArgumentError("not a directory: $dir"))
+            _libdir[] = abspath(String(dir))
+        end
+    end
+    return libdir()
+end
 
 include("wrappers.jl")
 
@@ -15,7 +134,7 @@ const BUILD_VERSION = VersionNumber(
     SUITESPARSE_SUBSUB_VERSION
 )
 
-public init_suitesparse
+public init_suitesparse, libdir, set_libdir!
 
 """
     LibSuiteSparse.init_suitesparse
@@ -35,7 +154,7 @@ Internal function which is used to initialize the SuiteSparse libraries to the c
 const init_suitesparse = Base.OncePerProcess{Nothing}() do
     try
         ### Check if the linked library is compatible with the Julia code
-        if Libdl.dlsym_e(Libdl.dlopen("libsuitesparseconfig"), :SuiteSparse_version) != C_NULL
+        if Libdl.dlsym_e(Libdl.dlopen(libsuitesparseconfig), :SuiteSparse_version) != C_NULL
             current_version_array = Vector{Cint}(undef, 3)
             SuiteSparse_version(current_version_array)
             (major, minor, patch) = current_version_array
@@ -51,7 +170,8 @@ const init_suitesparse = Base.OncePerProcess{Nothing}() do
 
                 Julia was compiled with SuiteSparse version $BUILD_VERSION. It is
                 currently linked with a version older than
-                $(SUITESPARSE_MIN_VERSION). This might cause Julia to
+                $(SUITESPARSE_MIN_VERSION) from $(Libdl.dlpath(libsuitesparseconfig)).
+                This might cause Julia to
                 terminate when working with sparse matrix factorizations,
                 e.g. solving systems of equations with \\.
 
@@ -65,7 +185,8 @@ const init_suitesparse = Base.OncePerProcess{Nothing}() do
                 SuiteSparse version incompatibility
 
                 Julia was compiled with SuiteSparse version $BUILD_VERSION. It is
-                currently linked with version $current_version.
+                currently linked with version $current_version from
+                $(Libdl.dlpath(libsuitesparseconfig)).
                 This might cause Julia to terminate when working with
                 sparse matrix factorizations, e.g. solving systems of
                 equations with \\.
