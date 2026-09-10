@@ -681,6 +681,9 @@ end
     @test ((1:5) .+ A) .* 2 == 2:2:10
     @test 2 .* ((1:5) .+ A) == 2:2:10
     @test 2 .* (A .+ (1:5)) == 2:2:10
+    # in-place with an unsupported (Tuple) argument used to recurse, see #573
+    B = sparsevec([2], [3.0], 5)
+    @test (B .= .*(B, A .+ 1, (2,))) == [0, 6, 0, 0, 0]
 
     # lu(zeros(5,5)) throw SingularException, see #42343
     @test_throws SingularException Diagonal(spzeros(5)) \ view(rand(10), 1:5)

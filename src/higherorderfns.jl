@@ -1186,7 +1186,11 @@ end
 
 @inline function copyto!(dest::SparseVecOrMat, bc::Broadcasted{PromoteToSparse})
     bcf = flatten(bc)
-    broadcast!(bcf.f, dest, map(_sparsifystructured, bcf.args)...)
+    if is_supported_sparse_broadcast(bcf.args...)
+        broadcast!(bcf.f, dest, map(_sparsifystructured, bcf.args)...)
+    else # e.g. a Tuple argument: re-promoting would recurse, so opt out like `copy` does
+        copyto!(dest, convert(Broadcasted{Broadcast.DefaultArrayStyle{length(axes(bc))}}, bc))
+    end
 end
 
 _sparsifystructured(M::AbstractMatrix) = SparseMatrixCSC(M)
