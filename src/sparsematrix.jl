@@ -981,6 +981,15 @@ Array(S::AbstractSparseMatrixCSC) = Matrix(S)
 
 convert(T::Type{<:AbstractSparseMatrixCSC}, m::AbstractMatrix) = m isa T ? m : T(m)
 
+# mirror Base's Array rule: promote the eltype only if at least one container wouldn't
+# change, otherwise join the container types (see Base.el_same)
+function promote_rule(::Type{SparseMatrixCSC{Tv1,Ti1}}, ::Type{SparseMatrixCSC{Tv2,Ti2}}) where {Tv1,Ti1,Tv2,Ti2}
+    Ti = promote_type(Ti1, Ti2)
+    return Base.el_same(promote_type(Tv1, Tv2), SparseMatrixCSC{Tv1,Ti}, SparseMatrixCSC{Tv2,Ti})
+end
+promote_rule(::Type{Matrix{Tv1}}, ::Type{<:SparseMatrixCSC{Tv2}}) where {Tv1,Tv2} =
+    Base.el_same(promote_type(Tv1, Tv2), Matrix{Tv1}, Matrix{Tv2})
+
 convert(T::Type{<:Diagonal},       m::AbstractSparseMatrixCSC) = m isa T ? m :
     isdiag(m) ? T(m) : throw(ArgumentError("matrix cannot be represented as Diagonal"))
 convert(T::Type{<:SymTridiagonal}, m::AbstractSparseMatrixCSC) = m isa T ? m :

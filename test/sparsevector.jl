@@ -60,6 +60,12 @@ end
         @test Array(x) == xf
         @test Vector(x) == xf
         @test collect(x) == xf
+        # issue #54
+        y = SparseVector{ComplexF64,Int32}(x)
+        @test promote_type(typeof(x), typeof(y)) === SparseVector{ComplexF64,Int}
+        @test promote_type(Vector{Int}, typeof(x)) === Vector{Float64}
+        @test promote(x, y) == (x, y)
+        @test eltype([x, y]) === SparseVector{ComplexF64,Int}
     end
 end
 @testset "show" begin

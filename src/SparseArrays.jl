@@ -23,7 +23,7 @@ import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
 
 import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Complex,
     conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin, findnext, findprev,
-    float, getindex, imag, inv, kron, kron!, length, map, maximum, minimum, permute!, real,
+    float, getindex, imag, inv, kron, kron!, length, map, maximum, minimum, permute!, promote_rule, real,
     rot180, rotl90, rotr90, setindex!, show, similar, size, sum, transpose,
     vcat, hcat, hvcat, cat, vec, reverse, reverse!
 
