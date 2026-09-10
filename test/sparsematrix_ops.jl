@@ -629,12 +629,18 @@ end
                                                  d in (0.0, 0.2, 1.0)
         A = sprand(m, n, d)
         M = Matrix(A)
+        cols = (n + 1) ÷ 2:n   # a view of a column range reduces like its copy (#377)
+        V = view(A, :, cols)
+        C = A[:, cols]
         for dims in (1, 2, (1, 2), 3), f in reductions
             rs = f(A; dims)
             rd = f(M; dims)
             @test rs isa SparseMatrixCSC
             @test size(rs) == size(rd)
             @test Matrix(rs) ≈ rd
+            rv = f(V; dims)
+            rc = f(C; dims)
+            @test typeof(rv) == typeof(rc) && nnz(rv) == nnz(rc) && isequal(rv, rc)
         end
     end
     # only rows and columns that store something get an entry, unless the reduction of a
@@ -672,6 +678,10 @@ end
     @test nnz(sum(A; dims = 1)) == 3
     sum(A; dims = 2)
     @test (@allocated sum(A; dims = 2)) < 2^12
+    # a column-range view goes through the sparse kernels, not the element-wise fallback (#377)
+    V = view(A, :, 2:3)
+    @test (@which Base._mapreducedim!(identity, +, spzeros(10^6, 1), V)).module == SparseArrays
+    @test (@which Base._mapreduce(identity, +, IndexCartesian(), V)).module == SparseArrays
     # destinations: `sum!` resets its destination first, as for dense, while
     # `mapreducedim!` folds into whatever it already stores
     A = sprand(8, 6, 0.4); M = Matrix(A)
