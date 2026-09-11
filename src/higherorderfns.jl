@@ -316,12 +316,17 @@ end
 # helper functions for these methods and some of those below
 @inline _densecoloffsets(A::AbstractCompressedVector) = 0
 @inline _densecoloffsets(A::AbstractSparseMatrixCSC) = 0:size(A, 1):(size(A, 1)*(size(A, 2) - 1))
+# a fixed pattern cannot be densified unless it already is; fail here rather than deep in ReadOnly
+_checkdensifiable(A) = _is_fixed(A) && nnz(A) != widelength(A) &&
+    throw(ArgumentError("cannot store a nonzero f(0) into a $(nameof(typeof(A))), its sparsity pattern is read-only"))
 function _densestructure!(A::AbstractCompressedVector)
+    _checkdensifiable(A)
     expandstorage!(A, length(A))
     copyto!(nonzeroinds(A), 1:length(A))
     return A
 end
 function _densestructure!(A::AbstractSparseMatrixCSC)
+    _checkdensifiable(A)
     nnzA = size(A, 1) * size(A, 2)
     expandstorage!(A, nnzA)
     copyto!(getcolptr(A), 1:size(A, 1):(nnzA + 1))
