@@ -56,12 +56,28 @@ matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
     Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
 matop_dest(::typeof(*), A, B::QuasiSparseMatrix) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
-# sparse products with banded matrices should return sparse arrays (Diagonal is handled by fallback)
+# sparse products with banded matrices should return sparse arrays
 matop_dest(::typeof(*), A::BiTriSym, B::QuasiSparseMatrix) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # needed for disambiguation with LinearAlgebra
 matop_dest(::typeof(*), A::Diagonal, B::QuasiSparseMatrix) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
+# a `Diagonal` product keeps the structure of the sparse operand, so a fixed operand gets
+# a fixed destination with that structure up front, which `mul!` then only has to fill
+# (an empty fixed destination could not take the indices); the adjoint/transpose of a
+# sparse matrix gets an empty, writable destination, since its structure is not that of
+# the parent
+matop_dest(::typeof(*), A::Diagonal, B::AbstractSparseMatrixCSC) =
+    _is_fixed(B) ? similar(B, promote_op(matprod, eltype(A), eltype(B))) :
+                   similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
+matop_dest(::typeof(*), A::Diagonal, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
+    _adjtrans_dest(B, promote_op(matprod, eltype(A), eltype(B)))
+matop_dest(::typeof(*), A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::Diagonal) =
+    _adjtrans_dest(A, promote_op(matprod, eltype(A), eltype(B)))
+function _adjtrans_dest(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, ::Type{T}) where T
+    P = parent(A)
+    return sizehint!(spzeros(T, indtype(P), size(A)...), nnz(P))
+end
 matop_dest(::typeof(*), A::QuasiSparseMatrix, B::BiTriSym) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
 
@@ -753,6 +769,63 @@ end
 
 function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
     return conj(dot(B, A))
+end
+
+# Frobenius dot of the adjoint/transpose of a CSC matrix with a CSC matrix (issue #627).
+# With `P = parent(A)`, `dot(A, B) = Σ dot(op(P[j,i]), B[i,j])`, so the stored entries of
+# one operand are matched against those of the other at transposed positions. Walking the
+# sparser operand with one cursor per column of the other keeps the work at
+# O(nnz(P) + nnz(B) + n) with O(n) extra memory, where `n` counts the columns of the other
+# operand; a binary search per stored entry is used instead when the other operand is far
+# denser, since the cursors would then sweep all of its entries.
+function dot(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC)
+    m, n = size(A)
+    size(B) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n) but B has size $(size(B))"))
+    P = parent(A)
+    op = LinearAlgebra.wrapperop(A)
+    r = dot(op(zero(eltype(P))), zero(eltype(B)))
+    (iszero(nnz(P)) || iszero(nnz(B))) && return r
+    if nnz(B) <= nnz(P)
+        return _dot_transposed_walk((b, p) -> dot(op(p), b), B, P, r)
+    else
+        return _dot_transposed_walk((p, b) -> dot(op(p), b), P, B, r)
+    end
+end
+
+# `r + Σ f(X[i,j], Y[j,i])` over the stored entries of `X` that have a stored counterpart
+# in `Y`. Walking the columns of `X` in order, the row index `j` looked for in column `i`
+# of `Y` is nondecreasing, so one cursor per column of `Y` suffices. The cursors visit
+# every stored entry of `Y`, so once `Y` holds well over an order of magnitude more entries
+# (or columns) than `X`, a binary search per entry of `X` is cheaper; the crossover is at
+# a ratio of about 20-50 in measurements.
+function _dot_transposed_walk(f::F, X::AbstractSparseMatrixCSC, Y::AbstractSparseMatrixCSC, r) where F
+    Xrows, Xvals = rowvals(X), nonzeros(X)
+    Yrows, Yvals, Ycolptr = rowvals(Y), nonzeros(Y), getcolptr(Y)
+    if size(Y, 2) + nnz(Y) > 32 * nnz(X)
+        @inbounds for j in axes(X, 2), k in nzrange(X, j)
+            i = Xrows[k]
+            rng = nzrange(Y, i)
+            p = searchsortedfirst(view(Yrows, rng), j) + first(rng) - 1
+            if p <= last(rng) && Yrows[p] == j
+                r += f(Xvals[k], Yvals[p])
+            end
+        end
+        return r
+    end
+    cursor = Ycolptr[1:size(Y, 2)]   # cursor[i] indexes into column i of Y
+    @inbounds for j in axes(X, 2), k in nzrange(X, j)
+        i = Xrows[k]
+        p = cursor[i]
+        pend = Ycolptr[i+1]
+        while p < pend && Yrows[p] < j
+            p += 1
+        end
+        cursor[i] = p
+        if p < pend && Yrows[p] == j
+            r += f(Xvals[k], Yvals[p])
+        end
+    end
+    return r
 end
 
 function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractVector)
@@ -2176,6 +2249,41 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
         end
     end
     C
+end
+
+# Adjoint/transpose of a sparse matrix with a `Diagonal` (issue #619): the generic
+# `Diagonal` kernel in LinearAlgebra visits every element of `C`. With `beta == 0` the
+# adjoint is formed directly in `C` (one `halfperm!`, O(nnz)) and scaled in place;
+# otherwise it is materialized once and handed to the CSC kernels above, which also
+# covers a destination that shares storage with the parent, or whose index type or fixed
+# structure `halfperm!` cannot write.
+function _adjtrans_into!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
+    P = parent(A)
+    return halfperm!(C, P, axes(P, 2), _adjtrans_fun(A))
+end
+_adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, beta) =
+    iszero(beta) && !Base.mightalias(C, parent(A)) && !_is_fixed(C) && indtype(C) === indtype(parent(A))
+
+function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
+    m, n = size(A)
+    lb = length(D.diag)
+    n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
+    size(C) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
+    _adjtrans_direct(C, A, beta) || return mul!(C, copy(A), D, alpha, beta)
+    rmul!(_adjtrans_into!(C, A), D)
+    isone(alpha) || rmul!(C, alpha)
+    return C
+end
+
+function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, alpha::Number, beta::Number)
+    m, n = size(A)
+    lb = length(D.diag)
+    m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
+    size(C) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
+    _adjtrans_direct(C, A, beta) || return mul!(C, D, copy(A), alpha, beta)
+    lmul!(D, _adjtrans_into!(C, A))
+    isone(alpha) || rmul!(C, alpha)
+    return C
 end
 
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC, alpha::Number, beta::Number)
