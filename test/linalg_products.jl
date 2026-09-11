@@ -256,21 +256,21 @@ end
         @test dot(W(Ai), Ai) isa Int
     end
     # the kernel walks the sparser operand and multiplies only where both operands store
-    # an entry (plus one multiplication seeding the accumulator), whereas the generic
-    # fallback multiplies every stored entry of the sparse operand
+    # an entry, whereas the generic fallback multiplies every stored entry of the sparse
+    # operand
     P = mulcount_sparse(sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0], 6, 4))
     for W in (adjoint, transpose)
         # disjoint patterns: `B[i, j]` is stored only where `P[j, i]` is not
         B = mulcount_sparse(sparse([1, 2, 4, 4], [2, 3, 1, 6], [1.0, 2.0, 3.0, 4.0], 4, 6))
-        @test mulcount(() -> dot(W(P), B)) == 1
-        @test mulcount(() -> dot(B, W(P))) == 1
+        @test mulcount(() -> dot(W(P), B)) == 0
+        @test mulcount(() -> dot(B, W(P))) == 0
         # two matching pairs, found from either side of the walk
         B = mulcount_sparse(sparse([1, 1, 2, 3, 4, 4], [1, 2, 3, 3, 1, 6], 1.0:6.0, 4, 6))
         @test nnz(B) > nnz(P)   # walks P
-        @test mulcount(() -> dot(W(P), B)) == 1 + 2
+        @test mulcount(() -> dot(W(P), B)) == 2
         Pw = mulcount_sparse(sparse([1, 2, 3, 4, 5, 6, 6], [1, 2, 3, 4, 4, 1, 2], 1.0:7.0, 6, 4))
         @test nnz(Pw) > nnz(B)  # walks B
-        @test mulcount(() -> dot(W(Pw), B)) == 1 + 2
+        @test mulcount(() -> dot(W(Pw), B)) == 2
     end
     # far more columns than stored entries: a binary search per entry, no cursor array
     for W in (adjoint, transpose)
@@ -281,6 +281,13 @@ end
     end
     # fixed operands are read only
     @test dot(fixed(sprand(5, 4, 0.5))', sprand(4, 5, 0.5)) isa Float64
+    # matrix-valued entries have no `zero`, but the result is a scalar
+    Bm = sparse([1, 2, 2], [1, 1, 2], [rand(2, 2) for _ in 1:3], 2, 2)
+    Mm = [zeros(2, 2) for _ in 1:2, _ in 1:2]
+    for (i, j, v) in zip(findnz(Bm)...); Mm[i, j] = v; end
+    @test dot(Bm, Bm) ≈ dot(Mm, Bm) ≈ dot(Bm, Mm) ≈ dot(Mm, Mm)
+    @test dot(Bm', Bm) ≈ dot(Bm, Bm') ≈ dot(Mm', Mm)
+    @test dot(spzeros(Matrix{Float64}, 2, 2), Bm) == 0
 end
 
 @testset "generalized dot product" begin
@@ -304,6 +311,11 @@ end
         @test_throws DimensionMismatch dot(x, A, [y, y])
         @test iszero(dot(spzeros(length(x)), A, y))
     end
+    # matrix-valued entries: `dot(x, A, y)` entrywise, not `dot(x, A) * y`
+    Bm = sparse([1, 2, 2], [1, 1, 2], [rand(2, 2) for _ in 1:3], 2, 2)
+    xm = [rand(2, 2) for _ in 1:2]; ym = [rand(2, 2) for _ in 1:2]
+    r = sum(dot(xm[i], Bm[i, j], ym[j]) for (i, j) in zip(findnz(Bm)[1:2]...))
+    @test dot(xm, Bm, ym) ≈ dot(sparsevec(xm), Bm, sparsevec(ym)) ≈ r
 
     for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
         B = sprandn(T, 10, 10, 0.2)

@@ -1835,7 +1835,7 @@ function dot(x::AbstractVector, y::SparseVectorUnion)
         "Vector x has a length $n but y has a length $(length(y))"))
     nzind = nonzeroinds(y)
     nzval = nonzeros(y)
-    s = dot(zero(eltype(x)), zero(eltype(y)))
+    s = _dot_zero(eltype(x), eltype(y))
     @inbounds for i = 1:length(nzind)
         s += dot(x[nzind[i]], nzval[i])
     end
@@ -1849,7 +1849,7 @@ function dot(x::SparseVectorUnion, y::AbstractVector)
         "Vector x has a length $(length(x)) but y has a length $n"))
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
-    s = dot(zero(eltype(x)), zero(eltype(y)))
+    s = _dot_zero(eltype(x), eltype(y))
     @inbounds for i = 1:length(nzind)
         s += dot(nzval[i], y[nzind[i]])
     end
@@ -1860,7 +1860,7 @@ function _spdot(f::Function,
                 xj::Int, xj_last::Int, xnzind, xnzval,
                 yj::Int, yj_last::Int, ynzind, ynzval)
     # dot product between ranges of non-zeros,
-    s = f(zero(eltype(xnzval)), zero(eltype(ynzval)))
+    s = zero(promote_op(f, eltype(xnzval), eltype(ynzval)))
     @inbounds while xj <= xj_last && yj <= yj_last
         ix = xnzind[xj]
         iy = ynzind[yj]

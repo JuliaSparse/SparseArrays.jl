@@ -1168,6 +1168,14 @@ end
         @test dot(x, x) ≈ dot(xf, xf)
         @test dot(x, y) ≈ dot(xf, yf)
     end
+    # matrix-valued entries have no `zero`, but the result is a scalar
+    let x = sparsevec([1, 3], [rand(2, 2), rand(2, 2)], 4), y = sparsevec([3, 4], [rand(2, 2), rand(2, 2)], 4),
+        yd = [zeros(2, 2) for _ in 1:4]
+        yd[3], yd[4] = nonzeros(y)
+        r = dot(nonzeros(x)[2], nonzeros(y)[1])
+        @test dot(x, y) ≈ dot(x, yd) ≈ dot(yd, x)' ≈ r
+        @test dot(x, spzeros(Matrix{Float64}, 4)) == 0
+    end
 end
 
 @testset "BLAS Level-2" begin

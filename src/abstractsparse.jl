@@ -195,6 +195,10 @@ end
 
 @inline _is_fixed(::AbstractArray) = false
 @inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
+
+# seed for a sparse `dot`: zero of the result type, which is a scalar even for matrix-valued
+# entries that have no `zero` themselves
+_dot_zero(Ts::Type...) = zero(promote_op(dot, Ts...))
 macro if_move_fixed(a...)
     length(a) <= 1 && error("@if_move_fixed needs at least two arguments")
     h, v = esc.(a[1:end - 1]), esc(a[end])
