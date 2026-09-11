@@ -22,13 +22,7 @@ const _libdir = Ref{Union{Nothing,String}}(nothing)
 const _libdir_lock = ReentrantLock()
 
 # Path SuiteSparse_jll would load for library `name`, without loading it.
-function _jll_path(name::Symbol)
-    lib = getfield(SuiteSparse_jll, name)
-    lib isa LazyLibrary && return string(lib.path)
-    # Older stubs dlopen in `__init__` and record the resolved path in `<name>_path`.
-    path = getfield(SuiteSparse_jll, Symbol(name, :_path))::String
-    return isempty(path) ? String(lib) : path
-end
+_jll_path(name::Symbol) = string((getfield(SuiteSparse_jll, name)::LazyLibrary).path)
 
 function _override_dir()
     # Nothing loaded while generating a pkgimage may be cached in it.
@@ -59,7 +53,7 @@ Base.print(io::IO, p::SuiteSparseLibPath) = print(io, string(p))
 # it in as a DT_NEEDED of libcholmod) is what runs LinearAlgebra's BLAS forwarding callback.
 const _system_deps = LazyLibrary[getfield(SuiteSparse_jll, n)
     for n in (:libblastrampoline, :libstdcxx, :libgcc_s)
-    if isdefined(SuiteSparse_jll, n) && getfield(SuiteSparse_jll, n) isa LazyLibrary]
+    if isdefined(SuiteSparse_jll, n)]
 
 const libsuitesparseconfig = LazyLibrary(SuiteSparseLibPath(:libsuitesparseconfig))
 const libamd     = LazyLibrary(SuiteSparseLibPath(:libamd);     dependencies = [libsuitesparseconfig])
