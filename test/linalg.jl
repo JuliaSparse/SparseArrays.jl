@@ -800,6 +800,8 @@ end
     @testset "common error checking of [c]transpose! methods (ftranspose!)" begin
         @test_throws DimensionMismatch transpose!(A[:, 1:(smalldim - 1)], A)
         @test_throws DimensionMismatch transpose!(A[1:(smalldim - 1), 1], A)
+        @test_throws ArgumentError transpose!(A, A) # #812
+        @test_throws ArgumentError adjoint!(A, A)
     end
     @testset "common error checking of permute[!] methods / source-perm compat" begin
         @test_throws DimensionMismatch permute(A, p[1:(end - 1)], q)
