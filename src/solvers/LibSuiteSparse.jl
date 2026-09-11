@@ -114,7 +114,7 @@ end
 
 include("wrappers.jl")
 
-const SUITESPARSE_MIN_VERSION = v"6.0.0"
+const SUITESPARSE_MIN_VERSION = v"7.0.0"
 const BUILD_VERSION = VersionNumber(
     SUITESPARSE_MAIN_VERSION,
     SUITESPARSE_SUB_VERSION,
@@ -141,15 +141,10 @@ Internal function which is used to initialize the SuiteSparse libraries to the c
 const init_suitesparse = Base.OncePerProcess{Nothing}() do
     try
         ### Check if the linked library is compatible with the Julia code
-        if Libdl.dlsym_e(Libdl.dlopen(libsuitesparseconfig), :SuiteSparse_version) != C_NULL
-            current_version_array = Vector{Cint}(undef, 3)
-            SuiteSparse_version(current_version_array)
-            (major, minor, patch) = current_version_array
-            current_version = VersionNumber(major, minor, patch)
-        else # SuiteSparse < 4.2.0 does not include SuiteSparse_version()
-            current_version = v"0.0.0"
-        end
-
+        current_version_array = Vector{Cint}(undef, 3)
+        SuiteSparse_version(current_version_array)
+        (major, minor, patch) = current_version_array
+        current_version = VersionNumber(major, minor, patch)
 
         if current_version < SUITESPARSE_MIN_VERSION
             @warn """
@@ -185,23 +180,15 @@ const init_suitesparse = Base.OncePerProcess{Nothing}() do
                 """
         end
 
-        current_version >= v"6.0.0" && SuiteSparse_start()
+        SuiteSparse_start()
 
-        # Register gc tracked allocator if SuiteSparse is new enough
-        if current_version >= v"7.0.0"
-            SuiteSparse_config_malloc_func_set(cglobal(:jl_malloc, Ptr{Cvoid}))
-            SuiteSparse_config_calloc_func_set(cglobal(:jl_calloc, Ptr{Cvoid}))
-            SuiteSparse_config_realloc_func_set(cglobal(:jl_realloc, Ptr{Cvoid}))
-            SuiteSparse_config_free_func_set(cglobal(:jl_free, Ptr{Cvoid}))
-        elseif current_version >= v"4.2.0"
-            cnfg = cglobal((:SuiteSparse_config, libsuitesparseconfig), Ptr{Cvoid})
-            unsafe_store!(cnfg, cglobal(:jl_malloc, Ptr{Cvoid}), 1)
-            unsafe_store!(cnfg, cglobal(:jl_calloc, Ptr{Cvoid}), 2)
-            unsafe_store!(cnfg, cglobal(:jl_realloc, Ptr{Cvoid}), 3)
-            unsafe_store!(cnfg, cglobal(:jl_free, Ptr{Cvoid}), 4)
-        end
+        # Register the gc tracked allocator
+        SuiteSparse_config_malloc_func_set(cglobal(:jl_malloc, Ptr{Cvoid}))
+        SuiteSparse_config_calloc_func_set(cglobal(:jl_calloc, Ptr{Cvoid}))
+        SuiteSparse_config_realloc_func_set(cglobal(:jl_realloc, Ptr{Cvoid}))
+        SuiteSparse_config_free_func_set(cglobal(:jl_free, Ptr{Cvoid}))
 
-        current_version >= v"6.0.0" && atexit() do
+        atexit() do
             SuiteSparse_finish()
         end
 
