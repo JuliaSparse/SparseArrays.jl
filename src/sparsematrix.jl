@@ -91,14 +91,18 @@ FixedSparseCSC(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, n
 FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
     FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
         getcolptr(x), rowvals(x), nonzeros(x))
-FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti} =
-    FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
-        getcolptr(x), rowvals(x), nonzeros(x))
+# shares x's buffers when the types already match, converts them otherwise
+function FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti}
+    y = _unsafe_unfix(x)
+    FixedSparseCSC{Tv,Ti}(size(y, 1), size(y, 2),
+        convert(Vector{Ti}, getcolptr(y)), convert(Vector{Ti}, rowvals(y)), convert(Vector{Tv}, nonzeros(y)))
+end
 
 """
     fixed(x...)
 
-Experimental. Like `sparse` but returns a sparse array whose `_is_fixed` is `true`.
+Experimental. Like `sparse` but returns a sparse array whose sparsity pattern is read-only:
+stored entries can change value, but none can be added or removed.
 """
 fixed(x...) = move_fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
@@ -115,7 +119,7 @@ move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x)
 Experimental, unsafe. Returns a modifiable version of `x` for compatibility with this codebase.
 """
 _unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(x)), parent(rowvals(x)), nonzeros(x))
-_unsafe_unfix(x::SparseMatrixCSC) = x
+_unsafe_unfix(x::AbstractSparseMatrixCSC) = x
 
 """
     SparseMatrixCSC(x::FixedSparseCSC)
@@ -549,7 +553,28 @@ copy(S::AbstractSparseMatrixCSC) =
     SparseMatrixCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(rowvals(S)), copy(nonzeros(S)))
 copy(S::FixedSparseCSC) =
     FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), copy(nonzeros(S)))
+# A fixed destination keeps its pattern: B's stored entries must lie in it and A's other
+# entries become zero. The pattern is checked in full before anything is written.
+function _copyto_fixed!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
+    size(A) == size(B) || throw(DimensionMismatch(lazy"cannot copy a matrix of size $(size(B)) into a fixed one of size $(size(A))"))
+    Arv, Brv, Anz, Bnz = rowvals(A), rowvals(B), nonzeros(A), nonzeros(B)
+    for write in (false, true)
+        write && fill!(Anz, zero(eltype(A)))
+        @inbounds for j in axes(A, 2)
+            k, kend = Int(getcolptr(A)[j]), Int(getcolptr(A)[j+1]) - 1
+            for p in nzrange(B, j)
+                i = Brv[p]
+                while k <= kend && Arv[k] < i; k += 1; end
+                (k <= kend && Arv[k] == i) || _throwfixedinsert(A, i, j)
+                write && (Anz[k] = Bnz[p])
+            end
+        end
+    end
+    return A
+end
+
 function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
+    _is_fixed(A) && return _copyto_fixed!(A, B)
     # If the two matrices have the same length then all the
     # elements in A will be overwritten.
     if widelength(A) == widelength(B)
@@ -701,13 +726,16 @@ the original sparse matrix, except in the case where dimensions of the
 output matrix are different from the output.
 
 The output matrix has zeros in the same locations as the input, but
-uninitialized values for the nonzero locations.
+uninitialized values for the nonzero locations. A `FixedSparseCSC` input keeps
+its fixed pattern only in the structure-preserving form; the forms taking a
+shape return a `SparseMatrixCSC`.
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
     @if_move_fixed S _sparsesimilar(S, TvNew, Ti)
 
+# a new shape carries no pattern over, so the result is never fixed
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
-    @if_move_fixed S _sparsesimilar(S, TvNew, Ti, dims)
+    _sparsesimilar(S, TvNew, Ti, dims)
 
 # The following methods cover similar(A, Tv, Ti[, shape...]) calls, which specify the
 # result's index type in addition to its entry type, and aren't covered by the hooks above.
@@ -3320,6 +3348,7 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
         !isbitstype(Ti) || nz < typemax(Ti) ||
             throw(ArgumentError("nnz(A) going to exceed typemax(Ti) = $(typemax(Ti))"))
 
+        _is_fixed(A) && _throwfixedinsert(A, i, j)
         # if nnz(A) < length(rowval/nzval): no need to grow rowval and preserve values
         _insert!(rowvals(A), searchk, i, nz)
         _insert!(nonzeros(A), searchk, v, nz)
@@ -3345,6 +3374,12 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
     A = parent(V)
     I, J = V.indices
     if isempty(I) || isempty(J); return A; end
+    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
+        for j in J, i in I
+            A[i, j] = x
+        end
+        return V
+    end
     # lt=≤ to check for strict sorting
     if !issorted(I, lt=≤); I = sort!(unique(I)); end
     if !issorted(J, lt=≤); J = sort!(unique(J)); end
@@ -3523,6 +3558,13 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     checkbounds(A, I, J)
     nJ = length(J)
     Base.setindex_shape_check(V, length(I), nJ)
+    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
+        k = 0
+        for j in J, i in I
+            A[i, j] = V[k += 1]
+        end
+        return A
+    end
     B = _to_same_csc(A, V, I, J)
 
     m, n = size(A)
@@ -3648,6 +3690,13 @@ setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Abs
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatrix{Bool})
     require_one_based_indexing(A, x, I)
     checkbounds(A, I)
+    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
+        k = 0
+        for ci in CartesianIndices(I)
+            I[ci] && (A[ci] = x[k += 1])
+        end
+        return A
+    end
     n = sum(I)
     (n == 0) && (return A)
 
@@ -3749,6 +3798,12 @@ end
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVector{<:Integer})
     require_one_based_indexing(A, x, Ix)
     (I,) = Base.ensure_indexable(to_indices(A, (Ix,)))
+    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
+        for (k, i) in enumerate(I)
+            A[i] = x[k]
+        end
+        return A
+    end
     # We check bounds after sorting I
     n = length(I)
     (n == 0) && (return A)
@@ -4571,6 +4626,9 @@ end
 
 circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,)::Base.DimsInteger{1}) = circshift!(O, X, (r,0))
 circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, r::Real) = circshift!(O, X, (Integer(r),0))
+# a fixed X keeps its pattern under `similar`, so shift into a plain copy instead
+circshift(X::AbstractSparseMatrixCSC, s::Base.DimsInteger) = circshift!(similar(_unsafe_unfix(X)), X, s)
+circshift(X::AbstractSparseMatrixCSC, s::Real) = circshift!(similar(_unsafe_unfix(X)), X, (Integer(s),))
 
 ## swaprows! / swapcols!
 macro swap(a, b)

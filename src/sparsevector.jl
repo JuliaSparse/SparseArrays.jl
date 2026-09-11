@@ -77,6 +77,8 @@ FixedSparseVector(n::Integer, nzind::Vector{<:Integer}, nzval::Vector) =
     FixedSparseVector(n, ReadOnly(nzind), nzval)
 
 FixedSparseVector(s::AbstractSparseVector) = FixedSparseVector(length(s), copy(nonzeroinds(s)), copy(nonzeros(s)))
+FixedSparseVector{Tv,Ti}(s::AbstractSparseVector) where {Tv,Ti} =
+    FixedSparseVector{Tv,Ti}(length(s), ReadOnly(Vector{Ti}(nonzeroinds(s))), Vector{Tv}(nonzeros(s)))
 
 """
 inverse of fixed, should not allocate
@@ -195,7 +197,11 @@ function _sparsesimilar(S::SparseVector, ::Type{TvNew}, ::Type{TiNew}, dims::Dim
     return sizehint!(S1, min(widelength(S1), length(nonzeroinds(S))))
 end
 
-_sparsesimilar(S::FixedSparseVector, x...) = move_fixed(_sparsesimilar(_unsafe_unfix(S), x...))
+_sparsesimilar(S::FixedSparseVector, ::Type{TvNew}, ::Type{TiNew}) where {TvNew,TiNew} =
+    move_fixed(_sparsesimilar(_unsafe_unfix(S), TvNew, TiNew))
+# a new shape carries no pattern over, so the result is never fixed
+_sparsesimilar(S::FixedSparseVector, ::Type{TvNew}, ::Type{TiNew}, dims::Dims) where {TvNew,TiNew} =
+    _sparsesimilar(_unsafe_unfix(S), TvNew, TiNew, dims)
 
 # The following methods hook into the AbstractArray similar hierarchy. The first method
 # covers similar(A[, Tv]) calls, which preserve stored-entry structure, and the latter
@@ -424,6 +430,7 @@ end
         nzval[k] = v
     else  # i not found
         if v isa AbstractArray || v !== zero(eltype(x)) # stricter than iszero to support v[i] = -0.0
+            _is_fixed(x) && _throwfixedinsert(x, i)
             insert!(nzind, k, i)
             insert!(nzval, k, v)
         end
@@ -598,7 +605,25 @@ function prep_sparsevec_copy_dest!(A::AbstractCompressedVector, lB, nnzB)
     end
 end
 
+# see `_copyto_fixed!` for matrices
+function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector)
+    length(A) == length(B) || throw(DimensionMismatch(lazy"cannot copy a vector of length $(length(B)) into a fixed one of length $(length(A))"))
+    Ai, Bi, Anz, Bnz = nonzeroinds(A), nonzeroinds(B), nonzeros(A), nonzeros(B)
+    for write in (false, true)
+        write && fill!(Anz, zero(eltype(A)))
+        k = 1
+        @inbounds for p in eachindex(Bi)
+            i = Bi[p]
+            while k <= length(Ai) && Ai[k] < i; k += 1; end
+            (k <= length(Ai) && Ai[k] == i) || _throwfixedinsert(A, i)
+            write && (Anz[k] = Bnz[p])
+        end
+    end
+    return A
+end
+
 function copyto!(A::AbstractCompressedVector, B::AbstractCompressedVector)
+    _is_fixed(A) && return _copyto_fixed!(A, B)
     prep_sparsevec_copy_dest!(A, length(B), nnz(B))
     copyto!(nonzeroinds(A), nonzeroinds(B))
     copyto!(nonzeros(A), nonzeros(B))
@@ -608,6 +633,7 @@ end
 copyto!(A::AbstractCompressedVector, B::AbstractVector) = copyto!(A, sparsevec(B))
 
 function copyto!(A::AbstractCompressedVector, B::AbstractSparseMatrixCSC)
+    _is_fixed(A) && return _copyto_fixed!(A, copyto!(spzeros(eltype(A), indtype(A), length(B)), B))
     prep_sparsevec_copy_dest!(A, length(B), nnz(B))
 
     ptr = 1
