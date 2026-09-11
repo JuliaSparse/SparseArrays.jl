@@ -272,6 +272,7 @@ end
 # (4) _map_zeropres!/_map_notzeropres! specialized for a single sparse vector/matrix
 "Stores only the nonzero entries of `map(f, Array(A))` in `C`."
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
+    _is_fixed(C) && _checkfixedpattern(C, A)
     spaceC::Int = length(nonzeros(C))
     isfixed = _is_fixed(C, A)
     Ck = 1
@@ -337,6 +338,7 @@ end
 
 # (5) _map_zeropres!/_map_notzeropres! specialized for a pair of sparse vectors/matrices
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
+    _is_fixed(C) && _checkfixedpattern(C, A, B)
     isfixed = _is_fixed(C, A, B)
     spaceC::Int = length(nonzeros(C))
     rowsentinelA = convert(indtype(A), numrows(C) + 1)
@@ -415,8 +417,9 @@ end
 
 # (6) _map_zeropres!/_map_notzeropres! for more than two sparse matrices / vectors
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
+    _is_fixed(C) && _checkfixedpattern(C, As...)
     spaceC::Int = length(nonzeros(C))
-    isfixed = _is_fixed(As...)
+    isfixed = _is_fixed(C, As...)
     rowsentinel = numrows(C) + 1
     Ck = 1
     stopks = _colstartind_all(1, As)
@@ -465,6 +468,43 @@ function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{Spars
     end
     return _checkbuffers(C)
 end
+
+# A fixed destination keeps every entry of the inputs' union pattern, so that union must be
+# its own pattern. Inputs sharing C's pattern are the common case and cheap to verify;
+# otherwise a dry run of the merge above checks this before anything is written.
+function _checkfixedpattern(C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where N
+    all(A -> _samepattern(C, A), As) && return nothing
+    rowsentinel = numrows(C) + 1
+    Ck = 1
+    stopks = _colstartind_all(1, As)
+    @inbounds for j in columns(C)
+        Ck == colstartind(C, j) || _throwfixedpattern(C)
+        stopCk = colboundind(C, j)
+        ks = stopks
+        stopks = _colboundind_all(j, As)
+        rows = _rowforind_all(rowsentinel, ks, stopks, As)
+        activerow = min(rows...)
+        while activerow < rowsentinel
+            (Ck < stopCk && storedinds(C)[Ck] == activerow) || _throwfixedpattern(C)
+            Ck += 1
+            _, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
+            activerow = min(rows...)
+        end
+        Ck == stopCk || _throwfixedpattern(C)
+    end
+    return nothing
+end
+function _samepattern(C::SparseVecOrMat, A::SparseVecOrMat)
+    @inbounds for j in columns(C)
+        (colstartind(C, j) == colstartind(A, j) && colboundind(C, j) == colboundind(A, j)) || return false
+    end
+    @inbounds for k in 1:(colboundind(C, numcols(C)) - 1)
+        storedinds(C)[k] == storedinds(A)[k] || return false
+    end
+    return true
+end
+@noinline _throwfixedpattern(C) =
+    throw(ArgumentError("the inputs' combined sparsity pattern differs from that of the $(nameof(typeof(C))) destination, whose pattern is read-only"))
 
 # helper methods for map/map! methods just above
 @inline _colstartind(j, A) = colstartind(A, j)
