@@ -165,9 +165,12 @@ map(f::Tf, A::AbstractSparseMatrixCSC, Bs::Vararg{SparseMatrixCSC,N}) where {Tf,
 map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
 map!(f::Tf, C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, Bs::Vararg{SparseMatrixCSC,N}) where {Tf,N} =
-    (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, A, Bs...))
+    (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _unaliasargs(C, A, Bs...)...))
 map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
-    (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, A, Bs...))
+    (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _unaliasargs(C, A, Bs...)...))
+
+# the kernels below write C while reading the inputs, so copy any input aliasing C (#26)
+_unaliasargs(C, As...) = map(A -> Base.unalias(C, A), As)
 
  _noshapecheck_map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
     # Avoid calculating f(zero) unless necessary as it may fail.
@@ -1204,6 +1207,6 @@ const SparseOrStructuredMatrix = Union{FixedSparseCSC,SparseMatrixCSC,SparseMatr
 map(f::Tf, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, _sparsifystructured(A), map(_sparsifystructured, Bs)...))
 map!(f::Tf, C::AbstractSparseMatrixCSC, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
-    (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _sparsifystructured(A), map(_sparsifystructured, Bs)...))
+    (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _unaliasargs(C, _sparsifystructured(A), map(_sparsifystructured, Bs)...)...))
 
 end
