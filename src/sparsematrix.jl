@@ -2501,21 +2501,12 @@ Base.isequal(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose
 
 ## Reductions
 
-# Reductions along a dimension of a sparse matrix return a sparse matrix (issue #43): the
-# result only stores an entry for the rows or columns that store one themselves, unless
-# the reduction of a structurally empty slice is nonzero. The initial array is therefore
-# structurally empty when the initial value is zero, and fully stored otherwise. A view of
-# a column range reduces through the same kernels, off the parent's storage (issue #377).
-function Base.reducedim_initarray(A::SparseMatrixCSCUnion{<:Any,Ti}, region, v0, ::Type{R}) where {R,Ti}
-    m, n = Base.to_shape(Base.reduced_indices(A, region))
-    if !applicable(zero, R)
-        # no structural zero for the result, e.g. the tuples of `extrema`: reduce densely
-        return fill!(Array{R}(undef, m, n), v0)
-    elseif isequal(v0, zero(R))
-        return spzeros(R, Ti, m, n)
-    else
-        return SparseMatrixCSC(m, n, Ti[1 + m*j for j in 0:n], repeat(Ti.(1:m), n), fill!(Vector{R}(undef, m*n), v0))
-    end
+# Reductions along a dimension return a dense `Array`, as for dense input. A sparse result
+# (issue #43) is opt-in by reducing into a sparse destination, e.g. `sum!(spzeros(size(A, 1), 1), A)`,
+# see `_mapreducedim!` below. Covers column-range views so they reduce like their copy (#377),
+# where Base's `similar` would otherwise give a sparse result.
+function Base.reducedim_initarray(A::SparseMatrixCSCUnion, region, v0, ::Type{R}) where {R}
+    fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 end
 
 # General mapreduce
@@ -2581,18 +2572,19 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
     end
 end
 
-# Reduction of a sparse matrix into a sparse destination. A fully stored destination is
-# reduced into as the dense array its stored values form; a structurally empty one is
-# filled without touching the slices that store nothing, so the cost stays proportional to
-# the stored entries plus the length of the result; anything in between is rare and goes
-# through the element-wise kernel below.
+# Reduction into a sparse destination, the opt-in for a sparse result. A fully stored `R` is
+# reduced into as the dense array its values form; an empty one, e.g. `spzeros(m, 1)`, gets an
+# entry only for the rows or columns of `A` that store one (all of them if an empty slice
+# reduces to something nonzero, as for `f(0) != 0`) in time proportional to nnz(A) + length(R);
+# a partially stored `R` is rare and goes through the element-wise kernel below.
 function Base._mapreducedim!(f::F, op::G, R::AbstractSparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where {F,G,T}
     require_one_based_indexing(A, R)
     Base.check_reducedims(R, A)
     isempty(A) && return R
     if nnz(R) == length(R)
         Base._mapreducedim!(f, op, reshape(view(nonzeros(R), 1:nnz(R)), size(R)), A)
-    elseif nnz(R) != 0
+    elseif nnz(R) != 0 && !all(isequal(zero(eltype(R))), nzvalview(R))
+        # stored zeros only, e.g. a reused `sum!` destination after its `fill!`, fold like an empty one
         invoke(Base._mapreducedim!, Tuple{F,G,AbstractArray,SparseMatrixCSCUnion{T}}, f, op, R, A)
     elseif size(R) == (1, 1)
         R[1, 1] = op(zero(eltype(R)), mapreduce(f, op, A))
