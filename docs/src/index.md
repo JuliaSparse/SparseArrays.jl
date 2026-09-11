@@ -226,6 +226,12 @@ In many cases it may be better to convert the sparse matrix into `(I,J,V)` forma
 manipulate the values or the structure in the dense vectors `(I,J,V)`, and then reconstruct
 the sparse matrix.
 
+Reductions along a dimension, such as `sum(S; dims = 2)`, return a dense `Matrix`, as for dense
+input. To keep the result sparse, reduce into a sparse destination: `sum!(spzeros(size(S, 1), 1), S)`
+stores an entry only for the rows of `S` that store one, at a cost proportional to the number of
+stored entries rather than to the number of rows. `Base.mapreducedim!` and the other in-place
+reductions accept a sparse destination in the same way.
+
 ### [Broadcasting and `map`](@id man-sparse-broadcast)
 
 [`broadcast`](@ref) (including dot syntax such as `A .* B`) and [`map`](@ref) over sparse vectors
