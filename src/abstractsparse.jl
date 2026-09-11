@@ -81,6 +81,8 @@ const SparseMatrixCSCSymmHerm{Tv,Ti} = HermOrSym{Tv,<:SparseMatrixCSCOrView{Tv,T
 
 # LinearAlgebra's BiTriSym (Bidiagonal/Tridiagonal/SymTridiagonal) and BandedMatrix (those
 # plus Diagonal) are imported for the banded special matrices.
+# LinearAlgebra's Q types that multiply sparse arrays via densification
+const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 
 # Former names of the above, not used here but relied on by downstream packages together
 # with SparseMatrixCSCView, SparseColumnView and SparseVectorView. May be deprecated in a

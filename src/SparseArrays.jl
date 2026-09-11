@@ -38,8 +38,6 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
 
 public sparse!, spzeros!
 
-const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
-
 # helper function needed in sparsematrix, sparsevector and higherorderfns
 # `iszero` and `!iszero` don't guarantee to return a boolean but we need one that does
 # to remove the handle the structure of the array.

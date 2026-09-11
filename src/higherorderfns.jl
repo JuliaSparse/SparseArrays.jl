@@ -11,7 +11,7 @@ using Base: front, tail, to_shape
 using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatrixCSCView,
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
-                      SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat,
+                      SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, SparseMatrixCSCOrView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
                       _iszero, _isnotzero, _is_fixed, @if_move_fixed
@@ -44,7 +44,7 @@ struct SparseVecStyle <: Broadcast.AbstractArrayStyle{1} end
 struct SparseMatStyle <: Broadcast.AbstractArrayStyle{2} end
 Broadcast.BroadcastStyle(::Type{<:AbstractCompressedVector}) = SparseVecStyle()
 Broadcast.BroadcastStyle(::Type{<:AbstractSparseMatrixCSC}) = SparseMatStyle()
-const SPVM = Union{SparseVecStyle,SparseMatStyle}
+const SparseVecOrMatStyle = Union{SparseVecStyle,SparseMatStyle}
 
 # SparseVecStyle handles 0-1 dimensions, SparseMatStyle 0-2 dimensions.
 # SparseVecStyle promotes to SparseMatStyle for 2 dimensions.
@@ -72,15 +72,15 @@ PromoteToSparse(::Val{N}) where N = Broadcast.DefaultArrayStyle{N}()
 
 Broadcast.BroadcastStyle(::Type{<:AdjOrTrans{<:Any,<:SparseVecOrMat}}) = PromoteToSparse()
 
-Broadcast.BroadcastStyle(s::SPVM, ::Broadcast.AbstractArrayStyle{0}) = s
-Broadcast.BroadcastStyle(s::SPVM, ::Broadcast.DefaultArrayStyle{0}) = s
-Broadcast.BroadcastStyle(::SPVM, ::Broadcast.DefaultArrayStyle{1}) = PromoteToSparse()
-Broadcast.BroadcastStyle(::SPVM, ::Broadcast.DefaultArrayStyle{2}) = PromoteToSparse()
+Broadcast.BroadcastStyle(s::SparseVecOrMatStyle, ::Broadcast.AbstractArrayStyle{0}) = s
+Broadcast.BroadcastStyle(s::SparseVecOrMatStyle, ::Broadcast.DefaultArrayStyle{0}) = s
+Broadcast.BroadcastStyle(::SparseVecOrMatStyle, ::Broadcast.DefaultArrayStyle{1}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::SparseVecOrMatStyle, ::Broadcast.DefaultArrayStyle{2}) = PromoteToSparse()
 
-Broadcast.BroadcastStyle(::SPVM, ::LinearAlgebra.StructuredMatrixStyle{<:BandedMatrix}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::SparseVecOrMatStyle, ::LinearAlgebra.StructuredMatrixStyle{<:BandedMatrix}) = PromoteToSparse()
 Broadcast.BroadcastStyle(::PromoteToSparse, ::LinearAlgebra.StructuredMatrixStyle{<:BandedMatrix}) = PromoteToSparse()
 
-Broadcast.BroadcastStyle(::PromoteToSparse, ::SPVM) = PromoteToSparse()
+Broadcast.BroadcastStyle(::PromoteToSparse, ::SparseVecOrMatStyle) = PromoteToSparse()
 Broadcast.BroadcastStyle(::PromoteToSparse, ::Broadcast.Style{Tuple}) = Broadcast.DefaultArrayStyle{2}()
 
 # FIXME: currently sparse broadcasts are only well-tested on known array types, while any AbstractArray
@@ -102,7 +102,7 @@ can_skip_sparsification(::typeof(*), ::SparseVectorOrView, ::AdjOrTransSparseVec
 # Dispatch on broadcast operations by number of arguments
 const Broadcasted0{Style<:Union{Nothing,BroadcastStyle},Axes,F} =
     Broadcasted{Style,Axes,F,Tuple{}}
-const SpBroadcasted1{Style<:SPVM,Axes,F,Args<:Tuple{SparseVecOrMat}} =
+const SpBroadcasted1{Style<:SparseVecOrMatStyle,Axes,F,Args<:Tuple{SparseVecOrMat}} =
     Broadcasted{Style,Axes,F,Args}
 
 # (1) The definitions below provide a common interface to sparse vectors and matrices
@@ -157,11 +157,12 @@ _checkbuffers(S::AbstractCompressedVector) = (@assert length(storedvals(S)) == l
 # (2) map[!] entry points
 map(f::Tf, A::AbstractCompressedVector) where {Tf} = _noshapecheck_map(f, A)
 map(f::Tf, A::AbstractSparseMatrixCSC) where {Tf} = _noshapecheck_map(f, A)
-map(f::Tf, A::AbstractSparseMatrixCSC, Bs::Vararg{SparseMatrixCSC,N}) where {Tf,N} =
+# more specific than both the SparseVecOrMat and the SparseOrStructuredMatrix methods
+map(f::Tf, A::AbstractSparseMatrixCSC, Bs::Vararg{AbstractSparseMatrixCSC,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
 map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
-map!(f::Tf, C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, Bs::Vararg{SparseMatrixCSC,N}) where {Tf,N} =
+map!(f::Tf, C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, Bs::Vararg{AbstractSparseMatrixCSC,N}) where {Tf,N} =
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _unaliasargs(C, A, Bs...)...))
 map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _unaliasargs(C, A, Bs...)...))
@@ -1061,7 +1062,7 @@ end
 # (10) broadcast over combinations of broadcast scalars and sparse vectors/matrices
 
 # broadcast entry points for combinations of sparse arrays and other (scalar) types
-@inline function copy(bc::Broadcasted{<:SPVM})
+@inline function copy(bc::Broadcasted{<:SparseVecOrMatStyle})
     bcf = flatten(bc)
     return _copy(bcf.f, bcf.args...)
 end
@@ -1081,7 +1082,7 @@ function _shapecheckbc(f, args...)
 end
 
 
-@inline function copyto!(dest::SparseVecOrMat, bc::Broadcasted{<:SPVM})
+@inline function copyto!(dest::SparseVecOrMat, bc::Broadcasted{<:SparseVecOrMatStyle})
     if bc.f === identity && bc isa SpBroadcasted1 && Base.axes(dest) == (A = bc.args[1]; Base.axes(A))
         return copyto!(dest, A)
     end
@@ -1205,7 +1206,7 @@ _sparsifystructured(x) = x
 
 
 # (12) map[!] over combinations of sparse and structured matrices
-const SparseOrStructuredMatrix = Union{FixedSparseCSC,SparseMatrixCSC,SparseMatrixCSCView,LinearAlgebra.StructuredMatrix}
+const SparseOrStructuredMatrix = Union{SparseMatrixCSCOrView,LinearAlgebra.StructuredMatrix}
 map(f::Tf, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, _sparsifystructured(A), map(_sparsifystructured, Bs)...))
 map!(f::Tf, C::AbstractSparseMatrixCSC, A::SparseOrStructuredMatrix, Bs::Vararg{SparseOrStructuredMatrix,N}) where {Tf,N} =

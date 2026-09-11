@@ -48,7 +48,7 @@ const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
 const DenseInputVector = Union{StridedVector, BitVector}
 # LinearAlgebra wrappers of a matrix of type MT, and those plus 2-d views (for dot)
 const MatrixWrappers{T,MT} = Union{AdjOrTrans{T,MT}, HermOrSym{T,MT}, UpperOrLowerTriangular{T,MT}, UpperHessenberg{T,MT}}
-const WrapperMatrixTypes{T,MT} = Union{SubArray{T,2,MT}, MatrixWrappers{T,MT}}
+const MatrixWrappersOrView{T,MT} = Union{SubArray{T,2,MT}, MatrixWrappers{T,MT}}
 const QuasiSparseMatrix = Union{SparseMatrixCSCOrColumnSubset, MatrixWrappers{<:Any,<:SparseMatrixCSCOrColumnSubset}}
 const QuasiStridedMatrix = Union{StridedMatrix, MatrixWrappers{<:Any,<:StridedMatrix}}
 
@@ -722,7 +722,7 @@ function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSpa
     r
 end
 
-function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
+function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
     T = promote_type(eltype(A), eltype(B))
     (m, n) = size(A)
     if (m, n) != size(B)
@@ -744,7 +744,7 @@ function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMat
     return s
 end
 
-function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
+function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
     return conj(dot(B, A))
 end
 
@@ -806,7 +806,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:DenseMatrixUnion}},
+    Q::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:DenseMatrixUnion}},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)
@@ -822,7 +822,7 @@ end
 
 function dot(
     a::AbstractSparseVector,
-    Q::LinearAlgebra.Transpose{<:Real,<:WrapperMatrixTypes{<:Real,<:DenseMatrixUnion}},
+    Q::LinearAlgebra.Transpose{<:Real,<:MatrixWrappersOrView{<:Real,<:DenseMatrixUnion}},
     b::AbstractSparseVector,
 )
     return _dot_quadratic_form(a, Q, b)

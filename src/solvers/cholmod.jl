@@ -113,6 +113,8 @@ const VRealTypes = Union{Float64, Float32}
 const VComplexTypes = Union{ComplexF64, ComplexF32}
 
 const StridedVecOrMatMaybeAdjOrTrans{Tv} = Union{StridedVecOrMat{Tv}, AdjOrTrans{Tv,<:StridedVecOrMat}}
+# the concrete pair that Sparse(::SparseVector)/Sparse(::SparseMatrixCSC) accept
+const SparseVectorOrMatrixCSC{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
 
 # exception
 struct CHOLMODException <: Exception
@@ -383,12 +385,10 @@ function Factor{Tv}(ptr::Ptr{cholmod_factor}) where Tv
     return Factor{Tv, Ti}(ptr)
 end
 
-const SuiteSparseStruct = Union{cholmod_dense, cholmod_sparse, cholmod_factor}
-
 # All pointer loads should be checked to make sure that SuiteSparse is not called with
 # a C_NULL pointer which could cause a segfault. Pointers are set to null
 # when serialized so this can happen when multiple processes are in use.
-function Base.unsafe_convert(::Type{Ptr{T}}, x::Union{Dense,Sparse,Factor}) where T<:SuiteSparseStruct
+function Base.unsafe_convert(::Type{Ptr{T}}, x::Union{Dense,Sparse,Factor}) where T<:Union{cholmod_dense, cholmod_sparse, cholmod_factor}
     xp = getfield(x, :ptr)
     if xp == C_NULL
         throw(ArgumentError("pointer to the $T object is null. This can " *
@@ -2018,9 +2018,6 @@ for (T, f) in ((:Dense, :solve), (:Sparse, :spsolve))
         end
     end
 end
-
-# the concrete pair that Sparse(::SparseVector)/Sparse(::SparseMatrixCSC) accept
-const SparseVectorOrMatrixCSC{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
 
 # Strided right-hand sides, such as views of dense arrays (#496), are handed to CHOLMOD as
 # they are, in the precision of the factor. CHOLMOD solves a real factor against a complex
