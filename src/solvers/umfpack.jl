@@ -262,8 +262,8 @@ workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
-const ATLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
-has_refinement(F::ATLU) = has_refinement(parent(F))
+const UMFAdjOrTransLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
+has_refinement(F::UMFAdjOrTransLU) = has_refinement(parent(F))
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
@@ -277,7 +277,7 @@ end
 UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
         Vector{Ti}(undef, size(F, 2)),
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
-UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(parent(F), refinement)
+UmfpackWS(F::UMFAdjOrTransLU, refinement::Bool=has_refinement(F)) = UmfpackWS(parent(F), refinement)
 
 # Not using similar helps if the actual needed size has changed as it would need to be resized again
 """
@@ -299,7 +299,7 @@ Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
         copy(F.info),
         ReentrantLock()
     )
-Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
+Base.copy(F::T, ws=UmfpackWS(F)) where {T <: UMFAdjOrTransLU} =
     T(copy(parent(F), ws))
 
 Base.transpose(F::UmfpackLU) = TransposeFactorization(F)
@@ -479,7 +479,10 @@ end
 function lu!(F::UmfpackLU{Tv, Ti}; check::Bool=true, reuse_symbolic::Bool=true,
   q=nothing) where {Tv, Ti}
     if !reuse_symbolic && _isnotnull(F.symbolic)
-        F.symbolic = Symbolic{Tv, Ti}(C_NULL)
+        @lock F.lock begin
+            umfpack_free_symbolic(F.symbolic, Tv, Ti)
+            F.symbolic = Symbolic{Tv, Ti}(C_NULL)
+        end
     end
     umfpack_numeric!(F; reuse_numeric = false, q)
     check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
@@ -623,13 +626,19 @@ for itype in UmfpackIndexTypes
                 if _isnull(U.symbolic)
                     umfpack_symbolic!(U, q)
                 end
+                # Free the previous factorization eagerly (through the shared
+                # wrapper, so copies see a null numeric and refactor) and drop
+                # it before the call, so that a failed factorization does not
+                # leave a stale numeric object behind.
+                umfpack_free_numeric(U.numeric, Float64, $itype)
+                U.numeric = Numeric{Float64, $itype}(C_NULL)
                 tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 status = $num_r(U.colptr, U.rowval, U.nzval, U.symbolic, tmp, U.control, U.info)
                 U.status = status
+                U.numeric = Numeric{Float64, $itype}(tmp[])
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
-                U.numeric = Numeric{Float64, $itype}(tmp[])
             end
             return U
         end
@@ -637,14 +646,16 @@ for itype in UmfpackIndexTypes
             @lock U.lock begin
                 (reuse_numeric && _isnotnull(U.numeric)) && return U
                 _isnull(U.symbolic) && umfpack_symbolic!(U, q)
+                umfpack_free_numeric(U.numeric, ComplexF64, $itype)
+                U.numeric = Numeric{ComplexF64, $itype}(C_NULL)
                 tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 status = $num_c(U.colptr, U.rowval, real(U.nzval), imag(U.nzval), U.symbolic, tmp,
                     U.control, U.info)
                 U.status = status
+                U.numeric = Numeric{ComplexF64, $itype}(tmp[])
                 if status != UMFPACK_WARNING_singular_matrix
                     umferror(status)
                 end
-                U.numeric = Numeric{ComplexF64, $itype}(tmp[])
             end
             return U
         end
@@ -1039,20 +1050,27 @@ function _AqldivB_kernel!(X::StridedMatrix{Tb}, lu::UmfpackLU{Float64},
 end
 
 for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
-    # no lock version for the finalizer
+    # No lock version, used by the finalizers. These are idempotent: the C
+    # routine nulls the pointer it is handed (a temporary `Ref`), so we null
+    # the wrapper's own pointer as well, making a second call a no-op rather
+    # than a double free.
     _free_symbolic = Symbol(umf_nm("free_symbolic", Tv, Ti))
     @eval function umfpack_free_symbolic(symbolic::Symbolic, ::Type{$Tv}, ::Type{$Ti})
         if _isnotnull(symbolic)
             r = Ref(symbolic.p)
+            symbolic.p = C_NULL
             $_free_symbolic(r)
         end
+        return symbolic
     end
     _free_numeric = Symbol(umf_nm("free_numeric", Tv, Ti))
     @eval function umfpack_free_numeric(numeric::Numeric, ::Type{$Tv}, ::Type{$Ti})
         if _isnotnull(numeric)
             r = Ref(numeric.p)
+            numeric.p = C_NULL
             $_free_numeric(r)
         end
+        return numeric
     end
 
     _report_symbolic = Symbol(umf_nm("report_symbolic", Tv, Ti))

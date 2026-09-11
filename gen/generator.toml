@@ -20,6 +20,8 @@ output_ignorelist = [
     "CHOLMOD_CUBLAS_HANDLE",
     "CHOLMOD_CUDASTREAM",
     "CHOLMOD_CUDAEVENT",
+    # calls into libsuitesparseconfig at module load, which would dlopen it during precompilation
+    "SUITESPARSE_TIME",
     # useless macros
     "CHOLMOD_CPU_GEMM_CALLS",
     "CHOLMOD_CPU_SYRK_CALLS",

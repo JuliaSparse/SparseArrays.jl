@@ -32,8 +32,6 @@ of type `Tv` and index type `Ti`. Alias for `AbstractSparseArray{Tv,Ti,2}`.
 """
 const AbstractSparseMatrix{Tv,Ti} = AbstractSparseArray{Tv,Ti,2}
 
-const AbstractSparseVecOrMat = Union{AbstractSparseVector,AbstractSparseMatrix}
-
 """
     AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
 
@@ -41,11 +39,71 @@ Supertype for matrix with compressed sparse column (CSC).
 """
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
+# ---- Type aliases used for dispatch across files ----
+# Alias names use the Sparse family name and accept the abstract tier of the type they
+# are built on; an alias restricted to the concrete types says so in its name.
+# (Aliases for solver scalar types live with the solvers.)
+
+const AbstractSparseVecOrMat = Union{AbstractSparseVector,AbstractSparseMatrix}
+# types exposing compressed storage via nonzeros, rowvals/nonzeroinds and nzrange
+const SparseVecOrMat = Union{AbstractCompressedVector,AbstractSparseMatrixCSC}
+
+# Views of an AbstractSparseMatrixCSC taking all rows and a unit range of columns. getcolptr
+# is an offset view into the parent's colptr, so kernels written against
+# getcolptr/getrowval/getnzval work unchanged.
+const SparseMatrixCSCView{Tv,Ti} =
+    SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
+        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange{<:Integer}}
+const SparseMatrixCSCOrView{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
+# Views taking all rows and an arbitrary column subset (a superset of SparseMatrixCSCView):
+# nzrange/getrowval/getnzval work, getcolptr does not.
+const SparseMatrixCSCColumnSubset{Tv,Ti} =
+    SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
+        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractVector{<:Integer}}
+const SparseMatrixCSCOrColumnSubset{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCColumnSubset{Tv,Ti}}
+
+# Whole-column views of sparse matrices and whole views of sparse vectors share the
+# sparse vector interface.
+const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
+const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
+const SparseVectorOrView{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
+const AdjOrTransSparseVectorOrView{Tv,Ti} = AdjOrTrans{Tv, <:SparseVectorOrView{Tv,Ti}}
+# view of a unit range of a sparse vector's indices
+const SparseVectorPartialView{Tv,Ti} = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{AbstractUnitRange},false}
+
+# `X` or an `Adjoint`/`Transpose` of `X`, named after LinearAlgebra's StridedMaybeAdjOrTransMat
+const SparseMatrixCSCMaybeAdjOrTrans = Union{AbstractSparseMatrixCSC, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}
+const SparseVecOrMatMaybeAdjOrTrans = Union{SparseVecOrMat, AdjOrTrans{<:Any,<:SparseVecOrMat}}
+
+# LinearAlgebra wrappers around CSC storage
+const SparseTriangular{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCOrView{Tv,Ti}}
+const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCOrView{Tv,Ti}, SparseTriangular{Tv,Ti}}
+const SparseMatrixCSCSymmHerm{Tv,Ti} = HermOrSym{Tv,<:SparseMatrixCSCOrView{Tv,Ti}}
+
+# LinearAlgebra's BiTriSym (Bidiagonal/Tridiagonal/SymTridiagonal) and BandedMatrix (those
+# plus Diagonal) are imported for the banded special matrices.
+# LinearAlgebra's Q types that multiply sparse arrays via densification
+const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
+
+# Former names of the above, not used here but relied on by downstream packages together
+# with SparseMatrixCSCView, SparseColumnView and SparseVectorView. May be deprecated in a
+# future release.
+const SparseMatrixCSCUnion{Tv,Ti} = SparseMatrixCSCOrView{Tv,Ti}
+const SparseVectorUnion{Tv,Ti} = SparseVectorOrView{Tv,Ti}
 
 """
     issparse(S)
 
-Returns `true` if `S` is sparse, and `false` otherwise.
+Returns `true` if `S` is sparse or wraps a sparse array, and `false` otherwise.
+
+`issparse` is a classification predicate. A `true` result does not guarantee
+support for a particular `SparseArrays` operation (such as `nnz`, `nonzeros`,
+or `findnz`), a particular sparse storage format, or that `sparse(S)` is an
+identity or efficient operation. Likewise, `false` means that `S` is not recognized
+as sparse by `SparseArrays`, not that it is dense: an array type that does not
+subtype `AbstractSparseArray` or wrap one yields `false` regardless of its storage.
+Code requiring a particular sparse interface should dispatch on the relevant
+abstract type or operation instead of branching on `issparse`.
 
 # Examples
 ```jldoctest
@@ -76,7 +134,7 @@ issparse(A::DenseArray) = false
 issparse(S::AbstractSparseArray) = true
 
 indtype(S::AbstractSparseArray{<:Any,Ti}) where {Ti} = Ti
-indtype(T::UpperOrLowerTriangular{<:Any,<:AbstractSparseArray}) = indtype(parent(T))
+indtype(T::UpperOrLowerTriangular{<:Any,<:Union{AbstractSparseArray,SparseMatrixCSCColumnSubset}}) = indtype(parent(T))
 
 # The following two methods should be overloaded by concrete types to avoid
 # allocating the I = findall(...)
@@ -195,6 +253,8 @@ end
 
 @inline _is_fixed(::AbstractArray) = false
 @inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
+@noinline _throwfixedinsert(A, I...) =
+    throw(ArgumentError("cannot store a new entry at ($(join(I, ", "))) in a $(nameof(typeof(A))), its sparsity pattern is read-only"))
 
 # seed for a sparse `dot`: zero of the result type, which is a scalar even for matrix-valued
 # entries that have no `zero` themselves

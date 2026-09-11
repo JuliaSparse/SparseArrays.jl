@@ -13,10 +13,10 @@ using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCS
     @test copy(r)::ReadOnly == r
     @test ReadOnly(r) === r
     @test (resize!(r, length(r)); true)
-    @test_throws ErrorException resize!(r, length(r) - 1)
-    @test_throws ErrorException resize!(r, length(r) + 1)
-    @test_throws ErrorException r[1] = r[1] + 1
-    @test_throws ErrorException r[1] = r[1] - 1
+    @test_throws ArgumentError resize!(r, length(r) - 1)
+    @test_throws ArgumentError resize!(r, length(r) + 1)
+    @test_throws ArgumentError r[1] = r[1] + 1
+    @test_throws ArgumentError r[1] = r[1] - 1
     @test (r[1] = r[1]; true)
 end
 
@@ -69,6 +69,15 @@ struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
     @test struct_eq(F, H, A)
     H = map!(zero, copy(F), F)
     @test struct_eq(F, H, A)
+    @test_throws ArgumentError map!(x -> x + 1, H, F)
+    @test_throws ArgumentError H .= F .+ 1
+    G = sprandn(10, 10, 0.3)
+    @test_throws ArgumentError map!(identity, H, G)
+    @test_throws ArgumentError map!(+, H, A, G)
+    @test_throws ArgumentError H .= A .+ A .+ G
+    @test struct_eq(F, H, A)
+    @test map!((x, y, z) -> x - y + z - z, H, A, A, A) == 0 .* A   # zeros stay stored
+    @test struct_eq(F, H, A)
     F .= false
     @test struct_eq(F, H, A)
     F .= A .+ A
@@ -97,6 +106,21 @@ struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
     B = similar(F)
     @test typeof(B) == typeof(F)
     @test struct_eq(B, F)
+    @test similar(F, 3, 3) isa SparseMatrixCSC
+    @test typeof(FixedSparseCSC{Float32,Int32}(F)) == FixedSparseCSC{Float32,Int32}
+    G = fixed(sparse([1, 2], [1, 2], [1.0, 2.0], 2, 2))
+    @test_throws ArgumentError G[2, 1] = 1.0
+    @test_throws ArgumentError G[:, 1] .= 1.0
+    @test_throws ArgumentError G[1:2, 1:2] = ones(2, 2)
+    @test_throws ArgumentError copyto!(G, sparse(ones(2, 2)))
+    @test struct_eq(G, sparse(Diagonal([1.0, 2.0]))) && G == Diagonal([1.0, 2.0])
+    G[1:2, 1:2] = [3 0; 0 4]
+    G[:, 2] .= 0
+    @test G == [3 0; 0 0] && nnz(G) == 2
+    G .= sparse([2], [2], [6.0], 2, 2)   # a subset pattern zero-fills the rest
+    @test G == [0 0; 0 6] && nnz(G) == 2
+    @test circshift(G, (1, 0)) == circshift(Matrix(G), (1, 0))
+    @test Diagonal([2.0, 3.0]) * G == [0 0; 0 18] && Symmetric(G) * G == [0 0; 0 36]
 end
 @testset "SparseMatrixCSC conversions" begin
     A = sprandn(10, 10, 0.3)
@@ -111,6 +135,9 @@ end
 @testset "FixedSparseVector" begin
     y = sprandn(10, 0.3)
     x = FixedSparseVector(copy(y))
+    @test struct_eq(x, y)
+    @test_throws ArgumentError map!(v -> v + 1, x, y)
+    @test_throws ArgumentError map!(identity, x, sprandn(10, 0.3))
     @test struct_eq(x, y)
     nonzeros(x) .= 0
     @test struct_eq(x, y)
@@ -127,6 +154,14 @@ end
     t = similar(x)
     @test typeof(t) == typeof(x)
     @test struct_eq(t, x)
+    @test similar(x, 5) isa SparseVector
+    @test typeof(FixedSparseVector{Float32,Int32}(x)) == FixedSparseVector{Float32,Int32}
+    w = fixed(sparsevec([1, 3], [1.0, 2.0], 4))
+    @test_throws ArgumentError w[2] = 1.0
+    @test_throws ArgumentError copyto!(w, sparsevec([2], [1.0], 4))
+    @test struct_eq(w, sparsevec([1, 3], [1.0, 2.0], 4))
+    w .= sparsevec([3], [5.0], 4)
+    @test w == [0, 0, 5, 0] && nnz(w) == 2
 end
 
 @testset "Issue #190" begin

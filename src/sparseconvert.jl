@@ -1,15 +1,5 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-"""
-    SparseMatrixCSCSymmHerm
-
-`Symmetric` or `Hermitian` of a `SparseMatrixCSC` or `SparseMatrixCSCView`.
-"""
-const SparseMatrixCSCSymmHerm{Tv,Ti} = Union{Symmetric{Tv,<:SparseMatrixCSCUnion{Tv,Ti}},
-                                            Hermitian{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}}
-
-const AbstractTriangularSparse{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
-
 # converting Symmetric/Hermitian/Triangular/SubArray of SparseMatrixCSC
 # and Transpose/Adjoint of Triangular of SparseMatrixCSC to SparseMatrixCSC
 for wr in (Symmetric, Hermitian, Transpose, Adjoint,
@@ -173,7 +163,7 @@ function _sparsem(fnzrange::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv
 end
 
 # 2 cases: Unit(Upper|Lower)Triangular{Tv,AbstractSparseMatrixCSC}
-function _sparsem(A::AbstractTriangularSparse{Tv}) where Tv
+function _sparsem(A::SparseTriangular{Tv}) where Tv
     S = A.data
     rowval = rowvals(S)
     nzval = nonzeros(S)
@@ -217,7 +207,7 @@ function _sparsem(A::AbstractTriangularSparse{Tv}) where Tv
 end
 
 # 8 cases: (Transpose|Adjoint){Tv,[Unit](Upper|Lower)Triangular}
-function _sparsem(taA::AdjOrTrans{Tv,<:AbstractTriangularSparse}) where {Tv}
+function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
 
     sA = parent(taA)
     A = sA.data
