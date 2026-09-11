@@ -184,6 +184,8 @@ function nonzeroinds(x::SparseVectorPartialView)
 end
 
 rowvals(x::SparseVectorUnion) = nonzeroinds(x)
+getrowval(x::SparseVectorUnion) = nonzeroinds(x)
+getnzval(x::SparseVectorUnion) = nonzeros(x)
 
 indtype(x::SparseColumnView) = indtype(parent(x))
 indtype(x::Union{SparseVectorView, SparseVectorPartialView}) = indtype(parent(x))

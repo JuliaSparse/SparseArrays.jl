@@ -33,7 +33,7 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     SparseMatrixCSC, SparseVector, blockdiag, droptol!, dropzeros!, dropzeros,
     issparse, nonzeros, nzrange, rowvals, sparse, sparsevec, spdiagm,
     sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
-    sparse_hcat, sparse_vcat, sparse_hvcat
+    sparse_hcat, sparse_vcat, sparse_hvcat, getrowval, getnzval
 
 public sparse!, spzeros!
 

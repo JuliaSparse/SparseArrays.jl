@@ -194,10 +194,80 @@ const SparseMatrixCSCUnion2{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, Spars
 getcolptr(S::SorF)     = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
 getcolptr(S::SparseMatrixCSCColumnSubset) = error("getcolptr not well-defined for $(typeof(S))")
+"""
+    getrowval(A)
+
+Return the vector of row indices of the structural nonzeros of sparse array `A`.
+For a [`SparseMatrixCSC`](@ref) this is the `rowval` field; for a
+[`SparseVector`](@ref) it is the `nzind` field. Any modifications to the returned
+vector will mutate `A` as well. Providing access to how the row indices are
+stored internally can be useful in conjunction with iterating over structural
+nonzero values. See also [`getnzval`](@ref) and [`nzrange`](@ref).
+
+`getrowval` is the preferred name for this accessor; [`rowvals`](@ref) is
+equivalent but is likely to be deprecated in a future release.
+
+# Examples
+```jldoctest
+julia> A = sparse(2I, 3, 3)
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 2  ⋅  ⋅
+ ⋅  2  ⋅
+ ⋅  ⋅  2
+
+julia> getrowval(A)
+3-element Vector{Int64}:
+ 1
+ 2
+ 3
+
+julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
+2-element Vector{Int64}:
+ 2
+ 5
+```
+"""
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
 getrowval(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
+getrowval(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
+getrowval(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
+
+"""
+    getnzval(A)
+
+Return the vector of structural nonzero values of sparse array `A`, i.e. the `nzval`
+field of a [`SparseMatrixCSC`](@ref) or [`SparseVector`](@ref). This includes zeros
+that are explicitly stored in the sparse array. The returned vector points directly
+to the internal nonzero storage of `A`, and any modifications to the returned vector
+will mutate `A` as well. See also [`getrowval`](@ref) and [`nzrange`](@ref).
+
+`getnzval` is the preferred name for this accessor; [`nonzeros`](@ref) is
+equivalent but is likely to be deprecated in a future release.
+
+# Examples
+```jldoctest
+julia> A = sparse(2I, 3, 3)
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 2  ⋅  ⋅
+ ⋅  2  ⋅
+ ⋅  ⋅  2
+
+julia> getnzval(A)
+3-element Vector{Int64}:
+ 2
+ 2
+ 2
+
+julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
+2-element Vector{Float64}:
+ 3.0
+ 4.0
+```
+"""
 getnzval( S::AbstractSparseMatrixCSC) = nonzeros(S)
 getnzval( S::SparseMatrixCSCColumnSubset) = nonzeros(parent(S))
+getnzval( S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
+getnzval( S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
 
 """
@@ -233,7 +303,14 @@ end
     nonzeros(A)
 
 Return a vector of the structural nonzero values in sparse array `A`. This
-includes zeros that are explicitly stored in the sparse array. The returned
+includes zeros that are explicitly stored in the sparse array.
+
+!!! note
+    [`getnzval`](@ref) is the preferred name for this accessor, matching the
+    `nzval` field of [`SparseMatrixCSC`](@ref). `nonzeros` is likely to be
+    deprecated in a future release.
+
+The returned
 vector points directly to the internal nonzero storage of `A`, and any
 modifications to the returned vector will mutate `A` as well. See
 [`rowvals`](@ref) and [`nzrange`](@ref).
@@ -261,7 +338,14 @@ nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 """
     rowvals(A)
 
-Return a vector of the row indices of sparse array `A`. Any modifications to the returned
+Return a vector of the row indices of sparse array `A`.
+
+!!! note
+    [`getrowval`](@ref) is the preferred name for this accessor, matching the
+    `rowval` field of [`SparseMatrixCSC`](@ref). `rowvals` is likely to be
+    deprecated in a future release.
+
+Any modifications to the returned
 vector will mutate `A` as well. Providing access to how the row indices are
 stored internally can be useful in conjunction with iterating over structural
 nonzero values. See also [`nonzeros`](@ref) and [`nzrange`](@ref).
@@ -290,12 +374,12 @@ rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
     nzrange(A, col::Integer)
 
 Return the range of indices to the structural nonzero values of column `col`
-of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
-[`rowvals`](@ref), this allows for convenient iterating over a sparse matrix :
+of sparse array `A`. In conjunction with [`getrowval`](@ref) and
+[`getnzval`](@ref), this allows for convenient iterating over a sparse matrix :
 
     A = sparse(I,J,V)
-    rows = rowvals(A)
-    vals = nonzeros(A)
+    rows = getrowval(A)
+    vals = getnzval(A)
     m, n = size(A)
     for j = 1:n
        for i in nzrange(A, j)
