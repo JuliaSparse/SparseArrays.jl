@@ -191,6 +191,31 @@ const SparseMatrixCSCColumnSubset{Tv,Ti} =
         Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractVector{<:Integer}}
 const SparseMatrixCSCUnion2{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCColumnSubset{Tv,Ti}}
 
+"""
+        getcolptr(S)
+
+Return the vector of column start indices in an `AbstractSparseMatrixCSC` pointing
+into [`nonzeros`](@ref) and [`rowvals`](@ref). The returned vector aliases `S`,
+but implementations with fixed sparsity may make it read-only. When it is
+writable, modifications to it mutate `S`. Providing access to the column start
+indices can be useful in preconditioners and sparse direct solvers.
+
+# Examples
+```jldoctest
+julia> A = sparse(2I, 3, 3)
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 2  ⋅  ⋅
+ ⋅  2  ⋅
+ ⋅  ⋅  2
+
+julia> getcolptr(A)
+4-element Vector{Int64}:
+ 1
+ 2
+ 3
+ 4
+```
+"""
 getcolptr(S::SorF)     = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
 getcolptr(S::SparseMatrixCSCColumnSubset) = error("getcolptr not well-defined for $(typeof(S))")

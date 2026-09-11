@@ -29,10 +29,10 @@ import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Com
 
 using Random: default_rng, AbstractRNG, randsubseq, randsubseq!
 
-export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
+export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector, AbstractSparseMatrixCSC,
     SparseMatrixCSC, SparseVector, blockdiag, droptol!, dropzeros!, dropzeros,
-    issparse, nonzeros, nzrange, rowvals, sparse, sparsevec, spdiagm,
-    sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
+    issparse, nonzeros, nzrange, rowvals, getcolptr, sparse, sparsevec, spdiagm,
+    sprand, sprandn, spzeros, nnz, indtype, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat
 
 public sparse!, spzeros!
