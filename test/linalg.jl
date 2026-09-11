@@ -8,6 +8,15 @@ using Random
 include("forbidproperties.jl")
 include("util/mulcount.jl")
 
+# an AbstractSparseVector outside the types the sparse product kernel handles
+struct WrappedSparseVector <: AbstractSparseVector{Float64,Int}
+    x::SparseVector{Float64,Int}
+end
+Base.size(v::WrappedSparseVector) = size(v.x)
+Base.getindex(v::WrappedSparseVector, i::Int) = v.x[i]
+SparseArrays.nonzeros(v::WrappedSparseVector) = nonzeros(v.x)
+SparseArrays.nonzeroinds(v::WrappedSparseVector) = nonzeroinds(v.x)
+
 sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
 dA = Array(sA)
@@ -248,9 +257,12 @@ begin
         MAW = tr(wr(MA))
         @test AW * B ≈ MAW * B
         @test AW * s ≈ MAW * s ≈ MAW * sd
+        @test AW * A ≈ MAW * MA
+        tr === identity && @test AW * AW isa wr
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
+        @test vAW * A ≈ AW * A
     end
     a = sprand(rng, ComplexF64, n, n, 0.01)
     ma = Matrix(a)
@@ -264,6 +276,15 @@ begin
         vAW = tr(wr(view([zero(a)+I a], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
     end
+    # the implicit unit diagonal may not fit the index type (#816)
+    A8 = sparse(Int8[1, 2, 5], Int8[2, 1, 7], [2.0, 3.0, 4.0], 127, 127)
+    @test UnitUpperTriangular(A8) * A8 isa SparseMatrixCSC{Float64,Int8}
+    @test UnitLowerTriangular(A8) * A8 ≈ Matrix(UnitLowerTriangular(A8)) * Matrix(A8)
+    @test UnitUpperTriangular(A8) * spzeros(127) == zeros(127)
+    # vectors outside the kernel's types take the generic product
+    T2 = sparse([1.0 2.0; 0.0 1.0])
+    w = WrappedSparseVector(sparsevec([0.0, 3.0]))
+    @test UnitUpperTriangular(T2) * w == UpperTriangular(T2) * w == [6.0, 3.0]
     A = A - Diagonal(diag(A)) + 2I # avoid rounding errors by division
     MA = Matrix(A)
     @testset "triangular solver for $tr($wr)" for tr in (identity, adjoint, transpose),
@@ -866,6 +887,8 @@ end
     @testset "common error checking of [c]transpose! methods (ftranspose!)" begin
         @test_throws DimensionMismatch transpose!(A[:, 1:(smalldim - 1)], A)
         @test_throws DimensionMismatch transpose!(A[1:(smalldim - 1), 1], A)
+        @test_throws ArgumentError transpose!(A, A) # #812
+        @test_throws ArgumentError adjoint!(A, A)
     end
     @testset "common error checking of permute[!] methods / source-perm compat" begin
         @test_throws DimensionMismatch permute(A, p[1:(end - 1)], q)

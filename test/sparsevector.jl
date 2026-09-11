@@ -60,6 +60,12 @@ end
         @test Array(x) == xf
         @test Vector(x) == xf
         @test collect(x) == xf
+        # issue #54
+        y = SparseVector{ComplexF64,Int32}(x)
+        @test promote_type(typeof(x), typeof(y)) === SparseVector{ComplexF64,Int}
+        @test promote_type(Vector{Int}, typeof(x)) === Vector{Float64}
+        @test promote(x, y) == (x, y)
+        @test eltype([x, y]) === SparseVector{ComplexF64,Int}
     end
 end
 @testset "show" begin
@@ -1614,6 +1620,19 @@ end
         @test Vector(sort(x, by=abs)) == sort(Vector(x), by=abs)
         @test Vector(sort(x, by=sign)) == sort(Vector(x), by=sign)
         @test Vector(sort(x, by=inv)) == sort(Vector(x), by=inv)
+    end
+    # the ordering is only evaluated at zero when there are structural zeros to place
+    let x = sparsevec(1:4, [3, 1, -2, 2])
+        @test Vector(sort(x, by = v -> 1 ÷ v)) == sort(Vector(x), by = v -> 1 ÷ v)
+    end
+    # fixed vectors have read-only indices: `sort!` refuses and `sort` copies
+    let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 15), f = SparseArrays.fixed(x)
+        @test_throws ArgumentError sort!(f)
+        @test f == x
+        s = sort(f)
+        @test s isa SparseVector
+        @test Vector(s) == sort(Vector(x))
+        @test f == x
     end
 end
 @testset "fill!" begin

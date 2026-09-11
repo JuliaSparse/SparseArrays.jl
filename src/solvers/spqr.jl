@@ -52,7 +52,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = spqr_call(
+    rnk  = CHOLMOD.@checked spqr_call(
         ordering,       # all, except 3:given treated as 0:fixed
         tol,            # columns with 2-norm <= tol treated as 0
         econ,           # e = max(min(m,econ),rank(A))
@@ -158,6 +158,13 @@ end
 _default_tol(A::AbstractSparseMatrixCSC) =
     20*sum(size(A))*eps()*maximum(norm(view(A, :, i)) for i in axes(A, 2))
 
+# Return the pointer held by `r` and clear `r`, transferring ownership to the caller.
+function _take!(r::Ref{Ptr{T}}) where T
+    p = r[]
+    r[] = C_NULL
+    return p
+end
+
 """
     qr(A::SparseMatrixCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) -> QRSparse
 
@@ -209,10 +216,12 @@ Column permutation:
 [^ACM933]: Foster, L. V., & Davis, T. A. (2013). Algorithm 933: Reliable Calculation of Numerical Rank, Null Space Bases, Pseudoinverse Solutions, and Basic Solutions Using SuitesparseQR. ACM Trans. Math. Softw., 40(1). [doi:10.1145/2513109.2513116](https://doi.org/10.1145/2513109.2513116)
 """
 function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
-    R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    E     = Ref{Ptr{Ti}}()
-    H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    HPinv = Ref{Ptr{Ti}}()
+    # Initialize all output pointers to NULL so that the frees below never
+    # see garbage if SPQR returns without writing one of them.
+    R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}(C_NULL)
+    E     = Ref{Ptr{Ti}}(C_NULL)
+    H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}(C_NULL)
+    HPinv = Ref{Ptr{Ti}}(C_NULL)
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
     # SPQR doesn't accept symmetric matrices so we explicitly set the stype
@@ -220,9 +229,22 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
         C_NULL, C_NULL, C_NULL, C_NULL,
         R, E, H, HPinv, HTau)
 
-    R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(R[]))
-    factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(H[]))
-    τ = vec(Array{Tv}(CHOLMOD.Dense{Tv}(HTau[])))
+    # Wrap the C-allocated outputs. Each wrapper constructor frees its own
+    # pointer if it throws (or owns it via a finalizer once constructed), but
+    # the siblings that have not been wrapped yet would leak, so hand each
+    # pointer over by clearing its Ref first and free whatever is still held
+    # in a Ref before rethrowing.
+    local R_, factors, τ
+    try
+        R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(R)))
+        factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(H)))
+        τ = vec(Array{Tv}(CHOLMOD.Dense{Tv}(_take!(HTau))))
+    catch
+        R[] != C_NULL && free!(R[], Ti)
+        H[] != C_NULL && free!(H[], Ti)
+        HTau[] != C_NULL && free!(HTau[])
+        rethrow()
+    end
     R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                 size(R_, 2),
                                 getcolptr(R_),

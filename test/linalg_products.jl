@@ -100,7 +100,7 @@ end
         S = _sparse_test_matrix(n, T1)
         MS = Matrix(S)
         for T2 in (Int, Float64, ComplexF32)
-            for TM in (LowerTriangular, UnitLowerTriangular, UpperTriangular, UnitLowerTriangular)
+            for TM in (LowerTriangular, UnitLowerTriangular, UpperTriangular, UnitUpperTriangular)
                 T = _triangular_test_matrix(n, TM, T2)
                 MT = Matrix(T)
                 @test isa(T * S, DenseMatrix)

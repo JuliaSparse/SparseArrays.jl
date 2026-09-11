@@ -11,7 +11,8 @@ using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
     AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, MulAddMul,
-    UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, @stable_muladdmul, isbanded
+    UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, UpperOrUnitUpperTriangular,
+    LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, @stable_muladdmul, isbanded
 
 
 import Base: +, -, *, \, /, ==, zero
@@ -21,9 +22,9 @@ import LinearAlgebra: mul!, ldiv!, rdiv!, cholesky, adjoint!, diag, eigen, dot,
     cond, factorize, ishermitian, norm, opnorm, lmul!, rmul!, tril, triu,
     matop_dest, copytrito!, nonzeroinds
 
-import Base: adjoint, argmin, argmax, Array, broadcast, circshift!, complex, Complex,
+import Base: adjoint, argmin, argmax, Array, broadcast, circshift, circshift!, complex, Complex,
     conj, conj!, convert, copy, copy!, copyto!, count, diff, findall, findmax, findmin, findnext, findprev,
-    float, getindex, imag, inv, kron, kron!, length, map, maximum, minimum, permute!, real,
+    float, getindex, imag, inv, kron, kron!, length, map, maximum, minimum, permute!, promote_rule, real,
     rot180, rotl90, rotr90, setindex!, show, similar, size, sum, transpose,
     vcat, hcat, hvcat, cat, vec, reverse, reverse!
 
@@ -36,8 +37,6 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     sparse_hcat, sparse_vcat, sparse_hvcat
 
 public sparse!, spzeros!
-
-const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 
 # helper function needed in sparsematrix, sparsevector and higherorderfns
 # `iszero` and `!iszero` don't guarantee to return a boolean but we need one that does

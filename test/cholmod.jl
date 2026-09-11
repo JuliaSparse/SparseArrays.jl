@@ -18,7 +18,8 @@ using LinearAlgebra:
 using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
-using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
+using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse,
+    cholmod_l_allocate_dense, cholmod_allocate_dense
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
@@ -148,6 +149,58 @@ Random.seed!(123)
     @test size(chmal) == size(A)
     @test size(chmal, 1) == size(A, 1)
 
+    @testset "factor and component solves with views (#496, #120)" begin
+        F = cholesky(A)
+        B = Matrix{Tv}(hcat(b, 2b, 3b))
+        Bt = Matrix(transpose(B[:, 2:3]))
+        # complex right-hand sides for the real factor (#120), which LinearAlgebra handles
+        # for `Vector` and `Matrix` but not for views or adjoint/transpose wrappers of them
+        Z = complex.(B, 2B)
+        Zt = Matrix(transpose(Z[:, 2:3]))
+        for sym in (:L, :U, :PtL, :UP)
+            C = getproperty(F, sym)
+            ref = C \ Vector(b)
+            @test C \ view(B, :, 1) ≈ ref
+            @test C \ view(B, :, 2) ≈ 2ref
+            @test C \ view(B, 1:n, 1) ≈ ref
+            @test C \ view(B, :, 2:3) ≈ hcat(2ref, 3ref)
+            @test C \ Bt' ≈ hcat(2ref, 3ref)
+            @test C \ transpose(Bt) ≈ hcat(2ref, 3ref)
+            @test C' \ view(B, :, 1) ≈ C' \ Vector(b)
+            @test C' \ view(B, :, 2:3) ≈ C' \ B[:, 2:3]
+            # a real factor component is a real linear map, so it solves for a complex
+            # right-hand side componentwise
+            zref = complex.(ref, 2ref)
+            @test C \ Z[:, 1] ≈ zref
+            @test C \ view(Z, :, 1) ≈ zref
+            @test C \ view(Z, :, 2:3) ≈ hcat(2zref, 3zref)
+            @test C \ Zt' ≈ conj(hcat(2zref, 3zref))   # the adjoint conjugates
+            @test C \ transpose(Zt) ≈ hcat(2zref, 3zref)
+            @test C' \ view(Z, :, 1) ≈ complex.(C' \ Vector(b), 2(C' \ Vector(b)))
+        end
+        for G in (F, F')
+            zref = complex.(G \ Vector(b), 2(G \ Vector(b)))
+            @test G \ Z[:, 1] ≈ zref
+            @test G \ view(Z, :, 1) ≈ zref
+            @test G \ view(Z, :, 2:3) ≈ hcat(2zref, 3zref)
+            @test G \ Zt' ≈ conj(hcat(2zref, 3zref))
+            @test G \ transpose(Zt) ≈ hcat(2zref, 3zref)
+        end
+        # a complex right-hand side of the other precision is solved in the precision of
+        # the (real) factor, as a real one is
+        Z2 = Complex{Tv === Float64 ? Float32 : Float64}.(Z)
+        for G in (F, F', F.L, F.PtL')
+            X = G \ Z2
+            @test eltype(X) === Complex{Tv}
+            @test X ≈ G \ Z rtol=sqrt(eps(Float32))
+            @test G \ view(Z2, :, 1) ≈ X[:, 1] rtol=sqrt(eps(Float32))
+        end
+        # the discourse example: a column of a dense workspace matrix
+        W = zeros(Tv, n, 2); W[:, 1] .= b
+        y = F.PtL \ view(W, :, 1)
+        @test F.PtL' \ y ≈ F \ b
+    end
+
     @testset "eltype" begin
         @test eltype(Dense(fill(Tv(1.), 3))) == Tv
         @test eltype(A) == Tv
@@ -224,6 +277,20 @@ end
 end
 
 ## The struct pointer must be constructed by the library constructor and then modified afterwards to checks that the method throws
+# The constructors must free the pointer before throwing, so the Common's
+# allocation count must be back to its previous value afterwards. The GC is
+# disabled around each measurement so that finalizers of unrelated CHOLMOD
+# objects cannot change the count between the baseline read and the check.
+malloc_count(T) = getcommon(T)[].malloc_count
+function with_gc_disabled(f)
+    GC.gc()
+    GC.enable(false)
+    try
+        f()
+    finally
+        GC.enable(true)
+    end
+end
 @testset "illegal dtype" begin
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
@@ -235,13 +302,30 @@ end
 end
 
 @testset "illegal xtype" begin
-    p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
-        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
-    puint = convert(Ptr{UInt32}, p)
-    # The second argument 3 is the invalid `xtype`.
-    # CHOLMOD_REAL (1), CHOLMOD_COMPLEX (2) are valid.
-    unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 3)
-    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+    with_gc_disabled() do
+        nmalloc = malloc_count(Ti)
+        p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
+            cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
+        puint = convert(Ptr{UInt32}, p)
+        # The second argument 3 is the invalid `xtype`.
+        # CHOLMOD_REAL (1), CHOLMOD_COMPLEX (2) are valid.
+        unsafe_store!(puint, 3, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 3)
+        @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
+        @test malloc_count(Ti) == nmalloc
+    end
+end
+
+@testset "illegal dense xtype" begin
+    with_gc_disabled() do
+        # `free!(::Ptr{cholmod_dense})` always uses the native-Int Common
+        nmalloc = malloc_count(Int)
+        p = sizeof(Int) == 8 ? cholmod_l_allocate_dense(1, 1, 1, CHOLMOD.xdtyp(Tv), getcommon(Int)) :
+            cholmod_allocate_dense(1, 1, 1, CHOLMOD.xdtyp(Tv), getcommon(Int))
+        xtype_offset = fieldoffset(LibSuiteSparse.cholmod_dense, findfirst(==(:xtype), fieldnames(LibSuiteSparse.cholmod_dense)))
+        unsafe_store!(Ptr{Cint}(p + xtype_offset), 3) # CHOLMOD_ZOMPLEX is not supported
+        @test_throws CHOLMOD.CHOLMODException CHOLMOD.Dense(p)
+        @test malloc_count(Int) == nmalloc
+    end
 end
 
 # Test that a bogus `itype` raises the expected exception
@@ -261,10 +345,43 @@ end
     unsafe_store!(puint,  5, 3*div(sizeof(Csize_t), 4) + 5*div(sizeof(Ptr{Cvoid}), 4) + 2)
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
+
 @testset "test free! $Ti" begin
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
     @test CHOLMOD.free!(p, Ti)
+
+    # Object-level free! must null the wrapper's pointer so that a second
+    # free! (and the finalizer) is a no-op rather than a double free.
+    D = CHOLMOD.Dense(rand(Tv, 3))
+    @test CHOLMOD.free!(D)
+    @test getfield(D, :ptr) == C_NULL
+    @test_throws ArgumentError pointer(D)
+    @test !CHOLMOD.free!(D)
+
+    S = CHOLMOD.Sparse(convert(SparseMatrixCSC{Tv,Ti}, sparse(I, 3, 3)))
+    @test CHOLMOD.free!(S)
+    @test getfield(S, :ptr) == C_NULL
+    @test_throws ArgumentError pointer(S)
+    @test !CHOLMOD.free!(S)
+
+    # A Factor that has been used in ldiv! owns Y/E scratch buffers; free! must
+    # release them and null the handles as well as the factor pointer.
+    A = convert(SparseMatrixCSC{Tv,Ti}, sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    F = cholesky(A)
+    b = fill(Tv(1), 3)
+    ldiv!(similar(b), F, b)
+    # cholmod_solve2 always allocates Y; E is only allocated when needed.
+    @test getfield(F, :Y)[] != C_NULL
+    @test CHOLMOD.free!(F)
+    @test getfield(F, :ptr) == C_NULL
+    @test getfield(F, :Y)[] == C_NULL
+    @test getfield(F, :E)[] == C_NULL
+    @test_throws ArgumentError pointer(F)
+    @test !CHOLMOD.free!(F)
+
+    D = S = F = nothing
+    GC.gc()
 end
 
 @testset "Check common is still in default state" begin
@@ -324,6 +441,29 @@ end
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
+@testset "ldiv! into views $Tv $Ti" begin
+    local A, F, X, B
+    A = sprand(6, 6, 0.3)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    F = cholesky(A)
+    X = Tv[i + j for i in 1:6, j in 1:3]
+    B = A * X
+
+    # contiguous column view output is fine
+    P = zeros(Tv, 6, 5)
+    @test ldiv!(view(P, :, 1:3), F, B) ≈ X
+    # non-contiguous outputs are rejected: CHOLMOD overwrites the leading dimension of the output
+    Q = zeros(Tv, 9, 3)
+    @test_throws ArgumentError ldiv!(view(Q, 1:6, :), F, B)
+    q = zeros(Tv, 12)
+    @test_throws ArgumentError ldiv!(view(q, 1:2:11), F, B[:, 1])
+    # a strided RHS is fine: CHOLMOD only reads it
+    R = zeros(Tv, 9, 3)
+    R[1:6, :] .= B
+    @test ldiv!(zeros(Tv, 6, 3), F, view(R, 1:6, :)) ≈ X
+end
+
 @testset "ldiv! no memory leak $Tv $Ti" begin
     local A, b, x, F
     A = sprand(10, 10, 0.1)
@@ -341,6 +481,28 @@ end
     end
     after = getcommon(Ti)[].memory_inuse
     @test before == after
+end
+
+# For an Int64 factor both Commons coincide, so the check is only meaningful
+# for Ti == Int32.
+if Ti == Int32 && Int64 in itypes
+@testset "free!(Factor) releases Y/E through the matching Common $Tv $Ti" begin
+    local A, b, x, F
+    A = sprand(10, 10, 0.1)
+    A = I + A * A'
+    A = convert(SparseMatrixCSC{Tv,Ti}, A)
+    b = A * fill(Tv(1), 10)
+    x = zero(b)
+    with_gc_disabled() do
+        n64 = malloc_count(Int64)
+        F = cholesky(A)
+        ldiv!(x, F, b) # allocates the Y/E buffers in the Int32 Common
+        CHOLMOD.free!(F)
+        # Y/E must be released through the Int32 Common as well; freeing them
+        # through the Int64 Common would decrement its count by two.
+        @test malloc_count(Int64) == n64
+    end
+end
 end
 
 @testset "copy(Factor) buffer isolation $Tv $Ti" begin
@@ -363,6 +525,39 @@ end
 
     # Verify each copy has its own independent buffers
     @test getfield(factor, :Y) !== getfield(factor2, :Y)
+end
+
+@testset "temporaries stay rooted while reading raw pointers $Tv $Ti" begin
+    # The conversions below read through the raw CHOLMOD buffers of a wrapper
+    # that is otherwise dead after `unsafe_load(pointer(A))`. If the wrapper is
+    # not kept rooted, a GC triggered by an allocation during the copy can run
+    # its finalizer and free the buffers mid-read. Not a deterministic
+    # reproducer, but exercises the preserved paths under GC pressure.
+    local S, SPD, Fref
+    S = convert(SparseMatrixCSC{Tv,Ti}, sprand(400, 300, 0.05))
+    SPD = convert(SparseMatrixCSC{Tv,Ti}, S[1:300, :] * S[1:300, :]' + 300I)
+    Fref = cholesky(SPD)
+    for _ in 1:20
+        @test SparseMatrixCSC(CHOLMOD.Sparse(S)) == S
+        GC.gc(false)
+        @test sparse(CHOLMOD.Sparse(S)) == S
+        GC.gc(false)
+        @test sparsevec(CHOLMOD.Sparse(S[:, 1])) == S[:, 1]
+        GC.gc(false)
+        @test sparse(CHOLMOD.Sparse(Symmetric(SPD))) == Symmetric(SPD)
+        GC.gc(false)
+        @test diag(cholesky(SPD)) ≈ diag(Fref)
+        GC.gc(false)
+        @test cholesky(SPD).p == Fref.p
+        GC.gc(false)
+        @test CHOLMOD.get_perm(ldlt(SPD)) == ldlt(SPD).p
+        GC.gc(false)
+        @test CHOLMOD.Sparse(S)[7, 3] == S[7, 3]
+        @test CHOLMOD.Dense(Vector(S[:, 2]))[5] == S[5, 2]
+        GC.gc(false)
+        @test Matrix(CHOLMOD.Dense(Matrix(S[1:20, 1:20]))) == Matrix(S[1:20, 1:20])
+        GC.gc(false)
+    end
 end
 
 end #end for Ti ∈ itypes
@@ -438,6 +633,11 @@ end
 
     @test CHOLMOD.norm_dense(bDense, 2) ≈ norm(b)
     @test CHOLMOD.check_dense(bDense)
+
+    S = sparse(A)
+    @test SparseMatrixCSC(ADense)::SparseMatrixCSC{elty, Int} == S
+    @test SparseMatrixCSC{elty}(ADense)::SparseMatrixCSC{elty, Int} == S
+    @test SparseMatrixCSC{elty, Int32}(ADense)::SparseMatrixCSC{elty, Int32} == S
 
     AA = CHOLMOD.eye(3, Tv)
     unsafe_store!(convert(Ptr{Csize_t}, pointer(AA)), 2, 1) # change size, but not stride, of Dense
