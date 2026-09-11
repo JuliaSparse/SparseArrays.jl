@@ -641,6 +641,72 @@ end
 copyto!(A::AbstractSparseMatrixCSC, B::AbstractCompressedVector{TvB,TiB}) where {TvB,TiB} =
     copyto!(A, SparseMatrixCSC{TvB,TiB}(length(B), 1, TiB[1, length(nonzeroinds(B))+1], nonzeroinds(B), nonzeros(B)))
 
+# Copying into a view of a sparse array (issue #401): the generic fallback assigns every
+# element through `setindex!`, which is O(nnz) per insertion. Instead, the stored entries
+# of the parent that fall in the covered index range are replaced in one splice by those
+# of the source, so the cost is proportional to the stored entries moved.
+const _SparseVectorSource = Union{SparseVectorUnion, SparseVectorPartialView}
+
+# `src` as stored indices and values, materialized so that they cannot alias the parent
+# being spliced into; a dense source is compressed first
+function _splice_source(src::_SparseVectorSource, ::Type{Ti}, ::Type{Tv}) where {Ti,Tv}
+    return Vector{Ti}(nonzeroinds(src)), Vector{Tv}(nonzeros(src))
+end
+_splice_source(src::AbstractVector, ::Type{Ti}, ::Type{Tv}) where {Ti,Tv} =
+    _splice_source(sparsevec(src), Ti, Tv)
+
+# replace the stored entries at positions `k1:k2` of `inds`/`vals` by the given ones
+function _splice_entries!(inds::AbstractVector, vals::AbstractVector, k1::Integer, k2::Integer,
+                          newinds::AbstractVector, newvals::AbstractVector)
+    if k2 - k1 + 1 == length(newinds)
+        copyto!(inds, k1, newinds)
+        copyto!(vals, k1, newvals)
+    else
+        splice!(inds, k1:k2, newinds)
+        splice!(vals, k1:k2, newvals)
+    end
+    return length(newinds) - (k2 - k1 + 1)
+end
+
+function copyto!(dest::SparseColumnView{Tv,Ti}, src::AbstractVector) where {Tv,Ti}
+    A = parent(dest)
+    _is_fixed(A) && return invoke(copyto!, Tuple{AbstractArray,AbstractArray}, dest, src)
+    lB = length(src)
+    lB <= length(dest) || throw(BoundsError(dest, lB))
+    lB == 0 && return dest
+    col = parentindices(dest)[2]
+    newinds, newvals = _splice_source(src, Ti, Tv)
+    rng = nzrange(A, col)
+    k1 = first(rng)
+    k2 = searchsortedlast(view(rowvals(A), rng), lB) + k1 - 1   # last entry with row <= lB
+    delta = _splice_entries!(rowvals(A), nonzeros(A), k1, k2, newinds, newvals)
+    if delta != 0
+        colptr = getcolptr(A)
+        @inbounds for c in col+1:length(colptr)
+            colptr[c] += delta
+        end
+    end
+    return dest
+end
+
+copyto!(dest::SparseVectorView, src::AbstractVector) = (copyto!(parent(dest), src); dest)
+
+function copyto!(dest::SparseVectorPartialView{Tv,Ti}, src::AbstractVector) where {Tv,Ti}
+    x = parent(dest)
+    _is_fixed(x) && return invoke(copyto!, Tuple{AbstractArray,AbstractArray}, dest, src)
+    lB = length(src)
+    lB <= length(dest) || throw(BoundsError(dest, lB))
+    lB == 0 && return dest
+    lo = first(dest.indices[1])
+    newinds, newvals = _splice_source(src, Ti, Tv)
+    newinds .+= lo - 1
+    nzind = nonzeroinds(x)
+    k1 = searchsortedfirst(nzind, lo)
+    k2 = searchsortedlast(nzind, lo + lB - 1)
+    _splice_entries!(nzind, nonzeros(x), k1, k2, newinds, newvals)
+    return dest
+end
+
 
 ### Rand Construction
 sprand(n::Integer, p::AbstractFloat, rfn::Function, ::Type{T}) where {T} = sprand(default_rng(), n, p, rfn, T)
