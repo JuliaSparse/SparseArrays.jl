@@ -2019,7 +2019,8 @@ for (T, f) in ((:Dense, :solve), (:Sparse, :spsolve))
     end
 end
 
-SparseVecOrMat{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
+# the concrete pair that Sparse(::SparseVector)/Sparse(::SparseMatrixCSC) accept
+const SparseVectorOrMatrixCSC{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
 
 # Strided right-hand sides, such as views of dense arrays (#496), are handed to CHOLMOD as
 # they are, in the precision of the factor. CHOLMOD solves a real factor against a complex
@@ -2040,7 +2041,7 @@ end
 (\)(L::FactorComponent, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::FactorComponent, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 
-const FactorComponentRHS = Union{StridedVecOrMatMaybeAdjOrTrans, SparseVecOrMat, AdjOrTrans{<:Any,<:SparseMatrixCSC}}
+const FactorComponentRHS = Union{StridedVecOrMatMaybeAdjOrTrans, SparseVectorOrMatrixCSC, AdjOrTrans{<:Any,<:SparseMatrixCSC}}
 \(adjL::Adjoint{<:Any,<:FactorComponent}, B::FactorComponentRHS) = (L = parent(adjL); adjoint(L)\B)
 
 (\)(L::Factor{T}, B::Dense{T2}) where {T<:VTypes, T2<:VTypes} = solve(CHOLMOD_A, L, B)
@@ -2060,7 +2061,7 @@ const FactorComponentRHS = Union{StridedVecOrMatMaybeAdjOrTrans, SparseVecOrMat,
 # the eltype restriction is necessary for disambiguation with the B::StridedMatrix below
 \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::Dense) = (L = parent(adjL); solve(CHOLMOD_A, L, B))
 \(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = parent(adjL); spsolve(CHOLMOD_A, L, B))
-\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVectorOrMatrixCSC) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
 
 # These mirror the `Factor` methods above, `VecOrMat` tie-breaker included.
 \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedVecOrMatMaybeAdjOrTrans) = strided_solve(adjL, B)
@@ -2322,17 +2323,17 @@ function ishermitian(A::Sparse{<:VComplexTypes})
 end
 
 (*)(A::Symmetric{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}},
-    B::SparseVecOrMat{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
+    B::SparseVectorOrMatrixCSC{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 (*)(A::Hermitian{<:VComplexTypes,SparseMatrixCSC{<:VComplexTypes,Ti}},
-    B::SparseVecOrMat{<:VComplexTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
+    B::SparseVectorOrMatrixCSC{<:VComplexTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 (*)(A::Hermitian{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}},
-    B::SparseVecOrMat{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
+    B::SparseVectorOrMatrixCSC{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 
-(*)(A::SparseVecOrMat{<:VRealTypes,Ti},
+(*)(A::SparseVectorOrMatrixCSC{<:VRealTypes,Ti},
     B::Symmetric{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-(*)(A::SparseVecOrMat{<:VComplexTypes,Ti},
+(*)(A::SparseVectorOrMatrixCSC{<:VComplexTypes,Ti},
     B::Hermitian{<:VComplexTypes,SparseMatrixCSC{<:VComplexTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-(*)(A::SparseVecOrMat{<:VRealTypes,Ti},
+(*)(A::SparseVectorOrMatrixCSC{<:VRealTypes,Ti},
     B::Hermitian{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 
 # Sort all the indices in each column for the construction of a CSC sparse matrix
