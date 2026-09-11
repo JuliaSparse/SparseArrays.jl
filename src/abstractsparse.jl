@@ -79,16 +79,14 @@ const SparseTriangular{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCOrVie
 const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCOrView{Tv,Ti}, SparseTriangular{Tv,Ti}}
 const SparseMatrixCSCSymmHerm{Tv,Ti} = HermOrSym{Tv,<:SparseMatrixCSCOrView{Tv,Ti}}
 
-# LinearAlgebra's banded special matrices; Diagonal is often handled separately
-const BiTriSym = Union{Bidiagonal,Tridiagonal,SymTridiagonal}
-const DiagBiTriSym = Union{Diagonal,BiTriSym}
+# LinearAlgebra's BiTriSym (Bidiagonal/Tridiagonal/SymTridiagonal) and BandedMatrix (those
+# plus Diagonal) are imported for the banded special matrices.
 
 # Former names of the above, not used here but relied on by downstream packages together
 # with SparseMatrixCSCView, SparseColumnView and SparseVectorView. May be deprecated in a
 # future release.
 const SparseMatrixCSCUnion{Tv,Ti} = SparseMatrixCSCOrView{Tv,Ti}
 const SparseVectorUnion{Tv,Ti} = SparseVectorOrView{Tv,Ti}
-const AdjOrTransSparseVectorUnion{Tv,Ti} = AdjOrTransSparseVectorOrView{Tv,Ti}
 
 """
     issparse(S)

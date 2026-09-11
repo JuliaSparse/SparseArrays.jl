@@ -11,12 +11,13 @@ using Base: front, tail, to_shape
 using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatrixCSCView,
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
-                      SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, DiagBiTriSym,
+                      SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
                       _iszero, _isnotzero, _is_fixed, @if_move_fixed
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
+using LinearAlgebra: AdjOrTrans, BandedMatrix
 
 # This module is organized as follows:
 # (0) Define BroadcastStyle rules and convenience types for dispatch
@@ -69,16 +70,15 @@ PromoteToSparse(::Val{1}) = PromoteToSparse()
 PromoteToSparse(::Val{2}) = PromoteToSparse()
 PromoteToSparse(::Val{N}) where N = Broadcast.DefaultArrayStyle{N}()
 
-Broadcast.BroadcastStyle(::Type{<:Adjoint{T,<:Union{AbstractCompressedVector,AbstractSparseMatrixCSC}} where T}) = PromoteToSparse()
-Broadcast.BroadcastStyle(::Type{<:Transpose{T,<:Union{AbstractCompressedVector,AbstractSparseMatrixCSC}} where T}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::Type{<:AdjOrTrans{<:Any,<:SparseVecOrMat}}) = PromoteToSparse()
 
 Broadcast.BroadcastStyle(s::SPVM, ::Broadcast.AbstractArrayStyle{0}) = s
 Broadcast.BroadcastStyle(s::SPVM, ::Broadcast.DefaultArrayStyle{0}) = s
 Broadcast.BroadcastStyle(::SPVM, ::Broadcast.DefaultArrayStyle{1}) = PromoteToSparse()
 Broadcast.BroadcastStyle(::SPVM, ::Broadcast.DefaultArrayStyle{2}) = PromoteToSparse()
 
-Broadcast.BroadcastStyle(::SPVM, ::LinearAlgebra.StructuredMatrixStyle{<:DiagBiTriSym}) = PromoteToSparse()
-Broadcast.BroadcastStyle(::PromoteToSparse, ::LinearAlgebra.StructuredMatrixStyle{<:DiagBiTriSym}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::SPVM, ::LinearAlgebra.StructuredMatrixStyle{<:BandedMatrix}) = PromoteToSparse()
+Broadcast.BroadcastStyle(::PromoteToSparse, ::LinearAlgebra.StructuredMatrixStyle{<:BandedMatrix}) = PromoteToSparse()
 
 Broadcast.BroadcastStyle(::PromoteToSparse, ::SPVM) = PromoteToSparse()
 Broadcast.BroadcastStyle(::PromoteToSparse, ::Broadcast.Style{Tuple}) = Broadcast.DefaultArrayStyle{2}()
@@ -89,7 +89,7 @@ Broadcast.BroadcastStyle(::PromoteToSparse, ::Broadcast.Style{Tuple}) = Broadcas
 is_supported_sparse_broadcast() = true
 is_supported_sparse_broadcast(::AbstractArray, rest...) = false
 is_supported_sparse_broadcast(::AbstractSparseArray, rest...) = is_supported_sparse_broadcast(rest...)
-is_supported_sparse_broadcast(::DiagBiTriSym, rest...) = is_supported_sparse_broadcast(rest...)
+is_supported_sparse_broadcast(::BandedMatrix, rest...) = is_supported_sparse_broadcast(rest...)
 is_supported_sparse_broadcast(::Array, rest...) = is_supported_sparse_broadcast(rest...)
 is_supported_sparse_broadcast(t::Union{Transpose, Adjoint}, rest...) = is_supported_sparse_broadcast(parent(t), rest...)
 is_supported_sparse_broadcast(v::SubArray, rest...) = is_supported_sparse_broadcast(parent(v), rest...)

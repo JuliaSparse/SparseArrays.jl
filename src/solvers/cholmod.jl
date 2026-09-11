@@ -2068,10 +2068,7 @@ const FactorComponentRHS = Union{StridedVecOrMatMaybeAdjOrTrans, SparseVectorOrM
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = strided_solve(adjL, B)
 (\)(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::AdjOrTransAbsMat) = adjL \ copy(B)
 
-const RealHermSymComplexHermSSL{Ti, Tr} = Union{
-    Symmetric{Tr, SparseMatrixCSC{Tr, Ti}},
-    Hermitian{Tr, SparseMatrixCSC{Tr, Ti}},
-    Hermitian{Complex{Tr}, SparseMatrixCSC{Complex{Tr}, Ti}}} where {Ti<:ITypes, Tr<:Union{Float64, Float32, Float16}}
+const RealHermSymComplexHermSSL{Ti, Tr} = RealHermSymComplexHerm{Tr, <:SparseMatrixCSC{<:Any, Ti}} where {Ti<:ITypes, Tr<:Union{Float64, Float32, Float16}}
 
 function \(A::RealHermSymComplexHermSSL{Ti}, B::StridedVecOrMatMaybeAdjOrTrans) where {Ti}
     T = typeof(one(eltype(A)) \ one(eltype(B)))

@@ -2421,7 +2421,7 @@ function _fillnonzero!(arr::AbstractCompressedVector{Tv,Ti}, val) where {Tv,Ti}
 end
 
 import Base.fill!
-function fill!(A::Union{AbstractCompressedVector, AbstractSparseMatrixCSC}, x)
+function fill!(A::SparseVecOrMat, x)
     T = eltype(A)
     xT = convert(T, x)
     if _iszero(xT)

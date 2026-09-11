@@ -1911,7 +1911,7 @@ end
 const _SparseKronGroup = Union{SparseVecOrMatMaybeAdjOrTrans,
                                HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
                                UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
-const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, DiagBiTriSym,
+const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, BandedMatrix,
                               HermOrSym{<:Any,<:Matrix}, UpperOrLowerTriangular{<:Any,<:Matrix}}
 
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
