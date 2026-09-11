@@ -71,6 +71,12 @@ struct_eq(A::AbstractSparseVector, B::AbstractSparseVector) =
     @test struct_eq(F, H, A)
     @test_throws ArgumentError map!(x -> x + 1, H, F)
     @test_throws ArgumentError H .= F .+ 1
+    G = sprandn(10, 10, 0.3)
+    @test_throws ArgumentError map!(identity, H, G)
+    @test_throws ArgumentError map!(+, H, A, G)
+    @test_throws ArgumentError H .= A .+ A .+ G
+    @test struct_eq(F, H, A)
+    @test map!((x, y, z) -> x - y + z - z, H, A, A, A) == 0 .* A   # zeros stay stored
     @test struct_eq(F, H, A)
     F .= false
     @test struct_eq(F, H, A)
@@ -116,6 +122,7 @@ end
     x = FixedSparseVector(copy(y))
     @test struct_eq(x, y)
     @test_throws ArgumentError map!(v -> v + 1, x, y)
+    @test_throws ArgumentError map!(identity, x, sprandn(10, 0.3))
     @test struct_eq(x, y)
     nonzeros(x) .= 0
     @test struct_eq(x, y)
