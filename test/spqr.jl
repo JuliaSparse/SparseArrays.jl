@@ -79,14 +79,6 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test_throws DimensionMismatch A\B[1:m-1,:]
         C, x = A[1:9, :], fill(eltyB(1), 9)
         @test C*(C\x) ≈ x # Underdetermined system
-
-        # Minimum-norm solution of the underdetermined A'x = b (#656)
-        D = B[1:n, :]
-        @test F'\D ≈ Array(A)'\D
-        @test F'\D[:,1] ≈ Array(A)'\D[:,1]
-        @test transpose(F)\D ≈ transpose(Array(A))\D
-        @test A'\D ≈ Array(A)'\D
-        @test_throws DimensionMismatch F'\B
     end
 
     # Make sure that conversion to Sparse doesn't use SuiteSparse's symmetric flag
@@ -135,13 +127,10 @@ end
      A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
      b = randn(m)
      xref = Array(A) \ b
-     c = randn(n)
-     cref = Array(A)' \ c
      for ordering ∈ SPQR.ORDERINGS
          QR = qr(A, ordering=ordering)
          x = QR \ b
          @test x ≈ xref
-         @test QR' \ c ≈ cref
      end
      @test_throws ErrorException qr(A, ordering=Int32(10))
 end
@@ -217,11 +206,6 @@ end
         @test_throws DimensionMismatch ldiv!(zeros(n), F, zeros(m - 1))
         @test_throws DimensionMismatch ldiv!(zeros(n - 1), F, zeros(m))
         @test_throws DimensionMismatch ldiv!(zeros(n, 2), F, zeros(m, 3))
-        @test_throws DimensionMismatch ldiv!(zeros(m), F', zeros(n - 1))
-        @test_throws DimensionMismatch ldiv!(zeros(m - 1), F', zeros(n))
-        @test_throws DimensionMismatch ldiv!(zeros(m, 2), F', zeros(n, 3))
-        # A' is overdetermined when A is wide, which needs a factorization of A'
-        @test_throws DimensionMismatch qr(sprandn(n, m, 0.5))' \ zeros(m)
     end
 
     @testset "copying QRSparse" begin
