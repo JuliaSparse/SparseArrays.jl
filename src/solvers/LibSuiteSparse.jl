@@ -15,9 +15,7 @@ const FALSE = Int32(0)
 # SuiteSparse_jll would open. Paths are resolved at first `dlopen`, so the override
 # only has to be in place before the first solver call.
 
-const SPARSEARRAYS_UUID = Base.UUID("2f01184e-e22b-5df5-ae63-d93ebab69eaf")
 const LIBDIR_ENV = "JULIA_SUITESPARSE_LIBDIR"
-const LIBDIR_PREFERENCE = "suitesparse_libdir"
 
 # nothing = not resolved yet, "" = no override
 const _libdir = Ref{Union{Nothing,String}}(nothing)
@@ -39,10 +37,6 @@ function _override_dir()
         dir = _libdir[]
         if dir === nothing
             dir = get(ENV, LIBDIR_ENV, "")
-            if isempty(dir)
-                pref = get(Base.get_preferences(SPARSEARRAYS_UUID), LIBDIR_PREFERENCE, nothing)
-                dir = pref isa AbstractString ? String(pref) : ""
-            end
             isempty(dir) || (dir = abspath(expanduser(dir)))
             _libdir[] = dir
         end
@@ -107,8 +101,7 @@ the same major SuiteSparse version.
 
 The libraries are loaded on first use, so this must be called before the first solver
 call. It throws once any of them has been loaded. The directory can also be set with the
-`$LIBDIR_ENV` environment variable or the `$LIBDIR_PREFERENCE` preference of SparseArrays;
-`set_libdir!` takes precedence over both.
+`$LIBDIR_ENV` environment variable; `set_libdir!` takes precedence.
 """
 function set_libdir!(dir::Union{AbstractString,Nothing})
     @lock _libdir_lock begin

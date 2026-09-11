@@ -817,21 +817,6 @@ end
     @test isdir(L.libdir())
     @test_throws ArgumentError L.set_libdir!(joinpath(L.libdir(), "does-not-exist"))
     mktempdir() do dir
-        # The preference is looked up at first resolution; resolve once against a project
-        # that carries it, without loading anything.
-        proj = joinpath(dir, "proj")
-        mkdir(proj)
-        write(joinpath(proj, "Project.toml"), "[deps]\nSparseArrays = \"$(L.SPARSEARRAYS_UUID)\"\n")
-        write(joinpath(proj, "LocalPreferences.toml"), "[SparseArrays]\nsuitesparse_libdir = $(repr(dir))\n")
-        saved = L._libdir[]
-        pushfirst!(LOAD_PATH, proj)
-        try
-            L._libdir[] = nothing
-            @test L._override_dir() == dir
-        finally
-            popfirst!(LOAD_PATH)
-            L._libdir[] = saved
-        end
         if Base.USE_GPL_LIBS
             # Load a copy of the bundled libraries from another directory in fresh processes.
             for name in keys(L.SUITESPARSE_LIBRARIES)

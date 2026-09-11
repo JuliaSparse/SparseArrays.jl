@@ -46,11 +46,6 @@ from the same major SuiteSparse version. In order of precedence:
 
 1. Call `SparseArrays.LibSuiteSparse.set_libdir!(dir)` before the first solver call.
 2. Set the `JULIA_SUITESPARSE_LIBDIR` environment variable before starting Julia.
-3. Set the `suitesparse_libdir` preference of SparseArrays, for example with
-   [Preferences.jl](https://github.com/JuliaPackaging/Preferences.jl):
-   `set_preferences!(SparseArrays, "suitesparse_libdir" => dir)`. SparseArrays must be a
-   dependency of the active project. The preference is read at runtime, so no
-   recompilation is needed.
 
 The directory applies to the whole set at once, so that every library binds to the same
 `libsuitesparseconfig` and the memory management functions SparseArrays installs there.
