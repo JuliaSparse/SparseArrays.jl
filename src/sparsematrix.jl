@@ -203,8 +203,8 @@ julia> nnz(A)
 nnz(S::AbstractSparseMatrixCSC) = @inbounds Int(getcolptr(S)[size(S, 2) + 1]) - 1
 nnz(S::ReshapedArray{<:Any,1,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
-nnz(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nnz1(S)
-nnz(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nnz1(S)
+nnz(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = nnz1(S)
+nnz(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = nnz1(S)
 nnz(S::SparseMatrixCSCColumnSubset) = nnz1(S)
 nnz1(S) = @inbounds sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
@@ -239,8 +239,8 @@ julia> nonzeros(A)
 nonzeros(S::SparseMatrixCSC) = getfield(S, :nzval)
 nonzeros(S::FixedSparseCSC) = getfield(S, :nzval)
 nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(parent(S))
-nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
-nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
+nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = nonzeros(S.data)
+nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = nonzeros(S.data)
 
 """
     rowvals(A)
@@ -268,8 +268,8 @@ julia> rowvals(A)
 rowvals(S::SparseMatrixCSC) = getfield(S, :rowval)
 rowvals(S::FixedSparseCSC) = getfield(S, :rowval)
 rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
-rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
-rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
+rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = rowvals(S.data)
+rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = rowvals(S.data)
 
 """
     nzrange(A, col::Integer)
@@ -295,8 +295,8 @@ of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
 """
 Base.@propagate_inbounds nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
 Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(parent(S), S.indices[2][col])
-nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangeup(S.data, i)
-nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangelo(S.data, i)
+nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}, i::Integer) = nzrangeup(S.data, i)
+nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}, i::Integer) = nzrangelo(S.data, i)
 
 indtype(S::SparseMatrixCSCColumnSubset{<:Any,Ti}) where {Ti} = Ti
 
@@ -2342,13 +2342,13 @@ function conj(A::AbstractSparseMatrixCSC{<:Complex})
     map!(conj, view(nzval, 1:nnz(A)), nzvalview(A))
     return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
 end
-imag(A::SparseMatrixCSCUnion{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size(A, 1), size(A, 2))
+imag(A::SparseMatrixCSCOrView{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size(A, 1), size(A, 2))
 
 ## Binary arithmetic and boolean operators
-(+)(A::SparseMatrixCSCUnion, B::SparseMatrixCSCUnion) = map(+, A, B)
-(-)(A::SparseMatrixCSCUnion, B::SparseMatrixCSCUnion) = map(-, A, B)
+(+)(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = map(+, A, B)
+(-)(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = map(-, A, B)
 
-function (+)(A::SparseMatrixCSCUnion, B::Array)
+function (+)(A::SparseMatrixCSCOrView, B::Array)
     Base.promote_shape(axes(A), axes(B))
     C = Ref(zero(eltype(A))) .+ B
     rowinds, nzvals = rowvals(A), nonzeros(A)
@@ -2360,7 +2360,7 @@ function (+)(A::SparseMatrixCSCUnion, B::Array)
     end
     return C
 end
-function (+)(A::Array, B::SparseMatrixCSCUnion)
+function (+)(A::Array, B::SparseMatrixCSCOrView)
     Base.promote_shape(axes(A), axes(B))
     C = A .+ Ref(zero(eltype(B)))
     rowinds, nzvals = rowvals(B), nonzeros(B)
@@ -2372,7 +2372,7 @@ function (+)(A::Array, B::SparseMatrixCSCUnion)
     end
     return C
 end
-function (-)(A::SparseMatrixCSCUnion, B::Array)
+function (-)(A::SparseMatrixCSCOrView, B::Array)
     Base.promote_shape(axes(A), axes(B))
     C = Ref(zero(eltype(A))) .- B
     rowinds, nzvals = rowvals(A), nonzeros(A)
@@ -2384,7 +2384,7 @@ function (-)(A::SparseMatrixCSCUnion, B::Array)
     end
     return C
 end
-function (-)(A::Array, B::SparseMatrixCSCUnion)
+function (-)(A::Array, B::SparseMatrixCSCOrView)
     Base.promote_shape(axes(A), axes(B))
     C = A .- Ref(zero(eltype(B)))
     rowinds, nzvals = rowvals(B), nonzeros(B)

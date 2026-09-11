@@ -305,15 +305,15 @@ end
 *(A::SparseOrTri, B::AbstractSparseVector) = spmatmulv(A, B)
 *(A::SparseOrTri, B::SparseColumnView) = spmatmulv(A, B)
 *(A::SparseOrTri, B::SparseVectorView) = spmatmulv(A, B)
-*(A::SparseMatrixCSCUnion, B::SparseMatrixCSCUnion) = spmatmul(A,B)
-*(A::SparseTriangular, B::SparseMatrixCSCUnion) = spmatmul(A,B)
-*(A::SparseMatrixCSCUnion, B::SparseTriangular) = spmatmul(A,B)
+*(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = spmatmul(A,B)
+*(A::SparseTriangular, B::SparseMatrixCSCOrView) = spmatmul(A,B)
+*(A::SparseMatrixCSCOrView, B::SparseTriangular) = spmatmul(A,B)
 *(A::SparseTriangular, B::SparseTriangular) = spmatmul1(A,B)
 *(A::SparseOrTri, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(A, copy(B))
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::SparseOrTri) = spmatmul(copy(A), B)
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(copy(A), copy(B))
 
-(*)(Da::Diagonal, A::Union{SparseMatrixCSCUnion, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
+(*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
     (size(Da, 2) == size(A,1) && size(A,2) == size(Db,1)) ||
         throw(DimensionMismatch("incompatible sizes"))
@@ -341,10 +341,10 @@ end
 # depending on expected execution speed the sorting of the result column is
 # done by a quicksort of the row indices or by a full scan of the dense result vector.
 # The last is faster, if more than ≈ 1/32 of the result column is nonzero.
-# TODO: extend to SparseMatrixCSCUnion to allow for SubArrays (view(X, :, r)).
+# TODO: extend to SparseMatrixCSCOrView to allow for SubArrays (view(X, :, r)).
 # Unit triangular wrappers keep their diagonal implicitly, so they are materialized first.
 _explicitdiag(A) = A
-_explicitdiag(A::UnitUpperOrUnitLowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = sparse(A)
+_explicitdiag(A::UnitUpperOrUnitLowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = sparse(A)
 function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,SubArray{<:Any,<:Any,<:AbstractSparseArray}})
     A = _explicitdiag(A)
     B = _explicitdiag(B)
@@ -871,7 +871,7 @@ end
 
 ## triangular sparse handling
 ## triangular multiplication
-function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCUnion, B::AbstractVecOrMat)
+function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat)
     require_one_based_indexing(A, C)
     nrowC = size(C, 1)
     ncol = checksquare(A)
@@ -1002,7 +1002,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
     end
     return C
 end
-function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion}, B::AbstractVecOrMat)
+function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
     A = parent(xA)
     nrowC = size(C, 1)
     ncol = checksquare(A)
@@ -1082,7 +1082,7 @@ end
 _uconvert_copyto!(c, b, oA) = (c .= Ref(oA) .\ b)
 _uconvert_copyto!(c::AbstractArray{T}, b::AbstractArray{T}, _) where {T} = copyto!(c, b)
 
-function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCUnion, B::AbstractVecOrMat)
+function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat)
     mA, nA = size(A)
     nrowB, ncolB = size(B, 1), size(B, 2)
     if nA != nrowB
@@ -1218,7 +1218,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
     end
     C
 end
-function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCUnion}, B::AbstractVecOrMat)
+function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
     A = parent(xA)
     mA, nA = size(A)
     nrowB, ncolB = size(B, 1), size(B, 2)
@@ -1976,7 +1976,7 @@ kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTrans{<:Any,<:SparseVectorUnion}) =
+kron!(C::SparseMatrixCSC, A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) =
     broadcast!(*, C, A, B)
 # disambiguation
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) =
@@ -2011,7 +2011,7 @@ kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
 kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
-kron(A::SparseVectorUnion, B::AdjOrTrans{<:Any,<:SparseVectorUnion}) = A .* B
+kron(A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
 kron(a::Number, b::_SparseKronGroup) = a * b

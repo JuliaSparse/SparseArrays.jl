@@ -41,9 +41,6 @@ abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv
 
 # ---- Type aliases used for dispatch across files ----
 # (Aliases for solver scalar types live with the solvers.)
-# SparseMatrixCSCView, SparseMatrixCSCUnion, SparseColumnView, SparseVectorView,
-# SparseVectorUnion and AdjOrTransSparseVectorUnion are not exported but are used by
-# downstream packages, so their names and definitions should stay stable.
 
 const AbstractSparseVecOrMat = Union{AbstractSparseVector,AbstractSparseMatrix}
 # types exposing compressed storage via nonzeros, rowvals/nonzeroinds and nzrange
@@ -55,7 +52,7 @@ const SparseVecOrMat = Union{AbstractCompressedVector,AbstractSparseMatrixCSC}
 const SparseMatrixCSCView{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
         Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange{<:Integer}}
-const SparseMatrixCSCUnion{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
+const SparseMatrixCSCOrView{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
 # Views taking all rows and an arbitrary column subset (a superset of SparseMatrixCSCView):
 # nzrange/getrowval/getnzval work, getcolptr does not.
 const SparseMatrixCSCColumnSubset{Tv,Ti} =
@@ -67,8 +64,8 @@ const SparseMatrixCSCOrColumnSubset{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti
 # sparse vector interface.
 const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
 const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const SparseVectorUnion{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
-const AdjOrTransSparseVectorUnion{Tv,Ti} = AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
+const SparseVectorOrView{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
+const AdjOrTransSparseVectorOrView{Tv,Ti} = AdjOrTrans{Tv, <:SparseVectorOrView{Tv,Ti}}
 # view of a unit range of a sparse vector's indices
 const SparseVectorPartialView{Tv,Ti} = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{AbstractUnitRange},false}
 
@@ -78,13 +75,20 @@ const AbstractSparseVecOrMatMaybeAdjOrTrans = Union{AbstractSparseVecOrMat, AdjO
 const SparseVecOrMatMaybeAdjOrTrans = Union{SparseVecOrMat, AdjOrTrans{<:Any,<:SparseVecOrMat}}
 
 # LinearAlgebra wrappers around CSC storage
-const SparseTriangular{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
-const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCUnion{Tv,Ti}, SparseTriangular{Tv,Ti}}
-const SparseMatrixCSCSymmHerm{Tv,Ti} = HermOrSym{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}
+const SparseTriangular{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCOrView{Tv,Ti}}
+const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCOrView{Tv,Ti}, SparseTriangular{Tv,Ti}}
+const SparseMatrixCSCSymmHerm{Tv,Ti} = HermOrSym{Tv,<:SparseMatrixCSCOrView{Tv,Ti}}
 
 # LinearAlgebra's banded special matrices; Diagonal is often handled separately
 const BiTriSym = Union{Bidiagonal,Tridiagonal,SymTridiagonal}
 const DiagBiTriSym = Union{Diagonal,BiTriSym}
+
+# Former names of the above, not used here but relied on by downstream packages together
+# with SparseMatrixCSCView, SparseColumnView and SparseVectorView. May be deprecated in a
+# future release.
+const SparseMatrixCSCUnion{Tv,Ti} = SparseMatrixCSCOrView{Tv,Ti}
+const SparseVectorUnion{Tv,Ti} = SparseVectorOrView{Tv,Ti}
+const AdjOrTransSparseVectorUnion{Tv,Ti} = AdjOrTransSparseVectorOrView{Tv,Ti}
 
 """
     issparse(S)

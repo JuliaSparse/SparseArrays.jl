@@ -11,7 +11,7 @@ using Base: front, tail, to_shape
 using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatrixCSCView,
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
-                      SparseVectorUnion, AdjOrTransSparseVectorUnion, SparseVecOrMat, DiagBiTriSym,
+                      SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, DiagBiTriSym,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
                       _iszero, _isnotzero, _is_fixed, @if_move_fixed
@@ -97,7 +97,7 @@ is_supported_sparse_broadcast(x, rest...) = axes(x) === () && is_supported_spars
 is_supported_sparse_broadcast(x::Ref, rest...) = is_supported_sparse_broadcast(rest...)
 
 can_skip_sparsification(f, rest...) = false
-can_skip_sparsification(::typeof(*), ::SparseVectorUnion, ::AdjOrTransSparseVectorUnion) = true
+can_skip_sparsification(::typeof(*), ::SparseVectorOrView, ::AdjOrTransSparseVectorOrView) = true
 
 # Dispatch on broadcast operations by number of arguments
 const Broadcasted0{Style<:Union{Nothing,BroadcastStyle},Axes,F} =
@@ -861,9 +861,9 @@ _finishempty!(C::AbstractCompressedVector) = C
 _finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)
 
 # special case - vector outer product
-_copy(f::typeof(*), x::SparseVectorUnion, y::AdjOrTransSparseVectorUnion) = _outer(x, y)
-@inline _outer(x::SparseVectorUnion, y::Adjoint) = return _outer(conj, x, parent(y))
-@inline _outer(x::SparseVectorUnion, y::Transpose) = return _outer(identity, x, parent(y))
+_copy(f::typeof(*), x::SparseVectorOrView, y::AdjOrTransSparseVectorOrView) = _outer(x, y)
+@inline _outer(x::SparseVectorOrView, y::Adjoint) = return _outer(conj, x, parent(y))
+@inline _outer(x::SparseVectorOrView, y::Transpose) = return _outer(identity, x, parent(y))
 function _outer(trans::Tf, x, y) where Tf
     nx = length(x)
     ny = length(y)
