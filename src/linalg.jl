@@ -670,7 +670,7 @@ prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < 
 function dot(A::AbstractSparseMatrixCSC{T1,S1},B::AbstractSparseMatrixCSC{T2,S2}) where {T1,T2,S1,S2}
     m, n = size(A)
     size(B) == (m,n) || throw(DimensionMismatch("matrices must have the same dimensions"))
-    r = dot(zero(T1), zero(T2))
+    r = _dot_zero(T1, T2)
     @inbounds for j in axes(A,2)
         ia = getcolptr(A)[j]; ia_nxt = getcolptr(A)[j+1]
         ib = getcolptr(B)[j]; ib_nxt = getcolptr(B)[j+1]
@@ -702,8 +702,7 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
     m, n = size(A)
     (length(x) == m && n == length(y)) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
-    s = dot(zero(T1), zero(T2), zero(T3))
-    T = typeof(s)
+    s = _dot_zero(T1, T2, T3)
     (iszero(m) || iszero(n)) && return s
 
     rowvals = getrowval(A)
@@ -723,10 +722,8 @@ function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSpa
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
-    if iszero(m) || iszero(n)
-        return dot(zero(eltype(x)), zero(eltype(A)), zero(eltype(y)))
-    end
-    r = zero(promote_type(eltype(x), eltype(A), eltype(y)))
+    r = _dot_zero(eltype(x), eltype(A), eltype(y))
+    (iszero(m) || iszero(n)) && return r
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
     ynzind = nonzeroinds(y)
@@ -738,20 +735,19 @@ function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSpa
         A_ptr_lo = Acolptr[yi]
         A_ptr_hi = Acolptr[yi+1] - 1
         if A_ptr_lo <= A_ptr_hi
-            r += _spdot(dot, 1, length(xnzind), xnzind, xnzval,
-                                            A_ptr_lo, A_ptr_hi, Arowval, Anzval) * yv
+            r += _spdot((xv, av) -> dot(xv, av, yv), 1, length(xnzind), xnzind, xnzval,
+                                            A_ptr_lo, A_ptr_hi, Arowval, Anzval)
         end
     end
     r
 end
 
 function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
-    T = promote_type(eltype(A), eltype(B))
     (m, n) = size(A)
     if (m, n) != size(B)
         throw(DimensionMismatch("A has size ($m, $n) but B has size $(size(B))"))
     end
-    s = zero(T)
+    s = _dot_zero(eltype(A), eltype(B))
     if m * n == 0
         return s
     end
@@ -783,7 +779,7 @@ function dot(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMa
     size(B) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n) but B has size $(size(B))"))
     P = parent(A)
     op = LinearAlgebra.wrapperop(A)
-    r = dot(op(zero(eltype(P))), zero(eltype(B)))
+    r = _dot_zero(eltype(A), eltype(B))
     (iszero(nnz(P)) || iszero(nnz(B))) && return r
     if nnz(B) <= nnz(P)
         return _dot_transposed_walk((b, p) -> dot(op(p), b), B, P, r)
@@ -837,7 +833,7 @@ function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractVector)
     end
     nzvals = nonzeros(x)
     nzinds = nonzeroinds(x)
-    s = zero(typeof(dot(first(x), first(D), first(y))))
+    s = _dot_zero(eltype(x), eltype(D), eltype(y))
     @inbounds for nzidx in eachindex(nzvals)
         s += dot(nzvals[nzidx], d[nzinds[nzidx]], y[nzinds[nzidx]])
     end
@@ -857,7 +853,7 @@ function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractSparseVector)
     ynzind = nonzeroinds(y)
     xnzval = nonzeros(x)
     ynzval = nonzeros(y)
-    s = zero(typeof(dot(first(x), first(D), first(y))))
+    s = _dot_zero(eltype(x), eltype(D), eltype(y))
     if isempty(xnzind) || isempty(ynzind)
         return s
     end
@@ -1451,11 +1447,8 @@ function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, 
     m, n = size(A)
     (length(x) == m && n == length(y)) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
-    if iszero(m) || iszero(n)
-        return dot(zero(eltype(x)), zero(eltype(A)), zero(eltype(y)))
-    end
-    T = promote_type(eltype(x), eltype(A), eltype(y))
-    r = zero(T)
+    r = _dot_zero(eltype(x), eltype(A), eltype(y))
+    (iszero(m) || iszero(n)) && return r
     rvals = getrowval(A)
     nzvals = getnzval(A)
     @inbounds for col in axes(A,2)
@@ -1485,10 +1478,8 @@ function _dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSp
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
-    if iszero(m) || iszero(n)
-        return dot(zero(eltype(x)), zero(eltype(A)), zero(eltype(y)))
-    end
-    r = zero(promote_type(eltype(x), eltype(A), eltype(y)))
+    r = _dot_zero(eltype(x), eltype(A), eltype(y))
+    (iszero(m) || iszero(n)) && return r
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
     ynzind = nonzeroinds(y)
