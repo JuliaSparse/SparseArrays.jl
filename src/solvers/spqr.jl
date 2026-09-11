@@ -650,7 +650,6 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
 
     # With A[prow, pcol] == Q*R we have A' == Pcol*R'*Q'*Prow, so x = Prow'*Q*(R' \ Pcol'*b)
     @lock F._lock begin
-        # Workspace has max(m, n) == m rows, which is what Q acts on
         W = _get_ldiv_workspace(F, B)
 
         # Gather the column permutation of B into the leading n rows of W
@@ -684,19 +683,12 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
         LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', adjoint,
                                          @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
 
-        # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W
-        lmul!(F.Q, @view(W[Base.OneTo(m), :]))
-        if length(F.rpivinv) == 0
-            for j in axes(W, 2)
-                for i in 1:m
-                    @inbounds X[i, j] = W[i, j]
-                end
-            end
-        else
-            for j in axes(W, 2)
-                for i in 1:m
-                    @inbounds X[i, j] = W[F.rpivinv[i], j]
-                end
+        # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W. W has
+        # exactly m rows, which is what Q acts on.
+        lmul!(F.Q, W)
+        for j in axes(W, 2)
+            for i in 1:m
+                @inbounds X[i, j] = W[F.rpivinv[i], j]
             end
         end
     end

@@ -87,6 +87,10 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test transpose(F)\D ≈ transpose(Array(A))\D
         @test A'\D ≈ Array(A)'\D
         @test_throws DimensionMismatch F'\B
+        # Least squares solve of the overdetermined C'y = x for the wide C
+        y = B[1:n, 1]
+        @test C'\y ≈ Array(C)'\y
+        @test transpose(C)\y ≈ transpose(Array(C))\y
     end
 
     # Make sure that conversion to Sparse doesn't use SuiteSparse's symmetric flag
