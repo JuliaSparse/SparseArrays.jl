@@ -23,7 +23,7 @@ import LinearAlgebra: (\), AdjointFactorization,
                  lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
-using SparseArrays: getcolptr, AbstractSparseVecOrMat, AbstractSparseVecOrMatMaybeAdjOrTrans
+using SparseArrays: getcolptr, AbstractSparseVecOrMat
 export
     Dense,
     Factor,
@@ -2077,7 +2077,7 @@ function \(A::RealHermSymComplexHermSSL{Ti}, B::StridedVecOrMatMaybeAdjOrTrans) 
     end
 end
 
-\(::RealHermSymComplexHermSSL, ::AbstractSparseVecOrMatMaybeAdjOrTrans) =
+\(::RealHermSymComplexHermSSL, ::Union{AbstractSparseVecOrMat, AdjOrTrans{<:Any,<:AbstractSparseVecOrMat}}) =
     throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
         " consider to convert B to a dense array"))
 

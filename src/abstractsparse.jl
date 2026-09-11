@@ -40,6 +40,8 @@ Supertype for matrix with compressed sparse column (CSC).
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
 # ---- Type aliases used for dispatch across files ----
+# Alias names use the Sparse family name and accept the abstract tier of the type they
+# are built on; an alias restricted to the concrete types says so in its name.
 # (Aliases for solver scalar types live with the solvers.)
 
 const AbstractSparseVecOrMat = Union{AbstractSparseVector,AbstractSparseMatrix}
@@ -70,8 +72,7 @@ const AdjOrTransSparseVectorOrView{Tv,Ti} = AdjOrTrans{Tv, <:SparseVectorOrView{
 const SparseVectorPartialView{Tv,Ti} = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{AbstractUnitRange},false}
 
 # `X` or an `Adjoint`/`Transpose` of `X`, named after LinearAlgebra's StridedMaybeAdjOrTransMat
-const AbstractSparseMatrixCSCMaybeAdjOrTrans = Union{AbstractSparseMatrixCSC, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}
-const AbstractSparseVecOrMatMaybeAdjOrTrans = Union{AbstractSparseVecOrMat, AdjOrTrans{<:Any,<:AbstractSparseVecOrMat}}
+const SparseMatrixCSCMaybeAdjOrTrans = Union{AbstractSparseMatrixCSC, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}
 const SparseVecOrMatMaybeAdjOrTrans = Union{SparseVecOrMat, AdjOrTrans{<:Any,<:SparseVecOrMat}}
 
 # LinearAlgebra wrappers around CSC storage

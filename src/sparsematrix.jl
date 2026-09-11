@@ -318,10 +318,10 @@ function Base.isstored(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Intege
     return false
 end
 
-Base.replace_in_print_matrix(A::AbstractSparseMatrixCSCMaybeAdjOrTrans, i::Integer, j::Integer, s::AbstractString) =
+Base.replace_in_print_matrix(A::SparseMatrixCSCMaybeAdjOrTrans, i::Integer, j::Integer, s::AbstractString) =
     Base.isstored(A, i, j) ? s : Base.replace_with_centered_mark(s)
 
-function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCMaybeAdjOrTrans, dims::Tuple{Vararg{Base.OneTo}})
+function Base.array_summary(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans, dims::Tuple{Vararg{Base.OneTo}})
     _checkbuffers(S)
 
     xnnz = nnz(S)
@@ -331,8 +331,8 @@ function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCMaybeAdjOrTrans, d
     nothing
 end
 
-# called by `show(io, MIME("text/plain"), ::AbstractSparseMatrixCSCMaybeAdjOrTrans)`
-function Base.print_array(io::IO, S::AbstractSparseMatrixCSCMaybeAdjOrTrans)
+# called by `show(io, MIME("text/plain"), ::SparseMatrixCSCMaybeAdjOrTrans)`
+function Base.print_array(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans)
     if max(size(S)...) < 16
         Base.print_matrix(io, S)
     else
@@ -361,7 +361,7 @@ size(C::ColumnIndices) = (nnz(C.arr),)
 end
 
 # always show matrices as `sparse(I, J, K)`
-function Base.show(io::IO, _S::AbstractSparseMatrixCSCMaybeAdjOrTrans)
+function Base.show(io::IO, _S::SparseMatrixCSCMaybeAdjOrTrans)
     _checkbuffers(_S)
     # can't use `findnz`, because that expects all values not to be #undef
     S = _S isa Adjoint || _S isa Transpose ? parent(_S) : _S
@@ -382,7 +382,7 @@ function Base.show(io::IO, _S::AbstractSparseMatrixCSCMaybeAdjOrTrans)
 end
 
 const brailleBlocks = UInt16['⠁', '⠂', '⠄', '⡀', '⠈', '⠐', '⠠', '⢀']
-function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCMaybeAdjOrTrans)
+function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans)
     m, n = size(S)
     (m == 0 || n == 0) && return show(io, MIME("text/plain"), S)
 
@@ -2453,10 +2453,10 @@ end
 # Peel off `Adjoint` and `Transpose` from first argument
 # `B` may be a nested wrapper such as `Adjoint{<:Any,<:Transpose}` (from `A' == transpose(B)`),
 # hence the loose `AbstractMatrix` bound: `B` is only ever indexed
-nzeq(eq::F, A::Adjoint{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans},
+nzeq(eq::F, A::Adjoint{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans},
      B::AbstractMatrix) where {F} =
     nzeq(eq, A', B')
-nzeq(eq::F, A::Transpose{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans},
+nzeq(eq::F, A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans},
      B::AbstractMatrix) where {F} =
     nzeq(eq, transpose(A), transpose(B))
 
@@ -2466,24 +2466,24 @@ nzeq(eq::F, A::Transpose{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans},
 # the case where the RHS is both adjoint and transposed, i.e. where it
 # is in CSC format again.)
 function _iseq(eq::F, A::AbstractSparseMatrixCSC,
-               B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}) where {F}
+               B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) where {F}
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # Compare nonzero elements
     return nzeq(eq, A, B) && nzeq(eq, B, A)
 end
-==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}) =
+==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(==, A, B)
-Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}) =
+Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(isequal, A, B)
 # Peel off `Adjoint` and `Transpose` from first argument
-==(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSCMaybeAdjOrTrans) =
+==(A::Adjoint{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
     A' == B'
-==(A::Transpose{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSCMaybeAdjOrTrans) =
+==(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
     transpose(A) == transpose(B)
-Base.isequal(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSCMaybeAdjOrTrans) =
+Base.isequal(A::Adjoint{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
     isequal(A', B')
-Base.isequal(A::Transpose{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSCMaybeAdjOrTrans) =
+Base.isequal(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
     isequal(transpose(A), transpose(B))
 
 ## Reductions
