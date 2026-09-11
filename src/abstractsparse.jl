@@ -41,6 +41,9 @@ abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv
 
 # ---- Type aliases used for dispatch across files ----
 # (Aliases for solver scalar types live with the solvers.)
+# SparseMatrixCSCView, SparseMatrixCSCUnion, SparseColumnView, SparseVectorView,
+# SparseVectorUnion and AdjOrTransSparseVectorUnion are not exported but are used by
+# downstream packages, so their names and definitions should stay stable.
 
 const AbstractSparseVecOrMat = Union{AbstractSparseVector,AbstractSparseMatrix}
 # types exposing compressed storage via nonzeros, rowvals/nonzeroinds and nzrange
