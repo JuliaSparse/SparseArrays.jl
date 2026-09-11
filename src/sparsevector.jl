@@ -84,20 +84,6 @@ inverse of fixed, should not allocate
 _unsafe_unfix(s::AbstractSparseVector) = s
 _unsafe_unfix(s::FixedSparseVector) = SparseVector(length(s), parent(nonzeroinds(s)), nonzeros(s))
 
-# Define an alias for a view of a whole column of a SparseMatrixCSC. Many methods can be written for the
-# union of such a view and a SparseVector so we define an alias for such a union as well
-const _SparseColumnView = SubArray{<:Any,1,<:AbstractSparseMatrixCSC,Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
-const _SparseVectorView = SubArray{<:Any,1,<:AbstractSparseVector,Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const _SparseVectorUnion = Union{AbstractCompressedVector, _SparseColumnView, _SparseVectorView}
-const _AdjOrTransSparseVectorUnion = AdjOrTrans{<:Any,<:_SparseVectorUnion}
-# the following aliases are unused internally, but widespread in packages
-const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
-const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const SparseVectorUnion{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
-const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
-
-# allows for views of a subset of the sparse vector indices
-const SparseVectorPartialView{Tv,Ti} = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{AbstractUnitRange},false}
 
 ### Basic properties
 
@@ -1919,8 +1905,6 @@ end
 
 # * and mul!
 
-const _StridedOrTriangularMatrix{T} = Union{StridedMatrix{T}, LowerTriangular{T}, UnitLowerTriangular{T}, UpperTriangular{T}, UnitUpperTriangular{T}}
-
 _fliptri(A::UpperTriangular) = LowerTriangular(parent(parent(A)))
 _fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
 _fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
@@ -1981,7 +1965,7 @@ function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, 
 end
 
 function _At_or_Ac_mul_B!(tfun::Function,
-                            y::AbstractVector, A::_StridedOrTriangularMatrix, x::AbstractSparseVector,
+                            y::AbstractVector, A::Union{StridedMatrix,UpperOrLowerTriangular}, x::AbstractSparseVector,
                             α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     n, m = size(A)

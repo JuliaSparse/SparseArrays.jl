@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 using LinearAlgebra: AbstractTriangular, UpperOrLowerTriangular,
-    RealHermSymComplexHerm, HermOrSym, checksquare, sym_uplo, wrap
+    RealHermSymComplexHerm, checksquare, sym_uplo, wrap
 using Random: rand!
 
 import LinearAlgebra: _uppercase, _isuppercase
@@ -44,12 +44,13 @@ end
 const tilebufsize = 10800  # Approximately 32k/3
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
-const BiTriSym = Union{Bidiagonal,Tridiagonal,SymTridiagonal}
 const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
 const DenseInputVector = Union{StridedVector, BitVector}
-const DenseViewWrappers{T,S} = Union{AdjOrTrans{T,S}, HermOrSym{T,S}, UpperOrLowerTriangular{T,S}, UpperHessenberg{T,S}}
-const QuasiSparseMatrix = Union{SparseMatrixCSCUnion2, DenseViewWrappers{<:Any,<:SparseMatrixCSCUnion2}}
-const QuasiStridedMatrix = Union{StridedMatrix, DenseViewWrappers{<:Any,<:StridedMatrix}}
+# LinearAlgebra wrappers of a matrix of type MT, and those plus 2-d views (for dot)
+const MatrixWrappers{T,MT} = Union{AdjOrTrans{T,MT}, HermOrSym{T,MT}, UpperOrLowerTriangular{T,MT}, UpperHessenberg{T,MT}}
+const WrapperMatrixTypes{T,MT} = Union{SubArray{T,2,MT}, MatrixWrappers{T,MT}}
+const QuasiSparseMatrix = Union{SparseMatrixCSCOrColumnSubset, MatrixWrappers{<:Any,<:SparseMatrixCSCOrColumnSubset}}
+const QuasiStridedMatrix = Union{StridedMatrix, MatrixWrappers{<:Any,<:StridedMatrix}}
 
 matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
     Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
@@ -82,11 +83,11 @@ for op ∈ (:+, :-)
     end
 end
 
-mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCUnion2, B::DenseMatrixUnion, alpha::Number, beta::Number) =
+mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::DenseMatrixUnion, alpha::Number, beta::Number) =
     spdensemul!(C, tA, tB, A, B, alpha, beta)
 LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
-mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCUnion2, B::DenseInputVector, alpha::Number, beta::Number) =
+mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrColumnSubset, B::DenseInputVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', A, B, alpha, beta)
 
 Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
@@ -199,7 +200,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     end
 end
 
-Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, alpha::Number, beta::Number, ::LinearAlgebra.BlasFlag.SyrkHerkGemm)
+Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number, ::LinearAlgebra.BlasFlag.SyrkHerkGemm)
     transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
     if tB == 'N'
         _spmul!(C, transA(A), B, alpha, beta)
@@ -210,10 +211,10 @@ Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C:
     end
     return C
 end
-Base.@constprop :aggressive LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCUnion2, alpha::Number, beta::Number, @nospecialize(val)) =
+Base.@constprop :aggressive LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number, @nospecialize(val)) =
     LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
 
-function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
@@ -234,7 +235,7 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
         end
     end
 end
-function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCUnion2, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Xax1 = axes(X, 1)
     Cax2 = axes(C, 2)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
@@ -260,7 +261,7 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
     end
 end
 
-function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCUnion2, α::Number, β::Number)
+function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
@@ -300,9 +301,6 @@ end
 
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
-
-const SparseTriangular{Tv,Ti} = Union{UpperTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}},LowerTriangular{Tv,<:SparseMatrixCSCUnion{Tv,Ti}}}
-const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCUnion{Tv,Ti},SparseTriangular{Tv,Ti}}
 
 *(A::SparseOrTri, B::AbstractSparseVector) = spmatmulv(A, B)
 *(A::SparseOrTri, B::SparseColumnView) = spmatmulv(A, B)
@@ -344,7 +342,12 @@ end
 # done by a quicksort of the row indices or by a full scan of the dense result vector.
 # The last is faster, if more than ≈ 1/32 of the result column is nonzero.
 # TODO: extend to SparseMatrixCSCUnion to allow for SubArrays (view(X, :, r)).
+# Unit triangular wrappers keep their diagonal implicitly, so they are materialized first.
+_explicitdiag(A) = A
+_explicitdiag(A::UnitUpperOrUnitLowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = sparse(A)
 function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,SubArray{<:Any,<:Any,<:AbstractSparseArray}})
+    A = _explicitdiag(A)
+    B = _explicitdiag(B)
     Tv = promote_op(matprod, eltype(A), eltype(B))
     Ti = promote_type(indtype(A), indtype(B))
     mA, nA = size(A)
@@ -431,12 +434,10 @@ end
 
 # special cases of same twin Upper/LowerTriangular
 spmatmul1(A, B) = spmatmul(A, B)
-function spmatmul1(A::UpperTriangular, B::UpperTriangular)
-    UpperTriangular(spmatmul(A, B))
-end
-function spmatmul1(A::LowerTriangular, B::LowerTriangular)
-    LowerTriangular(spmatmul(A, B))
-end
+spmatmul1(A::UpperOrUnitUpperTriangular, B::UpperOrUnitUpperTriangular) = UpperTriangular(spmatmul(A, B))
+spmatmul1(A::UnitUpperTriangular, B::UnitUpperTriangular) = UnitUpperTriangular(spmatmul(A, B))
+spmatmul1(A::LowerOrUnitLowerTriangular, B::LowerOrUnitLowerTriangular) = LowerTriangular(spmatmul(A, B))
+spmatmul1(A::UnitLowerTriangular, B::UnitLowerTriangular) = UnitLowerTriangular(spmatmul(A, B))
 # exploit spmatmul for sparse vectors and column views
 function spmatmulv(A, B)
     spmatmul(A, B)[:,1]
@@ -450,8 +451,8 @@ function estimate_mulsize(m::Integer, nnzA::Integer, n::Integer, nnzB::Integer, 
     p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0 # (1-(1-p)^n)*m*k
 end
 
-Base.@constprop :aggressive function mul!(C::SparseMatrixCSCUnion2, tA, tB, A::SparseMatrixCSCUnion2,
-                            B::SparseMatrixCSCUnion2, alpha::Number, beta::Number)
+Base.@constprop :aggressive function mul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::SparseMatrixCSCOrColumnSubset,
+                            B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
     tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
     Anew, ta = tA_uc in ('S', 'H') ? (wrap(A, tA), oftype(tA, 'N')) : (A, tA)
     Bnew, tb = tB_uc in ('S', 'H') ? (wrap(B, tB), oftype(tB, 'N')) : (B, tB)
@@ -459,7 +460,7 @@ Base.@constprop :aggressive function mul!(C::SparseMatrixCSCUnion2, tA, tB, A::S
 end
 # Sparse-destination counterpart of `LinearAlgebra._generic_matmatmul!` (which this file also
 # calls, qualified, for dense destinations); named distinctly so the two are not confused.
-function _generic_spmatmatmul!(C::SparseMatrixCSCUnion2, tA, tB, A::AbstractVecOrMat,
+function _generic_spmatmatmul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::AbstractVecOrMat,
                                 B::AbstractVecOrMat, _add::MulAddMul)
     @assert tA in ('N', 'T', 'C') && tB in ('N', 'T', 'C')
     require_one_based_indexing(C, A, B)
@@ -720,16 +721,6 @@ function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSpa
     end
     r
 end
-
-const WrapperMatrixTypes{T,MT} = Union{
-    SubArray{T,2,MT},
-    Adjoint{T,MT},
-    Transpose{T,MT},
-    UpperOrLowerTriangular{T,MT},
-    UpperHessenberg{T,MT},
-    Symmetric{T,MT},
-    Hermitian{T,MT},
-}
 
 function dot(A::Union{DenseMatrixUnion,WrapperMatrixTypes{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
     T = promote_type(eltype(A), eltype(B))
@@ -1917,21 +1908,11 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
 end
 
 ## kron
-const _SparseArraysCSC = Union{AbstractCompressedVector, AbstractSparseMatrixCSC}
-const _SparseKronArrays = Union{_SparseArraysCSC, AdjOrTrans{<:Any,<:_SparseArraysCSC}}
-
-const _Symmetric_SparseKronArrays = Symmetric{<:Any,<:_SparseKronArrays}
-const _Hermitian_SparseKronArrays = Hermitian{<:Any,<:_SparseKronArrays}
-const _Triangular_SparseKronArrays = UpperOrLowerTriangular{<:Any,<:_SparseKronArrays}
-const _Annotated_SparseKronArrays = Union{_Triangular_SparseKronArrays, _Symmetric_SparseKronArrays, _Hermitian_SparseKronArrays}
-const _SparseKronGroup = Union{_SparseKronArrays, _Annotated_SparseKronArrays}
-
-const _SpecialArrays = Union{Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal}
-const _Symmetric_DenseArrays{T,A<:Matrix} = Symmetric{T,A}
-const _Hermitian_DenseArrays{T,A<:Matrix} = Hermitian{T,A}
-const _Triangular_DenseArrays{T,A<:Matrix} = UpperOrLowerTriangular{<:Any,A} # AbstractTriangular{T,A}
-const _Annotated_DenseArrays = Union{_SpecialArrays, _Triangular_DenseArrays, _Symmetric_DenseArrays, _Hermitian_DenseArrays}
-const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, _Annotated_DenseArrays}
+const _SparseKronGroup = Union{SparseVecOrMatMaybeAdjOrTrans,
+                               HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
+                               UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
+const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, DiagBiTriSym,
+                              HermOrSym{<:Any,<:Matrix}, UpperOrLowerTriangular{<:Any,<:Matrix}}
 
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
@@ -1995,7 +1976,7 @@ kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron!(C::SparseMatrixCSC, A::_SparseVectorUnion, B::_AdjOrTransSparseVectorUnion) =
+kron!(C::SparseMatrixCSC, A::SparseVectorUnion, B::AdjOrTrans{<:Any,<:SparseVectorUnion}) =
     broadcast!(*, C, A, B)
 # disambiguation
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) =
@@ -2030,7 +2011,7 @@ kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
 kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
-kron(A::_SparseVectorUnion, B::_AdjOrTransSparseVectorUnion) = A .* B
+kron(A::SparseVectorUnion, B::AdjOrTrans{<:Any,<:SparseVectorUnion}) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
 kron(a::Number, b::_SparseKronGroup) = a * b

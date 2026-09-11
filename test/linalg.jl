@@ -247,9 +247,12 @@ begin
         MAW = tr(wr(MA))
         @test AW * B ≈ MAW * B
         @test AW * s ≈ MAW * s ≈ MAW * sd
+        @test AW * A ≈ MAW * MA
+        tr === identity && @test AW * AW isa wr
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
+        @test vAW * A ≈ AW * A
     end
     a = sprand(rng, ComplexF64, n, n, 0.01)
     ma = Matrix(a)

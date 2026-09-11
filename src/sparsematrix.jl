@@ -117,8 +117,6 @@ Experimental, unsafe. Returns a modifiable version of `x` for compatibility with
 _unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(x)), parent(rowvals(x)), nonzeros(x))
 _unsafe_unfix(x::SparseMatrixCSC) = x
 
-const SorF = Union{<:SparseMatrixCSC, <:FixedSparseCSC}
-
 """
     SparseMatrixCSC(x::FixedSparseCSC)
 
@@ -162,7 +160,8 @@ function sparse_check_length(rowstr, rowval, minlen, Ti)
     !isbitstype(Ti) || len < typemax(Ti) || throwmax(len, typemax(Ti), rowstr)
 end
 
-size(S::SorF) = (getfield(S, :m), getfield(S, :n))
+size(S::SparseMatrixCSC) = (getfield(S, :m), getfield(S, :n))
+size(S::FixedSparseCSC) = (getfield(S, :m), getfield(S, :n))
 
 _goodbuffers(S::AbstractSparseMatrixCSC) = _goodbuffers(size(S)..., getcolptr(S), getrowval(S), nonzeros(S))
 _checkbuffers(S::AbstractSparseMatrixCSC) = (@assert _goodbuffers(S); S)
@@ -174,24 +173,8 @@ function _goodbuffers(m, n, colptr, rowval, nzval)
     # && all(issorted(@view rowval[colptr[i]:colptr[i+1]-1]) for i=1:n)
 end
 
-# Define an alias for views of a SparseMatrixCSC which include all rows and a unit range of the columns.
-# Also define a union of SparseMatrixCSC and this view since many methods can be defined efficiently for
-# this union by extracting the fields via the get function: getcolptr, getrowval, and getnzval. The key
-# insight is that getcolptr on a SparseMatrixCSCView returns an offset view of the colptr of the
-# underlying SparseMatrixCSC
-const SparseMatrixCSCView{Tv,Ti} =
-    SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
-        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractUnitRange{<:Integer}}
-const SparseMatrixCSCUnion{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCView{Tv,Ti}}
-# Define an alias for views of a SparseMatrixCSC which include all rows and a selection of the columns.
-# Also define a union of SparseMatrixCSC and this view since many methods can be defined efficiently for
-# this union by extracting the fields via the get function: getrowval, and getnzval, BUT NOT getcolptr!
-const SparseMatrixCSCColumnSubset{Tv,Ti} =
-    SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
-        Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractVector{<:Integer}}
-const SparseMatrixCSCUnion2{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCColumnSubset{Tv,Ti}}
-
-getcolptr(S::SorF)     = getfield(S, :colptr)
+getcolptr(S::SparseMatrixCSC) = getfield(S, :colptr)
+getcolptr(S::FixedSparseCSC) = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
 getcolptr(S::SparseMatrixCSCColumnSubset) = error("getcolptr not well-defined for $(typeof(S))")
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
@@ -220,8 +203,8 @@ julia> nnz(A)
 nnz(S::AbstractSparseMatrixCSC) = @inbounds Int(getcolptr(S)[size(S, 2) + 1]) - 1
 nnz(S::ReshapedArray{<:Any,1,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
-nnz(S::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
-nnz(S::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = nnz1(S)
+nnz(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nnz1(S)
+nnz(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nnz1(S)
 nnz(S::SparseMatrixCSCColumnSubset) = nnz1(S)
 nnz1(S) = @inbounds sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
@@ -253,7 +236,8 @@ julia> nonzeros(A)
  2
 ```
 """
-nonzeros(S::SorF) = getfield(S, :nzval)
+nonzeros(S::SparseMatrixCSC) = getfield(S, :nzval)
+nonzeros(S::FixedSparseCSC) = getfield(S, :nzval)
 nonzeros(S::SparseMatrixCSCColumnSubset)  = nonzeros(parent(S))
 nonzeros(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
 nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
@@ -281,7 +265,8 @@ julia> rowvals(A)
  3
 ```
 """
-rowvals(S::SorF) = getfield(S, :rowval)
+rowvals(S::SparseMatrixCSC) = getfield(S, :rowval)
+rowvals(S::FixedSparseCSC) = getfield(S, :rowval)
 rowvals(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
 rowvals(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
 rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
@@ -315,7 +300,6 @@ nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}, i::Integer) = nzrangel
 
 indtype(S::SparseMatrixCSCColumnSubset{<:Any,Ti}) where {Ti} = Ti
 
-const AbstractSparseMatrixCSCInclAdjointAndTranspose = Union{AbstractSparseMatrixCSC,Adjoint{<:Any,<:AbstractSparseMatrixCSC},Transpose{<:Any,<:AbstractSparseMatrixCSC}}
 function Base.isstored(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     @boundscheck checkbounds(A, i, j)
     rows = rowvals(A)
@@ -334,10 +318,10 @@ function Base.isstored(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Intege
     return false
 end
 
-Base.replace_in_print_matrix(A::AbstractSparseMatrixCSCInclAdjointAndTranspose, i::Integer, j::Integer, s::AbstractString) =
+Base.replace_in_print_matrix(A::AbstractSparseMatrixCSCMaybeAdjOrTrans, i::Integer, j::Integer, s::AbstractString) =
     Base.isstored(A, i, j) ? s : Base.replace_with_centered_mark(s)
 
-function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose, dims::Tuple{Vararg{Base.OneTo}})
+function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCMaybeAdjOrTrans, dims::Tuple{Vararg{Base.OneTo}})
     _checkbuffers(S)
 
     xnnz = nnz(S)
@@ -347,8 +331,8 @@ function Base.array_summary(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTran
     nothing
 end
 
-# called by `show(io, MIME("text/plain"), ::AbstractSparseMatrixCSCInclAdjointAndTranspose)`
-function Base.print_array(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+# called by `show(io, MIME("text/plain"), ::AbstractSparseMatrixCSCMaybeAdjOrTrans)`
+function Base.print_array(io::IO, S::AbstractSparseMatrixCSCMaybeAdjOrTrans)
     if max(size(S)...) < 16
         Base.print_matrix(io, S)
     else
@@ -377,7 +361,7 @@ size(C::ColumnIndices) = (nnz(C.arr),)
 end
 
 # always show matrices as `sparse(I, J, K)`
-function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+function Base.show(io::IO, _S::AbstractSparseMatrixCSCMaybeAdjOrTrans)
     _checkbuffers(_S)
     # can't use `findnz`, because that expects all values not to be #undef
     S = _S isa Adjoint || _S isa Transpose ? parent(_S) : _S
@@ -398,7 +382,7 @@ function Base.show(io::IO, _S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
 end
 
 const brailleBlocks = UInt16['⠁', '⠂', '⠄', '⡀', '⠈', '⠐', '⠠', '⢀']
-function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCInclAdjointAndTranspose)
+function _show_with_braille_patterns(io::IO, S::AbstractSparseMatrixCSCMaybeAdjOrTrans)
     m, n = size(S)
     (m == 0 || n == 0) && return show(io, MIME("text/plain"), S)
 
@@ -2469,10 +2453,10 @@ end
 # Peel off `Adjoint` and `Transpose` from first argument
 # `B` may be a nested wrapper such as `Adjoint{<:Any,<:Transpose}` (from `A' == transpose(B)`),
 # hence the loose `AbstractMatrix` bound: `B` is only ever indexed
-nzeq(eq::F, A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+nzeq(eq::F, A::Adjoint{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans},
      B::AbstractMatrix) where {F} =
     nzeq(eq, A', B')
-nzeq(eq::F, A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose},
+nzeq(eq::F, A::Transpose{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans},
      B::AbstractMatrix) where {F} =
     nzeq(eq, transpose(A), transpose(B))
 
@@ -2482,24 +2466,24 @@ nzeq(eq::F, A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}
 # the case where the RHS is both adjoint and transposed, i.e. where it
 # is in CSC format again.)
 function _iseq(eq::F, A::AbstractSparseMatrixCSC,
-               B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) where {F}
+               B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}) where {F}
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # Compare nonzero elements
     return nzeq(eq, A, B) && nzeq(eq, B, A)
 end
-==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) =
+==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(==, A, B)
-Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}) =
+Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(isequal, A, B)
 # Peel off `Adjoint` and `Transpose` from first argument
-==(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+==(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSCMaybeAdjOrTrans) =
     A' == B'
-==(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+==(A::Transpose{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSCMaybeAdjOrTrans) =
     transpose(A) == transpose(B)
-Base.isequal(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+Base.isequal(A::Adjoint{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSCMaybeAdjOrTrans) =
     isequal(A', B')
-Base.isequal(A::Transpose{<:Any,<:AbstractSparseMatrixCSCInclAdjointAndTranspose}, B::AbstractSparseMatrixCSCInclAdjointAndTranspose) =
+Base.isequal(A::Transpose{<:Any,<:AbstractSparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSCMaybeAdjOrTrans) =
     isequal(transpose(A), transpose(B))
 
 ## Reductions

@@ -11,7 +11,8 @@ using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
     AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, MulAddMul,
-    UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, @stable_muladdmul, isbanded
+    UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, UpperOrUnitUpperTriangular,
+    LowerOrUnitLowerTriangular, HermOrSym, @stable_muladdmul, isbanded
 
 
 import Base: +, -, *, \, /, ==, zero
