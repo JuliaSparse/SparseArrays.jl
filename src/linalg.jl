@@ -302,9 +302,12 @@ end
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
-*(A::SparseOrTri, B::AbstractSparseVector) = spmatmulv(A, B)
-*(A::SparseOrTri, B::SparseColumnView) = spmatmulv(A, B)
-*(A::SparseOrTri, B::SparseVectorView) = spmatmulv(A, B)
+# spmatmul handles compressed vectors and whole-column/whole-vector views; other
+# AbstractSparseVectors take the generic product. Plain CSC times a compressed vector is
+# defined in sparsevector.jl.
+*(A::SparseTriangular, B::SparseVectorOrView) = spmatmulv(A, B)
+*(A::SparseMatrixCSCView, B::SparseVectorOrView) = spmatmulv(A, B)
+*(A::AbstractSparseMatrixCSC, B::Union{SparseColumnView,SparseVectorView}) = spmatmulv(A, B)
 *(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = spmatmul(A,B)
 *(A::SparseTriangular, B::SparseMatrixCSCOrView) = spmatmul(A,B)
 *(A::SparseMatrixCSCOrView, B::SparseTriangular) = spmatmul(A,B)
@@ -341,15 +344,19 @@ end
 # depending on expected execution speed the sorting of the result column is
 # done by a quicksort of the row indices or by a full scan of the dense result vector.
 # The last is faster, if more than ≈ 1/32 of the result column is nonzero.
-# TODO: extend to SparseMatrixCSCOrView to allow for SubArrays (view(X, :, r)).
 # Unit triangular wrappers keep their diagonal implicitly, so they are materialized first.
+# The added diagonal may not fit the parent's index type, in which case a wider one is used
+# for the temporary; the result keeps the index type of the operands.
 _explicitdiag(A) = A
-_explicitdiag(A::UnitUpperOrUnitLowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = sparse(A)
+_explicitdiag(A::UnitUpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = sparse(UnitUpperTriangular(_fitsdiag(parent(A))))
+_explicitdiag(A::UnitLowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = sparse(UnitLowerTriangular(_fitsdiag(parent(A))))
+# colptr[end] is one past the stored count
+_fitsdiag(S) = nnz(S) + size(S, 2) < typemax(indtype(S)) ? S : SparseMatrixCSC{eltype(S),Int}(S)
 function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,SubArray{<:Any,<:Any,<:AbstractSparseArray}})
-    A = _explicitdiag(A)
-    B = _explicitdiag(B)
     Tv = promote_op(matprod, eltype(A), eltype(B))
     Ti = promote_type(indtype(A), indtype(B))
+    A = _explicitdiag(A)
+    B = _explicitdiag(B)
     mA, nA = size(A)
     nB = size(B, 2)
     mB = size(B, 1)
