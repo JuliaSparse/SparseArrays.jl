@@ -729,6 +729,10 @@ end
         @test mul!(Q, W(Q), Dq) ≈ W(MQ) * Dq
         Q = sprand(T, 5, 5, 0.5); MQ = Matrix(Q)
         @test mul!(Q, Dq, W(Q)) ≈ Dq * W(MQ)
+        # or sharing its storage
+        Q = sprand(T, 5, 5, 0.5); MQ = Matrix(Q)
+        Cs = SparseMatrixCSC(5, 5, copy(getcolptr(Q)), copy(rowvals(Q)), nonzeros(Q))
+        @test mul!(Cs, W(Q), Dq) ≈ W(MQ) * Dq
         # fixed operands are read, never written
         F = fixed(S)
         @test W(F) * Dr isa AbstractSparseMatrixCSC

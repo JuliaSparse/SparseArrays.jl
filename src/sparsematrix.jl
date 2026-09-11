@@ -1471,10 +1471,12 @@ end
 
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)
 transpose(A::AbstractSparseMatrixCSC) = Transpose(A)
+_adjtrans_fun(::Adjoint) = x -> adjoint(copy(x))
+_adjtrans_fun(::Transpose) = x -> transpose(copy(x))
 Base.copy(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(parent(A), x -> adjoint(copy(x)), eltype(A))
+    ftranspose(parent(A), _adjtrans_fun(A), eltype(A))
 Base.copy(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(parent(A), x -> transpose(copy(x)), eltype(A))
+    ftranspose(parent(A), _adjtrans_fun(A), eltype(A))
 function Base.permutedims(A::AbstractSparseMatrixCSC, (a,b))
     (a, b) == (2, 1) && return ftranspose(A, identity)
     (a, b) == (1, 2) && return copy(A)

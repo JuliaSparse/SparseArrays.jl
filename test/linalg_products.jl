@@ -272,7 +272,7 @@ end
         @test nnz(Pw) > nnz(B)  # walks B
         @test mulcount(() -> dot(W(Pw), B)) == 1 + 2
     end
-    # many more columns than stored entries: no cursor array is allocated
+    # far more columns than stored entries: a binary search per entry, no cursor array
     for W in (adjoint, transpose)
         P = sparse([1], [1], [1.0], 2, 10^5); B = sparse([1], [1], [2.0], 10^5, 2)
         @test dot(W(P), B) == 2
