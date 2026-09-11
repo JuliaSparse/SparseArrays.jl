@@ -1442,6 +1442,10 @@ function ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixC
     elseif size(X, 1) != size(A, 2)
         throw(DimensionMismatch(string("destination argument `X`'s row count, ",
             "`size(X, 1) (= $(size(X, 1)))`, must match source argument `A`'s column count, `size(A, 2) (= $(size(A, 2)))`")))
+    # halfperm! overwrites X's buffers while reading A's. With nnz(A) == 0 only the colptr is
+    # written, and the empty rowval/nzval buffers would falsely alias (they share one `Memory`)
+    elseif nnz(A) > 0 ? Base.mightalias(X, A) : Base.mightalias(getcolptr(X), getcolptr(A))
+        throw(ArgumentError("destination argument `X` must not share memory with source argument `A`"))
     end
     halfperm!(X, A, axes(A,2), f)
 end
