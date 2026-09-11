@@ -11,7 +11,8 @@ using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
     AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, MulAddMul,
-    UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, @stable_muladdmul, isbanded
+    UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, UpperOrUnitUpperTriangular,
+    LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, @stable_muladdmul, isbanded
 
 
 import Base: +, -, *, \, /, ==, zero
@@ -36,8 +37,6 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
     sparse_hcat, sparse_vcat, sparse_hvcat
 
 public sparse!, spzeros!
-
-const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 
 # helper function needed in sparsematrix, sparsevector and higherorderfns
 # `iszero` and `!iszero` don't guarantee to return a boolean but we need one that does

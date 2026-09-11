@@ -84,20 +84,6 @@ inverse of fixed, should not allocate
 _unsafe_unfix(s::AbstractSparseVector) = s
 _unsafe_unfix(s::FixedSparseVector) = SparseVector(length(s), parent(nonzeroinds(s)), nonzeros(s))
 
-# Define an alias for a view of a whole column of a SparseMatrixCSC. Many methods can be written for the
-# union of such a view and a SparseVector so we define an alias for such a union as well
-const _SparseColumnView = SubArray{<:Any,1,<:AbstractSparseMatrixCSC,Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
-const _SparseVectorView = SubArray{<:Any,1,<:AbstractSparseVector,Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const _SparseVectorUnion = Union{AbstractCompressedVector, _SparseColumnView, _SparseVectorView}
-const _AdjOrTransSparseVectorUnion = AdjOrTrans{<:Any,<:_SparseVectorUnion}
-# the following aliases are unused internally, but widespread in packages
-const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
-const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
-const SparseVectorUnion{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
-const AdjOrTransSparseVectorUnion{Tv,Ti} = LinearAlgebra.AdjOrTrans{Tv, <:SparseVectorUnion{Tv,Ti}}
-
-# allows for views of a subset of the sparse vector indices
-const SparseVectorPartialView{Tv,Ti} = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{AbstractUnitRange},false}
 
 ### Basic properties
 
@@ -121,12 +107,12 @@ nnz(x::SparseVectorView) = nnz(parent(x))
 nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))
 
 """
-    nzrange(x::SparseVectorUnion, col)
+    nzrange(x::SparseVectorOrView, col)
 
 Give the range of indices to the structural nonzero values of a sparse vector.
 The column index `col` is ignored (assumed to be `1`).
 """
-function nzrange(x::SparseVectorUnion, j::Integer)
+function nzrange(x::SparseVectorOrView, j::Integer)
     j == 1 ? (1:nnz(x)) : throw(BoundsError(x, (":", j)))
 end
 
@@ -183,7 +169,7 @@ function nonzeroinds(x::SparseVectorPartialView)
     return @view(nzinds[first_idx:last_idx]) .- (x.indices[1][begin] - 1)
 end
 
-rowvals(x::SparseVectorUnion) = nonzeroinds(x)
+rowvals(x::SparseVectorOrView) = nonzeroinds(x)
 
 indtype(x::SparseColumnView) = indtype(parent(x))
 indtype(x::Union{SparseVectorView, SparseVectorPartialView}) = indtype(parent(x))
@@ -863,11 +849,11 @@ end
 
 Base.copy(a::SubArray{<:Any,<:Any,<:Union{SparseVector, AbstractSparseMatrixCSC}}) = parent(a)[a.indices...]
 
-function findall(x::SparseVectorUnion)
+function findall(x::SparseVectorOrView)
     return findall(identity, x)
 end
 
-function findall(p::F, x::SparseVectorUnion) where {F<:Function}
+function findall(p::F, x::SparseVectorOrView) where {F<:Function}
     if p(zero(eltype(x)))
         return invoke(findall, Tuple{Function, Any}, p, x)
     end
@@ -892,7 +878,7 @@ function findall(p::F, x::SparseVectorUnion) where {F<:Function}
 
     return I
 end
-findall(p::Base.Fix2{typeof(in)}, x::SparseVectorUnion) =
+findall(p::Base.Fix2{typeof(in)}, x::SparseVectorOrView) =
     invoke(findall, Tuple{Base.Fix2{typeof(in)}, AbstractArray}, p, x)
 
 """
@@ -914,7 +900,7 @@ julia> findnz(x)
 ([1, 4, 6, 8], [1, 2, 4, 3])
 ```
 """
-function findnz(x::SparseVectorUnion)
+function findnz(x::SparseVectorOrView)
     numnz = nnz(x)
 
     I = Vector{indtype(x)}(undef, numnz)
@@ -931,7 +917,7 @@ function findnz(x::SparseVectorUnion)
     return (I, V)
 end
 
-function findnz(x::AdjOrTransSparseVectorUnion)
+function findnz(x::AdjOrTransSparseVectorOrView)
     p = parent(x)
     numnz = nnz(p)
     I = ones(indtype(p), numnz)
@@ -1691,7 +1677,7 @@ for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
 end
 
 for fun in (:+, :-)
-    @eval @propagate_inbounds function $(fun)(x::Union{SparseVectorUnion{Tx},SparseVectorPartialView{Tx}}, y::Union{SparseVectorUnion{Ty},SparseVectorPartialView{Ty}}) where {Tx, Ty}
+    @eval @propagate_inbounds function $(fun)(x::Union{SparseVectorOrView{Tx},SparseVectorPartialView{Tx}}, y::Union{SparseVectorOrView{Ty},SparseVectorPartialView{Ty}}) where {Tx, Ty}
         @boundscheck axes(x) == axes(y) || throw(DimensionMismatch("$(axes(x)), $(axes(y))"))
         T = promote_type(Tx, Ty)
         res = spzeros(T, length(x))
@@ -1707,10 +1693,10 @@ for fun in (:+, :-)
 end
 
 ### Reduction
-Base.reducedim_initarray(A::SparseVectorUnion, region, v0, ::Type{R}) where {R} =
+Base.reducedim_initarray(A::SparseVectorOrView, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 
-function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorUnion) where {F,G}
+function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorOrView) where {F,G}
     T = eltype(A)
     isempty(A) && return Base.mapreduce_empty(f, op, T)
     z = nnz(A)
@@ -1722,12 +1708,12 @@ function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorUnion) wh
     _mapreducezeros(f, op, T, rest, ini)
 end
 
-Base._any(f, A::SparseVectorUnion, ::Colon) =
+Base._any(f, A::SparseVectorOrView, ::Colon) =
     iszero(length(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)
-Base._all(f, A::SparseVectorUnion, ::Colon) =
+Base._all(f, A::SparseVectorOrView, ::Colon) =
     iszero(length(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
-function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorUnion) where {F,G}
+function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorOrView) where {F,G}
     # dim1 reduction could be safely replaced with a mapreduce
     if length(R) == 1
         I = firstindex(R)
@@ -1765,7 +1751,7 @@ for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum
     end
 end
 
-norm(x::SparseVectorUnion, p::Real=2) = norm(nonzeros(x), p)
+norm(x::SparseVectorOrView, p::Real=2) = norm(nonzeros(x), p)
 
 ### linalg.jl
 
@@ -1778,7 +1764,7 @@ adjoint(sv::AbstractCompressedVector) = Adjoint(sv)
 
 # axpy
 
-function LinearAlgebra.axpy!(a::Number, x::SparseVectorUnion, y::AbstractVector)
+function LinearAlgebra.axpy!(a::Number, x::SparseVectorOrView, y::AbstractVector)
     require_one_based_indexing(x, y)
     length(x) == length(y) || throw(DimensionMismatch(
         "Vector x has a length $(length(x)) but y has a length $(length(y))"))
@@ -1811,31 +1797,31 @@ end
 
 # scaling
 
-function rmul!(x::SparseVectorUnion, a::Real)
+function rmul!(x::SparseVectorOrView, a::Real)
     rmul!(nonzeros(x), a)
     return x
 end
-function rmul!(x::SparseVectorUnion, a::Complex)
+function rmul!(x::SparseVectorOrView, a::Complex)
     rmul!(nonzeros(x), a)
     return x
 end
-function lmul!(a::Real, x::SparseVectorUnion)
+function lmul!(a::Real, x::SparseVectorOrView)
     rmul!(nonzeros(x), a)
     return x
 end
-function lmul!(a::Complex, x::SparseVectorUnion)
+function lmul!(a::Complex, x::SparseVectorOrView)
     rmul!(nonzeros(x), a)
     return x
 end
 
-(*)(x::SparseVectorUnion, a::Number) =
+(*)(x::SparseVectorOrView, a::Number) =
     @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), nonzeros(x) * a)
-(*)(a::Number, x::SparseVectorUnion) =
+(*)(a::Number, x::SparseVectorOrView) =
     @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), a * nonzeros(x))
-(/)(x::SparseVectorUnion, a::Number) =
+(/)(x::SparseVectorOrView, a::Number) =
     @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), nonzeros(x) / a)
 # dot
-function dot(x::AbstractVector, y::SparseVectorUnion)
+function dot(x::AbstractVector, y::SparseVectorOrView)
     require_one_based_indexing(x, y)
     n = length(x)
     length(y) == n || throw(DimensionMismatch(
@@ -1849,7 +1835,7 @@ function dot(x::AbstractVector, y::SparseVectorUnion)
     return s
 end
 
-function dot(x::SparseVectorUnion, y::AbstractVector)
+function dot(x::SparseVectorOrView, y::AbstractVector)
     require_one_based_indexing(x, y)
     n = length(y)
     length(x) == n || throw(DimensionMismatch(
@@ -1884,7 +1870,7 @@ function _spdot(f::Function,
     s
 end
 
-function dot(x::SparseVectorUnion, y::SparseVectorUnion)
+function dot(x::SparseVectorOrView, y::SparseVectorOrView)
     x === y && return sum(abs2, x)
     n = length(x)
     length(y) == n || throw(DimensionMismatch(
@@ -1904,7 +1890,7 @@ end
 ### BLAS-2 / dense A * sparse x -> dense y
 
 # lowrankupdate (BLAS.ger! like)
-function LinearAlgebra.lowrankupdate!(A::StridedMatrix, x::AbstractVector, y::SparseVectorUnion, α::Number = 1)
+function LinearAlgebra.lowrankupdate!(A::StridedMatrix, x::AbstractVector, y::SparseVectorOrView, α::Number = 1)
     require_one_based_indexing(A, x, y)
     nzi = nonzeroinds(y)
     nzv = nonzeros(y)
@@ -1918,8 +1904,6 @@ function LinearAlgebra.lowrankupdate!(A::StridedMatrix, x::AbstractVector, y::Sp
 end
 
 # * and mul!
-
-const _StridedOrTriangularMatrix{T} = Union{StridedMatrix{T}, LowerTriangular{T}, UnitLowerTriangular{T}, UpperTriangular{T}, UnitUpperTriangular{T}}
 
 _fliptri(A::UpperTriangular) = LowerTriangular(parent(parent(A)))
 _fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
@@ -1981,7 +1965,7 @@ function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, 
 end
 
 function _At_or_Ac_mul_B!(tfun::Function,
-                            y::AbstractVector, A::_StridedOrTriangularMatrix, x::AbstractSparseVector,
+                            y::AbstractVector, A::Union{StridedMatrix,UpperOrLowerTriangular}, x::AbstractSparseVector,
                             α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     n, m = size(A)
@@ -2437,7 +2421,7 @@ function _fillnonzero!(arr::AbstractCompressedVector{Tv,Ti}, val) where {Tv,Ti}
 end
 
 import Base.fill!
-function fill!(A::Union{AbstractCompressedVector, AbstractSparseMatrixCSC}, x)
+function fill!(A::SparseVecOrMat, x)
     T = eltype(A)
     xT = convert(T, x)
     if _iszero(xT)

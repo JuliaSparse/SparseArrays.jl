@@ -112,7 +112,9 @@ const VTypes = Union{ComplexF64, Float64, ComplexF32, Float32}
 const VRealTypes = Union{Float64, Float32}
 const VComplexTypes = Union{ComplexF64, ComplexF32}
 
-const StridedVecOrMatInclAdjAndTrans{Tv} = Union{StridedVecOrMat{Tv}, Adjoint{Tv, <:StridedVecOrMat}, Transpose{Tv, <:StridedVecOrMat}}
+const StridedVecOrMatMaybeAdjOrTrans{Tv} = Union{StridedVecOrMat{Tv}, AdjOrTrans{Tv,<:StridedVecOrMat}}
+# the concrete pair that Sparse(::SparseVector)/Sparse(::SparseMatrixCSC) accept
+const SparseVectorOrMatrixCSC{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
 
 # exception
 struct CHOLMODException <: Exception
@@ -383,12 +385,10 @@ function Factor{Tv}(ptr::Ptr{cholmod_factor}) where Tv
     return Factor{Tv, Ti}(ptr)
 end
 
-const SuiteSparseStruct = Union{cholmod_dense, cholmod_sparse, cholmod_factor}
-
 # All pointer loads should be checked to make sure that SuiteSparse is not called with
 # a C_NULL pointer which could cause a segfault. Pointers are set to null
 # when serialized so this can happen when multiple processes are in use.
-function Base.unsafe_convert(::Type{Ptr{T}}, x::Union{Dense,Sparse,Factor}) where T<:SuiteSparseStruct
+function Base.unsafe_convert(::Type{Ptr{T}}, x::Union{Dense,Sparse,Factor}) where T<:Union{cholmod_dense, cholmod_sparse, cholmod_factor}
     xp = getfield(x, :ptr)
     if xp == C_NULL
         throw(ArgumentError("pointer to the $T object is null. This can " *
@@ -937,7 +937,7 @@ get_perm(FC::FactorComponent) = get_perm(Factor(FC))
 
 # Conversion/construction
 
-function Dense{T}(A::StridedVecOrMatInclAdjAndTrans) where T<:VTypes
+function Dense{T}(A::StridedVecOrMatMaybeAdjOrTrans) where T<:VTypes
     d = allocate_dense(size(A, 1), size(A, 2), size(A, 1), T)
     GC.@preserve d begin
         D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(pointer(d)).x), size(A), own = false)
@@ -946,12 +946,12 @@ function Dense{T}(A::StridedVecOrMatInclAdjAndTrans) where T<:VTypes
     return d
 end
 
-function Dense(A::StridedVecOrMatInclAdjAndTrans)
+function Dense(A::StridedVecOrMatMaybeAdjOrTrans)
     T = promote_type(eltype(A), Float64)
     return Dense{T}(A)
 end
 # Don't always promote to Float64 now that we have Float32 support.
-Dense(A::StridedVecOrMatInclAdjAndTrans{T}) where
+Dense(A::StridedVecOrMatMaybeAdjOrTrans{T}) where
     {T<:Union{Float16, ComplexF16, Float32, ComplexF32}} = Dense{promote_type(T, Float32)}(A)
 
 
@@ -2019,18 +2019,16 @@ for (T, f) in ((:Dense, :solve), (:Sparse, :spsolve))
     end
 end
 
-SparseVecOrMat{Tv,Ti} = Union{SparseVector{Tv,Ti}, SparseMatrixCSC{Tv,Ti}}
-
 # Strided right-hand sides, such as views of dense arrays (#496), are handed to CHOLMOD as
 # they are, in the precision of the factor. CHOLMOD solves a real factor against a complex
 # right-hand side natively, so a complex one (#120) stays complex in that precision.
 rhs_eltype(::Type{T}, ::Type{S}) where {T<:VTypes, S} = S <: Complex ? Complex{real(T)} : T
-function strided_solve(L, B::StridedVecOrMatInclAdjAndTrans)
+function strided_solve(L, B::StridedVecOrMatMaybeAdjOrTrans)
     X = L \ Dense{rhs_eltype(eltype(L), eltype(B))}(B)
     return B isa AbstractVector ? Vector(X) : Matrix(X)
 end
 
-(\)(L::FactorComponent{T}, B::StridedVecOrMatInclAdjAndTrans) where {T<:VTypes} = strided_solve(L, B)
+(\)(L::FactorComponent{T}, B::StridedVecOrMatMaybeAdjOrTrans) where {T<:VTypes} = strided_solve(L, B)
 function (\)(L::FactorComponent, B::SparseVector)
     sparsevec(L\Sparse(B))
 end
@@ -2040,12 +2038,11 @@ end
 (\)(L::FactorComponent, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::FactorComponent, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 
-const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
-                                 Adjoint{<:Any,<:SparseMatrixCSC}, Transpose{<:Any,<:SparseMatrixCSC}}
+const FactorComponentRHS = Union{StridedVecOrMatMaybeAdjOrTrans, SparseVectorOrMatrixCSC, AdjOrTrans{<:Any,<:SparseMatrixCSC}}
 \(adjL::Adjoint{<:Any,<:FactorComponent}, B::FactorComponentRHS) = (L = parent(adjL); adjoint(L)\B)
 
 (\)(L::Factor{T}, B::Dense{T2}) where {T<:VTypes, T2<:VTypes} = solve(CHOLMOD_A, L, B)
-(\)(L::Factor{T}, B::StridedVecOrMatInclAdjAndTrans) where {T<:VTypes} = strided_solve(L, B)
+(\)(L::Factor{T}, B::StridedVecOrMatMaybeAdjOrTrans) where {T<:VTypes} = strided_solve(L, B)
 # The explicit typevars avoid an ambiguity with `\(::Factorization{T}, ::VecOrMat{Complex{T}})`
 # in LinearAlgebra/factorization.jl, which is otherwise neither more nor less specific than
 # the strided method above.
@@ -2061,19 +2058,16 @@ const FactorComponentRHS = Union{StridedVecOrMatInclAdjAndTrans, SparseVecOrMat,
 # the eltype restriction is necessary for disambiguation with the B::StridedMatrix below
 \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::Dense) = (L = parent(adjL); solve(CHOLMOD_A, L, B))
 \(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = parent(adjL); spsolve(CHOLMOD_A, L, B))
-\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVecOrMat) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVectorOrMatrixCSC) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
 
 # These mirror the `Factor` methods above, `VecOrMat` tie-breaker included.
-\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedVecOrMatInclAdjAndTrans) = strided_solve(adjL, B)
+\(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedVecOrMatMaybeAdjOrTrans) = strided_solve(adjL, B)
 (\)(adjL::AdjointFactorization{T,<:Factor}, B::VecOrMat{Complex{T}}) where {T<:VRealTypes} = strided_solve(adjL, B)
 (\)(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::AdjOrTransAbsMat) = adjL \ copy(B)
 
-const RealHermSymComplexHermSSL{Ti, Tr} = Union{
-    Symmetric{Tr, SparseMatrixCSC{Tr, Ti}},
-    Hermitian{Tr, SparseMatrixCSC{Tr, Ti}},
-    Hermitian{Complex{Tr}, SparseMatrixCSC{Complex{Tr}, Ti}}} where {Ti<:ITypes, Tr<:Union{Float64, Float32, Float16}}
+const RealHermSymComplexHermSSL{Ti, Tr} = RealHermSymComplexHerm{Tr, <:SparseMatrixCSC{<:Any, Ti}} where {Ti<:ITypes, Tr<:Union{Float64, Float32, Float16}}
 
-function \(A::RealHermSymComplexHermSSL{Ti}, B::StridedVecOrMatInclAdjAndTrans) where {Ti}
+function \(A::RealHermSymComplexHermSSL{Ti}, B::StridedVecOrMatMaybeAdjOrTrans) where {Ti}
     T = typeof(one(eltype(A)) \ one(eltype(B)))
     F = cholesky(A; check = false)
     if issuccess(F)
@@ -2083,8 +2077,7 @@ function \(A::RealHermSymComplexHermSSL{Ti}, B::StridedVecOrMatInclAdjAndTrans) 
     end
 end
 
-const AbstractSparseVecOrMatInclAdjAndTrans = Union{AbstractSparseVecOrMat, AdjOrTrans{<:Any, <:AbstractSparseVecOrMat}}
-\(::RealHermSymComplexHermSSL, ::AbstractSparseVecOrMatInclAdjAndTrans) =
+\(::RealHermSymComplexHermSSL, ::Union{AbstractSparseVecOrMat, AdjOrTrans{<:Any,<:AbstractSparseVecOrMat}}) =
     throw(ArgumentError("self-adjoint sparse system solve not implemented for sparse rhs B," *
         " consider to convert B to a dense array"))
 
@@ -2324,17 +2317,17 @@ function ishermitian(A::Sparse{<:VComplexTypes})
 end
 
 (*)(A::Symmetric{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}},
-    B::SparseVecOrMat{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
+    B::SparseVectorOrMatrixCSC{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 (*)(A::Hermitian{<:VComplexTypes,SparseMatrixCSC{<:VComplexTypes,Ti}},
-    B::SparseVecOrMat{<:VComplexTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
+    B::SparseVectorOrMatrixCSC{<:VComplexTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 (*)(A::Hermitian{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}},
-    B::SparseVecOrMat{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
+    B::SparseVectorOrMatrixCSC{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 
-(*)(A::SparseVecOrMat{<:VRealTypes,Ti},
+(*)(A::SparseVectorOrMatrixCSC{<:VRealTypes,Ti},
     B::Symmetric{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-(*)(A::SparseVecOrMat{<:VComplexTypes,Ti},
+(*)(A::SparseVectorOrMatrixCSC{<:VComplexTypes,Ti},
     B::Hermitian{<:VComplexTypes,SparseMatrixCSC{<:VComplexTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-(*)(A::SparseVecOrMat{<:VRealTypes,Ti},
+(*)(A::SparseVectorOrMatrixCSC{<:VRealTypes,Ti},
     B::Hermitian{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 
 # Sort all the indices in each column for the construction of a CSC sparse matrix

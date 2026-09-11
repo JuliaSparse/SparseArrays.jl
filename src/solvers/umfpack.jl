@@ -262,8 +262,8 @@ workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
-const ATLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
-has_refinement(F::ATLU) = has_refinement(parent(F))
+const UMFAdjOrTransLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
+has_refinement(F::UMFAdjOrTransLU) = has_refinement(parent(F))
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
@@ -277,7 +277,7 @@ end
 UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
         Vector{Ti}(undef, size(F, 2)),
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
-UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(parent(F), refinement)
+UmfpackWS(F::UMFAdjOrTransLU, refinement::Bool=has_refinement(F)) = UmfpackWS(parent(F), refinement)
 
 # Not using similar helps if the actual needed size has changed as it would need to be resized again
 """
@@ -299,7 +299,7 @@ Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
         copy(F.info),
         ReentrantLock()
     )
-Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
+Base.copy(F::T, ws=UmfpackWS(F)) where {T <: UMFAdjOrTransLU} =
     T(copy(parent(F), ws))
 
 Base.transpose(F::UmfpackLU) = TransposeFactorization(F)
