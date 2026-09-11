@@ -186,6 +186,11 @@ getrowval(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
 getnzval( S::AbstractSparseMatrixCSC) = nonzeros(S)
 getnzval( S::SparseMatrixCSCColumnSubset) = nonzeros(parent(S))
 nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
+nzvalview(S::SparseMatrixCSCView) = view(nonzeros(S), _storedrange(S))
+# the stored entries of a column-range view are a contiguous range of the parent's
+_storedrange(S::AbstractSparseMatrixCSC) = 1:nnz(S)
+_storedrange(S::SparseMatrixCSCView) = (colptr = getcolptr(S); Int(colptr[1]):Int(colptr[end]) - 1)
+widelength(S::SparseMatrixCSCView) = prod(Int64.(size(S)))
 
 """
     nnz(A)
@@ -210,9 +215,10 @@ nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = nnz1(S)
 nnz(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = nnz1(S)
 nnz(S::SparseMatrixCSCColumnSubset) = nnz1(S)
+nnz(S::SparseMatrixCSCView) = length(_storedrange(S))
 nnz1(S) = @inbounds sum(length.(nzrange.(Ref(S), axes(S, 2))))
 
-function Base._simple_count(pred, S::AbstractSparseMatrixCSC, init::T) where T
+function Base._simple_count(pred, S::SparseMatrixCSCUnion, init::T) where T
     init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
 end
 
@@ -2520,10 +2526,11 @@ Base.isequal(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatr
 
 ## Reductions
 
-# In general, output of sparse matrix reductions will not be sparse,
-# and computing reductions along columns into SparseMatrixCSC is
-# non-trivial, so use Arrays for output. Array element type is given by `R`.
-function Base.reducedim_initarray(A::AbstractSparseMatrixCSC, region, v0, ::Type{R}) where {R}
+# Reductions along a dimension return a dense `Array`, as for dense input. A sparse result
+# (issue #43) is opt-in by reducing into a sparse destination, e.g. `sum!(spzeros(size(A, 1), 1), A)`,
+# see `_mapreducedim!` below. Covers column-range views so they reduce like their copy (#377),
+# where Base's `similar` would otherwise give a sparse result.
+function Base.reducedim_initarray(A::SparseMatrixCSCUnion, region, v0, ::Type{R}) where {R}
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 end
 
@@ -2547,7 +2554,7 @@ function _mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G
     v
 end
 
-function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where {F,G,T}
+function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::SparseMatrixCSCUnion{T}) where {F,G,T}
     z = nnz(A)
     n = widelength(A)
     if z == 0
@@ -2572,12 +2579,12 @@ _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nze
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 
 # Specialized mapreduce for any and all
-Base._any(f, A::AbstractSparseMatrixCSC, ::Colon) =
+Base._any(f, A::SparseMatrixCSCUnion, ::Colon) =
     iszero(widelength(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)
-Base._all(f, A::AbstractSparseMatrixCSC, ::Colon) =
+Base._all(f, A::SparseMatrixCSCUnion, ::Colon) =
     iszero(widelength(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
 
-function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::AbstractSparseMatrixCSC{T}) where {F,T}
+function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::SparseMatrixCSCUnion{T}) where {F,T}
     nnzA = nnz(A)
     nzeros = widelength(A) - nnzA
     if nzeros == 0
@@ -2590,8 +2597,123 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
     end
 end
 
+# Reduction into a sparse destination, the opt-in for a sparse result. A fully stored `R` is
+# reduced into as the dense array its values form; an empty one, e.g. `spzeros(m, 1)`, gets an
+# entry only for the rows or columns of `A` that store one (all of them if an empty slice
+# reduces to something nonzero, as for `f(0) != 0`) in time proportional to nnz(A) + length(R);
+# a partially stored `R` is rare and goes through the element-wise kernel below.
+function Base._mapreducedim!(f::F, op::G, R::AbstractSparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where {F,G,T}
+    require_one_based_indexing(A, R)
+    Base.check_reducedims(R, A)
+    isempty(A) && return R
+    if nnz(R) == length(R)
+        Base._mapreducedim!(f, op, reshape(view(nonzeros(R), 1:nnz(R)), size(R)), A)
+    elseif nnz(R) != 0 && !all(isequal(zero(eltype(R))), nzvalview(R))
+        # stored zeros only, e.g. a reused `sum!` destination after its `fill!`, fold like an empty one
+        invoke(Base._mapreducedim!, Tuple{F,G,AbstractArray,SparseMatrixCSCUnion{T}}, f, op, R, A)
+    elseif size(R) == (1, 1)
+        R[1, 1] = op(zero(eltype(R)), mapreduce(f, op, A))
+    elseif size(R, 1) == 1
+        _mapreducerows_sparse!(f, op, R, A)
+    elseif size(R, 2) == 1
+        _mapreducecols_sparse!(f, op, R, A)
+    else
+        # reduction over a dimension beyond 2: `R` has the shape of `A`
+        copyto!(R, op.(zero(eltype(R)), f.(A)))
+    end
+    return R
+end
+
+# `R` is a structurally empty `1 x n` sparse matrix: its columns are built in order
+function _mapreducerows_sparse!(f, op, R::AbstractSparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where T
+    colptr = getcolptr(A)
+    nzval = nonzeros(A)
+    m, n = size(A)
+    z = zero(eltype(R))
+    # the reduction of a column that stores nothing, stored only when it is nonzero
+    zempty = m == 0 ? z : _mapreducezeros(f, op, T, m, z)
+    store_empty = !isequal(zempty, z)
+    Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
+    nstored = store_empty ? n : count(col -> colptr[col+1] > colptr[col], 1:n)
+    resize!(Rrowval, nstored)
+    fill!(Rrowval, 1)
+    resize!(Rnzval, nstored)
+    k = 0
+    @inbounds for col in 1:n
+        rng = colptr[col]:colptr[col+1]-1
+        if isempty(rng)
+            store_empty || (Rcolptr[col+1] = k + 1; continue)
+            v = zempty
+        else
+            r = z
+            @simd for j in rng
+                r = op(r, f(nzval[j]))
+            end
+            v = _mapreducezeros(f, op, T, m - length(rng), r)
+        end
+        k += 1
+        Rnzval[k] = v
+        Rcolptr[col+1] = k + 1
+    end
+    return R
+end
+
+# `R` is a structurally empty `m x 1` sparse matrix. With enough stored entries its value
+# vector serves as a dense workspace of length `m` that is then compressed in place; a
+# hypersparse `A` instead has its stored entries sorted by row so that only the rows storing
+# something are ever visited.
+function _mapreducecols_sparse!(f, op, R::AbstractSparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where T
+    m, n = size(A)
+    z = zero(eltype(R))
+    zempty = n == 0 ? z : _mapreducezeros(f, op, T, n, z)
+    store_empty = !isequal(zempty, z)
+    Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
+    resize!(Rrowval, 0)
+    resize!(Rnzval, 0)
+    if store_empty || 8 * nnz(A) >= m
+        resize!(Rnzval, m)
+        fill!(Rnzval, z)
+        _mapreducecols!(f, op, Rnzval, A)
+        resize!(Rrowval, m)
+        if store_empty
+            Rrowval .= 1:m
+        else
+            k = 0
+            @inbounds for i in 1:m
+                w = Rnzval[i]
+                if !isequal(w, z)
+                    k += 1
+                    Rrowval[k] = i
+                    Rnzval[k] = w
+                end
+            end
+            resize!(Rrowval, k)
+            resize!(Rnzval, k)
+        end
+    else
+        rows = view(rowvals(A), _storedrange(A))
+        vals = view(nonzeros(A), _storedrange(A))
+        perm = sortperm(rows; alg=Base.Sort.DEFAULT_STABLE)   # keeps each row's entries in column order
+        s = 1
+        @inbounds while s <= length(perm)
+            row = rows[perm[s]]
+            r = op(z, f(vals[perm[s]]))
+            t = s + 1
+            while t <= length(perm) && rows[perm[t]] == row
+                r = op(r, f(vals[perm[t]]))
+                t += 1
+            end
+            push!(Rrowval, row)
+            push!(Rnzval, _mapreducezeros(f, op, T, n - (t - s), r))
+            s = t
+        end
+    end
+    Rcolptr[2] = length(Rnzval) + 1
+    return R
+end
+
 # General mapreducedim
-function _mapreducerows!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC{T}) where T
+function _mapreducerows!(f, op, R::AbstractArray, A::SparseMatrixCSCUnion{T}) where T
     require_one_based_indexing(A, R)
     colptr = getcolptr(A)
     rowval = rowvals(A)
@@ -2607,7 +2729,7 @@ function _mapreducerows!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC{T})
     R
 end
 
-function _mapreducecols!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+function _mapreducecols!(f, op, R::AbstractArray, A::SparseMatrixCSCUnion{Tv,Ti}) where {Tv,Ti}
     require_one_based_indexing(A, R)
     colptr = getcolptr(A)
     rowval = rowvals(A)
@@ -2627,7 +2749,7 @@ function _mapreducecols!(f, op, R::AbstractArray, A::AbstractSparseMatrixCSC{Tv,
     R
 end
 
-function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::AbstractSparseMatrixCSC{T}) where {F,G,T}
+function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCUnion{T}) where {F,G,T}
     require_one_based_indexing(A, R)
     lsiz = Base.check_reducedims(R,A)
     isempty(A) && return R
@@ -2645,17 +2767,17 @@ function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::AbstractSparseMat
         # Reduction along a dimension > 2
         # Compute op(R, f(A))
         m, n = size(A)
+        colptr = getcolptr(A)
+        rowval = rowvals(A)
         nzval = nonzeros(A)
-        if length(nzval) == m*n
+        if nnz(A) == m*n
             # No zeros, so don't compute f(0) since it might throw
-            for col in axes(A,2)
-                @simd for row in axes(A,1)
-                    @inbounds R[row, col] = op(R[row, col], f(nzval[(col-1)*m+row]))
+            @inbounds for col in axes(A,2)
+                @simd for j = colptr[col]:colptr[col+1]-1
+                    R[rowval[j], col] = op(R[rowval[j], col], f(nzval[j]))
                 end
             end
         else
-            colptr = getcolptr(A)
-            rowval = rowvals(A)
             zeroval = f(zero(T))
             @inbounds for col in axes(A,2)
                 lastrow = 0
@@ -2678,20 +2800,20 @@ end
 
 # Specialized mapreducedim for + cols to avoid allocating a
 # temporary array when f(0) == 0
-function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCUnion{Tv,Ti}) where {Tv,Ti}
     require_one_based_indexing(A, R)
+    colptr = getcolptr(A)
+    rowval = rowvals(A)
     nzval = nonzeros(A)
     m, n = size(A)
-    if length(nzval) == m*n
+    if nnz(A) == m*n
         # No zeros, so don't compute f(0) since it might throw
-        for col in axes(A,2)
-            @simd for row in axes(A,1)
-                @inbounds R[row, 1] = op(R[row, 1], f(nzval[(col-1)*m+row]))
+        @inbounds for col in axes(A,2)
+            @simd for j = colptr[col]:colptr[col+1]-1
+                R[rowval[j], 1] = op(R[rowval[j], 1], f(nzval[j]))
             end
         end
     else
-        colptr = getcolptr(A)
-        rowval = rowvals(A)
         zeroval = f(zero(Tv))
         if isequal(zeroval, zero(Tv))
             # Case where f(0) == 0
@@ -2720,7 +2842,7 @@ end
 
 # any(pred, A, dims = 1) => mapreduce(pred, |, A, dims = 1)
 # final argument `post` is to allow post-mapping each columnar mapreduce
-function _mapreducerows!(pred::P, ::typeof(|), R::AbstractMatrix{Bool}, A::AbstractSparseMatrixCSC{Tv},
+function _mapreducerows!(pred::P, ::typeof(|), R::AbstractMatrix{Bool}, A::SparseMatrixCSCUnion{Tv},
                          post::F = identity) where {P, F, Tv}
     nzval = nonzeros(A)
     colptr = getcolptr(A)
@@ -2750,7 +2872,7 @@ function _mapreducerows!(pred::P, ::typeof(|), R::AbstractMatrix{Bool}, A::Abstr
 end
 # all(pred, A, dims = 1) => mapreduce(pred, &, A, dims = 1) == .!mapreduce(!pred, |, A, dims = 1)
 _mapreducerows!(pred::P, ::typeof(&), R::AbstractMatrix{Bool},
-                A::AbstractSparseMatrixCSC) where {P} = _mapreducerows!(!pred, |, R, A, !)
+                A::SparseMatrixCSCUnion) where {P} = _mapreducerows!(!pred, |, R, A, !)
 
 # findmax/min and argmax/min methods
 # find first zero value in sparse matrix - return linear index in full matrix
