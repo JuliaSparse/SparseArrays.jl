@@ -54,6 +54,9 @@ output_ignorelist = [
     "SUITESPARSE_BLAS_DNRM2",
     "SUITESPARSE_BLAS_DZNRM2",
     "UMFPACK_VERSION",
+    # complex-type placeholders, defined as `void` for C
+    "SUITESPARSE_COMPLEX_FLOAT",
+    "SUITESPARSE_COMPLEX_DOUBLE",
 ]
 
 [codegen]

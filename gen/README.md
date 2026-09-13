@@ -1,7 +1,7 @@
 # How to auto-generate the wrappers
 
 1. `cd` to this directory
-2. Update the SuiteSparse version in `Makefile`
+2. Update the SuiteSparse version (`VER`) and the `SuiteSparse_jll` build number (`JLL_BUILD`) in `Makefile`
 3. run `make`. The updated wrappers are written to `src/solvers/wrappers.jl`; the banner
    at the top of that file comes from `prologue.jl` in this directory.
 
