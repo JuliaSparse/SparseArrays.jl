@@ -377,8 +377,21 @@ function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
 end
 (*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
-(*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
-(*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
+# The Q of a sparse QR is a product of Householder reflectors and dense in general, so a
+# product with a sparse operand applies the reflectors to a dense copy of the operand rather
+# than materializing `Q` (issue #121). The result is a dense `Matrix` or `Vector`, as for a
+# dense operand, and the thin shapes the dense-operand methods accept are accepted here too.
+const SparseQOperand = Union{AbstractSparseMatrixCSC, LinearAlgebra.AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}
+_densecopy(B::AbstractSparseMatrixCSC) = Matrix(B)
+_densecopy(B::LinearAlgebra.AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Matrix(copy(B))
+_densecopy(b::AbstractSparseVector) = Vector(b)
+for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
+    @eval begin
+        (*)(Q::$Q, B::SparseQOperand) = Q * _densecopy(B)
+        (*)(Q::$Q, b::AbstractSparseVector) = Q * _densecopy(b)
+        (*)(A::SparseQOperand, Q::$Q) = _densecopy(A) * Q
+    end
+end
 
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :prow
