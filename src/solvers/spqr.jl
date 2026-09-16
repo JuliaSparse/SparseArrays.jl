@@ -528,7 +528,7 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
         # Apply left permutation to B and store in W
         for j in axes(B, 2)
             for i in 1:length(F.rpivinv)
-                @inbounds W[F.rpivinv[i], j] = B[i, j]
+                W[F.rpivinv[i], j] = B[i, j]
             end
         end
 
@@ -564,13 +564,13 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
         if length(F.cpiv) == 0
             for j in axes(W, 2)
                 for i in 1:rnk
-                    @inbounds X[i, j] = W[i, j]
+                    X[i, j] = W[i, j]
                 end
             end
         else
             for j in axes(W, 2)
                 for i in 1:rnk
-                    @inbounds X[F.cpiv[i], j] = W[i, j]
+                    X[F.cpiv[i], j] = W[i, j]
                 end
             end
         end
@@ -655,13 +655,13 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
         if length(F.cpiv) == 0
             for j in axes(W, 2)
                 for i in 1:n
-                    @inbounds W[i, j] = B[i, j]
+                    W[i, j] = B[i, j]
                 end
             end
         else
             for j in axes(W, 2)
                 for i in 1:n
-                    @inbounds W[i, j] = B[F.cpiv[i], j]
+                    W[i, j] = B[F.cpiv[i], j]
                 end
             end
         end
@@ -671,7 +671,7 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
         # cannot represent, which is the counterpart of the basic solution above.
         for j in axes(W, 2)
             for i in (rnk + 1):m
-                @inbounds W[i, j] = zero(T)
+                W[i, j] = zero(T)
             end
         end
 
@@ -686,7 +686,7 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
         lmul!(F.Q, W)
         for j in axes(W, 2)
             for i in 1:m
-                @inbounds X[i, j] = W[F.rpivinv[i], j]
+                X[i, j] = W[F.rpivinv[i], j]
             end
         end
     end
