@@ -31,6 +31,8 @@ SparseArrays.CHOLMOD.lowrankupdowndate!
 SparseArrays.CHOLMOD.ldlt
 SparseArrays.CHOLMOD.rcond
 SparseArrays.SPQR.qr
+Base.:\(::SparseArrays.SPQR.QRSparse, ::StridedVecOrMat)
+Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::StridedVecOrMat)
 SparseArrays.UMFPACK.lu
 SparseArrays.UMFPACK.rcond
 ```
