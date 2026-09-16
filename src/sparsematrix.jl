@@ -2565,9 +2565,9 @@ Base.isequal(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatr
 ## Reductions
 
 # Reductions along a dimension return a dense `Array`, as for dense input. A sparse result
-# (issue #43) is opt-in by reducing into a sparse destination, e.g. `sum!(spzeros(size(A, 1), 1), A)`,
-# see `_mapreducedim!` below. Covers column-range views so they reduce like their copy (#377),
-# where Base's `similar` would otherwise give a sparse result.
+# (issue #43) is opt-in with the keyword `sparse = true`, see `_mapreduce_dim_sparse` below.
+# Covers column-range views so they reduce like their copy (#377), where Base's `similar`
+# would otherwise give a sparse result.
 function Base.reducedim_initarray(A::SparseMatrixCSCUnion, region, v0, ::Type{R}) where {R}
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 end
@@ -2635,44 +2635,81 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
     end
 end
 
-# Reduction into a sparse destination, the opt-in for a sparse result. A fully stored `R` is
-# reduced into as the dense array its values form; an empty one, e.g. `spzeros(m, 1)`, gets an
-# entry only for the rows or columns of `A` that store one (all of them if an empty slice
-# reduces to something nonzero, as for `f(0) != 0`) in time proportional to nnz(A) + length(R);
-# a partially stored `R` is rare and goes through the element-wise kernel below.
-function Base._mapreducedim!(f::F, op::G, R::AbstractSparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where {F,G,T}
-    require_one_based_indexing(A, R)
-    Base.check_reducedims(R, A)
-    isempty(A) && return R
-    if nnz(R) == length(R)
-        Base._mapreducedim!(f, op, reshape(view(nonzeros(R), 1:nnz(R)), size(R)), A)
-    elseif nnz(R) != 0 && !all(isequal(zero(eltype(R))), nzvalview(R))
-        # stored zeros only, e.g. a reused `sum!` destination after its `fill!`, fold like an empty one
-        invoke(Base._mapreducedim!, Tuple{F,G,AbstractArray,SparseMatrixCSCUnion{T}}, f, op, R, A)
-    elseif size(R) == (1, 1)
-        R[1, 1] = op(zero(eltype(R)), mapreduce(f, op, A))
-    elseif size(R, 1) == 1
-        _mapreducerows_sparse!(f, op, R, A)
-    elseif size(R, 2) == 1
-        _mapreducecols_sparse!(f, op, R, A)
-    else
-        # reduction over a dimension beyond 2: `R` has the shape of `A`
-        copyto!(R, op.(zero(eltype(R)), f.(A)))
+# The `sparse` keyword, the opt-in for a sparse result (issue #43): `sum(A; dims = 2, sparse = true)`
+# and the other reductions along a dimension return a `SparseMatrixCSC` that stores an entry
+# only for the rows or columns of `A` that store one (all of them when a slice that stores
+# nothing reduces to something nonzero, as for `f(0) != 0`), in time proportional to
+# nnz(A) + length(result) rather than to length(A). Base's `sum`, `prod`, `maximum`, `minimum`
+# and `extrema` forward unknown keywords to `mapreduce`, so this method serves them all;
+# `any`, `all` and `count` do not and get their own methods below.
+function Base.mapreduce(f, op, A::SparseMatrixCSCUnion; dims=:, init=Base._InitialValue(), sparse::Bool=false)
+    sparse || return Base._mapreduce_dim(f, op, init, A, dims)
+    dims === (:) && throw(ArgumentError("a sparse result needs a reduction along a dimension, pass `dims`"))
+    return _mapreduce_dim_sparse(f, op, init, A, dims)
+end
+for (fname, _fname, op) in ((:any, :_any, :(Base.or_any)), (:all, :_all, :(Base.and_all)))
+    @eval begin
+        Base.$fname(A::SparseMatrixCSCUnion; dims=:, sparse::Bool=false) = Base.$fname(identity, A; dims, sparse)
+        Base.$fname(f::Function, A::SparseMatrixCSCUnion; dims=:, sparse::Bool=false) =
+            sparse ? mapreduce(f, $op, A; dims, sparse) : Base.$_fname(f, A, dims)
     end
-    return R
+end
+Base.count(A::SparseMatrixCSCUnion; dims=:, init=0, sparse::Bool=false) = count(identity, A; dims, init, sparse)
+Base.count(f, A::SparseMatrixCSCUnion; dims=:, init=0, sparse::Bool=false) =
+    sparse ? mapreduce(Base._bool(f), Base.add_sum, A; dims, init, sparse) : Base._count(f, A, dims, init)
+
+# The slices are reduced the way Base's dense result is: seeded with `init` when given and
+# otherwise with `mapreduce_first` of their first element, with the entries a slice does not
+# store folded in through `_mapreducezeros`.
+_seed(f, op, ::Base._InitialValue, x) = Base.mapreduce_first(f, op, x)
+_seed(f, op, init, x) = op(init, f(x))
+# element type of the dense result, taken from Base's initialization of a 1 x 1 stand-in
+_reduced_eltype(f, op, ::Base._InitialValue, ::Type{T}) where T =
+    eltype(Base.reducedim_init(f, op, fill(zero(T), 1, 1), 1))
+_reduced_eltype(f, op, init, ::Type{T}) where T = typeof(init)
+# the reduction of a slice with no entries at all, as Base initializes the dense result
+_reduced_empty(f, op, ::Base._InitialValue, ::Type{T}) where T =
+    Base.reducedim_init(f, op, Matrix{T}(undef, 0, 1), 1)[1]
+_reduced_empty(f, op, init, ::Type{T}) where T = init
+# the reduction of a slice of length `len` that stores nothing
+_reduce_unstored(f, op, init, ::Type{T}, len) where T =
+    len == 0 ? _reduced_empty(f, op, init, T) : _mapreducezeros(f, op, T, len - 1, _seed(f, op, init, zero(T)))
+
+function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCUnion{T,Ti}, dims) where {T,Ti}
+    m, n = size(A)
+    rm, rn = map(length, Base.reduced_indices(A, dims))   # also validates `dims`
+    Tr = _reduced_eltype(f, op, init, T)
+    if rm == rn == 1
+        R = spzeros(Tr, Ti, 1, 1)
+        v = isempty(A) ? _reduced_empty(f, op, init, T) : _seed(identity, op, init, mapreduce(f, op, A))
+        if nnz(A) > 0 || !isequal(v, zero(Tr))
+            push!(rowvals(R), 1)
+            push!(nonzeros(R), v)
+            getcolptr(R)[2] = 2
+        end
+        return R
+    elseif rm == 1
+        return _mapreducerows_sparse!(f, op, init, spzeros(Tr, Ti, 1, n), A)
+    elseif rn == 1
+        return _mapreducecols_sparse!(f, op, init, spzeros(Tr, Ti, m, 1), A)
+    else
+        # a dimension beyond 2: every entry is a slice of its own
+        return convert(SparseMatrixCSC{Tr,Ti}, map(x -> _seed(f, op, init, x), A))
+    end
 end
 
 # `R` is a structurally empty `1 x n` sparse matrix: its columns are built in order
-function _mapreducerows_sparse!(f, op, R::AbstractSparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where T
+function _mapreducerows_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where T
     colptr = getcolptr(A)
     nzval = nonzeros(A)
     m, n = size(A)
     z = zero(eltype(R))
-    # the reduction of a column that stores nothing, stored only when it is nonzero
-    zempty = m == 0 ? z : _mapreducezeros(f, op, T, m, z)
-    store_empty = !isequal(zempty, z)
+    # the reduction of a column that stores nothing; when every column is full it is not
+    # needed and f(0) is not evaluated, since it might throw
+    zunstored = nnz(A) == m*n && m > 0 ? z : _reduce_unstored(f, op, init, T, m)
+    store_unstored = !isequal(zunstored, z)
     Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
-    nstored = store_empty ? n : count(col -> colptr[col+1] > colptr[col], 1:n)
+    nstored = store_unstored ? n : count(col -> colptr[col+1] > colptr[col], 1:n)
     resize!(Rrowval, nstored)
     fill!(Rrowval, 1)
     resize!(Rnzval, nstored)
@@ -2680,11 +2717,11 @@ function _mapreducerows_sparse!(f, op, R::AbstractSparseMatrixCSC, A::SparseMatr
     @inbounds for col in 1:n
         rng = colptr[col]:colptr[col+1]-1
         if isempty(rng)
-            store_empty || (Rcolptr[col+1] = k + 1; continue)
-            v = zempty
+            store_unstored || (Rcolptr[col+1] = k + 1; continue)
+            v = zunstored
         else
-            r = z
-            @simd for j in rng
+            r = _seed(f, op, init, nzval[first(rng)])
+            @simd for j in first(rng)+1:last(rng)
                 r = op(r, f(nzval[j]))
             end
             v = _mapreducezeros(f, op, T, m - length(rng), r)
@@ -2696,48 +2733,51 @@ function _mapreducerows_sparse!(f, op, R::AbstractSparseMatrixCSC, A::SparseMatr
     return R
 end
 
-# `R` is a structurally empty `m x 1` sparse matrix. With enough stored entries its value
-# vector serves as a dense workspace of length `m` that is then compressed in place; a
-# hypersparse `A` instead has its stored entries sorted by row so that only the rows storing
-# something are ever visited.
-function _mapreducecols_sparse!(f, op, R::AbstractSparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where T
+# `R` is a structurally empty `m x 1` sparse matrix. With enough stored entries the rows are
+# reduced in a dense workspace that is then compressed into `R`; a hypersparse `A` instead has
+# its stored entries sorted by row so that only the rows storing something are ever visited.
+function _mapreducecols_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrixCSCUnion{T}) where T
     m, n = size(A)
-    z = zero(eltype(R))
-    zempty = n == 0 ? z : _mapreducezeros(f, op, T, n, z)
-    store_empty = !isequal(zempty, z)
+    Tr = eltype(R)
+    z = zero(Tr)
+    rows = view(rowvals(A), _storedrange(A))
+    vals = view(nonzeros(A), _storedrange(A))
+    nz = length(rows)
+    zunstored = nz == m*n && n > 0 ? z : _reduce_unstored(f, op, init, T, n)
+    store_unstored = !isequal(zunstored, z)
     Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
-    resize!(Rrowval, 0)
-    resize!(Rnzval, 0)
-    if store_empty || 8 * nnz(A) >= m
-        resize!(Rnzval, m)
-        fill!(Rnzval, z)
-        _mapreducecols!(f, op, Rnzval, A)
-        resize!(Rrowval, m)
-        if store_empty
-            Rrowval .= 1:m
-        else
-            k = 0
-            @inbounds for i in 1:m
-                w = Rnzval[i]
-                if !isequal(w, z)
-                    k += 1
-                    Rrowval[k] = i
-                    Rnzval[k] = w
-                end
-            end
-            resize!(Rrowval, k)
-            resize!(Rnzval, k)
+    if store_unstored || 8 * nz >= m
+        W = Vector{Tr}(undef, m)
+        cnt = zeros(Int, m)   # stored entries seen in each row
+        @inbounds for j in eachindex(rows, vals)
+            i = rows[j]
+            W[i] = cnt[i] == 0 ? _seed(f, op, init, vals[j]) : op(W[i], f(vals[j]))
+            cnt[i] += 1
         end
+        resize!(Rrowval, m)
+        resize!(Rnzval, m)
+        k = 0
+        @inbounds for i in 1:m
+            if cnt[i] > 0
+                k += 1
+                Rrowval[k] = i
+                Rnzval[k] = _mapreducezeros(f, op, T, n - cnt[i], W[i])
+            elseif store_unstored
+                k += 1
+                Rrowval[k] = i
+                Rnzval[k] = zunstored
+            end
+        end
+        resize!(Rrowval, k)
+        resize!(Rnzval, k)
     else
-        rows = view(rowvals(A), _storedrange(A))
-        vals = view(nonzeros(A), _storedrange(A))
         perm = sortperm(rows; alg=Base.Sort.DEFAULT_STABLE)   # keeps each row's entries in column order
         s = 1
-        @inbounds while s <= length(perm)
+        @inbounds while s <= nz
             row = rows[perm[s]]
-            r = op(z, f(vals[perm[s]]))
+            r = _seed(f, op, init, vals[perm[s]])
             t = s + 1
-            while t <= length(perm) && rows[perm[t]] == row
+            while t <= nz && rows[perm[t]] == row
                 r = op(r, f(vals[perm[t]]))
                 t += 1
             end

@@ -227,10 +227,10 @@ manipulate the values or the structure in the dense vectors `(I,J,V)`, and then 
 the sparse matrix.
 
 Reductions along a dimension, such as `sum(S; dims = 2)`, return a dense `Matrix`, as for dense
-input. To keep the result sparse, reduce into a sparse destination: `sum!(spzeros(size(S, 1), 1), S)`
-stores an entry only for the rows of `S` that store one, at a cost proportional to the number of
-stored entries rather than to the number of rows. `Base.mapreducedim!` and the other in-place
-reductions accept a sparse destination in the same way.
+input. To keep the result sparse, pass `sparse = true`: `sum(S; dims = 2, sparse = true)` stores an
+entry only for the rows of `S` that store one, at a cost proportional to the number of stored
+entries rather than to the number of rows. `prod`, `maximum`, `minimum`, `count`, `any`, `all` and
+`mapreduce` accept the keyword in the same way.
 
 ### [Broadcasting and `map`](@id man-sparse-broadcast)
 

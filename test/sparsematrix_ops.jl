@@ -614,14 +614,14 @@ end
     @test B ≈ mapreduce(identity, +, Matrix(A), dims=2)
 end
 
-@testset "reductions along a dimension: dense by default, sparse into a sparse destination (#43), column views (#377)" begin
+@testset "reductions along a dimension: dense by default, sparse with `sparse = true` (#43), column views (#377)" begin
     reductions = (   # (f, op); the last two have f(0) != 0
         (identity, +), (identity, *), (identity, max), (identity, min), (abs2, +),
         (x -> x > 0.5, +), (x -> x > 0.5, |), (x -> x >= 0, &), (x -> x + 1, +), (x -> x + 1, *),
     )
     @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (1, 9), (9, 1), (30, 20)),
                                                  d in (0.0, 0.2, 1.0)
-        A = sprand(m, n, d)
+        A = sparse(sprand(m, n, d) .- 0.5)   # negative entries, so that max and min do not see 0 as a bound
         M = Matrix(A)
         V = view(A, :, (n + 1) ÷ 2:n)   # a view of a column range reduces like its copy (#377)
         C = A[:, (n + 1) ÷ 2:n]
@@ -632,48 +632,81 @@ end
             @test r isa Matrix && r ≈ rd
             rv, rc = mapreduce(f, op, V; dims), mapreduce(f, op, C; dims)
             @test typeof(rv) == typeof(rc) && isequal(rv, rc)
-            # opt-in: reduce into a sparse destination
+            # opt-in: the sparse result has the element type and values of the dense one
             T = eltype(rd)
-            rs = Base.mapreducedim!(f, op, spzeros(T, size(rd)...), A)
-            @test rs isa SparseMatrixCSC{T} && rs ≈ Base.mapreducedim!(f, op, zeros(T, size(rd)...), M)
+            rs = mapreduce(f, op, A; dims, sparse = true)
+            @test rs isa SparseMatrixCSC{T} && rs ≈ rd
+            rvs = mapreduce(f, op, V; dims, sparse = true)
+            @test rvs isa SparseMatrixCSC{T} && rvs ≈ mapreduce(f, op, Matrix(C); dims)
         end
+        for dims in (1, 2)
+            @test sum(A; dims, sparse = true) ≈ sum(M; dims)
+            @test sum(abs, V; dims, sparse = true) ≈ sum(abs, Matrix(C); dims)
+            @test prod(A; dims, sparse = true) ≈ prod(M; dims)
+            @test maximum(A; dims, sparse = true) == maximum(M; dims)
+            @test minimum(abs2, A; dims, sparse = true) == minimum(abs2, M; dims)
+            @test sum(A; dims, init = 2.5, sparse = true) ≈ sum(M; dims, init = 2.5)
+            @test mapreduce(abs, (x, y) -> x + y, A; dims, init = 1.5, sparse = true) ≈
+                  mapreduce(abs, (x, y) -> x + y, M; dims, init = 1.5)
+            @test count(>(0), A; dims, sparse = true) == count(>(0), M; dims)
+            @test count(A .> 0; dims, sparse = true) == count(M .> 0; dims)
+            @test count(A .> 0; dims, init = 3, sparse = true) == count(M .> 0; dims, init = 3)
+            @test any(>(0), A; dims, sparse = true) == any(>(0), M; dims)
+            @test any(A .> 0; dims, sparse = true) == any(M .> 0; dims)
+            @test all(<(0.4), A; dims, sparse = true) == all(<(0.4), M; dims)
+            @test all(A .< 0.4; dims, sparse = true) == all(M .< 0.4; dims)
+            for r in (count(>(0), A; dims, sparse = true), any(A .> 0; dims, sparse = true), all(A .< 0.4; dims, sparse = true))
+                @test r isa SparseMatrixCSC
+            end
+            # the default result and the scalar reductions are unchanged
+            @test sum(A; dims) isa Matrix{Float64} && count(A .> 0; dims) isa Matrix{Int} && any(A .> 0; dims) isa Matrix{Bool}
+        end
+        @test sum(A) ≈ sum(M) && count(>(0), A) == count(>(0), M) && any(A .> 0) == any(M .> 0) && all(A .< 0.4) == all(M .< 0.4)
+        @test_throws ArgumentError sum(A; sparse = true)
     end
-    # only rows and columns that store something get an entry, unless a structurally empty
-    # slice reduces to something nonzero
+    # only rows and columns that store something get an entry, unless a slice that stores
+    # nothing reduces to something nonzero
     A = sparse([1, 2], [1, 1], [-1.0, 1.0], 4, 3)
-    @test nnz(sum!(spzeros(1, 3), A)) == 1   # a stored, cancelled zero
-    @test nnz(sum!(spzeros(4, 1), A)) == 2
-    @test nnz(Base.mapreducedim!(x -> x + 1, +, spzeros(4, 1), A)) == 4
-    @test sum!(spzeros(4, 1), A) == sum(Matrix(A); dims = 2)
-    for (m, n) in ((0, 4), (4, 0), (0, 0)), dims in (1, 2)
+    @test nnz(sum(A; dims = 1, sparse = true)) == 1   # a stored, cancelled zero
+    @test nnz(sum(A; dims = 2, sparse = true)) == 2
+    @test nnz(sum(x -> x + 1, A; dims = 2, sparse = true)) == 4
+    @test nnz(sum(A; dims = 2, init = 1.0, sparse = true)) == 4
+    @test nnz(prod(A; dims = 1, sparse = true)) == 1   # the product of an unstored column is 0
+    @test sum(A; dims = 2, sparse = true) == sum(Matrix(A); dims = 2)
+    # the element type is that of the dense result
+    @test sum(sparse(Int8[1 2; 3 4]); dims = 1, sparse = true) isa SparseMatrixCSC{Int}
+    @test sum(sparse([true false]); dims = 2, sparse = true) isa SparseMatrixCSC{Int}
+    @test maximum(sparse(Int8[1 2; 3 4]); dims = 1, sparse = true) isa SparseMatrixCSC{Int8}
+    @test sum(sparse(Int8[1 2; 3 4]); dims = 1, init = Int8(1), sparse = true) isa SparseMatrixCSC{Int8}
+    # empty dimensions
+    for (m, n) in ((0, 4), (4, 0), (0, 0)), dims in (1, 2, (1, 2))
         A = spzeros(m, n)
         @test sum(A; dims) == sum(Matrix(A); dims)
-        @test sum!(spzeros(size(sum(A; dims))...), A) == sum(Matrix(A); dims)
+        @test sum(A; dims, sparse = true) == sum(Matrix(A); dims)
+        @test prod(A; dims, sparse = true) == prod(Matrix(A); dims)
+        @test sum(x -> x + 1, A; dims, sparse = true) == sum(x -> x + 1, Matrix(A); dims)
+        @test all(A .> 0; dims, sparse = true) == all(Matrix(A) .> 0; dims)
+        md = try maximum(Matrix(A); dims) catch err; err end   # throws over an empty axis
+        if md isa ArgumentError
+            @test_throws ArgumentError maximum(A; dims, sparse = true)
+        else
+            @test maximum(A; dims, sparse = true) == md
+        end
     end
+    @test_throws ArgumentError sum(spzeros(3, 3); dims = 0, sparse = true)
     # hypersparse: only the rows that store something are visited
     A = sparse([5, 10^6, 5], [1, 2, 3], [1.0, 2.0, 3.0], 10^6, 3)
-    r = sum!(spzeros(10^6, 1), A)
+    r = sum(A; dims = 2, sparse = true)
     @test nnz(r) == 2 && r[5] == 4.0 && r[10^6] == 2.0
-    @test nnz(sum!(spzeros(1, 3), A)) == 3
-    R = spzeros(10^6, 1)
-    sum!(R, A)
-    @test (@allocated sum!(R, A)) < 2^12
+    @test maximum(A; dims = 2, sparse = true) == maximum(Matrix(A); dims = 2)
+    @test nnz(sum(A; dims = 1, sparse = true)) == 3
+    sum(A; dims = 2, sparse = true)
+    @test (@allocated sum(A; dims = 2, sparse = true)) < 2^12
     # a column-range view goes through the sparse kernels, not the element-wise fallback (#377)
     V = view(A, :, 2:3)
     @test (@which Base._mapreducedim!(identity, +, zeros(10^6, 1), V)).module == SparseArrays
     @test (@which Base._mapreduce(identity, +, IndexCartesian(), V)).module == SparseArrays
-    # `sum!` resets its destination first, as for dense; `mapreducedim!` folds into whatever
-    # it already stores
-    A = sprand(8, 6, 0.4); M = Matrix(A)
-    @test sum!(spzeros(8, 1), A) ≈ sum(M; dims = 2)
-    @test sum!(spzeros(1, 6), A) ≈ sum(M; dims = 1)
-    @test maximum!(spzeros(8, 1), A) == maximum(M; dims = 2)
-    R = sparse([2], [1], [1.0], 8, 1)   # partially stored
-    @test Base.mapreducedim!(identity, +, R, A) ≈ sum(M; dims = 2) .+ [0; 1; 0; 0; 0; 0; 0; 0]
-    R = sparse(ones(8, 1))              # fully stored
-    @test Base.mapreducedim!(identity, +, R, A) ≈ sum(M; dims = 2) .+ 1
-    R = sparse(ones(1, 6))
-    @test Base.mapreducedim!(identity, +, R, A) ≈ sum(M; dims = 1) .+ 1
+    @test nnz(sum(V; dims = 2, sparse = true)) == 2
 end
 
 @testset "oneunit of sparse matrix" begin
