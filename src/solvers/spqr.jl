@@ -480,8 +480,7 @@ end
 
 function (\)(F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
     X = similar(B, ntuple(i -> i == 1 ? size(F, 2) : size(B, 2), Val(ndims(B))))
-    # Note that we copy F here for thread-safety
-    return ldiv!(X, copy(F), B)
+    return ldiv!(X, F, B)
 end
 
 """
@@ -590,8 +589,7 @@ end
 
 function (\)(Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T}) where {T}
     X = similar(B, ntuple(i -> i == 1 ? size(Fadj, 2) : size(B, 2), Val(ndims(B))))
-    # Note that we copy the parent factorization here for thread-safety
-    return ldiv!(X, adjoint(copy(parent(Fadj))), B)
+    return ldiv!(X, Fadj, B)
 end
 
 """
