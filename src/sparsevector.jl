@@ -665,20 +665,14 @@ end
 _splice_source(src::AbstractVector, ::Type{Ti}, ::Type{Tv}) where {Ti,Tv} =
     _splice_source(sparsevec(src), Ti, Tv)
 
-# a fixed parent keeps its pattern, so its views are assigned element-wise
-function _copyto_elementwise!(dest::AbstractVector, src::AbstractVector)
-    for i in eachindex(src)
-        dest[i] = src[i]
-    end
-    return dest
-end
-
-# replace the stored entries at positions `k1:k2` of `inds`/`vals` by the given ones
-function _splice_entries!(inds::AbstractVector, vals::AbstractVector, k1::Integer, k2::Integer,
-                          newinds::AbstractVector, newvals::AbstractVector)
-    if k2 - k1 + 1 == length(newinds)
-        copyto!(inds, k1, newinds)
+# replace the stored entries at positions `k1:k2` of `inds`/`vals` by the given ones; the
+# pattern of a fixed parent is read-only, so only matching entries may be written
+function _splice_entries!(x::AbstractSparseArray, inds::AbstractVector, vals::AbstractVector,
+                          k1::Integer, k2::Integer, newinds::AbstractVector, newvals::AbstractVector)
+    if k2 - k1 + 1 == length(newinds) && view(inds, k1:k2) == newinds
         copyto!(vals, k1, newvals)
+    elseif _is_fixed(x)
+        throw(ArgumentError("cannot change the pattern of a $(typeof(x)); copy into an unfixed copy instead"))
     else
         splice!(inds, k1:k2, newinds)
         splice!(vals, k1:k2, newvals)
@@ -688,7 +682,6 @@ end
 
 function copyto!(dest::SparseColumnView{Tv,Ti}, src::AbstractVector) where {Tv,Ti}
     A = parent(dest)
-    _is_fixed(A) && return _copyto_elementwise!(dest, src)
     lB = length(src)
     lB <= length(dest) || throw(BoundsError(dest, lB))
     lB == 0 && return dest
@@ -697,7 +690,7 @@ function copyto!(dest::SparseColumnView{Tv,Ti}, src::AbstractVector) where {Tv,T
     rng = nzrange(A, col)
     k1 = first(rng)
     k2 = searchsortedlast(view(rowvals(A), rng), lB) + k1 - 1   # last entry with row <= lB
-    delta = _splice_entries!(rowvals(A), nonzeros(A), k1, k2, newinds, newvals)
+    delta = _splice_entries!(A, rowvals(A), nonzeros(A), k1, k2, newinds, newvals)
     if delta != 0
         colptr = getcolptr(A)
         @inbounds for c in col+1:length(colptr)
@@ -711,7 +704,6 @@ copyto!(dest::SparseVectorView, src::AbstractVector) = (copyto!(parent(dest), sr
 
 function copyto!(dest::SparseVectorPartialView{Tv,Ti}, src::AbstractVector) where {Tv,Ti}
     x = parent(dest)
-    _is_fixed(x) && return _copyto_elementwise!(dest, src)
     lB = length(src)
     lB <= length(dest) || throw(BoundsError(dest, lB))
     lB == 0 && return dest
@@ -721,7 +713,7 @@ function copyto!(dest::SparseVectorPartialView{Tv,Ti}, src::AbstractVector) wher
     nzind = nonzeroinds(x)
     k1 = searchsortedfirst(nzind, lo)
     k2 = searchsortedlast(nzind, lo + lB - 1)
-    _splice_entries!(nzind, nonzeros(x), k1, k2, newinds, newvals)
+    _splice_entries!(x, nzind, nonzeros(x), k1, k2, newinds, newvals)
     return dest
 end
 

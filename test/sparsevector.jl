@@ -544,6 +544,10 @@ end
         A = sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)
         copyto!(view(A, :, 1), SparseVector(3, [2], [0.0])) # stored zeros stay stored
         @test nnz(A) == 1 && A == spzeros(3, 2)
+        Af = SparseArrays.FixedSparseCSC(sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)) # a fixed parent takes a matching pattern only
+        copyto!(view(Af, :, 1), sparsevec([1, 2], [3.0, 4.0], 3))
+        @test_throws ArgumentError copyto!(view(Af, :, 1), sparsevec([2], [5.0], 3))
+        @test nonzeros(Af) == [3.0, 4.0]
         @test_throws BoundsError copyto!(view(A, :, 1), sparsevec([1.0, 2, 3, 4]))
         @test nnz(A) == 1 && A == spzeros(3, 2)
         # #401: the fallback cost O(length(column)); the splice costs the entries moved
