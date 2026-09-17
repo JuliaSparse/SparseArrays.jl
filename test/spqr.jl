@@ -137,7 +137,7 @@ end
     for X in (B, sparse(B')', view(B, :, 1:2), sprandn(T, k, 3, 0.5))
         @test (Q * X)::Matrix ≈ Q * Matrix(X)
     end
-    for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), transpose(b), sprandn(T, 3, k, 0.5))
+    for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', sprandn(T, 3, k, 0.5))
         @test (X * Q')::Matrix ≈ Matrix(X) * Q'
     end
     @test (Q' * B)::Matrix ≈ Q' * Matrix(B)

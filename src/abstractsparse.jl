@@ -86,9 +86,9 @@ const SparseMatrixCSCSymmHerm{Tv,Ti} = HermOrSym{Tv,<:SparseMatrixCSCOrView{Tv,T
 const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 # Sparse operands that a Q multiplies through a dense copy: Q is dense in general, so
 # applying it to a dense copy of the operand is cheaper than materializing Q or a sparse
-# transpose of the operand. Matrix operands, including adjoints, transposes and column-range
-# views, and a transposed sparse vector as a one-row matrix; and vector operands.
-const SparseQMatOperand = Union{SparseMatrixCSCMaybeAdjOrTrans, SparseMatrixCSCView, Transpose{<:Any,<:SparseVectorOrView}}
+# transpose of the operand. Sparse matrices and their views, with or without an adjoint or
+# transpose; and sparse vectors and their views.
+const SparseQMatOperand = Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}}
 const SparseQVecOperand = Union{AbstractSparseVector, SparseVectorOrView, SparseVectorPartialView}
 
 # Former names of the above, not used here but relied on by downstream packages together
