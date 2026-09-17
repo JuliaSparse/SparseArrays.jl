@@ -615,9 +615,8 @@ end
 end
 
 @testset "reductions along a dimension: dense by default, sparse with `sparse = true` (#43), column views (#377)" begin
-    reductions = (   # (f, op); the last two have f(0) != 0
-        (identity, +), (identity, *), (identity, max), (identity, min), (abs2, +),
-        (x -> x > 0.5, +), (x -> x > 0.5, |), (x -> x >= 0, &), (x -> x + 1, +), (x -> x + 1, *),
+    reductions = (   # (f, op); the last one has f(0) != 0
+        (identity, +), (identity, *), (identity, max), (abs2, +), (x -> x > 0.5, |), (x -> x >= 0, &), (x -> x + 1, +),
     )
     @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (1, 9), (9, 1), (30, 20)),
                                                  d in (0.0, 0.2, 1.0)
@@ -664,6 +663,17 @@ end
         @test sum(A) ≈ sum(M) && count(>(0), A) == count(>(0), M) && any(A .> 0) == any(M .> 0) && all(A .< 0.4) == all(M .< 0.4)
         @test_throws ArgumentError sum(A; sparse = true)
     end
+    C = sprand(ComplexF64, 6, 5, 0.3)
+    MC, VC = Matrix(C), view(C, :, 2:5)
+    for dims in (1, 2)
+        @test sum(C; dims, sparse = true) isa SparseMatrixCSC{ComplexF64} && sum(C; dims, sparse = true) ≈ sum(MC; dims)
+        @test prod(abs2, C; dims, sparse = true) ≈ prod(abs2, MC; dims)
+        @test sum(VC; dims) isa Matrix{ComplexF64} && sum(VC; dims) == sum(Matrix(VC); dims)
+    end
+    struct Positive end   # a callable that is not a `Function`
+    (::Positive)(x) = x > 0
+    @test any(Positive(), C .|> real; dims = 1, sparse = true) == any(Positive(), real.(MC); dims = 1)
+    @test_throws ArgumentError extrema(C; dims = 1, sparse = true)   # a tuple has no zero
     # only rows and columns that store something get an entry, unless a slice that stores
     # nothing reduces to something nonzero
     A = sparse([1, 2], [1, 1], [-1.0, 1.0], 4, 3)

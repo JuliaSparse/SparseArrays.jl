@@ -2639,9 +2639,9 @@ end
 # and the other reductions along a dimension return a `SparseMatrixCSC` that stores an entry
 # only for the rows or columns of `A` that store one (all of them when a slice that stores
 # nothing reduces to something nonzero, as for `f(0) != 0`), in time proportional to
-# nnz(A) + length(result) rather than to length(A). Base's `sum`, `prod`, `maximum`, `minimum`
-# and `extrema` forward unknown keywords to `mapreduce`, so this method serves them all;
-# `any`, `all` and `count` do not and get their own methods below.
+# nnz(A) + length(result) rather than to length(A). Base's `sum`, `prod`, `maximum` and
+# `minimum` forward unknown keywords to `mapreduce`, so this method serves them all; `any`,
+# `all` and `count` do not and get their own methods below.
 function Base.mapreduce(f, op, A::SparseMatrixCSCUnion; dims=:, init=Base._InitialValue(), sparse::Bool=false)
     sparse || return Base._mapreduce_dim(f, op, init, A, dims)
     dims === (:) && throw(ArgumentError("a sparse result needs a reduction along a dimension, pass `dims`"))
@@ -2650,7 +2650,7 @@ end
 for (fname, _fname, op) in ((:any, :_any, :(Base.or_any)), (:all, :_all, :(Base.and_all)))
     @eval begin
         Base.$fname(A::SparseMatrixCSCUnion; dims=:, sparse::Bool=false) = Base.$fname(identity, A; dims, sparse)
-        Base.$fname(f::Function, A::SparseMatrixCSCUnion; dims=:, sparse::Bool=false) =
+        Base.$fname(f, A::SparseMatrixCSCUnion; dims=:, sparse::Bool=false) =
             sparse ? mapreduce(f, $op, A; dims, sparse) : Base.$_fname(f, A, dims)
     end
 end
@@ -2663,7 +2663,8 @@ Base.count(f, A::SparseMatrixCSCUnion; dims=:, init=0, sparse::Bool=false) =
 # store folded in through `_mapreducezeros`.
 _seed(f, op, ::Base._InitialValue, x) = Base.mapreduce_first(f, op, x)
 _seed(f, op, init, x) = op(init, f(x))
-# element type of the dense result, taken from Base's initialization of a 1 x 1 stand-in
+# element type of the dense result, taken from Base's initialization of a 1 x 1 stand-in,
+# which evaluates f(0) as Base does
 _reduced_eltype(f, op, ::Base._InitialValue, ::Type{T}) where T =
     eltype(Base.reducedim_init(f, op, fill(zero(T), 1, 1), 1))
 _reduced_eltype(f, op, init, ::Type{T}) where T = typeof(init)
@@ -2679,6 +2680,8 @@ function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCUnion{T,Ti}, dims)
     m, n = size(A)
     rm, rn = map(length, Base.reduced_indices(A, dims))   # also validates `dims`
     Tr = _reduced_eltype(f, op, init, T)
+    applicable(zero, Tr) || throw(ArgumentError("cannot store a sparse result of element type $Tr, " *
+        "which has no zero (as for `extrema`); reduce without `sparse = true`"))
     if rm == rn == 1
         R = spzeros(Tr, Ti, 1, 1)
         v = isempty(A) ? _reduced_empty(f, op, init, T) : _seed(identity, op, init, mapreduce(f, op, A))
