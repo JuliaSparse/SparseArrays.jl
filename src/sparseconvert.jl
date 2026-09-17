@@ -277,13 +277,12 @@ end
 
 function _sparse_copyto!(dest::AbstractMatrix, src::SparseMatrixCSCOrView)
     (dest === src || isempty(src)) && return dest
-    z = convert(eltype(dest), zero(eltype(src))) # should throw if not possible
     isrc = LinearIndices(src)
     checkbounds(dest, isrc)
-    # If src is not dense, zero out the portion of dest spanned by isrc
-    if length(src) > nnz(src)
-        for i in isrc
-            @inbounds dest[i] = z
+    if length(src) > nnz(src)   # zero the part of dest spanned by src unless src is structurally dense
+        z = convert(eltype(dest), zero(eltype(src)))
+        @inbounds for i in isrc
+            dest[i] = z
         end
     end
     @inbounds for col in axes(src, 2), ptr in nzrange(src, col)
@@ -294,10 +293,10 @@ end
 
 function _sparse_copyto!(dest::AbstractVector, src::Union{AbstractSparseVector,SparseVectorOrView,SparseVectorPartialView})
     isempty(src) && return dest
-    z = convert(eltype(dest), zero(eltype(src)))
     isrc = LinearIndices(src)
     checkbounds(dest, isrc)
     if length(src) > nnz(src)
+        z = convert(eltype(dest), zero(eltype(src)))
         @inbounds for i in isrc
             dest[i] = z
         end
@@ -311,10 +310,10 @@ end
 function _sparse_copyto!(dest::AbstractMatrix, src::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
     P, op = parent(src), wrapperop(src)
     isempty(P) && return dest
-    z = convert(eltype(dest), zero(eltype(src)))
     isrc = LinearIndices(src)
     checkbounds(dest, isrc)
     if length(P) > nnz(P)
+        z = convert(eltype(dest), op(zero(eltype(P))))
         @inbounds for i in isrc
             dest[i] = z
         end
@@ -328,10 +327,10 @@ end
 function _sparse_copyto!(dest::AbstractMatrix, src::AdjOrTransSparseVectorOrView)
     p, op = parent(src), wrapperop(src)
     isempty(p) && return dest
-    z = convert(eltype(dest), zero(eltype(src)))
     isrc = LinearIndices(src)
     checkbounds(dest, isrc)
     if length(p) > nnz(p)
+        z = convert(eltype(dest), op(zero(eltype(p))))
         @inbounds for i in isrc
             dest[i] = z
         end
