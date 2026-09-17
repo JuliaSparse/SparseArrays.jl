@@ -655,11 +655,10 @@ copyto!(A::AbstractSparseMatrixCSC, B::AbstractCompressedVector{TvB,TiB}) where 
 
 # Copying into a view of a sparse array replaces the parent's stored entries in the covered
 # index range by those of the source in one splice.
-const _SparseVectorSource = Union{SparseVectorOrView, SparseVectorPartialView}
 
 # `src` as stored indices and values, materialized so that they cannot alias the parent
 # being spliced into; a dense source is compressed first
-function _splice_source(src::_SparseVectorSource, ::Type{Ti}, ::Type{Tv}) where {Ti,Tv}
+function _splice_source(src::Union{SparseVectorOrView,SparseVectorPartialView}, ::Type{Ti}, ::Type{Tv}) where {Ti,Tv}
     return Vector{Ti}(nonzeroinds(src)), Vector{Tv}(nonzeros(src))
 end
 _splice_source(src::AbstractVector, ::Type{Ti}, ::Type{Tv}) where {Ti,Tv} =
