@@ -649,6 +649,7 @@ end
 
 # Faster version for non-abstract Array and SparseMatrixCSC
 function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
+    _checkbuffers(S)
     isempty(S) && return A
     length(A) < length(S) && throw(BoundsError())
 
@@ -958,15 +959,6 @@ function sparse_with_lmul(Tv, Ti, Q)
     end
     return SparseMatrixCSC{Tv,Ti}(size(Q)..., colptr, rowval, nzval)
 end
-
-# converting from AbstractSparseMatrixCSC to other matrix types
-function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
-    _checkbuffers(S)
-    A = Matrix{Tv}(undef, size(S, 1), size(S, 2))
-    copyto!(A, S)
-    return A
-end
-Array(S::AbstractSparseMatrixCSC) = Matrix(S)
 
 convert(T::Type{<:AbstractSparseMatrixCSC}, m::AbstractMatrix) = m isa T ? m : T(m)
 

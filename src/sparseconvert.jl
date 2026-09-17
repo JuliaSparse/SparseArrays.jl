@@ -276,6 +276,7 @@ end
 ## `Matrix(view(A, :, r))` and `Vector(view(A, :, j))` all reach these kernels.
 
 function _sparse_copyto!(dest::AbstractMatrix, src::SparseMatrixCSCOrView)
+    _checkbuffers(parent(src))
     (dest === src || isempty(src)) && return dest
     isrc = LinearIndices(src)
     checkbounds(dest, isrc)
@@ -309,6 +310,7 @@ end
 
 function _sparse_copyto!(dest::AbstractMatrix, src::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
     P, op = parent(src), wrapperop(src)
+    _checkbuffers(P)
     isempty(P) && return dest
     isrc = LinearIndices(src)
     checkbounds(dest, isrc)
