@@ -2,6 +2,7 @@
 
 module SPQRTests
 using Test
+using InteractiveUtils: @which
 
 @static if !Base.USE_GPL_LIBS
     @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping SPQR Tests"
@@ -9,7 +10,7 @@ else
 
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
-using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, ldiv!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
+using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
@@ -33,6 +34,13 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
 
     F = qr(A)
     @test size(F) == (m,n)
+    # qr of an adjoint or transpose factorizes the sparse transpose with SPQR
+    for X in (A', transpose(A))
+        @test (@which qr(X)).module == SPQR
+        G = qr(X; tol = 1e-3)
+        @test G isa SPQR.QRSparse{eltyA, iltyA} && size(G) == (n, m)
+        @test G.Q * G.R ≈ Matrix(X)[G.prow, G.pcol]
+    end
     @test size(F, 1) == m
     @test size(F, 2) == n
     @test size(F, 3) == 1
@@ -93,6 +101,25 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test transpose(C)\y ≈ transpose(Array(C))\y
     end
 
+    @testset "lq (#114)" begin
+        W = A[1:9, :]   # wide
+        F = lq(W)
+        @test F isa SPQR.AdjointQRSparse{eltyA} && size(F) == size(W)
+        @test F.L isa SparseMatrixCSC{eltyA, iltyA} && istril(F.L)
+        @test F.L * F.Q ≈ Matrix(W)[F.prow, F.pcol]
+        @test rank(F) == 9 && propertynames(F) == (:L, :Q, :prow, :pcol)
+        @test F' isa SPQR.QRSparse{eltyA, iltyA}
+        @test occursin("L factor", sprint(show, MIME"text/plain"(), F))
+        b = eltyA <: Real ? randn(9, 2) : complex.(randn(9, 2), randn(9, 2))
+        @test F \ b ≈ Matrix(W) \ b   # the minimum-norm solution, as for dense lq
+        @test F \ b[:, 1] ≈ Matrix(W) \ b[:, 1]
+        @test lq(W; tol = 1e-3) \ b ≈ Matrix(W) \ b
+        @test_throws DimensionMismatch lq(A) \ ones(eltyA, m)   # overdetermined, as for dense lq
+        c = eltyA <: Real ? randn(n) : complex.(randn(n), randn(n))
+        @test lq(A') \ c ≈ Matrix(A') \ c   # reuses qr(A)
+        eltyA <: Real && @test lq(transpose(A)) \ c ≈ Matrix(A') \ c
+    end
+
     # Make sure that conversion to Sparse doesn't use SuiteSparse's symmetric flag
     @test qr(SparseMatrixCSC{eltyA}(I, 5, 5)) \ fill(eltyA(1), 5) == fill(1, 5)
 end
@@ -114,6 +141,15 @@ end
     @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
     @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
     @test (sparse(I, 2, 2) * qr(A).Q)::Matrix == sparse(qr(A).Q) == sparse(I, 2, 2)
+end
+
+@testset "thin Q products when SPQR stores fewer reflectors than columns" begin
+    A = sparse([1:9; 3], [1:9; 5], randn(10), 10, 9)
+    F = qr(A)
+    @test size(F.Q.factors, 2) < size(A, 2)
+    @test F.Q * F.R ≈ A[F.prow, F.pcol]
+    @test F.Q * F.R[:, 1] ≈ A[F.prow, F.pcol][:, 1]
+    @test Matrix(F.R)' * F.Q' ≈ A[F.prow, F.pcol]'
 end
 
 @testset "Issue 26368" begin

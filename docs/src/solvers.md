@@ -14,12 +14,14 @@ The following factorizations are available:
 2. [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt)
 3. [`lu`](@ref SparseArrays.UMFPACK.lu)
 4. [`qr`](@ref SparseArrays.SPQR.qr)
+5. [`lq`](@ref SparseArrays.SPQR.lq)
 
 | Type                  | Description                                   |
 |:----------------------|:--------------------------------------------- |
 | `CHOLMOD.Factor`      | Cholesky and LDLt factorizations              |
 | `UMFPACK.UmfpackLU`   | LU factorization                              |
 | `SPQR.QRSparse`       | QR factorization                              |
+| `SPQR.AdjointQRSparse` | LQ factorization, the adjoint of a QR factorization |
 
 
 ```@docs; canonical=false
@@ -31,6 +33,7 @@ SparseArrays.CHOLMOD.lowrankupdowndate!
 SparseArrays.CHOLMOD.ldlt
 SparseArrays.CHOLMOD.rcond
 SparseArrays.SPQR.qr
+SparseArrays.SPQR.lq
 Base.:\(::SparseArrays.SPQR.QRSparse, ::StridedVecOrMat)
 Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::StridedVecOrMat)
 SparseArrays.UMFPACK.lu
