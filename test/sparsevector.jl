@@ -545,7 +545,8 @@ end
         A = sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)
         copyto!(view(A, :, 1), SparseVector(3, [2], [0.0])) # stored zeros stay stored
         @test nnz(A) == 1 && A == spzeros(3, 2)
-        @test_throws BoundsError copyto!(view(spzeros(3, 3), :, 1), sparsevec([1.0, 2, 3, 4]))
+        @test_throws BoundsError copyto!(view(A, :, 1), sparsevec([1.0, 2, 3, 4]))
+        @test nnz(A) == 1 && A == spzeros(3, 2)
         # #401: the fallback cost O(length(column)); the splice costs the entries moved
         A = sprand(10^6, 3, 1e-6); s = sparsevec([10], [1.0], 10^6)
         copyto!(view(A, :, 2), s)

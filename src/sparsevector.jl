@@ -653,11 +653,9 @@ end
 copyto!(A::AbstractSparseMatrixCSC, B::AbstractCompressedVector{TvB,TiB}) where {TvB,TiB} =
     copyto!(A, SparseMatrixCSC{TvB,TiB}(length(B), 1, TiB[1, length(nonzeroinds(B))+1], nonzeroinds(B), nonzeros(B)))
 
-# Copying into a view of a sparse array (issue #401): the generic fallback assigns every
-# element through `setindex!`, which is O(nnz) per insertion. Instead, the stored entries
-# of the parent that fall in the covered index range are replaced in one splice by those
-# of the source, so the cost is proportional to the stored entries moved.
-const _SparseVectorSource = Union{SparseVectorUnion, SparseVectorPartialView}
+# Copying into a view of a sparse array replaces the parent's stored entries in the covered
+# index range by those of the source in one splice.
+const _SparseVectorSource = Union{SparseVectorOrView, SparseVectorPartialView}
 
 # `src` as stored indices and values, materialized so that they cannot alias the parent
 # being spliced into; a dense source is compressed first
@@ -666,6 +664,14 @@ function _splice_source(src::_SparseVectorSource, ::Type{Ti}, ::Type{Tv}) where 
 end
 _splice_source(src::AbstractVector, ::Type{Ti}, ::Type{Tv}) where {Ti,Tv} =
     _splice_source(sparsevec(src), Ti, Tv)
+
+# a fixed parent keeps its pattern, so its views are assigned element-wise
+function _copyto_elementwise!(dest::AbstractVector, src::AbstractVector)
+    for i in eachindex(src)
+        dest[i] = src[i]
+    end
+    return dest
+end
 
 # replace the stored entries at positions `k1:k2` of `inds`/`vals` by the given ones
 function _splice_entries!(inds::AbstractVector, vals::AbstractVector, k1::Integer, k2::Integer,
@@ -682,7 +688,7 @@ end
 
 function copyto!(dest::SparseColumnView{Tv,Ti}, src::AbstractVector) where {Tv,Ti}
     A = parent(dest)
-    _is_fixed(A) && return invoke(copyto!, Tuple{AbstractArray,AbstractArray}, dest, src)
+    _is_fixed(A) && return _copyto_elementwise!(dest, src)
     lB = length(src)
     lB <= length(dest) || throw(BoundsError(dest, lB))
     lB == 0 && return dest
@@ -705,11 +711,11 @@ copyto!(dest::SparseVectorView, src::AbstractVector) = (copyto!(parent(dest), sr
 
 function copyto!(dest::SparseVectorPartialView{Tv,Ti}, src::AbstractVector) where {Tv,Ti}
     x = parent(dest)
-    _is_fixed(x) && return invoke(copyto!, Tuple{AbstractArray,AbstractArray}, dest, src)
+    _is_fixed(x) && return _copyto_elementwise!(dest, src)
     lB = length(src)
     lB <= length(dest) || throw(BoundsError(dest, lB))
     lB == 0 && return dest
-    lo = first(dest.indices[1])
+    lo = first(parentindices(dest)[1])
     newinds, newvals = _splice_source(src, Ti, Tv)
     newinds .+= lo - 1
     nzind = nonzeroinds(x)
