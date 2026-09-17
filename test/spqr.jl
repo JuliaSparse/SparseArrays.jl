@@ -123,7 +123,8 @@ end
 end
 
 @testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
-        (sprandn(27, 2, 0.8), sprandn(12, 12, 0.5), sprandn(6, 20, 0.5), sprandn(ComplexF64, 15, 4, 0.6))
+        (sprandn(27, 2, 0.8), sprandn(12, 12, 0.5), sprandn(6, 20, 0.5), sprandn(ComplexF64, 15, 4, 0.6),
+         SparseMatrixCSC{Float64,Int32}(sprandn(9, 3, 0.6)))
     m, n = size(A)
     k = min(m, n)   # the rows of R and the columns of the thin Q
     F = qr(A)
@@ -135,18 +136,20 @@ end
     B, Bthin = sprandn(T, m, 3, 0.5), sprandn(T, k, 3, 0.5)
     C, Cthin = sprandn(T, 3, m, 0.5), sprandn(T, 3, k, 0.5)
     b, bthin = sprandn(T, m, 0.5), sprandn(T, k, 0.5)
-    for X in (B, Bthin, sparse(B')', transpose(sparse(transpose(B))))
+    for X in (B, Bthin, sparse(B')', transpose(sparse(transpose(B))), view(B, :, 1:2))
         @test (Q * X)::Matrix ≈ Q * Matrix(X)
     end
     @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
     @test (Q' * sparse(B')')::Matrix ≈ Q' * Matrix(B)
-    for X in (C, Cthin, sparse(C')', transpose(sparse(transpose(C))))
+    for X in (C, Cthin, sparse(C')', transpose(sparse(transpose(C))), view(C, :, 1:m), transpose(b))
         @test (X * Q')::Matrix ≈ Matrix(X) * Q'
     end
     @test (C * Q)::Matrix ≈ Matrix(C) * Q
     @test (sparse(C')' * Q)::Matrix ≈ Matrix(C) * Q
     @test (transpose(sparse(transpose(C))) * Q)::Matrix ≈ Matrix(C) * Q
-    for x in (b, bthin)
+    @test (view(C, :, 1:m) * Q)::Matrix ≈ Matrix(C) * Q
+    @test (transpose(b) * Q)::Matrix ≈ transpose(Vector(b)) * Q
+    for x in (b, bthin, view(B, :, 1), view(b, :), view(b, 1:k))
         @test (Q * x)::Vector ≈ Q * Vector(x)
     end
     @test (Q' * b)::Vector ≈ Q' * Vector(b)

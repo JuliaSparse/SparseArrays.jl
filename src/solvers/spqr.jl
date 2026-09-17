@@ -29,7 +29,8 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix
+using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix,
+    SparseMatrixCSCMaybeAdjOrTrans, SparseMatrixCSCView, SparseVectorOrView, SparseVectorPartialView
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -377,19 +378,19 @@ function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
 end
 (*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
-# The Q of a sparse QR is a product of Householder reflectors and dense in general, so a
-# product with a sparse operand applies the reflectors to a dense copy of the operand rather
-# than materializing `Q` (issue #121). The result is a dense `Matrix` or `Vector`, as for a
-# dense operand, and the thin shapes the dense-operand methods accept are accepted here too.
-const SparseQOperand = Union{AbstractSparseMatrixCSC, LinearAlgebra.AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}
+# Q is dense in general, so apply the reflectors to a dense copy of the operand rather
+# than materialize Q. `Matrix` on a sparse wrapper or view would go through generic indexing.
+const SparseQMatOperand = Union{SparseMatrixCSCMaybeAdjOrTrans, SparseMatrixCSCView, Transpose{<:Any,<:SparseVectorOrView}}
+const SparseQVecOperand = Union{AbstractSparseVector, SparseVectorOrView, SparseVectorPartialView}
 _densecopy(B::AbstractSparseMatrixCSC) = Matrix(B)
-_densecopy(B::LinearAlgebra.AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Matrix(copy(B))
+_densecopy(B::SparseQMatOperand) = Matrix(copy(B))
 _densecopy(b::AbstractSparseVector) = Vector(b)
+_densecopy(b::SparseQVecOperand) = Vector(copy(b))
 for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
     @eval begin
-        (*)(Q::$Q, B::SparseQOperand) = Q * _densecopy(B)
-        (*)(Q::$Q, b::AbstractSparseVector) = Q * _densecopy(b)
-        (*)(A::SparseQOperand, Q::$Q) = _densecopy(A) * Q
+        (*)(Q::$Q, B::SparseQMatOperand) = Q * _densecopy(B)
+        (*)(Q::$Q, b::SparseQVecOperand) = Q * _densecopy(b)
+        (*)(A::SparseQMatOperand, Q::$Q) = _densecopy(A) * Q
     end
 end
 
