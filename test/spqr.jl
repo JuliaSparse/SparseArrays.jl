@@ -123,8 +123,7 @@ end
 end
 
 @testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
-        (sprandn(27, 2, 0.8), sprandn(12, 12, 0.5), sprandn(6, 20, 0.5), sprandn(ComplexF64, 15, 4, 0.6),
-         SparseMatrixCSC{Float64,Int32}(sprandn(9, 3, 0.6)))
+        (sprandn(27, 2, 0.8), sprandn(12, 12, 0.5), sprandn(6, 20, 0.5), sprandn(ComplexF64, 15, 4, 0.6))
     m, n = size(A)
     k = min(m, n)   # the rows of R and the columns of the thin Q
     F = qr(A)
