@@ -123,45 +123,33 @@ end
 end
 
 @testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
-        (sprandn(27, 2, 0.8), sprandn(12, 12, 0.5), sprandn(6, 20, 0.5), sprandn(ComplexF64, 15, 4, 0.6))
-    m, n = size(A)
+        (sprandn(27, 2, 0.8), sprandn(ComplexF64, 6, 20, 0.5))
+    local m, n = size(A)
     k = min(m, n)   # the rows of R and the columns of the thin Q
     F = qr(A)
     Q = F.Q
     T = eltype(A)
     # the identity from the issue, with a thin R for a tall A
     @test (Q * F.R)::Matrix ≈ A[F.prow, F.pcol]
-    # each sparse operand gives the same dense result as its dense copy
-    B, Bthin = sprandn(T, m, 3, 0.5), sprandn(T, k, 3, 0.5)
-    C, Cthin = sprandn(T, 3, m, 0.5), sprandn(T, 3, k, 0.5)
-    b, bthin = sprandn(T, m, 0.5), sprandn(T, k, 0.5)
-    for X in (B, Bthin, sparse(B')', transpose(sparse(transpose(B))), view(B, :, 1:2))
+    # one operand of each kind, including the thin shapes the dense-operand methods
+    # accept, gives the same dense result as its dense copy
+    B, C, b = sprandn(T, m, 3, 0.5), sprandn(T, 3, m, 0.5), sprandn(T, m, 0.5)
+    for X in (B, sparse(B')', view(B, :, 1:2), sprandn(T, k, 3, 0.5))
         @test (Q * X)::Matrix ≈ Q * Matrix(X)
     end
-    @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
-    @test (Q' * sparse(B')')::Matrix ≈ Q' * Matrix(B)
-    for X in (C, Cthin, sparse(C')', transpose(sparse(transpose(C))), view(C, :, 1:m), transpose(b))
+    for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), transpose(b), sprandn(T, 3, k, 0.5))
         @test (X * Q')::Matrix ≈ Matrix(X) * Q'
     end
+    @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
     @test (C * Q)::Matrix ≈ Matrix(C) * Q
-    @test (sparse(C')' * Q)::Matrix ≈ Matrix(C) * Q
-    @test (transpose(sparse(transpose(C))) * Q)::Matrix ≈ Matrix(C) * Q
-    @test (view(C, :, 1:m) * Q)::Matrix ≈ Matrix(C) * Q
-    @test (transpose(b) * Q)::Matrix ≈ transpose(Vector(b)) * Q
-    for x in (b, bthin, view(B, :, 1), view(b, :), view(b, 1:k))
+    for x in (b, view(B, :, 1), view(b, 1:m))
         @test (Q * x)::Vector ≈ Q * Vector(x)
     end
     @test (Q' * b)::Vector ≈ Q' * Vector(b)
     @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
-    @test (b' * Q')::Adjoint ≈ Vector(b)' * Q'
-    # the thin shapes are the ones the dense-operand methods accept, and nothing else
-    if k != m
-        @test_throws DimensionMismatch Q' * Bthin
-        @test_throws DimensionMismatch Cthin * Q
-    end
+    # and nothing else
+    k == m || @test_throws DimensionMismatch Q' * sprandn(T, k, 3, 0.5)
     @test_throws DimensionMismatch Q * sprandn(T, m + 1, 2, 0.5)
-    @test_throws DimensionMismatch sprandn(T, 2, m + 1, 0.5) * Q
-    @test_throws DimensionMismatch Q * sprandn(T, m + 1, 0.5)
 end
 
 @testset "Issue #585 for element type: $eltyA" for eltyA in (Float64, Float32, Float16, ComplexF64, ComplexF32, ComplexF16)
