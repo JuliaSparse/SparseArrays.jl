@@ -30,7 +30,7 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 
 using ..SparseArrays
 using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix,
-    SparseMatrixCSCMaybeAdjOrTrans, SparseMatrixCSCView, SparseVectorOrView, SparseVectorPartialView
+    SparseQMatOperand, SparseQVecOperand
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -379,14 +379,13 @@ end
 (*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
 # Q is dense in general, so apply the reflectors to a dense copy of the operand rather
-# than materialize Q.
-const SparseQMatOperand = Union{SparseMatrixCSCMaybeAdjOrTrans, SparseMatrixCSCView, Transpose{<:Any,<:SparseVectorOrView}}
-const SparseQVecOperand = Union{AbstractSparseVector, SparseVectorOrView, SparseVectorPartialView}
+# than materialize Q, as for LinearAlgebra's Q types in sparsematrix.jl.
 for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
     @eval begin
         (*)(Q::$Q, B::SparseQMatOperand) = Q * Matrix(B)
         (*)(Q::$Q, b::SparseQVecOperand) = Q * Vector(b)
         (*)(A::SparseQMatOperand, Q::$Q) = Matrix(A) * Q
+        (*)(a::SparseQVecOperand, Q::$Q) = Vector(a) * Q
     end
 end
 

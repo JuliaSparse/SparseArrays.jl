@@ -1441,14 +1441,6 @@ end
 # zero-preserving functions (z->z, nz->nz)
 -(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
 
-for QT in (:LinAlgLeftQs, :LQPackedQ)
-    @eval (*)(Q::$QT, B::AbstractSparseVector) = Q * Vector(B)
-    @eval (*)(Q::AdjointQ{<:Any,<:$QT}, B::AbstractSparseVector) = Q * Vector(B)
-
-    @eval (*)(A::AbstractSparseVector, Q::$QT) = Vector(A) * Q
-    @eval (*)(A::AbstractSparseVector, Q::AdjointQ{<:Any,<:$QT}) = Vector(A) * Q
-end
-
 # functions f, such that
 #   f(x) can be zero or non-zero when x != 0
 #   f(x) = 0 when x == 0

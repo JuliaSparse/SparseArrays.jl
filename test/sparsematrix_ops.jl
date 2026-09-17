@@ -967,4 +967,37 @@ end
     end
 end
 
+@testset "products of LinearAlgebra's Q types with sparse operands, $name" for (name, F) in
+        (("qr", qr(randn(7, 7))), ("thin qr", qr(randn(9, 4))), ("pivoted qr", qr(randn(7, 7), ColumnNorm())),
+         ("hessenberg", hessenberg(randn(7, 7))), ("lq", lq(randn(7, 7))))
+    Q = F.Q
+    m = size(Q, 1)
+    k = minimum(size(F))   # the columns of the thin Q
+    # each sparse operand, including the thin shapes the dense-operand methods accept,
+    # gives the same dense result as its dense copy
+    B, Bthin = sprandn(m, 3, 0.5), sprandn(k, 3, 0.5)
+    C, Cthin = sprandn(3, m, 0.5), sprandn(3, k, 0.5)
+    b = sprandn(m, 0.5)
+    for X in (B, Bthin, sparse(B')', transpose(sparse(transpose(B))), view(B, :, 1:2))
+        @test (Q * X)::Matrix ≈ Q * Matrix(X)
+    end
+    for X in (B, sparse(B')', transpose(sparse(transpose(B))), view(B, :, 1:2))
+        @test (Q' * X)::Matrix ≈ Q' * Matrix(X)
+    end
+    for X in (C, sparse(C')', transpose(sparse(transpose(C))), view(C, :, 1:m), transpose(b))
+        @test (X * Q)::Matrix ≈ Matrix(X) * Q
+        @test (X * Q')::Matrix ≈ Matrix(X) * Q'
+    end
+    @test (Cthin * Q')::Matrix ≈ Matrix(Cthin) * Q'
+    for x in (b, view(B, :, 1), view(b, :), view(b, 1:m))
+        @test (Q * x)::Vector ≈ Q * Vector(x)
+        @test (Q' * x)::Vector ≈ Q' * Vector(x)
+    end
+    @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
+    @test (b' * Q')::Adjoint ≈ Vector(b)' * Q'
+    @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
+    @test_throws DimensionMismatch sprandn(2, m + 1, 0.5) * Q
+    @test_throws DimensionMismatch Q * sprandn(m + 1, 0.5)
+end
+
 end # module

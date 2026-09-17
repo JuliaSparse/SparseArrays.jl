@@ -477,16 +477,15 @@ function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans)
     foreach(c -> print(io, Char(c)), @view brailleGrid[1:end-1])
 end
 
-for QT in (:LinAlgLeftQs, :LQPackedQ)
-    @eval (*)(Q::$QT, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
-    @eval (*)(Q::$QT, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
-    @eval (*)(A::AbstractSparseMatrixCSC, Q::$QT) = Matrix(A) * Q
-    @eval (*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::$QT) = copy(A) * Q
-
-    @eval (*)(Q::AdjointQ{<:Any,<:$QT}, B::AbstractSparseMatrixCSC) = Q * Matrix(B)
-    @eval (*)(Q::AdjointQ{<:Any,<:$QT}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = Q * copy(B)
-    @eval (*)(A::AbstractSparseMatrixCSC, Q::AdjointQ{<:Any,<:$QT}) = Matrix(A) * Q
-    @eval (*)(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, Q::AdjointQ{<:Any,<:$QT}) = copy(A) * Q
+# The dense-operand methods in LinearAlgebra accept the thin shapes, so the sparse operands
+# get them too. See SparseQMatOperand.
+for QT in (:LinAlgLeftQs, :LQPackedQ), Q in (QT, :(AdjointQ{<:Any,<:$QT}))
+    @eval begin
+        (*)(Q::$Q, B::SparseQMatOperand) = Q * Matrix(B)
+        (*)(Q::$Q, b::SparseQVecOperand) = Q * Vector(b)
+        (*)(A::SparseQMatOperand, Q::$Q) = Matrix(A) * Q
+        (*)(a::SparseQVecOperand, Q::$Q) = Vector(a) * Q
+    end
 end
 
 ## Reshape
