@@ -556,7 +556,8 @@ end
 
 Solve the least squares problem ``\\min\\|Ax - b\\|^2`` or the linear system of equations
 ``Ax=b`` when `F` is the sparse QR factorization of ``A``. A basic solution is returned
-when the problem is underdetermined.
+when the problem is underdetermined; `A \\ b` and `factorize(A) \\ b` instead return the
+minimum-norm solution through [`lq`](@ref SparseArrays.SPQR.lq), as for dense matrices.
 
 # Examples
 ```jldoctest

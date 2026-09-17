@@ -10,7 +10,7 @@ else
 
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
-using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
+using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, factorize, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
@@ -87,6 +87,10 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test_throws DimensionMismatch A\B[1:m-1,:]
         C, x = A[1:9, :], fill(eltyB(1), 9)
         @test C*(C\x) ≈ x # Underdetermined system
+        # A \ b returns the minimum-norm solution for a wide A, like dense (#301)
+        @test C\x ≈ Array(C)\x
+        @test C\B[1:9, :] ≈ Array(C)\B[1:9, :]
+        @test factorize(C)\x ≈ Array(C)\x
 
         # Minimum-norm solution of the underdetermined A'x = b (#656)
         D = B[1:n, :]

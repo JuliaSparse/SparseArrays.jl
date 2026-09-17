@@ -2336,8 +2336,11 @@ function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
             return \(Hermitian(A), B)
         end
         return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
-    else
+    elseif m > n
         return \(qr(A), B)
+    else
+        # A is wide, so the LQ factorization gives the minimum-norm solution
+        return \(lq(A), B)
     end
 end
 for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
@@ -2388,8 +2391,11 @@ function factorize(A::AbstractSparseMatrixCSC)
             return factorize(Hermitian(A))
         end
         return lu(A)
-    else
+    elseif m > n
         return qr(A)
+    else
+        # A is wide, so solving with the LQ factorization gives the minimum-norm solution
+        return lq(A)
     end
 end
 
