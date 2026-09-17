@@ -622,29 +622,6 @@ function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     return _checkbuffers(A)
 end
 
-copyto!(A::AbstractMatrix, B::AbstractSparseMatrixCSC) = _sparse_copyto!(A, B)
-# Ambiguity resolution
-copyto!(A::PermutedDimsArray, B::AbstractSparseMatrixCSC) = _sparse_copyto!(A, B)
-
-function _sparse_copyto!(dest::AbstractMatrix, src::AbstractSparseMatrixCSC)
-    (dest === src || isempty(src)) && return dest
-    z = convert(eltype(dest), zero(eltype(src))) # should throw if not possible
-    isrc = LinearIndices(src)
-    checkbounds(dest, isrc)
-    # If src is not dense, zero out the portion of dest spanned by isrc
-    if widelength(src) > nnz(src)
-        for i in isrc
-            @inbounds dest[i] = z
-        end
-    end
-    @inbounds for col in axes(src, 2), ptr in nzrange(src, col)
-        row = rowvals(src)[ptr]
-        val = nonzeros(src)[ptr]
-        dest[isrc[row, col]] = val
-    end
-    return dest
-end
-
 function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
                  src::AbstractSparseMatrixCSC{T}, Rsrc::CartesianIndices{2}) where {T}
     isempty(Rdest) && return dest
@@ -672,6 +649,7 @@ end
 
 # Faster version for non-abstract Array and SparseMatrixCSC
 function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
+    _checkbuffers(S)
     isempty(S) && return A
     length(A) < length(S) && throw(BoundsError())
 
@@ -981,15 +959,6 @@ function sparse_with_lmul(Tv, Ti, Q)
     end
     return SparseMatrixCSC{Tv,Ti}(size(Q)..., colptr, rowval, nzval)
 end
-
-# converting from AbstractSparseMatrixCSC to other matrix types
-function Matrix(S::AbstractSparseMatrixCSC{Tv}) where Tv
-    _checkbuffers(S)
-    A = Matrix{Tv}(undef, size(S, 1), size(S, 2))
-    copyto!(A, S)
-    return A
-end
-Array(S::AbstractSparseMatrixCSC) = Matrix(S)
 
 convert(T::Type{<:AbstractSparseMatrixCSC}, m::AbstractMatrix) = m isa T ? m : T(m)
 
