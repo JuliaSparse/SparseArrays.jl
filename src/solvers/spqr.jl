@@ -5,7 +5,7 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
-using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, AdjointFactorization, copy_similar
+using LinearAlgebra: AbstractQ, AdjOrTrans, AdjointQ, AdjointAbsVec, AdjointFactorization, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C, SuiteSparseQR_i_C
 
 # ordering options */
@@ -116,6 +116,8 @@ struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
 end
 
 Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
+# columns of the thin Q, which is the row count of R; SPQR stores only the reflectors it needs
+_thinwidth(Q::QRSparseQ) = min(size(Q.factors, 1), Q.n)
 
 Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
 
@@ -269,6 +271,8 @@ LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
     "sparse floating point QR using SPQR or qr(Array(A)) for generic ",
     "dense QR.")))
 LinearAlgebra.qr(A::SparseMatrixCSC; tol=_default_tol(A)) = qr(Float64.(A); tol=tol)
+# SPQR needs the matrix in CSC storage, and that of A' is the sparse transpose of A
+LinearAlgebra.qr(A::AdjOrTrans{<:Any,<:SparseMatrixCSC}; kwargs...) = qr(copy(A); kwargs...)
 LinearAlgebra.qr(::SparseMatrixCSC, ::LinearAlgebra.PivotingStrategy) = error("Pivoting Strategies are not supported by `SparseMatrixCSC`s")
 LinearAlgebra.qr(A::FixedSparseCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) =
     let B=A
@@ -344,10 +348,10 @@ function (*)(Q::QRSparseQ, b::AbstractVector)
     QQ = convert(AbstractQ{TQb}, Q)
     if size(Q.factors, 1) == length(b)
         bnew = copy_similar(b, TQb)
-    elseif size(Q.factors, 2) == length(b)
+    elseif _thinwidth(Q) == length(b)
         bnew = [b; zeros(TQb, size(Q.factors, 1) - length(b))]
     else
-        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(_thinwidth(Q))"))
     end
     lmul!(QQ, bnew)
 end
@@ -356,10 +360,10 @@ function (*)(Q::QRSparseQ, B::AbstractMatrix)
     QQ = convert(AbstractQ{TQB}, Q)
     if size(Q.factors, 1) == size(B, 1)
         Bnew = copy_similar(B, TQB)
-    elseif size(Q.factors, 2) == size(B, 1)
+    elseif _thinwidth(Q) == size(B, 1)
         Bnew = [B; zeros(TQB, size(Q.factors, 1) - size(B,1), size(B, 2))]
     else
-        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(_thinwidth(Q))"))
     end
     lmul!(QQ, Bnew)
 end
@@ -370,8 +374,8 @@ function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
     if size(A,2) == size(Q.factors, 1)
         AA = copy_similar(A, TAQ)
         return rmul!(AA, adjQQ)
-    elseif size(A,2) == size(Q.factors,2)
-        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - size(Q.factors, 2))], adjQQ)
+    elseif size(A,2) == _thinwidth(Q)
+        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - _thinwidth(Q))], adjQQ)
     else
         throw(DimensionMismatch("matrix A has dimensions $(size(A)) but Q-matrix has dimensions $(size(adjQ))"))
     end
@@ -449,6 +453,61 @@ LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 # here we have to use \ instead of ldiv! because of limitations in SPQR
 
 const AdjointQRSparse{Tv} = AdjointFactorization{Tv,<:QRSparse{Tv}}
+
+"""
+    lq(A::SparseMatrixCSC; tol=_default_tol(A'), ordering=ORDERING_DEFAULT) -> AdjointQRSparse
+
+Compute the LQ factorization of a sparse matrix `A` as the adjoint of the sparse QR
+factorization of `A'`, that is `qr(A')'`, using SPQR. See [`qr`](@ref SparseArrays.SPQR.qr)
+for the keyword arguments and the sparse `Q`.
+
+The factorization `F` satisfies `A[F.prow, F.pcol] == F.L * F.Q`, where `F.L` is a lower
+triangular sparse matrix and `F.Q` the adjoint of the `Q` of the QR factorization. `F \\ b`
+solves the underdetermined system `A * x == b` for a wide `A` and returns the minimum-norm
+solution, as for dense `lq`. `F'` is the QR factorization of `A'`, and `lq(A')` reuses `qr(A)`
+without a copy.
+
+# Examples
+```jldoctest
+julia> A = sparse([1.0 0 1 0; 0 1 0 1]);
+
+julia> F = lq(A);
+
+julia> F.L * F.Q ≈ A[F.prow, F.pcol]
+true
+
+julia> F \\ [1.0, 2.0] ≈ Matrix(A) \\ [1.0, 2.0]
+true
+```
+"""
+LinearAlgebra.lq(A::SparseMatrixCSC; kwargs...) = adjoint(qr(copy(adjoint(A)); kwargs...))
+LinearAlgebra.lq(A::Adjoint{<:Any,<:SparseMatrixCSC}; kwargs...) = adjoint(qr(parent(A); kwargs...))
+LinearAlgebra.lq(A::Transpose{<:Any,<:SparseMatrixCSC}; kwargs...) = lq(copy(A); kwargs...)
+
+@inline function Base.getproperty(F::AdjointQRSparse, d::Symbol)
+    P = getfield(F, :parent)
+    d === :L && return copy(adjoint(P.R))
+    d === :Q && return adjoint(P.Q)
+    d === :prow && return P.pcol
+    d === :pcol && return P.prow
+    return getfield(F, d)
+end
+Base.propertynames(F::AdjointQRSparse, private::Bool=false) =
+    private ? (:L, :Q, :prow, :pcol, :parent) : (:L, :Q, :prow, :pcol)
+
+function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::AdjointQRSparse)
+    summary(io, F); println(io)
+    println(io, "L factor:")
+    show(io, mime, F.L)
+    println(io, "\nQ factor:")
+    show(io, mime, F.Q)
+    println(io, "\nRow permutation:")
+    show(io, mime, F.prow)
+    println(io, "\nColumn permutation:")
+    show(io, mime, F.pcol)
+end
+
+LinearAlgebra.rank(F::AdjointQRSparse) = rank(parent(F))
 
 ## Two helper methods
 _ret_size(F::Union{QRSparse,AdjointQRSparse}, b::AbstractVector) = (size(F, 2),)

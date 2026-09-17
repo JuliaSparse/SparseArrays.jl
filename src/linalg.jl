@@ -2366,7 +2366,7 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
                 return \($xformop(qr(A)), B)
             else
                 # A' is tall, so the least squares solve needs a factorization of A'
-                return \(qr(copy($xformop(A))), B)
+                return \(qr($xformop(A)), B)
             end
         end
     end
