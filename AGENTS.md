@@ -1,8 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents and other contributors working in SparseArrays.jl. It is
-distilled from the ~30 PRs merged in September 2026 (#786–#824), which were mostly
-Claude Code and Codex sessions reviewed and merged by a maintainer. Follow the
+Guidance for AI agents and other contributors working in SparseArrays.jl. Follow the
 conventions below unless a maintainer says otherwise.
 
 ## What this repo is
@@ -12,8 +10,6 @@ their fixed-pattern variants (`FixedSparseCSC`, `FixedSparseVector`, unexported 
 experimental), sparse broadcast/`map!`, sparse linear algebra, and the SuiteSparse
 solver wrappers (CHOLMOD, UMFPACK, SPQR) under `src/solvers/`.
 
-- `Project.toml` requires `julia = "1.14"`, i.e. **nightly**. Use `julia +nightly`
-  (juliaup) for everything; older channels will not load the package.
 - `src/solvers/wrappers.jl` is **generated**; never hand-edit it (see "SuiteSparse
   wrappers" below).
 - Every source and test file starts with the Julia license banner:
