@@ -1224,6 +1224,42 @@ function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     return SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
 end
 
+# `stack` of sparse vectors along a new trailing dimension. Base's generic loop calls
+# `copyto!(B, offset, x)` per slice, which copies every element, including the stored
+# zeros, through `getindex` and `setindex!` on sparse arrays. Building the CSC arrays
+# directly, as `_absspvec_hcat` does, costs O(nnz + n) instead of O(m * n).
+function Base._typed_stack(::Colon, ::Type{T}, ::Type{S}, A, Aax::Tuple{Any}) where {T,S<:AbstractSparseVector}
+    X = A isa AbstractArray ? A : collect(A)
+    isempty(X) && return Base._empty_stack(:, T, S, A)
+    Ti = mapreduce(indtype, promote_type, X)
+    return _absspvec_stack(T, Ti, X)
+end
+function _absspvec_stack(::Type{Tv}, ::Type{Ti}, X) where {Tv,Ti}
+    n = length(X)
+    m = length(first(X))
+    tnnz = 0
+    for x in X
+        length(x) == m ||
+            throw(DimensionMismatch("Inconsistent column lengths."))
+        tnnz += nnz(x)
+    end
+
+    colptr = Vector{Ti}(undef, n+1)
+    nzrow = Vector{Ti}(undef, tnnz)
+    nzval = Vector{Tv}(undef, tnnz)
+    roff = 1
+    j = 0
+    @inbounds for x in X
+        j += 1
+        colptr[j] = roff
+        copyto!(nzrow, roff, nonzeroinds(x))
+        copyto!(nzval, roff, nonzeros(x))
+        roff += nnz(x)
+    end
+    colptr[n+1] = roff
+    return SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
+end
+
 function vcat(Xin::AbstractSparseVector...)
     X = map(_unsafe_unfix, Xin)
     Tv = promote_type(map(eltype, X)...)

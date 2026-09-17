@@ -4,7 +4,7 @@ module SparseVectorTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr
+using SparseArrays: nonzeroinds, getcolptr, FixedSparseVector
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
@@ -636,6 +636,37 @@ end
         x = sparsevec([1], [3.0], 1)
         X = [3.0 x; 3.0 x]
         @test issparse(X)
+    end
+
+    @testset "stack (#498)" begin
+        m, n = 80, 100
+        A = [sprand(m, 0.3) for _ in 1:n]
+        H = hcat(A...)
+        S = @inferred stack(A)
+        @test S isa SparseMatrixCSC{Float64,Int}
+        @test S == H
+        @test nnz(S) == nnz(H)
+        @test stack(A; dims=2) == H
+        @test stack(A; dims=1) == transpose(H)
+        @test stack(x -> 2x, A) == 2H
+        @test stack(x for x in A if true) == H
+        # slices with different element and index types promote
+        B = [sparsevec(Int32[1], Int32[2], 3), sparsevec([3], [0.5], 3)]
+        SB = stack(B)
+        @test SB isa SparseMatrixCSC{Float64,Int}
+        @test SB == [2 0; 0 0; 0 0.5]
+        SB32 = stack(map(x -> SparseVector{Float64,Int32}(x), B))
+        @test SB32 isa SparseMatrixCSC{Float64,Int32}
+        @test SB32 == SB
+        # fixed-pattern slices
+        @test stack(map(FixedSparseVector, A)) == H
+        # a container with more than one axis stacks into a dense array
+        M = reshape(A, 2, :)
+        SM = stack(M)
+        @test SM isa Array{Float64,3}
+        @test SM == reshape(Array(H), m, 2, :)
+        @test_throws ArgumentError stack(SparseVector{Float64,Int}[])
+        @test_throws DimensionMismatch stack([sparsevec([1], [1.0], 3), sparsevec([1], [1.0], 4)])
     end
 
     @testset "concatenation of sparse vectors with other types" begin
