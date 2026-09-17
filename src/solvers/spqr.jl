@@ -182,10 +182,14 @@ solve least squares or underdetermined problems with [`\\`](@ref). The function 
     `copy(F)`.
 
 !!! note
-    `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with [`Float64`](@ref) or
-    `ComplexF64` elements, as of Julia v1.4 `qr` converts `A` into a copy that is
-    of type `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
+    `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
+    which only works in double precision. For any other element type, `qr` factorizes a
+    [`Float64`](@ref) or `ComplexF64` copy of `A`. For `Float16`, `Float32`, `ComplexF16`
+    and `ComplexF32` the factors are then converted back, so the returned `QRSparse` has
+    the element type of `A` but was computed in double precision and needs temporary
+    storage for the double-precision copies of `A` and of the factors. Integer and other
+    non-floating-point element types return a `Float64` factorization, and floating-point
+    types wider than `Float64` throw an `ArgumentError`.
 
 # Examples
 ```jldoctest
