@@ -198,6 +198,8 @@ To move to a new SuiteSparse release (#824):
   destination still errors, unrelated, left alone"). Tables for counts or benchmarks.
 - Mention `test/ambiguous.jl` results when touching dispatch, and doc updates in
   `docs/src/solvers.md` when adding public solver API.
+- A documentation-only PR needs just the source of the material and how it was
+  checked; do not restate what the diff shows.
 - Agent-authored PRs end with the tool attribution and session link (Claude Code) or a
   "PR made by Codex" line.
 
