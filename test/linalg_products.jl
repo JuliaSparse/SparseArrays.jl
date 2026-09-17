@@ -266,10 +266,10 @@ end
         @test mulcount(() -> dot(B, W(P))) == 1
         # two matching pairs, found from either side of the walk
         B = mulcount_sparse(sparse([1, 1, 2, 3, 4, 4], [1, 2, 3, 3, 1, 6], 1.0:6.0, 4, 6))
-        @test nnz(B) > nnz(P)   # walks P
+        @test nnz(B) + size(B, 2) > nnz(P) + size(P, 2)     # walks P
         @test mulcount(() -> dot(W(P), B)) == 1 + 2
         Pw = mulcount_sparse(sparse([1, 2, 3, 4, 5, 6, 6], [1, 2, 3, 4, 4, 1, 2], 1.0:7.0, 6, 4))
-        @test nnz(Pw) > nnz(B)  # walks B
+        @test nnz(Pw) + size(Pw, 2) > nnz(B) + size(B, 2)   # walks B
         @test mulcount(() -> dot(W(Pw), B)) == 1 + 2
     end
     # far more columns than stored entries: a binary search per entry, no cursor array
@@ -277,6 +277,10 @@ end
         P = sparse([1], [1], [1.0], 2, 10^5); B = sparse([1], [1], [2.0], 10^5, 2)
         @test dot(W(P), B) == 2
         dot(W(P), B)
+        @test (@allocated dot(W(P), B)) < 1024
+        # and a wide operand with few entries is not walked column by column
+        P = sparse([1], [1], [1.0], 1, 10^6); B = sparse([1, 2], [1, 1], [2.0, 3.0], 10^6, 1)
+        @test dot(W(P), B) == 2
         @test (@allocated dot(W(P), B)) < 1024
     end
     # fixed operands are read only

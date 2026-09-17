@@ -780,6 +780,35 @@ end
         @test mulcount(() -> mul!(C, W(S), Dr)) == nnz(S)
         @test mulcount(() -> mul!(C, Dl, W(S))) == nnz(S)
     end
+    # as for dense, the product is formed before conversion to the destination eltype,
+    # `alpha == 0` ignores `A`, and `beta == 0` ignores `C`
+    for W in (identity, adjoint, transpose)
+        S = sparse([1e40;;]); D = Diagonal([1e-40])
+        @test mul!(spzeros(Float32, 1, 1), W(S), D) == mul!(zeros(Float32, 1, 1), W(Matrix(S)), D)
+        @test mul!(spzeros(Float32, 1, 1), D, W(S)) == mul!(zeros(Float32, 1, 1), D, W(Matrix(S)))
+        S = sparse([0.5;;]); D = Diagonal([2.0])
+        @test mul!(spzeros(Int, 1, 1), W(S), D) == [1;;]
+        @test mul!(spzeros(Int, 1, 1), D, W(S)) == [1;;]
+        S = sparse([Inf;;]); D = Diagonal([1.0])
+        @test mul!(sparse([NaN;;]), W(S), D, 0, 0) == [0.0;;]
+        @test mul!(sparse([NaN;;]), D, W(S), 0, 0) == [0.0;;]
+        @test mul!(sparse([3.0;;]), W(S), D, 0, 2) == [6.0;;]
+        @test mul!(sparse([3.0;;]), D, W(S), 0, 2) == [6.0;;]
+    end
+    # a fixed destination whose pattern contains the product's is filled in place; one whose
+    # pattern lacks an entry throws and is left untouched
+    S = sparse([1.0 0; 0 2]); D = Diagonal([2.0, 3.0])
+    for W in (identity, adjoint, transpose), (f, x, y) in ((mul!, W(S), D), (mul!, D, W(S)))
+        F = fixed(sparse(ones(2, 2)))
+        @test f(F, x, y) === F
+        @test F == Matrix(x) * Matrix(y) && nnz(F) == 4 && _is_fixed(F)
+        @test f(F, x, y, 2, 3) ≈ 5 * Matrix(x) * Matrix(y)
+        G = fixed(sparse([1.0 0; 0 1]))
+        S1 = sparse([1.0 1; 0 1])
+        @test_throws ArgumentError f(G, W(S1), D)
+        @test_throws ArgumentError f(G, W(S1), D, 2, 3)
+        @test G == [1 0; 0 1]
+    end
 
     @test dA * 0.5            == sA * 0.5
     @test dA * 0.5            == mul!(sC, sA, 0.5)

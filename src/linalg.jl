@@ -774,10 +774,10 @@ end
 # Frobenius dot of the adjoint/transpose of a CSC matrix with a CSC matrix (issue #627).
 # With `P = parent(A)`, `dot(A, B) = Σ dot(op(P[j,i]), B[i,j])`, so the stored entries of
 # one operand are matched against those of the other at transposed positions. Walking the
-# sparser operand with one cursor per column of the other keeps the work at
-# O(nnz(P) + nnz(B) + n) with O(n) extra memory, where `n` counts the columns of the other
-# operand; a binary search per stored entry is used instead when the other operand is far
-# denser, since the cursors would then sweep all of its entries.
+# operand with fewer stored entries and columns, with one cursor per column of the other,
+# keeps the work at O(nnz(P) + nnz(B) + n) with O(n) extra memory, where `n` counts the
+# columns of the other operand; a binary search per stored entry is used instead when the
+# other operand is far denser, since the cursors would then sweep all of its entries.
 function dot(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC)
     m, n = size(A)
     size(B) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n) but B has size $(size(B))"))
@@ -785,7 +785,7 @@ function dot(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMa
     op = LinearAlgebra.wrapperop(A)
     r = dot(op(zero(eltype(P))), zero(eltype(B)))
     (iszero(nnz(P)) || iszero(nnz(B))) && return r
-    if nnz(B) <= nnz(P)
+    if nnz(B) + size(B, 2) <= nnz(P) + size(P, 2)
         return _dot_transposed_walk((b, p) -> dot(op(p), b), B, P, r)
     else
         return _dot_transposed_walk((p, b) -> dot(op(p), b), P, B, r)
@@ -2181,6 +2181,7 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
             row = @inbounds rowvals(A)[ind]
             row_exists, ind = rowcheck_index(C, row, col)
             if !row_exists
+                _is_fixed(C) && throw(ArgumentError(lazy"cannot store entry ($row, $col) in a fixed sparse matrix whose pattern lacks it"))
                 n_extra += 1
                 insert!(rowvals(C), ind, row)
                 insert!(nonzeros(C), ind, zero(eltype(C)))
@@ -2201,13 +2202,14 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     lb = length(b)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
+    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(nonzeros(C), beta); return C)
     beta_is_zero = iszero(beta)
     rows_match = rowvals(C) == rowvals(A)
     cols_match = getcolptr(C) == getcolptr(A)
     identical_nzinds = rows_match && cols_match
     Cnzval = nonzeros(C)
     Anzval = nonzeros(A)
-    if beta_is_zero || identical_nzinds
+    if identical_nzinds || (beta_is_zero && !_is_fixed(C))
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
         @inbounds if beta_is_zero
@@ -2233,6 +2235,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
         end
     else
         mergeinds!(C, A)
+        beta_is_zero && fill!(Cnzval, zero(eltype(C)))
         for col in axes(C,2), p in @inbounds nzrange(C, col)
             row = @inbounds rowvals(C)[p]
             # check if the index (row, col) is stored in A
@@ -2255,21 +2258,23 @@ end
 # `Diagonal` kernel in LinearAlgebra visits every element of `C`. With `beta == 0` the
 # adjoint is formed directly in `C` (one `halfperm!`, O(nnz)) and scaled in place;
 # otherwise it is materialized once and handed to the CSC kernels above, which also
-# covers a destination that shares storage with the parent, or whose index type or fixed
-# structure `halfperm!` cannot write.
+# covers `alpha == 0`, a destination that shares storage with the parent, one whose index
+# type or fixed structure `halfperm!` cannot write, and one whose eltype differs from the
+# product's, so that the product is formed before conversion as for dense.
 function _adjtrans_into!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
     P = parent(A)
     return halfperm!(C, P, axes(P, 2), _adjtrans_fun(A))
 end
-_adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, beta) =
-    iszero(beta) && !Base.mightalias(C, parent(A)) && !_is_fixed(C) && indtype(C) === indtype(parent(A))
+_adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha, beta) =
+    !iszero(alpha) && iszero(beta) && !Base.mightalias(C, parent(A)) && !_is_fixed(C) &&
+    indtype(C) === indtype(parent(A)) && eltype(C) === promote_op(matprod, eltype(A), eltype(D))
 
 function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
     m, n = size(A)
     lb = length(D.diag)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
     size(C) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    _adjtrans_direct(C, A, beta) || return mul!(C, copy(A), D, alpha, beta)
+    _adjtrans_direct(C, A, D, alpha, beta) || return mul!(C, copy(A), D, alpha, beta)
     rmul!(_adjtrans_into!(C, A), D)
     isone(alpha) || rmul!(C, alpha)
     return C
@@ -2280,7 +2285,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:Abs
     lb = length(D.diag)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
     size(C) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    _adjtrans_direct(C, A, beta) || return mul!(C, D, copy(A), alpha, beta)
+    _adjtrans_direct(C, A, D, alpha, beta) || return mul!(C, D, copy(A), alpha, beta)
     lmul!(D, _adjtrans_into!(C, A))
     isone(alpha) || rmul!(C, alpha)
     return C
@@ -2292,6 +2297,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     lb = length(b)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
+    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(nonzeros(C), beta); return C)
     beta_is_zero = iszero(beta)
     rows_match = rowvals(C) == rowvals(A)
     cols_match = getcolptr(C) == getcolptr(A)
@@ -2299,7 +2305,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     Cnzval = nonzeros(C)
     Anzval = nonzeros(A)
     Arowval = rowvals(A)
-    if beta_is_zero || identical_nzinds
+    if identical_nzinds || (beta_is_zero && !_is_fixed(C))
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
         if beta_is_zero
@@ -2325,6 +2331,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
         end
     else
         mergeinds!(C, A)
+        beta_is_zero && fill!(Cnzval, zero(eltype(C)))
         for col in axes(C,2), p in nzrange(C, col)
             row = rowvals(C)[p]
             # check if the index (row, col) is stored in A
