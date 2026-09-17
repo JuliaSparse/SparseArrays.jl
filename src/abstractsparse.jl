@@ -84,6 +84,15 @@ const SparseMatrixCSCSymmHerm{Tv,Ti} = HermOrSym{Tv,<:SparseMatrixCSCOrView{Tv,T
 # plus Diagonal) are imported for the banded special matrices.
 # LinearAlgebra's Q types that multiply sparse arrays via densification
 const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
+# Sparse operands that a Q multiplies through a dense copy: Q is dense in general, so
+# applying it to a dense copy of the operand is cheaper than materializing Q or a sparse
+# transpose of the operand. Sparse matrices and their views, with or without an adjoint or
+# transpose, and a transposed sparse vector as a one-row matrix; and sparse vectors and their
+# views. An adjoint sparse vector is left to LinearAlgebra's generic (Q' * u')', which keeps
+# the result an Adjoint as for a dense vector.
+const SparseQMatOperand = Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:SparseMatrixCSCOrView},
+                                Transpose{<:Any,<:SparseVectorOrView}}
+const SparseQVecOperand = Union{AbstractSparseVector, SparseVectorOrView, SparseVectorPartialView}
 
 # Former names of the above, not used here but relied on by downstream packages together
 # with SparseMatrixCSCView, SparseColumnView and SparseVectorView. May be deprecated in a

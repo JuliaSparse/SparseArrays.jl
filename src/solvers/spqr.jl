@@ -29,7 +29,8 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix
+using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix,
+    SparseQMatOperand, SparseQVecOperand
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -377,8 +378,16 @@ function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
 end
 (*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
-(*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
-(*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
+# Q is dense in general, so apply the reflectors to a dense copy of the operand rather
+# than materialize Q, as for LinearAlgebra's Q types in sparsematrix.jl.
+for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
+    @eval begin
+        (*)(Q::$Q, B::SparseQMatOperand) = Q * Matrix(B)
+        (*)(Q::$Q, b::SparseQVecOperand) = Q * Vector(b)
+        (*)(A::SparseQMatOperand, Q::$Q) = Matrix(A) * Q
+        (*)(a::SparseQVecOperand, Q::$Q) = Vector(a) * Q
+    end
+end
 
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :prow

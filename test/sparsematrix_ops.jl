@@ -967,4 +967,28 @@ end
     end
 end
 
+@testset "products of LinearAlgebra's Q types with sparse operands" begin
+    D = randn(7, 7)
+    m = size(D, 1)
+    # one operand of each kind gives the same dense result as its dense copy
+    B, C, b = sprandn(m, 3, 0.5), sprandn(3, m, 0.5), sprandn(m, 0.5)
+    @testset "$name" for (name, Q) in (("qr", qr(D).Q), ("pivoted qr", qr(D, ColumnNorm()).Q),
+                                       ("hessenberg", hessenberg(D).Q), ("lq", lq(D).Q))
+        for X in (B, sparse(B')', view(B, :, 1:2))
+            @test (Q * X)::Matrix ≈ Q * Matrix(X)
+        end
+        for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b))
+            @test (X * Q')::Matrix ≈ Matrix(X) * Q'
+        end
+        @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
+        @test (C * Q)::Matrix ≈ Matrix(C) * Q
+        for x in (b, view(B, :, 1), view(b, 1:m))
+            @test (Q * x)::Vector ≈ Q * Vector(x)
+        end
+        @test (Q' * b)::Vector ≈ Q' * Vector(b)
+        @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
+        @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
+    end
+end
+
 end # module

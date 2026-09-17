@@ -113,13 +113,43 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
     @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test (sparse(I, 2, 2) * qr(A).Q)::SparseMatrixCSC == sparse(qr(A).Q) == sparse(I, 2, 2)
+    @test (sparse(I, 2, 2) * qr(A).Q)::Matrix == sparse(qr(A).Q) == sparse(I, 2, 2)
 end
 
 @testset "Issue 26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
-    @test (F.Q*F.R)::SparseMatrixCSC == A[F.prow,F.pcol]
+    @test (F.Q*F.R)::Matrix == A[F.prow,F.pcol]
+end
+
+@testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
+        (sprandn(27, 2, 0.8), sprandn(ComplexF64, 6, 20, 0.5))
+    local m, n = size(A)
+    k = min(m, n)   # the rows of R and the columns of the thin Q
+    F = qr(A)
+    Q = F.Q
+    T = eltype(A)
+    # the identity from the issue, with a thin R for a tall A
+    @test (Q * F.R)::Matrix ≈ A[F.prow, F.pcol]
+    # one operand of each kind, including the thin shapes the dense-operand methods
+    # accept, gives the same dense result as its dense copy
+    B, C, b = sprandn(T, m, 3, 0.5), sprandn(T, 3, m, 0.5), sprandn(T, m, 0.5)
+    for X in (B, sparse(B')', view(B, :, 1:2), sprandn(T, k, 3, 0.5))
+        @test (Q * X)::Matrix ≈ Q * Matrix(X)
+    end
+    for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b), sprandn(T, 3, k, 0.5))
+        @test (X * Q')::Matrix ≈ Matrix(X) * Q'
+    end
+    @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
+    @test (C * Q)::Matrix ≈ Matrix(C) * Q
+    for x in (b, view(B, :, 1), view(b, 1:m))
+        @test (Q * x)::Vector ≈ Q * Vector(x)
+    end
+    @test (Q' * b)::Vector ≈ Q' * Vector(b)
+    @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
+    # and nothing else
+    k == m || @test_throws DimensionMismatch Q' * sprandn(T, k, 3, 0.5)
+    @test_throws DimensionMismatch Q * sprandn(T, m + 1, 2, 0.5)
 end
 
 @testset "Issue #585 for element type: $eltyA" for eltyA in (Float64, Float32, Float16, ComplexF64, ComplexF32, ComplexF16)
