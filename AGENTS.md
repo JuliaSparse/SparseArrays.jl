@@ -49,7 +49,10 @@ julia +nightly --project -e 'using Pkg; Pkg.test()'                       # full
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one file
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
 julia .ci/check-whitespace.jl
+julia +nightly --project=docs -e 'using Pkg; Pkg.develop(path="."); include("docs/make.jl")'  # doctests
 ```
+
+The doctest command edits `docs/Project.toml`; discard that change before committing.
 
 The Aqua and ambiguity checks run as a separate CI job from `test/ambiguous.jl`.
 Solver tests run only when `Base.USE_GPL_LIBS` is true; guard every reference to a
@@ -155,8 +158,10 @@ because it invalidates precompiled code; it exists to catch bad `@inbounds`.
   API involved. Only backport PRs use merge commits, and GitHub remembers the last
   choice.
 - The body is the design record: the issue, a minimal reproducer, the mechanism, the
-  fix, what was tested on which build, and anything deliberately left out. A
-  documentation-only PR needs just the source of the material and how it was checked.
+  fix, what was tested on which build, and anything deliberately left out. Keep it
+  short: a reproducer in a code block, one paragraph on mechanism and fix, one line on
+  tests. No section headers unless the change is large. A documentation-only PR needs
+  just the source of the material and how it was checked.
 - Say when a PR touches dispatch, needs a docs update, or should be backported.
 - Backports: label `backport 1.x`; a maintainer batches cherry-picks onto a backport
   branch. Bug and regression fixes only, never new methods or behaviour changes. Never
