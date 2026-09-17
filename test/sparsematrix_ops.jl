@@ -967,29 +967,28 @@ end
     end
 end
 
-@testset "products of LinearAlgebra's Q types with sparse operands, $name" for (name, F) in
-        (("qr", qr(randn(9, 4))), ("pivoted qr", qr(randn(7, 7), ColumnNorm())),
-         ("hessenberg", hessenberg(randn(7, 7))), ("lq", lq(randn(7, 7))))
-    Q = F.Q
-    m = size(Q, 1)
-    k = minimum(size(F))   # the columns of the thin Q
-    # one operand of each kind, including the thin shapes the dense-operand methods
-    # accept, gives the same dense result as its dense copy
+@testset "products of LinearAlgebra's Q types with sparse operands" begin
+    D = randn(7, 7)
+    m = size(D, 1)
+    # one operand of each kind gives the same dense result as its dense copy
     B, C, b = sprandn(m, 3, 0.5), sprandn(3, m, 0.5), sprandn(m, 0.5)
-    for X in (B, sparse(B')', view(B, :, 1:2), sprandn(k, 3, 0.5))
-        @test (Q * X)::Matrix ≈ Q * Matrix(X)
+    @testset "$name" for (name, Q) in (("qr", qr(D).Q), ("pivoted qr", qr(D, ColumnNorm()).Q),
+                                       ("hessenberg", hessenberg(D).Q), ("lq", lq(D).Q))
+        for X in (B, sparse(B')', view(B, :, 1:2))
+            @test (Q * X)::Matrix ≈ Q * Matrix(X)
+        end
+        for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), transpose(b))
+            @test (X * Q')::Matrix ≈ Matrix(X) * Q'
+        end
+        @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
+        @test (C * Q)::Matrix ≈ Matrix(C) * Q
+        for x in (b, view(B, :, 1), view(b, 1:m))
+            @test (Q * x)::Vector ≈ Q * Vector(x)
+        end
+        @test (Q' * b)::Vector ≈ Q' * Vector(b)
+        @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
+        @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
     end
-    for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), transpose(b), sprandn(3, k, 0.5))
-        @test (X * Q')::Matrix ≈ Matrix(X) * Q'
-    end
-    @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
-    @test (C * Q)::Matrix ≈ Matrix(C) * Q
-    for x in (b, view(B, :, 1), view(b, 1:m))
-        @test (Q * x)::Vector ≈ Q * Vector(x)
-    end
-    @test (Q' * b)::Vector ≈ Q' * Vector(b)
-    @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
-    @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
 end
 
 end # module
