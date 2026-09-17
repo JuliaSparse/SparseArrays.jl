@@ -145,6 +145,8 @@ because it invalidates precompiled code; it exists to catch bad `@inbounds`.
 
 ## Pull requests
 
+- Do each change in its own git worktree on a branch off `main`, never on `main`
+  itself.
 - One logical change per PR. Stack follow-ups and say so. A PR based on another PR's
   branch carries that diff when squash-merged.
 - Squash-merged with the PR title as the subject. Titles are imperative and name the
