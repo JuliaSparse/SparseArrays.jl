@@ -379,18 +379,14 @@ end
 (*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
 # Q is dense in general, so apply the reflectors to a dense copy of the operand rather
-# than materialize Q. `Matrix` on a sparse wrapper or view would go through generic indexing.
+# than materialize Q.
 const SparseQMatOperand = Union{SparseMatrixCSCMaybeAdjOrTrans, SparseMatrixCSCView, Transpose{<:Any,<:SparseVectorOrView}}
 const SparseQVecOperand = Union{AbstractSparseVector, SparseVectorOrView, SparseVectorPartialView}
-_densecopy(B::AbstractSparseMatrixCSC) = Matrix(B)
-_densecopy(B::SparseQMatOperand) = Matrix(copy(B))
-_densecopy(b::AbstractSparseVector) = Vector(b)
-_densecopy(b::SparseQVecOperand) = Vector(copy(b))
 for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
     @eval begin
-        (*)(Q::$Q, B::SparseQMatOperand) = Q * _densecopy(B)
-        (*)(Q::$Q, b::SparseQVecOperand) = Q * _densecopy(b)
-        (*)(A::SparseQMatOperand, Q::$Q) = _densecopy(A) * Q
+        (*)(Q::$Q, B::SparseQMatOperand) = Q * Matrix(B)
+        (*)(Q::$Q, b::SparseQVecOperand) = Q * Vector(b)
+        (*)(A::SparseQMatOperand, Q::$Q) = Matrix(A) * Q
     end
 end
 
