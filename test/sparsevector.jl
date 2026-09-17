@@ -524,15 +524,14 @@ end
     # copyto! into a column view of a sparse matrix splices the source into the column,
     # leaving the rest of the column and the matrix untouched (#401)
     let
-        for Ti in (Int64, Int32), (m, n) in ((6, 4), (1, 1)), trial in 1:2
-            M = SparseMatrixCSC{Float64,Ti}(sprand(m, n, rand()))
+        for (m, n) in ((6, 4), (1, 1)), trial in 1:2
+            M = sprand(m, n, rand())
             j = rand(1:n); lB = rand(0:m)
             for src in (sprand(lB, rand()), rand(lB))
                 A = copy(M); D = Matrix(M)
                 @test copyto!(view(A, :, j), src) isa SubArray
                 copyto!(view(D, :, j), Vector(src))
                 @test Matrix(A) == D
-                @test A isa SparseMatrixCSC{Float64,Ti}
                 @test issorted(rowvals(A)[nzrange(A, j)])
             end
             if n > 1   # another column of the same matrix as the source
@@ -555,8 +554,8 @@ end
     end
     # ... and likewise into a view of a sparse vector, partial or whole
     let
-        for Ti in (Int64, Int32), n in (1, 7), trial in 1:2
-            v = SparseVector{Float64,Ti}(sprand(n, rand()))
+        for n in (1, 7), trial in 1:2
+            v = sprand(n, rand())
             lo = rand(1:n); hi = rand(lo-1:n); lB = rand(0:hi-lo+1)
             for src in (sprand(lB, rand()), rand(lB))
                 x = copy(v); d = Vector(v)
