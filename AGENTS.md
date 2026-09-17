@@ -131,7 +131,9 @@ because it invalidates precompiled code; it exists to catch bad `@inbounds`.
 
 - Regression tests go next to the feature they exercise, in an existing testset when
   one fits. After an expected throw, assert the destination is unchanged.
-- Cover both index types, real and complex eltypes, vector and matrix.
+- Cover real and complex eltypes, vector and matrix. Test both index types only where
+  the code dispatches to SuiteSparse, which selects the C entry point by index type;
+  pure-Julia kernels are generic over `Ti` and one index type is enough.
 - A method that exists only for speed needs a test proving it is dispatched to, not
   just a correctness check against dense, which passes on the fallback too.
 - No wall-clock assertions. Allocation bounds prove constancy, not zero. Match
