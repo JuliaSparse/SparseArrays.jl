@@ -1156,22 +1156,6 @@ end
 SparseMatrixCSC{Tv}(x::AbstractSparseVector{<:Any,Ti}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(x)
 SparseMatrixCSC(x::AbstractSparseVector{Tv,Ti}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(x)
 
-function Vector(x::AbstractSparseVector{Tv}) where Tv
-    require_one_based_indexing(x)
-    n = length(x)
-    n == 0 && return Vector{Tv}()
-    nzind = nonzeroinds(x)
-    nzval = nonzeros(x)
-    r = zeros(Tv, n)
-    for k in 1:nnz(x)
-        i = nzind[k]
-        v = nzval[k]
-        r[i] = v
-    end
-    return r
-end
-Array(x::AbstractSparseVector) = Vector(x)
-
 function Base.collect(x::Union{AbstractSparseVector,AbstractSparseMatrix})
    if Base.has_offset_axes(x)
        return Base._collect_indices(axes(x), x)

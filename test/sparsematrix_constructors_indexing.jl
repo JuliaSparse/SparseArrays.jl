@@ -37,6 +37,12 @@ end
     @test SparseMatrixCSC{eltype(a)}(Array(a)) == a
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
     @test collect(a) == a
+    # wrappers and views convert through the sparse kernels, not element by element
+    c = sprand(ComplexF64, 5, 3, 0.4)
+    for w in (a', transpose(c), view(c, :, 2:3), view(c, :, 1)', transpose(view(c, :, 1)))
+        @test which(copyto!, Tuple{Matrix{eltype(w)}, typeof(w)}).module == SparseArrays
+        @test Matrix(w)::Matrix{eltype(w)} == collect(w)
+    end
     # issue #54
     b = SparseMatrixCSC{ComplexF64,Int32}(a)
     @test promote_type(typeof(a), typeof(b)) === SparseMatrixCSC{ComplexF64,Int}
