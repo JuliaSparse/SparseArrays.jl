@@ -6,7 +6,7 @@ using SparseArrays: AbstractSparseMatrixCSC, nonzeroinds, getcolptr, rowvals, no
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
-include("util/mulcount.jl")
+include("mulcount.jl")
 
 # an AbstractSparseVector outside the types the sparse product kernel handles
 struct WrappedSparseVector <: AbstractSparseVector{Float64,Int}

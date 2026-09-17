@@ -8,7 +8,7 @@ using SparseArrays: nonzeroinds, getcolptr, rowvals, nonzeros, fixed
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
-include("util/mulcount.jl")
+include("mulcount.jl")
 
 sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
@@ -268,7 +268,7 @@ end
         B = mulcount_sparse(sparse([1, 1, 2, 3, 4, 4], [1, 2, 3, 3, 1, 6], 1.0:6.0, 4, 6))
         @test nnz(B) + size(B, 2) > nnz(P) + size(P, 2)     # walks P
         @test mulcount(() -> dot(W(P), B)) == 1 + 2
-        Pw = mulcount_sparse(sparse([1, 2, 3, 4, 5, 6, 6], [1, 2, 3, 4, 4, 1, 2], 1.0:7.0, 6, 4))
+        Pw = mulcount_sparse(sparse([1, 2, 3, 4, 5, 5, 5, 6, 6], [1, 2, 3, 4, 1, 2, 4, 1, 2], 1.0:9.0, 6, 4))
         @test nnz(Pw) + size(Pw, 2) > nnz(B) + size(B, 2)   # walks B
         @test mulcount(() -> dot(W(Pw), B)) == 1 + 2
     end

@@ -1,6 +1,8 @@
-# Deterministic replacement for wall-clock guards (see #781): an eltype that records every
-# scalar multiplication, so that a kernel touching only the stored entries and a generic
-# fallback visiting every element are told apart by the count rather than by timing.
+# This file is a part of Julia. License is MIT: https://julialang.org/license
+
+# An eltype that records every scalar multiplication, so that a kernel touching only the
+# stored entries and a generic fallback visiting every element are told apart by the count
+# rather than by timing.
 struct MulCount{T} <: Number
     x::T
 end

@@ -771,7 +771,7 @@ function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,MatrixWrapper
     return conj(dot(B, A))
 end
 
-# Frobenius dot of the adjoint/transpose of a CSC matrix with a CSC matrix (issue #627).
+# Frobenius dot of the adjoint/transpose of a CSC matrix with a CSC matrix.
 # With `P = parent(A)`, `dot(A, B) = Σ dot(op(P[j,i]), B[i,j])`, so the stored entries of
 # one operand are matched against those of the other at transposed positions. Walking the
 # operand with fewer stored entries and columns, with one cursor per column of the other,
@@ -2254,7 +2254,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     C
 end
 
-# Adjoint/transpose of a sparse matrix with a `Diagonal` (issue #619): the generic
+# Adjoint/transpose of a sparse matrix with a `Diagonal`: the generic
 # `Diagonal` kernel in LinearAlgebra visits every element of `C`. With `beta == 0` the
 # adjoint is formed directly in `C` (one `halfperm!`, O(nnz)) and scaled in place;
 # otherwise it is materialized once and handed to the CSC kernels above, which also
