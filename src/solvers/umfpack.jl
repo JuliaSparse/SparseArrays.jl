@@ -325,7 +325,7 @@ When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
 
-The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
+The column permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero-based, a
 zero-based copy is made.
 
@@ -346,8 +346,8 @@ The individual components of the factorization `F` can be accessed by indexing:
 |:----------|:------------------------------------|
 | `L`       | `L` (lower triangular) part of `LU` |
 | `U`       | `U` (upper triangular) part of `LU` |
-| `p`       | right permutation `Vector`          |
-| `q`       | left permutation `Vector`           |
+| `p`       | row permutation `Vector`            |
+| `q`       | column permutation `Vector`         |
 | `Rs`      | `Vector` of scaling factors         |
 | `:`       | `(L,U,p,q,Rs)` components           |
 
@@ -416,7 +416,7 @@ When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
 
-The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
+The column permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
 zero based copy is made.
 
