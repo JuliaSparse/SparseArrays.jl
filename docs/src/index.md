@@ -41,7 +41,8 @@ for performance, and to avoid expensive operations.
 
 If you have data in CSC format from a different application or library, you can wrap the
 three arrays directly with `SparseMatrixCSC(m, n, colptr, rowval, nzval)`. The arrays are not
-copied, so the matrix aliases them. They must satisfy the following invariants:
+copied, so the matrix aliases them. Make copies if you want to avoid aliasing.
+They must satisfy the following invariants:
 
   * `colptr` has length `n + 1`, starts at `1`, and is nondecreasing;
   * `rowval` and `nzval` both have length `colptr[end] - 1`, and `rowval` has the same
@@ -50,29 +51,10 @@ copied, so the matrix aliases them. They must satisfy the following invariants:
 
 The constructor throws an `ArgumentError` if the first two are violated, but it does *not*
 inspect the row indices. A matrix with unsorted, repeated or out-of-range row indices is
-constructed silently, and then displays and indexes incorrectly.
+constructed silently, which will then run into several problems.
 
 Arrays from C, Python (SciPy's `indptr` and `indices`) and other 0-based sources need `1`
-added to `colptr` and `rowval`:
-
-```jldoctest cscimport
-julia> colptr = [0, 2, 3, 5]; rowval = [2, 0, 1, 2, 0]; nzval = [20.0, 10.0, 30.0, 50.0, 40.0];
-
-julia> colptr .+= 1; rowval .+= 1;
-
-julia> A = SparseMatrixCSC(3, 3, colptr, rowval, nzval);
-
-julia> rowvals(A) === rowval
-true
-```
-
-The row indices above are not sorted within columns 1 and 3, so lookups in those columns
-fail:
-
-```jldoctest cscimport
-julia> A[3, 1]
-0.0
-```
+added to `colptr` and `rowval`.
 
 One quick way to sort them is a double transpose. Since the transpose operation is lazy, make
 a copy to materialize each transpose. Alternatively, rebuild the matrix from its coordinates
