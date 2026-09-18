@@ -1190,44 +1190,14 @@ function hcat(Xin::AbstractSparseVector...)
     X = map(_unsafe_unfix, Xin)
     Tv = promote_type(map(eltype, X)...)
     Ti = promote_type(map(indtype, X)...)
-    r = (function (::Type{SV}) where SV
-        _absspvec_hcat(map(x -> convert(SV, x), X)...)
-    end)(SparseVector{Tv,Ti})
+    r = _absspvec_stack(Tv, Ti, SparseVector{Tv,Ti}[X...])
     return @if_move_fixed Xin... r
-end
-function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
-    # check sizes
-    n = length(X)
-    m = length(X[1])
-    tnnz = nnz(X[1])
-    for j = 2:n
-        length(X[j]) == m ||
-            throw(DimensionMismatch("Inconsistent column lengths."))
-        tnnz += nnz(X[j])
-    end
-
-    # construction
-    colptr = Vector{Ti}(undef, n+1)
-    nzrow = Vector{Ti}(undef, tnnz)
-    nzval = Vector{Tv}(undef, tnnz)
-    roff = 1
-    @inbounds for j = 1:n
-        xj = X[j]
-        xnzind = nonzeroinds(xj)
-        xnzval = nonzeros(xj)
-        colptr[j] = roff
-        copyto!(nzrow, roff, xnzind)
-        copyto!(nzval, roff, xnzval)
-        roff += length(xnzind)
-    end
-    colptr[n+1] = roff
-    return SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
 end
 
 # `stack` of sparse vectors along a new trailing dimension. Base's generic loop calls
 # `copyto!(B, offset, x)` per slice, which copies every element, including the stored
 # zeros, through `getindex` and `setindex!` on sparse arrays. Building the CSC arrays
-# directly, as `_absspvec_hcat` does, costs O(nnz + n) instead of O(m * n).
+# directly costs O(nnz + n) instead of O(m * n).
 function Base._typed_stack(::Colon, ::Type{T}, ::Type{S}, A, Aax::Tuple{Any}) where {T,S<:AbstractSparseVector}
     X = A isa AbstractArray ? A : collect(A)
     isempty(X) && return Base._empty_stack(:, T, S, A)
