@@ -39,13 +39,49 @@ one place over.
 All operations on sparse matrices are carefully implemented to exploit the CSC data structure
 for performance, and to avoid expensive operations.
 
-If you have data in CSC format from a different application or
-library, and wish to import it in Julia, make sure that you use
-1-based indexing. The row indices in every column need to be sorted,
-and if they are not, the matrix will display incorrectly.  If your
-`SparseMatrixCSC` object contains unsorted row indices, one quick way
-to sort them is by doing a double transpose. Since the transpose operation
-is lazy, make a copy to materialize each transpose.
+If you have data in CSC format from a different application or library, you can wrap the
+three arrays directly with `SparseMatrixCSC(m, n, colptr, rowval, nzval)`. The arrays are not
+copied, so the matrix aliases them. Make copies if you want to avoid aliasing.
+They must satisfy the following invariants:
+
+  * `colptr` has length `n + 1`, starts at `1`, and is nondecreasing;
+  * `rowval` and `nzval` both have length `colptr[end] - 1`, and `rowval` has the same
+    element type as `colptr`;
+  * within each column, the row indices are sorted, unique, and in `1:m`.
+
+The constructor throws an `ArgumentError` if the first two are violated, but it does *not*
+inspect the row indices. A matrix with unsorted, repeated or out-of-range row indices is
+constructed silently, which will then run into several problems.
+
+Arrays from C, Python (SciPy's `indptr` and `indices`) and other 0-based sources need `1`
+added to `colptr` and `rowval`.
+
+One quick way to sort them is a double transpose. Since the transpose operation is lazy, make
+a copy to materialize each transpose. Alternatively, rebuild the matrix from its coordinates
+with [`findnz`](@ref) and [`sparse`](@ref), which also adds up repeated entries:
+
+```jldoctest cscimport
+julia> B = copy(transpose(copy(transpose(A))))
+3×3 SparseMatrixCSC{Float64, Int64} with 5 stored entries:
+ 10.0    ⋅   40.0
+   ⋅   30.0    ⋅
+ 20.0    ⋅   50.0
+
+julia> B == sparse(findnz(A)..., size(A)...)
+true
+```
+
+The arrays of an `m × n` matrix in compressed sparse row (CSR) format are the CSC arrays of
+its transpose, so build the `n × m` matrix from them and transpose it:
+
+```jldoctest
+julia> rowptr = [1, 3, 4]; colval = [1, 3, 2]; nzval = [1.0, 2.0, 3.0];  # 2 × 3 CSR
+
+julia> copy(transpose(SparseMatrixCSC(3, 2, rowptr, colval, nzval)))
+2×3 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
+ 1.0   ⋅   2.0
+  ⋅   3.0   ⋅
+```
 
 In some applications, it is convenient to store explicit zero values in a `SparseMatrixCSC`. These
 *are* accepted by functions in `Base` (but there is no guarantee that they will be preserved in
