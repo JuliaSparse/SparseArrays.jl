@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "https://github.com/JuliaSparse/SparseArrays.jl/blob/master/docs/src/index.md"
+EditURL = "https://github.com/JuliaSparse/SparseArrays.jl/blob/main/docs/src/index.md"
 ```
 
 # Sparse Arrays
@@ -86,7 +86,7 @@ end
 ```
 
 Like [`SparseMatrixCSC`](@ref), the `SparseVector` type can also contain explicitly
-stored zeros. (See [Sparse Matrix Storage](@ref man-csc).).
+stored zeros. (See [Sparse Matrix Storage](@ref man-csc).)
 
 ## Sparse Vector and Matrix Constructors
 
@@ -204,7 +204,7 @@ section of the standard library reference.
 | [`sparse(A)`](@ref)        | [`Array(S)`](@ref)   | Interconverts between dense and sparse formats.                                                                                                                       |
 | [`sprand(m,n,d)`](@ref)    | [`rand(m,n)`](@ref)    | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed uniformly on the half-open interval ``[0, 1)``.                            |
 | [`sprandn(m,n,d)`](@ref)   | [`randn(m,n)`](@ref)   | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed according to the standard normal (Gaussian) distribution.                  |
-| [`sprandn(rng,m,n,d)`](@ref) | [`randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator                                   |
+| [`sprandn(rng,m,n,d)`](@ref) | [`randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator.                                  |
 
 
 ```@meta
@@ -217,6 +217,7 @@ DocTestSetup = nothing
 SparseArrays.AbstractSparseArray
 SparseArrays.AbstractSparseVector
 SparseArrays.AbstractSparseMatrix
+SparseArrays.AbstractSparseMatrixCSC
 SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
@@ -241,11 +242,15 @@ SparseArrays.nzrange
 SparseArrays.droptol!
 SparseArrays.dropzeros!
 SparseArrays.dropzeros
+SparseArrays.dropstored!
 SparseArrays.fkeep!
 SparseArrays.permute
 permute!{Tv, Ti, Tp <: Integer, Tq <: Integer}(::SparseMatrixCSC{Tv,Ti}, ::SparseMatrixCSC{Tv,Ti}, ::AbstractArray{Tp,1}, ::AbstractArray{Tq,1})
 SparseArrays.halfperm!
 SparseArrays.ftranspose!
+SparseArrays.fixed
+SparseArrays.FixedSparseCSC
+SparseArrays.FixedSparseVector
 ```
 
 ```@meta
@@ -256,7 +261,7 @@ DocTestSetup = nothing
 
 Several other Julia packages provide sparse matrix implementations that should be mentioned:
 
-1. [SuiteSparseGraphBLAS.jl](https://github.com/JuliaSparse/SuiteSparseGraphBLAS.jl) is a wrapper over the fast, multithreaded SuiteSparse:GraphBLAS C library. On CPU this is typically the fastest option, often significantly outperforming MKLSparse.
+1. [SuiteSparseGraphBLAS.jl](https://github.com/JuliaSparse/SuiteSparseGraphBLAS.jl) is a wrapper over the fast, multithreaded SuiteSparse:GraphBLAS C library.
 
 2. [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl) exposes the [CUSPARSE](https://docs.nvidia.com/cuda/cusparse/index.html) library for GPU sparse matrix operations.
 
@@ -277,7 +282,7 @@ External packages providing sparse direct solvers:
 2. [Pardiso.jl](https://github.com/JuliaSparse/Pardiso.jl/)
 
 External packages providing solvers for iterative solution of eigensystems and singular value decompositions:
-1. [ArnoldiMethods.jl](https://github.com/JuliaLinearAlgebra/ArnoldiMethod.jl)
+1. [ArnoldiMethod.jl](https://github.com/JuliaLinearAlgebra/ArnoldiMethod.jl)
 2. [KrylovKit](https://github.com/Jutho/KrylovKit.jl)
 3. [Arpack.jl](https://github.com/JuliaLinearAlgebra/Arpack.jl)
 
