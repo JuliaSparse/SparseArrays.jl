@@ -20,10 +20,10 @@ The following factorizations are available:
 
 | Type                  | Description                                   |
 |:----------------------|:--------------------------------------------- |
-| `CHOLMOD.Factor`      | Cholesky and LDLt factorizations              |
-| `UMFPACK.UmfpackLU`   | LU factorization                              |
-| `SPQR.QRSparse`       | QR factorization                              |
-| `SPQR.AdjointQRSparse` | LQ factorization, the adjoint of a QR factorization |
+| [`CHOLMOD.Factor`](@ref SparseArrays.CHOLMOD.Factor) | Cholesky and LDLt factorizations |
+| [`UMFPACK.UmfpackLU`](@ref SparseArrays.UMFPACK.UmfpackLU) | LU factorization |
+| [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | QR factorization |
+| [`SPQR.AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) | LQ factorization, the adjoint of a QR factorization |
 
 ## [Solving linear systems](@id man-sparse-solving)
 
@@ -231,6 +231,12 @@ false
 
 
 ```@docs
+SparseArrays.CHOLMOD.Factor
+SparseArrays.CHOLMOD.Sparse
+SparseArrays.CHOLMOD.Dense
+SparseArrays.UMFPACK.UmfpackLU
+SparseArrays.SPQR.QRSparse
+SparseArrays.SPQR.AdjointQRSparse
 SparseArrays.CHOLMOD.cholesky
 SparseArrays.CHOLMOD.cholesky!
 SparseArrays.CHOLMOD.lowrankupdate

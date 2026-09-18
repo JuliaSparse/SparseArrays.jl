@@ -124,6 +124,43 @@ Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q
 # Struct for storing sparse QR from SPQR such that
 # A[invperm(rpivinv), cpiv] = (I - factors[:,1]*τ[1]*factors[:,1]')*...*(I - factors[:,k]*τ[k]*factors[:,k]')*R
 # with k = size(factors, 2).
+"""
+    SPQR.QRSparse{Tv,Ti} <: Factorization{Tv}
+
+The QR factorization of a sparse matrix computed by SPQR, returned by
+[`qr`](@ref SparseArrays.SPQR.qr). SPQR's output is copied into Julia arrays, so `F` holds
+no memory owned by the C library. `Ti` is `Int32` or `Int64` (only `Int32` on 32-bit
+systems); see `qr` for the element types.
+
+| Property | Description                                                      |
+|:---------|:-----------------------------------------------------------------|
+| `F.Q`    | orthogonal factor, stored as sparse Householder reflectors       |
+| `F.R`    | upper trapezoidal `SparseMatrixCSC`                              |
+| `F.prow` | row permutation `Vector`                                         |
+| `F.pcol` | column permutation `Vector`                                      |
+
+They satisfy `F.Q * F.R == A[F.prow, F.pcol]`, where `F.Q` is square and only its leading
+columns enter the product.
+
+`F` supports `\\` and `ldiv!` for least squares and minimum-norm solutions, `rank`, `copy`,
+and `F'`, which is the LQ factorization
+[`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `F` owns the
+workspace used by `ldiv!` and guards it with an internal lock; for solves from several
+tasks at once, give each task its own `copy(F)`.
+
+# Examples
+```jldoctest
+julia> A = sparse([1.0 0.0; 1.0 1.0; 0.0 1.0]);
+
+julia> F = qr(A);
+
+julia> propertynames(F)
+(:R, :Q, :prow, :pcol)
+
+julia> F.Q * F.R ≈ A[F.prow, F.pcol]
+true
+```
+"""
 struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
@@ -456,6 +493,23 @@ LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 # This definition is similar to the definition in factorization.jl except that
 # here we have to use \ instead of ldiv! because of limitations in SPQR
 
+"""
+    SPQR.AdjointQRSparse{Tv}
+
+The LQ factorization of a sparse matrix, returned by [`lq`](@ref SparseArrays.SPQR.lq)
+and by the adjoint of a [`QRSparse`](@ref SparseArrays.SPQR.QRSparse). It is an alias for
+`AdjointFactorization{Tv,<:QRSparse{Tv}}`, a lazy wrapper that shares the data of the QR
+factorization `F'` of `A'`.
+
+| Property | Description                                                 |
+|:---------|:------------------------------------------------------------|
+| `F.L`    | lower trapezoidal `SparseMatrixCSC`, a copy of `F'.R'`      |
+| `F.Q`    | orthogonal factor, the adjoint of `F'.Q`                    |
+| `F.prow` | row permutation `Vector`                                    |
+| `F.pcol` | column permutation `Vector`                                 |
+
+They satisfy `F.L * F.Q == A[F.prow, F.pcol]`. `F` supports `\\`, `ldiv!` and `rank`.
+"""
 const AdjointQRSparse{Tv} = AdjointFactorization{Tv,<:QRSparse{Tv}}
 
 """
