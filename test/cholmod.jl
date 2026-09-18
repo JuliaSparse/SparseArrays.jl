@@ -527,6 +527,23 @@ end
     @test getfield(factor, :Y) !== getfield(factor2, :Y)
 end
 
+@testset "isposdef(Factor) $elty $Ti" for elty in (Tv, Complex{Tv})
+    local A, b, F, x
+    o = elty <: Real ? elty(1) : elty(0, 1)
+    b = elty[1, 2, 3]
+    for (d, posdef) in ((-3, false), (9, true))
+        A = SparseMatrixCSC{elty,Ti}(sparse(elty[4 2o 0; 2o' d 1; 0 1 5]))
+        F = ldlt(Hermitian(A))
+        x = F \ b
+        @test isposdef(F) == posdef
+        @test issuccess(F)
+        @test F \ b == x
+        @test A * x ≈ b
+    end
+    @test isposdef(cholesky(Hermitian(A)))
+    @test !isposdef(ldlt(SparseMatrixCSC{elty,Ti}(sparse(elty[1 1; 1 1])); check = false))
+end
+
 @testset "temporaries stay rooted while reading raw pointers $Tv $Ti" begin
     # The conversions below read through the raw CHOLMOD buffers of a wrapper
     # that is otherwise dead after `unsafe_load(pointer(A))`. If the wrapper is
