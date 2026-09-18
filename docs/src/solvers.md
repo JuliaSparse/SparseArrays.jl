@@ -1,12 +1,14 @@
-# Sparse Linear Algebra (API)
+```@meta
+EditURL = "https://github.com/JuliaSparse/SparseArrays.jl/blob/main/docs/src/solvers.md"
+```
+
+# [Sparse Linear Algebra](@id stdlib-sparse-linalg)
 
 ```@meta
 DocTestSetup = :(using LinearAlgebra, SparseArrays)
 ```
 
-## [Sparse Linear Algebra](@id stdlib-sparse-linalg)
-
-Sparse matrix solvers call functions from [SuiteSparse](http://suitesparse.com).
+Sparse matrix solvers call functions from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
 
 The following factorizations are available:
 
@@ -24,19 +26,23 @@ The following factorizations are available:
 | `SPQR.AdjointQRSparse` | LQ factorization, the adjoint of a QR factorization |
 
 
-```@docs; canonical=false
+```@docs
 SparseArrays.CHOLMOD.cholesky
 SparseArrays.CHOLMOD.cholesky!
+SparseArrays.CHOLMOD.lowrankupdate
+SparseArrays.CHOLMOD.lowrankupdate!
 SparseArrays.CHOLMOD.lowrankdowndate
 SparseArrays.CHOLMOD.lowrankdowndate!
 SparseArrays.CHOLMOD.lowrankupdowndate!
 SparseArrays.CHOLMOD.ldlt
+SparseArrays.CHOLMOD.ldlt!
 SparseArrays.CHOLMOD.rcond
 SparseArrays.SPQR.qr
 SparseArrays.SPQR.lq
 Base.:\(::SparseArrays.SPQR.QRSparse, ::StridedVecOrMat)
 Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::StridedVecOrMat)
 SparseArrays.UMFPACK.lu
+SparseArrays.UMFPACK.lu!
 SparseArrays.UMFPACK.rcond
 ```
 
