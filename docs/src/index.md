@@ -222,6 +222,151 @@ In many cases it may be better to convert the sparse matrix into `(I,J,V)` forma
 manipulate the values or the structure in the dense vectors `(I,J,V)`, and then reconstruct
 the sparse matrix.
 
+## [Performance tips](@id man-sparse-performance)
+
+Sparse code is fast when its cost is proportional to the number of stored entries, and the
+[CSC layout](@ref man-csc) determines which operations have that property.
+
+### Iterate over stored entries by column
+
+The stored entries of column `j` are located at the positions [`nzrange(A, j)`](@ref nzrange) of
+[`rowvals(A)`](@ref rowvals) and [`nonzeros(A)`](@ref nonzeros). Looping over the columns, and over
+that range within each column, visits every stored entry once and in memory order, without
+searching. For example, a matrix-vector product can be written as:
+
+```jldoctest perftips
+julia> A = sparse([1, 1, 2, 3], [1, 3, 2, 3], [1.0, 2.0, 3.0, 4.0]);
+
+julia> function mymul(A::SparseMatrixCSC, x::Vector)
+           y = zeros(promote_type(eltype(A), eltype(x)), size(A, 1))
+           rows, vals = rowvals(A), nonzeros(A)
+           for j in axes(A, 2), k in nzrange(A, j)
+               y[rows[k]] += vals[k] * x[j]
+           end
+           return y
+       end;
+
+julia> mymul(A, [1.0, 10.0, 100.0]) == A * [1.0, 10.0, 100.0]
+true
+```
+
+In contrast, scalar indexing `A[i, j]` has to do a binary search of column `j` for row `i`. A
+loop over all `(i, j)` of an `m`-by-`n` matrix therefore performs `m * n` searches, however few
+entries are stored, instead of visiting the `nnz(A)` stored entries once.
+
+### Build a matrix from its entries in one call
+
+Storing a value at a position that has no stored entry yet moves all the later entries of `rowvals(A)`
+and `nonzeros(A)` and updates the column pointers, so filling `spzeros(m, n)` one element at a time takes
+time proportional to `nnz(A)` for each insertion. `sizehint!(A, n)` reserves room for
+`n` stored entries, which avoids reallocating those vectors but not moving the entries. Instead, collect
+the row indices, column indices and values in three vectors and call [`sparse`](@ref) once. Entries with
+the same position are added together, or combined with the function passed as the last argument:
+
+```jldoctest perftips
+julia> I = [1, 1, 2]; J = [1, 1, 2]; V = [1.0, 2.0, 5.0];
+
+julia> sparse(I, J, V)
+2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+ 3.0   ⋅
+  ⋅   5.0
+
+julia> sparse(I, J, V, 2, 2, max)
+2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+ 2.0   ⋅
+  ⋅   5.0
+```
+
+### Slice columns, not rows
+
+`A[:, j]` copies one contiguous range of the stored entries. `A[i, :]` has to search every column for
+row `i`, so its cost grows with the number of columns even when the row is empty. When an algorithm
+works row by row, transpose the matrix once and work on the columns of the result. `permutedims(A)`
+and `copy(transpose(A))` (equivalently `sparse(transpose(A))`) build the transposed matrix in time
+proportional to `nnz(A)`.
+
+```jldoctest perftips
+julia> At = permutedims(A);
+
+julia> At[:, 1] == A[1, :]
+true
+```
+
+### Choose a smaller index type
+
+The index type `Ti` is used for the column pointers and for one row index per stored entry. With `Float64`
+values, `Int32` indices reduce the memory per stored entry from 16 to 12 bytes. `Ti` is taken from the
+index vectors given to [`sparse`](@ref), can be given to [`spzeros`](@ref), and an existing matrix is
+converted with the type constructor. Both dimensions have to be at most `typemax(Ti)`, and the number of
+stored entries has to be less than `typemax(Ti)`.
+
+```jldoctest perftips
+julia> A32 = SparseMatrixCSC{Float64,Int32}(A)
+3×3 SparseMatrixCSC{Float64, Int32} with 4 stored entries:
+ 1.0   ⋅   2.0
+  ⋅   3.0   ⋅
+  ⋅    ⋅   4.0
+
+julia> typeof(sparse(Int32[1, 2], Int32[1, 2], [1.0, 2.0])) == typeof(spzeros(Float64, Int32, 2, 2))
+true
+
+julia> spzeros(Float64, Int8, 200, 200)
+ERROR: ArgumentError: number of rows (m = 200) does not fit in Ti = Int8
+[...]
+```
+
+Operations between matrices with different index types promote to the wider one, so use one index type
+consistently.
+
+### Lazy `transpose` and `adjoint`
+
+`transpose(A)` and `A'` do not copy; they return `Transpose` and `Adjoint` wrappers around `A`.
+The wrappers are handled without materializing the transpose in products with dense vectors and matrices
+(including `mul!`), in products with sparse vectors, in `\`, in `==`, and in `A'[i, :]`, which
+is a column slice of `A`. Products with another sparse matrix, broadcasting (which includes `+` and `-`),
+`map`, concatenation, `kron` and `findnz` first copy the wrapper into a new `SparseMatrixCSC`; this is
+proportional to `nnz(A)` but is repeated on every call. Other functions, such as `sum`, `norm`, and
+indexing other than by row, reach generic `AbstractMatrix` methods that visit the wrapper element by element.
+When a transposed matrix is used more than once, or is passed to code that is not one of the products or
+solves above, materialize it with `copy`, or with `sparse` when the argument may or may not be a wrapper.
+
+```jldoctest perftips
+julia> A' * [1.0, 10.0, 100.0]
+3-element Vector{Float64}:
+   1.0
+  30.0
+ 402.0
+
+julia> copy(A')
+3×3 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
+ 1.0   ⋅    ⋅
+  ⋅   3.0   ⋅
+ 2.0   ⋅   4.0
+```
+
+### Keep results sparse and free of stored zeros
+
+A result stays sparse only if the operation maps zeros to zeros. `A .+ 1` and `exp.(A)` return a
+`SparseMatrixCSC` in which every entry is stored, which is slower and larger than a `Matrix`; apply such
+functions to `nonzeros(A)` instead when only the stored entries are meant. Assigning zero to a stored entry,
+and cancellation in a matrix product, leave explicitly stored zeros behind. They are harmless for correctness but
+are visited by every kernel. [`dropzeros!`](@ref) removes them, [`droptol!`](@ref) removes entries of small
+magnitude, and [`fkeep!`](@ref) keeps the entries for which a predicate of `(i, j, v)` is true, all in place.
+
+```jldoctest perftips
+julia> B = copy(A); B[1, 1] = 0; nnz(B)
+4
+
+julia> nnz(dropzeros!(B))
+3
+
+julia> fkeep!((i, j, v) -> i == j, B)
+3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+  ⋅    ⋅    ⋅
+  ⋅   3.0   ⋅
+  ⋅    ⋅   4.0
+```
+
 ## Correspondence of dense and sparse methods
 
 The following table gives a correspondence between built-in methods on sparse matrices and their
