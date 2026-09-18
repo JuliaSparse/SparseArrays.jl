@@ -214,8 +214,9 @@ julia> mymul(A, [1.0, 10.0, 100.0]) == A * [1.0, 10.0, 100.0]
 true
 ```
 
-In contrast, scalar indexing `A[i, j]` has to search column `j` for row `i`, and a loop over all
-`(i, j)` costs time proportional to `length(A)` rather than `nnz(A)`.
+In contrast, scalar indexing `A[i, j]` has to do a binary search of column `j` for row `i`. A
+loop over all `(i, j)` of an `m`-by-`n` matrix therefore performs `m * n` searches, however few
+entries are stored, instead of visiting the `nnz(A)` stored entries once.
 
 ### Build a matrix from its entries in one call
 
