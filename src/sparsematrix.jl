@@ -4653,7 +4653,7 @@ spdiagm_eltype(p::Pair, q::Pair, rest::Pair...) =
     (@inline; promote_type(promote_type(eltype(p.second), eltype(q.second)),
                            spdiagm_eltype(rest...)))
 spdiagm_eltype(p::Pair, q::Pair) = promote_type(eltype(p.second), eltype(q.second))
-spdiagm_eltype(kv::Pair{<:Integer,<:AbstractVector{T}}...) where {T} = T
+spdiagm_eltype(::Pair{<:Integer,<:AbstractVector{T}}, ::Pair{<:Integer,<:AbstractVector{T}}...) where {T} = T
 
 function spdiagm_internal(kv::Pair{<:Integer,<:AbstractVector}...)
     ncoeffs = 0
@@ -4745,6 +4745,7 @@ julia> spdiagm(sparse([1,0,3]))
 spdiagm(v::AbstractVector) = _spdiagm(nothing, 0 => v)
 spdiagm(m::Integer, n::Integer, v::AbstractVector) = _spdiagm((Int(m), Int(n)), 0 => v)
 
+_spdiagm(size) = spzeros(Bool, something(size, (0,0))...) # eltype as `diagm(m, n)`
 function _spdiagm(size, kv::Pair{<:Integer,<:AbstractVector}...)
     I, J, V, mmax, nmax = spdiagm_internal(kv...)
     mnmax = max(mmax, nmax)

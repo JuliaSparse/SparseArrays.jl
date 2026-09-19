@@ -1326,7 +1326,8 @@ function vcat(Xin::AbstractSparseVector...)
         end)(SparseVector{Tv,Ti})
     return @if_move_fixed Xin... r
 end
-function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
+function _absspvec_vcat(X1::AbstractSparseVector{Tv,Ti}, Xs::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
+    X = (X1, Xs...)
     # check sizes
     n = length(X)
     tnnz = 0
