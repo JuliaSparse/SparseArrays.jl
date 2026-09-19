@@ -298,6 +298,14 @@ end
         @test_throws DimensionMismatch qr(sprandn(n, m, 0.5))' \ zeros(m)
     end
 
+    @testset "aliased X and B" begin
+        # B is gathered into the workspace before X is written, so X may alias B
+        F = qr(sprandn(n, n, 0.5) + I)
+        b = randn(n)
+        x = F \ b
+        @test ldiv!(b, F, b) == x
+    end
+
     @testset "copying QRSparse" begin
         A = sprandn(m, n, 0.5)
         F = qr(A)
