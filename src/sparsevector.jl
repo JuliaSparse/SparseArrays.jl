@@ -771,16 +771,15 @@ sprandn(r::AbstractRNG, ::Type{T}, n::Integer, p::AbstractFloat) where T = spran
 # Column slices
 function getindex(x::AbstractSparseMatrixCSC, ::Colon, j::Integer)
     checkbounds(x, :, j)
-    r1 = convert(Int, getcolptr(x)[j])
-    r2 = convert(Int, getcolptr(x)[j+1]) - 1
-    return @if_move_fixed x SparseVector(size(x, 1), rowvals(x)[r1:r2], nonzeros(x)[r1:r2])
+    nzr = nzrange(x, j)
+    return @if_move_fixed x SparseVector(size(x, 1), rowvals(x)[nzr], nonzeros(x)[nzr])
 end
 
 function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     checkbounds(x, I, j)
     # Get the selected column
-    c1 = convert(Int, getcolptr(x)[j])
-    c2 = convert(Int, getcolptr(x)[j+1]) - 1
+    c1 = Int(first(nzrange(x, j)))
+    c2 = Int(last(nzrange(x, j)))
     # Restrict to the selected rows
     r1 = searchsortedfirst(view(rowvals(x), c1:c2), first(I)) + c1 - 1
     r2 = searchsortedlast(view(rowvals(x), c1:c2), last(I)) + c1 - 1
@@ -804,7 +803,7 @@ function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::Abstrac
     require_one_based_indexing(A, J)
     checkbounds(A, i, J)
     nJ = length(J)
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = rowvals(A); nzvalA = nonzeros(A)
 
     nzinds = Vector{Ti}()
     nzvals = Vector{Tv}()
@@ -814,8 +813,8 @@ function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::Abstrac
     @inbounds for j = 1:nJ
         col = J[j]
         rowI = i
-        ptrA = Int(colptrA[col])
-        stopA = Int(colptrA[col+1]-1)
+        ptrA = Int(first(nzrange(A, col)))
+        stopA = Int(last(nzrange(A, col)))
         if ptrA <= stopA
             if rowvalA[ptrA] <= rowI
                 ptrA += searchsortedfirst(view(rowvalA, ptrA:stopA), rowI) - 1
@@ -840,15 +839,15 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
     n = sum(I)
     nnzB = min(n, nnz(A))
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = rowvals(A); nzvalA = nonzeros(A)
     rowvalB = Vector{Int}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
     c = 1
     rowB = 1
 
     @inbounds for col in axes(A,2)
-        r1 = colptrA[col]
-        r2 = colptrA[col+1]-1
+        r1 = first(nzrange(A, col))
+        r2 = last(nzrange(A, col))
 
         for row in axes(A,1)
             if I[row, col]

@@ -646,7 +646,7 @@ function _copyto_fixed!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     for write in (false, true)
         write && fill!(Anz, zero(eltype(A)))
         @inbounds for j in axes(A, 2)
-            k, kend = Int(getcolptr(A)[j]), Int(getcolptr(A)[j+1]) - 1
+            k, kend = Int(first(nzrange(A, j))), Int(last(nzrange(A, j)))
             for p in nzrange(B, j)
                 i = Brv[p]
                 while k <= kend && Arv[k] < i; k += 1; end
@@ -3008,13 +3008,13 @@ _mapreducerows!(pred::P, ::typeof(&), R::AbstractMatrix{Bool},
 # find first zero value in sparse matrix - return linear index in full matrix
 # non-structural zeros are identified by `iszero` in line with the sparse constructors.
 function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=axes(A,1), cols=axes(A,2)) where {Tv,Ti}
-    colptr = getcolptr(A); rowval = rowvals(A); nzval = nonzeros(A)
+    rowval = rowvals(A); nzval = nonzeros(A)
     row = 0
     rowmin = rows[1]; rowmax = rows[end]
     allrows = (rows == axes(A,1))
     @inbounds for col in cols
-        r1::Int = colptr[col]
-        r2::Int = colptr[col+1] - 1
+        r1::Int = first(nzrange(A, col))
+        r2::Int = last(nzrange(A, col))
         if !allrows && (r1 <= r2)
             r1 += searchsortedfirst(view(rowval, r1:r2), rowmin) - 1
             (r1 <= r2 ) && (r2 = searchsortedlast(view(rowval, r1:r2), rowmax) + r1 - 1)
@@ -3128,8 +3128,8 @@ end
 
 @RCI @propagate_inbounds function getindex(A::AbstractSparseMatrixCSC{T}, i0::Integer, i1::Integer) where T
     @boundscheck checkbounds(A, i0, i1)
-    r1 = Int(@inbounds getcolptr(A)[i1])
-    r2 = Int(@inbounds getcolptr(A)[i1+1]-1)
+    r1 = Int(@inbounds first(nzrange(A, i1)))
+    r2 = Int(@inbounds last(nzrange(A, i1)))
     (r1 > r2) && return zero(T)
     r1 = searchsortedfirst(view(rowvals(A), r1:r2), i0) + r1 - 1
     ((r1 > r2) || (rowvals(A)[r1] != i0)) ? zero(T) : nonzeros(A)[r1]
@@ -3189,7 +3189,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::Abstra
     nI = length(I)
     nI == 0 || (minimum(I) >= 1 && maximum(I) <= m) || throw(BoundsError())
     nJ = length(J)
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = rowvals(A); nzvalA = nonzeros(A)
     colptrS = Vector{Ti}(undef, nJ+1)
     colptrS[1] = 1
     nnzS = 0
@@ -3211,7 +3211,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::Abstra
 
     @inbounds for j = 1:nJ
         col = J[j]
-        for k = getindex_traverse_col(I, colptrA[col], colptrA[col+1]-1)
+        for k = getindex_traverse_col(I, first(nzrange(A, col)), last(nzrange(A, col)))
             rowA = rowvalA[k]
             i = rangesearch(I, rowA)
             if i > 0
@@ -3251,7 +3251,7 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
     nI = length(I)
     nJ = length(J)
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = rowvals(A); nzvalA = nonzeros(A)
     colptrS = Vector{Ti}(undef, nJ+1)
     colptrS[1] = 1
 
@@ -3260,8 +3260,8 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
     @inbounds for j = 1:nJ
         col = J[j]
         ptrI::Int = 1 # runs through I
-        ptrA::Int = colptrA[col]
-        stopA::Int = colptrA[col+1]-1
+        ptrA::Int = first(nzrange(A, col))
+        stopA::Int = last(nzrange(A, col))
         if ptrA <= stopA
             while ptrI <= nI
                 rowI = I[ptrI]
@@ -3285,8 +3285,8 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
     @inbounds for j = 1:nJ
         col = J[j]
         ptrI::Int = 1 # runs through I
-        ptrA::Int = colptrA[col]
-        stopA::Int = colptrA[col+1]-1
+        ptrA::Int = first(nzrange(A, col))
+        stopA::Int = last(nzrange(A, col))
         if ptrA <= stopA
             while ptrI <= nI
                 rowI = I[ptrI]
@@ -3958,8 +3958,8 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatr
     r1 = r2 = 0
 
     @inbounds for col in axes(A,2)
-        r1 = Int(colptrA[col])
-        r2 = Int(colptrA[col+1]-1)
+        r1 = Int(first(nzrange(A, col)))
+        r2 = Int(last(nzrange(A, col)))
 
         for row in axes(A,1)
             if I[row, col]
@@ -4085,8 +4085,8 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
         v = x[sxidx]
 
         if col > lastcol
-            r1 = Int(colptrA[col])
-            r2 = Int(colptrA[col+1] - 1)
+            r1 = Int(first(nzrange(A, col)))
+            r2 = Int(last(nzrange(A, col)))
 
             # copy from last position till current column
             if (nadd > 0)
@@ -4577,18 +4577,16 @@ end
 
 function istriu(A::AbstractSparseMatrixCSC, k::Integer=0)
     m, n = size(A)
-    colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
     @inbounds for col = 1:min(n, m-1)
-        l1 = colptr[col+1]-1
-        for i = 0 : (l1 - colptr[col])
-            if rowval[l1-i] <= col - k
+        for i in reverse(nzrange(A, col))
+            if rowval[i] <= col - k
                 # rows preceeding the index would also lie above the band
                 break
             end
-            if _isnotzero(nzval[l1-i])
+            if _isnotzero(nzval[i])
                 return false
             end
         end
@@ -4769,8 +4767,8 @@ function diag(A::AbstractSparseMatrixCSC{Tv,Ti}, d::Integer=0) where {Tv,Ti}
     val = Vector{Tv}()
     for i in 1:l
         r += 1; c += 1
-        r1 = Int(getcolptr(A)[c])
-        r2 = Int(getcolptr(A)[c+1]-1)
+        r1 = Int(first(nzrange(A, c)))
+        r2 = Int(last(nzrange(A, c)))
         r1 > r2 && continue
         r1 += searchsortedfirst(view(rowvals(A), r1:r2), r) - 1
         ((r1 > r2) || (rowvals(A)[r1] != r)) && continue
@@ -4869,7 +4867,7 @@ function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c
     r = mod(r, size(X, 1))
     iszero(r) && return O
     @inbounds for i in axes(O, 2)
-        subvector_shifter!(rowvals(O), nonzeros(O), getcolptr(O)[i], getcolptr(O)[i+1]-1, size(O, 1), r)
+        subvector_shifter!(rowvals(O), nonzeros(O), first(nzrange(O, i)), last(nzrange(O, i)), size(O, 1), r)
     end
     return _checkbuffers(O)
 end
