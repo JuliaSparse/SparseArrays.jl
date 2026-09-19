@@ -1190,7 +1190,7 @@ function hcat(Xin::AbstractSparseVector...)
     X = map(_unsafe_unfix, Xin)
     Tv = promote_type(map(eltype, X)...)
     Ti = promote_type(map(indtype, X)...)
-    r = _absspvec_stack(Tv, Ti, SparseVector{Tv,Ti}[X...])
+    r = stack(SparseVector{Tv,Ti}[X...])
     return @if_move_fixed Xin... r
 end
 
@@ -1198,13 +1198,10 @@ end
 # `copyto!(B, offset, x)` per slice, which copies every element, including the stored
 # zeros, through `getindex` and `setindex!` on sparse arrays. Building the CSC arrays
 # directly costs O(nnz + n) instead of O(m * n).
-function Base._typed_stack(::Colon, ::Type{T}, ::Type{S}, A, Aax::Tuple{Any}) where {T,S<:AbstractSparseVector}
+function Base._typed_stack(::Colon, ::Type{Tv}, ::Type{S}, A, Aax::Tuple{Any}) where {Tv,S<:SparseVectorOrView}
     X = A isa AbstractArray ? A : collect(A)
-    isempty(X) && return Base._empty_stack(:, T, S, A)
+    isempty(X) && return Base._empty_stack(:, Tv, S, A)
     Ti = mapreduce(indtype, promote_type, X)
-    return _absspvec_stack(T, Ti, X)
-end
-function _absspvec_stack(::Type{Tv}, ::Type{Ti}, X) where {Tv,Ti}
     n = length(X)
     m = length(first(X))
     tnnz = 0
@@ -1228,6 +1225,11 @@ function _absspvec_stack(::Type{Tv}, ::Type{Ti}, X) where {Tv,Ti}
     end
     colptr[n+1] = roff
     return SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
+end
+# Sparse vector slices only reach `_dim_stack` with `dims` other than 2.
+function Base._dim_stack(dims::Integer, ::Type{Tv}, ::Type{S}, A) where {Tv,S<:SparseVectorOrView}
+    dims == 1 || throw(ArgumentError(LazyString("cannot stack slices ndims(x) = 1 along dims = ", dims)))
+    return permutedims(Base._typed_stack(:, Tv, S, A, (Base._vec_axis(A),)), (2, 1))
 end
 
 function vcat(Xin::AbstractSparseVector...)

@@ -647,7 +647,11 @@ end
         @test S == H
         @test nnz(S) == nnz(H)
         @test stack(A; dims=2) == H
-        @test stack(A; dims=1) == transpose(H)
+        S1 = stack(A; dims=1)
+        @test S1 isa SparseMatrixCSC{Float64,Int}
+        @test S1 == permutedims(H)
+        @test nnz(S1) == nnz(H)
+        @test_throws ArgumentError stack(A; dims=3)
         @test stack(x -> 2x, A) == 2H
         @test stack(x for x in A if true) == H
         # slices with different element and index types promote
@@ -658,6 +662,11 @@ end
         SB32 = stack(map(x -> SparseVector{Float64,Int32}(x), B))
         @test SB32 isa SparseMatrixCSC{Float64,Int32}
         @test SB32 == SB
+        # views of sparse columns and vectors
+        @test stack(eachcol(H)) == H
+        @test nnz(stack(eachcol(H))) == nnz(H)
+        @test stack(eachcol(H); dims=1) == permutedims(H)
+        @test stack([view(x, :) for x in A]) == H
         # fixed-pattern slices
         @test stack(map(FixedSparseVector, A)) == H
         # a container with more than one axis stacks into a dense array
