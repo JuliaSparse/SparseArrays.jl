@@ -653,7 +653,7 @@ end
     @test SparseMatrixCSC{Float64, Int16}(S) == S
 end
 
-include("concatenation/vectors.jl")
+include("concatenation_vectors.jl")
 
 @testset "repeat" begin
     for m = 0:3
@@ -1344,9 +1344,9 @@ end
             @test y == Af'x2f
         end
     end
-    include("triangular_solves/vectors.jl")
+    include("triangular_solves_vectors.jl")
 
-    include("triangular_products/vectors.jl")
+    include("triangular_products_vectors.jl")
 
 end
 
@@ -1700,6 +1700,6 @@ end
     @test nonzeros(A) !== nonzeros(B)
 end
 
-include("triangular_products/vector_views.jl")
+include("triangular_products_vector_views.jl")
 
 end # module

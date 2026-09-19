@@ -104,7 +104,7 @@ end
     @test eltype(S) == Float32
 end
 
-include("concatenation/matrices.jl")
+include("concatenation_matrices.jl")
 
 @testset "repeat tests" begin
     A = sprand(6, 4, 0.5)
@@ -814,7 +814,7 @@ end
     @test eltype(m) == Int32
 end
 
-include("concatenation/mixed_matrices.jl")
+include("concatenation_mixed_matrices.jl")
 
 @testset "row indexing a SparseMatrixCSC with non-Int integer type" begin
     local A = sparse(UInt32[1,2,3], UInt32[1,2,3], [1.0,2.0,3.0])

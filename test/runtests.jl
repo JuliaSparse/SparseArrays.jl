@@ -2,13 +2,13 @@
 
 using Test, LinearAlgebra, SparseArrays
 
-testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
+testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns_core.jl",
              "sparsematrix_constructors_indexing.jl", "sparsematrix_ops.jl",
-             "sparsevector.jl", "issues.jl", "linalg.jl", "linalg_products.jl",
+             "sparsevector_core.jl", "issues.jl", "linalg_core.jl", "linalg_products.jl",
              "threads_suite.jl"]
 
 if Base.USE_GPL_LIBS
-    append!(testfiles, ["cholmod.jl", "cholmod_ops.jl", "umfpack.jl", "spqr.jl",
+    append!(testfiles, ["cholmod_core.jl", "cholmod_ops.jl", "umfpack.jl", "spqr.jl",
                         "linalg_solvers.jl"])
 end
 

@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module SparseLinalgProductTests
-# Products, dot products, Kronecker products and conversions. Split off from linalg.jl
+# Products, dot products, Kronecker products and conversions. Split off from linalg_core.jl
 # so the two halves run on separate test workers.
 
 using Test
@@ -93,7 +93,7 @@ end
     end
 end
 
-include("triangular_products/dense_sparse.jl")
+include("triangular_products_dense_sparse.jl")
 
 @testset "Adding sparse-backed SymTridiagonal (#46355)" begin
     a = SymTridiagonal(sparsevec(Int[1]), sparsevec(Int[]))

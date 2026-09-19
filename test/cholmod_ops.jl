@@ -2,7 +2,7 @@
 
 module CHOLMODOpsTests
 # Core Sparse/Dense/Factor operations, factor extraction and regression tests for
-# CHOLMOD. Split off from cholmod.jl so the two halves run on separate test workers.
+# CHOLMOD. Split off from cholmod_core.jl so the two halves run on separate test workers.
 using Test
 
 @static if !Base.USE_GPL_LIBS

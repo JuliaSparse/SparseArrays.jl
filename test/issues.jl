@@ -261,7 +261,7 @@ end
     end
 end
 
-include("triangular_solves/missing_diagonal.jl")
+include("triangular_solves_missing_diagonal.jl")
 
 @testset "issue described in https://groups.google.com/forum/#!topic/julia-dev/QT7qpIpgOaA" begin
     @test sparse([1,1], [1,1], [true, true]) == sparse([1,1], [1,1], [true, true], 1, 1) == fill(true, 1, 1)
@@ -281,7 +281,7 @@ end
     @inferred sprand(1, 1, 1.0, x -> round.(Int, rand(x) * 100))
 end
 
-include("triangular_solves/integer_transpose.jl")
+include("triangular_solves_integer_transpose.jl")
 
 # Test temporary fix for issue #16548 in PR #16979. Somewhat brittle. Expect to remove with `\` revisions.
 @testset "issue #16548" begin
@@ -325,7 +325,7 @@ end
     end
 end
 
-include("concatenation/uniform_scaling.jl")
+include("concatenation_uniform_scaling.jl")
 
 # Check that `broadcast` methods specialized for unary operations over
 # `SparseMatrixCSC`s determine a reasonable return type.
@@ -538,7 +538,7 @@ end
     end
 end
 
-include("triangular_products/matrix_types.jl")
+include("triangular_products_matrix_types.jl")
 
 @testset "issue #41135" begin
     @test repr(SparseMatrixCSC([7;;])) == "sparse([1], [1], [7], 1, 1)"

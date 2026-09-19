@@ -2,13 +2,13 @@
 
 Develop and test on Julia nightly. `runtests.jl` owns the ordinary suite inventory,
 used by both ParallelTestRunner and the serial fallback for Julia Base CI. File
-selectors such as `sparsevector` and `linalg` include their feature files.
+selectors such as `sparsevector_core` and `linalg_core` include their feature files.
 
-Files under `triangular_products/`, `triangular_solves/`, and `concatenation/` are
-included fragments, preserving their parent suite's test order, imports, and
+Files prefixed `triangular_products_`, `triangular_solves_`, and `concatenation_`
+are included fragments, preserving their parent suite's test order, imports, and
 scheduling unit. Keep feature-specific issue regressions next to that feature and
 preserve issue references. The sparse triangular product and solve grid shares one
-fixture and stays together in `triangular_products/sparse.jl`.
+fixture and stays together in `triangular_products_sparse.jl`.
 
 Ordinary tests cover numerical results, sparse structure, validation, aliasing,
 inference, and algorithmic complexity. `ambiguous.jl` runs Aqua and ambiguity checks
