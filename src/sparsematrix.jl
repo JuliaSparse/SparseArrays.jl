@@ -181,10 +181,78 @@ getcolptr(S::SparseMatrixCSC) = getfield(S, :colptr)
 getcolptr(S::FixedSparseCSC) = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
 getcolptr(S::SparseMatrixCSCColumnSubset) = error("getcolptr not well-defined for $(typeof(S))")
+"""
+    getrowval(A)
+
+Return the vector of row indices of the structural nonzeros of sparse array `A`.
+For a [`SparseMatrixCSC`](@ref) this is the `rowval` field; for a
+[`SparseVector`](@ref) it is the `nzind` field. Any modifications to the returned
+vector will mutate `A` as well. Providing access to how the row indices are
+stored internally can be useful in conjunction with iterating over structural
+nonzero values. See also [`getnzval`](@ref) and [`nzrange`](@ref).
+
+`getrowval` is equivalent to [`rowvals`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse(2I, 3, 3)
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 2  ⋅  ⋅
+ ⋅  2  ⋅
+ ⋅  ⋅  2
+
+julia> getrowval(A)
+3-element Vector{Int64}:
+ 1
+ 2
+ 3
+
+julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
+2-element Vector{Int64}:
+ 2
+ 5
+```
+"""
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
 getrowval(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
+getrowval(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = rowvals(S.data)
+getrowval(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = rowvals(S.data)
+
+"""
+    getnzval(A)
+
+Return the vector of structural nonzero values of sparse array `A`, i.e. the `nzval`
+field of a [`SparseMatrixCSC`](@ref) or [`SparseVector`](@ref). This includes zeros
+that are explicitly stored in the sparse array. The returned vector points directly
+to the internal nonzero storage of `A`, and any modifications to the returned vector
+will mutate `A` as well. See also [`getrowval`](@ref) and [`nzrange`](@ref).
+
+`getnzval` is equivalent to [`nonzeros`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse(2I, 3, 3)
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 2  ⋅  ⋅
+ ⋅  2  ⋅
+ ⋅  ⋅  2
+
+julia> getnzval(A)
+3-element Vector{Int64}:
+ 2
+ 2
+ 2
+
+julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
+2-element Vector{Float64}:
+ 3.0
+ 4.0
+```
+"""
 getnzval( S::AbstractSparseMatrixCSC) = nonzeros(S)
 getnzval( S::SparseMatrixCSCColumnSubset) = nonzeros(parent(S))
+getnzval( S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = nonzeros(S.data)
+getnzval( S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = nonzeros(S.data)
 nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
 
 """

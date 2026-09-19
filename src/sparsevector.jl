@@ -173,6 +173,8 @@ function nonzeroinds(x::SparseVectorPartialView)
     return @view(nzinds[first_idx:last_idx]) .- (x.indices[1][begin] - 1)
 end
 
+getrowval(x::SparseVectorOrView) = nonzeroinds(x)
+getnzval(x::SparseVectorOrView) = nonzeros(x)
 rowvals(x::SparseVectorOrView) = nonzeroinds(x)
 
 indtype(x::SparseColumnView) = indtype(parent(x))
