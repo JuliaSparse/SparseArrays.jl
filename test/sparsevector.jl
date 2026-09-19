@@ -340,6 +340,16 @@ end
         @test exact_equal(xc, SparseVector(8, [1, 2, 3, 5, 6, 8], [6.0, 1.25, 4.0, -0.75, 3.5, -1.5]))
     end
 
+    let xc = copy(spv_x1)   # a range is spliced; the fallback would leave a stored zero at 6
+        xc[4:6] = sparsevec([2], [9.0], 3)
+        @test exact_equal(xc, SparseVector(8, [2, 5], [1.25, 9.0]))
+        xc[4:6] = [1.0, 0.0, 0.0]
+        @test exact_equal(xc, SparseVector(8, [2, 4], [1.25, 1.0]))
+        @test_throws DimensionMismatch xc[4:6] = sparsevec([1], [1.0], 2)
+        @test_throws BoundsError xc[7:9] = spzeros(3)
+        @test exact_equal(xc, SparseVector(8, [2, 4], [1.25, 1.0]))
+    end
+
     let xc = copy(spv_x1)
         xc[5] = 0.0
         @test exact_equal(xc, SparseVector(8, [2, 5, 6], [1.25, 0.0, 3.5]))

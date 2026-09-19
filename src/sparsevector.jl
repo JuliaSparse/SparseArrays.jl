@@ -443,6 +443,13 @@ end
 @RCI @propagate_inbounds setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
     setindex!(x, convert(Tv, v), convert(Ti, i))
 
+function setindex!(x::AbstractCompressedVector, v::AbstractVector, I::AbstractUnitRange{<:Integer})
+    checkbounds(x, I)
+    Base.setindex_shape_check(v, length(I))
+    copyto!(view(x, I), v)
+    return x
+end
+
 
 ### dropstored!
 """
