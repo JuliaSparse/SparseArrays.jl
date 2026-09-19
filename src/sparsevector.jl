@@ -2125,8 +2125,12 @@ function densemv(A::AbstractSparseMatrixCSC, x::AbstractSparseVector; trans::Abs
 end
 
 # * and mul!
-Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
-                                                        alpha::Number, beta::Number)
+mul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, alpha::Number, beta::Number) =
+    _spmatspvecmul!(y, tA, A, x, alpha, beta)
+# disambiguates against the sparse matrix times dense vector method
+mul!(y::StridedVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, alpha::Number, beta::Number) =
+    _spmatspvecmul!(y, tA, A, x, alpha, beta)
+Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
     if tA == 'N'
         _spmul!(y, A, x, alpha, beta)
     elseif tA == 'T'
