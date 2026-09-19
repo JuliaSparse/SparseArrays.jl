@@ -2272,21 +2272,10 @@ function issuccess(F::Factor)
 end
 
 function isposdef(F::Factor)
-    if issuccess(F)
-        s = unsafe_load(pointer(F))
-        if s.is_ll == 1
-            return true
-        else
-            # try conversion to LLt
-            change_factor!(F, true, s.is_super, true, s.is_monotonic)
-            b = issuccess(F)
-            # convert back
-            change_factor!(F, false, s.is_super, true, s.is_monotonic)
-            return b
-        end
-    else
-        return false
-    end
+    issuccess(F) || return false
+    s = unsafe_load(pointer(F))
+    # an LDLt factor is positive definite iff D is positive
+    return s.is_ll != 0 || all(d -> real(d) > 0, diag(F))
 end
 
 function ishermitian(A::Sparse{<:VRealTypes})
