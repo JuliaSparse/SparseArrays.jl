@@ -237,6 +237,22 @@ end
     As = sparse(A)
     B = [1 1; 1 1]
     @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
+
+    rng = Random.MersenneTwister(1)
+    n = 20
+    @testset "$T, $S($U)" for T in (Float64, ComplexF64), S in (Symmetric, Hermitian), U in (:U, :L)
+        P = sprandn(rng, T, n, n + 2, 0.2)
+        nonzeros(P)[1] = 0
+        C = randn(rng, T, 3, n)
+        for A in (S(P[:, 1:n], U), S(view(P, :, 2:n+1), U)),
+                X in (randn(rng, T, 3, n), randn(rng, T, n, 3)', transpose(randn(rng, T, n, 3)))
+            @test X * A ≈ X * Matrix(A)
+            @test mul!(copy(C), X, A, 2, 3) ≈ mul!(copy(C), X, Matrix(A), 2, 3)
+        end
+        @test_throws DimensionMismatch mul!(zeros(T, 3, n + 1), C, S(P[:, 1:n], U))
+    end
+    # the sparse kernel multiplies by stored zeros, the generic fallback skips them
+    @test isequal([Inf 1.0] * Symmetric(sparse([1, 2], [1, 2], [0.0, 1.0])), [NaN 1.0])
 end
 
 @testset "Column view of sparse matrix " begin
