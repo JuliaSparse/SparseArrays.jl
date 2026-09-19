@@ -11,7 +11,7 @@ using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
-    LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet
+    LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet, Symmetric, Hermitian
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
 
 function umfpack_report(l::UMFPACK.UmfpackLU)
@@ -226,6 +226,12 @@ end
             lua = lu(transpose(A))
             x = lua \ b
             @test transpose(A)*x ≈ b
+
+            for W in (Symmetric(A), Hermitian(A), Symmetric(view(A, 1:3, 1:3)))
+                F = lu(W)
+                @test F isa UMFPACK.UmfpackLU
+                @test Matrix(W) * (F \ b[1:size(W, 1)]) ≈ b[1:size(W, 1)]
+            end
 
             # Element promotion and type inference
             @inferred lua\fill(1, size(A, 2))
