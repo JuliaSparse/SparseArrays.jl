@@ -535,10 +535,16 @@ end
         @test nnz(A) == 1 && A == spzeros(3, 2)
         @test_throws BoundsError copyto!(view(A, :, 1), sparsevec([1.0, 2, 3, 4]))
         @test nnz(A) == 1 && A == spzeros(3, 2)
-        Af = SparseArrays.FixedSparseCSC(sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)) # a fixed parent takes a matching pattern only
-        copyto!(view(Af, :, 1), sparsevec([1, 2], [3.0, 4.0], 3))
-        @test_throws ArgumentError copyto!(view(Af, :, 1), sparsevec([2], [5.0], 3))
-        @test nonzeros(Af) == [3.0, 4.0]
+        Af = SparseArrays.FixedSparseCSC(sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)) # a fixed parent takes entries within its pattern
+        copyto!(view(Af, :, 1), sparsevec([2], [5.0], 3))
+        @test nonzeros(Af) == [0.0, 5.0]
+        @test_throws ArgumentError copyto!(view(Af, :, 1), sparsevec([3], [5.0], 3))
+        @test nonzeros(Af) == [0.0, 5.0]
+        copyto!(view(A, :, 1), [-0.0, 1.0])   # as `setindex!` would store
+        @test signbit(A[1, 1]) && nnz(A) == 2
+        A = sparse(Int8.(1:125), [fill(Int8(2), 124); Int8(3)], ones(125), 125, 3)   # colptr cannot count two more
+        @test_throws ArgumentError copyto!(view(A, :, 1), sparsevec([1, 2], [2.0, 3.0], 125))
+        @test getcolptr(A) == [1, 1, 125, 126] && nnz(A) == 125
     end
     let v = sparsevec([1, 4, 6], [1.0, 2.0, 3.0], 7)
         for (rng, src) in ((3:6, sparsevec([1, 3], [5.0, 6.0], 3)), (3:6, [7.0, 0.0]), (:, sparsevec([2], [5.0], 7)))
@@ -548,6 +554,12 @@ end
             @test x == d && nnz(x) == count(!iszero, d)
             @test src == s
         end
+        x = SparseVector(5, [1, 5], [1, 2])   # the source's indices are the parent's values
+        copyto!(view(x, :), SparseVector(2, nonzeros(x), [7, 8]))
+        @test x == [7, 8, 0, 0, 2]
+        xf = SparseArrays.FixedSparseVector(copy(v))
+        copyto!(view(xf, :), [5.0])
+        @test xf == [5, 0, 0, 2, 0, 3, 0]
     end
     let x = 1:9, x1 = spzeros(length(x)), x2 = spzeros(length(x)-1)
         @test_throws ArgumentError copy!(x2, x)
