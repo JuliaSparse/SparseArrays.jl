@@ -8,7 +8,7 @@ testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns_core.jl",
              "threads_suite.jl", "triangular.jl", "concatenation.jl"]
 
 if Base.USE_GPL_LIBS
-    append!(testfiles, ["cholmod_core.jl", "cholmod_ops.jl", "umfpack.jl", "spqr.jl",
+    append!(testfiles, ["cholmod.jl", "umfpack.jl", "spqr.jl",
                         "linalg_solvers.jl"])
 end
 
