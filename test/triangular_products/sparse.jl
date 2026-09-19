@@ -33,6 +33,7 @@ begin
         @test vAW * A ≈ AW * A
     end
     a = sprand(rng, ComplexF64, n, n, 0.01)
+    a[1, 1] = 2 + im # Exercise conjugation of a stored nonunit diagonal.
     ma = Matrix(a)
     @testset "triangular multiply with conjugate matrices" for tr in (x -> adjoint(transpose(x)), x -> transpose(adjoint(x))),
         wr in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
