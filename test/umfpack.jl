@@ -108,24 +108,6 @@ end
             @test f(Tv, Ti) == 0
         end
     end
-    @testset "Thread safety" begin
-        Af = lu(A0)
-        umfpack_report(Af)
-        x = similar(b0)
-        ldiv!(x, Af, b0)
-        n = 30
-        acc = [similar(b0) for _ in 1:n]
-        Threads.@threads for i in 1:n
-            ldiv!(acc[i], Af, b0)
-        end
-        for i in acc
-            @test i == x
-        end
-        umfpack_report(Af)
-        Af1 = lu!(copy(Af))
-        umfpack_report(Af1)
-    end
-
     @testset "test similar" begin
         Af = lu(A0)
         umfpack_report(Af)

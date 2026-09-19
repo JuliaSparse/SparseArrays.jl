@@ -432,6 +432,7 @@ end
     end
 end
 
+if Base.USE_GPL_LIBS
 @testset "type stability of linear solve" begin
     for relty in (Float16, Float32, Float64), elty in (relty, Complex{relty})
         A = sprand(elty, 2, 2, 1.0)
@@ -440,6 +441,7 @@ end
         @inferred A \ b
         @inferred A \ B
     end
+end
 end
 
 end

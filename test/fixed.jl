@@ -192,6 +192,7 @@ end
     end
 end
 
+if Base.USE_GPL_LIBS
 @testset "Test factorization" begin
     b = sprandn(10, 10, 0.99) + I
     a = fixed(b)
@@ -200,6 +201,7 @@ end
     @test b == a
     @test (qr(a + a') \ randn(10); true)
     @test b == a
+end
 end
 
 always_false(x...) = false
