@@ -1,3 +1,5 @@
+# This file is a part of Julia. License is MIT: https://julialang.org/license
+
 module SparseIssuesTests
 using Test
 using SparseArrays
@@ -259,17 +261,7 @@ end
     end
 end
 
-@testset "issue #13792, use sparse triangular solvers for sparse triangular solves" begin
-    local A, n, x
-    n = 100
-    A, b = sprandn(n, n, 0.5) + sqrt(n)*I, fill(1., n)
-    @test LowerTriangular(A)\(LowerTriangular(A)*b) ≈ b
-    @test UpperTriangular(A)\(UpperTriangular(A)*b) ≈ b
-    A[2,2] = 0
-    dropzeros!(A)
-    @test_throws LinearAlgebra.SingularException LowerTriangular(A)\b
-    @test_throws LinearAlgebra.SingularException UpperTriangular(A)\b
-end
+include("triangular_solves/missing_diagonal.jl")
 
 @testset "issue described in https://groups.google.com/forum/#!topic/julia-dev/QT7qpIpgOaA" begin
     @test sparse([1,1], [1,1], [true, true]) == sparse([1,1], [1,1], [true, true], 1, 1) == fill(true, 1, 1)
@@ -289,12 +281,7 @@ end
     @inferred sprand(1, 1, 1.0, x -> round.(Int, rand(x) * 100))
 end
 
-@testset "issue #14816" begin
-    m = 5
-    intmat = fill(1, m, m)
-    ltintmat = LowerTriangular(rand(1:5, m, m))
-    @test \(transpose(ltintmat), sparse(intmat)) ≈ \(transpose(ltintmat), intmat)
-end
+include("triangular_solves/integer_transpose.jl")
 
 # Test temporary fix for issue #16548 in PR #16979. Somewhat brittle. Expect to remove with `\` revisions.
 @testset "issue #16548" begin
@@ -338,12 +325,7 @@ end
     end
 end
 
-@testset "issue #19304" begin
-    @inferred hcat(sparse(rand(2,1)), I)
-    @inferred hcat(sparse(rand(2,1)), 1.0I)
-    @inferred hcat(sparse(rand(2,1)), Matrix(I, 2, 2))
-    @inferred hcat(sparse(rand(2,1)), Matrix(1.0I, 2, 2))
-end
+include("concatenation/uniform_scaling.jl")
 
 # Check that `broadcast` methods specialized for unary operations over
 # `SparseMatrixCSC`s determine a reasonable return type.
@@ -556,39 +538,7 @@ end
     end
 end
 
-@testset "Multiplying with triangular sparse matrices #35609 #35610" begin
-    n = 10
-    A = sprand(n, n, 5/n)
-    U = UpperTriangular(A)
-    L = LowerTriangular(A)
-    AM = Matrix(A)
-    UM = Matrix(U)
-    LM = Matrix(L)
-    Y = A * U
-    @test Y ≈ AM * UM
-    @test typeof(Y) == typeof(A)
-    Y = A * L
-    @test Y ≈ AM * LM
-    @test typeof(Y) == typeof(A)
-    Y = U * A
-    @test Y ≈ UM * AM
-    @test typeof(Y) == typeof(A)
-    Y = L * A
-    @test Y ≈ LM * AM
-    @test typeof(Y) == typeof(A)
-    Y = U * U
-    @test Y ≈ UM * UM
-    @test typeof(Y) == typeof(U)
-    Y = L * L
-    @test Y ≈ LM * LM
-    @test typeof(Y) == typeof(L)
-    Y = L * U
-    @test Y ≈ LM * UM
-    @test typeof(Y) == typeof(A)
-    Y = U * L
-    @test Y ≈ UM * LM
-    @test typeof(Y) == typeof(A)
-end
+include("triangular_products/matrix_types.jl")
 
 @testset "issue #41135" begin
     @test repr(SparseMatrixCSC([7;;])) == "sparse([1], [1], [7], 1, 1)"
