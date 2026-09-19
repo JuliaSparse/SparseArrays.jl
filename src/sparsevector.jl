@@ -1780,6 +1780,9 @@ for fun in (:+, :-)
 end
 
 ### Reduction
+Base.reducedim_initarray(A::SparseVectorOrView, region, v0, ::Type{R}) where {R} =
+    fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
+
 function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorOrView) where {F,G}
     T = eltype(A)
     isempty(A) && return Base.mapreduce_empty(f, op, T)

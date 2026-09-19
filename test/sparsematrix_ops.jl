@@ -741,6 +741,20 @@ end
     end
     @test sum(S) ≈ sum(Matrix(S)) && prod(x -> x + 1, S) ≈ prod(x -> x + 1, Matrix(S))
     @test nnz(sum(v; dims = 1, sparse = true)) == 1 && nnz(sum(spzeros(5); dims = 1, sparse = true)) == 0
+    # reducing both dimensions of an adjoint keeps its element order for a non-commutative `op`
+    firstnz(x, y) = iszero(x) ? y : x
+    B = sparse([0 1; 2 0])
+    @test mapreduce(identity, firstnz, B'; dims = (1, 2), init = 0) == [1;;] == mapreduce(identity, firstnz, B'; dims = (1, 2), init = 0, sparse = true)
+    # the element type of the dense result for a `Union`, and no f(0) for a full matrix
+    @test sum(sparse(Union{Int,Float64}[1.5 2; 3 4]); dims = 1, sparse = true) == [4.5 6.0]
+    @test maximum(x -> 1 ÷ x, sparse([1 2; 3 4]); dims = 1, sparse = true) == [1 0]
+    # an empty column range outside the parent
+    V = view(spzeros(4, 5), :, 10:9)
+    @test nnz(V) == 0 && sum(V) == 0 && size(sum(V; dims = 1, sparse = true)) == (1, 0)
+    # a dimension beyond 2 maps the stored entries of a view only
+    calls = Ref(0)
+    @test mapreduce(x -> (calls[] += 1; x), +, view(A, :, [7, 2]); dims = 3, sparse = true) == A[:, [7, 2]]
+    @test calls[] <= nnz(A) + 1
 end
 
 @testset "oneunit of sparse matrix" begin
