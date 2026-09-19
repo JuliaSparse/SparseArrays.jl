@@ -81,10 +81,7 @@ true
 `lq(A)` is computed as the adjoint of `qr(A')`, so it costs one sparse QR factorization
 and `lq(A')` reuses `qr(A)` without a copy. The `Q` of a sparse QR factorization is kept
 as a product of Householder reflectors and is never formed: products of `F.Q` or `F.Q'`
-with a dense or a sparse operand apply the reflectors and return a dense array. SPQR
-computes in double precision. `Float32`, `Float16` and the corresponding complex inputs
-are factorized as a double-precision copy and the factors are converted back to the
-element type of `A`, while integer and other element types give a `Float64` factorization.
+with a dense or a sparse operand apply the reflectors and return a dense array.
 
 ### Reusing a factorization
 
