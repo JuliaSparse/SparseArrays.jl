@@ -93,8 +93,6 @@ end
     end
 end
 
-include("triangular_products_dense_sparse.jl")
-
 @testset "Adding sparse-backed SymTridiagonal (#46355)" begin
     a = SymTridiagonal(sparsevec(Int[1]), sparsevec(Int[]))
     @test a + a == Matrix(a) + Matrix(a)

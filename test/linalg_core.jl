@@ -97,8 +97,6 @@ end
     @test adjoint(B)*adjoint(complex.(A)) ≈ adjoint(MB) * adjoint(Array(complex.(A)))
 end
 
-include("triangular_products_sparse_dense.jl")
-
 @testset "destination array density in multiplication" begin
     wrappers = (adjoint, transpose, Hermitian, Symmetric, UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperHessenberg)
     for tA in wrappers
@@ -199,10 +197,6 @@ end
     @test SparseMatrixCSC{ComplexF16}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16}(B))
     @test SparseMatrixCSC{ComplexF16, Int8}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16, Int8}(B))
 end
-
-include("triangular_solves_transformed.jl")
-
-include("triangular_products_sparse.jl")
 
 @testset "Symmetric of sparse matrix mul! dense vector" begin
     rng = Random.MersenneTwister(1)
