@@ -107,10 +107,6 @@ julia> A * x ≈ b
 true
 ```
 
-For an `lu` factorization, `ldiv!(F, b)` overwrites `b` with the solution. The `cholesky`,
-`ldlt`, `qr` and `lq` factorizations only have the three-argument form. Pass a separate
-output array: `lu`, `cholesky` and `ldlt` throw an `ArgumentError` when `x` aliases `b`.
-
 A sequence of matrices with the same sparsity pattern, as in a time-stepping or Newton
 iteration, can share the symbolic analysis, which is the part that depends only on the
 pattern. `lu!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!` recompute
