@@ -296,7 +296,15 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
             @test B == FA[I...]
             @test typeof(B) == typeof(A[I...])
         end
-        @test A'[to_indices(A', (c, :))...] == FA'[c, :]
+        for At in (A', transpose(A)), I in ((1, r), (c, 2), (c, r), (:, r), (c, :), (2:5, r), ([3, 1], 2:4), (:, :),
+                                            (AllBut(2), AllBut(3)), (1, AllBut(3)), (AllBut(2), 1), (Int32(2), Int32(3)))
+            FAt = Array(At)
+            @test which(getindex, typeof.((At, I...))).module === SparseArrays
+            @test At[I...] == At[to_indices(At, I)...] == FAt[I...]
+            @test At[I...] isa Union{T,SparseVector{T,Int},SparseMatrixCSC{T,Int}}
+        end
+        @test_throws BoundsError A'[trues(7), 1]
+        @test A'[5] == FA'[5] && A'[CartesianIndex(2, 3)] == FA'[2, 3] && A'[2:3] == FA'[2:3]
         x = A[:, 1]
         @test x[to_indices(x, (r,))...] == FA[r, 1]
         @test_throws BoundsError A[1, Base.LogicalIndex(trues(7))]

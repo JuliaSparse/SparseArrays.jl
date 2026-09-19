@@ -786,10 +786,17 @@ function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     return @if_move_fixed x SparseVector(length(I), [rowvals(x)[i] - first(I) + 1 for i = r1:r2], nonzeros(x)[r1:r2])
 end
 
-getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Integer, ::Colon) =
-    map!(wrapperop(M), parent(M)[:,i])
-getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::AbstractVector, ::Colon) =
-    copy(wrapperop(M)(parent(M)[:,i]))
+# Nonscalar indexing of an adjoint or transpose indexes the parent with the indices swapped
+@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, I, J) =
+    _getindex_adjtrans(M, (I, J), _lower_indices(M, I, J)...)
+# resolves the ambiguity with LinearAlgebra's scalar method
+@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Int, j::Int) =
+    wrapperop(M)(parent(M)[j, i])
+_getindex_adjtrans(M, _, i::AbstractVector, j::AbstractVector) = copy(wrapperop(M)(parent(M)[j, i]))
+_getindex_adjtrans(M, _, i::Integer, j::AbstractVector) = map!(wrapperop(M), parent(M)[j, i])
+_getindex_adjtrans(M, _, i::AbstractVector, j::Integer) = map!(wrapperop(M), parent(M)[j, i])
+@propagate_inbounds _getindex_adjtrans(M, _, i::Integer, j::Integer) = wrapperop(M)(parent(M)[j, i])
+@propagate_inbounds _getindex_adjtrans(M, I, L...) = invoke(getindex, Tuple{AbstractArray,Vararg{Any}}, M, I...)
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
