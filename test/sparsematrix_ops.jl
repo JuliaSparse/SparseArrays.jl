@@ -614,6 +614,149 @@ end
     @test B ≈ mapreduce(identity, +, Matrix(A), dims=2)
 end
 
+@testset "reductions along a dimension: dense by default, sparse with `sparse = true` (#43), column views (#377)" begin
+    reductions = (   # (f, op); the last one has f(0) != 0
+        (identity, +), (identity, *), (identity, max), (abs2, +), (x -> x > 0.5, |), (x -> x >= 0, &), (x -> x + 1, +),
+    )
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (1, 9), (9, 1), (30, 20)),
+                                                 d in (0.0, 0.2, 1.0)
+        A = sparse(sprand(m, n, d) .- 0.5)   # negative entries, so that max and min do not see 0 as a bound
+        M = Matrix(A)
+        V = view(A, :, (n + 1) ÷ 2:n)   # a view of a column range reduces like its copy (#377)
+        C = A[:, (n + 1) ÷ 2:n]
+        @test nnz(V) == nnz(C)
+        for dims in (1, 2, (1, 2), 3), (f, op) in reductions
+            rd = mapreduce(f, op, M; dims)
+            r = mapreduce(f, op, A; dims)
+            @test r isa Matrix && r ≈ rd
+            rv, rc = mapreduce(f, op, V; dims), mapreduce(f, op, C; dims)
+            @test typeof(rv) == typeof(rc) && isequal(rv, rc)
+            # opt-in: the sparse result has the element type and values of the dense one
+            T = eltype(rd)
+            rs = mapreduce(f, op, A; dims, sparse = true)
+            @test rs isa SparseMatrixCSC{T} && rs ≈ rd
+            rvs = mapreduce(f, op, V; dims, sparse = true)
+            @test rvs isa SparseMatrixCSC{T} && rvs ≈ mapreduce(f, op, Matrix(C); dims)
+        end
+        for dims in (1, 2)
+            @test sum(A; dims, sparse = true) ≈ sum(M; dims)
+            @test sum(abs, V; dims, sparse = true) ≈ sum(abs, Matrix(C); dims)
+            @test prod(A; dims, sparse = true) ≈ prod(M; dims)
+            @test maximum(A; dims, sparse = true) == maximum(M; dims)
+            @test minimum(abs2, A; dims, sparse = true) == minimum(abs2, M; dims)
+            @test sum(A; dims, init = 2.5, sparse = true) ≈ sum(M; dims, init = 2.5)
+            @test mapreduce(abs, (x, y) -> x + y, A; dims, init = 1.5, sparse = true) ≈
+                  mapreduce(abs, (x, y) -> x + y, M; dims, init = 1.5)
+            @test count(>(0), A; dims, sparse = true) == count(>(0), M; dims)
+            @test count(A .> 0; dims, sparse = true) == count(M .> 0; dims)
+            @test count(A .> 0; dims, init = 3, sparse = true) == count(M .> 0; dims, init = 3)
+            @test any(>(0), A; dims, sparse = true) == any(>(0), M; dims)
+            @test any(A .> 0; dims, sparse = true) == any(M .> 0; dims)
+            @test all(<(0.4), A; dims, sparse = true) == all(<(0.4), M; dims)
+            @test all(A .< 0.4; dims, sparse = true) == all(M .< 0.4; dims)
+            for r in (count(>(0), A; dims, sparse = true), any(A .> 0; dims, sparse = true), all(A .< 0.4; dims, sparse = true))
+                @test r isa SparseMatrixCSC
+            end
+            # the default result and the scalar reductions are unchanged
+            @test sum(A; dims) isa Matrix{Float64} && count(A .> 0; dims) isa Matrix{Int} && any(A .> 0; dims) isa Matrix{Bool}
+        end
+        @test sum(A) ≈ sum(M) && count(>(0), A) == count(>(0), M) && any(A .> 0) == any(M .> 0) && all(A .< 0.4) == all(M .< 0.4)
+        @test_throws ArgumentError sum(A; sparse = true)
+    end
+    C = sprand(ComplexF64, 6, 5, 0.3)
+    MC, VC = Matrix(C), view(C, :, 2:5)
+    for dims in (1, 2)
+        @test sum(C; dims, sparse = true) isa SparseMatrixCSC{ComplexF64} && sum(C; dims, sparse = true) ≈ sum(MC; dims)
+        @test prod(abs2, C; dims, sparse = true) ≈ prod(abs2, MC; dims)
+        @test sum(VC; dims) isa Matrix{ComplexF64} && sum(VC; dims) == sum(Matrix(VC); dims)
+    end
+    struct Positive end   # a callable that is not a `Function`
+    (::Positive)(x) = x > 0
+    @test any(Positive(), C .|> real; dims = 1, sparse = true) == any(Positive(), real.(MC); dims = 1)
+    @test_throws ArgumentError extrema(C; dims = 1, sparse = true)   # a tuple has no zero
+    # only rows and columns that store something get an entry, unless a slice that stores
+    # nothing reduces to something nonzero
+    A = sparse([1, 2], [1, 1], [-1.0, 1.0], 4, 3)
+    @test nnz(sum(A; dims = 1, sparse = true)) == 1   # a stored, cancelled zero
+    @test nnz(sum(A; dims = 2, sparse = true)) == 2
+    @test nnz(sum(x -> x + 1, A; dims = 2, sparse = true)) == 4
+    @test nnz(sum(A; dims = 2, init = 1.0, sparse = true)) == 4
+    @test nnz(prod(A; dims = 1, sparse = true)) == 1   # the product of an unstored column is 0
+    @test sum(A; dims = 2, sparse = true) == sum(Matrix(A); dims = 2)
+    # the element type is that of the dense result
+    @test sum(sparse(Int8[1 2; 3 4]); dims = 1, sparse = true) isa SparseMatrixCSC{Int}
+    @test sum(sparse([true false]); dims = 2, sparse = true) isa SparseMatrixCSC{Int}
+    @test maximum(sparse(Int8[1 2; 3 4]); dims = 1, sparse = true) isa SparseMatrixCSC{Int8}
+    @test sum(sparse(Int8[1 2; 3 4]); dims = 1, init = Int8(1), sparse = true) isa SparseMatrixCSC{Int8}
+    # empty dimensions
+    for (m, n) in ((0, 4), (4, 0), (0, 0)), dims in (1, 2, (1, 2))
+        A = spzeros(m, n)
+        @test sum(A; dims) == sum(Matrix(A); dims)
+        @test sum(A; dims, sparse = true) == sum(Matrix(A); dims)
+        @test prod(A; dims, sparse = true) == prod(Matrix(A); dims)
+        @test sum(x -> x + 1, A; dims, sparse = true) == sum(x -> x + 1, Matrix(A); dims)
+        @test all(A .> 0; dims, sparse = true) == all(Matrix(A) .> 0; dims)
+        md = try maximum(Matrix(A); dims) catch err; err end   # throws over an empty axis
+        if md isa ArgumentError
+            @test_throws ArgumentError maximum(A; dims, sparse = true)
+        else
+            @test maximum(A; dims, sparse = true) == md
+        end
+    end
+    @test_throws ArgumentError sum(spzeros(3, 3); dims = 0, sparse = true)
+    # hypersparse: only the rows that store something are visited
+    A = sparse([5, 10^6, 5], [1, 2, 3], [1.0, 2.0, 3.0], 10^6, 3)
+    r = sum(A; dims = 2, sparse = true)
+    @test nnz(r) == 2 && r[5] == 4.0 && r[10^6] == 2.0
+    @test maximum(A; dims = 2, sparse = true) == maximum(Matrix(A); dims = 2)
+    @test nnz(sum(A; dims = 1, sparse = true)) == 3
+    sum(A; dims = 2, sparse = true)
+    @test (@allocated sum(A; dims = 2, sparse = true)) < 2^12
+    # a column-range view goes through the sparse kernels, not the element-wise fallback (#377)
+    V = view(A, :, 2:3)
+    @test (@which Base._mapreducedim!(identity, +, zeros(10^6, 1), V)).module == SparseArrays
+    @test (@which Base._mapreduce(identity, +, IndexCartesian(), V)).module == SparseArrays
+    @test nnz(sum(V; dims = 2, sparse = true)) == 2
+    # adjoints, views of a column subset and sparse vectors reduce like their copy, calling `f`
+    # for the stored entries and once per slice rather than per element
+    A, C, v = sprand(60, 50, 0.05), sprand(ComplexF64, 60, 50, 0.05), sprand(60, 0.1)
+    S = view(A, :, [7, 2, 2, 15])
+    for X in (A', transpose(C), C', S, v), dims in (1, 2, (1, 2)),
+        (f, op) in ((abs2, +), (abs, max), (x -> abs(x) + 1, (x, y) -> x + y))   # LinearAlgebra does not forward the last
+        calls = Ref(0)
+        rd = mapreduce(f, op, Array(X); dims, init = 0.0)
+        r = mapreduce(x -> (calls[] += 1; f(x)), op, X; dims, init = 0.0)
+        @test r isa Array && r ≈ rd
+        @test calls[] <= nnz(X) + sum(size(X)) + 1
+        rs = mapreduce(f, op, X; dims, init = 0.0, sparse = true)
+        @test rs isa (X isa AbstractVector ? SparseVector{Float64} : SparseMatrixCSC{Float64}) && rs ≈ rd
+    end
+    for X in (A', S, v), dims in (1, 2)
+        M = Array(X)
+        @test sum(X; dims) isa Array && sum(X; dims) ≈ sum(M; dims)
+        @test prod(X; dims, sparse = true) ≈ prod(M; dims)
+        @test count(!iszero, X; dims, sparse = true) == count(!iszero, M; dims)
+        @test any(!iszero, X; dims, sparse = true) == any(!iszero, M; dims)
+        @test all(iszero, X; dims, sparse = true) == all(iszero, M; dims)
+    end
+    @test sum(S) ≈ sum(Matrix(S)) && prod(x -> x + 1, S) ≈ prod(x -> x + 1, Matrix(S))
+    @test nnz(sum(v; dims = 1, sparse = true)) == 1 && nnz(sum(spzeros(5); dims = 1, sparse = true)) == 0
+    # reducing both dimensions of an adjoint keeps its element order for a non-commutative `op`
+    firstnz(x, y) = iszero(x) ? y : x
+    B = sparse([0 1; 2 0])
+    @test mapreduce(identity, firstnz, B'; dims = (1, 2), init = 0) == [1;;] == mapreduce(identity, firstnz, B'; dims = (1, 2), init = 0, sparse = true)
+    # the element type of the dense result for a `Union`, and no f(0) for a full matrix
+    @test sum(sparse(Union{Int,Float64}[1.5 2; 3 4]); dims = 1, sparse = true) == [4.5 6.0]
+    @test maximum(x -> 1 ÷ x, sparse([1 2; 3 4]); dims = 1, sparse = true) == [1 0]
+    # an empty column range outside the parent
+    V = view(spzeros(4, 5), :, 10:9)
+    @test nnz(V) == 0 && sum(V) == 0 && size(sum(V; dims = 1, sparse = true)) == (1, 0)
+    # a dimension beyond 2 maps the stored entries of a view only
+    calls = Ref(0)
+    @test mapreduce(x -> (calls[] += 1; x), +, view(A, :, [7, 2]); dims = 3, sparse = true) == A[:, [7, 2]]
+    @test calls[] <= nnz(A) + 1
+end
+
 @testset "oneunit of sparse matrix" begin
     A = sparse([Second(0) Second(0); Second(0) Second(0)])
     @test oneunit(sprand(2, 2, 0.5)) isa SparseMatrixCSC{Float64}
