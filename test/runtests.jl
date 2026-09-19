@@ -18,6 +18,7 @@ if Base.find_package("ParallelTestRunner") !== nothing
     using ParallelTestRunner
     # Auto CPU thread count detection in ParallelTestRunner is bad
     push!(ARGS, "--jobs=$(Sys.CPU_THREADS)")
+    get(ENV, "CI", "false") == "true" && push!(ARGS, "--verbose")
     testsuite = Dict{String,Expr}(splitext(f)[1] => :(include($(joinpath(@__DIR__, f))))
                                   for f in testfiles)
     runtests(SparseArrays, ARGS; testsuite)
