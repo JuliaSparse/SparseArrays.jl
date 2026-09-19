@@ -191,8 +191,7 @@ vector will mutate `A` as well. Providing access to how the row indices are
 stored internally can be useful in conjunction with iterating over structural
 nonzero values. See also [`getnzval`](@ref) and [`nzrange`](@ref).
 
-`getrowval` is the preferred name for this accessor; [`rowvals`](@ref) is
-equivalent but is likely to be deprecated in a future release.
+`getrowval` is equivalent to [`rowvals`](@ref).
 
 # Examples
 ```jldoctest
@@ -228,8 +227,7 @@ that are explicitly stored in the sparse array. The returned vector points direc
 to the internal nonzero storage of `A`, and any modifications to the returned vector
 will mutate `A` as well. See also [`getrowval`](@ref) and [`nzrange`](@ref).
 
-`getnzval` is the preferred name for this accessor; [`nonzeros`](@ref) is
-equivalent but is likely to be deprecated in a future release.
+`getnzval` is equivalent to [`nonzeros`](@ref).
 
 # Examples
 ```jldoctest
@@ -290,14 +288,7 @@ end
     nonzeros(A)
 
 Return a vector of the structural nonzero values in sparse array `A`. This
-includes zeros that are explicitly stored in the sparse array.
-
-!!! note
-    [`getnzval`](@ref) is the preferred name for this accessor, matching the
-    `nzval` field of [`SparseMatrixCSC`](@ref). `nonzeros` is likely to be
-    deprecated in a future release.
-
-The returned
+includes zeros that are explicitly stored in the sparse array. The returned
 vector points directly to the internal nonzero storage of `A`, and any
 modifications to the returned vector will mutate `A` as well. See
 [`rowvals`](@ref) and [`nzrange`](@ref).
@@ -326,14 +317,7 @@ nonzeros(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = nonzeros(S.data)
 """
     rowvals(A)
 
-Return a vector of the row indices of sparse array `A`.
-
-!!! note
-    [`getrowval`](@ref) is the preferred name for this accessor, matching the
-    `rowval` field of [`SparseMatrixCSC`](@ref). `rowvals` is likely to be
-    deprecated in a future release.
-
-Any modifications to the returned
+Return a vector of the row indices of sparse array `A`. Any modifications to the returned
 vector will mutate `A` as well. Providing access to how the row indices are
 stored internally can be useful in conjunction with iterating over structural
 nonzero values. See also [`nonzeros`](@ref) and [`nzrange`](@ref).
