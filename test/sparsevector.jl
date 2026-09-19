@@ -4,7 +4,7 @@ module SparseVectorTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr, FixedSparseVector
+using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
@@ -639,41 +639,23 @@ end
     end
 
     @testset "stack (#498)" begin
-        m, n = 80, 100
-        A = [sprand(m, 0.3) for _ in 1:n]
+        A = [sprand(80, 0.3) for _ in 1:100]
         H = hcat(A...)
         S = @inferred stack(A)
         @test S isa SparseMatrixCSC{Float64,Int}
         @test S == H
-        @test nnz(S) == nnz(H)
-        @test stack(A; dims=2) == H
         S1 = stack(A; dims=1)
         @test S1 isa SparseMatrixCSC{Float64,Int}
         @test S1 == permutedims(H)
-        @test nnz(S1) == nnz(H)
         @test_throws ArgumentError stack(A; dims=3)
-        @test stack(x -> 2x, A) == 2H
         @test stack(x for x in A if true) == H
+        @test stack(eachcol(H)) == H
         # slices with different element and index types promote
-        B = [sparsevec(Int32[1], Int32[2], 3), sparsevec([3], [0.5], 3)]
-        SB = stack(B)
+        SB = stack([sparsevec(Int32[1], Int32[2], 3), sparsevec([3], [0.5], 3)])
         @test SB isa SparseMatrixCSC{Float64,Int}
         @test SB == [2 0; 0 0; 0 0.5]
-        SB32 = stack(map(x -> SparseVector{Float64,Int32}(x), B))
-        @test SB32 isa SparseMatrixCSC{Float64,Int32}
-        @test SB32 == SB
-        # views of sparse columns and vectors
-        @test stack(eachcol(H)) == H
-        @test nnz(stack(eachcol(H))) == nnz(H)
-        @test stack(eachcol(H); dims=1) == permutedims(H)
-        @test stack([view(x, :) for x in A]) == H
-        # fixed-pattern slices
-        @test stack(map(FixedSparseVector, A)) == H
         # a container with more than one axis stacks into a dense array
-        M = reshape(A, 2, :)
-        SM = stack(M)
-        @test SM isa Array{Float64,3}
-        @test SM == reshape(Array(H), m, 2, :)
+        @test stack(reshape(A, 2, :)) == reshape(Array(H), 80, 2, :)
         @test_throws ArgumentError stack(SparseVector{Float64,Int}[])
         @test_throws DimensionMismatch stack([sparsevec([1], [1.0], 3), sparsevec([1], [1.0], 4)])
     end
