@@ -801,6 +801,7 @@ getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::AbstractVector, ::Co
 getindex(A::AbstractSparseMatrixCSC, i::Integer, ::Colon) = A[i, 1:end]
 function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::AbstractVector) where {Tv,Ti}
     require_one_based_indexing(A, J)
+    J = _indexable(J)
     checkbounds(A, i, J)
     nJ = length(J)
     rowvalA = rowvals(A); nzvalA = nonzeros(A)
@@ -918,6 +919,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
 end
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
+    I isa Base.LogicalIndex && return _logical_index(A, I.mask)
     require_one_based_indexing(A, I)
     @boundscheck checkbounds(A, I)
     szA = size(A)

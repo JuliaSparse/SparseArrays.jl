@@ -283,6 +283,20 @@ end
     pop!(inds_out); push!(inds_out, CartesianIndex(1, 11))
     @test_throws BoundsError S[inds_out]
 
+    @testset "masks lowered by to_indices (issue #42), $T" for T in (Float64, ComplexF64)
+        A = sprand(T, 8, 6, 0.4); FA = Array(A)
+        r = isodd.(1:8); c = [true, false, true, true, false, true]; m = A .!= 0
+        for I in ((1, c), (r, 2), (r, c), (:, c), (r, :), (2:5, c), ([3, 1], c), (r, [2, 1]), (m,), (vec(m),))
+            B = A[to_indices(A, I)...]
+            @test B == FA[I...]
+            @test typeof(B) == typeof(A[I...])
+        end
+        @test A'[to_indices(A', (c, :))...] == FA'[c, :]
+        x = A[:, 1]
+        @test x[to_indices(x, (r,))...] == FA[r, 1]
+        @test_throws BoundsError A[1, Base.LogicalIndex(trues(7))]
+    end
+
     # workaround issue #7197: comment out let-block
     #let S = SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[])
     S1290 = SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[])
