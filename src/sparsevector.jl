@@ -2173,14 +2173,13 @@ function _At_or_Ac_mul_B!(tfun::Function,
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Acolptr = getcolptr(A)
     Arowval = rowvals(A)
     Anzval = nonzeros(A)
     mx = length(xnzind)
 
     for j = 1:n
         # s <- dot(A[:,j], x)
-        s = _spdot(tfun, Acolptr[j], Acolptr[j+1]-1, Arowval, Anzval,
+        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
                    1, mx, xnzind, xnzval)
         @inbounds y[j] += s * α
     end
@@ -2209,7 +2208,6 @@ function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x:
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Acolptr = getcolptr(A)
     Arowval = rowvals(A)
     Anzval = nonzeros(A)
     mx = length(xnzind)
@@ -2219,7 +2217,7 @@ function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x:
 
     jr = 0
     for j = 1:n
-        s = _spdot(tfun, Acolptr[j], Acolptr[j+1]-1, Arowval, Anzval,
+        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
                    1, mx, xnzind, xnzval)
         if s != zero(s)
             jr += 1

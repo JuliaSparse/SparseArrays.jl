@@ -1230,6 +1230,9 @@ end
             y = SparseArrays.densemv(A, x; trans='T')
             @test isa(y, Vector{Float64})
             @test y ≈ *(transpose(Af), xf)
+
+            A32 = SparseMatrixCSC{Float64,Int32}(A)
+            @test mul!(zeros(9), transpose(A32), x) ≈ transpose(Af) * xf
         end
 
         let A = sprandn(16, 16, 0.5), x = sprand(16, 0.7)
@@ -1310,6 +1313,13 @@ end
             y = *(adjoint(A), x2)
             @test isa(y, SparseVector{ComplexF64,Int})
             @test Array(y) ≈ Af'x2f
+
+            A32 = SparseMatrixCSC{ComplexF64,Int32}(A)
+            for x32 in (x2, SparseVector{ComplexF64,Int32}(x2)), op in (transpose, adjoint)
+                y = op(A32) * x32
+                @test isa(y, SparseVector{ComplexF64,promote_type(Int32, eltype(nonzeroinds(x32)))})
+                @test Array(y) ≈ op(Af) * x2f
+            end
         end
 
         let A = sparse(bitrand(9, 16)), x = sparse(bitrand(16)), x2 = sparse(bitrand(9))

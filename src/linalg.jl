@@ -728,12 +728,11 @@ function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSpa
     xnzval = nonzeros(x)
     ynzind = nonzeroinds(y)
     ynzval = nonzeros(y)
-    Acolptr = getcolptr(A)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
     for (yi, yv) in zip(ynzind, ynzval)
-        A_ptr_lo = Acolptr[yi]
-        A_ptr_hi = Acolptr[yi+1] - 1
+        A_ptr_lo = Int(first(nzrange(A, yi)))
+        A_ptr_hi = Int(last(nzrange(A, yi)))
         if A_ptr_lo <= A_ptr_hi
             r += _spdot((xv, av) -> dot(xv, av, yv), 1, length(xnzind), xnzind, xnzval,
                                             A_ptr_lo, A_ptr_hi, Arowval, Anzval)
