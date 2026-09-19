@@ -485,23 +485,15 @@ end
     @test A .* B[1,:] == AF .*  BF[1,:]
     @test A .* B[:,1] == AF .*  BF[:,1]
 
-    @test A .* B == AF .* BF
     @test A[1,:] .* BF == AF[1,:] .* BF
     @test A[:,1] .* BF == AF[:,1] .* BF
     @test A .* BF[1,:] == AF .*  BF[1,:]
     @test A .* BF[:,1] == AF .*  BF[:,1]
 
-    @test A .* B == AF .* BF
     @test AF[1,:] .* B == AF[1,:] .* BF
     @test AF[:,1] .* B == AF[:,1] .* BF
     @test AF .* B[1,:] == AF .*  BF[1,:]
     @test AF .* B[:,1] == AF .*  BF[:,1]
-
-    @test A .* B == AF .* BF
-    @test A[1,:] .* B == AF[1,:] .* BF
-    @test A[:,1] .* B == AF[:,1] .* BF
-    @test A .* B[1,:] == AF .*  BF[1,:]
-    @test A .* B[:,1] == AF .*  BF[:,1]
 
     @test A .* 3 == AF .* 3
     @test 3 .* A == 3 .* AF
