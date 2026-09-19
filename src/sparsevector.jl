@@ -801,8 +801,7 @@ getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::AbstractVector, ::Co
 getindex(A::AbstractSparseMatrixCSC, i::Integer, ::Colon) = A[i, 1:end]
 function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::AbstractVector) where {Tv,Ti}
     require_one_based_indexing(A, J)
-    J = _indexable(J)
-    checkbounds(A, i, J)
+    _, J = _lower_indices(A, i, J)
     nJ = length(J)
     rowvalA = rowvals(A); nzvalA = nonzeros(A)
 
@@ -1164,8 +1163,8 @@ function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractUnitRange) where {T
     return @if_move_fixed x SparseVector(length(I), rind, rval)
 end
 
-getindex(x::AbstractSparseVector, I::AbstractVector{Bool}) = x[findall(I)]
-getindex(x::AbstractSparseVector, I::AbstractArray{Bool}) = x[LinearIndices(I)[findall(I)]]
+getindex(x::AbstractSparseVector, I::AbstractVector{Bool}) = (checkbounds(x, I); x[findall(I)])
+getindex(x::AbstractSparseVector, I::AbstractArray{Bool}) = (checkbounds(x, I); x[LinearIndices(I)[findall(I)]])
 @inline function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
     # SparseMatrixCSC has a nicely optimized routine for this; punt
     S = SparseMatrixCSC(length(x), 1, Ti[1,length(nonzeroinds(x))+1], nonzeroinds(x), nonzeros(x))

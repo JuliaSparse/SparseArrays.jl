@@ -187,6 +187,11 @@ end
     @test_throws BoundsError copyto!(rand(2,2), sprand(3,3,0.2))
 end
 
+# an index type lowered by `to_indices`, like `InvertedIndices.Not`
+struct AllBut; i::Int; end
+Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
+    (setdiff(inds[1], I[1].i), to_indices(A, Base.tail(inds), Base.tail(I))...)
+
 @testset "getindex" begin
     ni = 23
     nj = 32
@@ -295,6 +300,21 @@ end
         x = A[:, 1]
         @test x[to_indices(x, (r,))...] == FA[r, 1]
         @test_throws BoundsError A[1, Base.LogicalIndex(trues(7))]
+        # masks of the wrong length throw as they do for dense arrays
+        @test_throws BoundsError A[trues(7), 1]
+        @test_throws BoundsError A[1, trues(7)]
+        @test_throws BoundsError A[trues(7), c]
+        @test_throws BoundsError x[trues(7)]
+        @test A[1:2, :][false:true, c] == FA[1:2, :][false:true, c]
+
+        for I in ((AllBut(2), AllBut(3)), (AllBut(2), c), (AllBut(2), :), (1, AllBut(3)), (2:5, AllBut(3)))
+            @test which(getindex, typeof.((A, I...))).module === SparseArrays
+            @test A[I...] == FA[I...]
+            @test typeof(A[I...]) == typeof(A[to_indices(A, I)...])
+        end
+        @test which(getindex, typeof.((x, AllBut(2)))).module === SparseArrays
+        @test x[AllBut(2)] == FA[AllBut(2), 1]
+        @test A[5] == FA[5] && A[CartesianIndex(2, 3)] == FA[2, 3] && A[2, 3, 1] == FA[2, 3]
     end
 
     # workaround issue #7197: comment out let-block
