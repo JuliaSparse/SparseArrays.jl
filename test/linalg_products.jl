@@ -264,6 +264,38 @@ end
         @test mulcount(() -> dot(Ac', transpose(Bc))) == 3
         @test mulcount(() -> dot(transpose(Ac), Bc')) == 3
     end
+    # column views of sparse matrices reach the same kernels as their parents
+    let Q = sparse([1, 3, 3, 4, 2, 4, 1], [1, 1, 2, 3, 4, 5, 6], [1.0im, 0.0, 2.0, 3.0 + im, 4.0, 5.0im, 6.0], 4, 6),
+        x = [1.0im, 2.0, 3.0, 4.0 - im], sx = sparsevec([1, 3], [2.0im, 1.0], 4)
+        for cols in (2:5, [6, 1, 3, 2])
+            V = view(Q, :, cols); S = sparse(V); M = Matrix(V)
+            for W in (identity, adjoint, transpose)
+                @test dot(W(V), W(S)) ≈ dot(W(S), W(V)) ≈ dot(W(V), W(V)) ≈ dot(W(M), W(M))
+                @test dot(W(V), copy(W(S))) ≈ dot(W(M), W(M))
+                @test dot(copy(W(S)), W(V)) ≈ dot(W(M), W(M))
+            end
+            @test dot(V', transpose(V)) ≈ dot(M', transpose(M))
+            @test dot(M, V) ≈ dot(V, M) ≈ dot(M, M)
+            @test dot(x, V, x) ≈ dot(x, M, x)
+            @test dot(sx, V, sx) ≈ dot(Vector(sx), M, Vector(sx))
+            for H in (Symmetric, Hermitian), uplo in (:U, :L)
+                @test dot(x, H(V, uplo), x) ≈ dot(x, H(M, uplo), x)
+                @test dot(sx, H(V, uplo), sx) ≈ dot(Vector(sx), H(M, uplo), Vector(sx))
+            end
+            @test_throws DimensionMismatch dot(V, Q)
+        end
+        A = mulcount_sparse(sparse(1.0I, 8, 10)); P = A[:, 1:8]
+        y = fill(MulCount(1.0), 8); sy = sparse(y); D = fill(MulCount(1.0), 8, 8)
+        for V in (view(A, :, 1:8), view(A, :, collect(1:8)))
+            for f in (() -> dot(V, P), () -> dot(P, V), () -> dot(V, V), () -> dot(V', P), () -> dot(P', V),
+                      () -> dot(V', V), () -> dot(V, V'), () -> dot(V', transpose(V)), () -> dot(D, V), () -> dot(V, D))
+                @test mulcount(f) == 8
+            end
+            for f in (() -> dot(y, V, y), () -> dot(sy, V, sy), () -> dot(y, Symmetric(V), y), () -> dot(sy, Symmetric(V), sy))
+                @test mulcount(f) == 16
+            end
+        end
+    end
     # far more columns than stored entries: a binary search per entry, no cursor array
     for W in (adjoint, transpose)
         P = sparse([1], [1], [1.0], 2, 10^5); B = sparse([1], [1], [2.0], 10^5, 2)

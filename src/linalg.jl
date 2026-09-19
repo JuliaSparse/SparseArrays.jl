@@ -683,22 +683,31 @@ prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < 
 
 # Frobenius dot/inner product: trace(A'B)
 dot(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) = _dot_walk(dot, A, B)
+# column views, spelled out so that each is more specific than the dense-operand methods below
+dot(A::SparseMatrixCSCColumnSubset, B::AbstractSparseMatrixCSC) = _dot_walk(dot, A, B)
+dot(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCColumnSubset) = _dot_walk(dot, A, B)
+dot(A::SparseMatrixCSCColumnSubset, B::SparseMatrixCSCColumnSubset) = _dot_walk(dot, A, B)
 
 # The wrappers differ, so LinearAlgebra cannot strip them; with matching positions in the
 # parents, only the elementwise operation changes.
-dot(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
+dot(A::Adjoint{<:Any,<:SparseMatrixCSCOrColumnSubset}, B::Transpose{<:Any,<:SparseMatrixCSCOrColumnSubset}) =
     _dot_walk((a, b) -> dot(adjoint(a), transpose(b)), parent(A), parent(B))
-dot(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
+dot(A::Transpose{<:Any,<:SparseMatrixCSCOrColumnSubset}, B::Adjoint{<:Any,<:SparseMatrixCSCOrColumnSubset}) =
     _dot_walk((a, b) -> dot(transpose(a), adjoint(b)), parent(A), parent(B))
 
+# first stored index of column `j` and of the column after it; unlike `nzrange` this builds
+# no range, whose empty-range normalization is measurable in per-column loops
+Base.@propagate_inbounds _colbounds(A::AbstractSparseMatrixCSC, j) = (getcolptr(A)[j], getcolptr(A)[j+1])
+Base.@propagate_inbounds _colbounds(A::SparseMatrixCSCColumnSubset, j) = _colbounds(parent(A), A.indices[2][j])
+
 # `Σ f(A[i,j], B[i,j])` over the entries stored in both `A` and `B`
-function _dot_walk(f::F, A::AbstractSparseMatrixCSC{T1,S1}, B::AbstractSparseMatrixCSC{T2,S2}) where {F,T1,T2,S1,S2}
+function _dot_walk(f::F, A::SparseMatrixCSCOrColumnSubset{T1,S1}, B::SparseMatrixCSCOrColumnSubset{T2,S2}) where {F,T1,T2,S1,S2}
     m, n = size(A)
     size(B) == (m,n) || throw(DimensionMismatch("matrices must have the same dimensions"))
     r = _dot_zero(T1, T2)
     @inbounds for j in axes(A,2)
-        ia = getcolptr(A)[j]; ia_nxt = getcolptr(A)[j+1]
-        ib = getcolptr(B)[j]; ib_nxt = getcolptr(B)[j+1]
+        ia, ia_nxt = _colbounds(A, j)
+        ib, ib_nxt = _colbounds(B, j)
         if ia < ia_nxt && ib < ib_nxt
             ra = rowvals(A)[ia]; rb = rowvals(B)[ib]
             while true
@@ -722,7 +731,7 @@ function _dot_walk(f::F, A::AbstractSparseMatrixCSC{T1,S1}, B::AbstractSparseMat
     return r
 end
 
-function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractVector{T3}) where {T1,T2,T3}
+function dot(x::AbstractVector{T1}, A::SparseMatrixCSCOrColumnSubset{T2}, y::AbstractVector{T3}) where {T1,T2,T3}
     require_one_based_indexing(x, y)
     m, n = size(A)
     (length(x) == m && n == length(y)) ||
@@ -743,7 +752,7 @@ function dot(x::AbstractVector{T1}, A::AbstractSparseMatrixCSC{T2}, y::AbstractV
     end
     return s
 end
-function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSparseVector)
+function dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::AbstractSparseVector)
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
@@ -766,7 +775,7 @@ function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSpa
     r
 end
 
-function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::AbstractSparseMatrixCSC)
+function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::SparseMatrixCSCOrColumnSubset)
     (m, n) = size(A)
     if (m, n) != size(B)
         throw(DimensionMismatch("A has size ($m, $n) but B has size $(size(B))"))
@@ -787,9 +796,10 @@ function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseM
     return s
 end
 
-function dot(A::AbstractSparseMatrixCSC, B::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
+function dot(A::SparseMatrixCSCOrColumnSubset, B::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
     return conj(dot(B, A))
 end
+dot(A::SparseMatrixCSCOrColumnSubset, B::AdjOrTrans{<:Any,<:SparseMatrixCSCColumnSubset}) = conj(dot(B, A))
 
 # Frobenius dot of the adjoint/transpose of a CSC matrix with a CSC matrix.
 # With `P = parent(A)`, `dot(A, B) = Σ dot(op(P[j,i]), B[i,j])`, so the stored entries of
@@ -798,7 +808,11 @@ end
 # keeps the work at O(nnz(P) + nnz(B) + n) with O(n) extra memory, where `n` counts the
 # columns of the other operand; a binary search per stored entry is used instead when the
 # other operand is far denser, since the cursors would then sweep all of its entries.
-function dot(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC)
+dot(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AbstractSparseMatrixCSC) = _dot_transposed(A, B)
+dot(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::SparseMatrixCSCColumnSubset) = _dot_transposed(A, B)
+dot(A::AdjOrTrans{<:Any,<:SparseMatrixCSCColumnSubset}, B::AbstractSparseMatrixCSC) = _dot_transposed(A, B)
+dot(A::AdjOrTrans{<:Any,<:SparseMatrixCSCColumnSubset}, B::SparseMatrixCSCColumnSubset) = _dot_transposed(A, B)
+function _dot_transposed(A, B)
     m, n = size(A)
     size(B) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n) but B has size $(size(B))"))
     P = parent(A)
@@ -818,9 +832,17 @@ end
 # every stored entry of `Y`, so once `Y` holds well over an order of magnitude more entries
 # (or columns) than `X`, a binary search per entry of `X` is cheaper; the crossover is at
 # a ratio of about 20-50 in measurements.
-function _dot_transposed_walk(f::F, X::AbstractSparseMatrixCSC, Y::AbstractSparseMatrixCSC, r) where F
+# a fresh vector of the first stored index of each column
+_colstarts(Y::AbstractSparseMatrixCSC) = getcolptr(Y)[1:size(Y, 2)]
+_colstarts(Y::SparseMatrixCSCColumnSubset) = [first(_colbounds(Y, i)) for i in axes(Y, 2)]
+# `(v, off)` with `v[i+off]` one past the last stored index of column `i`; indexing `colptr`
+# at an offset is measurably faster in the walk than a view of it
+_colstops(Y::AbstractSparseMatrixCSC) = (getcolptr(Y), 1)
+_colstops(Y::SparseMatrixCSCColumnSubset) = ([last(_colbounds(Y, i)) for i in axes(Y, 2)], 0)
+
+function _dot_transposed_walk(f::F, X::SparseMatrixCSCOrColumnSubset, Y::SparseMatrixCSCOrColumnSubset, r) where F
     Xrows, Xvals = rowvals(X), nonzeros(X)
-    Yrows, Yvals, Ycolptr = rowvals(Y), nonzeros(Y), getcolptr(Y)
+    Yrows, Yvals = rowvals(Y), nonzeros(Y)
     if size(Y, 2) + nnz(Y) > 32 * nnz(X)
         @inbounds for j in axes(X, 2), k in nzrange(X, j)
             i = Xrows[k]
@@ -832,11 +854,12 @@ function _dot_transposed_walk(f::F, X::AbstractSparseMatrixCSC, Y::AbstractSpars
         end
         return r
     end
-    cursor = Ycolptr[1:size(Y, 2)]   # cursor[i] indexes into column i of Y
+    cursor = _colstarts(Y)   # cursor[i] indexes into column i of Y
+    pends, off = _colstops(Y)
     @inbounds for j in axes(X, 2), k in nzrange(X, j)
         i = Xrows[k]
         p = cursor[i]
-        pend = Ycolptr[i+1]
+        pend = pends[i+off]
         while p < pend && Yrows[p] < j
             p += 1
         end
@@ -1493,12 +1516,12 @@ function nzrangelo(A, i, excl=false)
     @inbounds r2 < r1 || rv[r1] >= i + excl ? r : (searchsortedfirst(view(rv, r1:r2), i + excl) + r1-1):r2
 end
 
-dot(x::AbstractVector, A::HermOrSym{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
+dot(x::AbstractVector, A::HermOrSym{<:Any,<:SparseMatrixCSCOrColumnSubset}, y::AbstractVector) =
     _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
 # disambiguation
-dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Real,<:AbstractSparseMatrixCSC}, y::AbstractVector) =
+dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Real,<:SparseMatrixCSCOrColumnSubset}, y::AbstractVector) =
     _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
-function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, rangefun::Function, diagop::Function, odiagop::Function)
+function _dot(x::AbstractVector, A::SparseMatrixCSCOrColumnSubset, y::AbstractVector, rangefun::Function, diagop::Function, odiagop::Function)
     require_one_based_indexing(x, y)
     m, n = size(A)
     (length(x) == m && n == length(y)) ||
@@ -1525,12 +1548,12 @@ function _dot(x::AbstractVector, A::AbstractSparseMatrixCSC, y::AbstractVector, 
     end
     return r
 end
-dot(x::AbstractSparseVector, A::HermOrSym{<:Any,<:AbstractSparseMatrixCSC}, y::AbstractSparseVector) =
+dot(x::AbstractSparseVector, A::HermOrSym{<:Any,<:SparseMatrixCSCOrColumnSubset}, y::AbstractSparseVector) =
     _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
 # disambiguation
-dot(x::AbstractSparseVector, A::RealHermSymComplexHerm{<:Real,<:AbstractSparseMatrixCSC}, y::AbstractSparseVector) =
+dot(x::AbstractSparseVector, A::RealHermSymComplexHerm{<:Real,<:SparseMatrixCSCOrColumnSubset}, y::AbstractSparseVector) =
     _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
-function _dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSparseVector, rangefun::Function, diagop::Function, odiagop::Function)
+function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::AbstractSparseVector, rangefun::Function, diagop::Function, odiagop::Function)
     m, n = size(A)
     length(x) == m && n == length(y) ||
         throw(DimensionMismatch("x has length $(length(x)), A has size ($m, $n), y has length $(length(y))"))
