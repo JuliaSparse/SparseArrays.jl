@@ -51,16 +51,20 @@ const MatrixWrappers{T,MT} = Union{AdjOrTrans{T,MT}, HermOrSym{T,MT}, UpperOrLow
 const MatrixWrappersOrView{T,MT} = Union{SubArray{T,2,MT}, MatrixWrappers{T,MT}}
 const QuasiSparseMatrix = Union{SparseMatrixCSCOrColumnSubset, MatrixWrappers{<:Any,<:SparseMatrixCSCOrColumnSubset}}
 const QuasiStridedMatrix = Union{StridedMatrix, MatrixWrappers{<:Any,<:StridedMatrix}}
+# the adjoint/transpose of a sparse triangular matrix, which LinearAlgebra makes eagerly,
+# and the lazy conjugate that taking both leaves
+const SparseAdjOrTransTriangular = UpperOrLowerTriangular{<:Any,<:AdjOrTrans{<:Any,
+    <:Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}}}}
 
 matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
     Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
-matop_dest(::typeof(*), A, B::QuasiSparseMatrix) =
+matop_dest(::typeof(*), A, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
 # sparse products with banded matrices should return sparse arrays
-matop_dest(::typeof(*), A::BiTriSym, B::QuasiSparseMatrix) =
+matop_dest(::typeof(*), A::BiTriSym, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # needed for disambiguation with LinearAlgebra
-matop_dest(::typeof(*), A::Diagonal, B::QuasiSparseMatrix) =
+matop_dest(::typeof(*), A::Diagonal, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # a `Diagonal` product keeps the structure of the sparse operand, so a fixed operand gets
 # a fixed destination with that structure up front, which `mul!` then only has to fill
@@ -1173,6 +1177,57 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
                 end
             end
             joff += nrowB
+        end
+    end
+    return C
+end
+
+LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, tfun::Function, A::AbstractMatrix, B::SparseMatrixCSCOrView) =
+    _mattrimul!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
+LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, ::Function, A::AbstractMatrix, xB::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}) =
+    _mattrimul!(C, uploc == 'U', isunitc == 'U', conj, A, parent(xB))
+
+# C = X * M, where M is the `upper` or lower triangle of B, elementwise `f` of it for
+# `identity` and `conj`, or the `transpose`/`adjoint` `f` of it. The first kind gathers
+# column `col` of C, the second scatters column `col` of X; either way the columns are
+# visited so that none is written before its last read, and C may be X.
+function _mattrimul!(C, upper::Bool, unit::Bool, f::Function, X, B)
+    require_one_based_indexing(C, X)
+    n = checksquare(B)
+    size(X, 2) == n ||
+        throw(DimensionMismatch(lazy"A has $(size(X, 2)) columns and B has $n rows"))
+    size(C) == size(X) ||
+        throw(DimensionMismatch(lazy"C has size $(size(C)), A * B has size $(size(X))"))
+    rv = rowvals(B)
+    nzv = nonzeros(B)
+    rows = axes(X, 1)
+    gather = f === identity || f === conj
+    @inbounds for col in (upper == gather ? (n:-1:1) : (1:n))
+        rng = upper ? nzrangeup(B, col) : nzrangelo(B, col)
+        kd = upper ? last(rng) : first(rng)
+        hasdiag = !isempty(rng) && rv[kd] == col
+        offdiag = !hasdiag ? rng : upper ? (first(rng):kd-1) : (kd+1:last(rng))
+        if !gather
+            for k in offdiag
+                a = f(nzv[k])
+                row = rv[k]
+                @simd for i in rows
+                    C[i, row] = muladd(X[i, col], a, C[i, row])
+                end
+            end
+        end
+        d = unit ? oneunit(eltype(B)) : hasdiag ? f(nzv[kd]) : zero(eltype(B))
+        @simd for i in rows
+            C[i, col] = X[i, col] * d
+        end
+        if gather
+            for k in offdiag
+                a = f(nzv[k])
+                row = rv[k]
+                @simd for i in rows
+                    C[i, col] = muladd(X[i, row], a, C[i, col])
+                end
+            end
         end
     end
     return C
