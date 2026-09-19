@@ -61,6 +61,12 @@ a copy to materialize each transpose. Alternatively, rebuild the matrix from its
 with [`findnz`](@ref) and [`sparse`](@ref), which also adds up repeated entries:
 
 ```jldoctest cscimport
+julia> A = SparseMatrixCSC(3, 3, [1, 3, 4, 6], [1, 3, 2, 1, 3], [10.0, 20.0, 30.0, 40.0, 50.0])
+3×3 SparseMatrixCSC{Float64, Int64} with 5 stored entries:
+ 10.0    ⋅   40.0
+   ⋅   30.0    ⋅ 
+ 20.0    ⋅   50.0
+
 julia> B = copy(transpose(copy(transpose(A))))
 3×3 SparseMatrixCSC{Float64, Int64} with 5 stored entries:
  10.0    ⋅   40.0
