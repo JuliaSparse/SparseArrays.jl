@@ -881,7 +881,6 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
     checkbounds(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
-    colptrA = getcolptr(A)
     rowvalA = rowvals(A)
     nzvalA = nonzeros(A)
 
@@ -901,7 +900,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
         @inbounds for col in colstart:colend
             minrow = (col == colstart ? rowstart : 1)
             maxrow = (col == colend ? rowend : szA[1])
-            for r in colptrA[col]:(colptrA[col+1]-1)
+            for r in nzrange(A, col)
                 rowA = rowvalA[r]
                 if minrow <= rowA <= maxrow
                     rowvalB[idxB] = LinIndsA[rowA, col] - first(I) + 1
@@ -923,7 +922,6 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
     @boundscheck checkbounds(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
-    colptrA = getcolptr(A)
     rowvalA = rowvals(A)
     nzvalA = nonzeros(A)
 
@@ -937,7 +935,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
     idxB = 1
     for i in 1:n
         row,col = Tuple(CartIndsA[I[i]])
-        for r in colptrA[col]:(colptrA[col+1]-1)
+        for r in nzrange(A, col)
             @inbounds if rowvalA[r] == row
                 if idxB <= nnzB
                     rowvalB[idxB] = i
@@ -2146,7 +2144,6 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Acolptr = getcolptr(A)
     Arowval = rowvals(A)
     Anzval = nonzeros(A)
 
@@ -2155,7 +2152,7 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
         if _isnotzero(v)
             αv = v * α
             j = xnzind[i]
-            for r = Acolptr[j]:(Acolptr[j+1]-1)
+            for r = nzrange(A, j)
                 y[Arowval[r]] += Anzval[r] * αv
             end
         end

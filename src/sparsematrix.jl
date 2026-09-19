@@ -1962,7 +1962,7 @@ end
 
 function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     @inbounds for j in axes(A,2)
-        for k in getcolptr(A)[j]:getcolptr(A)[j+1]-1
+        for k in nzrange(A, j)
             # If this element should be kept, rewrite in new position
             if !f(rowvals(A)[k], j, nonzeros(A)[k])
                 nonzeros(A)[k] = zero(eltype(A))
@@ -2073,7 +2073,7 @@ function findall(p::Function, S::AbstractSparseMatrixCSC)
     inds = Vector{CartesianIndex{2}}(undef, numnz)
 
     count = 0
-    @inbounds for col = 1 : size(S, 2), k = getcolptr(S)[col] : (getcolptr(S)[col+1]-1)
+    @inbounds for col = 1 : size(S, 2), k = nzrange(S, col)
         if p(nonzeros(S)[k])
             count += 1
             inds[count] = CartesianIndex(rowvals(S)[k], col)
@@ -2094,7 +2094,7 @@ function findnz(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     V = Vector{Tv}(undef, numnz)
 
     count = 1
-    @inbounds for col = 1 : size(S, 2), k = getcolptr(S)[col] : (getcolptr(S)[col+1]-1)
+    @inbounds for col = 1 : size(S, 2), k = nzrange(S, col)
         I[count] = rowvals(S)[k]
         J[count] = col
         V[count] = nonzeros(S)[k]
@@ -2393,7 +2393,7 @@ function Base.isone(A::AbstractSparseMatrixCSC)
     m == n && getcolptr(A)[n+1] >= n+1 || return false
     for j in axes(A,2)
         founddiag = false
-        for k in getcolptr(A)[j]:(getcolptr(A)[j+1] - 1)
+        for k in nzrange(A, j)
             i, x = rowvals(A)[k], nonzeros(A)[k]
             if i == j
                 isone(x) || return false
@@ -3058,7 +3058,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
                 Ic = CartesianIndex(rowval[j], i)
                 Sc = nzval[j]
             end
-            for j = colptr[i] : colptr[i+1]-1
+            for j = nzrange(A, i)
                 if op(nzval[j], Sc)
                     Sc = nzval[j]
                     Ic = CartesianIndex(rowval[j], i)
@@ -3078,7 +3078,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
                 S[row] = A[row,1]
             end
         end
-        @inbounds for i = 1 : n, j = colptr[i] : colptr[i+1]-1
+        @inbounds for i = 1 : n, j = nzrange(A, i)
             row = rowval[j]
             if op(nzval[j], S[row])
                 S[row] = nzval[j]
@@ -3091,7 +3091,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
         hasz = nnz(A) != widelength(A)
         Sv = hasz ? zval : nzval[1]
         Iv::(Ti) = hasz ? _findz(A) : i1
-        @inbounds for i = 1 : size(A, 2), j = colptr[i] : (colptr[i+1]-1)
+        @inbounds for i = 1 : size(A, 2), j = nzrange(A, i)
             if op(nzval[j], Sv)
                 Sv = nzval[j]
                 Iv = CartesianIndex(rowval[j], i)
@@ -3165,7 +3165,7 @@ function getindex_cols(A::AbstractSparseMatrixCSC{Tv,Ti}, J::AbstractVector) whe
 
     @inbounds for j = 1:nJ
         col = J[j]
-        for k = colptrA[col]:colptrA[col+1]-1
+        for k = nzrange(A, col)
             ptrS += 1
             rowvalS[ptrS] = rowvalA[k]
             nzvalS[ptrS] = nzvalA[k]
@@ -3198,7 +3198,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::Abstra
     @inbounds for j = 1:nJ
         col = J[j]
         1 <= col <= n || throw(BoundsError())
-        @simd for k in colptrA[col]:colptrA[col+1]-1
+        @simd for k in nzrange(A, col)
             nnzS += rowvalA[k] in I # `in` is fast for ranges
         end
         colptrS[j+1] = nnzS+1
@@ -3384,7 +3384,7 @@ function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
     # count rows
     @inbounds for j = 1:nJ
         col = J[j]
-        for ptrA in colptrA[col]:(colptrA[col+1]-1)
+        for ptrA in nzrange(A, col)
             cacheI[rowvalA[ptrA]] += 1
         end
     end
@@ -3519,7 +3519,6 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     require_one_based_indexing(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
-    colptrA = getcolptr(A)
     rowvalA = rowvals(A)
     nzvalA = nonzeros(A)
 
@@ -3542,7 +3541,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     for i in 1:n
         @boundscheck checkbounds(A, I[i])
         row,col = Tuple(CartIndsA[I[i]])
-        for r in colptrA[col]:(colptrA[col+1]-1)
+        for r in nzrange(A, col)
             @inbounds if rowvalA[r] == row
                 rowB,colB = Tuple(CartIndsB[i])
                 colptrB[colB+1] += 1
@@ -4599,12 +4598,11 @@ end
 
 function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     m, n = size(A)
-    colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
     @inbounds for col = 2:n
-        for i = colptr[col] : (colptr[col+1]-1)
+        for i = nzrange(A, col)
             if rowval[i] >= col - k
                 # subsequent rows would also lie below the band
                 break
@@ -4619,11 +4617,10 @@ end
 
 function isdiag(A::AbstractSparseMatrixCSC)
     m, n = size(A)
-    colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval = nonzeros(A)
     @inbounds for col in 1:n
-        for k in colptr[col]:(colptr[col + 1] - 1)
+        for k in nzrange(A, col)
             if rowval[k] != col && _isnotzero(nzval[k])
                 return false
             end
@@ -4895,8 +4892,8 @@ function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
     j < i && @swap(i, j)
 
     colptr = getcolptr(A)
-    irow = colptr[i]:(colptr[i+1]-1)
-    jrow = colptr[j]:(colptr[j+1]-1)
+    irow = nzrange(A, i)
+    jrow = nzrange(A, j)
 
     function rangeexchange!(arr, irow, jrow)
         if length(irow) == length(jrow)
