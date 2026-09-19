@@ -144,6 +144,8 @@ function nonzeroinds(x::SparseColumnView)
 end
 nonzeroinds(x::SparseVectorView) = nonzeroinds(parent(x))
 
+_checkbuffers(x::AbstractCompressedVector) = (@assert length(nonzeros(x)) == length(nonzeroinds(x)); x)
+
 # return the first and last nonzero indices of the parent that belong to the view
 # return end+1:end if no nonzero in the parent
 function _partialview_end_indices(x::SparseVectorPartialView)

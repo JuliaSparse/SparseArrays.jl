@@ -14,7 +14,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, SparseMatrixCSCOrView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
-                      _iszero, _isnotzero, _is_fixed, @if_move_fixed
+                      _iszero, _isnotzero, _is_fixed, _checkbuffers, @if_move_fixed
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, BandedMatrix
@@ -150,9 +150,6 @@ function _growstorage!(C::SparseVecOrMat, spaceC::Int, needed::Int, j, maxstored
     extrapolated = cld(widemul(needed, numcols(C)), max(Int(j) - 1, 1))
     return expandstorage!(C, Int(min(maxstored, max(needed, 2 * spaceC, extrapolated))))
 end
-
-_checkbuffers(S::AbstractSparseMatrixCSC) = (@assert length(getcolptr(S)) == size(S, 2) + 1 && getcolptr(S)[end] - 1 == length(rowvals(S)) == length(nonzeros(S)); S)
-_checkbuffers(S::AbstractCompressedVector) = (@assert length(storedvals(S)) == length(storedinds(S)); S)
 
 # (2) map[!] entry points
 map(f::Tf, A::AbstractCompressedVector) where {Tf} = _noshapecheck_map(f, A)
