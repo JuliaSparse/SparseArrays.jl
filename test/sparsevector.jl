@@ -695,6 +695,28 @@ end
         @test issparse(X)
     end
 
+    @testset "stack (#498)" begin
+        A = [sprand(80, 0.3) for _ in 1:100]
+        H = hcat(A...)
+        S = @inferred stack(A)
+        @test S isa SparseMatrixCSC{Float64,Int}
+        @test S == H
+        S1 = stack(A; dims=1)
+        @test S1 isa SparseMatrixCSC{Float64,Int}
+        @test S1 == permutedims(H)
+        @test_throws ArgumentError stack(A; dims=3)
+        @test stack(x for x in A if true) == H
+        @test stack(eachcol(H)) == H
+        # slices with different element and index types promote
+        SB = stack([sparsevec(Int32[1], Int32[2], 3), sparsevec([3], [0.5], 3)])
+        @test SB isa SparseMatrixCSC{Float64,Int}
+        @test SB == [2 0; 0 0; 0 0.5]
+        # a container with more than one axis stacks into a dense array
+        @test stack(reshape(A, 2, :)) == reshape(Array(H), 80, 2, :)
+        @test_throws ArgumentError stack(SparseVector{Float64,Int}[])
+        @test_throws DimensionMismatch stack([sparsevec([1], [1.0], 3), sparsevec([1], [1.0], 4)])
+    end
+
     @testset "concatenation of sparse vectors with other types" begin
         # Test that concatenations of combinations of sparse vectors with various other
         # matrix/vector types yield sparse arrays

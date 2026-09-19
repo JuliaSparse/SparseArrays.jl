@@ -1275,38 +1275,46 @@ function hcat(Xin::AbstractSparseVector...)
     X = map(_unsafe_unfix, Xin)
     Tv = promote_type(map(eltype, X)...)
     Ti = promote_type(map(indtype, X)...)
-    r = (function (::Type{SV}) where SV
-        _absspvec_hcat(map(x -> convert(SV, x), X)...)
-    end)(SparseVector{Tv,Ti})
+    r = stack(SparseVector{Tv,Ti}[X...])
     return @if_move_fixed Xin... r
 end
-function _absspvec_hcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
-    # check sizes
+
+# `stack` of sparse vectors along a new trailing dimension. Base's generic loop calls
+# `copyto!(B, offset, x)` per slice, which copies every element, including the stored
+# zeros, through `getindex` and `setindex!` on sparse arrays. Building the CSC arrays
+# directly costs O(nnz + n) instead of O(m * n).
+function Base._typed_stack(::Colon, ::Type{Tv}, ::Type{S}, A, Aax::Tuple{Any}) where {Tv,S<:SparseVectorOrView}
+    X = A isa AbstractArray ? A : collect(A)
+    isempty(X) && return Base._empty_stack(:, Tv, S, A)
+    Ti = mapreduce(indtype, promote_type, X)
     n = length(X)
-    m = length(X[1])
-    tnnz = nnz(X[1])
-    for j = 2:n
-        length(X[j]) == m ||
+    m = length(first(X))
+    tnnz = 0
+    for x in X
+        length(x) == m ||
             throw(DimensionMismatch("Inconsistent column lengths."))
-        tnnz += nnz(X[j])
+        tnnz += nnz(x)
     end
 
-    # construction
     colptr = Vector{Ti}(undef, n+1)
     nzrow = Vector{Ti}(undef, tnnz)
     nzval = Vector{Tv}(undef, tnnz)
     roff = 1
-    @inbounds for j = 1:n
-        xj = X[j]
-        xnzind = nonzeroinds(xj)
-        xnzval = nonzeros(xj)
+    j = 0
+    @inbounds for x in X
+        j += 1
         colptr[j] = roff
-        copyto!(nzrow, roff, xnzind)
-        copyto!(nzval, roff, xnzval)
-        roff += length(xnzind)
+        copyto!(nzrow, roff, nonzeroinds(x))
+        copyto!(nzval, roff, nonzeros(x))
+        roff += nnz(x)
     end
     colptr[n+1] = roff
     return SparseMatrixCSC{Tv,Ti}(m, n, colptr, nzrow, nzval)
+end
+# Sparse vector slices only reach `_dim_stack` with `dims` other than 2.
+function Base._dim_stack(dims::Integer, ::Type{Tv}, ::Type{S}, A) where {Tv,S<:SparseVectorOrView}
+    dims == 1 || throw(ArgumentError(LazyString("cannot stack slices ndims(x) = 1 along dims = ", dims)))
+    return permutedims(Base._typed_stack(:, Tv, S, A, (Base._vec_axis(A),)), (2, 1))
 end
 
 function vcat(Xin::AbstractSparseVector...)
