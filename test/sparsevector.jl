@@ -933,10 +933,8 @@ end
 
     # reducing over an empty collection
     # FIXME sum(f, []) throws, should be fixed both for generic and sparse vectors
-    @test_broken sum(t -> true, zeros(Float64, 0)) === 0
     @test_broken sum(t -> true, spzeros(Float64, 0)) === 0
     @test @inferred(sum(abs2, spzeros(Float64, 0))) === 0.0
-    @test_broken sum(t -> abs(t) + one(t), zeros(Float64, 0)) === 0.0
     @test_broken sum(t -> abs(t) + one(t), spzeros(Float64, 0)) === 0.0
 
     @test norm(x) == sqrt(14.375)

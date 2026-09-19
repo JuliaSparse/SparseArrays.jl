@@ -549,7 +549,6 @@ end
     for (x, y) in ((rand(5), rand(4)),(sparse(rand(5)), sparse(rand(4))))
         @test spdiagm(-1 => x)::SparseMatrixCSC         == diagm(-1 => x)
         @test spdiagm( 0 => x)::SparseMatrixCSC         == diagm( 0 => x) == sparse(Diagonal(x))
-        @test spdiagm(-1 => x)::SparseMatrixCSC         == diagm(-1 => x)
         @test spdiagm(0 => x, -1 => y)::SparseMatrixCSC == diagm(0 => x, -1 => y)
         @test spdiagm(0 => x,  1 => y)::SparseMatrixCSC == diagm(0 => x,  1 => y)
     end

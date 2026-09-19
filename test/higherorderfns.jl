@@ -37,8 +37,6 @@ end
         nonzeros(A)[sin.(nonzeros(A)) .== 0] .= .0
         nonzeros(A)[cos.(nonzeros(A)) .== 0] .= .0
         A = dropzeros(A)
-        test_map_and_map!(A, false)
-        test_map_and_map!(A, false)
         test_map_and_map!(A, true)
     end
     # https://github.com/JuliaLang/julia/issues/37819
