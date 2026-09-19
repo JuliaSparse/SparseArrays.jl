@@ -216,8 +216,8 @@ julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
 """
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
 getrowval(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
-getrowval(S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
-getrowval(S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = rowvals(S.data)
+getrowval(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = rowvals(S.data)
+getrowval(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = rowvals(S.data)
 
 """
     getnzval(A)
@@ -253,8 +253,8 @@ julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
 """
 getnzval( S::AbstractSparseMatrixCSC) = nonzeros(S)
 getnzval( S::SparseMatrixCSCColumnSubset) = nonzeros(parent(S))
-getnzval( S::UpperTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
-getnzval( S::LowerTriangular{<:Any,<:SparseMatrixCSCUnion}) = nonzeros(S.data)
+getnzval( S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = nonzeros(S.data)
+getnzval( S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = nonzeros(S.data)
 nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
 
 """
