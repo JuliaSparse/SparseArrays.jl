@@ -2,7 +2,7 @@
 
 using LinearAlgebra: AbstractTriangular, UpperOrLowerTriangular,
     RealHermSymComplexHerm, checksquare, sym_uplo, wrap
-using Random: rand!
+using Random: rand!, Xoshiro
 
 import LinearAlgebra: _uppercase, _isuppercase
 
@@ -1780,7 +1780,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             end
             return convert(Tnorm, nA)
         elseif p==2
-            throw(ArgumentError("2-norm not yet implemented for sparse matrices. Try opnorm(Array(A)) or opnorm(A, p) where p=1 or Inf."))
+            return convert(Tnorm, opnorm2est(A))
         elseif p==Inf
             rowSum = zeros(Tsum,m)
             @inbounds for i in axes(nonzeros(A),1)
@@ -1789,7 +1789,36 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             return convert(Tnorm, maximum(rowSum))
         end
     end
-    throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, Inf"))
+    throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, 2, Inf"))
+end
+
+# Largest singular value by Golub-Kahan-Lanczos bidiagonalization, stopped once the residual
+# of the leading Ritz pair drops below `tol` relative to it. The estimate converges from
+# below, with an error of the order of the squared residual. The start vector is seeded so
+# that the result is reproducible; a fixed one such as `ones` may lie in the null space.
+function opnorm2est(A::AbstractSparseMatrixCSC, tol::Real=sqrt(eps()), maxiter::Integer=max(100, 2*minimum(size(A))))
+    T = promote_type(Float64, eltype(A))
+    v = convert(Vector{T}, normalize!(randn(Xoshiro(0x2a), size(A, 2))))
+    u = A * v
+    α, β = [Float64(norm(u))], Float64[]
+    σ = α[1]
+    for k in 1:maxiter
+        iszero(α[k]) && return opnorm(Bidiagonal(α, β, :U))
+        u ./= α[k]
+        mul!(v, A', u, true, -α[k])
+        push!(β, norm(v))
+        # the small SVD costs O(k^2), so past the first steps it runs only now and then,
+        # or when the recurrence is about to break down
+        if k <= 32 || k % 8 == 0 || k == maxiter || β[k] <= tol * σ
+            F = svd(Bidiagonal(α, β[1:k-1], :U))
+            σ = F.S[1]
+            β[k] * abs(F.U[k, 1]) <= tol * σ && break
+        end
+        v ./= β[k]
+        mul!(u, A, v, true, -β[k])
+        push!(α, norm(u))
+    end
+    return σ
 end
 
 # TODO rank
