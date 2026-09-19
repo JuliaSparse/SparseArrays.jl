@@ -2259,15 +2259,17 @@ end
 # adjoint is formed directly in `C` (one `halfperm!`, O(nnz)) and scaled in place;
 # otherwise it is materialized once and handed to the CSC kernels above, which also
 # covers `alpha == 0`, a destination that shares storage with the parent, one whose index
-# type or fixed structure `halfperm!` cannot write, and one whose eltype differs from the
-# product's, so that the product is formed before conversion as for dense.
+# type or fixed structure `halfperm!` cannot write, and eltypes of `C`, `A` and the product
+# that differ, so that no operand is converted before multiplying, as for dense (a real
+# `Inf` times a complex one is not `complex(Inf)` times it).
 function _adjtrans_into!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
     P = parent(A)
     return halfperm!(C, P, axes(P, 2), _adjtrans_fun(A))
 end
 _adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha, beta) =
     !iszero(alpha) && iszero(beta) && !Base.mightalias(C, parent(A)) && !_is_fixed(C) &&
-    indtype(C) === indtype(parent(A)) && eltype(C) === promote_op(matprod, eltype(A), eltype(D))
+    indtype(C) === indtype(parent(A)) &&
+    eltype(C) === eltype(A) === promote_op(matprod, eltype(A), eltype(D))
 
 function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
     m, n = size(A)

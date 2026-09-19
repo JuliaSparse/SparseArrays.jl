@@ -789,6 +789,9 @@ end
         S = sparse([0.5;;]); D = Diagonal([2.0])
         @test mul!(spzeros(Int, 1, 1), W(S), D) == [1;;]
         @test mul!(spzeros(Int, 1, 1), D, W(S)) == [1;;]
+        S = sparse([1.0;;]); D = Diagonal(ComplexF64[Inf])
+        @test mul!(spzeros(ComplexF64, 1, 1), W(S), D) == [Inf+0im;;]
+        @test mul!(spzeros(ComplexF64, 1, 1), D, W(S)) == [Inf+0im;;]
         S = sparse([Inf;;]); D = Diagonal([1.0])
         @test mul!(sparse([NaN;;]), W(S), D, 0, 0) == [0.0;;]
         @test mul!(sparse([NaN;;]), D, W(S), 0, 0) == [0.0;;]
