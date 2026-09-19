@@ -73,7 +73,6 @@ end
     end
 end
 @testset "#16716" begin
-    # The preceding tests miss the edge case where the sparse vector is empty
     origmat = [-1.5 -0.7; 0.0 1.0]
     transmat = copy(origmat')
     utmat = UpperTriangular(origmat)

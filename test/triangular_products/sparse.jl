@@ -97,7 +97,8 @@ end
         @test mulcount(() -> W(A) * A) == n
         # These wrappers currently select generic triangular multiplication.
         for op in (transpose, adjoint)
-            @test_broken mulcount(() -> op(W(A)) * A) <= 2n
+            count = mulcount(() -> op(W(A)) * A)
+            @test_broken count <= 2n
         end
     end
     n = 1000
