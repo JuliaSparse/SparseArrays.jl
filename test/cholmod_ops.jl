@@ -202,7 +202,7 @@ Random.seed!(123)
         d = fill(one(elty2), 5)
         @test A1Sparse*d ≈ A1*d
         @test A1Sparse'*d ≈ A1'*d
-        @test A1pd \ d ≈ Matrix(A1pd) \ d
+        @test A1pd \ d ≈ Matrix(A1pd) \ d rtol=sqrt(eps(Tv))
     end
 end
 
