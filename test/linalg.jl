@@ -553,6 +553,10 @@ end
     @test Base.infer_return_type(SparseArrays.spdiagm_eltype,
               Tuple{Vararg{Pair{Int,Vector{Float64}}}}) === Core.Typeof(Float64)
 
+    # no diagonals
+    @test spdiagm(3, 4)::SparseMatrixCSC{Bool,Int} == diagm(3, 4)
+    @test spdiagm()::SparseMatrixCSC{Bool,Int} == diagm()
+
     # convenience constructor
     @test spdiagm(x)::SparseMatrixCSC == diagm(x)
     @test nnz(spdiagm(x)) == count(!iszero, x)

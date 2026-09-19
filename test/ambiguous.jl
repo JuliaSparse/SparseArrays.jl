@@ -28,7 +28,7 @@ end
 using Test, LinearAlgebra, SparseArrays, Aqua
 
 @testset "code quality" begin
-    Aqua.test_all(SparseArrays; unbound_args=(; broken=true), piracies=(; broken=true))
+    Aqua.test_all(SparseArrays; piracies=(; broken=true))
 end
 
 let ambig = detect_ambiguities(SparseArrays; recursive=true)
