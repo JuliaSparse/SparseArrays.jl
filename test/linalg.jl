@@ -249,10 +249,18 @@ end
             @test X * A ≈ X * Matrix(A)
             @test mul!(copy(C), X, A, 2, 3) ≈ mul!(copy(C), X, Matrix(A), 2, 3)
         end
+        X = S(randn(rng, T, n, n), U)
+        C = randn(rng, T, n, n)
+        Q = P[:, 1:n]
+        for B in (Q, Q', transpose(Q), view(P, :, 2:n+1), Symmetric(Q), Hermitian(Q, :L))
+            @test X * B ≈ Matrix(X) * Matrix(B)
+            @test mul!(copy(C), X, B, 2, 3) ≈ mul!(copy(C), Matrix(X), Matrix(B), 2, 3)
+        end
         @test_throws DimensionMismatch mul!(zeros(T, 3, n + 1), C, S(P[:, 1:n], U))
     end
     # the sparse kernel multiplies by stored zeros, the generic fallback skips them
     @test isequal([Inf 1.0] * Symmetric(sparse([1, 2], [1, 2], [0.0, 1.0])), [NaN 1.0])
+    @test isequal(Symmetric([Inf 1.0; 1.0 1.0]) * sparse([1, 2], [1, 2], [0.0, 1.0]), [NaN 1.0; 0.0 1.0])
 end
 
 @testset "Column view of sparse matrix " begin

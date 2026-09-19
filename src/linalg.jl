@@ -228,19 +228,24 @@ Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C:
     return C
 end
 Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number, @nospecialize(val))
+    X = wrap(A, tA)
     tB_uc = _uppercase(tB)
-    if tB_uc in ('S', 'H') && _uppercase(tA) in ('N', 'T', 'C')
+    if tB_uc == 'N'
+        _spmul!(C, X, B, alpha, beta)
+    elseif tB_uc == 'T'
+        _A_mul_Bt_or_Bc!(transpose, C, X, B, alpha, beta)
+    elseif tB_uc == 'C'
+        _A_mul_Bt_or_Bc!(adjoint, C, X, B, alpha, beta)
+    else # tB_uc in ('S', 'H')
         rangefun = _isuppercase(tB) ? nzrangeup : nzrangelo
         diagop = tB_uc == 'S' ? identity : real
         odiagop = tB_uc == 'S' ? transpose : adjoint
-        _A_mul_symherm!(rangefun, diagop, odiagop, C, wrap(A, tA), B, alpha, beta)
-    else
-        LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
+        _A_mul_symherm!(rangefun, diagop, odiagop, C, X, B, alpha, beta)
     end
     return C
 end
 
-function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::Union{DenseMatrixUnion,HermOrSym{<:Any,<:DenseMatrixUnion}}, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
