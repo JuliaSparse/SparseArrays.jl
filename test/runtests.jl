@@ -4,12 +4,12 @@ using Test, LinearAlgebra, SparseArrays
 
 testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsematrix_constructors_indexing.jl", "sparsematrix_ops.jl",
-             "sparsevector.jl", "issues.jl"]
+             "sparsevector.jl", "issues.jl", "linalg.jl", "linalg_products.jl",
+             "threads_suite.jl", "triangular.jl", "concatenation.jl"]
 
 if Base.USE_GPL_LIBS
-    append!(testfiles, ["cholmod.jl", "cholmod_ops.jl", "umfpack.jl", "spqr.jl",
-                        "linalg.jl", "linalg_products.jl", "linalg_solvers.jl"])
-    push!(testfiles, "threads_suite.jl")
+    append!(testfiles, ["linalg_cholmod.jl", "linalg_umfpack.jl", "linalg_spqr.jl",
+                        "linalg_solvers.jl"])
 end
 
 # ParallelTestRunner comes from the Pkg.test target; Julia base CI runs this
@@ -18,6 +18,7 @@ if Base.find_package("ParallelTestRunner") !== nothing
     using ParallelTestRunner
     # Auto CPU thread count detection in ParallelTestRunner is bad
     push!(ARGS, "--jobs=$(Sys.CPU_THREADS)")
+    get(ENV, "CI", "false") == "true" && push!(ARGS, "--verbose")
     testsuite = Dict{String,Expr}(splitext(f)[1] => :(include($(joinpath(@__DIR__, f))))
                                   for f in testfiles)
     runtests(SparseArrays, ARGS; testsuite)

@@ -1,3 +1,5 @@
+# This file is a part of Julia. License is MIT: https://julialang.org/license
+
 module SparseLinalgProductTests
 # Products, dot products, Kronecker products and conversions. Split off from linalg.jl
 # so the two halves run on separate test workers.
@@ -91,29 +93,6 @@ end
     end
 end
 
-@testset "multiplication of sparse matrix and triangular matrix" begin
-    _sparse_test_matrix(n, T) =  T == Int ? sparse(rand(0:4, n, n)) : sprandn(T, n, n, 0.6)
-    _triangular_test_matrix(n, TA, T) = T == Int ? TA(rand(0:9, n, n)) : TA(randn(T, n, n))
-
-    n = 5
-    for T1 in (Int, Float64, ComplexF32)
-        S = _sparse_test_matrix(n, T1)
-        MS = Matrix(S)
-        for T2 in (Int, Float64, ComplexF32)
-            for TM in (LowerTriangular, UnitLowerTriangular, UpperTriangular, UnitUpperTriangular)
-                T = _triangular_test_matrix(n, TM, T2)
-                MT = Matrix(T)
-                @test isa(T * S, DenseMatrix)
-                @test isa(S * T, DenseMatrix)
-                for transT in (identity, adjoint, transpose), transS in (identity, adjoint, transpose)
-                    @test transT(T) * transS(S) ≈ transT(MT) * transS(MS)
-                    @test transS(S) * transT(T) ≈ transS(MS) * transT(MT)
-                end
-            end
-        end
-    end
-end
-
 @testset "Adding sparse-backed SymTridiagonal (#46355)" begin
     a = SymTridiagonal(sparsevec(Int[1]), sparsevec(Int[]))
     @test a + a == Matrix(a) + Matrix(a)
@@ -140,22 +119,25 @@ end
                     Diagonal(rand(n)),
                     SymTridiagonal(rand(n), rand(n-1)),
                     Tridiagonal(rand(n-1), rand(n), rand(n-1))]
-        for (c_di, d_di) in Iterators.product(c_dis, d_dis)
-            c = sparse(c_di); c_d = Array(c_di)
-            d = sparse(d_di); d_d = Array(d_di)
-            # mat ⊗ mat
+        # mat ⊗ mat
+        for t in (identity, adjoint, transpose)
+            @test kron(t(a), b)::SparseMatrixCSC == kron(t(a_d), b_d)
+            @test kron(a, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
+            @test kron(t(a), t(b))::SparseMatrixCSC == kron(t(a_d), t(b_d))
+            @test kron(t(a), b_d)::SparseMatrixCSC == kron(t(a_d), b_d)
+            @test kron(a_d, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
+        end
+        for c_di in c_dis
+            c_d = Array(c_di)
             for t in (identity, adjoint, transpose)
-                @test kron(t(a), b)::SparseMatrixCSC == kron(t(a_d), b_d)
-                @test kron(a, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
-                @test kron(t(a), t(b))::SparseMatrixCSC == kron(t(a_d), t(b_d))
-                @test kron(t(a), b_d)::SparseMatrixCSC == kron(t(a_d), b_d)
-                @test kron(a_d, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
                 @test kron(t(a), c_di)::SparseMatrixCSC == kron(t(a_d), c_d)
                 @test kron(a, t(c_di))::SparseMatrixCSC == kron(a_d, t(c_d))
                 @test kron(t(a), t(c_di))::SparseMatrixCSC == kron(t(a_d), t(c_d))
-                @test kron(c_di, y)::SparseMatrixCSC == kron(c_di, y_d)
-                @test kron(x, d_di)::SparseMatrixCSC == kron(x_d, d_di)
             end
+            @test kron(c_di, y)::SparseMatrixCSC == kron(c_di, y_d)
+        end
+        for d_di in d_dis
+            @test kron(x, d_di)::SparseMatrixCSC == kron(x_d, d_di)
         end
         # vec ⊗ vec
         @test Vector(kron(x, y)::SparseVector) == kron(x_d, y_d)
@@ -396,8 +378,14 @@ end
         C = similar(expected)
         @test mul!(C, A, B) === C
         @test C ≈ expected
+    end
+
+    function test_mul_coefficients(A, B)
+        expected = Matrix(A) * Matrix(B)
+        C = similar(expected)
         ElType = eltype(C)
-        vs = Any[false, true, zero(ElType), one(ElType), one(ElType) + one(ElType)]
+        general = ElType <: Complex ? ElType(2 + im) : ElType(2)
+        vs = (false, true, zero(ElType), one(ElType), general)
         for α in vs, β in vs
             C .= rand.(ElType)
             expected′ = expected .* α .+ C .* β
@@ -406,13 +394,21 @@ end
         end
     end
 
-    for ElType in [Int, Float64, ComplexF64, BigFloat]
+    for ElType in (Int, Float64, ComplexF64, BigFloat)
         SP = sprand(ElType, 10, 10, 0.3)
         D = rand(ElType, 10, 10)
-        fs = [identity, adjoint, transpose]
+        fs = (identity, adjoint, transpose)
         for f1 in fs, f2 in fs
             test_mul(f1(SP), f2(D))
             test_mul(f1(D), f2(SP))
+        end
+        # Coefficients branch on the sparse transform and on plain/wrapped dense-left inputs.
+        for f in fs
+            test_mul_coefficients(f(SP), D)
+            test_mul_coefficients(D, f(SP))
+        end
+        for f in (adjoint, transpose)
+            test_mul_coefficients(f(D), SP)
         end
     end
 end
@@ -432,6 +428,7 @@ end
     end
 end
 
+if Base.USE_GPL_LIBS
 @testset "type stability of linear solve" begin
     for relty in (Float16, Float32, Float64), elty in (relty, Complex{relty})
         A = sprand(elty, 2, 2, 1.0)
@@ -440,6 +437,7 @@ end
         @inferred A \ b
         @inferred A \ B
     end
+end
 end
 
 end

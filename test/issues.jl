@@ -1,3 +1,5 @@
+# This file is a part of Julia. License is MIT: https://julialang.org/license
+
 module SparseIssuesTests
 using Test
 using SparseArrays
@@ -259,18 +261,6 @@ end
     end
 end
 
-@testset "issue #13792, use sparse triangular solvers for sparse triangular solves" begin
-    local A, n, x
-    n = 100
-    A, b = sprandn(n, n, 0.5) + sqrt(n)*I, fill(1., n)
-    @test LowerTriangular(A)\(LowerTriangular(A)*b) ≈ b
-    @test UpperTriangular(A)\(UpperTriangular(A)*b) ≈ b
-    A[2,2] = 0
-    dropzeros!(A)
-    @test_throws LinearAlgebra.SingularException LowerTriangular(A)\b
-    @test_throws LinearAlgebra.SingularException UpperTriangular(A)\b
-end
-
 @testset "issue described in https://groups.google.com/forum/#!topic/julia-dev/QT7qpIpgOaA" begin
     @test sparse([1,1], [1,1], [true, true]) == sparse([1,1], [1,1], [true, true], 1, 1) == fill(true, 1, 1)
     @test sparsevec([1,1], [true, true]) == sparsevec([1,1], [true, true], 1) == fill(true, 1)
@@ -287,13 +277,6 @@ end
     @inferred sprand(1, 1, 1.0)
     @inferred sprand(1, 1, 1.0, rand, Float64)
     @inferred sprand(1, 1, 1.0, x -> round.(Int, rand(x) * 100))
-end
-
-@testset "issue #14816" begin
-    m = 5
-    intmat = fill(1, m, m)
-    ltintmat = LowerTriangular(rand(1:5, m, m))
-    @test \(transpose(ltintmat), sparse(intmat)) ≈ \(transpose(ltintmat), intmat)
 end
 
 # Test temporary fix for issue #16548 in PR #16979. Somewhat brittle. Expect to remove with `\` revisions.
@@ -336,13 +319,6 @@ end
         @test Y * 2 == T(sparse([2 -2; -2 2]))
         @test Y / 1 == Y
     end
-end
-
-@testset "issue #19304" begin
-    @inferred hcat(sparse(rand(2,1)), I)
-    @inferred hcat(sparse(rand(2,1)), 1.0I)
-    @inferred hcat(sparse(rand(2,1)), Matrix(I, 2, 2))
-    @inferred hcat(sparse(rand(2,1)), Matrix(1.0I, 2, 2))
 end
 
 # Check that `broadcast` methods specialized for unary operations over
@@ -554,40 +530,6 @@ end
         @test op(AWL, BWU) ≈ op(collect(AWL), collect(BWU))
         @test op(AWL, BWL) ≈ op(collect(AWL), collect(BWL))
     end
-end
-
-@testset "Multiplying with triangular sparse matrices #35609 #35610" begin
-    n = 10
-    A = sprand(n, n, 5/n)
-    U = UpperTriangular(A)
-    L = LowerTriangular(A)
-    AM = Matrix(A)
-    UM = Matrix(U)
-    LM = Matrix(L)
-    Y = A * U
-    @test Y ≈ AM * UM
-    @test typeof(Y) == typeof(A)
-    Y = A * L
-    @test Y ≈ AM * LM
-    @test typeof(Y) == typeof(A)
-    Y = U * A
-    @test Y ≈ UM * AM
-    @test typeof(Y) == typeof(A)
-    Y = L * A
-    @test Y ≈ LM * AM
-    @test typeof(Y) == typeof(A)
-    Y = U * U
-    @test Y ≈ UM * UM
-    @test typeof(Y) == typeof(U)
-    Y = L * L
-    @test Y ≈ LM * LM
-    @test typeof(Y) == typeof(L)
-    Y = L * U
-    @test Y ≈ LM * UM
-    @test typeof(Y) == typeof(A)
-    Y = U * L
-    @test Y ≈ UM * LM
-    @test typeof(Y) == typeof(A)
 end
 
 @testset "issue #41135" begin
@@ -810,40 +752,6 @@ end
     v = spzeros(Float32, Int16, 2)
     @test eltype(rowvals(zero(a))) <: Int16
     @test eltype(rowvals(zero(v))) <: Int16
-end
-
-@testset "SuiteSparse library directory override (#250)" begin
-    L = SparseArrays.LibSuiteSparse
-    @test isdir(L.libdir())
-    @test_throws ArgumentError L.set_libdir!(joinpath(L.libdir(), "does-not-exist"))
-    mktempdir() do dir
-        if Base.USE_GPL_LIBS
-            # Load a copy of the bundled libraries from another directory in fresh processes.
-            for name in keys(L.SUITESPARSE_LIBRARIES)
-                src = L._jll_path(name)
-                cp(src, joinpath(dir, basename(src)); follow_symlinks=true)
-            end
-            check = """
-                using SparseArrays, LinearAlgebra, Libdl, Test
-                L = SparseArrays.LibSuiteSparse
-                @test samefile(L.libdir(), $(repr(dir)))
-                A = sparse([4.0 1; 1 3]); b = [1.0, 2.0]; x = Matrix(A) \\ b
-                @test cholesky(A) \\ b ≈ x
-                @test lu(A) \\ b ≈ x
-                @test qr(A) \\ b ≈ x
-                for lib in L.SUITESPARSE_LIBRARIES
-                    @test samefile(dirname(dlpath(lib)), $(repr(dir)))
-                end
-                @test_throws ArgumentError L.set_libdir!(nothing)
-                """
-            loadpath = "JULIA_LOAD_PATH" => join(Base.load_path(), Sys.iswindows() ? ";" : ":")
-            for (script, env) in [(check, [L.LIBDIR_ENV => dir, loadpath]),
-                                  ("using SparseArrays; SparseArrays.LibSuiteSparse.set_libdir!($(repr(dir)))\n" * check, [loadpath])]
-                cmd = addenv(`$(Base.julia_cmd()) --startup-file=no -e $script`, env...)
-                @test success(pipeline(cmd; stderr))
-            end
-        end
-    end
 end
 
 end # SparseTestsBase

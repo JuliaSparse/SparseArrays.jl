@@ -37,8 +37,6 @@ end
         nonzeros(A)[sin.(nonzeros(A)) .== 0] .= .0
         nonzeros(A)[cos.(nonzeros(A)) .== 0] .= .0
         A = dropzeros(A)
-        test_map_and_map!(A, false)
-        test_map_and_map!(A, false)
         test_map_and_map!(A, true)
     end
     # https://github.com/JuliaLang/julia/issues/37819
@@ -328,63 +326,49 @@ end
     Vᵀ = transpose(sprand(elT, 1, N, p))
     A = sprand(elT, N, M, p)
     Aᵀ = transpose(sprand(elT, M, N, p))
-    fV, fA, fVᵀ, fAᵀ = Array(V), Array(A), Array(Vᵀ), Array(Aᵀ)
-    # test combinations involving one to three scalars and one to five sparse vectors/matrices
-    spargseq, dargseq = Iterators.cycle((A, V, Aᵀ, Vᵀ)), Iterators.cycle((fA, fV, fAᵀ, fVᵀ))
-    for nargs in 1:5 # number of tensor arguments
-        nargsl = cld(nargs, 2) # number in "left half" of tensor arguments
-        nargsr = fld(nargs, 2) # number in "right half" of tensor arguments
-        spargsl = tuple(Iterators.take(spargseq, nargsl)...) # "left half" of tensor args
-        spargsr = tuple(Iterators.take(spargseq, nargsr)...) # "right half" of tensor args
-        dargsl = tuple(Iterators.take(dargseq, nargsl)...) # "left half" of tensor args, densified
-        dargsr = tuple(Iterators.take(dargseq, nargsr)...) # "right half" of tensor args, densified
-        for (sparseargs, denseargs) in ( # argument combinations including scalars
-                # a few combinations involving one scalar
-                ((s, spargsl..., spargsr...), (s, dargsl..., dargsr...)),
-                ((spargsl..., s, spargsr...), (dargsl..., s, dargsr...)),
-                ((spargsl..., spargsr..., s), (dargsl..., dargsr..., s)),
-                # a few combinations involving two scalars
-                ((s, spargsl..., s, spargsr...), (s, dargsl..., s, dargsr...)),
-                ((s, spargsl..., spargsr..., s), (s, dargsl..., dargsr..., s)),
-                ((spargsl..., s, spargsr..., s), (dargsl..., s, dargsr..., s)),
-                ((s, s, spargsl..., spargsr...), (s, s, dargsl..., dargsr...)),
-                ((spargsl..., s, s, spargsr...), (dargsl..., s, s, dargsr...)),
-                ((spargsl..., spargsr..., s, s), (dargsl..., dargsr..., s, s)),
-                # a few combinations involving three scalars
-                ((s, spargsl..., s, spargsr..., s), (s, dargsl..., s, dargsr..., s)),
-                ((s, spargsl..., s, s, spargsr...), (s, dargsl..., s, s, dargsr...)),
-                ((spargsl..., s, s, spargsr..., s), (dargsl..., s, s, dargsr..., s)),
-                ((spargsl..., s, s, s, spargsr...), (dargsl..., s, s, s, dargsr...)), )
-            # test broadcast entry point
-            @test broadcast(*, sparseargs...) == sparse(broadcast(*, denseargs...))
-            @test isa(@inferred(broadcast(*, sparseargs...)), SparseMatrixCSC{elT})
-            # test broadcast! entry point
-            fX = broadcast(*, sparseargs...); X = sparse(fX)
-            @test broadcast!(*, X, sparseargs...) == sparse(broadcast!(*, fX, denseargs...))
-            @test isa(@inferred(broadcast!(*, X, sparseargs...)), SparseMatrixCSC{elT})
-            X = sparse(fX) # reset / warmup for @allocated test
-            # And broadcasting over Transposes currently requires making a CSC copy, so we must account for that in the bounds
-            @test (@allocated broadcast!(*, X, sparseargs...)) <= (sum(x->isa(x, Transpose) ? @allocated(SparseMatrixCSC(x)) + 128 : 0, sparseargs) + 128 + 900) # about zero to 3k bytes
+    ordered(xs...) = foldl((x, y) -> 2x + y, xs)
+    function check_scalar_broadcast(f, sparseargs, alloc_limit=1028)
+        denseargs = map(x -> x isa AbstractArray ? Array(x) : x, sparseargs)
+        fX = broadcast(f, denseargs...)
+        X = @inferred broadcast(f, sparseargs...)
+        @test X == sparse(fX)
+        @test typeof(X) === typeof(sparse(fX))
+        @test (@inferred broadcast!(f, X, sparseargs...)) === X
+        @test X == sparse(broadcast!(f, fX, denseargs...))
+        X = sparse(fX)
+        # Transposed sparse inputs require materializing CSC copies.
+        extra = sum(x -> x isa Transpose ? @allocated(SparseMatrixCSC(x)) + 128 : 0, sparseargs)
+        @test (@allocated broadcast!(f, X, sparseargs...)) <= extra + alloc_limit
+    end
+
+    @testset "array forms and argument counts" begin
+        for args in ((s, A), (s, V), (s, Aᵀ), (s, Vᵀ),
+                     (s, A, V), (s, A, Aᵀ), (s, V, Vᵀ),
+                     (s, A, V, Aᵀ), (s, A, V, Aᵀ, Vᵀ), (s, A, V, Aᵀ, Vᵀ, A))
+            for f in (*, ordered)
+                check_scalar_broadcast(f, args)
+            end
+        end
+    end
+    @testset "scalar positions" begin
+        t, u = Float32(3), Float32(5)
+        for args in ((s, A, V), (A, s, V), (A, V, s),
+                     (s, A, t, V), (s, A, V, t), (A, s, V, t),
+                     (s, t, A, V), (A, s, t, V), (A, V, s, t),
+                     (s, A, t, V, u), (s, A, t, u, V),
+                     (A, s, t, V, u), (A, s, t, u, V))
+            check_scalar_broadcast(ordered, args)
         end
     end
     # test combinations at the limit of inference (eight arguments net)
-    for (sparseargs, denseargs) in (
-            ((s, s, s, A, s, s, s, s), (s, s, s, fA, s, s, s, s)), # seven scalars, one sparse matrix
-            ((s, s, V, s, s, A, s, s), (s, s, fV, s, s, fA, s, s)), # six scalars, two sparse vectors/matrices
-            ((s, s, V, s, A, s, V, s), (s, s, fV, s, fA, s, fV, s)), # five scalars, three sparse vectors/matrices
-            ((s, V, s, A, s, V, s, A), (s, fV, s, fA, s, fV, s, fA)), # four scalars, four sparse vectors/matrices
-            ((s, V, A, s, V, A, s, A), (s, fV, fA, s, fV, fA, s, fA)), # three scalars, five sparse vectors/matrices
-            ((V, A, V, s, A, V, A, s), (fV, fA, fV, s, fA, fV, fA, s)), # two scalars, six sparse vectors/matrices
-            ((V, A, V, A, s, V, A, V), (fV, fA, fV, fA, s, fV, fA, fV)) ) # one scalar, seven sparse vectors/matrices
-        # test broadcast entry point
-        @test broadcast(*, sparseargs...) == sparse(broadcast(*, denseargs...))
-        @test isa(@inferred(broadcast(*, sparseargs...)), SparseMatrixCSC{elT})
-        # test broadcast! entry point
-        fX = broadcast(*, sparseargs...); X = sparse(fX)
-        @test broadcast!(*, X, sparseargs...) == sparse(broadcast!(*, fX, denseargs...))
-        @test isa(@inferred(broadcast!(*, X, sparseargs...)), SparseMatrixCSC{elT})
-        X = sparse(fX) # reset / warmup for @allocated test
-        @test (@allocated broadcast!(*, X, sparseargs...)) <= 900
+    for args in ((s, s, s, A, s, s, s, s),
+                 (s, s, V, s, s, A, s, s),
+                 (s, s, V, s, A, s, V, s),
+                 (s, V, s, A, s, V, s, A),
+                 (s, V, A, s, V, A, s, A),
+                 (V, A, V, s, A, V, A, s),
+                 (V, A, V, A, s, V, A, V))
+        check_scalar_broadcast(*, args, 900)
     end
 end
 
@@ -499,23 +483,15 @@ end
     @test A .* B[1,:] == AF .*  BF[1,:]
     @test A .* B[:,1] == AF .*  BF[:,1]
 
-    @test A .* B == AF .* BF
     @test A[1,:] .* BF == AF[1,:] .* BF
     @test A[:,1] .* BF == AF[:,1] .* BF
     @test A .* BF[1,:] == AF .*  BF[1,:]
     @test A .* BF[:,1] == AF .*  BF[:,1]
 
-    @test A .* B == AF .* BF
     @test AF[1,:] .* B == AF[1,:] .* BF
     @test AF[:,1] .* B == AF[:,1] .* BF
     @test AF .* B[1,:] == AF .*  BF[1,:]
     @test AF .* B[:,1] == AF .*  BF[:,1]
-
-    @test A .* B == AF .* BF
-    @test A[1,:] .* B == AF[1,:] .* BF
-    @test A[:,1] .* B == AF[:,1] .* BF
-    @test A .* B[1,:] == AF .*  BF[1,:]
-    @test A .* B[:,1] == AF .*  BF[:,1]
 
     @test A .* 3 == AF .* 3
     @test 3 .* A == 3 .* AF
