@@ -21,8 +21,10 @@ end
 
 @testset "SuiteSparse library directory override (#250)" begin
     L = SparseArrays.LibSuiteSparse
-    @test isdir(L.libdir())
-    @test_throws ArgumentError L.set_libdir!(joinpath(L.libdir(), "does-not-exist"))
+    original_dir = L.libdir()
+    @test isdir(original_dir)
+    @test_throws ArgumentError L.set_libdir!(joinpath(original_dir, "does-not-exist"))
+    @test samefile(L.libdir(), original_dir)
     if Base.USE_GPL_LIBS
         mktempdir() do dir
             for name in keys(L.SUITESPARSE_LIBRARIES)
@@ -41,6 +43,7 @@ end
                     @test samefile(dirname(dlpath(lib)), $(repr(dir)))
                 end
                 @test_throws ArgumentError L.set_libdir!(nothing)
+                @test samefile(L.libdir(), $(repr(dir)))
                 """
             @test success(pipeline(testprocess(check; env=[L.LIBDIR_ENV => dir]); stdout, stderr))
             script = "SparseArrays.LibSuiteSparse.set_libdir!($(repr(dir)))\n" * check
