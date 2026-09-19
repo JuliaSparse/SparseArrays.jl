@@ -254,6 +254,16 @@ end
         @test nnz(Pw) + size(Pw, 2) > nnz(B) + size(B, 2)   # walks B
         @test mulcount(() -> dot(W(Pw), B)) == 2
     end
+    # mixed adjoint and transpose wrappers walk the parents, multiplying only matching entries
+    let A = sparse([1, 3, 3, 5], [1, 1, 4, 2], [1.0im, 0.0, 2.0, 3.0 + im], 6, 4),
+        B = sparse([1, 3, 4, 5], [1, 4, 1, 2], [2.0 - im, 0.5im, 4.0im, 5.0], 6, 4)
+        @test dot(A', transpose(B)) ≈ dot(Matrix(A)', transpose(Matrix(B)))
+        @test dot(transpose(A), B') ≈ dot(transpose(Matrix(A)), Matrix(B)')
+        @test_throws DimensionMismatch dot(A', transpose(sparse(B')))
+        Ac, Bc = mulcount_sparse.(SparseMatrixCSC.(6, 4, getcolptr.((A, B)), rowvals.((A, B)), Ref(ones(4))))
+        @test mulcount(() -> dot(Ac', transpose(Bc))) == 3
+        @test mulcount(() -> dot(transpose(Ac), Bc')) == 3
+    end
     # far more columns than stored entries: a binary search per entry, no cursor array
     for W in (adjoint, transpose)
         P = sparse([1], [1], [1.0], 2, 10^5); B = sparse([1], [1], [2.0], 10^5, 2)
