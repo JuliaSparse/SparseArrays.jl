@@ -226,6 +226,13 @@ In many cases it may be better to convert the sparse matrix into `(I,J,V)` forma
 manipulate the values or the structure in the dense vectors `(I,J,V)`, and then reconstruct
 the sparse matrix.
 
+Reductions along a dimension, such as `sum(S; dims = 2)`, return a dense `Matrix`, as for dense
+input. To keep the result sparse, pass `sparse = true`: `sum(S; dims = 2, sparse = true)` stores an
+entry only for the rows of `S` that store one, at a cost proportional to the number of stored
+entries rather than to the number of rows. `prod`, `maximum`, `minimum`, `count`, `any`, `all` and
+`mapreduce` accept the keyword in the same way, as do adjoints and transposes of sparse matrices,
+views of a subset of their columns, and sparse vectors, for which the result is a `SparseVector`.
+
 ### [Broadcasting and `map`](@id man-sparse-broadcast)
 
 [`broadcast`](@ref) (including dot syntax such as `A .* B`) and [`map`](@ref) over sparse vectors
