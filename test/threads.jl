@@ -23,18 +23,23 @@ end
 
 @testset "shared $factorize factor, $T, $Ti" for factorize in (lu, cholesky, qr),
     T in (Float64, ComplexF64), Ti in (sizeof(Int) == 4 ? (Int32,) : (Int32, Int64))
-    S = SparseMatrixCSC{T,Ti}(sparse(T[4 1 0; 1 4 1; 0 1 4]))
+    n = 12
+    offdiag = T <: Real ? one(T) : T(1 + im)
+    S = SparseMatrixCSC{T,Ti}(spdiagm(-1 => fill(offdiag, n - 1),
+        0 => fill(T(4), n), 1 => fill(conj(offdiag), n - 1)))
     F = factorize(S)
-    for b in (T[1, 2, 3], T[1 2; 2 3; 3 4])
-        expected = F \ b
-        outputs = [similar(expected) for _ in 1:30]
-        Threads.@threads for i in eachindex(outputs)
-            ldiv!(outputs[i], F, b)
+    b = T.(1:n) .* offdiag
+    for rhs in (b, hcat(b, reverse(b)))
+        inputs = [rhs .* i .+ (i % 3) for i in 1:30]
+        expected = [F \ input for input in inputs]
+        outputs = similar.(expected)
+        Threads.@threads :static for i in eachindex(outputs)
+            ldiv!(outputs[i], F, inputs[i])
         end
-        @test all(x -> x ≈ expected, outputs)
+        @test all(i -> outputs[i] ≈ expected[i], eachindex(outputs))
     end
     if factorize === lu
         G = lu!(copy(F))
-        @test G \ ones(T, 3) ≈ Matrix(S) \ ones(T, 3)
+        @test G \ b ≈ Matrix(S) \ b
     end
 end
