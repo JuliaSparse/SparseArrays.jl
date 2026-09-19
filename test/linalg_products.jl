@@ -1,3 +1,5 @@
+# This file is a part of Julia. License is MIT: https://julialang.org/license
+
 module SparseLinalgProductTests
 # Products, dot products, Kronecker products and conversions. Split off from linalg.jl
 # so the two halves run on separate test workers.
@@ -95,20 +97,28 @@ end
     _sparse_test_matrix(n, T) =  T == Int ? sparse(rand(0:4, n, n)) : sprandn(T, n, n, 0.6)
     _triangular_test_matrix(n, TA, T) = T == Int ? TA(rand(0:9, n, n)) : TA(randn(T, n, n))
 
+    function test_triangular_product(S, T)
+        @test (T * S)::DenseMatrix ≈ Matrix(T) * Matrix(S)
+        @test (S * T)::DenseMatrix ≈ Matrix(S) * Matrix(T)
+    end
+
     n = 5
-    for T1 in (Int, Float64, ComplexF32)
-        S = _sparse_test_matrix(n, T1)
-        MS = Matrix(S)
-        for T2 in (Int, Float64, ComplexF32)
+    @testset "wrappers" begin
+        for ElType in (Float64, ComplexF32)
+            S = _sparse_test_matrix(n, ElType)
             for TM in (LowerTriangular, UnitLowerTriangular, UpperTriangular, UnitUpperTriangular)
-                T = _triangular_test_matrix(n, TM, T2)
-                MT = Matrix(T)
-                @test isa(T * S, DenseMatrix)
-                @test isa(S * T, DenseMatrix)
+                T = _triangular_test_matrix(n, TM, ElType)
                 for transT in (identity, adjoint, transpose), transS in (identity, adjoint, transpose)
-                    @test transT(T) * transS(S) ≈ transT(MT) * transS(MS)
-                    @test transS(S) * transT(T) ≈ transS(MS) * transT(MT)
+                    test_triangular_product(transS(S), transT(T))
                 end
+            end
+        end
+    end
+    @testset "promotion" begin
+        for T1 in (Int, Float64, ComplexF32), T2 in (Int, Float64, ComplexF32)
+            S = _sparse_test_matrix(n, T1)
+            for TM in (LowerTriangular, UpperTriangular)
+                test_triangular_product(S, _triangular_test_matrix(n, TM, T2))
             end
         end
     end
@@ -396,8 +406,14 @@ end
         C = similar(expected)
         @test mul!(C, A, B) === C
         @test C ≈ expected
+    end
+
+    function test_mul_coefficients(A, B)
+        expected = Matrix(A) * Matrix(B)
+        C = similar(expected)
         ElType = eltype(C)
-        vs = Any[false, true, zero(ElType), one(ElType), one(ElType) + one(ElType)]
+        general = ElType <: Complex ? ElType(2 + im) : ElType(2)
+        vs = (false, true, zero(ElType), one(ElType), general)
         for α in vs, β in vs
             C .= rand.(ElType)
             expected′ = expected .* α .+ C .* β
@@ -406,13 +422,21 @@ end
         end
     end
 
-    for ElType in [Int, Float64, ComplexF64, BigFloat]
+    for ElType in (Int, Float64, ComplexF64, BigFloat)
         SP = sprand(ElType, 10, 10, 0.3)
         D = rand(ElType, 10, 10)
-        fs = [identity, adjoint, transpose]
+        fs = (identity, adjoint, transpose)
         for f1 in fs, f2 in fs
             test_mul(f1(SP), f2(D))
             test_mul(f1(D), f2(SP))
+        end
+        # Coefficients branch on the sparse transform and on plain/wrapped dense-left inputs.
+        for f in fs
+            test_mul_coefficients(f(SP), D)
+            test_mul_coefficients(D, f(SP))
+        end
+        for f in (adjoint, transpose)
+            test_mul_coefficients(f(D), SP)
         end
     end
 end
