@@ -2502,7 +2502,7 @@ function factorize(A::AbstractSparseMatrixCSC)
     end
 end
 
-function factorize(A::RealHermSymComplexHerm{Float64,<:AbstractSparseMatrixCSC})
+function factorize(A::RealHermSymComplexHerm{<:Union{Float32,Float64},<:AbstractSparseMatrixCSC})
     F = cholesky(A; check = false)
     if LinearAlgebra.issuccess(F)
         return F

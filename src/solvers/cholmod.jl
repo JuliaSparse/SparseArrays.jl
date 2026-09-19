@@ -1979,6 +1979,14 @@ ldlt(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
     Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}}},
     Hermitian{T, <:SparseMatrixCSC{T}}};
     kws...) where {T<:Real} = ldlt(Sparse(A); kws...)
+ldlt(A::Union{AdjOrTrans{<:Any,<:SparseMatrixCSC},
+    RealHermSymComplexHerm{<:Real,<:SubArray{<:Any,2,<:SparseMatrixCSC}}}; kws...) = ldlt(copy(A); kws...)
+
+for f in (:cholesky, :ldlt)
+    @eval $f(A::Symmetric{<:Complex,<:Union{SparseMatrixCSC,SubArray{<:Any,2,<:SparseMatrixCSC}}}; kws...) =
+        throw(ArgumentError(string($(string(f)), " of a complex `Symmetric` sparse matrix is not supported ",
+            "because it is not Hermitian. Wrap the matrix in `Hermitian` if it is, or use `lu`.")))
+end
 
 ## Rank updates
 
@@ -2266,6 +2274,8 @@ for TI in IndexTypes
         return x
     end
 end
+
+ldiv!(L::Factor{T}, B::StridedVecOrMat{T}) where {T<:VTypes} = ldiv!(B, L, copy(B))
 
 ## Other convenience methods
 function diag(F::Factor{Tv, Ti}) where {Tv, Ti}

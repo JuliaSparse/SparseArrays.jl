@@ -8,7 +8,7 @@ public rcond
 
 import Base: (\), getproperty, show, size
 using LinearAlgebra
-using LinearAlgebra: AdjOrTrans
+using LinearAlgebra: AdjOrTrans, HermOrSym
 import LinearAlgebra: Factorization, AdjointFactorization, TransposeFactorization,
     checksquare, det, logabsdet, lu, lu!, ldiv!
 
@@ -442,6 +442,7 @@ lu(A::AbstractSparseMatrixCSC; check::Bool = true) = lu(float(A); check = check)
 # We could do this as lu(A') = lu(A)' with UMFPACK, but the user could want to do one over the other
 lu(A::AdjOrTrans{T,S}; check::Bool = true) where {T<:UMFVTypes, S<:AbstractSparseMatrixCSC{T}} =
     lu(copy(A); check)
+lu(A::HermOrSym{<:Any,<:Union{AbstractSparseMatrixCSC,SubArray{<:Any,2,<:AbstractSparseMatrixCSC}}}; kws...) = lu(sparse(A); kws...)
 
 LinearAlgebra._lu(A::AbstractSparseMatrixCSC; kwargs...) =
     lu(A; kwargs...)

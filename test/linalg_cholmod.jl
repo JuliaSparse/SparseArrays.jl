@@ -474,7 +474,7 @@ using SparseArrays.CHOLMOD: getcommon
 using Random
 using Serialization
 using LinearAlgebra:
-    I, cholesky, cholesky!, cond, det, diag, eigmax, ishermitian, isposdef, issuccess,
+    I, cholesky, cholesky!, cond, det, diag, eigmax, factorize, ishermitian, isposdef, issuccess,
     issymmetric, ldiv!, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
     PosDefException, ZeroPivotException, RowMaximum, NoPivot
 using SparseArrays
@@ -1074,6 +1074,28 @@ end
     @test_throws ErrorException cholesky(view(A, :, :), RowMaximum())
     @test issuccess(cholesky(A, NoPivot()))
     @test issuccess(cholesky(view(A, :, :), NoPivot()))
+
+    for T in (Tv, Complex{Tv})
+        B = sprandn(T, 10, 10, 0.2); B = B'B + I; b = rand(T, 10)
+        for W in (B', transpose(B), Hermitian(view(B, 1:8, 1:8))), f in (cholesky, ldlt)
+            F = f(W)
+            @test F isa CHOLMOD.Factor{T}
+            @test Matrix(W) * (F \ b[1:size(W, 1)]) ≈ b[1:size(W, 1)]
+        end
+        F = cholesky(B)
+        X = rand(T, 10, 2)
+        @test ldiv!(F, copy(X)) ≈ F \ X
+        @test ldiv!(F, copy(b)) ≈ F \ b
+        # inv factorizes with CHOLMOD, also when cholesky fails and ldlt takes over
+        for H in (Hermitian(B), Hermitian(B - 10I))
+            @test factorize(H) isa CHOLMOD.Factor{T}
+            @test inv(H) ≈ inv(Matrix(H))
+        end
+    end
+    C = sprandn(Complex{Tv}, 10, 10, 0.2); C = C + transpose(C)
+    for S in (Symmetric(C), Symmetric(view(C, 1:8, 1:8))), f in (cholesky, ldlt)
+        @test_throws "Hermitian" f(S)
+    end
 end
 
 @testset "solve with adjoint factorization and adjoint rhs" begin
