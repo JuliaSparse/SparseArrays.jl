@@ -771,16 +771,15 @@ sprandn(r::AbstractRNG, ::Type{T}, n::Integer, p::AbstractFloat) where T = spran
 # Column slices
 function getindex(x::AbstractSparseMatrixCSC, ::Colon, j::Integer)
     checkbounds(x, :, j)
-    r1 = convert(Int, getcolptr(x)[j])
-    r2 = convert(Int, getcolptr(x)[j+1]) - 1
-    return @if_move_fixed x SparseVector(size(x, 1), rowvals(x)[r1:r2], nonzeros(x)[r1:r2])
+    nzr = nzrange(x, j)
+    return @if_move_fixed x SparseVector(size(x, 1), rowvals(x)[nzr], nonzeros(x)[nzr])
 end
 
 function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     checkbounds(x, I, j)
     # Get the selected column
-    c1 = convert(Int, getcolptr(x)[j])
-    c2 = convert(Int, getcolptr(x)[j+1]) - 1
+    c1 = Int(first(nzrange(x, j)))
+    c2 = Int(last(nzrange(x, j)))
     # Restrict to the selected rows
     r1 = searchsortedfirst(view(rowvals(x), c1:c2), first(I)) + c1 - 1
     r2 = searchsortedlast(view(rowvals(x), c1:c2), last(I)) + c1 - 1
@@ -804,7 +803,7 @@ function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::Abstrac
     require_one_based_indexing(A, J)
     checkbounds(A, i, J)
     nJ = length(J)
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = rowvals(A); nzvalA = nonzeros(A)
 
     nzinds = Vector{Ti}()
     nzvals = Vector{Tv}()
@@ -814,8 +813,8 @@ function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::Abstrac
     @inbounds for j = 1:nJ
         col = J[j]
         rowI = i
-        ptrA = Int(colptrA[col])
-        stopA = Int(colptrA[col+1]-1)
+        ptrA = Int(first(nzrange(A, col)))
+        stopA = Int(last(nzrange(A, col)))
         if ptrA <= stopA
             if rowvalA[ptrA] <= rowI
                 ptrA += searchsortedfirst(view(rowvalA, ptrA:stopA), rowI) - 1
@@ -840,15 +839,15 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
     n = sum(I)
     nnzB = min(n, nnz(A))
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = rowvals(A); nzvalA = nonzeros(A)
     rowvalB = Vector{Int}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
     c = 1
     rowB = 1
 
     @inbounds for col in axes(A,2)
-        r1 = colptrA[col]
-        r2 = colptrA[col+1]-1
+        r1 = first(nzrange(A, col))
+        r2 = last(nzrange(A, col))
 
         for row in axes(A,1)
             if I[row, col]
@@ -881,7 +880,6 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
     checkbounds(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
-    colptrA = getcolptr(A)
     rowvalA = rowvals(A)
     nzvalA = nonzeros(A)
 
@@ -901,7 +899,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
         @inbounds for col in colstart:colend
             minrow = (col == colstart ? rowstart : 1)
             maxrow = (col == colend ? rowend : szA[1])
-            for r in colptrA[col]:(colptrA[col+1]-1)
+            for r in nzrange(A, col)
                 rowA = rowvalA[r]
                 if minrow <= rowA <= maxrow
                     rowvalB[idxB] = LinIndsA[rowA, col] - first(I) + 1
@@ -923,7 +921,6 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
     @boundscheck checkbounds(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
-    colptrA = getcolptr(A)
     rowvalA = rowvals(A)
     nzvalA = nonzeros(A)
 
@@ -937,7 +934,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
     idxB = 1
     for i in 1:n
         row,col = Tuple(CartIndsA[I[i]])
-        for r in colptrA[col]:(colptrA[col+1]-1)
+        for r in nzrange(A, col)
             @inbounds if rowvalA[r] == row
                 if idxB <= nnzB
                     rowvalB[idxB] = i
@@ -2146,7 +2143,6 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Acolptr = getcolptr(A)
     Arowval = rowvals(A)
     Anzval = nonzeros(A)
 
@@ -2155,7 +2151,7 @@ function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSpars
         if _isnotzero(v)
             αv = v * α
             j = xnzind[i]
-            for r = Acolptr[j]:(Acolptr[j+1]-1)
+            for r = nzrange(A, j)
                 y[Arowval[r]] += Anzval[r] * αv
             end
         end
@@ -2177,14 +2173,13 @@ function _At_or_Ac_mul_B!(tfun::Function,
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Acolptr = getcolptr(A)
     Arowval = rowvals(A)
     Anzval = nonzeros(A)
     mx = length(xnzind)
 
     for j = 1:n
         # s <- dot(A[:,j], x)
-        s = _spdot(tfun, Acolptr[j], Acolptr[j+1]-1, Arowval, Anzval,
+        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
                    1, mx, xnzind, xnzval)
         @inbounds y[j] += s * α
     end
@@ -2213,7 +2208,6 @@ function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x:
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Acolptr = getcolptr(A)
     Arowval = rowvals(A)
     Anzval = nonzeros(A)
     mx = length(xnzind)
@@ -2223,7 +2217,7 @@ function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x:
 
     jr = 0
     for j = 1:n
-        s = _spdot(tfun, Acolptr[j], Acolptr[j+1]-1, Arowval, Anzval,
+        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
                    1, mx, xnzind, xnzval)
         if s != zero(s)
             jr += 1

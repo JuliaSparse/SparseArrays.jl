@@ -286,6 +286,7 @@ end
     for (x, y, y2) in ((vx, vy, vy2), (Vector(vx), Vector(vy), Vector(vy2)))
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
+        @test dot(x, SparseMatrixCSC{eltype(A),Int32}(A), y) ≈ dot(x, A, y)
         @test dot(x, collect(A), y) ≈ dot(x, A, y)
         @test dot(y, collect(A)', x) ≈ dot(y, A', x)
         @test dot(y, transpose(collect(A)), x) ≈ dot(y, transpose(A), x)

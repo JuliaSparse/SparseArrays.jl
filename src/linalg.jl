@@ -728,12 +728,11 @@ function dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSpa
     xnzval = nonzeros(x)
     ynzind = nonzeroinds(y)
     ynzval = nonzeros(y)
-    Acolptr = getcolptr(A)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
     for (yi, yv) in zip(ynzind, ynzval)
-        A_ptr_lo = Acolptr[yi]
-        A_ptr_hi = Acolptr[yi+1] - 1
+        A_ptr_lo = Int(first(nzrange(A, yi)))
+        A_ptr_hi = Int(last(nzrange(A, yi)))
         if A_ptr_lo <= A_ptr_hi
             r += _spdot((xv, av) -> dot(xv, av, yv), 1, length(xnzind), xnzind, xnzval,
                                             A_ptr_lo, A_ptr_hi, Arowval, Anzval)
@@ -1486,7 +1485,6 @@ function _dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSp
     ynzval = nonzeros(y)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
-    Acolptr = getcolptr(A)
     isempty(Arowval) && return r
     # plain triangle without diagonal
     for (yi, yv) in zip(ynzind, ynzval)
@@ -1509,8 +1507,8 @@ function _dot(x::AbstractSparseVector, A::AbstractSparseMatrixCSC, y::AbstractSp
     end
     # diagonal
     @inbounds for i in axes(A,1)
-        r1 = Int(Acolptr[i])
-        r2 = Int(Acolptr[i+1]-1)
+        r1 = Int(first(nzrange(A, i)))
+        r2 = Int(last(nzrange(A, i)))
         r1 > r2 && continue
         r1 += searchsortedfirst(view(Arowval, r1:r2), i) - 1
         ((r1 > r2) || (Arowval[r1] != i)) && continue
@@ -2000,17 +1998,14 @@ const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMa
 
     col = 1
     @inbounds for j in axes(A,2)
-        startA = getcolptr(A)[j]
-        stopA = getcolptr(A)[j+1] - 1
-        lA = stopA - startA + 1
+        lA = length(nzrange(A, j))
         for i in axes(B,2)
-            startB = getcolptr(B)[i]
-            stopB = getcolptr(B)[i+1] - 1
-            lB = stopB - startB + 1
+            startB = first(nzrange(B, i))
+            lB = length(nzrange(B, i))
             ptr_range = (1:lB) .+ (colptrC[col]-1)
             colptrC[col+1] = colptrC[col] + lA*lB
             col += 1
-            for ptrA = startA : stopA
+            for ptrA = nzrange(A, j)
                 ptrB = startB
                 for ptr = ptr_range
                     rowvalC[ptr] = (rowvals(A)[ptrA]-1)*mB + rowvals(B)[ptrB]
