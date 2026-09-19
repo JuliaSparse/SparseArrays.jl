@@ -112,7 +112,7 @@ _sparsem(A::LowerTriangular{T,<:AbstractSparseMatrix}) where T = tril(A.data)
 _sparsem(S::SubArray{<:Any,2,<:AbstractSparseMatrixCSC}) = getindex(parent(S),S.indices...)
 
 # 4 cases: (Symmetric|Hermitian) variants (:U|:L)
-function _sparsem(fnzrange::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv}
+function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv}
     A = sA.data
     rowval = rowvals(A)
     nzval = nonzeros(A)
@@ -123,9 +123,9 @@ function _sparsem(fnzrange::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv
     diagmap = fadj == transpose ? identity : real
 
     newcolptr[1] = 1
-    colrange = fnzrange === nzrangeup ? (1:n) : (n:-1:1)
+    colrange = rangefun === nzrangeup ? (1:n) : (n:-1:1)
     @inbounds for j = colrange
-        r = fnzrange(A, j); r1 = r.start; r2 = r.stop
+        r = rangefun(A, j); r1 = r.start; r2 = r.stop
         newcolptr[j+1] = r2 - r1 + 1
         for k = r1:r2
             row = rowval[k]
@@ -140,7 +140,7 @@ function _sparsem(fnzrange::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv
     newnzval = Vector{Tv}(undef, nz)
     @inbounds for j = 1:n
         newk = newcolptr[j]
-        for k = fnzrange(A, j)
+        for k = rangefun(A, j)
             i = rowval[k]
             nzv = nzval[k]
             if i != j
@@ -169,21 +169,21 @@ function _sparsem(A::SparseTriangular{Tv}) where Tv
     nzval = nonzeros(S)
     m, n = size(S)
     Ti = eltype(rowval)
-    fnzrange = A isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
+    rangefun = A isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
     unit = A isa Union{UnitUpperTriangular,UnitLowerTriangular}
     nz = nnz(S) + n * unit
     newcolptr = Vector{Ti}(undef, n+1)
     newrowval = Vector{Ti}(undef, nz)
     newnzval = Vector{Tv}(undef, nz)
     newcolptr[1] = 1
-    uplo = fnzrange == nzrangeup
+    uplo = rangefun == nzrangeup
     newk = 1
     @inbounds for j = 1:n
         newkk = newk
         if unit
             newk += !uplo
         end
-        r = fnzrange(S, j); r1 = r.start; r2 = r.stop
+        r = rangefun(S, j); r1 = r.start; r2 = r.stop
         for k = r1:r2
             i = rowval[k]
             if i != j || i == j && !unit
@@ -215,7 +215,7 @@ function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
     nzval = nonzeros(A)
     m, n = size(A)
     Ti = eltype(rowval)
-    fnzrange = sA isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
+    rangefun = sA isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
     fadj = taA isa Transpose ? transpose : adjoint
     unit = sA isa Union{UnitUpperTriangular,UnitLowerTriangular}
     uplo = A isa Union{UpperTriangular,UnitUpperTriangular}
@@ -224,7 +224,7 @@ function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
     fill!(newcolptr, unit)
     newcolptr[1] = 1
     @inbounds for j = 1:n
-        for k = fnzrange(A, j)
+        for k = rangefun(A, j)
             i = rowval[k]
             if i != j || i == j && !unit
                 newcolptr[i+1] += 1
@@ -243,7 +243,7 @@ function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
             newnzval[ni] = fadj(one(Tv))
             newcolptr[j] = ni + 1
         end
-        for k = fnzrange(A, j)
+        for k = rangefun(A, j)
             i = rowval[k]
             nzv = nzval[k]
             if i != j || i == j && !unit
