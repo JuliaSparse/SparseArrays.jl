@@ -1399,6 +1399,12 @@ end
     @test String(take!(io)) == "⎡⣿⣿⎤\n" *
                                "⎣⣿⣿⎦"
 
+    # no scaling unless `:limit` is set
+    for ioc in (IOContext(io, :displaysize => (5, 4)), IOContext(io, :displaysize => (5, 4), :limit => false))
+        _show_with_braille_patterns(ioc, _filled_sparse(20, 16))
+        @test String(take!(io)) == join(("⎡", "⎢", "⎢", "⎢", "⎣") .* "⣿"^8 .* ("⎤", "⎥", "⎥", "⎥", "⎦"), "\n")
+    end
+
     # respect IOContext while displaying J
     I, J, V = shuffle(1:50), shuffle(1:50), [1:50;]
     S = sparse(I, J, V)
