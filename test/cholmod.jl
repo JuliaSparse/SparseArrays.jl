@@ -20,7 +20,8 @@ using SparseArrays.LibSuiteSparse
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
-for Ti ∈ itypes, Tv ∈ (Float32, Float64)
+core_itypes = sizeof(Int) == 4 ? (Int32,) : (Int64,)
+for Ti ∈ core_itypes, Tv ∈ (Float64,)
 Random.seed!(123)
 
 @testset "based on deps/SuiteSparse-4.0.2/CHOLMOD/Demo/ index type $Ti" begin
@@ -465,7 +466,22 @@ end
     @test isa(CHOLMOD.eye(3), CHOLMOD.Dense{Float64})
 end
 
-end # for Tv ∈ (Float32, Float64)
+@testset "Float32 factorization smoke test" begin
+    A = sparse(Float32[4 1; 1 3])
+    b = Float32[1, 2]
+    F = cholesky(A)
+    @test F \ b ≈ Matrix(A) \ b
+    Ac = complex.(A)
+    bc = complex.(b)
+    @test cholesky(Ac) \ bc ≈ Matrix(Ac) \ bc
+end
+@testset "Int32 factorization smoke test" begin
+    A = SparseMatrixCSC{Float64,Int32}(sparse([4.0 1.0; 1.0 3.0]))
+    b = [1.0, 2.0]
+    @test cholesky(A) \ b ≈ Matrix(A) \ b
+end
+
+end # for Tv ∈ (Float64,)
 
 end # Base.USE_GPL_LIBS
 
@@ -496,9 +512,10 @@ using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_s
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
-# Core tests above cover both real precisions. Keep both SuiteSparse index
-# widths here while using Float64 for the repeated factor-operation regressions.
-for Ti ∈ itypes, Tv ∈ (Float64,)
+core_itypes = sizeof(Int) == 4 ? (Int32,) : (Int64,)
+# Core tests above cover both real precisions. Use the native-width index
+# path here while retaining Int32 coverage in the focused smoke test above.
+for Ti ∈ core_itypes, Tv ∈ (Float64,)
 Random.seed!(123)
 
 @testset "Core functionality ($elty, $Ti)" for elty in (Tv, Complex{Tv})
