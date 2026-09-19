@@ -1471,10 +1471,6 @@ end
     end
     @testset "ldiv ops with triangular matrices and sparse vecs (#14005)" begin
         m = 10
-        sparsefloatvecs = SparseVector[sprand(m, 0.4) for k in 1:3]
-        sparseintvecs = SparseVector[SparseVector(m, nonzeroinds(sprvec), round.(Int, nonzeros(sprvec)*10)) for sprvec in sparsefloatvecs]
-        sparsecomplexvecs = SparseVector[SparseVector(m, nonzeroinds(sprvec), complex.(nonzeros(sprvec), nonzeros(sprvec))) for sprvec in sparsefloatvecs]
-
         sprmat = sprand(m, m, 0.2)
         sparsefloatmat = I + sprmat/(2m)
         sparsecomplexmat = I + SparseMatrixCSC(m, m, getcolptr(sprmat), rowvals(sprmat), complex.(nonzeros(sprmat), nonzeros(sprmat))/(4m))
@@ -1488,54 +1484,55 @@ end
         floattypes = (Float32, Float64, BigFloat)
         complextypes = (ComplexF32, ComplexF64)
         eltypes = (inttypes..., floattypes..., complextypes...)
-        # The full eltype cross product compiles thousands of specializations
-        # (several CI minutes); do it only for the core types and pair the
-        # remaining eltypes with Float64.
         coretypes = (Int64, Float64, ComplexF64)
 
-        for eltypemat in eltypes
+        function check_solve(mat, spvec)
+            fspvec = Array(spvec)
+            T = typeof(zero(eltype(mat))*zero(eltype(spvec)) + zero(eltype(mat))*zero(eltype(spvec)))
+            if !(mat isa Union{UnitLowerTriangular,UnitUpperTriangular})
+                T = typeof(zero(T)/one(eltype(mat)))
+            end
+            @test (mat \ spvec)::Vector{T} ≈ mat \ fspvec
+            if eltype(spvec) == T
+                @test ldiv!(mat, copy(spvec)) ≈ ldiv!(mat, copy(fspvec))
+            end
+        end
+
+        @testset "wrapper dispatch and active-index boundaries" for T in (Float64, ComplexF64)
+            densemat, sparsemat = T == Float64 ? (densefloatmat, sparsefloatmat) :
+                                                (densecomplexmat, sparsecomplexmat)
+            z = T == Float64 ? T(2) : T(2 + 3im)
+            spvecs = (spzeros(T, m),
+                      SparseVector(m, [1], [z]),
+                      SparseVector(m, [m], [z]),
+                      SparseVector(m, [3, 7], [z, -z]),
+                      SparseVector(m, [1, 3, m], [zero(T), z, zero(T)]))
+            for backing in (densemat, sparsemat), tri in (LowerTriangular, UpperTriangular, UnitLowerTriangular, UnitUpperTriangular),
+                transform in (identity, adjoint, transpose)
+                mat = transform(tri(backing))
+                for spvec in spvecs
+                    check_solve(mat, spvec)
+                end
+                if backing isa Matrix
+                    @test which(\, Tuple{typeof(mat), typeof(first(spvecs))}).module === SparseArrays
+                    @test which(ldiv!, Tuple{typeof(mat), typeof(first(spvecs))}).module === SparseArrays
+                end
+            end
+        end
+
+        @testset "scalar promotion" for eltypemat in eltypes
             (densemat, sparsemat) = eltypemat in inttypes ? (denseintmat, sparseintmat) :
                                     eltypemat in floattypes ? (densefloatmat, sparsefloatmat) :
                                     eltypemat in complextypes && (densecomplexmat, sparsecomplexmat)
             densemat = convert(Matrix{eltypemat}, densemat)
             sparsemat = convert(SparseMatrixCSC{eltypemat}, sparsemat)
-            trimats = (LowerTriangular(densemat), UpperTriangular(densemat),
-                       LowerTriangular(sparsemat), UpperTriangular(sparsemat) )
-            unittrimats = (LinearAlgebra.UnitLowerTriangular(densemat), LinearAlgebra.UnitUpperTriangular(densemat),
-                           LinearAlgebra.UnitLowerTriangular(sparsemat), LinearAlgebra.UnitUpperTriangular(sparsemat) )
-
             for eltypevec in eltypes
                 (eltypemat in coretypes && eltypevec in coretypes) ||
                     eltypemat == Float64 || eltypevec == Float64 || continue
-                spvecs = eltypevec in inttypes ? sparseintvecs :
-                         eltypevec in floattypes ? sparsefloatvecs :
-                         eltypevec in complextypes && sparsecomplexvecs
-                spvecs = SparseVector[SparseVector(m, nonzeroinds(spvec), convert(Vector{eltypevec}, nonzeros(spvec))) for spvec in spvecs]
-
-                for spvec in spvecs
-                    fspvec = convert(Array, spvec)
-                    # test out-of-place left-division methods
-                    for mat in (trimats..., unittrimats...)
-                        @test \(mat, spvec)            ≈ \(mat, fspvec)
-                        @test \(adjoint(mat), spvec)   ≈ \(adjoint(mat), fspvec)
-                        @test \(transpose(mat), spvec) ≈ \(transpose(mat), fspvec)
-                    end
-                    # test in-place left-division methods not involving quotients
-                    if eltypevec == typeof(zero(eltypemat)*zero(eltypevec) + zero(eltypemat)*zero(eltypevec))
-                        for mat in unittrimats
-                            @test ldiv!(mat, copy(spvec)) ≈ ldiv!(mat, copy(fspvec))
-                            @test ldiv!(adjoint(mat), copy(spvec)) ≈ ldiv!(adjoint(mat), copy(fspvec))
-                            @test ldiv!(transpose(mat), copy(spvec)) ≈ ldiv!(transpose(mat), copy(fspvec))
-                        end
-                    end
-                    # test in-place left-division methods involving quotients
-                    if eltypevec == typeof((zero(eltypemat)*zero(eltypevec) + zero(eltypemat)*zero(eltypevec))/one(eltypemat))
-                        for mat in trimats
-                            @test ldiv!(mat, copy(spvec)) ≈ ldiv!(mat, copy(fspvec))
-                            @test ldiv!(adjoint(mat), copy(spvec)) ≈ ldiv!(adjoint(mat), copy(fspvec))
-                            @test ldiv!(transpose(mat), copy(spvec)) ≈ ldiv!(transpose(mat), copy(fspvec))
-                        end
-                    end
+                vals = eltypevec <: Complex ? eltypevec[2 + 3im, -1 + 2im, 3 - im] : eltypevec[2, -1, 3]
+                spvec = SparseVector(m, [2, 5, 8], vals)
+                for backing in (densemat, sparsemat), tri in (LowerTriangular, UnitLowerTriangular)
+                    check_solve(tri(backing), spvec)
                 end
             end
         end
