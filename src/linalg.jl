@@ -227,8 +227,18 @@ Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C:
     end
     return C
 end
-Base.@constprop :aggressive LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number, @nospecialize(val)) =
-    LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
+Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number, @nospecialize(val))
+    tB_uc = _uppercase(tB)
+    if tB_uc in ('S', 'H') && _uppercase(tA) in ('N', 'T', 'C')
+        rangefun = _isuppercase(tB) ? nzrangeup : nzrangelo
+        diagop = tB_uc == 'S' ? identity : real
+        odiagop = tB_uc == 'S' ? transpose : adjoint
+        _A_mul_symherm!(rangefun, diagop, odiagop, C, wrap(A, tA), B, alpha, beta)
+    else
+        LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
+    end
+    return C
+end
 
 function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Aax2 = axes(A, 2)
@@ -1418,6 +1428,38 @@ function _symherm_mul!(nzrang::Function, diagop::Function, odiagop::Function, C:
                     end
                 end
                 C[col,k] += α * sumcol
+            end
+        end
+    end
+end
+
+function _A_mul_symherm!(nzrang::Function, diagop::Function, odiagop::Function, C::StridedMatrix, X::AbstractMatrix, A, α::Number, β::Number)
+    Aax2 = axes(A, 2)
+    Xax1 = axes(X, 1)
+    mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
+    rv = rowvals(A)
+    nzv = nonzeros(A)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
+    C = _fix_size(C, mC, nC)
+    X = _fix_size(X, mX, nX)
+    @inbounds for col in Aax2, k in nzrang(A, col)
+        row = rv[k]
+        if row == col
+            Aiα = α isa Bool ? diagop(nzv[k]) : diagop(nzv[k]) * α
+            @simd for i in Xax1
+                C[i, col] = muladd(X[i, col], Aiα, C[i, col])
+            end
+        else
+            Aiα = α isa Bool ? nzv[k] : nzv[k] * α
+            Atiα = α isa Bool ? odiagop(nzv[k]) : odiagop(nzv[k]) * α
+            @simd for i in Xax1
+                C[i, col] = muladd(X[i, row], Aiα, C[i, col])
+            end
+            @simd for i in Xax1
+                C[i, row] = muladd(X[i, col], Atiα, C[i, row])
             end
         end
     end
