@@ -354,6 +354,16 @@ julia> rowvals(A)
  2
  3
 ```
+
+For a sparse vector or a column view of a sparse matrix, `rowvals` returns the indices of
+the stored entries:
+
+```jldoctest
+julia> rowvals(sparsevec([2, 5], [1.5, 2.5], 6))
+2-element Vector{Int64}:
+ 2
+ 5
+```
 """
 rowvals(S::SparseMatrixCSC) = getfield(S, :rowval)
 rowvals(S::FixedSparseCSC) = getfield(S, :rowval)
