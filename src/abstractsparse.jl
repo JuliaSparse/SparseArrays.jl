@@ -142,6 +142,11 @@ end
 issparse(A::DenseArray) = false
 issparse(S::AbstractSparseArray) = true
 
+"""
+    indtype(S)
+
+Return the type used to index sparse array entries.
+"""
 indtype(S::AbstractSparseArray{<:Any,Ti}) where {Ti} = Ti
 indtype(T::UpperOrLowerTriangular{<:Any,<:Union{AbstractSparseArray,SparseMatrixCSCColumnSubset}}) = indtype(parent(T))
 
