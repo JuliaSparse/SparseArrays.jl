@@ -801,6 +801,7 @@ getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::AbstractVector, ::Co
 getindex(A::AbstractSparseMatrixCSC, i::Integer, ::Colon) = A[i, 1:end]
 function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::AbstractVector) where {Tv,Ti}
     require_one_based_indexing(A, J)
+    J = _indexable(J)
     checkbounds(A, i, J)
     nJ = length(J)
     rowvalA = rowvals(A); nzvalA = nonzeros(A)
@@ -836,6 +837,7 @@ getindex(A::AbstractSparseMatrixCSC, I::AbstractArray{Bool}) = _logical_index(A,
 function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) where Tv
     require_one_based_indexing(A, I)
     checkbounds(A, I)
+    mask = reshape(I, size(A))   # a vector mask indexes linearly
     n = sum(I)
     nnzB = min(n, nnz(A))
 
@@ -850,7 +852,7 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
         r2 = last(nzrange(A, col))
 
         for row in axes(A,1)
-            if I[row, col]
+            if mask[row, col]
                 while (r1 <= r2) && (rowvalA[r1] < row)
                     r1 += 1
                 end
@@ -917,6 +919,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
 end
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
+    I isa Base.LogicalIndex && return _logical_index(A, I.mask)
     require_one_based_indexing(A, I)
     @boundscheck checkbounds(A, I)
     szA = size(A)

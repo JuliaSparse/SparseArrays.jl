@@ -3136,6 +3136,10 @@ end
 end
 
 # Colon translation
+# `to_indices` lowers masks to `Base.LogicalIndex`, which iterates but cannot be indexed
+_indexable(I) = I
+_indexable(I::Base.LogicalIndex) = collect(I)
+
 getindex(A::AbstractSparseMatrixCSC, ::Colon, ::Colon) = copy(A)
 getindex(A::AbstractSparseMatrixCSC, i, ::Colon)       = getindex(A, i, axes(A,2))
 getindex(A::AbstractSparseMatrixCSC, ::Colon, i)       = getindex(A, axes(A,1), i)
@@ -3179,6 +3183,7 @@ getindex_traverse_col(I::StepRange, lo::Integer, hi::Integer) = step(I) > 0 ? (l
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::AbstractVector) where {Tv,Ti<:Integer}
     require_one_based_indexing(A, I, J)
+    J = _indexable(J)
     # Ranges for indexing rows
     (m, n) = size(A)
     # whole columns:
@@ -3492,6 +3497,7 @@ end
 # the general case:
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
     require_one_based_indexing(A, I, J)
+    I, J = _indexable(I), _indexable(J)
     (m, n) = size(A)
 
     if !isempty(J)
