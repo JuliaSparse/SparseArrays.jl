@@ -66,6 +66,16 @@ end
         @test Array(x) == xf
         @test Vector(x) == xf
         @test collect(x) == xf
+        for v in (x, view(x, :), view(x, 2:6), view(sparse(x), :, 1))
+            @test which(copyto!, Tuple{Vector{Float64}, typeof(v)}).module == SparseArrays
+            @test Vector(v)::Vector{Float64} == collect(v)
+        end
+        # issue #54
+        y = SparseVector{ComplexF64,Int32}(x)
+        @test promote_type(typeof(x), typeof(y)) === SparseVector{ComplexF64,Int}
+        @test promote_type(Vector{Int}, typeof(x)) === Vector{Float64}
+        @test promote(x, y) == (x, y)
+        @test eltype([x, y]) === SparseVector{ComplexF64,Int}
     end
 end
 @testset "show" begin

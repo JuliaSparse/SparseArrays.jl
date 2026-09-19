@@ -667,6 +667,18 @@ end
     R = reshape(A, 2, 2)
     A[R] .= reshape((1:4) .+ 2^30, 2, 2)
     @test A == [2,1,4,3] .+ 2^30
+
+    # map! with the destination among the inputs (issue #26)
+    A = sparse([100 0; 300 400])
+    @test map!(x -> x + 1, A) == [101 1; 301 401]
+    v = sparsevec([1, 0, 2])
+    @test map!(x -> x + 1, v) == [2, 1, 3]
+    S0 = sprand(10, 10, 0.3); S1 = sprand(10, 10, 0.3); S2 = sprand(10, 10, 0.3); C = copy(S0)
+    @test map!(+, S0, S0, S1) == C + S1
+    S0 = copy(C)
+    @test map!(+, S0, S1, S2, S0) == S1 + S2 + C
+    S0 = copy(C); D = Diagonal(rand(10))
+    @test map!(+, S0, D, S0) == D + C
 end
 
 @testset "1-dimensional 'opt-out' (non) sparse broadcasting" begin
@@ -681,6 +693,9 @@ end
     @test ((1:5) .+ A) .* 2 == 2:2:10
     @test 2 .* ((1:5) .+ A) == 2:2:10
     @test 2 .* (A .+ (1:5)) == 2:2:10
+    # in-place with an unsupported (Tuple) argument used to recurse, see #573
+    B = sparsevec([2], [3.0], 5)
+    @test (B .= .*(B, A .+ 1, (2,))) == [0, 6, 0, 0, 0]
 
     # lu(zeros(5,5)) throw SingularException, see #42343
     @test_throws SingularException Diagonal(spzeros(5)) \ view(rand(10), 1:5)

@@ -262,8 +262,8 @@ workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
-const ATLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
-has_refinement(F::ATLU) = has_refinement(parent(F))
+const UMFAdjOrTransLU = Union{TransposeFactorization{<:Any, <:UmfpackLU}, AdjointFactorization{<:Any, <:UmfpackLU}}
+has_refinement(F::UMFAdjOrTransLU) = has_refinement(parent(F))
 has_refinement(F::UmfpackLU) = has_refinement(F.control)
 has_refinement(control::AbstractVector) = control[JL_UMFPACK_IRSTEP] > 0
 
@@ -277,7 +277,7 @@ end
 UmfpackWS(F::UmfpackLU{Tv, Ti}, refinement::Bool=has_refinement(F)) where {Tv, Ti} = UmfpackWS(
         Vector{Ti}(undef, size(F, 2)),
         Vector{Float64}(undef, workspace_W_size(F, refinement)))
-UmfpackWS(F::ATLU, refinement::Bool=has_refinement(F)) = UmfpackWS(parent(F), refinement)
+UmfpackWS(F::UMFAdjOrTransLU, refinement::Bool=has_refinement(F)) = UmfpackWS(parent(F), refinement)
 
 # Not using similar helps if the actual needed size has changed as it would need to be resized again
 """
@@ -299,7 +299,7 @@ Base.copy(F::UmfpackLU{Tv, Ti}, ws=UmfpackWS(F)) where {Tv, Ti} =
         copy(F.info),
         ReentrantLock()
     )
-Base.copy(F::T, ws=UmfpackWS(F)) where {T <: ATLU} =
+Base.copy(F::T, ws=UmfpackWS(F)) where {T <: UMFAdjOrTransLU} =
     T(copy(parent(F), ws))
 
 Base.transpose(F::UmfpackLU) = TransposeFactorization(F)
@@ -325,7 +325,7 @@ When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
 
-The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
+The column permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero-based, a
 zero-based copy is made.
 
@@ -346,8 +346,8 @@ The individual components of the factorization `F` can be accessed by indexing:
 |:----------|:------------------------------------|
 | `L`       | `L` (lower triangular) part of `LU` |
 | `U`       | `U` (upper triangular) part of `LU` |
-| `p`       | right permutation `Vector`          |
-| `q`       | left permutation `Vector`           |
+| `p`       | row permutation `Vector`            |
+| `q`       | column permutation `Vector`         |
 | `Rs`      | `Vector` of scaling factors         |
 | `:`       | `(L,U,p,q,Rs)` components           |
 
@@ -416,7 +416,7 @@ When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
 validity (via [`issuccess`](@ref)) lies with the user.
 
-The permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
+The column permutation `q` can either be a permutation vector or `nothing`. If no permutation vector
 is provided or `q` is `nothing`, UMFPACK's default is used. If the permutation is not zero based, a
 zero based copy is made.
 
