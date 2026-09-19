@@ -357,7 +357,6 @@ end
     A = Tv[10 1 1 1; 1 10 0 0; 1 0 10 0; 1 0 0 10]
     @test sparse(cholesky(sparse(A))) ≈ A
 end
-GC.gc()
 
 @testset "Issue 11747 - Wrong show method defined for FactorComponent" begin
     v = cholesky(sparse(Tv[ 10 1 1 1; 1 10 0 0; 1 0 10 0; 1 0 0 10])).L
