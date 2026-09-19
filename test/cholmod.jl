@@ -496,7 +496,9 @@ using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_s
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
-for Ti ∈ itypes, Tv ∈ (Float32, Float64)
+# Core tests above cover both real precisions. Keep both SuiteSparse index
+# widths here while using Float64 for the repeated factor-operation regressions.
+for Ti ∈ itypes, Tv ∈ (Float64,)
 Random.seed!(123)
 
 @testset "Core functionality ($elty, $Ti)" for elty in (Tv, Complex{Tv})
