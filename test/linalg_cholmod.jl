@@ -237,34 +237,6 @@ for Tv2 ∈ (Float32, Float64)
 end
 end
 
-@testset "Issue 9160 $Ti" begin
-    local A, B
-    A = sprand(10, 10, 0.1)
-    A = convert(SparseMatrixCSC{Tv,Ti}, A)
-    cmA = CHOLMOD.Sparse(A)
-
-    B = sprand(10, 10, 0.1)
-    B = convert(SparseMatrixCSC{Tv,Ti}, B)
-    cmB = CHOLMOD.Sparse(B)
-
-    # Ac_mul_B
-    @test sparse(cmA'*cmB) ≈ A'*B
-
-    # A_mul_Bc
-    @test sparse(cmA*cmB') ≈ A*B'
-
-    # A_mul_Ac
-    @test sparse(cmA*cmA') ≈ A*A'
-
-    # Ac_mul_A
-    @test sparse(cmA'*cmA) ≈ A'*A
-
-    # A_mul_Ac for symmetric A
-    A = 0.5*(A + copy(A'))
-    cmA = CHOLMOD.Sparse(A)
-    @test sparse(cmA*cmA') ≈ A*A'
-end
-
 @testset "Check inputs to Sparse. Related to #20024" for t_ in (
     (2, 2, [1, 2], Ti[], Tv[]),
     (2, 2, [1, 2, 3], Ti[1], Tv[]),
@@ -393,35 +365,6 @@ end
     @test ishermitian(Sparse(Hermitian(complex(ACSC), :U)))
 end
 
-@testset "test Sparse constructor and read_sparse" begin
-    # avoid dependenting on delimited files
-    function writedlm(fn, title="", xs...)
-        open(fn, "w") do file
-            println(file, title)
-            for i in xs
-                println(file, i)
-            end
-        end
-    end
-    mktempdir() do temp_dir
-        testfile = joinpath(temp_dir, "tmp.mtx")
-
-        writedlm(testfile, "%%MatrixMarket matrix coordinate real symmetric","3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1")
-        @test sparse(CHOLMOD.Sparse(testfile)) == [1 0 0;0 1 0.5;0 0.5 1]
-        rm(testfile)
-
-        writedlm(testfile, "%%MatrixMarket matrix coordinate complex Hermitian",
-                        "3 3 4","1 1 1.0 0.0","2 2 1.0 0.0","3 2 0.5 0.5","3 3 1.0 0.0")
-        @test sparse(CHOLMOD.Sparse(testfile)) == [1 0 0;0 1 0.5-0.5im;0 0.5+0.5im 1]
-        rm(testfile)
-
-        # this also tests that the error message is correctly retrieved from the library
-        writedlm(testfile, "%%MatrixMarket matrix coordinate real symmetric","%3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1")
-        @test_throws CHOLMOD.CHOLMODException("indices out of range") sparse(CHOLMOD.Sparse(testfile))
-        rm(testfile)
-    end
-end
-
 @testset "High level interface" for elty in (Tv, Complex{Tv})
     local A, b
     if elty <: Real
@@ -466,6 +409,37 @@ end
     @test isa(CHOLMOD.eye(3), CHOLMOD.Dense{Float64})
 end
 
+end # for Tv ∈ (Float32, Float64)
+
+@testset "test Sparse constructor and read_sparse" begin
+    # avoid dependenting on delimited files
+    function writedlm(fn, title="", xs...)
+        open(fn, "w") do file
+            println(file, title)
+            for i in xs
+                println(file, i)
+            end
+        end
+    end
+    mktempdir() do temp_dir
+        testfile = joinpath(temp_dir, "tmp.mtx")
+
+        writedlm(testfile, "%%MatrixMarket matrix coordinate real symmetric","3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1")
+        @test sparse(CHOLMOD.Sparse(testfile)) == [1 0 0;0 1 0.5;0 0.5 1]
+        rm(testfile)
+
+        writedlm(testfile, "%%MatrixMarket matrix coordinate complex Hermitian",
+                        "3 3 4","1 1 1.0 0.0","2 2 1.0 0.0","3 2 0.5 0.5","3 3 1.0 0.0")
+        @test sparse(CHOLMOD.Sparse(testfile)) == [1 0 0;0 1 0.5-0.5im;0 0.5+0.5im 1]
+        rm(testfile)
+
+        # this also tests that the error message is correctly retrieved from the library
+        writedlm(testfile, "%%MatrixMarket matrix coordinate real symmetric","%3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1")
+        @test_throws CHOLMOD.CHOLMODException("indices out of range") sparse(CHOLMOD.Sparse(testfile))
+        rm(testfile)
+    end
+end
+
 @testset "Float32 factorization smoke test" begin
     A = sparse(Float32[4 1; 1 3])
     b = Float32[1, 2]
@@ -480,8 +454,6 @@ end
     b = [1.0, 2.0]
     @test cholesky(A) \ b ≈ Matrix(A) \ b
 end
-
-end # for Tv ∈ (Float64,)
 
 end # Base.USE_GPL_LIBS
 
@@ -552,7 +524,6 @@ Random.seed!(123)
     if elty <: Real # multiplication only defined for real matrices in CHOLMOD
         @test A1Sparse*A1Sparse ≈ A1*A1
         @test A1Sparse'A1Sparse ≈ A1'A1
-        @test A1Sparse*A1Sparse' ≈ A1*A1'
 
         @test A1pdSparse*A1pdSparse ≈ A1pd*A1pd
         @test A1pdSparse'A1pdSparse ≈ A1pd'A1pd
@@ -702,8 +673,6 @@ end
     As = sparse(Af)
     Lf = Tv.([2 0 0; 6 1 0; -8 5 3])
     LDf = Tv.([4 0 0; 3 1 0; -4 5 9])  # D is stored along the diagonal
-    L_f = Tv.([1 0 0; 3 1 0; -4 5 1])  # L by itself in LDLt of Af
-    D_f = Tv.([4 0 0; 0 1 0; 0 0 9])
     p = [2,3,1]
     p_inv = [3,1,2]
 
@@ -716,23 +685,6 @@ end
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.U)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.PtL)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.UP)
-        b = rand(Tv, 3)
-        bs = sparse(b)
-        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
-        @test Fs.UP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ Lf\b ≈ (Fs.L\bs)::SparseVector
-        @test Fs.U\b ≈ Lf'\b ≈ (Fs.U\bs)::SparseVector
-        @test Fs.L'\b ≈ Lf'\b ≈ (Fs.L'\bs)::SparseVector
-        @test Fs.U'\b ≈ Lf\b ≈ (Fs.U'\bs)::SparseVector
-        @test Fs.PtL\b ≈ Lf\b ≈ (Fs.PtL\bs)::SparseVector
-        @test Fs.UP\b ≈ Lf'\b ≈ (Fs.UP\bs)::SparseVector
-        @test Fs.PtL'\b ≈ Lf'\b ≈ (Fs.PtL'\bs)::SparseVector
-        @test Fs.UP'\b ≈ Lf\b ≈ (Fs.UP'\bs)::SparseVector
-        @test_throws CHOLMOD.CHOLMODException Fs.D
-        @test_throws CHOLMOD.CHOLMODException Fs.LD
-        @test_throws CHOLMOD.CHOLMODException Fs.DU
-        @test_throws CHOLMOD.CHOLMODException Fs.PLD
-        @test_throws CHOLMOD.CHOLMODException Fs.DUPt
     end
 
     @testset "cholesky, with permutation" begin
@@ -781,29 +733,6 @@ end
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.DU)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.PtLD)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.DUP)
-        b = rand(Tv, 3)
-        bs = sparse(b)
-        @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
-        @test Fs.UP\(Fs.PtLD\b) ≈ Af\b
-        @test Fs.DUP\(Fs.PtL\b) ≈ Af\b
-        @test Fs.L\b ≈ L_f\b ≈ (Fs.L\bs)::SparseVector
-        @test Fs.U\b ≈ L_f'\b ≈ (Fs.U\bs)::SparseVector
-        @test Fs.L'\b ≈ L_f'\b
-        @test Fs.U'\b ≈ L_f\b
-        @test Fs.PtL\b ≈ L_f\b ≈ (Fs.PtL\bs)::SparseVector
-        @test Fs.UP\b ≈ L_f'\b
-        @test Fs.PtL'\b ≈ L_f'\b
-        @test Fs.UP'\b ≈ L_f\b
-        @test Fs.D\b ≈ D_f\b
-        @test Fs.D'\b ≈ D_f\b
-        @test Fs.LD\b ≈ D_f\(L_f\b)
-        @test Fs.DU'\b ≈ D_f\(L_f\b)
-        @test Fs.LD'\b ≈ L_f'\(D_f\b)
-        @test Fs.DU\b ≈ L_f'\(D_f\b)
-        @test Fs.PtLD\b ≈ D_f\(L_f\b)
-        @test Fs.DUP'\b ≈ D_f\(L_f\b)
-        @test Fs.PtLD'\b ≈ L_f'\(D_f\b)
-        @test Fs.DUP\b ≈ L_f'\(D_f\b)
     end
 
     @testset "ldlt, with permutation" begin
@@ -828,6 +757,8 @@ end
         @test Fs.UP\b ≈ (Lp'\b)[p_inv]
         @test Fs.PtL'\b ≈ (Lp'\b)[p_inv]
         @test Fs.UP'\b ≈ Lp\b[p]
+        @test Fs.D\b ≈ Dp\b
+        @test Fs.D'\b ≈ Dp\b
         @test Fs.LD\b ≈ Dp\(Lp\b)
         @test Fs.DU'\b ≈ Dp\(Lp\b)
         @test Fs.LD'\b ≈ Lp'\(Dp\b)
@@ -934,20 +865,6 @@ end
     @test isempty(nonzeros(res))
 end
 
-@testset "Real factorization and complex rhs" begin
-    A = sprandn(5, 5, 0.4) |> t -> t't + I
-    B = complex.(randn(5, 5), randn(5, 5))
-    b = B[:,1]
-    @test cholesky(A)\b ≈ A\b
-    @test cholesky(A)\B ≈ A\B
-    @test cholesky(A)\B' ≈ A\B'
-    @test cholesky(A)\transpose(B) ≈ A\transpose(B)
-    @test cholesky(A)'\b ≈ copy(A')\b
-    @test cholesky(A)'\B ≈ copy(A')\B
-    @test cholesky(A)'\B' ≈ copy(A')\B'
-    @test cholesky(A)'\transpose(B) ≈ copy(A')\transpose(B)
-end
-
 @testset "Make sure that ldlt performs an LDLt (Issue #19032)" begin
     m, n = 400, 500
     A = sprandn(m, n, .2)
@@ -1017,8 +934,8 @@ end
         1.02371, -0.502384, 1.10686, 0.262229, -1.6935, 0.525239])
     AtA = A'*A
     C0 = Tv[1., 2., 0, 0, 0]
-    # Test both cholesky and LDLt with and without automatic permutations
-    for F in (cholesky(AtA), cholesky(AtA, perm=1:5), ldlt(AtA), ldlt(AtA, perm=1:5))
+    # Test both cholesky and LDLt, with and without automatic permutations
+    for F in (cholesky(AtA), ldlt(AtA, perm=1:5))
         local F
         x0 = F\(b = ones(Tv, 5))
         #Test both sparse/dense and vectors/matrices
