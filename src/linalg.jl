@@ -1414,7 +1414,7 @@ matop_dest(::typeof(/), A::QuasiSparseMatrix, B::Diagonal) =
 
 # symmetric/Hermitian
 
-function _symherm_mul!(nzrang::Function, diagop::Function, odiagop::Function, C::StridedVecOrMat{T}, A, B, α, β) where T
+function _symherm_mul!(rangefun::Function, diagop::Function, odiagop::Function, C::StridedVecOrMat{T}, A, B, α, β) where T
     n = size(A, 2)
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
@@ -1427,7 +1427,7 @@ function _symherm_mul!(nzrang::Function, diagop::Function, odiagop::Function, C:
             for col in axes(B,1)
                 αxj = B[col,k] * α
                 sumcol = z
-                for j = nzrang(A, col)
+                for j = rangefun(A, col)
                     row = rv[j]
                     aarc = nzv[j]
                     if row == col
@@ -1443,7 +1443,7 @@ function _symherm_mul!(nzrang::Function, diagop::Function, odiagop::Function, C:
     end
 end
 
-function _A_mul_symherm!(nzrang::Function, diagop::Function, odiagop::Function, C::StridedMatrix, X::AbstractMatrix, A, α::Number, β::Number)
+function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function, C::StridedMatrix, X::AbstractMatrix, A, α::Number, β::Number)
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
@@ -1455,7 +1455,7 @@ function _A_mul_symherm!(nzrang::Function, diagop::Function, odiagop::Function, 
     end
     C = _fix_size(C, mC, nC)
     X = _fix_size(X, mX, nX)
-    @inbounds for col in Aax2, k in nzrang(A, col)
+    @inbounds for col in Aax2, k in rangefun(A, col)
         row = rv[k]
         if row == col
             Aiα = α isa Bool ? diagop(nzv[k]) : diagop(nzv[k]) * α
