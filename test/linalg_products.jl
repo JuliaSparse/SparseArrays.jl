@@ -150,22 +150,25 @@ end
                     Diagonal(rand(n)),
                     SymTridiagonal(rand(n), rand(n-1)),
                     Tridiagonal(rand(n-1), rand(n), rand(n-1))]
-        for (c_di, d_di) in Iterators.product(c_dis, d_dis)
-            c = sparse(c_di); c_d = Array(c_di)
-            d = sparse(d_di); d_d = Array(d_di)
-            # mat ⊗ mat
+        # mat ⊗ mat
+        for t in (identity, adjoint, transpose)
+            @test kron(t(a), b)::SparseMatrixCSC == kron(t(a_d), b_d)
+            @test kron(a, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
+            @test kron(t(a), t(b))::SparseMatrixCSC == kron(t(a_d), t(b_d))
+            @test kron(t(a), b_d)::SparseMatrixCSC == kron(t(a_d), b_d)
+            @test kron(a_d, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
+        end
+        for c_di in c_dis
+            c_d = Array(c_di)
             for t in (identity, adjoint, transpose)
-                @test kron(t(a), b)::SparseMatrixCSC == kron(t(a_d), b_d)
-                @test kron(a, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
-                @test kron(t(a), t(b))::SparseMatrixCSC == kron(t(a_d), t(b_d))
-                @test kron(t(a), b_d)::SparseMatrixCSC == kron(t(a_d), b_d)
-                @test kron(a_d, t(b))::SparseMatrixCSC == kron(a_d, t(b_d))
                 @test kron(t(a), c_di)::SparseMatrixCSC == kron(t(a_d), c_d)
                 @test kron(a, t(c_di))::SparseMatrixCSC == kron(a_d, t(c_d))
                 @test kron(t(a), t(c_di))::SparseMatrixCSC == kron(t(a_d), t(c_d))
-                @test kron(c_di, y)::SparseMatrixCSC == kron(c_di, y_d)
-                @test kron(x, d_di)::SparseMatrixCSC == kron(x_d, d_di)
             end
+            @test kron(c_di, y)::SparseMatrixCSC == kron(c_di, y_d)
+        end
+        for d_di in d_dis
+            @test kron(x, d_di)::SparseMatrixCSC == kron(x_d, d_di)
         end
         # vec ⊗ vec
         @test Vector(kron(x, y)::SparseVector) == kron(x_d, y_d)

@@ -12,7 +12,6 @@ using Test: guardseed
 using InteractiveUtils: @which
 using Dates
 include("forbidproperties.jl")
-include("simplesmatrix.jl")
 
 @testset "_isnotzero" begin
     @test !_isnotzero(0::Int)
