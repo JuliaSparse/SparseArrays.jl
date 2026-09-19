@@ -172,6 +172,12 @@ end
             @test exact_equal(sparsevec(d), SparseVector(3, [1, 2, 3], [0.0, 1.0, 2.0]))
         end
     end
+    @testset "sparsevec of a sparse matrix (issue #24)" begin
+        A = sparse([1, 3, 2], [1, 1, 3], [1.0, 0.0, 2.0im], 3, 3)
+        @test exact_equal(sparsevec(A), SparseVector(9, [1, 3, 8], [1.0, 0.0, 2.0im]))
+        @test findnz(sparsevec(A)) == ([1, 3, 8], [1.0, 0.0, 2.0im])
+        @test exact_equal(sparsevec(view(A, :, 2:3)), SparseVector(6, [5], [2.0im]))
+    end
     @testset "fillstored!" begin
         x = SparseVector(8, [2, 3, 6], [12.0, 18.0, 25.0])
         y = LinearAlgebra.fillstored!(copy(x), 1)
