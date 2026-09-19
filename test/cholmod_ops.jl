@@ -192,6 +192,7 @@ Random.seed!(123)
             @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, A1Sparse) == A1Sparse
             @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_SYM, A1Sparse)
             @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, CHOLMOD.Sparse(A1[:,1:4]))
+            @test sparse(A1Sparse) == A1
         else
             # CHOLMOD assumes Hermitian inputs for complex concatenation.
             @test_throws MethodError CHOLMOD.horzcat(A1Sparse, A2Sparse, true)

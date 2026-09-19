@@ -141,8 +141,9 @@ because it invalidates precompiled code; it exists to catch bad `@inbounds`.
   just a correctness check against dense, which passes on the fallback too.
 - No wall-clock assertions. Allocation bounds prove constancy, not zero. Match
   `@test_throws` messages loosely, because Base rewords errors.
-- Keep eltype grids representative rather than exhaustive, never call `GC.gc()` in
-  tests, and check a re-enabled test on nightly before removing its skip.
+- Keep eltype grids representative rather than exhaustive. Explicit `GC.gc()` calls
+  belong only in the isolated solver lifetime tests, where they exercise finalization
+  and rooting. Check a re-enabled test on nightly before removing its skip.
 - Seed randomized tests of heuristics. Single-precision solver tests need
   well-conditioned inputs.
 - Ambiguity failures on nightly are often Base's, and Windows hangs have historically
