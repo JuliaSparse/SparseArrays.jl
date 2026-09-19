@@ -6,6 +6,7 @@
 struct MulCount{T} <: Number
     x::T
 end
+MulCount{T}(x::MulCount{T}) where {T} = x
 const MULCOUNT = Ref(0)
 Base.:*(a::MulCount, b::MulCount) = (MULCOUNT[] += 1; MulCount(a.x * b.x))
 Base.:+(a::MulCount, b::MulCount) = MulCount(a.x + b.x)

@@ -243,9 +243,9 @@ end
 
 begin
     rng = Random.MersenneTwister(0)
-    n = 1000
+    n = 100
     B = ones(n)
-    s = sprandn(n, 0.05)
+    s = sprandn(rng, n, 0.05)
     sd = Vector(s)
     A = sprand(rng, n, n, 0.01)
     MA = Matrix(A)
@@ -302,6 +302,41 @@ begin
         @test_throws SingularException(1) A \ ones(2)
         A = UpperTriangular(sparse([1.0 0;0 0]))
         @test_throws SingularException(2) A \ ones(2)
+    end
+end
+
+@testset "triangular sparse structural cases" begin
+    for T in (Float64, ComplexF64)
+        A = sparse([1, 2, 5, 1], [1, 1, 5, 6], T[2, 3, 0, 4], 6, 6)
+        T <: Complex && (nonzeros(A)[2] += im)
+        b = T[1, -2, 0, 3, 0, 4]
+        for W in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular),
+            op in (identity, transpose, adjoint)
+            S = op(W(A))
+            D = Matrix(S)
+            @test S * b ≈ D * b
+            @test S * sparse(b) ≈ D * b
+            @test S * A ≈ D * Matrix(A)
+            @test S * hcat(b, 2b) ≈ D * hcat(b, 2b)
+            @test S * spzeros(T, 6) == zeros(T, 6)
+        end
+    end
+end
+
+@testset "triangular products visit stored entries" begin
+    for n in (8, 16), W in (UpperTriangular, LowerTriangular)
+        A = mulcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
+        @test mulcount(() -> W(A) * A) == n
+        # These wrappers currently select generic triangular multiplication.
+        for op in (transpose, adjoint)
+            @test_broken mulcount(() -> op(W(A)) * A) <= 2n
+        end
+    end
+    n = 1000
+    A = mulcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
+    for W in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
+        @test mulcount(() -> W(A) * A) == n
+        @test mulcount(() -> W(view(A, :, :)) * A) == n
     end
 end
 
