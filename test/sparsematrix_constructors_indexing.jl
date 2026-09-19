@@ -187,6 +187,11 @@ end
     @test_throws BoundsError copyto!(rand(2,2), sprand(3,3,0.2))
 end
 
+# an index type lowered by `to_indices`, like `InvertedIndices.Not`
+struct AllBut; i::Int; end
+Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
+    (setdiff(inds[1], I[1].i), to_indices(A, Base.tail(inds), Base.tail(I))...)
+
 @testset "getindex" begin
     ni = 23
     nj = 32
@@ -282,6 +287,28 @@ end
     @test_throws BoundsError S[inds_out]
     pop!(inds_out); push!(inds_out, CartesianIndex(1, 11))
     @test_throws BoundsError S[inds_out]
+
+    @testset "indices lowered by to_indices (issue #42), $T" for T in (Float64, ComplexF64)
+        A = sprand(T, 6, 6, 0.4); c = isodd.(1:6); x = A[:, 1]; m = A .!= 0
+        for B in (A, A', transpose(A))
+            for I in ((1, c), (c, 2), (c, c), (:, c), (c, :), (2:5, c), ([3, 1], c), (:, :),
+                      (AllBut(2), AllBut(3)), (1, AllBut(3)), (AllBut(2), c), (Int32(2), Int32(3)))
+                @test which(getindex, typeof.((B, I...))).module === SparseArrays
+                @test B[I...] == B[to_indices(B, I)...] == Array(B)[I...]
+                @test B[I...] isa Union{T,SparseVector{T,Int},SparseMatrixCSC{T,Int}}
+            end
+            @test B[5] == B[CartesianIndex(5, 1)] == B[5, 1, 1] == Array(B)[5]
+            # masks of the wrong length throw as they do for dense arrays
+            @test_throws BoundsError B[trues(7), 1]
+            @test_throws BoundsError B[1, trues(7)]
+        end
+        @test A[to_indices(A, (m,))...] == A[to_indices(A, (vec(m),))...] == Array(A)[m]
+        @test A[1:2, :][false:true, c] == Array(A)[1:2, :][false:true, c]
+        @test which(getindex, typeof.((x, AllBut(2)))).module === SparseArrays
+        @test x[AllBut(2)] == Array(x)[AllBut(2)]
+        @test x[to_indices(x, (c,))...] == Array(x)[c]
+        @test_throws BoundsError x[trues(7)]
+    end
 
     # workaround issue #7197: comment out let-block
     #let S = SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[])
@@ -475,6 +502,7 @@ end
         FS = Array(S)
         FI = Array(I)
         @test sparse(FS[FI]) == S[I] == S[FI]
+        @test S[vec(FI)]::SparseVector == FS[vec(FI)]
         @test sum(S[FI]) + sum(S[.!FI]) == sum(S)
         @test count(!iszero, I) == count(I)
 

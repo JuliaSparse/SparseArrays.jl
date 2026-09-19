@@ -786,10 +786,17 @@ function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     return @if_move_fixed x SparseVector(length(I), [rowvals(x)[i] - first(I) + 1 for i = r1:r2], nonzeros(x)[r1:r2])
 end
 
-getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Integer, ::Colon) =
-    map!(wrapperop(M), parent(M)[:,i])
-getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::AbstractVector, ::Colon) =
-    copy(wrapperop(M)(parent(M)[:,i]))
+# Nonscalar indexing of an adjoint or transpose indexes the parent with the indices swapped
+@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, I, J) =
+    _getindex_adjtrans(M, (I, J), _lower_indices(M, I, J)...)
+# resolves the ambiguity with LinearAlgebra's scalar method
+@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Int, j::Int) =
+    wrapperop(M)(parent(M)[j, i])
+_getindex_adjtrans(M, _, i::AbstractVector, j::AbstractVector) = copy(wrapperop(M)(parent(M)[j, i]))
+_getindex_adjtrans(M, _, i::Integer, j::AbstractVector) = map!(wrapperop(M), parent(M)[j, i])
+_getindex_adjtrans(M, _, i::AbstractVector, j::Integer) = map!(wrapperop(M), parent(M)[j, i])
+@propagate_inbounds _getindex_adjtrans(M, _, i::Integer, j::Integer) = wrapperop(M)(parent(M)[j, i])
+@propagate_inbounds _getindex_adjtrans(M, I, L...) = invoke(getindex, Tuple{AbstractArray,Vararg{Any}}, M, I...)
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
@@ -801,7 +808,7 @@ getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::AbstractVector, ::Co
 getindex(A::AbstractSparseMatrixCSC, i::Integer, ::Colon) = A[i, 1:end]
 function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::AbstractVector) where {Tv,Ti}
     require_one_based_indexing(A, J)
-    checkbounds(A, i, J)
+    _, J = _lower_indices(A, i, J)
     nJ = length(J)
     rowvalA = rowvals(A); nzvalA = nonzeros(A)
 
@@ -836,6 +843,7 @@ getindex(A::AbstractSparseMatrixCSC, I::AbstractArray{Bool}) = _logical_index(A,
 function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) where Tv
     require_one_based_indexing(A, I)
     checkbounds(A, I)
+    mask = reshape(I, size(A))   # a vector mask indexes linearly
     n = sum(I)
     nnzB = min(n, nnz(A))
 
@@ -850,7 +858,7 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
         r2 = last(nzrange(A, col))
 
         for row in axes(A,1)
-            if I[row, col]
+            if mask[row, col]
                 while (r1 <= r2) && (rowvalA[r1] < row)
                     r1 += 1
                 end
@@ -917,6 +925,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
 end
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
+    I isa Base.LogicalIndex && return _logical_index(A, I.mask)
     require_one_based_indexing(A, I)
     @boundscheck checkbounds(A, I)
     szA = size(A)
@@ -1161,8 +1170,8 @@ function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractUnitRange) where {T
     return @if_move_fixed x SparseVector(length(I), rind, rval)
 end
 
-getindex(x::AbstractSparseVector, I::AbstractVector{Bool}) = x[findall(I)]
-getindex(x::AbstractSparseVector, I::AbstractArray{Bool}) = x[LinearIndices(I)[findall(I)]]
+getindex(x::AbstractSparseVector, I::AbstractVector{Bool}) = (checkbounds(x, I); x[findall(I)])
+getindex(x::AbstractSparseVector, I::AbstractArray{Bool}) = (checkbounds(x, I); x[LinearIndices(I)[findall(I)]])
 @inline function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
     # SparseMatrixCSC has a nicely optimized routine for this; punt
     S = SparseMatrixCSC(length(x), 1, Ti[1,length(nonzeroinds(x))+1], nonzeroinds(x), nonzeros(x))

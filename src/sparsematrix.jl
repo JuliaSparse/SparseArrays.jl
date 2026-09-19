@@ -3146,6 +3146,24 @@ end
 end
 
 # Colon translation
+# Lower indices as Base does. Bounds are checked first because a mask lowers to a
+# `Base.LogicalIndex`, which `ensure_indexable` collects, dropping the mask's length.
+@inline function _lower_indices(A, I...)
+    L = to_indices(A, I)
+    @boundscheck checkbounds(A, L...)
+    return Base.ensure_indexable(L)
+end
+
+# Index types no method below matches (`CartesianIndex`, custom indices) are lowered and
+# dispatched again; indices that are already lowered fall back to Base.
+@propagate_inbounds getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I...) where {Tv,Ti} =
+    _getindex_lowered(A, I, _lower_indices(A, I...))
+@propagate_inbounds getindex(x::AbstractSparseVector{Tv,Ti}, I...) where {Tv,Ti} =
+    _getindex_lowered(x, I, _lower_indices(x, I...))
+@propagate_inbounds _getindex_lowered(A, I, L) = A[L...]
+@propagate_inbounds _getindex_lowered(A, I::T, ::T) where {T} =
+    invoke(getindex, Tuple{AbstractArray,Vararg{Any}}, A, I...)
+
 getindex(A::AbstractSparseMatrixCSC, ::Colon, ::Colon) = copy(A)
 getindex(A::AbstractSparseMatrixCSC, i, ::Colon)       = getindex(A, i, axes(A,2))
 getindex(A::AbstractSparseMatrixCSC, ::Colon, i)       = getindex(A, axes(A,1), i)
@@ -3189,6 +3207,7 @@ getindex_traverse_col(I::StepRange, lo::Integer, hi::Integer) = step(I) > 0 ? (l
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::AbstractVector) where {Tv,Ti<:Integer}
     require_one_based_indexing(A, I, J)
+    I, J = _lower_indices(A, I, J)
     # Ranges for indexing rows
     (m, n) = size(A)
     # whole columns:
@@ -3502,17 +3521,7 @@ end
 # the general case:
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
     require_one_based_indexing(A, I, J)
-    (m, n) = size(A)
-
-    if !isempty(J)
-        minj, maxj = extrema(J)
-        ((minj < 1) || (maxj > n)) && throw(BoundsError())
-    end
-
-    if !isempty(I)
-        mini, maxi = extrema(I)
-        ((mini < 1) || (maxi > m)) && throw(BoundsError())
-    end
+    I, J = _lower_indices(A, I, J)
 
     if isempty(I) || isempty(J) || (0 == nnz(A))
         return spzeros(Tv, Ti, length(I), length(J))
@@ -3570,16 +3579,8 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     @if_move_fixed A SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
 end
 
-# logical getindex
-getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{Bool}) = error("Cannot index with AbstractRange{Bool}")
-getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{<:Integer}) = error("Cannot index with AbstractRange{Bool}")
-
-getindex(A::AbstractSparseMatrixCSC, I::AbstractRange{<:Integer}, J::AbstractVector{Bool}) = A[I,findall(J)]
-getindex(A::AbstractSparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = A[I,findall(J)]
-getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = A[findall(I),J]
-getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = A[findall(I),findall(J)]
-getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{<:Integer}, J::AbstractVector{Bool}) = A[I,findall(J)]
-getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{<:Integer}) = A[findall(I),J]
+# a range of `Bool` is a mask, not a range of rows
+getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector) = A[collect(I), J]
 
 ## setindex!
 
