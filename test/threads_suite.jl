@@ -8,13 +8,13 @@ if Base.USE_GPL_LIBS
 @testset "threaded SuiteSparse tests" begin
     for nt in (1, 4)
         @testset "default threads = $nt" begin
-            script = "include($(repr(joinpath(@__DIR__, "threads_core.jl"))))"
+            script = "include($(repr(joinpath(@__DIR__, "threads.jl"))))"
             @test success(pipeline(testprocess(script; threads=nt); stdout, stderr))
         end
     end
 end
 @testset "CHOLMOD ownership and lifetime" begin
-    script = "include($(repr(joinpath(@__DIR__, "cholmod_lifetime.jl"))))"
+    script = "include($(repr(joinpath(@__DIR__, "linalg_cholmod_lifetime.jl"))))"
     @test success(pipeline(testprocess(script); stdout, stderr))
 end
 end

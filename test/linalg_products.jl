@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module SparseLinalgProductTests
-# Products, dot products, Kronecker products and conversions. Split off from linalg_core.jl
+# Products, dot products, Kronecker products and conversions. Split off from linalg.jl
 # so the two halves run on separate test workers.
 
 using Test
