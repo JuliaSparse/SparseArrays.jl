@@ -90,6 +90,7 @@ begin
     rng = Random.MersenneTwister(0)
     n = 100
     B = ones(n)
+    X = reshape(1.0:3n, 3, n) ./ n
     s = sprandn(rng, n, 0.05)
     sd = Vector(s)
     A = sprand(rng, n, n, 0.01)
@@ -103,11 +104,15 @@ begin
         @test AW * B ≈ MAW * B
         @test AW * s ≈ MAW * s ≈ MAW * sd
         @test AW * A ≈ MAW * MA
+        @test X * AW ≈ rmul!(copy(X), AW) ≈ X * MAW
+        @test mul!(similar(X), view(X, [1, 2, 3], :), AW) ≈ X * MAW
+        @test X * AW isa Matrix
         tr === identity && @test AW * AW isa wr
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
         @test vAW * A ≈ AW * A
+        @test X * vAW ≈ X * MAW
     end
     a = sprand(rng, ComplexF64, n, n, 0.01)
     a[1, 1] = 2 + im # Exercise conjugation of a stored nonunit diagonal.
@@ -118,9 +123,12 @@ begin
         MAW = tr(wr(ma))
         @test AW * B ≈ MAW * B
         @test AW * s ≈ MAW * s ≈ MAW * sd
+        @test X * AW ≈ rmul!(complex(X), AW) ≈ X * MAW
+        @test X * AW isa Matrix
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
         vAW = tr(wr(view([zero(a)+I a], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
+        @test X * vAW ≈ X * MAW
     end
     # the implicit unit diagonal may not fit the index type (#816)
     A8 = sparse(Int8[1, 2, 5], Int8[2, 1, 7], [2.0, 3.0, 4.0], 127, 127)
@@ -164,6 +172,7 @@ end
             @test S * sparse(b) ≈ D * b
             @test S * A ≈ D * Matrix(A)
             @test S * hcat(b, 2b) ≈ D * hcat(b, 2b)
+            @test transpose(hcat(b, 2b)) * S ≈ transpose(hcat(b, 2b)) * D
             @test S * spzeros(T, 6) == zeros(T, 6)
         end
     end
@@ -184,7 +193,12 @@ end
     for W in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
         @test mulcount(() -> W(A) * A) == n
         @test mulcount(() -> W(view(A, :, :)) * A) == n
+        X = MulCount.(ones(2, n))
+        for op in (identity, transpose, adjoint)
+            @test mulcount(() -> X * op(W(A))) == 2n
+        end
     end
+    @test_throws DimensionMismatch ones(2, 3) * UpperTriangular(sparse(1.0I, 4, 4))
 end
 
 
