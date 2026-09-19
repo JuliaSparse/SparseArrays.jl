@@ -61,11 +61,9 @@ a copy to materialize each transpose. Alternatively, rebuild the matrix from its
 with [`findnz`](@ref) and [`sparse`](@ref), which also adds up repeated entries:
 
 ```jldoctest cscimport
-julia> A = SparseMatrixCSC(3, 3, [1, 3, 4, 6], [1, 3, 2, 1, 3], [10.0, 20.0, 30.0, 40.0, 50.0])
-3×3 SparseMatrixCSC{Float64, Int64} with 5 stored entries:
- 10.0    ⋅   40.0
-   ⋅   30.0    ⋅
- 20.0    ⋅   50.0
+julia> colptr = [1, 3, 4, 6]; rowval = [3, 1, 2, 3, 1]; nzval = [20.0, 10.0, 30.0, 50.0, 40.0];
+
+julia> A = SparseMatrixCSC(3, 3, colptr, rowval, nzval);  # unsorted row indices
 
 julia> B = copy(transpose(copy(transpose(A))))
 3×3 SparseMatrixCSC{Float64, Int64} with 5 stored entries:
@@ -227,6 +225,121 @@ Indexing operations, especially assignment, are expensive, when carried out one 
 In many cases it may be better to convert the sparse matrix into `(I,J,V)` format using [`findnz`](@ref),
 manipulate the values or the structure in the dense vectors `(I,J,V)`, and then reconstruct
 the sparse matrix.
+
+### [Broadcasting and `map`](@id man-sparse-broadcast)
+
+[`broadcast`](@ref) (including dot syntax such as `A .* B`) and [`map`](@ref) over sparse vectors
+and matrices return a sparse result. To decide which entries to store, the function is first
+evaluated once on the zeros of the arguments' element types. If `f(0, 0, ...)` is zero, as for
+`A .* B`, `abs.(A)` or `2 .* A`, only positions where some argument has a stored entry are visited,
+and only the results there that are nonzero are stored:
+
+```jldoctest sparsebroadcast
+julia> A = sparse([1, 2, 3], [1, 2, 3], [1, -2, 3]);
+
+julia> B = sparse([1, 1, 3], [1, 3, 3], [1, 5, -3]);
+
+julia> A .* B
+3×3 SparseMatrixCSC{Int64, Int64} with 2 stored entries:
+ 1  ⋅   ⋅
+ ⋅  ⋅   ⋅
+ ⋅  ⋅  -9
+
+julia> A .+ B
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 2   ⋅  5
+ ⋅  -2  ⋅
+ ⋅   ⋅  ⋅
+```
+
+The entry `A[3, 3] + B[3, 3]` cancels to zero and is dropped rather than stored. Stored zeros in an
+argument are dropped the same way, so `2 .* A` can have fewer stored entries than `A`.
+
+If `f(0, 0, ...)` is not zero, as for `A .+ 1`, `cos.(A)` or `A ./ B` (where `0/0` is `NaN`), the
+result is still a sparse array, but every entry is stored, including any that happen to compute to
+zero. Such a result needs more memory than the equivalent `Array`, so convert to dense first
+when this is intended:
+
+```jldoctest sparsebroadcast
+julia> A .+ 2
+3×3 SparseMatrixCSC{Int64, Int64} with 9 stored entries:
+ 3  2  2
+ 2  0  2
+ 2  2  5
+```
+
+`map` follows the same rules, but requires all arguments to have the same shape and throws a
+`DimensionMismatch` otherwise, whereas `broadcast` expands singleton dimensions. A sparse vector
+behaves as a one-column matrix, and combining it with a sparse matrix or with the adjoint or
+transpose of a sparse vector gives a `SparseMatrixCSC`:
+
+```jldoctest sparsebroadcast
+julia> v = sparsevec([1, 3], [1, 2], 3);
+
+julia> A .+ v
+3×3 SparseMatrixCSC{Int64, Int64} with 7 stored entries:
+ 2   1  1
+ ⋅  -2  ⋅
+ 2   2  5
+
+julia> v .* v'
+3×3 SparseMatrixCSC{Int64, Int64} with 4 stored entries:
+ 1  ⋅  2
+ ⋅  ⋅  ⋅
+ 2  ⋅  4
+```
+
+Scalars (and `Ref`s) are folded into the function before the rules above are applied. Broadcasting
+a sparse array with a `Vector`, a `Matrix`, the adjoint or transpose of any of these, or a
+`Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix first converts those arguments to
+sparse, so the result is sparse as well, even when it is full, as in `A .+ ones(3, 3)`. Any other
+argument, such as a tuple, a range, a triangular or `Symmetric` wrapper, a view of a sparse matrix
+or an array with more than two dimensions, makes the broadcast fall back to the generic
+implementation, which visits every element and returns an `Array`. `map` accepts the same
+structured matrices alongside sparse matrices, and falls back to a dense result otherwise.
+
+```jldoctest sparsebroadcast
+julia> A .* Diagonal([1, 2, 3])
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 1   ⋅  ⋅
+ ⋅  -4  ⋅
+ ⋅   ⋅  9
+
+julia> typeof(A .* (1:3))
+Matrix{Int64} (alias for Array{Int64, 2})
+```
+
+[`broadcast!`](@ref), [`map!`](@ref) and `.=` with a sparse destination overwrite its stored
+pattern with that of the result, growing or shrinking its buffers as needed, so a preallocated
+destination saves allocations only when its buffers are already large enough. The destination may
+also be one of the arguments (they are copied first if they share memory with it), as in
+`C .= C .+ C'`. One exception: `C .= 0` calls [`fill!`](@ref), which keeps `C`'s stored pattern and
+sets the stored values to zero.
+
+```jldoctest sparsebroadcast
+julia> C = spzeros(Int, 3, 3);
+
+julia> C .= A .* B;
+
+julia> C
+3×3 SparseMatrixCSC{Int64, Int64} with 2 stored entries:
+ 1  ⋅   ⋅
+ ⋅  ⋅   ⋅
+ ⋅  ⋅  -9
+```
+
+To apply a function to the stored values only, leaving the pattern untouched whatever the function
+returns for zero, broadcast over [`nonzeros`](@ref) instead:
+
+```jldoctest sparsebroadcast
+julia> nonzeros(C) .= nonzeros(C) .+ 9;
+
+julia> C
+3×3 SparseMatrixCSC{Int64, Int64} with 2 stored entries:
+ 10  ⋅  ⋅
+  ⋅  ⋅  ⋅
+  ⋅  ⋅  0
+```
 
 ## [Performance tips](@id man-sparse-performance)
 

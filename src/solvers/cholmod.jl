@@ -239,6 +239,19 @@ const BUILD_VERSION = VersionNumber(CHOLMOD_MAIN_VERSION, CHOLMOD_SUB_VERSION, C
 # pointer to a struct.  Therefore finalizers should be registered each
 # time a pointer is returned from CHOLMOD.
 
+"""
+    CHOLMOD.Dense{Tv} <: DenseMatrix{Tv}
+
+A dense matrix stored in memory allocated by CHOLMOD, wrapping a pointer to a
+`cholmod_dense` struct. `Tv` is `Float64`, `Float32`, `ComplexF64` or `ComplexF32`.
+`Dense(A)` copies a strided vector or matrix `A` into CHOLMOD storage, and `Matrix`,
+`Vector` and `copyto!` copy it back into a Julia array. It is the dense right-hand side
+and solution type of the CHOLMOD solve routines; `F \\ b` with a Julia array `b` does not
+need it.
+
+The memory is released by a finalizer. The pointer is null after deserialization, and
+using such an object throws an `ArgumentError`.
+"""
 mutable struct Dense{Tv<:VTypes} <: DenseMatrix{Tv}
     ptr::Ptr{cholmod_dense}
     function Dense{Tv}(ptr::Ptr{cholmod_dense}) where Tv<:VTypes
@@ -260,6 +273,25 @@ mutable struct Dense{Tv<:VTypes} <: DenseMatrix{Tv}
     end
 end
 
+"""
+    CHOLMOD.Sparse{Tv,Ti} <: AbstractSparseMatrix{Tv,Ti}
+
+A sparse matrix in compressed column form stored in memory allocated by CHOLMOD, wrapping
+a pointer to a `cholmod_sparse` struct. `Tv` is `Float64`, `Float32`, `ComplexF64` or
+`ComplexF32`, and `Ti` is `Int32` or `Int64` (only `Int32` on 32-bit systems).
+
+`Sparse(A)` copies a [`SparseMatrixCSC`](@ref), or a `Symmetric` or `Hermitian` view of
+one, converting element types CHOLMOD does not support to a floating-point type it does.
+CHOLMOD records in the struct's `stype` whether the whole matrix or only one triangle of
+a symmetric or Hermitian matrix is stored; a plain `SparseMatrixCSC` that is Hermitian is
+stored as one triangle. `sparse(S)` copies back to a `SparseMatrixCSC`, wrapped in
+`Symmetric` or `Hermitian` when only a triangle is stored, so it is not type stable.
+`Sparse(F)` returns the `L` (or `LD`) factor of a
+[`CHOLMOD.Factor`](@ref SparseArrays.CHOLMOD.Factor) `F`.
+
+The memory is released by a finalizer. The pointer is null after deserialization, and
+using such an object throws an `ArgumentError`.
+"""
 mutable struct Sparse{Tv<:VTypes, Ti<:ITypes} <: AbstractSparseMatrix{Tv,Ti}
     ptr::Ptr{cholmod_sparse}
     function Sparse{Tv, Ti}(ptr::Ptr{cholmod_sparse}) where {Tv<:VTypes, Ti<:ITypes}
@@ -332,6 +364,54 @@ end
 
 # Factor stores its own temporary CHOLMOD Y/E buffers for use in ldiv!
 # and pre-allocates cholmod_dense_struct wrappers
+"""
+    CHOLMOD.Factor{Tv,Ti} <: Factorization{Tv}
+
+The Cholesky (`LL'`) or `LDL'` factorization of a sparse symmetric or Hermitian matrix,
+returned by [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky) and
+[`ldlt`](@ref SparseArrays.CHOLMOD.ldlt). It wraps a pointer to a `cholmod_factor` struct,
+which holds the symbolic analysis, the fill-reducing permutation and the numeric factor.
+`Tv` is `Float64`, `Float32`, `ComplexF64` or `ComplexF32`, and `Ti` is `Int32` or `Int64`
+(only `Int32` on 32-bit systems).
+
+With `P` the permutation matrix of `F.p`, the factorization is `A == P'*L*L'*P` for
+`cholesky` and `A == P'*L*D*L'*P` for `ldlt`. The properties of `F` are:
+
+| Property          | Description                                         |
+|:------------------|:----------------------------------------------------|
+| `F.p`             | permutation `Vector`, such that `L*L' == A[p, p]`   |
+| `F.L`, `F.U`      | `L` and `L'`                                        |
+| `F.PtL`, `F.UP`   | `P'*L` and `L'*P`                                   |
+| `F.D`             | `D` (`ldlt` only)                                   |
+| `F.LD`, `F.DU`    | `L*D` and `D*L'` (`ldlt` only)                      |
+| `F.PtLD`, `F.DUP` | `P'*L*D` and `D*L'*P` (`ldlt` only)                 |
+
+Apart from `F.p`, these are lazy components for use with `\\`, each applying one step of
+a solve. Only `sparse(F.L)`, and for `ldlt` `sparse(F.LD)` (the unit `L` with `D` on its
+diagonal), can be materialized. `sparse(F)` reconstructs the factorized matrix.
+
+`F` supports `\\`, `ldiv!`, [`det`](@ref), [`logdet`](@ref), [`diag`](@ref),
+[`issuccess`](@ref), `nnz`, `copy`, [`CHOLMOD.rcond`](@ref SparseArrays.CHOLMOD.rcond),
+refactorization with [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!`, and
+the low-rank modifications [`lowrankdowndate`](@ref SparseArrays.CHOLMOD.lowrankdowndate)
+and `lowrankupdate`.
+
+CHOLMOD owns the memory, which is released by a finalizer. The pointer is null after
+deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!(x, F, b)`
+reuses a solve workspace kept in `F`; it and the refactorizations take a lock internal to
+`F`.
+
+# Examples
+```jldoctest
+julia> F = ldlt(sparse([4.0 2.0; 2.0 -3.0]));
+
+julia> propertynames(F)
+(:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP, :p, :ptr)
+
+julia> F \\ [6.0, -1.0] ≈ [1.0, 1.0]
+true
+```
+"""
 mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
     ptr::Ptr{cholmod_factor}
     dense_x::cholmod_dense_struct
@@ -2272,21 +2352,10 @@ function issuccess(F::Factor)
 end
 
 function isposdef(F::Factor)
-    if issuccess(F)
-        s = unsafe_load(pointer(F))
-        if s.is_ll == 1
-            return true
-        else
-            # try conversion to LLt
-            change_factor!(F, true, s.is_super, true, s.is_monotonic)
-            b = issuccess(F)
-            # convert back
-            change_factor!(F, false, s.is_super, true, s.is_monotonic)
-            return b
-        end
-    else
-        return false
-    end
+    issuccess(F) || return false
+    s = unsafe_load(pointer(F))
+    # an LDLt factor is positive definite iff D is positive
+    return s.is_ll != 0 || all(d -> real(d) > 0, diag(F))
 end
 
 function ishermitian(A::Sparse{<:VRealTypes})

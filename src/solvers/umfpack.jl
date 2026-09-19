@@ -228,6 +228,52 @@ end
 Base.similar(w::UmfpackWS) = UmfpackWS(similar(w.Wi), similar(w.W))
 
 ## Should this type be immutable?
+"""
+    UMFPACK.UmfpackLU{Tv,Ti} <: Factorization{Tv}
+
+The LU factorization of a sparse matrix computed by UMFPACK, returned by
+[`lu`](@ref SparseArrays.UMFPACK.lu). `Tv` is `Float64` or `ComplexF64`, and `Ti` is
+`Int32` or `Int64` (only `Int32` on 32-bit systems). `F` holds a zero-based copy of the
+factorized matrix together with UMFPACK's opaque symbolic and numeric objects, which are
+released by finalizers.
+
+The factors are copied out of UMFPACK on each property access:
+
+| Property | Description                                   |
+|:---------|:----------------------------------------------|
+| `F.L`    | unit lower triangular `SparseMatrixCSC`       |
+| `F.U`    | upper triangular `SparseMatrixCSC`            |
+| `F.p`    | row permutation `Vector`                      |
+| `F.q`    | column permutation `Vector`                   |
+| `F.Rs`   | `Vector` of row scaling factors               |
+| `F.:(:)` | the tuple `(L, U, p, q, Rs)`, extracted in one call |
+
+They satisfy `F.L * F.U == (F.Rs .* A)[F.p, F.q]`.
+
+`F` supports `\\`, `ldiv!`, [`det`](@ref), `logabsdet`, [`issuccess`](@ref), `nnz`,
+`adjoint`, `transpose`, [`UMFPACK.rcond`](@ref SparseArrays.UMFPACK.rcond) and
+refactorization with `lu!`. A serialized `UmfpackLU` carries the matrix rather than the
+factors, which are recomputed on first use after deserialization.
+
+`F` owns the workspace used by `ldiv!` and guards it with an internal lock. To solve
+with the same factorization from several tasks at once, give each task its own `copy(F)`,
+which shares the factors and has its own workspace.
+
+# Examples
+```jldoctest
+julia> A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0]);
+
+julia> F = lu(A);
+
+julia> F.L * F.U ≈ (F.Rs .* A)[F.p, F.q]
+true
+
+julia> L, U, p, q, Rs = F.:(:);
+
+julia> L * U ≈ (Rs .* A)[p, q]
+true
+```
+"""
 mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
     symbolic::Symbolic{Tv, Ti}
     numeric::Numeric{Tv, Ti}
