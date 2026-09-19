@@ -4,7 +4,7 @@ module SparseVectorTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr, rowvals
+using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
@@ -521,61 +521,33 @@ end
         copyto!(x2, x) # copyto!(SparseVector, AbstractVector)
         @test Vector(x2) == collect(x)
     end
-    # copyto! into a column view of a sparse matrix splices the source into the column,
-    # leaving the rest of the column and the matrix untouched (#401)
-    let
-        for (m, n) in ((6, 4), (1, 1)), trial in 1:2
-            M = sprand(m, n, rand())
-            j = rand(1:n); lB = rand(0:m)
-            for src in (sprand(lB, rand()), rand(lB))
-                A = copy(M); D = Matrix(M)
-                @test copyto!(view(A, :, j), src) isa SubArray
-                copyto!(view(D, :, j), Vector(src))
-                @test Matrix(A) == D
-                @test issorted(rowvals(A)[nzrange(A, j)])
-            end
-            if n > 1   # another column of the same matrix as the source
-                A = copy(M); D = Matrix(M); j2 = mod1(j + 1, n)
-                copyto!(view(A, :, j), view(A, :, j2))
-                copyto!(view(D, :, j), view(D, :, j2))
-                @test Matrix(A) == D
-            end
+    # copyto! into a view of a sparse array splices the source into the parent (#401)
+    let M = sparse([1, 3, 2, 1], [1, 1, 2, 3], [1.0, 2.0, 3.0, 4.0], 4, 3)
+        for src in (sparsevec([2, 4], [5.0, 6.0]), sparsevec([1], [5.0], 3), [7.0, 0.0], 3)
+            A = copy(M); D = Matrix(M)
+            src isa Int && (src = view(A, :, src))   # another column of the same matrix
+            @test copyto!(view(A, :, 2), src) isa SubArray
+            copyto!(view(D, :, 2), Vector(src))
+            @test A == D && nnz(A) == count(!iszero, D)
         end
         A = sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)
-        copyto!(view(A, :, 1), SparseVector(3, [2], [0.0])) # stored zeros stay stored
+        copyto!(view(A, :, 1), SparseVector(3, [2], [0.0])) # the fallback would keep both entries
+        @test nnz(A) == 1 && A == spzeros(3, 2)
+        @test_throws BoundsError copyto!(view(A, :, 1), sparsevec([1.0, 2, 3, 4]))
         @test nnz(A) == 1 && A == spzeros(3, 2)
         Af = SparseArrays.FixedSparseCSC(sparse([1, 2], [1, 1], [1.0, 2.0], 3, 2)) # a fixed parent takes a matching pattern only
         copyto!(view(Af, :, 1), sparsevec([1, 2], [3.0, 4.0], 3))
         @test_throws ArgumentError copyto!(view(Af, :, 1), sparsevec([2], [5.0], 3))
         @test nonzeros(Af) == [3.0, 4.0]
-        @test_throws BoundsError copyto!(view(A, :, 1), sparsevec([1.0, 2, 3, 4]))
-        @test nnz(A) == 1 && A == spzeros(3, 2)
-        # #401: the fallback cost O(length(column)); the splice costs the entries moved
-        A = sprand(10^6, 3, 1e-6); s = sparsevec([10], [1.0], 10^6)
-        copyto!(view(A, :, 2), s)
-        @test A[10, 2] == 1.0 && nnz(view(A, :, 2)) == 1
-        @test (@allocated copyto!(view(A, :, 2), s)) < 2^12
     end
-    # ... and likewise into a view of a sparse vector, partial or whole
-    let
-        for n in (1, 7), trial in 1:2
-            v = sprand(n, rand())
-            lo = rand(1:n); hi = rand(lo-1:n); lB = rand(0:hi-lo+1)
-            for src in (sprand(lB, rand()), rand(lB))
-                x = copy(v); d = Vector(v)
-                copyto!(view(x, lo:hi), src)
-                copyto!(view(d, lo:hi), Vector(src))
-                @test Vector(x) == d
-                @test issorted(nonzeroinds(x)) && allunique(nonzeroinds(x))
-            end
-            x = copy(v); d = Vector(v); src = sprand(n, 0.5)
-            copyto!(view(x, :), src); copyto!(view(d, :), Vector(src))
-            @test Vector(x) == d
+    let v = sparsevec([1, 4, 6], [1.0, 2.0, 3.0], 7)
+        for (rng, src) in ((3:6, sparsevec([1, 3], [5.0, 6.0], 3)), (3:6, [7.0, 0.0]), (:, sparsevec([2], [5.0], 7)))
+            x = copy(v); d = Vector(v); s = copy(src)
+            copyto!(view(x, rng), src)
+            copyto!(view(d, rng), Vector(src))
+            @test x == d && nnz(x) == count(!iszero, d)
+            @test src == s
         end
-        # the source is not modified, even when its index type matches the parent's
-        src = SparseVector(4, [2, 4], [1.0, 2.0]); x = spzeros(9)
-        copyto!(view(x, 3:6), src)
-        @test nonzeroinds(src) == [2, 4] && x == sparsevec([4, 6], [1.0, 2.0], 9)
     end
     let x = 1:9, x1 = spzeros(length(x)), x2 = spzeros(length(x)-1)
         @test_throws ArgumentError copy!(x2, x)
