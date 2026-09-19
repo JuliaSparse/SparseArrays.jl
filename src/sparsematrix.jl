@@ -347,12 +347,12 @@ rowvals(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = rowvals(S.data)
     nzrange(A, col::Integer)
 
 Return the range of indices to the structural nonzero values of column `col`
-of sparse array `A`. In conjunction with [`getrowval`](@ref) and
-[`getnzval`](@ref), this allows for convenient iterating over a sparse matrix :
+of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
+[`rowvals`](@ref), this allows for convenient iterating over a sparse matrix :
 
     A = sparse(I,J,V)
-    rows = getrowval(A)
-    vals = getnzval(A)
+    rows = rowvals(A)
+    vals = nonzeros(A)
     m, n = size(A)
     for j = 1:n
        for i in nzrange(A, j)
