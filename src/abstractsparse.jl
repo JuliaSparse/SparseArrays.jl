@@ -75,6 +75,10 @@ const SparseVectorPartialView{Tv,Ti} = SubArray{Tv,1,<:AbstractSparseVector{Tv,T
 const SparseMatrixCSCMaybeAdjOrTrans = Union{AbstractSparseMatrixCSC, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}
 const SparseVecOrMatMaybeAdjOrTrans = Union{SparseVecOrMat, AdjOrTrans{<:Any,<:SparseVecOrMat}}
 
+# arguments whose reductions along a dimension take the `sparse` keyword
+const SparseReducible = Union{SparseMatrixCSCOrColumnSubset, AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset},
+                              SparseVectorOrView}
+
 # LinearAlgebra wrappers around CSC storage
 const SparseTriangular{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCOrView{Tv,Ti}}
 const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCOrView{Tv,Ti}, SparseTriangular{Tv,Ti}}

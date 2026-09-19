@@ -230,7 +230,8 @@ Reductions along a dimension, such as `sum(S; dims = 2)`, return a dense `Matrix
 input. To keep the result sparse, pass `sparse = true`: `sum(S; dims = 2, sparse = true)` stores an
 entry only for the rows of `S` that store one, at a cost proportional to the number of stored
 entries rather than to the number of rows. `prod`, `maximum`, `minimum`, `count`, `any`, `all` and
-`mapreduce` accept the keyword in the same way.
+`mapreduce` accept the keyword in the same way, as do adjoints and transposes of sparse matrices,
+views of a subset of their columns, and sparse vectors, for which the result is a `SparseVector`.
 
 ### [Broadcasting and `map`](@id man-sparse-broadcast)
 

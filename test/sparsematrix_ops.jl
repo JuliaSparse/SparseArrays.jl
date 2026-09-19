@@ -717,6 +717,30 @@ end
     @test (@which Base._mapreducedim!(identity, +, zeros(10^6, 1), V)).module == SparseArrays
     @test (@which Base._mapreduce(identity, +, IndexCartesian(), V)).module == SparseArrays
     @test nnz(sum(V; dims = 2, sparse = true)) == 2
+    # adjoints, views of a column subset and sparse vectors reduce like their copy, calling `f`
+    # for the stored entries and once per slice rather than per element
+    A, C, v = sprand(60, 50, 0.05), sprand(ComplexF64, 60, 50, 0.05), sprand(60, 0.1)
+    S = view(A, :, [7, 2, 2, 15])
+    for X in (A', transpose(C), C', S, v), dims in (1, 2, (1, 2)),
+        (f, op) in ((abs2, +), (abs, max), (x -> abs(x) + 1, (x, y) -> x + y))   # LinearAlgebra does not forward the last
+        calls = Ref(0)
+        rd = mapreduce(f, op, Array(X); dims, init = 0.0)
+        r = mapreduce(x -> (calls[] += 1; f(x)), op, X; dims, init = 0.0)
+        @test r isa Array && r ≈ rd
+        @test calls[] <= nnz(X) + sum(size(X)) + 1
+        rs = mapreduce(f, op, X; dims, init = 0.0, sparse = true)
+        @test rs isa (X isa AbstractVector ? SparseVector{Float64} : SparseMatrixCSC{Float64}) && rs ≈ rd
+    end
+    for X in (A', S, v), dims in (1, 2)
+        M = Array(X)
+        @test sum(X; dims) isa Array && sum(X; dims) ≈ sum(M; dims)
+        @test prod(X; dims, sparse = true) ≈ prod(M; dims)
+        @test count(!iszero, X; dims, sparse = true) == count(!iszero, M; dims)
+        @test any(!iszero, X; dims, sparse = true) == any(!iszero, M; dims)
+        @test all(iszero, X; dims, sparse = true) == all(iszero, M; dims)
+    end
+    @test sum(S) ≈ sum(Matrix(S)) && prod(x -> x + 1, S) ≈ prod(x -> x + 1, Matrix(S))
+    @test nnz(sum(v; dims = 1, sparse = true)) == 1 && nnz(sum(spzeros(5); dims = 1, sparse = true)) == 0
 end
 
 @testset "oneunit of sparse matrix" begin
