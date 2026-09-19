@@ -376,6 +376,19 @@ julia> mymul(A, [1.0, 10.0, 100.0]) == A * [1.0, 10.0, 100.0]
 true
 ```
 
+The same three accessors work on a [`SparseVector`](@ref) and on a column view `@view A[:, j]`,
+which are treated as a single column: `nzrange(x, 1)` covers all the stored entries, and
+`rowvals(x)` holds their indices.
+
+```jldoctest perftips
+julia> x = sparsevec([2, 5], [1.5, 2.5], 6);
+
+julia> [(rowvals(x)[k], nonzeros(x)[k]) for k in nzrange(x, 1)]
+2-element Vector{Tuple{Int64, Float64}}:
+ (2, 1.5)
+ (5, 2.5)
+```
+
 In contrast, scalar indexing `A[i, j]` has to do a binary search of column `j` for row `i`. A
 loop over all `(i, j)` of an `m`-by-`n` matrix therefore performs `m * n` searches, however few
 entries are stored, instead of visiting the `nnz(A)` stored entries once.
