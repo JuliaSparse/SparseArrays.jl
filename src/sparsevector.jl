@@ -836,6 +836,7 @@ getindex(A::AbstractSparseMatrixCSC, I::AbstractArray{Bool}) = _logical_index(A,
 function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) where Tv
     require_one_based_indexing(A, I)
     checkbounds(A, I)
+    mask = reshape(I, size(A))   # a vector mask indexes linearly
     n = sum(I)
     nnzB = min(n, nnz(A))
 
@@ -850,7 +851,7 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
         r2 = last(nzrange(A, col))
 
         for row in axes(A,1)
-            if I[row, col]
+            if mask[row, col]
                 while (r1 <= r2) && (rowvalA[r1] < row)
                     r1 += 1
                 end

@@ -475,6 +475,8 @@ end
         FS = Array(S)
         FI = Array(I)
         @test sparse(FS[FI]) == S[I] == S[FI]
+        @test S[vec(FI)] == FS[vec(FI)]
+        @test S[vec(FI)] isa SparseVector
         @test sum(S[FI]) + sum(S[.!FI]) == sum(S)
         @test count(!iszero, I) == count(I)
 
