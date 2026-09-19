@@ -11,7 +11,7 @@ using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
-    LinearAlgebra, I, det, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet
+    LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
 
 function umfpack_report(l::UMFPACK.UmfpackLU)
@@ -369,6 +369,24 @@ end
         end
     end
 
+    @testset "rcond (#118) for $Tv, $Ti" for Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        # the number is min/max of |diag(U)| of the row-scaled matrix UMFPACK factorized
+        F = lu(SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 3; 0 1])))
+        @test UMFPACK.rcond(F) === 0.25
+        @test UMFPACK.rcond(F) === minimum(abs, diag(F.U)) / maximum(abs, diag(F.U))
+        # row scaling is on by default, so a diagonal matrix is perfectly conditioned
+        @test UMFPACK.rcond(lu(SparseMatrixCSC{Tv,Ti}(sparse(Diagonal(Tv[1, 2, 4]))))) === 1.0
+        # 1-by-1 and singular special cases
+        @test UMFPACK.rcond(lu(SparseMatrixCSC{Tv,Ti}(sparse(Diagonal(Tv[3]))))) === 1.0
+        @test UMFPACK.rcond(lu(SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 2; 0 0])); check=false)) === 0.0
+        # a factor without a numeric decomposition gets one on demand
+        G = UMFPACK.UmfpackLU(SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 3; 0 1])))
+        @test UMFPACK.rcond(G) === 0.25
+        # lu! refreshes the estimate
+        lu!(F, SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 1; 0 1])))
+        @test UMFPACK.rcond(F) === 0.5
+    end
+
     @testset "deserialization" begin
         A  = 10*I + sprandn(10, 10, 0.4)
         F1 = lu(A)
@@ -437,7 +455,10 @@ end
                 umfpack_report(F)
                 if reuse
                     @test_throws ArgumentError lu!(F, D; reuse_symbolic=reuse)
-                    umfpack_report(F)
+                    # the stale numeric factorization of A has been dropped, so
+                    # anything needing it refactors D against A's symbolic and fails again
+                    @test_throws ArgumentError umfpack_report(F)
+                    @test_throws ArgumentError F\b
                 else
                     lu!(F, D; reuse_symbolic=reuse)
                     umfpack_report(F)
@@ -507,19 +528,27 @@ end
 
 
 @testset "copy should keep the numeric/symbolic by default" begin
-    A = lu(sprandn(10, 10, 0.1) + I)
+    S = sprandn(10, 10, 0.1) + I
+    A = lu(S)
     B = copy(A)
     @test A.numeric === B.numeric
     @test A.symbolic === B.symbolic
+    # refactoring frees the shared numeric (and freeing again is a no-op);
+    # the copy then refactors on demand instead of using freed memory
+    num = A.numeric
+    lu!(A, S)
+    @test num.p == C_NULL
+    UMFPACK.umfpack_free_numeric(num, Float64, Int)
+    @test num.p == C_NULL
+    b = ones(10)
+    @test B \ b ≈ Matrix(S) \ b
 end
 
 
-for Ti in Base.uniontypes(UMFPACK.UMFITypes)
-    A = I + sprandn(100, 100, 0.01)
-    Af = lu(A)
-    UMFPACK.umfpack_report_numeric(Af, 0)
-    UMFPACK.umfpack_report_symbolic(Af, 0)
-end
+A = I + sprandn(100, 100, 0.01)
+Af = lu(A)
+UMFPACK.umfpack_report_numeric(Af, 0)
+UMFPACK.umfpack_report_symbolic(Af, 0)
 
 end # Base.USE_GPL_LIBS
 

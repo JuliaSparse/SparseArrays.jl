@@ -2,11 +2,7 @@
 
 using Test, SparseArrays
 
-nt = @static if isdefined(Threads, :maxthreadid)
-    Threads.maxthreadid()
-else
-    Threads.nthreads()
-end
+nt = Threads.maxthreadid()
 
 @testset "threaded SuiteSparse tests" verbose = true begin
     @testset "threads = $nt" begin

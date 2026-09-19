@@ -435,6 +435,34 @@ end
     @test A .+ ntuple(identity, N) isa Matrix
 end
 
+@testset "broadcast[!] over views of dense and sparse arrays (#508)" begin
+    N, p = 10, 0.4
+    V = sprand(N, p)
+    A = sprand(N, N, p)
+    Z = copy(A)
+    C = rand(N)
+    M = rand(N, N)
+    # views of dense arrays should not force a dense result
+    for X in (view(M, :, :), view(M, 1:N, 1:N), view(M, collect(1:N), :), view(M, :, :)')
+        fX = Array(X)
+        @test broadcast(+, A, X)::SparseMatrixCSC == sparse(broadcast(+, Array(A), fX))
+        @test broadcast(*, A, X)::SparseMatrixCSC == sparse(broadcast(*, Array(A), fX))
+        @test broadcast!(*, Z, A, X) == sparse(broadcast(*, Array(A), fX))
+        # the structural zeros of A must be preserved by a zero-preserving op
+        @test nnz(broadcast(*, A, X)) <= nnz(A)
+    end
+    for x in (view(C, :), view(C, 1:N), view(C, collect(1:N)))
+        @test broadcast(*, V, x)::SparseVector == sparse(broadcast(*, Array(V), Array(x)))
+        @test nnz(broadcast(*, V, x)) <= nnz(V)
+    end
+    # views of sparse arrays likewise
+    S = sprand(N, 2N, p)
+    @test broadcast(*, A, view(S, :, 1:N))::SparseMatrixCSC ==
+        sparse(broadcast(*, Array(A), Array(S[:, 1:N])))
+    # a view of an unsupported array still diverts to generic dense broadcast
+    @test broadcast(*, A, view(PermutedDimsArray(M, (2, 1)), :, :)) isa Matrix
+end
+
 @testset "map[!] over combinations of sparse and structured matrices" begin
     N, p = 10, 0.4
     A = sprand(N, N, p)
@@ -527,12 +555,26 @@ end
     @test A .^ BF[:,1] == AF .^ BF[:,1]
     @test BF[:,1] .^ A == BF[:,1] .^ AF
 
+    # broadcasting against a dense-ish vector grows storage on demand instead of
+    # preallocating the bound, which for these shapes is the dense size (#47)
+    M, v = sprand(200, 200, 0.01), rand(200)
+    @test M .* v == Array(M) .* v   # sparse result
+    @test M .* v' == Array(M) .* v'
+    @test M .+ v == Array(M) .+ v   # dense result: does grow to the bound
+    M .* v; M .* v' # warmup for @allocated
+    # the bound would be 200 * 200 * (8 + 8) bytes = 640 KB
+    @test @allocated(M .* v) < 2^16
+    @test @allocated(M .* v') < 2^16
+
     @test spzeros(0,0)  + spzeros(0,0) == zeros(0,0)
     @test spzeros(0,0)  * spzeros(0,0) == zeros(0,0)
     @test spzeros(1,0) .+ spzeros(2,1) == zeros(2,0)
     @test spzeros(1,0) .* spzeros(2,1) == zeros(2,0)
     @test spzeros(1,2) .+ spzeros(0,1) == zeros(0,2)
     @test spzeros(1,2) .* spzeros(0,1) == zeros(0,2)
+    # a result with no rows must not be densified, even when f(0, ...) != 0: zero colptr step
+    @test ((x, y) -> x + y + 1).(spzeros(1,2), spzeros(0,1)) == fill(1.0, 0, 2)
+    @test broadcast!(x -> x + 1, spzeros(0,2), spzeros(0,1)) == fill(1.0, 0, 2)
 end
 
 @testset "sparse vector broadcast of two arguments" begin
@@ -625,6 +667,18 @@ end
     R = reshape(A, 2, 2)
     A[R] .= reshape((1:4) .+ 2^30, 2, 2)
     @test A == [2,1,4,3] .+ 2^30
+
+    # map! with the destination among the inputs (issue #26)
+    A = sparse([100 0; 300 400])
+    @test map!(x -> x + 1, A) == [101 1; 301 401]
+    v = sparsevec([1, 0, 2])
+    @test map!(x -> x + 1, v) == [2, 1, 3]
+    S0 = sprand(10, 10, 0.3); S1 = sprand(10, 10, 0.3); S2 = sprand(10, 10, 0.3); C = copy(S0)
+    @test map!(+, S0, S0, S1) == C + S1
+    S0 = copy(C)
+    @test map!(+, S0, S1, S2, S0) == S1 + S2 + C
+    S0 = copy(C); D = Diagonal(rand(10))
+    @test map!(+, S0, D, S0) == D + C
 end
 
 @testset "1-dimensional 'opt-out' (non) sparse broadcasting" begin
@@ -639,6 +693,9 @@ end
     @test ((1:5) .+ A) .* 2 == 2:2:10
     @test 2 .* ((1:5) .+ A) == 2:2:10
     @test 2 .* (A .+ (1:5)) == 2:2:10
+    # in-place with an unsupported (Tuple) argument used to recurse, see #573
+    B = sparsevec([2], [3.0], 5)
+    @test (B .= .*(B, A .+ 1, (2,))) == [0, 6, 0, 0, 0]
 
     # lu(zeros(5,5)) throw SingularException, see #42343
     @test_throws SingularException Diagonal(spzeros(5)) \ view(rand(10), 1:5)

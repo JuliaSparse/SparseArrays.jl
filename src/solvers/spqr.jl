@@ -5,7 +5,7 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
-using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, copy_similar
+using LinearAlgebra: AbstractQ, AdjOrTrans, AdjointQ, AdjointAbsVec, AdjointFactorization, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C, SuiteSparseQR_i_C
 
 # ordering options */
@@ -29,7 +29,8 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix
+using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix,
+    SparseQMatOperand, SparseQVecOperand
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -52,7 +53,7 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = spqr_call(
+    rnk  = CHOLMOD.@checked spqr_call(
         ordering,       # all, except 3:given treated as 0:fixed
         tol,            # columns with 2-norm <= tol treated as 0
         econ,           # e = max(min(m,econ),rank(A))
@@ -115,6 +116,8 @@ struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
 end
 
 Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
+# columns of the thin Q, which is the row count of R; SPQR stores only the reflectors it needs
+_thinwidth(Q::QRSparseQ) = min(size(Q.factors, 1), Q.n)
 
 Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
 
@@ -158,6 +161,13 @@ end
 _default_tol(A::AbstractSparseMatrixCSC) =
     20*sum(size(A))*eps()*maximum(norm(view(A, :, i)) for i in axes(A, 2))
 
+# Return the pointer held by `r` and clear `r`, transferring ownership to the caller.
+function _take!(r::Ref{Ptr{T}}) where T
+    p = r[]
+    r[] = C_NULL
+    return p
+end
+
 """
     qr(A::SparseMatrixCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) -> QRSparse
 
@@ -172,10 +182,14 @@ solve least squares or underdetermined problems with [`\\`](@ref). The function 
     `copy(F)`.
 
 !!! note
-    `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with [`Float64`](@ref) or
-    `ComplexF64` elements, as of Julia v1.4 `qr` converts `A` into a copy that is
-    of type `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
+    `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
+    which only works in double precision. For any other element type, `qr` factorizes a
+    [`Float64`](@ref) or `ComplexF64` copy of `A`. For `Float16`, `Float32`, `ComplexF16`
+    and `ComplexF32` the factors are then converted back, so the returned `QRSparse` has
+    the element type of `A` but was computed in double precision and needs temporary
+    storage for the double-precision copies of `A` and of the factors. Integer and other
+    non-floating-point element types return a `Float64` factorization, and floating-point
+    types wider than `Float64` throw an `ArgumentError`.
 
 # Examples
 ```jldoctest
@@ -209,10 +223,12 @@ Column permutation:
 [^ACM933]: Foster, L. V., & Davis, T. A. (2013). Algorithm 933: Reliable Calculation of Numerical Rank, Null Space Bases, Pseudoinverse Solutions, and Basic Solutions Using SuitesparseQR. ACM Trans. Math. Softw., 40(1). [doi:10.1145/2513109.2513116](https://doi.org/10.1145/2513109.2513116)
 """
 function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
-    R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    E     = Ref{Ptr{Ti}}()
-    H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    HPinv = Ref{Ptr{Ti}}()
+    # Initialize all output pointers to NULL so that the frees below never
+    # see garbage if SPQR returns without writing one of them.
+    R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}(C_NULL)
+    E     = Ref{Ptr{Ti}}(C_NULL)
+    H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}(C_NULL)
+    HPinv = Ref{Ptr{Ti}}(C_NULL)
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
     # SPQR doesn't accept symmetric matrices so we explicitly set the stype
@@ -220,9 +236,22 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
         C_NULL, C_NULL, C_NULL, C_NULL,
         R, E, H, HPinv, HTau)
 
-    R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(R[]))
-    factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(H[]))
-    τ = vec(Array{Tv}(CHOLMOD.Dense{Tv}(HTau[])))
+    # Wrap the C-allocated outputs. Each wrapper constructor frees its own
+    # pointer if it throws (or owns it via a finalizer once constructed), but
+    # the siblings that have not been wrapped yet would leak, so hand each
+    # pointer over by clearing its Ref first and free whatever is still held
+    # in a Ref before rethrowing.
+    local R_, factors, τ
+    try
+        R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(R)))
+        factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(H)))
+        τ = vec(Array{Tv}(CHOLMOD.Dense{Tv}(_take!(HTau))))
+    catch
+        R[] != C_NULL && free!(R[], Ti)
+        H[] != C_NULL && free!(H[], Ti)
+        HTau[] != C_NULL && free!(HTau[])
+        rethrow()
+    end
     R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                 size(R_, 2),
                                 getcolptr(R_),
@@ -246,6 +275,8 @@ LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
     "sparse floating point QR using SPQR or qr(Array(A)) for generic ",
     "dense QR.")))
 LinearAlgebra.qr(A::SparseMatrixCSC; tol=_default_tol(A)) = qr(Float64.(A); tol=tol)
+# SPQR needs the matrix in CSC storage, and that of A' is the sparse transpose of A
+LinearAlgebra.qr(A::AdjOrTrans{<:Any,<:SparseMatrixCSC}; kwargs...) = qr(copy(A); kwargs...)
 LinearAlgebra.qr(::SparseMatrixCSC, ::LinearAlgebra.PivotingStrategy) = error("Pivoting Strategies are not supported by `SparseMatrixCSC`s")
 LinearAlgebra.qr(A::FixedSparseCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) =
     let B=A
@@ -321,10 +352,10 @@ function (*)(Q::QRSparseQ, b::AbstractVector)
     QQ = convert(AbstractQ{TQb}, Q)
     if size(Q.factors, 1) == length(b)
         bnew = copy_similar(b, TQb)
-    elseif size(Q.factors, 2) == length(b)
+    elseif _thinwidth(Q) == length(b)
         bnew = [b; zeros(TQb, size(Q.factors, 1) - length(b))]
     else
-        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(_thinwidth(Q))"))
     end
     lmul!(QQ, bnew)
 end
@@ -333,10 +364,10 @@ function (*)(Q::QRSparseQ, B::AbstractMatrix)
     QQ = convert(AbstractQ{TQB}, Q)
     if size(Q.factors, 1) == size(B, 1)
         Bnew = copy_similar(B, TQB)
-    elseif size(Q.factors, 2) == size(B, 1)
+    elseif _thinwidth(Q) == size(B, 1)
         Bnew = [B; zeros(TQB, size(Q.factors, 1) - size(B,1), size(B, 2))]
     else
-        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(_thinwidth(Q))"))
     end
     lmul!(QQ, Bnew)
 end
@@ -347,16 +378,24 @@ function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
     if size(A,2) == size(Q.factors, 1)
         AA = copy_similar(A, TAQ)
         return rmul!(AA, adjQQ)
-    elseif size(A,2) == size(Q.factors,2)
-        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - size(Q.factors, 2))], adjQQ)
+    elseif size(A,2) == _thinwidth(Q)
+        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - _thinwidth(Q))], adjQQ)
     else
         throw(DimensionMismatch("matrix A has dimensions $(size(A)) but Q-matrix has dimensions $(size(adjQ))"))
     end
 end
 (*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
-(*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
-(*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
+# Q is dense in general, so apply the reflectors to a dense copy of the operand rather
+# than materialize Q, as for LinearAlgebra's Q types in sparsematrix.jl.
+for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
+    @eval begin
+        (*)(Q::$Q, B::SparseQMatOperand) = Q * Matrix(B)
+        (*)(Q::$Q, b::SparseQVecOperand) = Q * Vector(b)
+        (*)(A::SparseQMatOperand, Q::$Q) = Matrix(A) * Q
+        (*)(a::SparseQVecOperand, Q::$Q) = Vector(a) * Q
+    end
+end
 
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :prow
@@ -417,9 +456,66 @@ LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 # This definition is similar to the definition in factorization.jl except that
 # here we have to use \ instead of ldiv! because of limitations in SPQR
 
+const AdjointQRSparse{Tv} = AdjointFactorization{Tv,<:QRSparse{Tv}}
+
+"""
+    lq(A::SparseMatrixCSC; tol=_default_tol(A'), ordering=ORDERING_DEFAULT) -> AdjointQRSparse
+
+Compute the LQ factorization of a sparse matrix `A` as the adjoint of the sparse QR
+factorization of `A'`, that is `qr(A')'`, using SPQR. See [`qr`](@ref SparseArrays.SPQR.qr)
+for the keyword arguments and the sparse `Q`.
+
+The factorization `F` satisfies `A[F.prow, F.pcol] == F.L * F.Q`, where `F.L` is a lower
+triangular sparse matrix and `F.Q` the adjoint of the `Q` of the QR factorization. `F \\ b`
+solves the underdetermined system `A * x == b` for a wide `A` and returns the minimum-norm
+solution, as for dense `lq`. `F'` is the QR factorization of `A'`, and `lq(A')` reuses `qr(A)`
+without a copy.
+
+# Examples
+```jldoctest
+julia> A = sparse([1.0 0 1 0; 0 1 0 1]);
+
+julia> F = lq(A);
+
+julia> F.L * F.Q ≈ A[F.prow, F.pcol]
+true
+
+julia> F \\ [1.0, 2.0] ≈ Matrix(A) \\ [1.0, 2.0]
+true
+```
+"""
+LinearAlgebra.lq(A::SparseMatrixCSC; kwargs...) = adjoint(qr(copy(adjoint(A)); kwargs...))
+LinearAlgebra.lq(A::Adjoint{<:Any,<:SparseMatrixCSC}; kwargs...) = adjoint(qr(parent(A); kwargs...))
+LinearAlgebra.lq(A::Transpose{<:Any,<:SparseMatrixCSC}; kwargs...) = lq(copy(A); kwargs...)
+
+@inline function Base.getproperty(F::AdjointQRSparse, d::Symbol)
+    P = getfield(F, :parent)
+    d === :L && return copy(adjoint(P.R))
+    d === :Q && return adjoint(P.Q)
+    d === :prow && return P.pcol
+    d === :pcol && return P.prow
+    return getfield(F, d)
+end
+Base.propertynames(F::AdjointQRSparse, private::Bool=false) =
+    private ? (:L, :Q, :prow, :pcol, :parent) : (:L, :Q, :prow, :pcol)
+
+function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::AdjointQRSparse)
+    summary(io, F); println(io)
+    println(io, "L factor:")
+    show(io, mime, F.L)
+    println(io, "\nQ factor:")
+    show(io, mime, F.Q)
+    println(io, "\nRow permutation:")
+    show(io, mime, F.prow)
+    println(io, "\nColumn permutation:")
+    show(io, mime, F.pcol)
+end
+
+LinearAlgebra.rank(F::AdjointQRSparse) = rank(parent(F))
+
 ## Two helper methods
-_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
-_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
+_ret_size(F::Union{QRSparse,AdjointQRSparse}, b::AbstractVector) = (size(F, 2),)
+_ret_size(F::Union{QRSparse,AdjointQRSparse}, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
 # |z1|z3|  reinterpret  |x1|x2|x3|x4|  transpose  |x1|y1|  reshape  |x1|y1|x3|y3|
@@ -456,8 +552,7 @@ end
 
 function (\)(F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
     X = similar(B, ntuple(i -> i == 1 ? size(F, 2) : size(B, 2), Val(ndims(B))))
-    # Note that we copy F here for thread-safety
-    return ldiv!(X, copy(F), B)
+    return ldiv!(X, F, B)
 end
 
 """
@@ -465,7 +560,8 @@ end
 
 Solve the least squares problem ``\\min\\|Ax - b\\|^2`` or the linear system of equations
 ``Ax=b`` when `F` is the sparse QR factorization of ``A``. A basic solution is returned
-when the problem is underdetermined.
+when the problem is underdetermined; `A \\ b` and `factorize(A) \\ b` instead return the
+minimum-norm solution through [`lq`](@ref SparseArrays.SPQR.lq), as for dense matrices.
 
 # Examples
 ```jldoctest
@@ -505,7 +601,7 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
         # Apply left permutation to B and store in W
         for j in axes(B, 2)
             for i in 1:length(F.rpivinv)
-                @inbounds W[F.rpivinv[i], j] = B[i, j]
+                W[F.rpivinv[i], j] = B[i, j]
             end
         end
 
@@ -541,14 +637,129 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
         if length(F.cpiv) == 0
             for j in axes(W, 2)
                 for i in 1:rnk
-                    @inbounds X[i, j] = W[i, j]
+                    X[i, j] = W[i, j]
                 end
             end
         else
             for j in axes(W, 2)
                 for i in 1:rnk
-                    @inbounds X[F.cpiv[i], j] = W[i, j]
+                    X[F.cpiv[i], j] = W[i, j]
                 end
+            end
+        end
+    end
+
+    return X
+end
+
+function (\)(Fadj::AdjointQRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
+    # See the QRSparse method above for the layout of the reinterpretation
+    require_one_based_indexing(Fadj, B)
+    c2r = reshape(copy(transpose(reinterpret(T, reshape(B, (1, length(B)))))), size(B, 1), 2*size(B, 2))
+    x = Fadj\c2r
+    return collect(reshape(reinterpret(Complex{T}, copy(transpose(reshape(x, (length(x) >> 1), 2)))), _ret_size(Fadj, B)))
+end
+
+function (\)(Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    X = similar(B, ntuple(i -> i == 1 ? size(Fadj, 2) : size(B, 2), Val(ndims(B))))
+    return ldiv!(X, Fadj, B)
+end
+
+"""
+    (\\)(F::AdjointFactorization{<:Any,<:QRSparse}, B::StridedVecOrMat)
+
+Solve the underdetermined system ``A^*x=b`` when `F` is the sparse QR factorization of the
+tall matrix ``A``, i.e. `F = qr(A)` with `size(A, 1) >= size(A, 2)`. The minimum-norm
+solution is returned; when ``A`` is rank deficient, the equations corresponding to the
+dependent columns of ``A`` are dropped, mirroring the basic solution returned by
+`F \\ B`. Overdetermined systems are not supported here as they would require a
+factorization of ``A^*`` rather than of ``A``.
+
+# Examples
+```jldoctest
+julia> A = sparse([1,2,3,4,1,2,3,4], [1,1,1,1,2,2,2,2], [1.0,1.0,1.0,1.0,1.0,-1.0,1.0,-1.0])
+4×2 SparseMatrixCSC{Float64, Int64} with 8 stored entries:
+ 1.0   1.0
+ 1.0  -1.0
+ 1.0   1.0
+ 1.0  -1.0
+
+julia> x = qr(A)'\\[4.0, 0.0]
+4-element Vector{Float64}:
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+
+julia> A'x
+2-element Vector{Float64}:
+ 4.0
+ 0.0
+```
+"""
+(\)(Fadj::AdjointQRSparse, B::StridedVecOrMat) = Fadj\convert(AbstractArray{eltype(Fadj)}, B)
+
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    F = parent(Fadj)
+    m, n = size(F)
+    # Solving A'x = b for a wide A would be an overdetermined problem requiring a
+    # least-squares solve with R', which the triangular solve below cannot provide
+    if m < n
+        throw(DimensionMismatch("overdetermined systems are not supported"))
+    end
+    if n != size(B, 1)
+        throw(DimensionMismatch("size(Fadj) = $(size(Fadj)) but size(B) = $(size(B))"))
+    end
+    if m != size(X, 1)
+        throw(DimensionMismatch("size(Fadj) = $(size(Fadj)) but size(X) = $(size(X))"))
+    end
+    if ndims(B) > 1 && size(X, 2) != size(B, 2)
+        throw(DimensionMismatch("size(X) = $(size(X)) but size(B) = $(size(B))"))
+    end
+
+    rnk = rank(F)
+
+    # With A[prow, pcol] == Q*R we have A' == Pcol*R'*Q'*Prow, so x = Prow'*Q*(R' \ Pcol'*b)
+    @lock F._lock begin
+        W = _get_ldiv_workspace(F, B)
+
+        # Gather the column permutation of B into the leading n rows of W
+        # NB: cpiv == [] if SPQR was called with ORDERING_FIXED
+        if length(F.cpiv) == 0
+            for j in axes(W, 2)
+                for i in 1:n
+                    W[i, j] = B[i, j]
+                end
+            end
+        else
+            for j in axes(W, 2)
+                for i in 1:n
+                    W[i, j] = B[F.cpiv[i], j]
+                end
+            end
+        end
+
+        # Zero the free variables so that Q*W is the minimum-norm solution. When A is
+        # rank deficient this also drops the equations that the leading block of R
+        # cannot represent, which is the counterpart of the basic solution above.
+        for j in axes(W, 2)
+            for i in (rnk + 1):m
+                W[i, j] = zero(T)
+            end
+        end
+
+        # Solve R'*W = Pcol'*B by forward substitution. See the ldiv! above for why
+        # generic_trimatdiv! is called directly rather than through LowerTriangular.
+        W_rnk = @view(W[Base.OneTo(rnk), :])
+        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', adjoint,
+                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
+
+        # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W. W has
+        # exactly m rows, which is what Q acts on.
+        lmul!(F.Q, W)
+        for j in axes(W, 2)
+            for i in 1:m
+                X[i, j] = W[F.rpivinv[i], j]
             end
         end
     end

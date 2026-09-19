@@ -2,20 +2,14 @@
 
 using Test, LinearAlgebra, SparseArrays
 
-include("util/gha.jl")
-
 testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsematrix_constructors_indexing.jl", "sparsematrix_ops.jl",
              "sparsevector.jl", "issues.jl"]
 
 if Base.USE_GPL_LIBS
-    append!(testfiles, ["cholmod.jl", "umfpack.jl", "spqr.jl", "linalg.jl",
-                        "linalg_solvers.jl"])
-    if Sys.iswindows() && is_github_actions_ci()
-        @warn "Skipping `threads` tests on Windows on GitHub Actions CI"
-    else
-        push!(testfiles, "threads_suite.jl")
-    end
+    append!(testfiles, ["cholmod.jl", "cholmod_ops.jl", "umfpack.jl", "spqr.jl",
+                        "linalg.jl", "linalg_products.jl", "linalg_solvers.jl"])
+    push!(testfiles, "threads_suite.jl")
 end
 
 # ParallelTestRunner comes from the Pkg.test target; Julia base CI runs this

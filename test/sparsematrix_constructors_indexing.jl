@@ -37,6 +37,20 @@ end
     @test SparseMatrixCSC{eltype(a)}(Array(a)) == a
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
     @test collect(a) == a
+    # wrappers and views convert through the sparse kernels, not element by element
+    c = sprand(ComplexF64, 5, 3, 0.4)
+    for w in (a', transpose(c), view(c, :, 2:3), view(c, :, 1)', transpose(view(c, :, 1)))
+        @test which(copyto!, Tuple{Matrix{eltype(w)}, typeof(w)}).module == SparseArrays
+        @test Matrix(w)::Matrix{eltype(w)} == collect(w)
+    end
+    # issue #54
+    b = SparseMatrixCSC{ComplexF64,Int32}(a)
+    @test promote_type(typeof(a), typeof(b)) === SparseMatrixCSC{ComplexF64,Int}
+    @test promote_type(typeof(a), Matrix{ComplexF64}) === Matrix{ComplexF64}
+    @test promote_type(Matrix{Int}, typeof(a)) === Matrix{Float64}
+    @test promote_type(SparseMatrixCSC{Int8,Int}, SparseMatrixCSC{Int16,Int}) === SparseMatrixCSC{Int16,Int}
+    @test promote(a, b) == (a, b)
+    @test eltype([a, b]) === SparseMatrixCSC{ComplexF64,Int}
 end
 
 @testset "sparse matrix construction" begin
@@ -1290,6 +1304,27 @@ end
         @test findprev(!iszero, z_sp, T(4)) isa keytype(z_sp)
         @test findprev(!iszero, z_sp, T(5)) isa keytype(z_sp)
     end
+
+    # The sparse methods must actually extend `Base.findnext`/`Base.findprev` and skip
+    # implicit zeros for predicates other than `!iszero`, e.g. the `!isequal(elt)` that
+    # `Base.hash` uses to skip runs of equal values.
+    @test SparseArrays.findnext === Base.findnext && SparseArrays.findprev === Base.findprev
+    n = 10^9
+    big = spzeros(n); big[1] = 1; big[n ÷ 2] = -0.0
+    @test findprev(!isequal(0.0), big, n) == n ÷ 2
+    @test findprev(!isequal(-0.0), big, n ÷ 2) == n ÷ 2 - 1   # implicit 0.0 is not isequal(-0.0)
+    @test findnext(!isequal(0.0), big, 2) == n ÷ 2
+    @test findnext(!isequal(0.0), big, n ÷ 2 + 1) === nothing
+    # the predicate is evaluated once on the implicit zero and then on stored entries only
+    calls = Ref(0)
+    counted = x -> (calls[] += 1; !isequal(x, 0.0))
+    @test findprev(counted, big, n) == n ÷ 2 && calls[] <= nnz(big) + 1
+    calls[] = 0
+    @test findnext(counted, big, 2) == n ÷ 2 && calls[] <= nnz(big) + 1
+    for i in keys(y), f in (!isequal(0.0), !isequal(-0.0), !isequal(7.0), !isequal(NaN))
+        @test findnext(f, y, i) == findnext(f, y_sp, i)
+        @test findprev(f, y, i) == findprev(f, y_sp, i)
+    end
 end
 
 _length_or_count_or_five(::Colon) = 5
@@ -1311,6 +1346,8 @@ _length_or_count_or_five(x) = length(x)
         @test setindex!(spzeros(5, 5), Array(V), I, J) == setindex!(zeros(5,5), V, I, J)
     end
     @test setindex!(spzeros(5, 5), 1:25, :) == setindex!(zeros(5,5), 1:25, :) == reshape(1:25, 5, 5)
+    # a 1×n matrix value into a column is reshaped rather than silently zeroed, see #569
+    @test setindex!(sparse(1.0I, 5, 5), reshape(1.0:5.0, 1, 5), :, 2) == setindex!(Matrix(1.0I, 5, 5), reshape(1.0:5.0, 1, 5), :, 2)
     @test setindex!(spzeros(5, 5), (25:-1:1).+spzeros(25), :) == setindex!(zeros(5,5), (25:-1:1).+spzeros(25), :) == reshape(25:-1:1, 5, 5)
     for X in (1:20, sparse(1:20), reshape(sparse(1:20), 20, 1), (1:20) .+ spzeros(20, 1), collect(1:20), collect(reshape(1:20, 20, 1)))
         @test setindex!(spzeros(5, 5), X, 6:25) == setindex!(zeros(5,5), 1:20, 6:25)
@@ -1471,16 +1508,6 @@ end
 @testset "sprandn with invalid type $T" for T in (AbstractFloat, Complex)
     @test_throws MethodError sprandn(T, 5, 5, 0.5)
 end
-
-# TODO: Re-enable after completing the SparseArrays.jl migration
-#
-# @testset "method ambiguity" begin
-#     # Ambiguity test is run inside a clean process.
-#     # https://github.com/JuliaLang/julia/issues/28804
-#     script = joinpath(@__DIR__, "ambiguous_exec.jl")
-#     cmd = `$(Base.julia_cmd()) --startup-file=no $script`
-#     @test success(pipeline(cmd; stdout=stdout, stderr=stderr))
-# end
 
 @testset "count specializations" begin
     # count should throw for sparse arrays for which zero(eltype) does not exist

@@ -13,26 +13,32 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
+    name: test (${{ matrix.os }}, ${{ matrix.julia-arch }}, ${{ matrix.julia-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        julia-version:
-          - 'nightly'
         os:
           - ubuntu-latest
           - windows-latest
         julia-arch:
           - x64
           - x86
+        julia-version:
+          - 'nightly'
         include:
           - os: macOS-latest
             julia-arch: aarch64
             julia-version: 'nightly'
-          - os: macOS-15-intel
+          # Only one job runs with coverage instrumentation and forced bounds checking
+          # (`--check-bounds=yes`). Both invalidate precompiled code, and the test suite
+          # is 95%+ JIT time, so they multiply the wall time of every job they are on.
+          # The other jobs use `--check-bounds=auto` (Julia's default, matching the
+          # precompiled code); `no` would break the tests that expect a `BoundsError`.
+          - os: ubuntu-latest
             julia-arch: x64
-            julia-version: 'nightly'
+            coverage: true
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -42,12 +48,18 @@ jobs:
       - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          coverage: ${{ matrix.coverage == true }}
+          check_bounds: ${{ matrix.coverage == true && 'yes' || 'auto' }}
       - uses: julia-actions/julia-processcoverage@v1
+        if: matrix.coverage == true
       - uses: codecov/codecov-action@v7
+        if: matrix.coverage == true
         with:
           file: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
   aqua-test:
+    name: aqua-test (${{ matrix.os }}, ${{ matrix.julia-arch }}, ${{ matrix.julia-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
@@ -55,12 +67,12 @@ jobs:
       contents: read
     strategy:
       matrix:
-        julia-version:
-          - 'nightly'
         os:
           - ubuntu-latest
         julia-arch:
           - x64
+        julia-version:
+          - 'nightly'
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
@@ -78,6 +90,7 @@ jobs:
       - uses: julia-actions/setup-julia@v3
         with:
           version: 'nightly'
+      - uses: julia-actions/cache@v3
       - name: Generate docs
         run: |
           julia --project --color=yes -e 'using Pkg; Pkg.activate("docs"); Pkg.develop(PackageSpec(path = pwd()))'

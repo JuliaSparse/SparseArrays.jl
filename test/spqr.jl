@@ -2,6 +2,7 @@
 
 module SPQRTests
 using Test
+using InteractiveUtils: @which
 
 @static if !Base.USE_GPL_LIBS
     @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping SPQR Tests"
@@ -9,7 +10,7 @@ else
 
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
-using LinearAlgebra: I, istriu, norm, qr, rank, rmul!, lmul!, ldiv!, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
+using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, factorize, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
 
@@ -33,6 +34,13 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
 
     F = qr(A)
     @test size(F) == (m,n)
+    # qr of an adjoint or transpose factorizes the sparse transpose with SPQR
+    for X in (A', transpose(A))
+        @test (@which qr(X)).module == SPQR
+        G = qr(X; tol = 1e-3)
+        @test G isa SPQR.QRSparse{eltyA, iltyA} && size(G) == (n, m)
+        @test G.Q * G.R ≈ Matrix(X)[G.prow, G.pcol]
+    end
     @test size(F, 1) == m
     @test size(F, 2) == n
     @test size(F, 3) == 1
@@ -79,6 +87,41 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test_throws DimensionMismatch A\B[1:m-1,:]
         C, x = A[1:9, :], fill(eltyB(1), 9)
         @test C*(C\x) ≈ x # Underdetermined system
+        # A \ b returns the minimum-norm solution for a wide A, like dense (#301)
+        @test C\x ≈ Array(C)\x
+        @test C\B[1:9, :] ≈ Array(C)\B[1:9, :]
+        @test factorize(C)\x ≈ Array(C)\x
+
+        # Minimum-norm solution of the underdetermined A'x = b (#656)
+        D = B[1:n, :]
+        @test F'\D ≈ Array(A)'\D
+        @test F'\D[:,1] ≈ Array(A)'\D[:,1]
+        @test transpose(F)\D ≈ transpose(Array(A))\D
+        @test A'\D ≈ Array(A)'\D
+        @test_throws DimensionMismatch F'\B
+        # Least squares solve of the overdetermined C'y = x for the wide C
+        y = B[1:n, 1]
+        @test C'\y ≈ Array(C)'\y
+        @test transpose(C)\y ≈ transpose(Array(C))\y
+    end
+
+    @testset "lq (#114)" begin
+        W = A[1:9, :]   # wide
+        F = lq(W)
+        @test F isa SPQR.AdjointQRSparse{eltyA} && size(F) == size(W)
+        @test F.L isa SparseMatrixCSC{eltyA, iltyA} && istril(F.L)
+        @test F.L * F.Q ≈ Matrix(W)[F.prow, F.pcol]
+        @test rank(F) == 9 && propertynames(F) == (:L, :Q, :prow, :pcol)
+        @test F' isa SPQR.QRSparse{eltyA, iltyA}
+        @test occursin("L factor", sprint(show, MIME"text/plain"(), F))
+        b = eltyA <: Real ? randn(9, 2) : complex.(randn(9, 2), randn(9, 2))
+        @test F \ b ≈ Matrix(W) \ b   # the minimum-norm solution, as for dense lq
+        @test F \ b[:, 1] ≈ Matrix(W) \ b[:, 1]
+        @test lq(W; tol = 1e-3) \ b ≈ Matrix(W) \ b
+        @test_throws DimensionMismatch lq(A) \ ones(eltyA, m)   # overdetermined, as for dense lq
+        c = eltyA <: Real ? randn(n) : complex.(randn(n), randn(n))
+        @test lq(A') \ c ≈ Matrix(A') \ c   # reuses qr(A)
+        eltyA <: Real && @test lq(transpose(A)) \ c ≈ Matrix(A') \ c
     end
 
     # Make sure that conversion to Sparse doesn't use SuiteSparse's symmetric flag
@@ -101,13 +144,52 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
     @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test (sparse(I, 2, 2) * qr(A).Q)::SparseMatrixCSC == sparse(qr(A).Q) == sparse(I, 2, 2)
+    @test (sparse(I, 2, 2) * qr(A).Q)::Matrix == sparse(qr(A).Q) == sparse(I, 2, 2)
+end
+
+@testset "thin Q products when SPQR stores fewer reflectors than columns" begin
+    A = sparse([1:9; 3], [1:9; 5], randn(10), 10, 9)
+    F = qr(A)
+    @test size(F.Q.factors, 2) < size(A, 2)
+    @test F.Q * F.R ≈ A[F.prow, F.pcol]
+    @test F.Q * F.R[:, 1] ≈ A[F.prow, F.pcol][:, 1]
+    @test Matrix(F.R)' * F.Q' ≈ A[F.prow, F.pcol]'
 end
 
 @testset "Issue 26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
-    @test (F.Q*F.R)::SparseMatrixCSC == A[F.prow,F.pcol]
+    @test (F.Q*F.R)::Matrix == A[F.prow,F.pcol]
+end
+
+@testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
+        (sprandn(27, 2, 0.8), sprandn(ComplexF64, 6, 20, 0.5))
+    local m, n = size(A)
+    k = min(m, n)   # the rows of R and the columns of the thin Q
+    F = qr(A)
+    Q = F.Q
+    T = eltype(A)
+    # the identity from the issue, with a thin R for a tall A
+    @test (Q * F.R)::Matrix ≈ A[F.prow, F.pcol]
+    # one operand of each kind, including the thin shapes the dense-operand methods
+    # accept, gives the same dense result as its dense copy
+    B, C, b = sprandn(T, m, 3, 0.5), sprandn(T, 3, m, 0.5), sprandn(T, m, 0.5)
+    for X in (B, sparse(B')', view(B, :, 1:2), sprandn(T, k, 3, 0.5))
+        @test (Q * X)::Matrix ≈ Q * Matrix(X)
+    end
+    for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b), sprandn(T, 3, k, 0.5))
+        @test (X * Q')::Matrix ≈ Matrix(X) * Q'
+    end
+    @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
+    @test (C * Q)::Matrix ≈ Matrix(C) * Q
+    for x in (b, view(B, :, 1), view(b, 1:m))
+        @test (Q * x)::Vector ≈ Q * Vector(x)
+    end
+    @test (Q' * b)::Vector ≈ Q' * Vector(b)
+    @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
+    # and nothing else
+    k == m || @test_throws DimensionMismatch Q' * sprandn(T, k, 3, 0.5)
+    @test_throws DimensionMismatch Q * sprandn(T, m + 1, 2, 0.5)
 end
 
 @testset "Issue #585 for element type: $eltyA" for eltyA in (Float64, Float32, Float16, ComplexF64, ComplexF32, ComplexF16)
@@ -127,10 +209,13 @@ end
      A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
      b = randn(m)
      xref = Array(A) \ b
+     c = randn(n)
+     cref = Array(A)' \ c
      for ordering ∈ SPQR.ORDERINGS
          QR = qr(A, ordering=ordering)
          x = QR \ b
          @test x ≈ xref
+         @test QR' \ c ≈ cref
      end
      @test_throws ErrorException qr(A, ordering=Int32(10))
 end
@@ -206,6 +291,11 @@ end
         @test_throws DimensionMismatch ldiv!(zeros(n), F, zeros(m - 1))
         @test_throws DimensionMismatch ldiv!(zeros(n - 1), F, zeros(m))
         @test_throws DimensionMismatch ldiv!(zeros(n, 2), F, zeros(m, 3))
+        @test_throws DimensionMismatch ldiv!(zeros(m), F', zeros(n - 1))
+        @test_throws DimensionMismatch ldiv!(zeros(m - 1), F', zeros(n))
+        @test_throws DimensionMismatch ldiv!(zeros(m, 2), F', zeros(n, 3))
+        # A' is overdetermined when A is wide, which needs a factorization of A'
+        @test_throws DimensionMismatch qr(sprandn(n, m, 0.5))' \ zeros(m)
     end
 
     @testset "copying QRSparse" begin
