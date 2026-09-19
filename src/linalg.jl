@@ -667,7 +667,17 @@ end
 prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < m
 
 # Frobenius dot/inner product: trace(A'B)
-function dot(A::AbstractSparseMatrixCSC{T1,S1},B::AbstractSparseMatrixCSC{T2,S2}) where {T1,T2,S1,S2}
+dot(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC) = _dot_walk(dot, A, B)
+
+# The wrappers differ, so LinearAlgebra cannot strip them; with matching positions in the
+# parents, only the elementwise operation changes.
+dot(A::Adjoint{<:Any,<:AbstractSparseMatrixCSC}, B::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
+    _dot_walk((a, b) -> dot(adjoint(a), transpose(b)), parent(A), parent(B))
+dot(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}, B::Adjoint{<:Any,<:AbstractSparseMatrixCSC}) =
+    _dot_walk((a, b) -> dot(transpose(a), adjoint(b)), parent(A), parent(B))
+
+# `Σ f(A[i,j], B[i,j])` over the entries stored in both `A` and `B`
+function _dot_walk(f::F, A::AbstractSparseMatrixCSC{T1,S1}, B::AbstractSparseMatrixCSC{T2,S2}) where {F,T1,T2,S1,S2}
     m, n = size(A)
     size(B) == (m,n) || throw(DimensionMismatch("matrices must have the same dimensions"))
     r = _dot_zero(T1, T2)
@@ -686,7 +696,7 @@ function dot(A::AbstractSparseMatrixCSC{T1,S1},B::AbstractSparseMatrixCSC{T2,S2}
                     ib < ib_nxt || break
                     rb = rowvals(B)[ib]
                 else # ra == rb
-                    r += dot(nonzeros(A)[ia], nonzeros(B)[ib])
+                    r += f(nonzeros(A)[ia], nonzeros(B)[ib])
                     ia += oneunit(S1); ib += oneunit(S2)
                     ia < ia_nxt && ib < ib_nxt || break
                     ra = rowvals(A)[ia]; rb = rowvals(B)[ib]
