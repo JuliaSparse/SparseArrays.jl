@@ -27,14 +27,8 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
 for Ti ∈ itypes, Tv ∈ (Float32, Float64)
 Random.seed!(123)
 
-# `Ti` and `Tv` come from the file-level loop; iterating `Ti` here as well used to run
-# this testset twice per outer iteration with identical arguments.
-@testset "Core functionality ($elty, $elty2)" for
-    elty in (Tv, Complex{Tv}),
-    Tv2 in (Float32, Float64),
-    elty2 in (Tv2, Complex{Tv2})
+@testset "Core functionality ($elty, $Ti)" for elty in (Tv, Complex{Tv})
     A1 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
-    A2 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
     A1pd = A1'A1 + 10I
     A1pdSparse = CHOLMOD.Sparse(
         size(A1pd, 1),
@@ -45,11 +39,12 @@ Random.seed!(123)
 
     ## High level interface
     @test isa(CHOLMOD.Sparse(3, 3, Ti[0,1,3,4], Ti[0,2,1,2], fill(one(Tv), 4)), CHOLMOD.Sparse) # Sparse doesn't require columns to be sorted
+    A1Sparse = CHOLMOD.Sparse(A1)
+    @test A1Sparse*A1Sparse' ≈ A1*A1'
     for i ∈ axes(A1, 1)
         A1[i, i] = real(A1[i, i])
     end #Construct Hermitian matrix properly
     A1Sparse = CHOLMOD.Sparse(A1)
-    A2Sparse = CHOLMOD.Sparse(A2)
     @test_throws BoundsError A1Sparse[6, 1]
     @test_throws BoundsError A1Sparse[1, 6]
     @test sparse(A1Sparse) == A1
@@ -64,11 +59,6 @@ Random.seed!(123)
     @test copy(A1Sparse) == A1Sparse
     @test size(A1Sparse, 3) == 1
     if elty <: Real # multiplication only defined for real matrices in CHOLMOD
-        @test A1Sparse*A2Sparse ≈ A1*A2
-        @test_throws DimensionMismatch CHOLMOD.Sparse(A1[:,1:4])*A2Sparse
-        @test A1Sparse'A2Sparse ≈ A1'A2
-        @test A1Sparse*A2Sparse' ≈ A1*A2'
-
         @test A1Sparse*A1Sparse ≈ A1*A1
         @test A1Sparse'A1Sparse ≈ A1'A1
         @test A1Sparse*A1Sparse' ≈ A1*A1'
@@ -81,7 +71,6 @@ Random.seed!(123)
     end
 
     # Factor
-    @test_throws ArgumentError cholesky(A1)
     @test_throws ArgumentError cholesky(A1)
     @test_throws ArgumentError cholesky(A1, shift=1.0)
     @test_throws ArgumentError ldlt(A1)
@@ -104,12 +93,11 @@ Random.seed!(123)
     @test isa(CHOLMOD.Sparse(F), CHOLMOD.Sparse{elty})
     @test_throws DimensionMismatch F\CHOLMOD.Dense(fill(elty(1), 4))
     @test_throws DimensionMismatch F\CHOLMOD.Sparse(sparse(fill(elty(1), 4)))
-    b = ones(elty2, 5)
     bT = ones(elty, 5)
-    @test F'\bT ≈ Array(A1pd)'\b
-    @test F'\sparse(bT) ≈ Array(A1pd)'\b
+    @test F'\bT ≈ Array(A1pd)'\bT
+    @test F'\sparse(bT) ≈ Array(A1pd)'\bT
     @test transpose(F)\bT ≈ conj(A1pd)'\bT
-    @test F\CHOLMOD.Sparse(sparse(bT)) ≈ A1pd\b
+    @test F\CHOLMOD.Sparse(sparse(bT)) ≈ A1pd\bT
     @test logdet(F) ≈ logdet(Array(A1pd))
     @test det(F) == exp(logdet(F))
     let # to test supernodal, we must use a larger matrix
@@ -174,36 +162,46 @@ Random.seed!(123)
     @test CHOLMOD.nnz(A1Sparse) == nnz(A1)
     @test CHOLMOD.speye(5, 5, elty) == Matrix(I, 5, 5)
     @test CHOLMOD.spzeros(5, 5, 5, elty) == zeros(elty, 5, 5)
-    if elty <: Real && elty2 <: Real
+    if elty <: Real
         @test CHOLMOD.copy(A1Sparse, 0, 1) == A1Sparse
-        @test CHOLMOD.horzcat(A1Sparse, A2Sparse, true) == [A1 A2]
-        @test CHOLMOD.vertcat(A1Sparse, A2Sparse, true) == [A1; A2]
-        svec = fill(one(elty2), 1)
-        @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SCALAR, A1Sparse) == A1Sparse
-        svec = fill(one(elty2), 5)
-        @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SCALAR, A1Sparse)
-        @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_ROW, A1Sparse) == A1Sparse
-        @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_ROW, A1Sparse)
-        @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_COL, A1Sparse) == A1Sparse
-        @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_COL, A1Sparse)
-        @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, A1Sparse) == A1Sparse
-        @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_SYM, A1Sparse)
-        @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, CHOLMOD.Sparse(A1[:,1:4]))
         @test CHOLMOD.aat(A1Sparse, [0:size(A1,2)-1;], 1) ≈ A1*A1'
         @test CHOLMOD.aat(A1Sparse, [0:1;], 1) ≈ A1[:,1:2]*A1[:,1:2]'
-        @test CHOLMOD.copy(A1Sparse, 0, 1) == A1Sparse
-    else
-        # These operations are not well-supportd for Complex, as CHOLMOD assumes input is Hermitian.
-        @test_throws MethodError CHOLMOD.horzcat(A1Sparse, A2Sparse, true) == [A1 A2]
-        @test_throws MethodError CHOLMOD.vertcat(A1Sparse, A2Sparse, true) == [A1; A2]
     end
-    @test CHOLMOD.ssmult(A1Sparse, A2Sparse, 0, true, true) ≈ A1*A2
-    d = fill(one(elty2), 5)
-    @test A1Sparse*d ≈ A1*d
-    @test A1Sparse'*d ≈ A1'*d
-    @test A2Sparse*A2Sparse' ≈ A2*A2'
-
     @test CHOLMOD.Sparse(CHOLMOD.Dense(A1Sparse)) == A1Sparse
+
+    @testset "Mixed inputs ($elty2)" for Tv2 in (Float32, Float64), elty2 in (Tv2, Complex{Tv2})
+        A2 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
+        A2Sparse = CHOLMOD.Sparse(A2)
+        if elty <: Real
+            @test A1Sparse*A2Sparse ≈ A1*A2
+            @test_throws DimensionMismatch CHOLMOD.Sparse(A1[:,1:4])*A2Sparse
+            @test A1Sparse'A2Sparse ≈ A1'A2
+            @test A1Sparse*A2Sparse' ≈ A1*A2'
+        end
+        if elty <: Real && elty2 <: Real
+            @test CHOLMOD.horzcat(A1Sparse, A2Sparse, true) == [A1 A2]
+            @test CHOLMOD.vertcat(A1Sparse, A2Sparse, true) == [A1; A2]
+            svec = fill(one(elty2), 1)
+            @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SCALAR, A1Sparse) == A1Sparse
+            svec = fill(one(elty2), 5)
+            @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SCALAR, A1Sparse)
+            @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_ROW, A1Sparse) == A1Sparse
+            @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_ROW, A1Sparse)
+            @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_COL, A1Sparse) == A1Sparse
+            @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_COL, A1Sparse)
+            @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, A1Sparse) == A1Sparse
+            @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_SYM, A1Sparse)
+            @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, CHOLMOD.Sparse(A1[:,1:4]))
+        else
+            # CHOLMOD assumes Hermitian inputs for complex concatenation.
+            @test_throws MethodError CHOLMOD.horzcat(A1Sparse, A2Sparse, true)
+            @test_throws MethodError CHOLMOD.vertcat(A1Sparse, A2Sparse, true)
+        end
+        @test CHOLMOD.ssmult(A1Sparse, A2Sparse, 0, true, true) ≈ A1*A2
+        d = fill(one(elty2), 5)
+        @test A1Sparse*d ≈ A1*d
+        @test A1Sparse'*d ≈ A1'*d
+    end
 end
 
 @testset "extract factors" begin
