@@ -93,6 +93,25 @@ end
     end
 end
 
+@testset "symmetric/Hermitian sparse times sparse" begin
+    n = 10
+    @testset "$T" for T in (Float64, ComplexF64)
+        A = sprandn(T, n, n, 0.3); B = sprandn(T, n, n, 0.3)
+        for S in (Symmetric(A), Hermitian(A, :L), Symmetric(view(A, :, 1:n)))
+            for X in (B, B', transpose(B), UpperTriangular(B), view(B, :, 1:n), Hermitian(B), Symmetric(B, :L))
+                @test (S * X)::SparseMatrixCSC ≈ Matrix(S) * Matrix(X)
+                @test (X * S)::SparseMatrixCSC ≈ Matrix(X) * Matrix(S)
+            end
+        end
+    end
+    # one multiplication per pair of matching stored entries, not per element
+    P = mulcount_sparse(sparse(1.0I, n, n))
+    for f in (() -> Symmetric(P) * P, () -> P * Symmetric(P), () -> P' * Symmetric(P),
+              () -> UpperTriangular(P) * Symmetric(P), () -> Symmetric(P) * Symmetric(P, :L))
+        @test mulcount(f) == n
+    end
+end
+
 @testset "Adding sparse-backed SymTridiagonal (#46355)" begin
     a = SymTridiagonal(sparsevec(Int[1]), sparsevec(Int[]))
     @test a + a == Matrix(a) + Matrix(a)

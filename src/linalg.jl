@@ -359,6 +359,10 @@ end
 *(A::SparseOrTri, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(A, copy(B))
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::SparseOrTri) = spmatmul(copy(A), B)
 *(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = spmatmul(copy(A), copy(B))
+# a symmetric/Hermitian sparse factor is materialized, which is O(nnz) like the copies above
+*(A::SparseMatrixCSCSymmHerm, B::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) = sparse(A) * B
+*(A::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCSymmHerm) = A * sparse(B)
+*(A::SparseMatrixCSCSymmHerm, B::SparseMatrixCSCSymmHerm) = sparse(A) * sparse(B)
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
