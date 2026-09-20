@@ -319,6 +319,23 @@ end
             end
         end
     end
+    A = sprandn(ComplexF64, 8, 8, 0.3); B = sprandn(ComplexF64, 8, 8, 0.3); C = sprandn(ComplexF64, 8, 8, 0.3)
+    for W in (Symmetric, Hermitian)
+        @test mul!(copy(C), W(A), B, 2, 3) ≈ 2 * W(Matrix(A)) * Matrix(B) + 3 * Matrix(C)
+        @test mul!(copy(C), A', W(B, :L), 2, 3) ≈ 2 * Matrix(A)' * W(Matrix(B), :L) + 3 * Matrix(C)
+    end
+    # the destination takes the pattern of the sparse product; the elementwise fallback keeps its own
+    @test nnz(mul!(sparse(ones(2, 2)), sparse([1.0 0; 0 0]), sparse([1.0 0; 0 0]))) == 1
+    @test mul!(sparse(fill(complex(NaN), 8, 8)), A, B, true, false) ≈ Matrix(A) * Matrix(B)
+    X = copy(A); @test mul!(X, X, B) ≈ Matrix(A) * Matrix(B)
+    X = copy(B); @test mul!(X, A, X, 2, 3) ≈ 2 * Matrix(A) * Matrix(B) + 3 * Matrix(B)
+    @test_throws DimensionMismatch mul!(spzeros(8, 7), A, B)
+    # nothing is written when the destination cannot hold the result
+    P = sparse([1.0 2; 0 3]); Q = sparse([0.5 0; 1 1])
+    Ci = sparse([1 1; 1 1]); @test_throws InexactError mul!(Ci, P, Q); @test Ci == [1 1; 1 1]
+    F = SparseArrays.fixed(sparse([1.0 0; 0 1])); @test_throws ArgumentError mul!(F, P, Q); @test F == [1 0; 0 1]
+    G = SparseArrays.fixed(sparse(ones(2, 2)))
+    @test mul!(G, P, Q, 2, 1) == 2 * Matrix(P) * Matrix(Q) + ones(2, 2)
 end
 
 @testset "UniformScaling" begin
