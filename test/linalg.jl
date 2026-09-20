@@ -283,6 +283,7 @@ end
             @test mul!(copy(C), A, X, 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(X), 2, 3)
             @test mul!(copy(c), A, x, 2, 3) ≈ mul!(copy(c), Matrix(A), Vector(x), 2, 3)
             @test mul!(copy(C), A, S, 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(S), 2, 3)
+            @test mul!(copy(C), A, S', 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(S'), 2, 3)
         end
     end
     # the sparse kernels multiply by stored zeros, the generic fallbacks skip them
@@ -292,6 +293,8 @@ end
     @test isequal(Z * view([Inf, 1.0], [1, 2]), [NaN, 1.0])
     @test isequal(Z * UpperHessenberg([Inf 1.0; 1.0 1.0]), [NaN 0.0; 1.0 1.0])
     @test isequal(Symmetric([Inf 1.0; 1.0 1.0]) * Hermitian(Z), [NaN 1.0; 0.0 1.0])
+    @test isequal(mul!(zeros(2, 2), Z, sparse([Inf 1.0; 1.0 1.0])), [NaN 0.0; 1.0 1.0])
+    @test isequal(mul!(zeros(2, 2), Z', sparse([Inf 1.0; 1.0 1.0])), [NaN 0.0; 1.0 1.0])
 end
 
 @testset "Column view of sparse matrix " begin
