@@ -108,8 +108,19 @@ mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::AbstractMatr
     spdensemul!(C, tA, tB, A, B, alpha, beta)
 mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number) =
     densespmul!(C, tA, tB, A, B, alpha, beta)
-mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number) =
-    LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
+Base.@constprop :aggressive function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
+    # `A' * B' == (B * A)'` walks columns instead of looking up rows, for commutative eltypes
+    if tA == tB && tA in ('T', 'C') && eltype(A) <: Union{Real,Complex} && eltype(B) <: Union{Real,Complex}
+        tfun = tA == 'T' ? transpose : adjoint
+        _spmatmul!(tfun(C), B, A, tfun(alpha), tfun(beta))
+        return C
+    end
+    # with both symmetric/Hermitian, row lookups in two half-stored factors cost more than the generic sweep
+    if _uppercase(tA) in ('S', 'H') && _uppercase(tB) in ('S', 'H')
+        return LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
+    end
+    spdensemul!(C, tA, tB, A, B, alpha, beta)
+end
 LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
 mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrColumnSubset, B::AbstractVector, alpha::Number, beta::Number) =
