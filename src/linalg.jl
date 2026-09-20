@@ -514,6 +514,24 @@ Base.@constprop :aggressive function mul!(C::SparseMatrixCSCOrColumnSubset, tA, 
     Bnew, tb = tB_uc in ('S', 'H') ? (wrap(B, tB), oftype(tB, 'N')) : (B, tB)
     @stable_muladdmul _generic_spmatmatmul!(C, ta, tb, Anew, Bnew, MulAddMul(alpha, beta))
 end
+# A writable sparse destination takes the sparse product; its pattern becomes that of
+# `A*B*α + C*β`. A fixed destination is checked against that pattern before it is written.
+Base.@constprop :aggressive function mul!(C::AbstractSparseMatrixCSC, tA, tB, A::SparseMatrixCSCOrColumnSubset,
+                            B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
+    mA, nA = LinearAlgebra.lapack_size(_uppercase(tA) in ('S', 'H') ? 'N' : tA, A)
+    mB, nB = LinearAlgebra.lapack_size(_uppercase(tB) in ('S', 'H') ? 'N' : tB, B)
+    nA == mB || throw(DimensionMismatch(lazy"matrix A has dimensions ($mA,$nA), matrix B has dimensions ($mB,$nB)"))
+    size(C) == (mA, nB) || throw(DimensionMismatch(lazy"result C has dimensions $(size(C)), needs ($mA,$nB)"))
+    iszero(alpha) && return LinearAlgebra._rmul_or_fill!(C, beta)
+    P = _unwrapped_sparse(A, tA) * _unwrapped_sparse(B, tB)
+    isone(alpha) || (P = P * alpha)
+    R = iszero(beta) ? P : isone(beta) ? P + C : P + C * beta
+    # converting first leaves `C` untouched if its eltype cannot hold the result
+    return copyto!(C, convert(SparseMatrixCSC{eltype(C),indtype(C)}, R))
+end
+# only contiguous column views have a sparse product of their own
+_unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(wrap(A, t))
+
 # Sparse-destination counterpart of `LinearAlgebra._generic_matmatmul!` (which this file also
 # calls, qualified, for dense destinations); named distinctly so the two are not confused.
 function _generic_spmatmatmul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::AbstractVecOrMat,
