@@ -501,7 +501,7 @@ function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans)
     # `scaleHeight` and `scaleWidth` accordingly. Note that each available
     # character can contain up to 4 braille dots in its height (⡇) and up to
     # 2 braille dots in its width (⠉).
-    if get(io, :limit, true) && (m > 4maxHeight || n > 2maxWidth)
+    if get(io, :limit, false)::Bool && (m > 4maxHeight || n > 2maxWidth)
         s = min(2maxWidth / n, 4maxHeight / m)
         scaleHeight = floor(Int, s * m)
         scaleWidth = floor(Int, s * n)
