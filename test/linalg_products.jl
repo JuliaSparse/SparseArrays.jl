@@ -102,6 +102,9 @@ end
                 @test (S * X)::SparseMatrixCSC ≈ Matrix(S) * Matrix(X)
                 @test (X * S)::SparseMatrixCSC ≈ Matrix(X) * Matrix(S)
             end
+            for x in (sprandn(T, n, 0.5), view(B, :, 2))
+                @test (S * x)::SparseVector ≈ Matrix(S) * Vector(x)
+            end
         end
     end
     # one multiplication per pair of matching stored entries, not per element
@@ -110,6 +113,8 @@ end
               () -> UpperTriangular(P) * Symmetric(P), () -> Symmetric(P) * Symmetric(P, :L))
         @test mulcount(f) == n
     end
+    x = sparsevec(fill(MulCount(1.0), n))
+    @test mulcount(() -> Symmetric(P) * x) == mulcount(() -> P * x)
 end
 
 @testset "Adding sparse-backed SymTridiagonal (#46355)" begin
