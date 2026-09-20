@@ -263,6 +263,37 @@ end
     @test isequal(Symmetric([Inf 1.0; 1.0 1.0]) * sparse([1, 2], [1, 2], [0.0, 1.0]), [NaN 1.0; 0.0 1.0])
 end
 
+@testset "sparse-dense products take the same dense factors on either side" begin
+    rng = Random.MersenneTwister(1)
+    n = 12
+    @testset "$T" for T in (Float64, ComplexF64)
+        S = sprandn(rng, T, n, n, 0.3)
+        D = randn(rng, T, n, n)
+        C = randn(rng, T, n, n)
+        c = randn(rng, T, n)
+        # one dense factor per sparse kernel rather than the full grid
+        for (A, X, x) in ((S, view(D, [1:n;], :), 1.0:n),
+                          (S', view(D, :, [1:n;])', view(D, [1:n;], 1)),
+                          (view(S, :, [1:n;]), reshape(1.0:n^2, n, n), 1.0:n),
+                          (Symmetric(S), UpperHessenberg(D), view(D, [1:n;], 1)),
+                          (Hermitian(S, :L), Hermitian(D, :L), 1.0:n))
+            @test X * A ≈ Matrix(X) * Matrix(A)
+            @test A * X ≈ Matrix(A) * Matrix(X)
+            @test mul!(copy(C), X, A, 2, 3) ≈ mul!(copy(C), Matrix(X), Matrix(A), 2, 3)
+            @test mul!(copy(C), A, X, 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(X), 2, 3)
+            @test mul!(copy(c), A, x, 2, 3) ≈ mul!(copy(c), Matrix(A), Vector(x), 2, 3)
+            @test mul!(copy(C), A, S, 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(S), 2, 3)
+        end
+    end
+    # the sparse kernels multiply by stored zeros, the generic fallbacks skip them
+    Z = sparse([1, 2], [1, 2], [0.0, 1.0])
+    @test isequal(view([Inf 1.0], [1], :) * Z, [NaN 1.0])
+    @test isequal(Z * view([Inf 1.0; 1.0 1.0], :, [1]), [NaN; 1.0;;])
+    @test isequal(Z * view([Inf, 1.0], [1, 2]), [NaN, 1.0])
+    @test isequal(Z * UpperHessenberg([Inf 1.0; 1.0 1.0]), [NaN 0.0; 1.0 1.0])
+    @test isequal(Symmetric([Inf 1.0; 1.0 1.0]) * Hermitian(Z), [NaN 1.0; 0.0 1.0])
+end
+
 @testset "Column view of sparse matrix " begin
     S = sparse(1:4, 1:4, 1:4)
     Sv = @view S[:,3:4]

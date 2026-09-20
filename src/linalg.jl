@@ -43,9 +43,7 @@ end
 
 const tilebufsize = 10800  # Approximately 32k/3
 
-# In matrix-vector multiplication, the correct orientation of the vector is assumed.
 const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
-const DenseInputVector = Union{StridedVector, BitVector}
 # LinearAlgebra wrappers of a matrix of type MT, and those plus 2-d views (for dot)
 const MatrixWrappers{T,MT} = Union{AdjOrTrans{T,MT}, HermOrSym{T,MT}, UpperOrLowerTriangular{T,MT}, UpperHessenberg{T,MT}}
 const MatrixWrappersOrView{T,MT} = Union{SubArray{T,2,MT}, MatrixWrappers{T,MT}}
@@ -103,12 +101,23 @@ for op ∈ (:+, :-)
     end
 end
 
-mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::DenseMatrixUnion, alpha::Number, beta::Number) =
+# The dense factor arrives with its adjoint/transpose/symmetric/Hermitian wrapper stripped,
+# so it is any matrix with fast scalar `getindex`: strided or not, or a structured dense
+# type without a product of its own, such as `UpperHessenberg`.
+mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::AbstractMatrix, alpha::Number, beta::Number) =
     spdensemul!(C, tA, tB, A, B, alpha, beta)
+mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number) =
+    densespmul!(C, tA, tB, A, B, alpha, beta)
+mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number) =
+    LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
 LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
-mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrColumnSubset, B::DenseInputVector, alpha::Number, beta::Number) =
+mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrColumnSubset, B::AbstractVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', A, B, alpha, beta)
+# LinearAlgebra materializes the second of two symmetric/Hermitian factors, elementwise
+# when it is sparse; the kernels take both wrappers as they are
+LinearAlgebra.mul(A::HermOrSym{<:Any,<:DenseMatrixUnion}, B::SparseMatrixCSCSymmHerm) = LinearAlgebra._mul(A, B)
+LinearAlgebra.mul(A::SparseMatrixCSCSymmHerm, B::HermOrSym{<:Any,<:DenseMatrixUnion}) = LinearAlgebra._mul(A, B)
 
 Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
     tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
@@ -220,18 +229,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     end
 end
 
-Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number, ::LinearAlgebra.BlasFlag.SyrkHerkGemm)
-    transA = tA == 'N' ? identity : tA == 'T' ? transpose : adjoint
-    if tB == 'N'
-        _spmul!(C, transA(A), B, alpha, beta)
-    elseif tB == 'T'
-        _A_mul_Bt_or_Bc!(transpose, C, transA(A), B, alpha, beta)
-    else # tB == 'C'
-        _A_mul_Bt_or_Bc!(adjoint, C, transA(A), B, alpha, beta)
-    end
-    return C
-end
-Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C::StridedMatrix, tA, tB, A::DenseMatrixUnion, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number, @nospecialize(val))
+Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
     X = wrap(A, tA)
     tB_uc = _uppercase(tB)
     if tB_uc == 'N'
@@ -249,7 +247,7 @@ Base.@constprop :aggressive function LinearAlgebra.generic_matmatmul_wrapper!(C:
     return C
 end
 
-function _spmul!(C::StridedMatrix, X::Union{DenseMatrixUnion,HermOrSym{<:Any,<:DenseMatrixUnion}}, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::AbstractMatrix, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
@@ -270,7 +268,7 @@ function _spmul!(C::StridedMatrix, X::Union{DenseMatrixUnion,HermOrSym{<:Any,<:D
         end
     end
 end
-function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
+function _spmul!(C::StridedMatrix, X::AdjOrTrans, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Xax1 = axes(X, 1)
     Cax2 = axes(C, 2)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
