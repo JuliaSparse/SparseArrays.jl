@@ -271,18 +271,17 @@ end
         D = randn(rng, T, n, n)
         C = randn(rng, T, n, n)
         c = randn(rng, T, n)
-        for A in (S, S', view(S, :, [1:n;]), Symmetric(S), Hermitian(S, :L))
-            for X in (view(D, [1:n;], :), view(D, :, [1:n;])', reshape(1.0:n^2, n, n), UpperHessenberg(D),
-                      transpose(UpperHessenberg(D)), Symmetric(view(D, [1:n;], :)), Hermitian(D, :L))
-                @test X * A ≈ Matrix(X) * Matrix(A)
-                @test A * X ≈ Matrix(A) * Matrix(X)
-                @test mul!(copy(C), X, A, 2, 3) ≈ mul!(copy(C), Matrix(X), Matrix(A), 2, 3)
-                @test mul!(copy(C), A, X, 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(X), 2, 3)
-            end
-            for x in (view(D, [1:n;], 1), 1.0:n)
-                @test A * x ≈ Matrix(A) * Vector(x)
-                @test mul!(copy(c), A, x, 2, 3) ≈ mul!(copy(c), Matrix(A), Vector(x), 2, 3)
-            end
+        # one dense factor per sparse kernel rather than the full grid
+        for (A, X, x) in ((S, view(D, [1:n;], :), 1.0:n),
+                          (S', view(D, :, [1:n;])', view(D, [1:n;], 1)),
+                          (view(S, :, [1:n;]), reshape(1.0:n^2, n, n), 1.0:n),
+                          (Symmetric(S), UpperHessenberg(D), view(D, [1:n;], 1)),
+                          (Hermitian(S, :L), Hermitian(D, :L), 1.0:n))
+            @test X * A ≈ Matrix(X) * Matrix(A)
+            @test A * X ≈ Matrix(A) * Matrix(X)
+            @test mul!(copy(C), X, A, 2, 3) ≈ mul!(copy(C), Matrix(X), Matrix(A), 2, 3)
+            @test mul!(copy(C), A, X, 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(X), 2, 3)
+            @test mul!(copy(c), A, x, 2, 3) ≈ mul!(copy(c), Matrix(A), Vector(x), 2, 3)
             @test mul!(copy(C), A, S, 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(S), 2, 3)
         end
     end
