@@ -651,7 +651,11 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
     #
     # Cases without vertical expansion
     Ck = 1
-    if numrows(A) == numrows(B) == numrows(C)
+    if numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows(f, C, A, B)
+        Ck = _broadcast_scalerows!(f, C, A, B, spaceC)
+    elseif numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows((y, x) -> f(x, y), C, B, A)
+        Ck = _broadcast_scalerows!((y, x) -> f(x, y), C, B, A, spaceC)
+    elseif numrows(A) == numrows(B) == numrows(C)
         @inbounds for j in columns(C)
             setcolptr!(C, j, Ck)
             Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
@@ -897,6 +901,37 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
         end
     end
     return _checkbuffers(C)
+end
+# Row scaling, e.g. `v .* A` or `A ./ v`: `v` is one fully stored column, so its row `i` is its
+# `i`th stored entry, and `f` maps a structural zero of `A` to zero against every entry of `v`.
+# C then has (at most) A's pattern, and scanning A's stored entries replaces merging `v`
+# against every column of `A`, which is O(size(A, 1) * size(A, 2)).
+function _scalesrows(f::Tf, C, A, v) where Tf
+    numcols(v) == 1 != numcols(C) && numcols(A) == numcols(C) || return false
+    nnz(v) == numrows(C) && _haszeros(A) || return false
+    zA = zero(eltype(A))
+    @inbounds for vk in colstartind(v, 1):(colboundind(v, 1) - 1)
+        _iszero(f(zA, storedvals(v)[vk])) || return false
+    end
+    return true
+end
+function _broadcast_scalerows!(f::Tf, C, A, v, spaceC::Int) where Tf
+    voffset = colstartind(v, 1) - 1
+    Ck = 1
+    @inbounds for j in columns(C)
+        setcolptr!(C, j, Ck)
+        for Ak in colstartind(A, j):(colboundind(A, j) - 1)
+            Ai = storedinds(A)[Ak]
+            Cx = f(storedvals(A)[Ak], storedvals(v)[voffset + Ai])
+            if _isnotzero(Cx)
+                Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, v)))
+                storedinds(C)[Ck] = Ai
+                storedvals(C)[Ck] = Cx
+                Ck += 1
+            end
+        end
+    end
+    return Ck
 end
 _finishempty!(C::AbstractCompressedVector) = C
 _finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)
