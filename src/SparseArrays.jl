@@ -66,7 +66,7 @@ include("sparseconvert.jl")
 include("sparsevector.jl")
 include("higherorderfns.jl")
 include("linalg.jl")
-include("linalg_products.jl")
+include("matmul.jl")
 
 
 
