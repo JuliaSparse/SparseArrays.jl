@@ -15,8 +15,7 @@ measure test time, in addition to the top-level `AGENTS.md`.
   and the two grids share their fixtures. `concatenation.jl` likewise holds all
   concatenation tests.
 - Preserve issue references on regression tests.
-- `ambiguous.jl` runs in its own quality environment; Aqua and Pkg are not test-target
-  dependencies.
+- `ambiguous.jl` is not part of the default run; CI gives it its own job.
 - `threads_suite.jl` owns tests requiring fresh process state. Its `testprocess.jl`
   helper preserves the active project and resolved load path, verifies the checkout
   loaded by the child, and explicitly selects default-pool thread counts. It runs
