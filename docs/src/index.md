@@ -51,9 +51,10 @@ They must satisfy the following invariants:
 
 The constructor throws an `ArgumentError` if the first two are violated, but it does *not*
 inspect the row indices. A matrix with unsorted, repeated or out-of-range row indices is
-constructed silently and then gives inconsistent results. With a repeated row index, for
-example, indexing, `Matrix` and `show` see only one of the entries, while products and `sum`
-see all of them.
+constructed silently and then gives inconsistent results. If a row index is repeated, for
+example, functions that look an entry up (indexing, `Matrix`, `show`) use only the first of
+the repeated entries, while functions that loop over the stored entries (`*`, `sum`) use each
+of them, as if they had been added.
 
 Arrays from C, Python (SciPy's `indptr` and `indices`) and other 0-based sources need `1`
 added to `colptr` and `rowval`.

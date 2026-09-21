@@ -24,10 +24,11 @@ entries `nzval[k]` in rows `rowval[k]` for `k in colptr[j]:(colptr[j+1] - 1)`.
 Only `colptr` and the lengths of `rowval` and `nzval` are checked. The row indices are
 not inspected, and must be strictly increasing within each column and lie in `1:m`.
 The kernels in this package rely on that. A matrix with unsorted, repeated or
-out-of-range row indices is constructed silently and then gives inconsistent results:
-for a repeated row index, indexing, `Matrix` and `show` see only one of the entries, while
-products and `sum` see all of them. Repeated entries are not added up; use
-[`sparse`](@ref) or [`sparse!`](@ref SparseArrays.sparse!) for that.
+out-of-range row indices is constructed silently and then gives inconsistent results.
+If a row index is repeated, functions that look an entry up (indexing, `Matrix`, `show`)
+use only the first of the repeated entries, while functions that loop over the stored
+entries (`*`, `sum`) use each of them, as if they had been added. To add up repeated
+entries, use [`sparse`](@ref) or [`sparse!`](@ref SparseArrays.sparse!).
 See [the manual](@ref man-csc) for how to repair such arrays.
 
 # Examples
