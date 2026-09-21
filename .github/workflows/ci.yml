@@ -81,7 +81,7 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Run Aqua and ambiguity tests
         run: |
-          julia --color=yes -e 'using Pkg; Pkg.activate(temp=true); Pkg.develop(path=pwd()); Pkg.add(name="Aqua", version="0.8"); include(joinpath(pwd(), "test", "ambiguous.jl"))'
+          julia --color=yes --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'
   docs:
     runs-on: ubuntu-latest
     steps:
