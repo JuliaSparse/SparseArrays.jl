@@ -1245,13 +1245,13 @@ _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                                         alpha::Number, beta::Number)
     if tA == 'N'
-        _spmul!(y, A, x, alpha, beta)
+        _A_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
         _At_or_Ac_mul_B!(transpose, y, A, x, alpha, beta)
     elseif tA == 'C'
         _At_or_Ac_mul_B!(adjoint, y, A, x, alpha, beta)
     else
-        _spmul!(y, wrap(A, tA), x, alpha, beta)
+        _A_mul_spvec!(y, wrap(A, tA), x, alpha, beta)
     end
     return y
 end
@@ -1267,11 +1267,11 @@ function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSpars
     elseif Adata isa Adjoint
         _At_or_Ac_mul_B!(adjoint, y, _fliptri(A), x, alpha, beta)
     else # Adata is plain
-        _spmul!(y, A, x, alpha, beta)
+        _A_mul_spvec!(y, A, x, alpha, beta)
     end
     return y
 end
-function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, α::Number, β::Number)
+function _A_mul_spvec!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == n || throw(DimensionMismatch(
@@ -1362,7 +1362,7 @@ mul!(y::StridedVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, 
     _spmatspvecmul!(y, tA, A, x, alpha, beta)
 Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
     if tA == 'N'
-        _spmul!(y, A, x, alpha, beta)
+        _spA_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
         _At_or_Ac_mul_B!((a,b) -> transpose(a) * b, y, A, x, alpha, beta)
     elseif tA == 'C'
@@ -1373,7 +1373,7 @@ Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
     return y
 end
 
-function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, α::Number, β::Number)
+function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == n || throw(DimensionMismatch(
