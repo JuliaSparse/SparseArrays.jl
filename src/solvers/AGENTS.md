@@ -3,10 +3,8 @@
 Rules for the SuiteSparse solver layer (CHOLMOD, UMFPACK, SPQR), in addition to the
 top-level `AGENTS.md`.
 
-- `wrappers.jl` is generated from the SuiteSparse headers by `gen/` (see its README).
-  Never edit it by hand; add unwanted macros to the generator's ignore list instead. A
-  SuiteSparse bump cannot be tested here until nightly bundles the new jll, so its CI
-  is expected to be red; do not delete the merged bump PR's branch.
+- `wrappers.jl` is generated from the SuiteSparse headers by `gen/`. Never edit it by
+  hand; `gen/AGENTS.md` covers regenerating it and upgrading SuiteSparse.
 - Never throw a Julia exception from inside a C callback. Record the error, return, and
   check the status after the call.
 - Own every C pointer exactly once. Anything that can throw between allocation and

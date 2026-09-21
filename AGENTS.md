@@ -7,8 +7,16 @@ project's merged pull requests. Follow it unless a maintainer says otherwise.
 
 A Julia stdlib providing `SparseMatrixCSC`, `SparseVector`, sparse broadcast and
 linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) under
-`src/solvers/`, which has its own `AGENTS.md`; read it before touching the solvers or
-`gen/`. Being a stdlib shapes everything below:
+`src/solvers/`. Three directories carry their own `AGENTS.md`, which applies on top of
+this one; read it before working there:
+
+- `src/solvers/AGENTS.md`: rules for the SuiteSparse solver layer.
+- `test/AGENTS.md`: suite layout, the coverage each reduced test grid must keep, and
+  how to measure test time.
+- `gen/AGENTS.md`: regenerating `src/solvers/wrappers.jl`, and upgrading SuiteSparse
+  and Clang.jl.
+
+Being a stdlib shapes everything below:
 
 - The `julia` compat in `Project.toml` tracks the next release, so develop and test on
   `julia +nightly`. Each Julia release ships a fixed copy of this package, so there are
@@ -41,6 +49,7 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one file; omit test_args for all
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
 julia .ci/check-whitespace.jl
+julia +nightly --startup-file=no -e 'using Pkg; Pkg.activate(temp=true); Pkg.develop(path=pwd()); Pkg.add(name="Aqua", version="0.8"); include("test/ambiguous.jl")'
 julia +nightly --project=docs -e 'using Pkg; Pkg.develop(path="."); include("docs/make.jl")'  # doctests
 ```
 
