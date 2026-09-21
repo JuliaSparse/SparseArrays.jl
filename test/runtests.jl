@@ -11,6 +11,9 @@ if Base.USE_GPL_LIBS
     append!(testfiles, ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl"])
 end
 
+# The Aqua and ambiguity checks run only when asked for by name; CI gives them their own job.
+"ambiguous" in ARGS && push!(testfiles, "ambiguous.jl")
+
 # ParallelTestRunner comes from the Pkg.test target; Julia base CI runs this
 # file without it and falls back to the serial path.
 if Base.find_package("ParallelTestRunner") !== nothing

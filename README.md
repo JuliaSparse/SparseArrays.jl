@@ -29,20 +29,12 @@ x = A \ ones(3)  # sparse direct solve through SuiteSparse
 
 ## Contributing
 
-See [AGENTS.md](AGENTS.md) for the conventions this repository follows. Development
-happens against Julia nightly. To run the tests, and to build the docs and run the doctests:
+Development happens against Julia nightly. To run the tests:
 
 ```sh
 julia +nightly --project -e 'using Pkg; Pkg.test()'
-julia +nightly --project=docs -e 'using Pkg; Pkg.develop(path="."); include("docs/make.jl")'
 ```
 
-The second command edits `docs/Project.toml`; discard that change before committing.
-
-## Updating SuiteSparse
-
-In order to upgrade SparseArrays.jl to use a new release of SuiteSparse, the following steps are necessary:
-1. Update SuiteSparse in Yggdrasil
-2. Update the SuiteSparse wrappers in SparseArrays.jl/gen and generate the new wrappers
-3. Run BumpStdlibs to update the SparseArrays.jl version in julia master
-4. Update the relevant stdlibs in Julia to pull in the new releases
+[AGENTS.md](AGENTS.md) has the conventions this repository follows, the commands for
+running a single test file, the whitespace check and the doctests, and pointers to the
+guides for the solvers, the test suite and upgrading SuiteSparse.
