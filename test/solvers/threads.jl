@@ -8,7 +8,7 @@ if Base.USE_GPL_LIBS
 @testset "threaded SuiteSparse tests" begin
     for nt in (1, 4)
         @testset "default threads = $nt" begin
-            script = "include($(repr(joinpath(@__DIR__, "threads.jl"))))"
+            script = "include($(repr(joinpath(@__DIR__, "threads_child.jl"))))"
             @test success(pipeline(testprocess(script; threads=nt); stdout, stderr))
         end
     end
