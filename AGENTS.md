@@ -49,12 +49,14 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one file; omit test_args for all
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
 julia .ci/check-whitespace.jl
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'   # Aqua and ambiguity checks
 julia +nightly --project=docs -e 'using Pkg; Pkg.develop(path="."); include("docs/make.jl")'  # doctests
 ```
 
 The doctest command edits `docs/Project.toml`; discard that change before committing.
 
-The Aqua and ambiguity checks run as a separate CI job from `test/ambiguous.jl`.
+The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
+as a separate CI job.
 Solver tests run only when `Base.USE_GPL_LIBS` is true; guard every reference to a
 solver module, not just the test bodies. One CI job runs `--check-bounds=yes` to catch
 bad `@inbounds`.
