@@ -7,7 +7,6 @@ using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
 using Test: guardseed
-using InteractiveUtils: @which
 include("forbidproperties.jl")
 include("simplesmatrix.jl")
 
@@ -421,8 +420,8 @@ end
     A = sprand(5,5,0.5)
     D = Diagonal(rand(5))
     C = copy(A)
-    m1 = @which mul!(C,A,D,true,false)
-    m2 = @which mul!(C,D,A,true,false)
+    m1 = which(mul!, Base.typesof(C,A,D,true,false))
+    m2 = which(mul!, Base.typesof(C,D,A,true,false))
     @test m1.module == SparseArrays
     @test m2.module == SparseArrays
 end
