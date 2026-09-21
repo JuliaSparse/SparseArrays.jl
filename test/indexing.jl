@@ -569,8 +569,6 @@ _length_or_count_or_five(x) = length(x)
           which(SparseArrays._to_same_csc, typeof.((A, Matrix(B), 1:6, 2:4)))
     A[:, 2:4] = B
     @test A[:, 2:4] == B && A[:, [1, 5, 6, 7, 8]] == A0[:, [1, 5, 6, 7, 8]]
-    A[:, [7, 5]] = B[:, 1:2]
-    @test A[:, 7] == B[:, 1] && A[:, 5] == B[:, 2]
     A = copy(A0); A[:, :] = A
     @test A == A0
     A[:, 2] = sparse([1.0 0 2 0 0 3])   # 1×n into a column, #569

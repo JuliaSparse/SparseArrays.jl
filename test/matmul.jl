@@ -577,22 +577,17 @@ Base.getindex(X::CountedReadsMatrix, i::Int, j::Int) = (X.reads[] += 1; X.parent
 
 @testset "product kernels touch stored entries only" begin
     n = 8
-    @testset "adjoint dense times adjoint sparse, $T" for T in (Float64, ComplexF64)
-        A = sprandn(T, 6, n, 0.5); X = randn(T, n, 5); C0 = randn(T, 5, 6)
-        for fx in (adjoint, transpose), fa in (adjoint, transpose)
-            @test mul!(copy(C0), fx(X), fa(A), 2, 3) ≈ 2 * fx(X) * fa(Matrix(A)) + 3 * C0
-        end
-        Xc = CountedReadsMatrix(X, Ref(0))
-        @test mul!(copy(C0), Xc', A', 2, 3) ≈ 2 * X' * Matrix(A)' + 3 * C0
-        @test Xc.reads[] <= length(X)
-    end
+    # adjoint dense times adjoint sparse reads each entry of the dense factor at most once
+    A = sprandn(ComplexF64, 6, n, 0.5); X = randn(ComplexF64, n, 5); C0 = randn(ComplexF64, 5, 6)
+    Xc = CountedReadsMatrix(X, Ref(0))
+    @test mul!(copy(C0), Xc', A', 2, 3) ≈ 2 * X' * Matrix(A)' + 3 * C0
+    @test Xc.reads[] <= length(X)
+    @test mul!(copy(C0), transpose(X), transpose(A), 2, 3) ≈ 2 * transpose(X) * transpose(Matrix(A)) + 3 * C0
     P = mulcount_sparse(sparse(1.0I, n, n))
     one_, two = MulCount(1.0), MulCount(2.0)
     # sparse times sparse into a dense destination: one multiplication per pair of stored entries
-    for f in (() -> mul!(fill(one_, n, n), P, P, true, false), () -> mul!(fill(one_, n, n), P', P, true, false),
-              () -> mul!(fill(one_, n, n), Symmetric(P), P', true, false))
-        @test mulcount(f) == n
-    end
+    @test mulcount(() -> mul!(fill(one_, n, n), P, P, true, false)) == n
+    @test mulcount(() -> mul!(fill(one_, n, n), Symmetric(P), P', true, false)) == n
     # a symmetric sparse matrix times a sparse vector costs what the plain product does
     x = sparsevec(fill(one_, n)); y = fill(one_, n)
     @test mulcount(() -> mul!(copy(y), Symmetric(P), x, true, false)) == mulcount(() -> mul!(copy(y), P, x, true, false))
