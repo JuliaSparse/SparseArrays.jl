@@ -781,8 +781,9 @@ _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I...
 # already strictly increasing.
 function _setindex_lastwrites(I)
     issorted(I, lt=≤) && return nothing
-    # stable, so repeats keep their order; `sortperm` of a range is a range
-    p = issorted(I) ? collect(eachindex(I)) : convert(Vector{Int}, sortperm(I))
+    # a decreasing range has no repeats, and indexing by its range permutation is cheaper
+    I isa AbstractRange && !iszero(step(I)) && return sortperm(I)
+    p = issorted(I) ? collect(eachindex(I)) : sortperm(I)   # stable, so repeats keep their order
     n = length(p)
     k = 0
     @inbounds for t in 1:n
