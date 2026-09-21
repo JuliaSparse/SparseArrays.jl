@@ -299,6 +299,8 @@ end
         @test isequal(A ./ v0, sparse(Array(A) ./ v0))
         @test isequal(view(A, :, 2:n) ./ view(v0, :), sparse(Array(A)[:, 2:n] ./ v0))
         @test A .+ v == Array(A) .+ v
+        # `f(0, v[i])` is not probed for a row the matrix stores in full
+        @test sqrt.(sparse(T[2 3; 0 0]) .- T[1, 0]) == sqrt.(T[2 3; 0 0] .- T[1, 0])
     end
 
 end

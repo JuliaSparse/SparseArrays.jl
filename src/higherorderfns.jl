@@ -903,15 +903,23 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
     return _checkbuffers(C)
 end
 # Row scaling, e.g. `v .* A` or `A ./ v`: `v` is one fully stored column, so its row `i` is its
-# `i`th stored entry, and `f` maps a structural zero of `A` to zero against every entry of `v`.
-# C then has (at most) A's pattern, and scanning A's stored entries replaces merging `v`
-# against every column of `A`, which is O(size(A, 1) * size(A, 2)).
+# `i`th stored entry, and `f` maps a structural zero of `A` to zero against the entry of `v`
+# in every row where `A` has one. C then has (at most) A's pattern, and scanning A's stored
+# entries replaces merging `v` against every column of `A`, which is O(m * n).
 function _scalesrows(f::Tf, C, A, v) where Tf
     numcols(v) == 1 != numcols(C) && numcols(A) == numcols(C) || return false
-    nnz(v) == numrows(C) && _haszeros(A) || return false
+    nnz(v) == numrows(C) || return false
+    # Probe only the rows where `A` has a structural zero: for a row stored in full the
+    # merge never evaluates `f(0, v[i])`, which may throw, e.g. `sqrt.(A .- v)`.
+    nstoredinrow = zeros(Int, numrows(C))
+    @inbounds for j in columns(C), Ak in colstartind(A, j):(colboundind(A, j) - 1)
+        nstoredinrow[storedinds(A)[Ak]] += 1
+    end
     zA = zero(eltype(A))
-    @inbounds for vk in colstartind(v, 1):(colboundind(v, 1) - 1)
-        _iszero(f(zA, storedvals(v)[vk])) || return false
+    voffset = colstartind(v, 1) - 1
+    @inbounds for i in 1:numrows(C)
+        nstoredinrow[i] == numcols(C) && continue
+        _iszero(f(zA, storedvals(v)[voffset + i])) || return false
     end
     return true
 end
