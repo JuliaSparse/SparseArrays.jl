@@ -8,8 +8,6 @@ using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns
 using LinearAlgebra
 using Random
 using Test: guardseed
-using InteractiveUtils: @which
-using Dates
 include("forbidproperties.jl")
 
 function same_structure(A, B)
