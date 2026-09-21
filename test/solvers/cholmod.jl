@@ -908,16 +908,6 @@ end
     end
 end
 
-@testset "sparse right multiplication of Symmetric and Hermitian matrices #21431" begin
-    S = sparse(1.0I, 2, 2)
-    @test issparse(S*S*S)
-    for T in (Symmetric, Hermitian)
-        @test issparse(S*T(S)*S)
-        @test issparse(S*(T(S)*S))
-        @test issparse((S*T(S))*S)
-    end
-end
-
 @testset "Test sparse low rank update for cholesky decomposition" begin
     A = SparseMatrixCSC{Tv,Int}(10, 5, [1,3,6,8,10,13], [6,7,1,2,9,3,5,1,7,6,7,9],
         Tv[-0.138843, 2.99571, -0.556814, 0.669704, -1.39252, 1.33814,

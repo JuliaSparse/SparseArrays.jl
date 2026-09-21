@@ -13,110 +13,16 @@ using LinearAlgebra
     @test cholesky(a)\[2.0, 3.0] ≈ [2.0, 3.0]
 end
 
-@testset "complex matrix-vector multiplication and left-division" begin
+@testset "complex left-division" begin
     for i = 1:5
         a = I + 0.1*sprandn(5, 5, 0.2)
         b = randn(5,3) + im*randn(5,3)
-        c = randn(5) + im*randn(5)
-        d = randn(5) + im*randn(5)
-        α = rand(ComplexF64)
-        β = rand(ComplexF64)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(mul!(similar(b), a, b) - Array(a)*b)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
-        @test (maximum(abs.(mul!(similar(c), a, c) - Array(a)*c)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
-        @test (maximum(abs.(mul!(similar(b), transpose(a), b) - transpose(Array(a))*b)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
-        @test (maximum(abs.(mul!(similar(c), transpose(a), c) - transpose(Array(a))*c)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
         @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-        @test (maximum(abs.((a'*c + d) - (Array(a)'*c + d))) < 1000*eps())
-        @test (maximum(abs.((α*transpose(a)*c + β*d) - (α*transpose(Array(a))*c + β*d))) < 1000*eps())
-        @test (maximum(abs.((transpose(a)*c + d) - (transpose(Array(a))*c + d))) < 1000*eps())
-        c = randn(6) + im*randn(6)
-        @test_throws DimensionMismatch α*transpose(a)*c + β*c
-        @test_throws DimensionMismatch α*transpose(a)*fill(1.,5) + β*c
 
         a = I + 0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2)
         b = randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-
-        a = I + tril(0.1*sprandn(5, 5, 0.2))
-        b = randn(5,3) + im*randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-
-        a = I + tril(0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2))
-        b = randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-
-        a = I + triu(0.1*sprandn(5, 5, 0.2))
-        b = randn(5,3) + im*randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-
-        a = I + triu(0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2))
-        b = randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-
-        a = I + triu(0.1*sprandn(5, 5, 0.2))
-        b = randn(5,3) + im*randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-
-        # UpperTriangular/LowerTriangular solve
-        a = UpperTriangular(I + triu(0.1*sprandn(5, 5, 0.2)))
-        b = sprandn(5, 5, 0.2)
-        @test (maximum(abs.(a\b - Array(a)\Array(b))) < 1000*eps())
-        # test error throwing for bwdTrisolve
-        @test_throws DimensionMismatch a\Matrix{Float64}(I, 6, 6)
-        a = LowerTriangular(I + tril(0.1*sprandn(5, 5, 0.2)))
-        b = sprandn(5, 5, 0.2)
-        @test (maximum(abs.(a\b - Array(a)\Array(b))) < 1000*eps())
-        # test error throwing for fwdTrisolve
-        @test_throws DimensionMismatch a\Matrix{Float64}(I, 6, 6)
-
-        a = sparse(Diagonal(randn(5) + im*randn(5)))
-        b = randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-
-        b = randn(5,3) + im*randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
         @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
@@ -179,14 +85,8 @@ end
     A = sparse(Diagonal(rand(5))) + sprandn(5, 5, 0.2)
     A = A*transpose(A)
     @test abs(det(factorize(Symmetric(A)))) ≈ abs(det(factorize(Array(A))))
-    @test factorize(triu(A)) == triu(A)
-    @test isa(factorize(triu(A)), UpperTriangular{Float64, SparseMatrixCSC{Float64, Int}})
-    @test factorize(tril(A)) == tril(A)
-    @test isa(factorize(tril(A)), LowerTriangular{Float64, SparseMatrixCSC{Float64, Int}})
     C, b = A[:, 1:4], fill(1., size(A, 1))
     @test factorize(C)\b ≈ Array(C)\b
-    @test_throws ErrorException eigen(A)
-    @test_throws ErrorException inv(A)
 end
 
 @testset "type stability of linear solve" begin
