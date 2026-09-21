@@ -35,8 +35,6 @@ Development happens against Julia nightly. To run the tests:
 julia +nightly --project -e 'using Pkg; Pkg.test()'
 ```
 
-[AGENTS.md](AGENTS.md) has the conventions this repository follows, and the commands
-for running a single test file, the whitespace check and the doctests. The solver layer
-has its own rules in [src/solvers/AGENTS.md](src/solvers/AGENTS.md), the test suite in
-[test/AGENTS.md](test/AGENTS.md), and upgrading SuiteSparse is described in
-[gen/AGENTS.md](gen/AGENTS.md).
+[AGENTS.md](AGENTS.md) has the conventions this repository follows, the commands for
+running a single test file, the whitespace check and the doctests, and pointers to the
+guides for the solvers, the test suite and upgrading SuiteSparse.
