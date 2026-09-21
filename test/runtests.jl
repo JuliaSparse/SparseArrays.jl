@@ -7,7 +7,7 @@ testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsevector.jl", "issues.jl", "linalg.jl", "matmul.jl",
              "threads_suite.jl", "triangular.jl", "concatenation.jl"]
 
-if Base.USE_GPL_LIBS
+@static if Base.USE_GPL_LIBS
     append!(testfiles, ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl"])
 end
 
