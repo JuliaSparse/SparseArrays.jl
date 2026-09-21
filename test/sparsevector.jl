@@ -823,6 +823,10 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
             @test a - b == Array(a) - Array(b)
             @test b - a == Array(b) - Array(a)
         end
+        xr = SparseVector(2, [1], Real[1.5])
+        @test xr + [1, 2] == [2.5, 2] && [1, 2] - xr == [-0.5, 2]
+        @test typeof(xr + [1, 2]) == typeof(Array(xr) + [1, 2])
+        @test sparse([2]) + fill(1) == [3] && fill(1) - spzeros(Int, 1) == [1]
         @test_throws DimensionMismatch x + ones(7)
         @test_throws DimensionMismatch ones(7) - x
 
