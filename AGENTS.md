@@ -32,12 +32,14 @@ linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) und
 
 | Path | Contents |
 |---|---|
-| `src/abstractsparse.jl` | Abstract types, `issparse`, the shared dispatch aliases. |
-| `src/sparsematrix.jl`, `src/sparsevector.jl` | Storage, constructors, indexing, in-place ops. |
+| `src/SparseArrays.jl` | Module, exports, abstract types, `issparse`, the shared dispatch aliases, includes. |
+| `src/sparsematrix.jl`, `src/sparsevector.jl` | Storage, `similar`/`copy`, permutation, queries, in-place ops; everything for vectors. |
+| `src/constructors.jl`, `src/indexing.jl`, `src/reductions.jl` | `SparseMatrixCSC` construction and conversion; `getindex`/`setindex!`/`dropstored!`; reductions. |
+| `src/concatenation.jl` | `hcat`, `vcat`, `hvcat`, `blockdiag`, `repeat` for matrices and vectors. |
 | `src/higherorderfns.jl` | Broadcast and `map!` kernels. |
 | `src/matmul.jl` | `*`, `mul!`, `lmul!`, `rmul!` and their kernels, for matrices and vectors. |
 | `src/linalg.jl`, `src/sparseconvert.jl` | `dot`, `kron`, solves, norms, LinearAlgebra wrappers, conversions. |
-| `src/readonly.jl` | Read-only vector behind the experimental fixed-pattern arrays. |
+| `src/fixed.jl` | The experimental fixed-pattern arrays: read-only index vector, types, `fixed`, fixed-only kernels. |
 | `src/solvers/` | Hand-written solver layers, library loading, generated bindings. |
 | `gen/` | Wrapper generator; see its README. |
 | `test/` | One file per area, listed explicitly in `runtests.jl`. |
@@ -92,7 +94,7 @@ because it invalidates precompiled code; it exists to catch bad `@inbounds`.
 - **Extend, don't shadow.** An unqualified definition that shares a Base or
   LinearAlgebra name silently creates a dead local function. Qualify it.
 - **Dispatch narrowly.** Cross-file `Union` aliases live in one documented section of
-  `abstractsparse.jl`; reuse LinearAlgebra's aliases and do not add one when an
+  `SparseArrays.jl`; reuse LinearAlgebra's aliases and do not add one when an
   existing one fits. Define against `Matrix`/`Vector` rather than `AbstractMatrix`
   where a wider signature would capture structured LinearAlgebra types. Views of
   sparse arrays are first-class: define methods on the view aliases too.
