@@ -7,8 +7,16 @@ project's merged pull requests. Follow it unless a maintainer says otherwise.
 
 A Julia stdlib providing `SparseMatrixCSC`, `SparseVector`, sparse broadcast and
 linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) under
-`src/solvers/`, which has its own `AGENTS.md`; read it before touching the solvers or
-`gen/`. Being a stdlib shapes everything below:
+`src/solvers/`. Three directories carry their own `AGENTS.md`, which applies on top of
+this one; read it before working there:
+
+- `src/solvers/AGENTS.md`: rules for the SuiteSparse solver layer.
+- `test/AGENTS.md`: suite layout, the coverage each reduced test grid must keep, and
+  how to measure test time.
+- `gen/AGENTS.md`: regenerating `src/solvers/wrappers.jl`, and upgrading SuiteSparse
+  and Clang.jl.
+
+Being a stdlib shapes everything below:
 
 - The `julia` compat in `Project.toml` tracks the next release, so develop and test on
   `julia +nightly`. Each Julia release ships a fixed copy of this package, so there are

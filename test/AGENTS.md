@@ -1,29 +1,27 @@
-# SparseArrays tests
+# AGENTS.md for `test/`
 
-Develop and test on Julia nightly. `runtests.jl` owns the ordinary suite inventory,
-used by both ParallelTestRunner and the serial fallback for Julia Base CI. Selectors
-match by prefix. Test files are named after the source area they cover, without
-`sparse`/`linalg` prefixes; the solver suites are `cholmod`, `umfpack`, `spqr` and `solvers`.
+How the test suite is organized, what its reduced grids must keep covering, and how to
+measure test time, in addition to the top-level `AGENTS.md`.
 
-`triangular.jl` contains the triangular product and solve tests in one scheduling
-unit. `concatenation.jl` likewise contains all concatenation tests. Keep
-feature-specific issue regressions next to that feature and preserve issue
-references. The product and solve grids share their fixtures in the triangular file.
+## Layout
 
-Ordinary tests cover numerical results, sparse structure, validation, aliasing,
-inference, and algorithmic complexity. `ambiguous.jl` runs Aqua and ambiguity checks
-in its separate quality environment; Aqua and Pkg are not ordinary test-target
-dependencies. GPL solver references are guarded, while pure-Julia kernel tests also
-run on builds without GPL libraries.
-
-`threads_suite.jl` owns tests requiring fresh process state. Its `testprocess.jl`
-helper preserves the active project and resolved load path, verifies the checkout
-loaded by the child, and explicitly selects default-pool thread counts. It runs
-solver concurrency checks with one and four threads, library-directory selection,
-and `cholmod_lifetime.jl`. Deliberate GC calls are permitted only in that isolated
-lifetime suite: they exercise finalization, allocation accounting, and temporary
-rooting. Keep the rooting stress workload until a demonstrated reproducer supports
-a smaller replacement.
+- `runtests.jl` owns the suite inventory, used by both ParallelTestRunner and the serial
+  fallback for Julia Base CI. Selectors match by prefix. Adding a feature file does not
+  require adding a worker task.
+- Test files are named after the source area they cover; the solver suites are
+  `cholmod`, `umfpack`, `spqr` and `solvers`. Pure-Julia kernel tests also run on builds
+  without GPL libraries.
+- `triangular.jl` holds the triangular product and solve tests as one scheduling unit,
+  and the two grids share their fixtures. `concatenation.jl` likewise holds all
+  concatenation tests.
+- Preserve issue references on regression tests.
+- `ambiguous.jl` is not part of the default run; CI gives it its own job.
+- `threads_suite.jl` owns tests requiring fresh process state. Its `testprocess.jl`
+  helper preserves the active project and resolved load path, verifies the checkout
+  loaded by the child, and explicitly selects default-pool thread counts. It runs
+  solver concurrency checks with one and four threads, library-directory selection,
+  and `cholmod_lifetime.jl`. Keep the rooting stress workload in the lifetime suite
+  until a demonstrated reproducer supports a smaller replacement.
 
 ## Coverage dimensions
 
@@ -41,29 +39,19 @@ dimension; equal assertion counts or line coverage alone are insufficient.
 | Triangular scale and structure | The broad correctness grid uses size 100. Explicit empty-column, stored-zero, missing-diagonal, conjugated-diagonal, vector/matrix, and view cases cover structure. Size 127 retains Int8 diagonal-capacity coverage; operation-count checks retain a size-1,000 specialized-path case and mark the known transformed-product generic fallback broken. |
 
 Other inference, aliasing, fixed-pattern, shape, empty-input, validation, and
-issue-specific tests remain independently useful. Preserve both index types when
-they select C entry points, and retain targeted pure-Julia overflow and conversion
-tests. Complexity checks use operation counts or allocation growth, never elapsed
-time assertions.
+issue-specific tests remain independently useful. Retain targeted pure-Julia overflow
+and conversion tests. Complexity checks use operation counts or allocation growth.
 
 ## Running and measuring
 
-Run commands from the repository root:
+The top-level `AGENTS.md` has the everyday commands. From the repository root, to
+exercise the serial fallback without picking up a globally installed ParallelTestRunner,
+and to measure one suite:
 
 ```sh
-julia +nightly --project -e 'using Pkg; Pkg.test()'
-julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["higherorderfns"])'
 JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl
 julia +nightly --project --startup-file=no --threads=1 --check-bounds=auto .ci/measure-tests.jl higherorderfns
 julia +nightly --project --startup-file=no --threads=1 --check-bounds=yes .ci/measure-tests.jl higherorderfns --verbose
-```
-
-The restricted load path exercises the serial fallback without picking up a
-globally installed ParallelTestRunner. Run quality checks using the same temporary
-environment as the quality CI job:
-
-```sh
-julia +nightly --startup-file=no -e 'using Pkg; Pkg.activate(temp=true); Pkg.develop(path=pwd()); Pkg.add(name="Aqua", version="0.8"); include("test/ambiguous.jl")'
 ```
 
 The measurement script starts from a seeded RNG, selects one BLAS thread, verifies
@@ -74,13 +62,13 @@ testset timing through Test. Package loading before the timed include and work i
 child processes are not included in the parent's compilation/allocation totals;
 process-suite elapsed time includes waiting for its children.
 
-Use a fresh Julia process for every sample and at least three samples per revision,
-with the same Julia build, machine, bounds setting, thread count, and cache state.
-Compare medians and variation. Report cold dependency preparation separately from
-warmed preparation and test execution. Retain CI's verbose per-suite reporting;
-compare bounds-job elapsed time and summed test-job durations across the unchanged
-platform matrix as well as compilation versus execution. Source coverage and the
-coverage table above complement those measurements. After reducing work, compare
-groupings in a trial runner with the same worker count and inventory. Change the
-default groups only with a repeatable scheduling benefit; adding a feature file
-does not require adding a worker task.
+- Use a fresh Julia process for every sample and at least three samples per revision,
+  with the same Julia build, machine, bounds setting, thread count, and cache state.
+  Compare medians and variation.
+- Report cold dependency preparation separately from warmed preparation and test
+  execution.
+- Retain CI's verbose per-suite reporting; compare bounds-job elapsed time and summed
+  test-job durations across the unchanged platform matrix, as well as compilation
+  versus execution.
+- After reducing work, compare groupings in a trial runner with the same worker count
+  and inventory. Change the default groups only with a repeatable scheduling benefit.
