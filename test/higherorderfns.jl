@@ -248,6 +248,33 @@ end
     @test sparse([1]) .\ sparse([1  0]) == sparse([1.0 0.0])
     @test isequal(sparse([1 0]) .\ sparse([1 2; 1 0]), sparse([1.0 Inf; 1 NaN]))
 
+    # A dense argument has no structural zeros, so `f(0, 0)` (`NaN` for `/`) must not
+    # densify the result, and zero quotients, `-0.0` included, are not stored (#551)
+    for T in (Float64, ComplexF64)
+        A = sparse(T[0 0; 0.5 0; 0 0])
+        x = T[1, 2, -3]
+        y = T[-1 2]
+        for (C, R) in ((A ./ x, Array(A) ./ x), (A ./ y, Array(A) ./ y), (x .\ A, x .\ Array(A)),
+                       (A ./ x[1:2]', Array(A) ./ x[1:2]'), (A ./ view(x, 1:3), Array(A) ./ x),
+                       (A ./ x ./ y, Array(A) ./ x ./ y))
+            @test C isa SparseMatrixCSC{T}
+            @test C == R
+            @test nnz(C) == 1
+        end
+        # zeros of the dense argument still give `Inf` and `NaN`, and only those rows fill
+        x0 = T[1, 0, 2]
+        C = (A .+ sparse(T[0 0; 0 0; 0 1])) ./ x0
+        @test isequal(C, sparse(Array(A .+ sparse(T[0 0; 0 0; 0 1])) ./ x0))
+        @test nnz(C) == 3
+        D = sprand(T, 3, 2, 0.5)
+        @test broadcast!(/, D, A, x) === D
+        @test D == Array(A) ./ x
+        @test nnz(D) == 1
+    end
+    # `f(0, 0)` is not evaluated when it is not needed
+    fthrows(a, b) = iszero(a) && iszero(b) ? error("f(0, 0) evaluated") : a * b
+    @test broadcast(fthrows, sparse([0 1.0; 2.0 0]), [1.0, 2.0]) == [0 1.0; 4.0 0]
+
 end
 
 
