@@ -28,16 +28,15 @@ jobs:
         julia-version:
           - 'nightly'
         include:
-          - os: macOS-latest
-            julia-arch: aarch64
-            julia-version: 'nightly'
           # Only one job runs with coverage instrumentation and forced bounds checking
           # (`--check-bounds=yes`). Both invalidate precompiled code, and the test suite
           # is 95%+ JIT time, so they multiply the wall time of every job they are on.
+          # It is the macOS job, the fastest runner, so that it is not the critical path.
           # The other jobs use `--check-bounds=auto` (Julia's default, matching the
           # precompiled code); `no` would break the tests that expect a `BoundsError`.
-          - os: ubuntu-latest
-            julia-arch: x64
+          - os: macOS-latest
+            julia-arch: aarch64
+            julia-version: 'nightly'
             coverage: true
     steps:
       - uses: actions/checkout@v7
@@ -94,6 +93,6 @@ jobs:
       - name: Generate docs
         run: |
           julia --project --color=yes -e 'using Pkg; Pkg.activate("docs"); Pkg.develop(PackageSpec(path = pwd()))'
-          julia --project=docs --color=yes docs/make.jl pdf
+          julia --project=docs --color=yes docs/make.jl
         env:
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
