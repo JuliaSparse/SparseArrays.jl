@@ -6,10 +6,8 @@ using Test
 using SparseArrays
 using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, fixed, _is_fixed
 using LinearAlgebra
-using Printf: @printf # for debug
 using Random
 using Test: guardseed
-using InteractiveUtils: @which
 using Dates
 include("forbidproperties.jl")
 
