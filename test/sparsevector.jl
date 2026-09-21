@@ -815,6 +815,16 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test Array(x) - x2 == Array(xb)
         @test x + Array(x2) == Array(xa)
         @test x - Array(x2) == Array(xb)
+        # sparse with dense is dense, as for matrices (#516)
+        for (a, b) in ((x, Array(x2)), (Array(x), x2), (view(x, :), Array(x2)),
+                       (complex(x), Array(x2)), (x, reshape(Array(x2), 8, 1)))
+            @test a + b isa Array{promote_type(eltype(a), eltype(b)), ndims(b)}
+            @test a + b == Array(a) + Array(b)
+            @test a - b == Array(a) - Array(b)
+            @test b - a == Array(b) - Array(a)
+        end
+        @test_throws DimensionMismatch x + ones(7)
+        @test_throws DimensionMismatch ones(7) - x
 
         # multiplies
         xm = SparseVector(8, [2, 6], [5.0, -19.25])

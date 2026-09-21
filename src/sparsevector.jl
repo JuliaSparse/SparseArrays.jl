@@ -1284,6 +1284,30 @@ for fun in (:+, :-)
     end
 end
 
+# A sum with a dense array is dense, as it is for a sparse and a dense matrix
+for fun in (:+, :-)
+    @eval function $(fun)(x::SparseVectorOrView, y::Array)
+        Base.promote_shape(axes(x), axes(y))
+        r = broadcast($fun, Ref(zero(eltype(x))), y)
+        nzinds, nzvals = nonzeroinds(x), nonzeros(x)
+        @inbounds for k in eachindex(nzinds)
+            i = nzinds[k]
+            r[i] = $fun(nzvals[k], y[i])
+        end
+        return r
+    end
+    @eval function $(fun)(x::Array, y::SparseVectorOrView)
+        Base.promote_shape(axes(x), axes(y))
+        r = broadcast($fun, x, Ref(zero(eltype(y))))
+        nzinds, nzvals = nonzeroinds(y), nonzeros(y)
+        @inbounds for k in eachindex(nzinds)
+            i = nzinds[k]
+            r[i] = $fun(x[i], nzvals[k])
+        end
+        return r
+    end
+end
+
 ### Reduction
 Base.reducedim_initarray(A::SparseVectorOrView, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
