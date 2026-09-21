@@ -118,7 +118,7 @@ function dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abstr
     r
 end
 
-function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}}, B::SparseMatrixCSCOrColumnSubset)
+function _dot_dense_sparse(A, B::SparseMatrixCSCOrColumnSubset)
     (m, n) = size(A)
     if (m, n) != size(B)
         throw(DimensionMismatch("A has size ($m, $n) but B has size $(size(B))"))
@@ -139,8 +139,17 @@ function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseM
     return s
 end
 
-function dot(A::SparseMatrixCSCOrColumnSubset, B::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}}})
-    return conj(dot(B, A))
+# One method per dense operand type rather than one `Union` of them: a single `Union` of
+# these against a sparse operand with a `SubArray` member costs ~80 ms of type intersection
+# against LinearAlgebra's strided `dot` methods when the method is inserted, on every load of
+# the package. `StridedMatrix` and the `SubArray` member overlap in strided views of dense
+# matrices, so their intersection gets its own method to keep dispatch unambiguous.
+const DenseDotOperands = (StridedMatrix, BitMatrix,
+    SubArray{<:Any,2,<:Union{DenseMatrixUnion,AbstractSparseMatrix}},
+    MatrixWrappers{<:Any,<:Union{DenseMatrixUnion,AbstractSparseMatrix}})
+for TA in (DenseDotOperands..., typeintersect(DenseDotOperands[1], DenseDotOperands[3]))
+    @eval dot(A::$TA, B::SparseMatrixCSCOrColumnSubset) = _dot_dense_sparse(A, B)
+    @eval dot(A::SparseMatrixCSCOrColumnSubset, B::$TA) = conj(dot(B, A))
 end
 dot(A::SparseMatrixCSCOrColumnSubset, B::AdjOrTrans{<:Any,<:SparseMatrixCSCColumnSubset}) = conj(dot(B, A))
 
