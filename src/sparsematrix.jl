@@ -114,7 +114,7 @@ end
 
 getcolptr(S::SparseMatrixCSC) = getfield(S, :colptr)
 getcolptr(S::FixedSparseCSC) = getfield(S, :colptr)
-getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(S.indices[2]):(last(S.indices[2]) + 1))
+getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(parentindices(S)[2]):(last(parentindices(S)[2]) + 1))
 getcolptr(S::SparseMatrixCSCColumnSubset) = error("getcolptr not well-defined for $(typeof(S))")
 """
     getrowval(A)
@@ -193,7 +193,7 @@ nzvalview(S::SparseMatrixCSCColumnSubset) = view(nonzeros(S), _storedinds(S))
 # where the stored entries sit in the parent's storage: a contiguous range for a column range
 _storedinds(S::AbstractSparseMatrixCSC) = 1:nnz(S)
 function _storedinds(S::SparseMatrixCSCView)
-    cols = S.indices[2]
+    cols = parentindices(S)[2]
     isempty(cols) && return 1:0   # an empty range need not lie within the parent's columns
     colptr = getcolptr(parent(S))
     return Int(colptr[first(cols)]):Int(colptr[last(cols)+1]) - 1
@@ -329,9 +329,26 @@ of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
     Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
 """
 Base.@propagate_inbounds nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
-Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(parent(S), S.indices[2][col])
+Base.@propagate_inbounds nzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = nzrange(parent(S), parentindices(S)[2][col])
 nzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}, i::Integer) = nzrangeup(S.data, i)
 nzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}, i::Integer) = nzrangelo(S.data, i)
+# row range up to (and including if excl=false) diagonal
+function nzrangeup(A, i, excl=false)
+    r = nzrange(A, i); r1 = r.start; r2 = r.stop
+    rv = rowvals(A)
+    @inbounds r2 < r1 || rv[r2] <= i - excl ? r : r1:(searchsortedlast(view(rv, r1:r2), i - excl) + r1-1)
+end
+# row range from diagonal (included if excl=false) to end
+function nzrangelo(A, i, excl=false)
+    r = nzrange(A, i); r1 = r.start; r2 = r.stop
+    rv = rowvals(A)
+    @inbounds r2 < r1 || rv[r1] >= i + excl ? r : (searchsortedfirst(view(rv, r1:r2), i + excl) + r1-1):r2
+end
+# how the stored triangle of a symmetric/Hermitian wrapper is walked: its range within a
+# column, and the maps applied to diagonal and to mirrored off-diagonal entries
+_symherm_ops(t::AbstractChar) = (_isuppercase(t) ? nzrangeup : nzrangelo,
+    _uppercase(t) == 'S' ? identity : real, _uppercase(t) == 'S' ? transpose : adjoint)
+_symherm_ops(A::HermOrSym) = _symherm_ops(LinearAlgebra.wrapper_char(A))
 
 indtype(S::SparseMatrixCSCColumnSubset{<:Any,Ti}) where {Ti} = Ti
 

@@ -116,9 +116,7 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
     elseif tA_uc == 'C'
         _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc in ('S', 'H')
-        rangefun = _isuppercase(tA) ? nzrangeup : nzrangelo
-        diagop = tA_uc == 'S' ? identity : real
-        odiagop = tA_uc == 'S' ? transpose : adjoint
+        rangefun, diagop, odiagop = _symherm_ops(tA)
         T = eltype(C)
         _symherm_mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), T(alpha), T(beta))
     else
@@ -227,9 +225,7 @@ Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
     elseif tB_uc == 'C'
         _A_mul_Bt_or_Bc!(adjoint, C, X, B, alpha, beta)
     else # tB_uc in ('S', 'H')
-        rangefun = _isuppercase(tB) ? nzrangeup : nzrangelo
-        diagop = tB_uc == 'S' ? identity : real
-        odiagop = tB_uc == 'S' ? transpose : adjoint
+        rangefun, diagop, odiagop = _symherm_ops(tB)
         _A_mul_symherm!(rangefun, diagop, odiagop, C, X, B, alpha, beta)
     end
     return C
@@ -845,19 +841,6 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
             end
         end
     end
-end
-
-# row range up to (and including if excl=false) diagonal
-function nzrangeup(A, i, excl=false)
-    r = nzrange(A, i); r1 = r.start; r2 = r.stop
-    rv = rowvals(A)
-    @inbounds r2 < r1 || rv[r2] <= i - excl ? r : r1:(searchsortedlast(view(rv, r1:r2), i - excl) + r1-1)
-end
-# row range from diagonal (included if excl=false) to end
-function nzrangelo(A, i, excl=false)
-    r = nzrange(A, i); r1 = r.start; r2 = r.stop
-    rv = rowvals(A)
-    @inbounds r2 < r1 || rv[r1] >= i + excl ? r : (searchsortedfirst(view(rv, r1:r2), i + excl) + r1-1):r2
 end
 
 # multiply by diagonal matrix as vector
