@@ -37,8 +37,6 @@ end
 @inline _fix_size(A::Adjoint{<:Any,<:Matrix}, nrow, ncol) =
     _FixedSizeMatrix{'C'}(parent(A).ref, nrow, ncol)
 
-const tilebufsize = 10800  # Approximately 32k/3
-
 
 matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
     Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
@@ -476,16 +474,9 @@ function estimate_mulsize(m::Integer, nnzA::Integer, n::Integer, nnzB::Integer, 
     p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0 # (1-(1-p)^n)*m*k
 end
 
+# A sparse destination takes the sparse product; its pattern becomes that of `A*B*α + C*β`.
+# A fixed destination is checked against that pattern before it is written.
 Base.@constprop :aggressive function mul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::SparseMatrixCSCOrColumnSubset,
-                            B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
-    tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
-    Anew, ta = tA_uc in ('S', 'H') ? (wrap(A, tA), oftype(tA, 'N')) : (A, tA)
-    Bnew, tb = tB_uc in ('S', 'H') ? (wrap(B, tB), oftype(tB, 'N')) : (B, tB)
-    @stable_muladdmul _generic_spmatmatmul!(C, ta, tb, Anew, Bnew, MulAddMul(alpha, beta))
-end
-# A writable sparse destination takes the sparse product; its pattern becomes that of
-# `A*B*α + C*β`. A fixed destination is checked against that pattern before it is written.
-Base.@constprop :aggressive function mul!(C::AbstractSparseMatrixCSC, tA, tB, A::SparseMatrixCSCOrColumnSubset,
                             B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
     mA, nA = LinearAlgebra.lapack_size(_uppercase(tA) in ('S', 'H') ? 'N' : tA, A)
     mB, nB = LinearAlgebra.lapack_size(_uppercase(tB) in ('S', 'H') ? 'N' : tB, B)
@@ -496,189 +487,13 @@ Base.@constprop :aggressive function mul!(C::AbstractSparseMatrixCSC, tA, tB, A:
     isone(alpha) || (P = P * alpha)
     R = iszero(beta) ? P : isone(beta) ? P + C : P + C * beta
     # converting first leaves `C` untouched if its eltype cannot hold the result
-    return copyto!(C, convert(SparseMatrixCSC{eltype(C),indtype(C)}, R))
+    return _assign_sparse!(C, convert(SparseMatrixCSC{eltype(C),indtype(C)}, R))
 end
+_assign_sparse!(C::AbstractSparseMatrixCSC, R) = copyto!(C, R)
+# a column view is assigned through its parent, whose sparse `setindex!` is O(nnz)
+_assign_sparse!(C::SparseMatrixCSCColumnSubset, R) = (parent(C)[:, parentindices(C)[2]] = R; C)
 # only contiguous column views have a sparse product of their own
 _unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(wrap(A, t))
-
-# Sparse-destination counterpart of `LinearAlgebra._generic_matmatmul!` (which this file also
-# calls, qualified, for dense destinations); named distinctly so the two are not confused.
-function _generic_spmatmatmul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::AbstractVecOrMat,
-                                B::AbstractVecOrMat, _add::MulAddMul)
-    @assert tA in ('N', 'T', 'C') && tB in ('N', 'T', 'C')
-    require_one_based_indexing(C, A, B)
-    R = eltype(C)
-    T = eltype(A)
-    S = eltype(B)
-
-    mA, nA = LinearAlgebra.lapack_size(tA, A)
-    mB, nB = LinearAlgebra.lapack_size(tB, B)
-    if mB != nA
-        throw(DimensionMismatch(lazy"matrix A has dimensions ($mA,$nA), matrix B has dimensions ($mB,$nB)"))
-    end
-    if size(C,1) != mA || size(C,2) != nB
-        throw(DimensionMismatch(lazy"result C has dimensions $(size(C)), needs ($mA,$nB)"))
-    end
-
-    if iszero(_add.alpha) || isempty(A) || isempty(B)
-        return LinearAlgebra._rmul_or_fill!(C, _add.beta)
-    end
-
-    tile_size = 0
-    if isbitstype(R) && isbitstype(T) && isbitstype(S) && (tA == 'N' || tB != 'N')
-        tile_size = floor(Int, sqrt(tilebufsize / max(sizeof(R), sizeof(S), sizeof(T), 1)))
-    end
-    @inbounds begin
-    if tile_size > 0
-        sz = (tile_size, tile_size)
-        Atile = Array{T}(undef, sz)
-        Btile = Array{S}(undef, sz)
-
-        z1 = zero(A[1, 1]*B[1, 1] + A[1, 1]*B[1, 1])
-        z = convert(promote_type(typeof(z1), R), z1)
-
-        if mA < tile_size && nA < tile_size && nB < tile_size
-            copy_transpose!(Atile, 1:nA, 1:mA, tA, A, 1:mA, 1:nA)
-            copyto!(Btile, 1:mB, 1:nB, tB, B, 1:mB, 1:nB)
-            for j = 1:nB
-                boff = (j-1)*tile_size
-                for i = 1:mA
-                    aoff = (i-1)*tile_size
-                    s = z
-                    for k = 1:nA
-                        s += Atile[aoff+k] * Btile[boff+k]
-                    end
-                    LinearAlgebra._modify!(_add, s, C, (i,j))
-                end
-            end
-        else
-            Ctile = Array{R}(undef, sz)
-            for jb = 1:tile_size:nB
-                jlim = min(jb+tile_size-1,nB)
-                jlen = jlim-jb+1
-                for ib = 1:tile_size:mA
-                    ilim = min(ib+tile_size-1,mA)
-                    ilen = ilim-ib+1
-                    fill!(Ctile, z)
-                    for kb = 1:tile_size:nA
-                        klim = min(kb+tile_size-1,mB)
-                        klen = klim-kb+1
-                        copy_transpose!(Atile, 1:klen, 1:ilen, tA, A, ib:ilim, kb:klim)
-                        copyto!(Btile, 1:klen, 1:jlen, tB, B, kb:klim, jb:jlim)
-                        for j=1:jlen
-                            bcoff = (j-1)*tile_size
-                            for i = 1:ilen
-                                aoff = (i-1)*tile_size
-                                s = z
-                                for k = 1:klen
-                                    s += Atile[aoff+k] * Btile[bcoff+k]
-                                end
-                                Ctile[bcoff+i] += s
-                            end
-                        end
-                    end
-                    if isone(_add.alpha) && iszero(_add.beta)
-                        copyto!(C, ib:ilim, jb:jlim, Ctile, 1:ilen, 1:jlen)
-                    else
-                        C[ib:ilim, jb:jlim] .= @views _add.(Ctile[1:ilen, 1:jlen], C[ib:ilim, jb:jlim])
-                    end
-                end
-            end
-        end
-    else
-        # Multiplication for non-plain-data uses the naive algorithm
-        if tA == 'N'
-            if tB == 'N'
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(A[i, 1]*B[1, j] + A[i, 1]*B[1, j])
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += A[i, k]*B[k, j]
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            elseif tB == 'T'
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(A[i, 1]*transpose(B[j, 1]) + A[i, 1]*transpose(B[j, 1]))
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += A[i, k] * transpose(B[j, k])
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            else
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(A[i, 1]*B[j, 1]' + A[i, 1]*B[j, 1]')
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += A[i, k]*B[j, k]'
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            end
-        elseif tA == 'T'
-            if tB == 'N'
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(transpose(A[1, i])*B[1, j] + transpose(A[1, i])*B[1, j])
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += transpose(A[k, i]) * B[k, j]
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            elseif tB == 'T'
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(transpose(A[1, i])*transpose(B[j, 1]) + transpose(A[1, i])*transpose(B[j, 1]))
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += transpose(A[k, i]) * transpose(B[j, k])
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            else
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(transpose(A[1, i])*B[j, 1]' + transpose(A[1, i])*B[j, 1]')
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += transpose(A[k, i]) * adjoint(B[j, k])
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            end
-        else
-            if tB == 'N'
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(A[1, i]'*B[1, j] + A[1, i]'*B[1, j])
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += A[k, i]'B[k, j]
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            elseif tB == 'T'
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(A[1, i]'*transpose(B[j, 1]) + A[1, i]'*transpose(B[j, 1]))
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += adjoint(A[k, i]) * transpose(B[j, k])
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            else
-                for i = 1:mA, j = 1:nB
-                    z2 = zero(A[1, i]'*B[j, 1]' + A[1, i]'*B[j, 1]')
-                    Ctmp = convert(promote_type(R, typeof(z2)), z2)
-                    for k = 1:nA
-                        Ctmp += A[k, i]'B[j, k]'
-                    end
-                    LinearAlgebra._modify!(_add, Ctmp, C, (i,j))
-                end
-            end
-        end
-    end
-    end # @inbounds
-    C
-end
 
 # determine if sort! shall be used or the whole column be scanned
 # based on empirical data on i7-3610QM CPU
