@@ -566,6 +566,45 @@ end
     end
 end
 
+# reads of the wrapped matrix are counted, to tell a kernel that copies each strided row
+# once from one that rereads it for every stored entry
+struct CountedReadsMatrix{T} <: AbstractMatrix{T}
+    parent::Matrix{T}
+    reads::Base.RefValue{Int}
+end
+Base.size(X::CountedReadsMatrix) = size(X.parent)
+Base.getindex(X::CountedReadsMatrix, i::Int, j::Int) = (X.reads[] += 1; X.parent[i, j])
+
+@testset "product kernels touch stored entries only" begin
+    n = 8
+    @testset "adjoint dense times adjoint sparse, $T" for T in (Float64, ComplexF64)
+        A = sprandn(T, 6, n, 0.5); X = randn(T, n, 5); C0 = randn(T, 5, 6)
+        for fx in (adjoint, transpose), fa in (adjoint, transpose)
+            @test mul!(copy(C0), fx(X), fa(A), 2, 3) ≈ 2 * fx(X) * fa(Matrix(A)) + 3 * C0
+        end
+        Xc = CountedReadsMatrix(X, Ref(0))
+        @test mul!(copy(C0), Xc', A', 2, 3) ≈ 2 * X' * Matrix(A)' + 3 * C0
+        @test Xc.reads[] <= length(X)
+    end
+    P = mulcount_sparse(sparse(1.0I, n, n))
+    one_, two = MulCount(1.0), MulCount(2.0)
+    # sparse times sparse into a dense destination: one multiplication per pair of stored entries
+    for f in (() -> mul!(fill(one_, n, n), P, P, true, false), () -> mul!(fill(one_, n, n), P', P, true, false),
+              () -> mul!(fill(one_, n, n), Symmetric(P), P', true, false))
+        @test mulcount(f) == n
+    end
+    # a symmetric sparse matrix times a sparse vector costs what the plain product does
+    x = sparsevec(fill(one_, n)); y = fill(one_, n)
+    @test mulcount(() -> mul!(copy(y), Symmetric(P), x, true, false)) == mulcount(() -> mul!(copy(y), P, x, true, false))
+    # scaling a column-view destination by `β` stays sparse
+    Q = mulcount_sparse(sparse(1.0I, n, n + 1))
+    @test mulcount(() -> mul!(view(Q, :, 1:n), P, P, two, two)) <= 4n
+    # the adjoint kernel for a sparse vector does not allocate per column
+    A = sprandn(400, 400, 0.01); xs = sprandn(400, 0.1); ys = zeros(400)
+    mul!(ys, A', xs, 2.0, 0.5)
+    @test (@allocated mul!(ys, A', xs, 2.0, 0.5)) < 1000
+end
+
 @testset "dimension mismatch error" begin
     fs = [rand, (x, y)->adjoint(rand(y, x)), (x, y)->transpose(rand(y, x)),
           (x, y)->sprand(x, y, 0.5), (x, y)->adjoint(sprand(y, x, 0.5)),

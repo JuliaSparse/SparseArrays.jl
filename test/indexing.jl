@@ -562,6 +562,23 @@ _length_or_count_or_five(::Colon) = 5
 _length_or_count_or_five(x::AbstractVector{Bool}) = count(x)
 _length_or_count_or_five(x) = length(x)
 
+@testset "assigning a sparse block copies its storage" begin
+    A = sprandn(6, 8, 0.5); A0 = copy(A); B = sprandn(6, 3, 0.5)
+    # the sparse method, not the elementwise conversion of a lazy reshape
+    @test which(SparseArrays._to_same_csc, typeof.((A, B, 1:6, 2:4))) !==
+          which(SparseArrays._to_same_csc, typeof.((A, Matrix(B), 1:6, 2:4)))
+    A[:, 2:4] = B
+    @test A[:, 2:4] == B && A[:, [1, 5, 6, 7, 8]] == A0[:, [1, 5, 6, 7, 8]]
+    A[:, [7, 5]] = B[:, 1:2]
+    @test A[:, 7] == B[:, 1] && A[:, 5] == B[:, 2]
+    A = copy(A0); A[:, :] = A
+    @test A == A0
+    A[:, 2] = sparse([1.0 0 2 0 0 3])   # 1×n into a column, #569
+    @test A[:, 2] == [1, 0, 2, 0, 0, 3]
+    K = SparseMatrixCSC{Float32,Int32}(A0); K[2:3, 2:3] = sparse([1.5 2; 3 4])
+    @test K[2:3, 2:3] == [1.5 2; 3 4] && K isa SparseMatrixCSC{Float32,Int32}
+end
+
 @testset "nonscalar setindex!" begin
     for I in (1:4, :, 5:-1:2, [], trues(5), setindex!(falses(5), true, 2), 3),
         J in (2:4, :, 4:-1:1, [], setindex!(trues(5), false, 3), falses(5), 4)

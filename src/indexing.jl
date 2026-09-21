@@ -772,6 +772,9 @@ end
 # Nonscalar A[I,J] = B: Convert B to a SparseMatrixCSC of the appropriate shape first
 # (reshape also fixes a 1×n V assigned to A[:, j], which the shape check allows; see #569)
 _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I...) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, map(length, I)))
+# a sparse `V` is copied through its storage; converting the lazy reshape would visit every element
+_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I...) where {Tv,Ti} =
+    SparseMatrixCSC{Tv,Ti}(size(V) == map(length, I) ? V : copy(reshape(V, map(length, I))))
 
 setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::Integer) where {Tv} = _setindex_scalar!(A, B, I, J)
 

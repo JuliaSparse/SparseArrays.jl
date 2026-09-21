@@ -75,18 +75,28 @@ mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::AbstractMatr
     spdensemul!(C, tA, tB, A, B, alpha, beta)
 mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number) =
     densespmul!(C, tA, tB, A, B, alpha, beta)
-Base.@constprop :aggressive function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
-    # `A' * B' == (B * A)'` walks columns instead of looking up rows, for commutative eltypes
-    if tA == tB && tA in ('T', 'C') && eltype(A) <: Union{Real,Complex} && eltype(B) <: Union{Real,Complex}
-        tfun = tA == 'T' ? transpose : adjoint
-        _spmatmul!(tfun(C), B, A, tfun(alpha), tfun(beta))
-        return C
+# With both factors sparse, only pairs of stored entries contribute: column `k` of `B` selects
+# the columns of `A` that are added into column `k` of `C`. A wrapped or subset factor is
+# materialized first, which is O(nnz).
+function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
+    _spmatspmat_dense!(C, tA == 'N' ? A : sparse(wrap(A, tA)), tB == 'N' ? B : sparse(wrap(B, tB)), alpha, beta)
+    return C
+end
+function _spmatspmat_dense!(C, A, B, α, β)
+    mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
+    rvA, nzA = rowvals(A), nonzeros(A)
+    rvB, nzB = rowvals(B), nonzeros(B)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
     end
-    # with both symmetric/Hermitian, row lookups in two half-stored factors cost more than the generic sweep
-    if _uppercase(tA) in ('S', 'H') && _uppercase(tB) in ('S', 'H')
-        return LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
+    C = _fix_size(C, mC, nC)
+    @inbounds for k in axes(B, 2), q in nzrange(B, k)
+        bα = α isa Bool ? nzB[q] : nzB[q] * α
+        for p in nzrange(A, rvB[q])
+            C[rvA[p], k] = muladd(nzA[p], bα, C[rvA[p], k])
+        end
     end
-    spdensemul!(C, tA, tB, A, B, alpha, beta)
 end
 LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
@@ -246,6 +256,36 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::Spars
         dst, src = plain ? (col, rv[k]) : (rv[k], col)
         @simd for row in Aax1
             C[row, dst] = muladd(A[row, src], Biα, C[row, dst])
+        end
+    end
+end
+
+# With an adjoint/transpose `A` and a transposed `B`, a column of `A` is a strided row of its
+# parent that every stored entry of the matching column of `B` would reread; it is copied
+# out once per column instead.
+function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
+    Aax1 = axes(A, 1)
+    mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
+    rv = rowvals(B)
+    nzv = nonzeros(B)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
+    C = _fix_size(C, mC, nC)
+    buf = Vector{eltype(A)}(undef, mA)
+    @inbounds for col in axes(B, 2)
+        nzrng = nzrange(B, col)
+        isempty(nzrng) && continue
+        for row in Aax1
+            buf[row] = A[row, col]
+        end
+        for k in nzrng
+            Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
+            dst = rv[k]
+            @simd for row in Aax1
+                C[row, dst] = muladd(buf[row], Biα, C[row, dst])
+            end
         end
     end
 end
@@ -467,7 +507,9 @@ Base.@constprop :aggressive function mul!(C::SparseMatrixCSCOrColumnSubset, tA, 
     iszero(alpha) && return LinearAlgebra._rmul_or_fill!(C, beta)
     P = _unwrapped_sparse(A, tA) * _unwrapped_sparse(B, tB)
     isone(alpha) || (P = P * alpha)
-    R = iszero(beta) ? P : isone(beta) ? P + C : P + C * beta
+    # a column view times a scalar would be dense
+    C0 = C isa AbstractSparseMatrixCSC ? C : copy(C)
+    R = iszero(beta) ? P : isone(beta) ? P + C0 : P + C0 * beta
     # converting first leaves `C` untouched if its eltype cannot hold the result
     return _assign_sparse!(C, convert(SparseMatrixCSC{eltype(C),indtype(C)}, R))
 end
@@ -1062,9 +1104,9 @@ Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatri
     if tA == 'N'
         _A_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
-        _At_or_Ac_mul_B!(transpose, y, A, x, alpha, beta)
+        _At_or_Ac_mul_spvec!(transpose, y, A, x, alpha, beta)
     elseif tA == 'C'
-        _At_or_Ac_mul_B!(adjoint, y, A, x, alpha, beta)
+        _At_or_Ac_mul_spvec!(adjoint, y, A, x, alpha, beta)
     else
         _A_mul_spvec!(y, wrap(A, tA), x, alpha, beta)
     end
@@ -1078,9 +1120,9 @@ function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSpars
     @assert tA == 'N'
     Adata = parent(A)
     if Adata isa Transpose
-        _At_or_Ac_mul_B!(transpose, y, _fliptri(A), x, alpha, beta)
+        _At_or_Ac_mul_spvec!(transpose, y, _fliptri(A), x, alpha, beta)
     elseif Adata isa Adjoint
-        _At_or_Ac_mul_B!(adjoint, y, _fliptri(A), x, alpha, beta)
+        _At_or_Ac_mul_spvec!(adjoint, y, _fliptri(A), x, alpha, beta)
     else # Adata is plain
         _A_mul_spvec!(y, A, x, alpha, beta)
     end
@@ -1111,7 +1153,7 @@ function _A_mul_spvec!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVe
     end
 end
 
-function _At_or_Ac_mul_B!(tfun::Function,
+function _At_or_Ac_mul_spvec!(tfun::Function,
                             y::AbstractVector, A::Union{StridedMatrix,UpperOrLowerTriangular}, x::AbstractSparseVector,
                             α::Number, β::Number)
     require_one_based_indexing(y, A, x)
@@ -1179,9 +1221,12 @@ Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
     if tA == 'N'
         _spA_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
-        _At_or_Ac_mul_B!((a,b) -> transpose(a) * b, y, A, x, alpha, beta)
+        _spAt_or_Ac_mul_spvec!((a,b) -> transpose(a) * b, y, A, x, alpha, beta)
     elseif tA == 'C'
-        _At_or_Ac_mul_B!((a,b) -> adjoint(a) * b, y, A, x, alpha, beta)
+        _spAt_or_Ac_mul_spvec!((a,b) -> adjoint(a) * b, y, A, x, alpha, beta)
+    elseif _uppercase(tA) in ('S', 'H')
+        # the stored triangle alone cannot be walked by the columns `x` selects
+        _spA_mul_spvec!(y, sparse(wrap(A, tA)), x, alpha, beta)
     else
         LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, alpha, beta)
     end
@@ -1216,9 +1261,9 @@ function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::Abstr
     end
 end
 
-function _At_or_Ac_mul_B!(tfun::Function,
+function _spAt_or_Ac_mul_spvec!(tfun::F,
                           y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
-                          α::Number, β::Number)
+                          α::Number, β::Number) where {F<:Function}
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == m || throw(DimensionMismatch(
@@ -1254,10 +1299,10 @@ function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
 end
 
 *(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
-    _At_or_Ac_mul_B((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
+    _spAt_or_Ac_mul_spvec((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
 
-function _At_or_Ac_mul_B(tfun::Function, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
-                         Tv = promote_op(matprod, TvA, TvX)) where {TvA,TiA,TvX,TiX}
+function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
+                         Tv = promote_op(matprod, TvA, TvX)) where {F<:Function,TvA,TiA,TvX,TiX}
     require_one_based_indexing(A, x)
     m, n = size(A)
     length(x) == m || throw(DimensionMismatch(
