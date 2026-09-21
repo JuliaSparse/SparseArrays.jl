@@ -566,6 +566,40 @@ end
     end
 end
 
+# reads of the wrapped matrix are counted, to tell a kernel that copies each strided row
+# once from one that rereads it for every stored entry
+struct CountedReadsMatrix{T} <: AbstractMatrix{T}
+    parent::Matrix{T}
+    reads::Base.RefValue{Int}
+end
+Base.size(X::CountedReadsMatrix) = size(X.parent)
+Base.getindex(X::CountedReadsMatrix, i::Int, j::Int) = (X.reads[] += 1; X.parent[i, j])
+
+@testset "product kernels touch stored entries only" begin
+    n = 8
+    # adjoint dense times adjoint sparse reads each entry of the dense factor at most once
+    A = sprandn(ComplexF64, 6, n, 0.5); X = randn(ComplexF64, n, 5); C0 = randn(ComplexF64, 5, 6)
+    Xc = CountedReadsMatrix(X, Ref(0))
+    @test mul!(copy(C0), Xc', A', 2, 3) ≈ 2 * X' * Matrix(A)' + 3 * C0
+    @test Xc.reads[] <= length(X)
+    @test mul!(copy(C0), transpose(X), transpose(A), 2, 3) ≈ 2 * transpose(X) * transpose(Matrix(A)) + 3 * C0
+    P = mulcount_sparse(sparse(1.0I, n, n))
+    one_, two = MulCount(1.0), MulCount(2.0)
+    # sparse times sparse into a dense destination: one multiplication per pair of stored entries
+    @test mulcount(() -> mul!(fill(one_, n, n), P, P, true, false)) == n
+    @test mulcount(() -> mul!(fill(one_, n, n), Symmetric(P), P', true, false)) == n
+    # a symmetric sparse matrix times a sparse vector costs what the plain product does
+    x = sparsevec(fill(one_, n)); y = fill(one_, n)
+    @test mulcount(() -> mul!(copy(y), Symmetric(P), x, true, false)) == mulcount(() -> mul!(copy(y), P, x, true, false))
+    # scaling a column-view destination by `β` stays sparse
+    Q = mulcount_sparse(sparse(1.0I, n, n + 1))
+    @test mulcount(() -> mul!(view(Q, :, 1:n), P, P, two, two)) <= 4n
+    # the adjoint kernel for a sparse vector does not allocate per column
+    A = sprandn(400, 400, 0.01); xs = sprandn(400, 0.1); ys = zeros(400)
+    mul!(ys, A', xs, 2.0, 0.5)
+    @test (@allocated mul!(ys, A', xs, 2.0, 0.5)) < 1000
+end
+
 @testset "dimension mismatch error" begin
     fs = [rand, (x, y)->adjoint(rand(y, x)), (x, y)->transpose(rand(y, x)),
           (x, y)->sprand(x, y, 0.5), (x, y)->adjoint(sprand(y, x, 0.5)),

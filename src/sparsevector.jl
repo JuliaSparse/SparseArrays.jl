@@ -121,8 +121,8 @@ function _partialview_end_indices(x::SparseVectorPartialView)
         last_idx = length(nzinds)
         first_idx = last_idx + 1
     else
-        first_idx = findfirst(>=(x.indices[1][begin]), nzinds)
-        last_idx = findlast(<=(x.indices[1][end]), nzinds)
+        first_idx = findfirst(>=(parentindices(x)[1][begin]), nzinds)
+        last_idx = findlast(<=(parentindices(x)[1][end]), nzinds)
         # empty view
         if first_idx === nothing || last_idx === nothing
             last_idx = length(nzinds)
@@ -133,10 +133,10 @@ function _partialview_end_indices(x::SparseVectorPartialView)
 end
 
 function nonzeroinds(x::SparseVectorPartialView)
-    isempty(x.indices[1]) && return indtype(parent(x))[]
+    isempty(parentindices(x)[1]) && return indtype(parent(x))[]
     (first_idx, last_idx) = _partialview_end_indices(x)
     nzinds = nonzeroinds(parent(x))
-    return @view(nzinds[first_idx:last_idx]) .- (x.indices[1][begin] - 1)
+    return @view(nzinds[first_idx:last_idx]) .- (parentindices(x)[1][begin] - 1)
 end
 
 getrowval(x::SparseVectorOrView) = nonzeroinds(x)

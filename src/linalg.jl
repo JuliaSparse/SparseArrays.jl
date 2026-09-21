@@ -41,7 +41,7 @@ dot(A::Transpose{<:Any,<:SparseMatrixCSCOrColumnSubset}, B::Adjoint{<:Any,<:Spar
 # first stored index of column `j` and of the column after it; unlike `nzrange` this builds
 # no range, whose empty-range normalization is measurable in per-column loops
 Base.@propagate_inbounds _colbounds(A::AbstractSparseMatrixCSC, j) = (getcolptr(A)[j], getcolptr(A)[j+1])
-Base.@propagate_inbounds _colbounds(A::SparseMatrixCSCColumnSubset, j) = _colbounds(parent(A), A.indices[2][j])
+Base.@propagate_inbounds _colbounds(A::SparseMatrixCSCColumnSubset, j) = _colbounds(parent(A), parentindices(A)[2][j])
 
 # `Σ f(A[i,j], B[i,j])` over the entries stored in both `A` and `B`
 function _dot_walk(f::F, A::SparseMatrixCSCOrColumnSubset{T1,S1}, B::SparseMatrixCSCOrColumnSubset{T2,S2}) where {F,T1,T2,S1,S2}
@@ -579,10 +579,10 @@ matop_dest(::typeof(/), A::QuasiSparseMatrix, B::Diagonal) =
 
 
 dot(x::AbstractVector, A::HermOrSym{<:Any,<:SparseMatrixCSCOrColumnSubset}, y::AbstractVector) =
-    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+    _dot(x, parent(A), y, _symherm_ops(A)...)
 # disambiguation
 dot(x::AbstractVector, A::RealHermSymComplexHerm{<:Real,<:SparseMatrixCSCOrColumnSubset}, y::AbstractVector) =
-    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+    _dot(x, parent(A), y, _symherm_ops(A)...)
 function _dot(x::AbstractVector, A::SparseMatrixCSCOrColumnSubset, y::AbstractVector, rangefun::Function, diagop::Function, odiagop::Function)
     require_one_based_indexing(x, y)
     m, n = size(A)
@@ -611,10 +611,10 @@ function _dot(x::AbstractVector, A::SparseMatrixCSCOrColumnSubset, y::AbstractVe
     return r
 end
 dot(x::AbstractSparseVector, A::HermOrSym{<:Any,<:SparseMatrixCSCOrColumnSubset}, y::AbstractSparseVector) =
-    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+    _dot(x, parent(A), y, _symherm_ops(A)...)
 # disambiguation
 dot(x::AbstractSparseVector, A::RealHermSymComplexHerm{<:Real,<:SparseMatrixCSCOrColumnSubset}, y::AbstractSparseVector) =
-    _dot(x, parent(A), y, A.uplo == 'U' ? nzrangeup : nzrangelo, A isa Symmetric ? identity : real, A isa Symmetric ? transpose : adjoint)
+    _dot(x, parent(A), y, _symherm_ops(A)...)
 function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::AbstractSparseVector, rangefun::Function, diagop::Function, odiagop::Function)
     m, n = size(A)
     length(x) == m && n == length(y) ||
