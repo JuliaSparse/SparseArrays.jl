@@ -6,11 +6,8 @@ using Test
 using SparseArrays
 using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, fixed, _is_fixed
 using LinearAlgebra
-using Printf: @printf # for debug
 using Random
 using Test: guardseed
-using InteractiveUtils: @which
-using Dates
 include("forbidproperties.jl")
 
 se33 = SparseMatrixCSC{Float64}(I, 3, 3)
@@ -397,8 +394,8 @@ end
     @test (@allocated sum(A; dims = 2, sparse = true)) < 2^12
     # a column-range view goes through the sparse kernels, not the element-wise fallback (#377)
     V = view(A, :, 2:3)
-    @test (@which Base._mapreducedim!(identity, +, zeros(10^6, 1), V)).module == SparseArrays
-    @test (@which Base._mapreduce(identity, +, IndexCartesian(), V)).module == SparseArrays
+    @test which(Base._mapreducedim!, Base.typesof(identity, +, zeros(1, 1), V)).module == SparseArrays
+    @test which(Base._mapreduce, Base.typesof(identity, +, IndexCartesian(), V)).module == SparseArrays
     @test nnz(sum(V; dims = 2, sparse = true)) == 2
     # adjoints, views of a column subset and sparse vectors reduce like their copy, calling `f`
     # for the stored entries and once per slice rather than per element

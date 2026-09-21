@@ -2,7 +2,6 @@
 
 module SPQRTests
 using Test
-using InteractiveUtils: @which
 
 @static if !Base.USE_GPL_LIBS
     @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping SPQR Tests"
@@ -36,7 +35,7 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
     @test size(F) == (m,n)
     # qr of an adjoint or transpose factorizes the sparse transpose with SPQR
     for X in (A', transpose(A))
-        @test (@which qr(X)).module == SPQR
+        @test which(qr, Base.typesof(X)).module == SPQR
         G = qr(X; tol = 1e-3)
         @test G isa SPQR.QRSparse{eltyA, iltyA} && size(G) == (n, m)
         @test G.Q * G.R ≈ Matrix(X)[G.prow, G.pcol]
