@@ -1024,22 +1024,11 @@ end
 end
 
 @testset "sym indefinite poly alg" begin
-    K = open(joinpath(@__DIR__, "matrices", "stiffness_sym_indef")) do io
-        ml = readline(io)
-        m = parse(Int, split(ml, "m = ")[2])
-        nl = readline(io)
-        n = parse(Int, split(nl, "n = ")[2])
-
-        colptrl = readline(io)
-        rowvall = readline(io)
-        nzvall = readline(io)
-
-        colptr = parse.(Int,     split(strip(split(colptrl, "colptr = ")[2], [']', '[']), ','))
-        rowval = parse.(Int,     split(strip(split(rowvall, "rowval = ")[2], [']', '[']), ','))
-        nzval =  parse.(Float64, split(strip(split(nzvall, "nzval = ")[2], [']', '[']), ','))
-
-        SparseMatrixCSC(m, n, colptr, rowval, nzval)
-    end
+    # Well conditioned and symmetric indefinite with a tiny diagonal: `cholesky` fails, and
+    # an unpivoted LDLt succeeds but is inaccurate, so `\` has to fall back to `lu` (#325)
+    n = 50
+    K = spdiagm(-1 => ones(n - 1), 0 => [isodd(i) ? 1e-16 : -1e-16 for i in 1:n], 1 => ones(n - 1))
+    @test !issuccess(cholesky(Symmetric(K); check = false))
 
     f = ones(size(K, 1))
     u = K \ f
