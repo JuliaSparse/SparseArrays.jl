@@ -211,7 +211,7 @@ Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
     X = wrap(A, tA)
     tB_uc = _uppercase(tB)
     if tB_uc == 'N'
-        _spmul!(C, X, B, alpha, beta)
+        _A_mul_Bt_or_Bc!(identity, C, X, B, alpha, beta)
     elseif tB_uc == 'T'
         _A_mul_Bt_or_Bc!(transpose, C, X, B, alpha, beta)
     elseif tB_uc == 'C'
@@ -225,57 +225,14 @@ Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
     return C
 end
 
-function _spmul!(C::StridedMatrix, X::AbstractMatrix, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
-    Aax2 = axes(A, 2)
-    Xax1 = axes(X, 1)
-    mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
-    rv = rowvals(A)
-    nzv = nonzeros(A)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
-    C = _fix_size(C, mC, nC)
-    X = _fix_size(X, mX, nX)
-    @inbounds for col in Aax2, k in nzrange(A, col)
-        Aiα = α isa Bool ? nzv[k] : nzv[k] * α
-        rvk = rv[k]
-        @simd for multivec_row in Xax1
-            C[multivec_row, col] = muladd(X[multivec_row, rvk], Aiα,
-                                          C[multivec_row, col])
-        end
-    end
-end
-function _spmul!(C::StridedMatrix, X::AdjOrTrans, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
-    Xax1 = axes(X, 1)
-    Cax2 = axes(C, 2)
-    mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
-    rv = rowvals(A)
-    nzv = nonzeros(A)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
-    C = _fix_size(C, mC, nC)
-    X = _fix_size(X, mX, nX)
-    @inbounds for multivec_row in Xax1, col in Cax2
-        nzrng = nzrange(A, col)
-        if isempty(nzrng)
-            continue
-        end
-        tmp = C[multivec_row, col]
-        for k in nzrng
-            tmp = muladd(X[multivec_row, rv[k]],
-                         (α isa Bool ? nzv[k] : nzv[k] * α), tmp)
-        end
-        C[multivec_row, col] = tmp
-    end
-end
 
-function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
+# `C = A * tfun(B) * α + C * β`, with `tfun === identity` for the plain product: column `src`
+# of `A` is added into column `dst` of `C` once per stored entry of `B`
+function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
+    plain = tfun === identity
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
-    mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
+    mC, nC, mA, nA, mB, nB = plain ? _matmul_size_AB(C, A, B) : _matmul_size_ABt(C, A, B)
     rv = rowvals(B)
     nzv = nonzeros(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -286,10 +243,35 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     A = _fix_size(A, mA, nA)
     @inbounds for col in Bax2, k in nzrange(B, col)
         Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
-        rvk = rv[k]
-        @simd for multivec_col in Aax1
-            C[multivec_col, rvk] = muladd(A[multivec_col, col], Biα, C[multivec_col, rvk])
+        dst, src = plain ? (col, rv[k]) : (rv[k], col)
+        @simd for row in Aax1
+            C[row, dst] = muladd(A[row, src], Biα, C[row, dst])
         end
+    end
+end
+
+# the plain product with an adjoint/transpose `A` reads it along its rows, which are the
+# columns of its parent; with a transposed `B` that would scatter across the rows of `C`
+function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
+    Aax1 = axes(A, 1)
+    Bax2 = axes(B, 2)
+    mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
+    rv = rowvals(B)
+    nzv = nonzeros(B)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
+    C = _fix_size(C, mC, nC)
+    A = _fix_size(A, mA, nA)
+    @inbounds for row in Aax1, col in Bax2
+        nzrng = nzrange(B, col)
+        isempty(nzrng) && continue
+        tmp = C[row, col]
+        for k in nzrng
+            tmp = muladd(A[row, rv[k]], (α isa Bool ? nzv[k] : nzv[k] * α), tmp)
+        end
+        C[row, col] = tmp
     end
 end
 
@@ -1078,13 +1060,13 @@ _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                                         alpha::Number, beta::Number)
     if tA == 'N'
-        _spmul!(y, A, x, alpha, beta)
+        _A_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
         _At_or_Ac_mul_B!(transpose, y, A, x, alpha, beta)
     elseif tA == 'C'
         _At_or_Ac_mul_B!(adjoint, y, A, x, alpha, beta)
     else
-        _spmul!(y, wrap(A, tA), x, alpha, beta)
+        _A_mul_spvec!(y, wrap(A, tA), x, alpha, beta)
     end
     return y
 end
@@ -1100,11 +1082,11 @@ function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSpars
     elseif Adata isa Adjoint
         _At_or_Ac_mul_B!(adjoint, y, _fliptri(A), x, alpha, beta)
     else # Adata is plain
-        _spmul!(y, A, x, alpha, beta)
+        _A_mul_spvec!(y, A, x, alpha, beta)
     end
     return y
 end
-function _spmul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, α::Number, β::Number)
+function _A_mul_spvec!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == n || throw(DimensionMismatch(
@@ -1195,7 +1177,7 @@ mul!(y::StridedVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, 
     _spmatspvecmul!(y, tA, A, x, alpha, beta)
 Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
     if tA == 'N'
-        _spmul!(y, A, x, alpha, beta)
+        _spA_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
         _At_or_Ac_mul_B!((a,b) -> transpose(a) * b, y, A, x, alpha, beta)
     elseif tA == 'C'
@@ -1206,7 +1188,7 @@ Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
     return y
 end
 
-function _spmul!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, α::Number, β::Number)
+function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == n || throw(DimensionMismatch(
