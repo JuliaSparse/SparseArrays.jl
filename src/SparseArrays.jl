@@ -10,9 +10,9 @@ using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
 using Base.Order: Forward
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
-    AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ, MulAddMul,
+    AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ,
     UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, UpperOrUnitUpperTriangular,
-    LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, @stable_muladdmul, isbanded
+    LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, isbanded
 
 
 import Base: +, -, *, \, /, ==, zero

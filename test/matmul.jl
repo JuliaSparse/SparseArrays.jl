@@ -290,6 +290,13 @@ end
         @test mul!(copy(C), W(A), B, 2, 3) ≈ 2 * W(Matrix(A)) * Matrix(B) + 3 * Matrix(C)
         @test mul!(copy(C), A', W(B, :L), 2, 3) ≈ 2 * Matrix(A)' * W(Matrix(B), :L) + 3 * Matrix(C)
     end
+    # a column-view destination is assigned through its parent
+    P = sprandn(ComplexF64, 8, 10, 0.3); P0 = copy(P)
+    @test mul!(view(P, :, 2:9), A, B', 2, 3) ≈ 2 * Matrix(A) * Matrix(B)' + 3 * Matrix(P0)[:, 2:9]
+    @test P[:, [1, 10]] == P0[:, [1, 10]]
+    W = view(P, :, [5, 3, 9]); W0 = Matrix(W)
+    @test mul!(W, A, B[:, 1:3], true, true) ≈ Matrix(A) * Matrix(B)[:, 1:3] + W0
+    @test mul!(view(sparse(ones(2, 2)), :, 1:2), sparse([1.0 0; 0 0]), sparse([1.0 0; 0 0])) == [1 0; 0 0]
     # the destination takes the pattern of the sparse product; the elementwise fallback keeps its own
     @test nnz(mul!(sparse(ones(2, 2)), sparse([1.0 0; 0 0]), sparse([1.0 0; 0 0]))) == 1
     @test mul!(sparse(fill(complex(NaN), 8, 8)), A, B, true, false) ≈ Matrix(A) * Matrix(B)
