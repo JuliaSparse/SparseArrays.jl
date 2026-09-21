@@ -51,7 +51,7 @@ They must satisfy the following invariants:
 
 The constructor throws an `ArgumentError` if the first two are violated, but it does *not*
 inspect the row indices. A matrix with unsorted, repeated or out-of-range row indices is
-constructed silently, which will then run into several problems.
+constructed silently and then gives inconsistent results.
 
 Arrays from C, Python (SciPy's `indptr` and `indices`) and other 0-based sources need `1`
 added to `colptr` and `rowval`.

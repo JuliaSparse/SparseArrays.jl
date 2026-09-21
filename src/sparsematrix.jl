@@ -15,6 +15,28 @@ Matrix type for storing sparse matrices in the
 [Compressed Sparse Column](@ref man-csc) format. The standard way
 of constructing SparseMatrixCSC is through the [`sparse`](@ref) function.
 See also [`spzeros`](@ref), [`spdiagm`](@ref) and [`sprand`](@ref).
+
+    SparseMatrixCSC(m::Integer, n::Integer, colptr::Vector, rowval::Vector, nzval::Vector)
+
+Wrap existing CSC arrays as an `m × n` matrix without copying them. Column `j` holds the
+entries `nzval[k]` in rows `rowval[k]` for `k in colptr[j]:(colptr[j+1] - 1)`.
+
+Only `colptr` and the lengths of `rowval` and `nzval` are checked. The row indices are
+not inspected, and must be strictly increasing within each column and lie in `1:m`.
+The kernels in this package rely on that. A matrix with unsorted, repeated or
+out-of-range row indices is constructed silently and then gives inconsistent results.
+To construct a matrix from repeated indices, use [`sparse`](@ref), which adds up their
+values.
+See [the manual](@ref man-csc) for how to repair such arrays.
+
+# Examples
+```jldoctest
+julia> SparseMatrixCSC(3, 2, [1, 3, 4], [1, 3, 2], [1.0, 2.0, 3.0])
+3×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
+ 1.0   ⋅
+  ⋅   3.0
+ 2.0   ⋅
+```
 """
 struct SparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     m::Int                  # Number of rows
