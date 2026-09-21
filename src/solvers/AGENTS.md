@@ -1,7 +1,8 @@
 # AGENTS.md for `src/solvers/`
 
 Rules for the SuiteSparse solver layer (CHOLMOD, UMFPACK, SPQR), in addition to the
-top-level `AGENTS.md`.
+top-level `AGENTS.md`. This directory and `test/solvers/` hold everything that depends
+on the GPL libraries; see the Layout section there.
 
 - `wrappers.jl` is generated from the SuiteSparse headers by `gen/`. Never edit it by
   hand; `gen/AGENTS.md` covers regenerating it and upgrading SuiteSparse.

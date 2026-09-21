@@ -42,6 +42,14 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
 - `linalg.jl` holds `dot`, `kron`, solves, norms and the LinearAlgebra wrappers.
 - The shared dispatch aliases live in `SparseArrays.jl`.
 - Test files are listed explicitly in `test/runtests.jl`.
+- Everything that depends on the GPL SuiteSparse libraries lives in `src/solvers/` and
+  `test/solvers/`, and nowhere else. `Base.USE_GPL_LIBS` is checked once per tree, with
+  `@static`: where `SparseArrays.jl` includes the solvers and where `test/runtests.jl`
+  lists their suites. Code outside `src/solvers/` reaches a solver only through the
+  generic LinearAlgebra functions (`lu`, `qr`, `cholesky`, `\`), never by naming a
+  solver module. A test that factorizes or solves with a sparse matrix goes in
+  `test/solvers/`, whatever feature it is about; the other suites must pass on a build
+  without GPL libraries.
 
 ## Running tests
 
@@ -57,9 +65,7 @@ The doctest command edits `docs/Project.toml`; discard that change before commit
 
 The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
 as a separate CI job.
-Everything that needs SuiteSparse is tested under `test/solvers/`, which runs only when
-`Base.USE_GPL_LIBS` is true; `test/runtests.jl` holds the only check. One CI job runs
-`--check-bounds=yes` to catch bad `@inbounds`.
+One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
 
 ## Style
 

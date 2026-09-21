@@ -11,10 +11,8 @@ measure test time, in addition to the top-level `AGENTS.md`.
 - Test files are named after the source area they cover. `solvers/` mirrors
   `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
   `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
-- Everything that needs SuiteSparse lives in `solvers/`, and the one
-  `Base.USE_GPL_LIBS` check in `runtests.jl` decides whether those suites run. Do not
-  guard inside the files, and keep solver calls out of the other test files, which also
-  run on builds without GPL libraries.
+- The files in `solvers/` carry no `Base.USE_GPL_LIBS` guards of their own; the
+  top-level `AGENTS.md` has the rule for what belongs there.
 - `triangular.jl` holds the triangular product and solve tests as one scheduling unit,
   and the two grids share their fixtures. `concatenation.jl` likewise holds all
   concatenation tests.
