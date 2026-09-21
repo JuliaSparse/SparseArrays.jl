@@ -213,7 +213,7 @@ Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
     X = wrap(A, tA)
     tB_uc = _uppercase(tB)
     if tB_uc == 'N'
-        _spmul!(C, X, B, alpha, beta)
+        _A_mul_Bt_or_Bc!(identity, C, X, B, alpha, beta)
     elseif tB_uc == 'T'
         _A_mul_Bt_or_Bc!(transpose, C, X, B, alpha, beta)
     elseif tB_uc == 'C'
@@ -227,33 +227,6 @@ Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
     return C
 end
 
-_spmul!(C::StridedMatrix, X::AbstractMatrix, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) =
-    _A_mul_Bt_or_Bc!(identity, C, X, A, α, β)
-function _spmul!(C::StridedMatrix, X::AdjOrTrans, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
-    Xax1 = axes(X, 1)
-    Cax2 = axes(C, 2)
-    mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
-    rv = rowvals(A)
-    nzv = nonzeros(A)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
-    C = _fix_size(C, mC, nC)
-    X = _fix_size(X, mX, nX)
-    @inbounds for multivec_row in Xax1, col in Cax2
-        nzrng = nzrange(A, col)
-        if isempty(nzrng)
-            continue
-        end
-        tmp = C[multivec_row, col]
-        for k in nzrng
-            tmp = muladd(X[multivec_row, rv[k]],
-                         (α isa Bool ? nzv[k] : nzv[k] * α), tmp)
-        end
-        C[multivec_row, col] = tmp
-    end
-end
 
 # `C = A * tfun(B) * α + C * β`, with `tfun === identity` for the plain product: column `src`
 # of `A` is added into column `dst` of `C` once per stored entry of `B`
@@ -276,6 +249,31 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::Spars
         @simd for row in Aax1
             C[row, dst] = muladd(A[row, src], Biα, C[row, dst])
         end
+    end
+end
+
+# the plain product with an adjoint/transpose `A` reads it along its rows, which are the
+# columns of its parent; with a transposed `B` that would scatter across the rows of `C`
+function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
+    Aax1 = axes(A, 1)
+    Bax2 = axes(B, 2)
+    mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
+    rv = rowvals(B)
+    nzv = nonzeros(B)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
+    C = _fix_size(C, mC, nC)
+    A = _fix_size(A, mA, nA)
+    @inbounds for row in Aax1, col in Bax2
+        nzrng = nzrange(B, col)
+        isempty(nzrng) && continue
+        tmp = C[row, col]
+        for k in nzrng
+            tmp = muladd(A[row, rv[k]], (α isa Bool ? nzv[k] : nzv[k] * α), tmp)
+        end
+        C[row, col] = tmp
     end
 end
 
