@@ -4,7 +4,7 @@ using Test, LinearAlgebra, SparseArrays
 
 testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsematrix_constructors_indexing.jl", "sparsematrix_ops.jl",
-             "sparsevector.jl", "issues.jl", "linalg.jl", "linalg_products.jl",
+             "sparsevector.jl", "issues.jl", "linalg.jl", "matmul.jl",
              "threads_suite.jl", "triangular.jl", "concatenation.jl"]
 
 if Base.USE_GPL_LIBS

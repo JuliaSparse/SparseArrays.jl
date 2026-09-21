@@ -35,7 +35,8 @@ linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) und
 | `src/abstractsparse.jl` | Abstract types, `issparse`, the shared dispatch aliases. |
 | `src/sparsematrix.jl`, `src/sparsevector.jl` | Storage, constructors, indexing, in-place ops. |
 | `src/higherorderfns.jl` | Broadcast and `map!` kernels. |
-| `src/linalg.jl`, `src/sparseconvert.jl` | Products, solves, LinearAlgebra wrappers, conversions. |
+| `src/matmul.jl` | `*`, `mul!`, `lmul!`, `rmul!` and their kernels, for matrices and vectors. |
+| `src/linalg.jl`, `src/sparseconvert.jl` | `dot`, `kron`, solves, norms, LinearAlgebra wrappers, conversions. |
 | `src/readonly.jl` | Read-only vector behind the experimental fixed-pattern arrays. |
 | `src/solvers/` | Hand-written solver layers, library loading, generated bindings. |
 | `gen/` | Wrapper generator; see its README. |
