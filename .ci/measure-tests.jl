@@ -4,7 +4,7 @@ verbose = "--verbose" in ARGS
 suites = filter(!=("--verbose"), ARGS)
 length(suites) == 1 || error("Usage: julia +nightly --project .ci/measure-tests.jl SUITE [--verbose]")
 suite = only(suites)
-occursin(r"^[A-Za-z0-9_]+$", suite) || error("Expected a test suite name without .jl")
+occursin(r"^[A-Za-z0-9_/]+$", suite) || error("Expected a test suite name without .jl")
 root = dirname(@__DIR__)
 testfile = joinpath(root, "test", suite * ".jl")
 isfile(testfile) || error("Unknown test suite: $suite")

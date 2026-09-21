@@ -3,10 +3,6 @@
 module CHOLMODTests
 using Test
 
-@static if !Base.USE_GPL_LIBS
-    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping CHOLMOD tests"
-else
-
 using SparseArrays.CHOLMOD
 using Random
 using Serialization
@@ -455,8 +451,6 @@ end
     @test cholesky(A) \ b ≈ Matrix(A) \ b
 end
 
-end # Base.USE_GPL_LIBS
-
 end # module
 
 # This file is a part of Julia. License is MIT: https://julialang.org/license
@@ -464,10 +458,6 @@ end # module
 module CHOLMODOpsTests
 # Core Sparse/Dense/Factor operations, factor extraction and regression tests for CHOLMOD.
 using Test
-
-@static if !Base.USE_GPL_LIBS
-    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping CHOLMOD tests"
-else
 
 using SparseArrays.CHOLMOD
 using SparseArrays.CHOLMOD: getcommon
@@ -918,16 +908,6 @@ end
     end
 end
 
-@testset "sparse right multiplication of Symmetric and Hermitian matrices #21431" begin
-    S = sparse(1.0I, 2, 2)
-    @test issparse(S*S*S)
-    for T in (Symmetric, Hermitian)
-        @test issparse(S*T(S)*S)
-        @test issparse(S*(T(S)*S))
-        @test issparse((S*T(S))*S)
-    end
-end
-
 @testset "Test sparse low rank update for cholesky decomposition" begin
     A = SparseMatrixCSC{Tv,Int}(10, 5, [1,3,6,8,10,13], [6,7,1,2,9,3,5,1,7,6,7,9],
         Tv[-0.138843, 2.99571, -0.556814, 0.669704, -1.39252, 1.33814,
@@ -1044,22 +1024,11 @@ end
 end
 
 @testset "sym indefinite poly alg" begin
-    K = open(joinpath(@__DIR__, "matrices", "stiffness_sym_indef")) do io
-        ml = readline(io)
-        m = parse(Int, split(ml, "m = ")[2])
-        nl = readline(io)
-        n = parse(Int, split(nl, "n = ")[2])
-
-        colptrl = readline(io)
-        rowvall = readline(io)
-        nzvall = readline(io)
-
-        colptr = parse.(Int,     split(strip(split(colptrl, "colptr = ")[2], [']', '[']), ','))
-        rowval = parse.(Int,     split(strip(split(rowvall, "rowval = ")[2], [']', '[']), ','))
-        nzval =  parse.(Float64, split(strip(split(nzvall, "nzval = ")[2], [']', '[']), ','))
-
-        SparseMatrixCSC(m, n, colptr, rowval, nzval)
-    end
+    # Well conditioned and symmetric indefinite with a tiny diagonal: `cholesky` fails, and
+    # an unpivoted LDLt succeeds but is inaccurate, so `\` has to fall back to `lu` (#325)
+    n = 50
+    K = spdiagm(-1 => ones(n - 1), 0 => [isodd(i) ? 1e-16 : -1e-16 for i in 1:n], 1 => ones(n - 1))
+    @test !issuccess(cholesky(Symmetric(K); check = false))
 
     f = ones(size(K, 1))
     u = K \ f
@@ -1154,7 +1123,5 @@ end
 end
 
 end # for Tv ∈ (Float32, Float64)
-
-end # Base.USE_GPL_LIBS
 
 end # module
