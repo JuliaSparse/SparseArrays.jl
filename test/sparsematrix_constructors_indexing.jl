@@ -627,6 +627,14 @@ end
     @test nnz(VSX) == 5
 end
 
+struct CountedReads <: AbstractVector{Int}
+    v::Vector{Int}
+    reads::Base.RefValue{Int}
+end
+Base.size(c::CountedReads) = size(c.v)
+Base.IndexStyle(::Type{CountedReads}) = IndexLinear()
+Base.getindex(c::CountedReads, i::Int) = (c.reads[] += 1; c.v[i])
+
 @testset "test_getindex_algs" begin
     function test_getindex_algs(S, I, J)
         D = Matrix(S)
@@ -636,7 +644,8 @@ end
         @test S[sortedI, J] == expected
         for alg in (SparseArrays.getindex_I_sorted_bsearch_A,
                     SparseArrays.getindex_I_sorted_bsearch_I,
-                    SparseArrays.getindex_I_sorted_linear)
+                    SparseArrays.getindex_I_sorted_linear,
+                    SparseArrays.getindex_I_sorted_nocache)
             @test alg(S, sortedI, J) == expected
         end
     end
@@ -670,6 +679,30 @@ end
             I = collect(1:selected_rows)
             test_getindex_algs(S, I, [n, 1, n])
         end
+    end
+
+    @testset "few columns do not allocate a cache of length size(A, 1)" begin
+        m = 10^6
+        S = sparse(1.0I, m, m)
+        for I in ([2, 2, 5], collect(1:300)), J in (2, [2], [5, 2])
+            S[I, J]
+            @test (@allocated S[I, J]) < m
+            @test S[I, J] == S[1:m, J][I, fill(:, ndims(J))...]
+        end
+    end
+
+    @testset "more rows than stored entries does not walk I for every column" begin
+        m, n = 10^4, 200
+        S = sparse(collect(1:50:m), collect(1:n), 1.0, m, n)
+        S[m, n] = 0
+        @test m > nnz(S)
+        I = CountedReads(collect(2:2:m-2), Ref(0))
+        R = S[I, 1:n]
+        @test I.reads[] < 20 * length(I)
+        @test R == Matrix(S)[I.v, 1:n]
+        # a short I still binary-searches the columns
+        T = sparse(repeat(1:4:m, 2), repeat(1:2; inner=m÷4), 1.0, m, 2)
+        @test T[[5, 5, 6, m-3], [2, 1]] == Matrix(T)[[5, 5, 6, m-3], [2, 1]]
     end
 end
 

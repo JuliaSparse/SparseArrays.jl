@@ -3270,7 +3270,19 @@ function getindex_I_sorted(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector,
           ((nI - avgM) > 2^8) ? 1 :
           ((avgM - nI) > 2^10) ? 0 : 2
 
-    (alg == 0) ? getindex_I_sorted_bsearch_A(A, I, J) :
+    nzJ = sum(j -> length(nzrange(A, j)), J)
+    avgJ = nzJ ÷ length(J)
+    # `bsearch_A` walks `I` for every column, which only suits an `I` much shorter than the
+    # selected columns.
+    if alg == 0
+        (nI > 16 + avgJ ÷ 16) && return getindex_I_sorted_nocache(A, I, J)
+        return getindex_I_sorted_bsearch_A(A, I, J)
+    end
+    # The other two kernels set up a cache of length `m`, which only pays off once the
+    # searches it saves are comparable to `m`. The factor is where the cache breaks even
+    # in its best case, every selected column storing the same rows.
+    gap = nI ÷ max(avgJ, 1)
+    (32 * nzJ * ndigits(gap + 1, base=2) < m) && return getindex_I_sorted_nocache(A, I, J)
     (alg == 1) ? getindex_I_sorted_bsearch_I(A, I, J) :
     return getindex_I_sorted_linear(A, I, J)
 end
@@ -3461,6 +3473,80 @@ function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
             ptrA += 1
         end
         colptrS[j+1] = ptrS
+    end
+    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+end
+
+# First position at or after `ptrI` in the sorted `I` whose value is not less than `row`.
+# Gallops, so the cost grows with the log of the distance moved rather than of `length(I)`.
+@inline function _advance_I(I::AbstractVector, ptrI::Int, nI::Int, row)
+    hi = ptrI
+    step = 1
+    @inbounds while hi <= nI && I[hi] < row
+        ptrI = hi + 1
+        hi += step
+        step <<= 1
+    end
+    hi = min(hi, nI)
+    (hi - ptrI > 8) && return ptrI + searchsortedfirst(view(I, ptrI:hi), row) - 1
+    @inbounds while ptrI <= hi && I[ptrI] < row
+        ptrI += 1
+    end
+    return ptrI
+end
+
+@inline function _nzrange_from(A, rowvalA, col, minrow)
+    r = nzrange(A, col)
+    return (first(r) + searchsortedfirst(view(rowvalA, r), minrow) - 1):last(r)
+end
+
+# Same results as `getindex_I_sorted_bsearch_I` and `getindex_I_sorted_linear` without their
+# cache of length `size(A, 1)`, so the cost depends only on `I` and the selected columns.
+function getindex_I_sorted_nocache(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
+    require_one_based_indexing(A, I, J)
+    nI = length(I)
+    nJ = length(J)
+
+    rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    colptrS = Vector{Ti}(undef, nJ+1)
+    colptrS[1] = 1
+    # stored entries above the first requested row are skipped in one search per column
+    minI = nI == 0 ? size(A, 1) + 1 : I[1]
+
+    ptrS = 1
+    # determine result size
+    @inbounds for j = 1:nJ
+        ptrI = 1
+        for ptrA in _nzrange_from(A, rowvalA, J[j], minI)
+            rowA = rowvalA[ptrA]
+            ptrI = _advance_I(I, ptrI, nI, rowA)
+            while ptrI <= nI && I[ptrI] == rowA
+                ptrS += 1
+                ptrI += 1
+            end
+            (ptrI > nI) && break
+        end
+        colptrS[j+1] = ptrS
+    end
+
+    rowvalS = Vector{Ti}(undef, ptrS-1)
+    nzvalS  = Vector{Tv}(undef, ptrS-1)
+
+    # fill the values
+    ptrS = 1
+    @inbounds for j = 1:nJ
+        ptrI = 1
+        for ptrA in _nzrange_from(A, rowvalA, J[j], minI)
+            rowA = rowvalA[ptrA]
+            ptrI = _advance_I(I, ptrI, nI, rowA)
+            while ptrI <= nI && I[ptrI] == rowA
+                rowvalS[ptrS] = ptrI
+                nzvalS[ptrS] = nzvalA[ptrA]
+                ptrS += 1
+                ptrI += 1
+            end
+            (ptrI > nI) && break
+        end
     end
     return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
