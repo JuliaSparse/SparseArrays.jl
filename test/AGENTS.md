@@ -11,7 +11,8 @@ measure test time, in addition to the top-level `AGENTS.md`.
 - Test files are named after the source area they cover. `solvers/` mirrors
   `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
   `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
-  Pure-Julia kernel tests also run on builds without GPL libraries.
+  They run only when `Base.USE_GPL_LIBS` is true; pure-Julia kernel tests also run on
+  builds without GPL libraries.
 - `triangular.jl` holds the triangular product and solve tests as one scheduling unit,
   and the two grids share their fixtures. `concatenation.jl` likewise holds all
   concatenation tests.
@@ -21,10 +22,9 @@ measure test time, in addition to the top-level `AGENTS.md`.
   helper preserves the active project and resolved load path, verifies the checkout
   loaded by the child, and explicitly selects default-pool thread counts. It runs
   the solver concurrency checks in `threads_child.jl` with one and four threads,
-  library-directory selection, and `cholmod_lifetime.jl`. It is listed outside the
-  `Base.USE_GPL_LIBS` guard because the library-directory argument checks run without
-  GPL libraries. Keep the rooting stress workload in the lifetime suite
-  until a demonstrated reproducer supports a smaller replacement.
+  library-directory selection, and `cholmod_lifetime.jl`. Keep the rooting stress
+  workload in the lifetime suite until a demonstrated reproducer supports a smaller
+  replacement.
 
 ## Coverage dimensions
 
