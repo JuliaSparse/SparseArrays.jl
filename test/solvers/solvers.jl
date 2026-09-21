@@ -193,6 +193,26 @@ end
     @test_throws ErrorException inv(A)
 end
 
+@testset "type stability of linear solve" begin
+    for relty in (Float16, Float32, Float64), elty in (relty, Complex{relty})
+        A = sprand(elty, 2, 2, 1.0)
+        B = randn(elty, 2, 2)
+        b = randn(elty, 2)
+        @inferred A \ b
+        @inferred A \ B
+    end
+end
+
+@testset "factorization of a fixed-pattern matrix" begin
+    b = sprandn(10, 10, 0.99) + I
+    a = SparseArrays.fixed(b)
+
+    @test (lu(a) \ randn(10); true)
+    @test b == a
+    @test (qr(a + a') \ randn(10); true)
+    @test b == a
+end
+
 end # Base.USE_GPL_LIBS
 
 end # module
