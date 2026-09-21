@@ -8,7 +8,6 @@ using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotz
 using LinearAlgebra
 using Random
 using Test: guardseed
-using Dates
 include("forbidproperties.jl")
 
 @testset "_isnotzero" begin
@@ -306,10 +305,19 @@ end
     end
 end
 
+# A quantity with a unit: `one` is the dimensionless identity, `oneunit` keeps the unit
+struct Meters <: Number
+    x::Int
+    Meters(x::Int) = new(x)
+end
+Base.zero(::Type{Meters}) = Meters(0)
+Base.one(::Type{Meters}) = 1
+
 @testset "oneunit of sparse matrix" begin
-    A = sparse([Second(0) Second(0); Second(0) Second(0)])
+    A = sparse([Meters(0) Meters(0); Meters(0) Meters(0)])
     @test oneunit(sprand(2, 2, 0.5)) isa SparseMatrixCSC{Float64}
-    @test oneunit(A) isa SparseMatrixCSC{Second}
+    @test oneunit(A) isa SparseMatrixCSC{Meters}
+    @test oneunit(A) == [Meters(1) Meters(0); Meters(0) Meters(1)]
     @test one(sprand(2, 2, 0.5)) isa SparseMatrixCSC{Float64}
     @test one(A) isa SparseMatrixCSC{Int}
 end
