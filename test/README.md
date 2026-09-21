@@ -2,8 +2,8 @@
 
 Develop and test on Julia nightly. `runtests.jl` owns the ordinary suite inventory,
 used by both ParallelTestRunner and the serial fallback for Julia Base CI. Selectors
-match by prefix, so `linalg` also runs the `linalg_cholmod`, `linalg_umfpack` and
-`linalg_spqr` solver suites.
+match by prefix. Test files are named after the source area they cover, without
+`sparse`/`linalg` prefixes; the solver suites are `cholmod`, `umfpack`, `spqr` and `solvers`.
 
 `triangular.jl` contains the triangular product and solve tests in one scheduling
 unit. `concatenation.jl` likewise contains all concatenation tests. Keep
@@ -20,7 +20,7 @@ run on builds without GPL libraries.
 helper preserves the active project and resolved load path, verifies the checkout
 loaded by the child, and explicitly selects default-pool thread counts. It runs
 solver concurrency checks with one and four threads, library-directory selection,
-and `linalg_cholmod_lifetime.jl`. Deliberate GC calls are permitted only in that isolated
+and `cholmod_lifetime.jl`. Deliberate GC calls are permitted only in that isolated
 lifetime suite: they exercise finalization, allocation accounting, and temporary
 rooting. Keep the rooting stress workload until a demonstrated reproducer supports
 a smaller replacement.

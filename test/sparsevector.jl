@@ -391,7 +391,7 @@ end
 
 @testset "isequal semantics match dense (issue #561)" begin
     # The stored-entries-only complexity guarantee is checked with an operation-counting
-    # eltype in sparsematrix_ops.jl ("== and isequal walk stored entries only").
+    # eltype in sparsematrix.jl ("== and isequal walk stored entries only").
     n = 1000
     v1 = spzeros(n); v1[1] = 1
     v2 = spzeros(n); v2[1] = 1
@@ -418,7 +418,7 @@ end
 
 @testset "hash matches dense" begin
     # The stored-entries-only complexity guarantee is checked with an operation-counting
-    # eltype in sparsematrix_ops.jl ("hash walks stored entries only").
+    # eltype in sparsematrix.jl ("hash walks stored entries only").
     n = 10^5
     v = spzeros(n); v[1] = 1
     w = copy(v); w[2] = 0.0   # explicitly stored zero must not change the hash

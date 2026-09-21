@@ -6,17 +6,6 @@ using Random: rand!
 
 import LinearAlgebra: _uppercase, _isuppercase
 
-const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
-# LinearAlgebra wrappers of a matrix of type MT, and those plus 2-d views (for dot)
-const MatrixWrappers{T,MT} = Union{AdjOrTrans{T,MT}, HermOrSym{T,MT}, UpperOrLowerTriangular{T,MT}, UpperHessenberg{T,MT}}
-const MatrixWrappersOrView{T,MT} = Union{SubArray{T,2,MT}, MatrixWrappers{T,MT}}
-const QuasiSparseMatrix = Union{SparseMatrixCSCOrColumnSubset, MatrixWrappers{<:Any,<:SparseMatrixCSCOrColumnSubset}}
-const QuasiStridedMatrix = Union{StridedMatrix, MatrixWrappers{<:Any,<:StridedMatrix}}
-# the adjoint/transpose of a sparse triangular matrix, which LinearAlgebra makes eagerly,
-# and the lazy conjugate that taking both leaves
-const SparseAdjOrTransTriangular = UpperOrLowerTriangular{<:Any,<:AdjOrTrans{<:Any,
-    <:Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}}}}
-
 for op ∈ (:+, :-), Wrapper ∈ (:Hermitian, :Symmetric)
     @eval begin
         $op(A::AbstractSparseMatrix, B::$Wrapper{<:Any,<:AbstractSparseMatrix}) = $op(A, sparse(B))

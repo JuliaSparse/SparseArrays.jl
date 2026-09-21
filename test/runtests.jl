@@ -3,13 +3,12 @@
 using Test, LinearAlgebra, SparseArrays
 
 testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
-             "sparsematrix_constructors_indexing.jl", "sparsematrix_ops.jl",
+             "sparsematrix.jl", "constructors.jl", "indexing.jl", "reductions.jl",
              "sparsevector.jl", "issues.jl", "linalg.jl", "matmul.jl",
              "threads_suite.jl", "triangular.jl", "concatenation.jl"]
 
 if Base.USE_GPL_LIBS
-    append!(testfiles, ["linalg_cholmod.jl", "linalg_umfpack.jl", "linalg_spqr.jl",
-                        "linalg_solvers.jl"])
+    append!(testfiles, ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl"])
 end
 
 # ParallelTestRunner comes from the Pkg.test target; Julia base CI runs this

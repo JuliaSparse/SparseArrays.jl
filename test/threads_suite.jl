@@ -14,7 +14,7 @@ if Base.USE_GPL_LIBS
     end
 end
 @testset "CHOLMOD ownership and lifetime" begin
-    script = "include($(repr(joinpath(@__DIR__, "linalg_cholmod_lifetime.jl"))))"
+    script = "include($(repr(joinpath(@__DIR__, "cholmod_lifetime.jl"))))"
     @test success(pipeline(testprocess(script); stdout, stderr))
 end
 end
