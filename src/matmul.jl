@@ -227,27 +227,8 @@ Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
     return C
 end
 
-function _spmul!(C::StridedMatrix, X::AbstractMatrix, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
-    Aax2 = axes(A, 2)
-    Xax1 = axes(X, 1)
-    mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
-    rv = rowvals(A)
-    nzv = nonzeros(A)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
-    C = _fix_size(C, mC, nC)
-    X = _fix_size(X, mX, nX)
-    @inbounds for col in Aax2, k in nzrange(A, col)
-        Aiα = α isa Bool ? nzv[k] : nzv[k] * α
-        rvk = rv[k]
-        @simd for multivec_row in Xax1
-            C[multivec_row, col] = muladd(X[multivec_row, rvk], Aiα,
-                                          C[multivec_row, col])
-        end
-    end
-end
+_spmul!(C::StridedMatrix, X::AbstractMatrix, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) =
+    _A_mul_Bt_or_Bc!(identity, C, X, A, α, β)
 function _spmul!(C::StridedMatrix, X::AdjOrTrans, A::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Xax1 = axes(X, 1)
     Cax2 = axes(C, 2)
@@ -274,10 +255,13 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans, A::SparseMatrixCSCOrColumnSubs
     end
 end
 
-function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
+# `C = A * tfun(B) * α + C * β`, with `tfun === identity` for the plain product: column `src`
+# of `A` is added into column `dst` of `C` once per stored entry of `B`
+function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
+    plain = tfun === identity
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
-    mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
+    mC, nC, mA, nA, mB, nB = plain ? _matmul_size_AB(C, A, B) : _matmul_size_ABt(C, A, B)
     rv = rowvals(B)
     nzv = nonzeros(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -288,9 +272,9 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     A = _fix_size(A, mA, nA)
     @inbounds for col in Bax2, k in nzrange(B, col)
         Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
-        rvk = rv[k]
-        @simd for multivec_col in Aax1
-            C[multivec_col, rvk] = muladd(A[multivec_col, col], Biα, C[multivec_col, rvk])
+        dst, src = plain ? (col, rv[k]) : (rv[k], col)
+        @simd for row in Aax1
+            C[row, dst] = muladd(A[row, src], Biα, C[row, dst])
         end
     end
 end
