@@ -4,7 +4,7 @@ module SparseProcessTests
 using Test, SparseArrays
 include("testprocess.jl")
 
-if Base.USE_GPL_LIBS
+@static if Base.USE_GPL_LIBS
 @testset "threaded SuiteSparse tests" begin
     for nt in (1, 4)
         @testset "default threads = $nt" begin
@@ -25,7 +25,7 @@ end
     @test isdir(original_dir)
     @test_throws ArgumentError L.set_libdir!(joinpath(original_dir, "does-not-exist"))
     @test samefile(L.libdir(), original_dir)
-    if Base.USE_GPL_LIBS
+    @static if Base.USE_GPL_LIBS
         mktempdir() do dir
             for name in keys(L.SUITESPARSE_LIBRARIES)
                 src = L._jll_path(name)
