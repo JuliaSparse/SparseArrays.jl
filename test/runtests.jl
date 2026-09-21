@@ -5,10 +5,10 @@ using Test, LinearAlgebra, SparseArrays
 testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsematrix.jl", "constructors.jl", "indexing.jl", "reductions.jl",
              "sparsevector.jl", "issues.jl", "linalg.jl", "matmul.jl",
-             "triangular.jl", "concatenation.jl"]
+             "threads.jl", "triangular.jl", "concatenation.jl"]
 
 @static if Base.USE_GPL_LIBS
-    append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl"])
+    append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl"])
 end
 
 # The Aqua and ambiguity checks run only when asked for by name; CI gives them their own job.

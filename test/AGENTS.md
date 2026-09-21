@@ -9,20 +9,22 @@ measure test time, in addition to the top-level `AGENTS.md`.
   fallback for Julia Base CI. Selectors match by prefix. Adding a feature file does not
   require adding a worker task.
 - Test files are named after the source area they cover. `solvers/` mirrors
-  `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
-  `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
-  They run only when `Base.USE_GPL_LIBS` is true; pure-Julia kernel tests also run on
-  builds without GPL libraries.
+  `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`
+  and `solvers/solvers`, so the selector `solvers` runs them all. They run only when
+  `Base.USE_GPL_LIBS` is true; pure-Julia kernel tests also run on builds without GPL
+  libraries.
 - `triangular.jl` holds the triangular product and solve tests as one scheduling unit,
   and the two grids share their fixtures. `concatenation.jl` likewise holds all
   concatenation tests.
 - Preserve issue references on regression tests.
 - `ambiguous.jl` is not part of the default run; CI gives it its own job.
-- `solvers/threads.jl` owns tests requiring fresh process state. Its `testprocess.jl`
-  helper preserves the active project and resolved load path, verifies the checkout
-  loaded by the child, and explicitly selects default-pool thread counts. It runs
-  the solver concurrency checks in `threads_child.jl` with one and four threads,
-  library-directory selection, and `cholmod_lifetime.jl`. Keep the rooting stress
+- `threads.jl` owns tests requiring fresh process state. Its `testprocess.jl` helper
+  preserves the active project and resolved load path, verifies the checkout loaded by
+  the child, and explicitly selects default-pool thread counts. The scripts it runs in
+  child processes live in `solvers/` and are not suites themselves: the solver
+  concurrency checks in `solvers/threads.jl`, with one and four threads, and
+  `solvers/cholmod_lifetime.jl`. It also covers library-directory selection, whose
+  argument checks run without GPL libraries. Keep the rooting stress
   workload in the lifetime suite until a demonstrated reproducer supports a smaller
   replacement.
 
