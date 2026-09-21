@@ -3,10 +3,6 @@
 module CHOLMODTests
 using Test
 
-@static if !Base.USE_GPL_LIBS
-    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping CHOLMOD tests"
-else
-
 using SparseArrays.CHOLMOD
 using Random
 using Serialization
@@ -455,8 +451,6 @@ end
     @test cholesky(A) \ b ≈ Matrix(A) \ b
 end
 
-end # Base.USE_GPL_LIBS
-
 end # module
 
 # This file is a part of Julia. License is MIT: https://julialang.org/license
@@ -464,10 +458,6 @@ end # module
 module CHOLMODOpsTests
 # Core Sparse/Dense/Factor operations, factor extraction and regression tests for CHOLMOD.
 using Test
-
-@static if !Base.USE_GPL_LIBS
-    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping CHOLMOD tests"
-else
 
 using SparseArrays.CHOLMOD
 using SparseArrays.CHOLMOD: getcommon
@@ -1154,7 +1144,5 @@ end
 end
 
 end # for Tv ∈ (Float32, Float64)
-
-end # Base.USE_GPL_LIBS
 
 end # module

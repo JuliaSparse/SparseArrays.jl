@@ -3,10 +3,6 @@
 module SparseLinalgSolversTests
 using Test
 
-@static if !Base.USE_GPL_LIBS
-    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping SparseLinalgSolvers Tests"
-else
-
 using SparseArrays
 using Random
 using LinearAlgebra
@@ -212,7 +208,5 @@ end
     @test (qr(a + a') \ randn(10); true)
     @test b == a
 end
-
-end # Base.USE_GPL_LIBS
 
 end # module

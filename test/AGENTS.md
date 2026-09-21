@@ -9,22 +9,24 @@ measure test time, in addition to the top-level `AGENTS.md`.
   fallback for Julia Base CI. Selectors match by prefix. Adding a feature file does not
   require adding a worker task.
 - Test files are named after the source area they cover. `solvers/` mirrors
-  `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`
-  and `solvers/solvers`, so the selector `solvers` runs them all. They run only when
-  `Base.USE_GPL_LIBS` is true; pure-Julia kernel tests also run on builds without GPL
-  libraries.
+  `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
+  `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
+- Everything that needs SuiteSparse lives in `solvers/`, and the one
+  `Base.USE_GPL_LIBS` check in `runtests.jl` decides whether those suites run. Do not
+  guard inside the files, and keep solver calls out of the other test files, which also
+  run on builds without GPL libraries.
 - `triangular.jl` holds the triangular product and solve tests as one scheduling unit,
   and the two grids share their fixtures. `concatenation.jl` likewise holds all
   concatenation tests.
 - Preserve issue references on regression tests.
 - `ambiguous.jl` is not part of the default run; CI gives it its own job.
-- `threads.jl` owns tests requiring fresh process state. Its `testprocess.jl` helper
-  preserves the active project and resolved load path, verifies the checkout loaded by
-  the child, and explicitly selects default-pool thread counts. The scripts it runs in
-  child processes live in `solvers/` and are not suites themselves: the solver
-  concurrency checks in `solvers/threads.jl`, with one and four threads, and
-  `solvers/cholmod_lifetime.jl`. It also covers library-directory selection, whose
-  argument checks run without GPL libraries. Keep the rooting stress
+- `solvers/threads.jl` owns tests requiring fresh process state. Its `testprocess.jl`
+  helper preserves the active project and resolved load path, verifies the checkout
+  loaded by the child, and explicitly selects default-pool thread counts. The file has
+  two roles: the children it starts with one and four threads include it again with
+  `SPARSEARRAYS_TEST_THREADS_CHILD` set, which selects the solver concurrency checks
+  themselves. It also runs `cholmod_lifetime.jl`, which is not a suite of its own, and
+  covers library-directory selection. Keep the rooting stress
   workload in the lifetime suite until a demonstrated reproducer supports a smaller
   replacement.
 

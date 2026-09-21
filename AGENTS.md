@@ -57,9 +57,9 @@ The doctest command edits `docs/Project.toml`; discard that change before commit
 
 The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
 as a separate CI job.
-Solver tests run only when `Base.USE_GPL_LIBS` is true; guard every reference to a
-solver module, not just the test bodies. One CI job runs `--check-bounds=yes` to catch
-bad `@inbounds`.
+Everything that needs SuiteSparse is tested under `test/solvers/`, which runs only when
+`Base.USE_GPL_LIBS` is true; `test/runtests.jl` holds the only check. One CI job runs
+`--check-bounds=yes` to catch bad `@inbounds`.
 
 ## Style
 

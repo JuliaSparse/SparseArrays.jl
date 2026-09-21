@@ -3,10 +3,6 @@
 module SPQRTests
 using Test
 
-@static if !Base.USE_GPL_LIBS
-    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping SPQR Tests"
-else
-
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, factorize, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
@@ -323,7 +319,5 @@ end
     end
 end
 end
-
-end # Base.USE_GPL_LIBS
 
 end # module

@@ -3,10 +3,6 @@
 module CHOLMODLifetimeTests
 using Test
 
-@static if !Base.USE_GPL_LIBS
-    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping CHOLMOD lifetime tests"
-else
-
 using SparseArrays
 using SparseArrays.CHOLMOD
 using SparseArrays.CHOLMOD: getcommon
@@ -242,7 +238,5 @@ end
 end
 
 end # Ti, Tv
-
-end # Base.USE_GPL_LIBS
 
 end # module

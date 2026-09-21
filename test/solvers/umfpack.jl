@@ -3,10 +3,6 @@
 module UMFPACKTests
 using Test
 
-@static if !Base.USE_GPL_LIBS
-    @info "This Julia build excludes the use of SuiteSparse GPL libraries. Skipping UMFPACK Tests"
-else
-
 using Random
 using SparseArrays
 using Serialization
@@ -537,7 +533,5 @@ A = I + sprandn(100, 100, 0.01)
 Af = lu(A)
 UMFPACK.umfpack_report_numeric(Af, 0)
 UMFPACK.umfpack_report_symbolic(Af, 0)
-
-end # Base.USE_GPL_LIBS
 
 end # module
