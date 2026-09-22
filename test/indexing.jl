@@ -373,6 +373,31 @@ end
     A = spzeros(10, 10)
     A[Is] = [0.1, 0.5]
     @test nnz(A) == 2
+
+    @testset "a zero that reads back unchanged is not stored (issue #389)" begin
+        for T in (BigInt, BigFloat, Complex{BigFloat}, Rational{BigInt})
+            A = spzeros(T, 3, 3)
+            A[1, 1] = 0
+            A[2, 3] = zero(T)
+            @test nnz(A) == 0
+            A[2, 2] = one(T)
+            A[2, 2] = 0         # an existing entry is overwritten in place
+            @test nnz(A) == 1 && A[2, 2] == 0
+        end
+        A = spzeros(BigFloat, 2, 2)
+        A[1, 1] = -big(0.0)     # the sign of a zero is not reconstructible
+        @test nnz(A) == 1 && signbit(A[1, 1])
+        A[2, 2] = -0.0
+        @test nnz(A) == 2 && signbit(A[2, 2])
+        A = spzeros(2, 2)
+        A[1, 1] = -0.0
+        A[2, 2] = 0.0
+        @test nnz(A) == 1 && signbit(A[1, 1])
+        M = Matrix(Diagonal(BigFloat[1, 2, 3, 4]))
+        S = spzeros(BigFloat, 4, 4)
+        S .= M                  # the generic broadcast assigns every element
+        @test nnz(S) == 4 && S == M
+    end
 end
 
 @testset "dropstored!" begin

@@ -376,6 +376,29 @@ end
         xc[1] = 0.0
         @test exact_equal(xc, SparseVector(8, [2, 5, 6], [0.0, 0.0, 0.0]))
     end
+
+    @testset "a zero that reads back unchanged is not stored (issue #389)" begin
+        for T in (BigInt, BigFloat, Complex{BigFloat})
+            x = spzeros(T, 4)
+            x[1] = 0
+            x[3] = zero(T)
+            @test nnz(x) == 0
+            x[2] = one(T)
+            x[2] = 0
+            @test nnz(x) == 1 && x[2] == 0
+        end
+        x = spzeros(BigFloat, 4)
+        x[1] = -big(0.0)
+        @test nnz(x) == 1 && signbit(x[1])
+        x = spzeros(Union{Missing,Int}, 4)
+        x[1] = missing
+        @test nnz(x) == 1 && x[1] === missing
+        A = sparse([1, 2], [1, 1], BigFloat[1, 2], 3, 2)
+        copyto!(view(A, :, 1), BigFloat[0, 3, 0])   # as `setindex!` would store
+        @test nnz(A) == 1 && A[2, 1] == 3
+        copyto!(view(A, :, 1), [-big(0.0), big(3), big(0)])
+        @test nnz(A) == 2 && signbit(A[1, 1])
+    end
 end
 @testset "dropstored!" begin
     x = SparseVector(10, [2, 7, 9], [2.0, 7.0, 9.0])
