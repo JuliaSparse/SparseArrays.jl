@@ -1284,11 +1284,11 @@ for fun in (:+, :-)
     end
 end
 
-# A sum with a dense array is dense, as it is for a sparse and a dense matrix. Densifying
+# A sum with a dense array, or a view of one, is dense, as for a sparse and a dense matrix. Densifying
 # the sparse side leaves the shape and element type of the result to the dense method.
 for fun in (:+, :-)
-    @eval $(fun)(x::SparseVectorOrView, y::Array) = $(fun)(Array(x), y)
-    @eval $(fun)(x::Array, y::SparseVectorOrView) = $(fun)(x, Array(y))
+    @eval $(fun)(x::SparseVectorOrView, y::StridedVecOrMat) = $(fun)(Array(x), y)
+    @eval $(fun)(x::StridedVecOrMat, y::SparseVectorOrView) = $(fun)(x, Array(y))
 end
 
 ### Reduction

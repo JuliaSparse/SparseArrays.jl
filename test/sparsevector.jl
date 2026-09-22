@@ -818,6 +818,7 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         # sparse with dense is dense, as for matrices (#516); values are checked above
         @test x + Array(x2) isa Vector{Float64}
         @test Array(x) - view(x2, :) isa Vector{Float64}
+        @test view(Array(x), 1:8) + x2 isa Vector{Float64}
         @test x + reshape(Array(x2), 8, 1) isa Matrix{Float64}
         @test SparseVector(2, [1], Real[1.5]) + [1, 2] == [2.5, 2]
         @test sparse([2]) + fill(1) == [3]
