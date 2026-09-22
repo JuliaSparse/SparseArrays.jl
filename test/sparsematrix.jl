@@ -1034,10 +1034,11 @@ end
     @testset "nzrange(A, $i)" for (i, nzr) in ((1,1:0),(4,1:4),(5,5:8),(6,9:12),(9,13:12))
         @test nzrange(A, i) == nzr
     end
-    @testset "nzrange(AU, $i)" for (i, nzr) in ((2,1:0),(4,1:3),(5,5:8),(6,9:12),(8,13:12))
+    # the wrappers' accessors describe the entries of their triangle only
+    @testset "nzrange(AU, $i)" for (i, nzr) in ((2,1:0),(4,1:3),(5,4:7),(6,8:11),(8,12:11))
         @test nzrange(AU, i) == nzr
     end
-    @testset "nzrange(AL, $i)" for (i, nzr) in ((3,1:0),(4,3:4),(5,8:8),(6,13:12),(7,13:12))
+    @testset "nzrange(AL, $i)" for (i, nzr) in ((3,1:0),(4,1:2),(5,3:3),(6,4:3),(7,4:3))
         @test nzrange(AL, i) == nzr
     end
     @test nzrange(b, 1) == 1:4
@@ -1045,18 +1046,64 @@ end
     @test nzrange(d, 1) == 1:4
 
     @test rowvals(A) == I
-    @test rowvals(AL) == I
-    @test rowvals(AL) == I
+    @test rowvals(AU) == I[[1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]]
+    @test rowvals(AL) == I[[3, 4, 8]]
     @test rowvals(b) == I[1:4]
     @test rowvals(c) == I[5:8]
     @test rowvals(d) == I[1:4]
 
     @test nonzeros(A) == V
-    @test nonzeros(AU) == V
-    @test nonzeros(AL) == V
+    @test nonzeros(AU) == V[[1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]]
+    @test nonzeros(AL) == V[[3, 4, 8]]
     @test nonzeros(b) == V[1:4]
     @test nonzeros(c) == V[5:8]
     @test nonzeros(d) == V[1:4]
+    # the storage tier addresses the parent's vectors
+    for W in (AU, AL)
+        @test SparseArrays.getrowval(W) === rowvals(A) && SparseArrays.getnzval(W) === nonzeros(A)
+        @test all(j -> SparseArrays.getnzval(W)[SparseArrays.getnzrange(W, j)] == nonzeros(W)[nzrange(W, j)], 1:9)
+    end
+end
+
+@testset "nonzeros, rowvals and nzrange of triangular and symmetric wrappers (#64)" begin
+    @testset "$(nameof(T)) $(nameof(W)) $uplo" for T in (Float64, ComplexF64),
+            (W, uplo) in ((UpperTriangular, :U), (LowerTriangular, :L), (Symmetric, :U),
+                          (Symmetric, :L), (Hermitian, :U), (Hermitian, :L))
+        A = sprand(T, 9, 9, 0.4)
+        A[1, 4] = A[5, 2] = A[3, 3] = zero(T)    # stored zeros in both triangles and on the diagonal
+        S = W <: Union{Symmetric,Hermitian} ? W(A, uplo) : W(A)
+        C = uplo == :U ? triu(A) : tril(A)       # the stored triangle keeps its pattern
+        @test length(nonzeros(S)) == length(rowvals(S)) == nnz(S) == nnz(C)
+        @test nonzeros(S) == nonzeros(C)         # the values as stored, before any conjugation
+        @test rowvals(S) == rowvals(C)
+        @test all(j -> nzrange(S, j) == nzrange(C, j), axes(S, 2))
+        @test_throws BoundsError nzrange(S, 0)
+        @test_throws BoundsError nzrange(S, 10)
+        # the documented loop visits exactly the stored triangle, and the wrapper reads it
+        seen = spzeros(T, 9, 9)
+        rows, vals = rowvals(S), nonzeros(S)
+        for j in axes(S, 2), k in nzrange(S, j)
+            seen[rows[k], j] = vals[k]
+        end
+        @test seen == C
+        @test all(S[i, j] == (W <: Hermitian && i == j ? real(C[i, j]) : C[i, j]) for j in 1:9, i in 1:9 if !iszero(C[i, j]))
+        # the storage tier and the public accessors walk the same entries, and writes go through
+        for j in axes(S, 2)
+            @test SparseArrays.getnzval(S)[SparseArrays.getnzrange(S, j)] == nonzeros(S)[nzrange(S, j)]
+        end
+        other = uplo == :U ? tril(A, -1) : triu(A, 1)
+        fill!(nonzeros(S), T(7))
+        @test all(==(T(7)), nonzeros(uplo == :U ? triu(A) : tril(A)))
+        @test (uplo == :U ? tril(A, -1) : triu(A, 1)) == other
+        @test nnz(A) == nnz(C) + nnz(other)
+    end
+    # a wrapper of a column-range view gathers within the view's columns
+    A = sprand(12, 14, 0.3)
+    for (S, R) in ((UpperTriangular(view(A, :, 2:13)), UpperTriangular(A[:, 2:13])),
+                   (Symmetric(view(A, :, 2:13), :L), Symmetric(A[:, 2:13], :L)))
+        @test nonzeros(S) == nonzeros(R) && rowvals(S) == rowvals(R) && nnz(S) == nnz(R)
+        @test all(j -> nzrange(S, j) == nzrange(R, j), 1:12)
+    end
 end
 
 @testset "copy a ReshapedArray of SparseMatrixCSC" begin

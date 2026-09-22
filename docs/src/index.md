@@ -389,11 +389,14 @@ julia> [(rowvals(x)[k], nonzeros(x)[k]) for k in nzrange(x, 1)]
  (5, 2.5)
 ```
 
-A view of all rows and some columns, `@view A[:, 2:3]` or `@view A[:, [3, 1]]`, is treated as a
-matrix in its own right: its `nonzeros` and `rowvals` are views of the parent's vectors holding the
-entries of those columns only, with `nnz` elements each, and its `nzrange` indexes them. Writing to
-them mutates `A`. The accessors are O(1) for a range of columns; for an arbitrary column subset
-`nonzeros` and `rowvals` gather the positions of the entries once and `nzrange(V, j)` costs O(`j`).
+A view of all rows and some columns, `@view A[:, 2:3]` or `@view A[:, [3, 1]]`, and an
+`UpperTriangular`, `LowerTriangular`, `Symmetric` or `Hermitian` wrapper of a sparse matrix, are
+treated as matrices in their own right: their `nonzeros` and `rowvals` are views of the parent's
+vectors holding their own entries only (for a symmetric or Hermitian wrapper, those of the stored
+triangle), with `nnz` elements each, and their `nzrange` indexes them. Writing to them mutates the
+parent. The accessors are O(1) for a range of columns; for an arbitrary column subset and for the
+wrappers, `nonzeros` and `rowvals` gather the positions of the entries once and `nzrange(V, j)`
+costs O(`j`).
 
 In contrast, scalar indexing `A[i, j]` has to do a binary search of column `j` for row `i`. A
 loop over all `(i, j)` of an `m`-by-`n` matrix therefore performs `m * n` searches, however few

@@ -37,7 +37,8 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
     @test getrowval(view(x, :)) == getrowval(view(sparse(x), :, 1)) == [2, 5, 6]
     @test getnzval(view(x, :)) == getnzval(view(sparse(x), :, 1)) == [1.25, -0.75, 3.5]
     for T in (UpperTriangular(sparse(1.0I, 3, 3)), LowerTriangular(sparse(1.0I, 3, 3)))
-        @test getrowval(T) === rowvals(T) && getnzval(T) === nonzeros(T)
+        @test getrowval(T) === rowvals(parent(T)) && getnzval(T) === nonzeros(parent(T))
+        @test rowvals(T) == rowvals(parent(T)) && nonzeros(T) == nonzeros(parent(T))
     end
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
     @test count(SparseVector(8, [2, 5, 6], [true,false,true]), init=Int16(2))::Int16 == 4
