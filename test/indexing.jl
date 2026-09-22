@@ -601,6 +601,27 @@ end
         b[[6, 8, 13, 15, 23]] .= false
         @test setindex!(spzeros(5, 5), X, b) == setindex!(zeros(5, 5), X, b)
     end
+    # of a repeated index the last write wins and the pattern stays valid, see #811
+    for Tv in (Float64, ComplexF64)
+        S = sparse(Tv[1 0 2 0; 0 3 0 0; 4 0 0 5; 0 0 6 0])
+        rowssorted(A) = all(j -> issorted(view(rowvals(A), nzrange(A, j)), lt=≤), axes(A, 2))
+        for (I, J) in (([1, 1], [1]), ([2], [3, 3]), ([3, 1, 3, 1], [4, 2, 4]), ([1, 2, 2, 4], [1, 3, 3]))
+            for V in (reshape(Tv.(1:length(I)*length(J)), length(I), length(J)),
+                      sparse(Tv[iseven(i + j) for i in eachindex(I), j in eachindex(J)]))
+                A = setindex!(copy(S), V, I, J)
+                @test rowssorted(A)
+                @test A == Matrix(A) == setindex!(Matrix(S), V, I, J)
+            end
+        end
+        A = setindex!(copy(S), Tv[5, 6], [1, 1], 2)
+        @test rowssorted(A) && A[1, 2] == 6 && nnz(A) == nnz(S) + 1
+        for L in ([2, 7, 2], [16, 2, 16, 2, 5], [3, 3, 9, 9])
+            x = Tv.(eachindex(L))
+            A = setindex!(copy(S), x, L)
+            @test rowssorted(A)
+            @test A == Matrix(A) == setindex!(Matrix(S), x, L)
+        end
+    end
 end
 
 let

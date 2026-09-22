@@ -776,6 +776,23 @@ _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I...) where
 _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I...) where {Tv,Ti} =
     SparseMatrixCSC{Tv,Ti}(size(V) == map(length, I) ? V : copy(reshape(V, map(length, I))))
 
+# The positions of `I` that a sorted merge has to visit, in increasing order of index:
+# of a repeated index only the last position, whose write wins. `nothing` if `I` is
+# already strictly increasing.
+function _setindex_lastwrites(I)
+    issorted(I, lt=≤) && return nothing
+    # a decreasing range has no repeats, and indexing by its range permutation is cheaper
+    I isa AbstractRange && !iszero(step(I)) && return sortperm(I)
+    p = issorted(I) ? collect(eachindex(I)) : sortperm(I)   # stable, so repeats keep their order
+    n = length(p)
+    k = 0
+    @inbounds for t in 1:n
+        (t < n && I[p[t]] == I[p[t+1]]) && continue
+        p[k += 1] = p[t]
+    end
+    return resize!(p, k)
+end
+
 setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::Integer) where {Tv} = _setindex_scalar!(A, B, I, J)
 
 function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::Union{Integer, AbstractVector{<:Integer}, Colon}, Jx::Union{Integer, AbstractVector{<:Integer}, Colon}) where {Tv,Ti<:Integer}
@@ -801,19 +818,19 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
         return A
     end
 
-    issortedI = issorted(I)
-    issortedJ = issorted(J)
-    if !issortedI && !issortedJ
-        pI = sortperm(I); @inbounds I = I[pI]
-        pJ = sortperm(J); @inbounds J = J[pJ]
+    pI = _setindex_lastwrites(I)
+    pJ = _setindex_lastwrites(J)
+    if pI !== nothing && pJ !== nothing
+        I = I[pI]; J = J[pJ]
         B = B[pI, pJ]
-    elseif !issortedI
-        pI = sortperm(I); @inbounds I = I[pI]
-        B = B[pI,:]
-    elseif !issortedJ
-        pJ = sortperm(J); @inbounds J = J[pJ]
+    elseif pI !== nothing
+        I = I[pI]
+        B = B[pI, :]
+    elseif pJ !== nothing
+        J = J[pJ]
         B = B[:, pJ]
     end
+    nJ = length(J)
 
     colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
     colptrB = getcolptr(B); rowvalB = rowvals(B); nzvalB = nonzeros(B)
@@ -1054,7 +1071,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     (nrowA, ncolA) = szA
     @inbounds for xidx in 1:n
         sxidx = S[xidx]
-        (sxidx < n) && (I[sxidx] == I[sxidx+1]) && continue
+        (xidx < n) && (I[sxidx] == I[S[xidx+1]]) && continue
 
         row,col = Tuple(CartIndsA[I[sxidx]])
         v = x[sxidx]
