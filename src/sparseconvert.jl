@@ -114,8 +114,8 @@ _sparsem(S::SubArray{<:Any,2,<:AbstractSparseMatrixCSC}) = getindex(parent(S),S.
 # 4 cases: (Symmetric|Hermitian) variants (:U|:L)
 function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv}
     A = sA.data
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     m, n = size(A)
     Ti = eltype(rowval)
     fadj = sA isa Symmetric ? transpose : adjoint
@@ -165,8 +165,8 @@ end
 # 2 cases: Unit(Upper|Lower)Triangular{Tv,AbstractSparseMatrixCSC}
 function _sparsem(A::SparseTriangular{Tv}) where Tv
     S = A.data
-    rowval = rowvals(S)
-    nzval = nonzeros(S)
+    rowval = getrowval(S)
+    nzval = getnzval(S)
     m, n = size(S)
     Ti = eltype(rowval)
     rangefun = A isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
@@ -211,8 +211,8 @@ function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
 
     sA = parent(taA)
     A = sA.data
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     m, n = size(A)
     Ti = eltype(rowval)
     rangefun = sA isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
@@ -286,7 +286,7 @@ function _sparse_copyto!(dest::AbstractMatrix, src::SparseMatrixCSCOrView)
             dest[i] = z
         end
     end
-    @inbounds for col in axes(src, 2), ptr in nzrange(src, col)
+    @inbounds for col in axes(src, 2), ptr in getnzrange(src, col)
         dest[isrc[getrowval(src)[ptr], col]] = getnzval(src)[ptr]
     end
     return dest

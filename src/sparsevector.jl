@@ -141,6 +141,7 @@ end
 
 getrowval(x::SparseVectorOrView) = nonzeroinds(x)
 getnzval(x::SparseVectorOrView) = nonzeros(x)
+getnzrange(x::SparseVectorOrView, j::Integer) = nzrange(x, j)
 rowvals(x::SparseVectorOrView) = nonzeroinds(x)
 
 indtype(x::SparseColumnView) = indtype(parent(x))

@@ -52,21 +52,21 @@ function _dot_walk(f::F, A::SparseMatrixCSCOrColumnSubset{T1,S1}, B::SparseMatri
         ia, ia_nxt = _colbounds(A, j)
         ib, ib_nxt = _colbounds(B, j)
         if ia < ia_nxt && ib < ib_nxt
-            ra = rowvals(A)[ia]; rb = rowvals(B)[ib]
+            ra = getrowval(A)[ia]; rb = getrowval(B)[ib]
             while true
                 if ra < rb
                     ia += oneunit(S1)
                     ia < ia_nxt || break
-                    ra = rowvals(A)[ia]
+                    ra = getrowval(A)[ia]
                 elseif ra > rb
                     ib += oneunit(S2)
                     ib < ib_nxt || break
-                    rb = rowvals(B)[ib]
+                    rb = getrowval(B)[ib]
                 else # ra == rb
-                    r += f(nonzeros(A)[ia], nonzeros(B)[ib])
+                    r += f(getnzval(A)[ia], getnzval(B)[ib])
                     ia += oneunit(S1); ib += oneunit(S2)
                     ia < ia_nxt && ib < ib_nxt || break
-                    ra = rowvals(A)[ia]; rb = rowvals(B)[ib]
+                    ra = getrowval(A)[ia]; rb = getrowval(B)[ib]
                 end
             end
         end
@@ -87,7 +87,7 @@ function dot(x::AbstractVector{T1}, A::SparseMatrixCSCOrColumnSubset{T2}, y::Abs
 
     @inbounds @simd for col in axes(A,2)
         ycol = y[col]
-        for j in nzrange(A, col)
+        for j in getnzrange(A, col)
             row = rowvals[j]
             val = nzvals[j]
             s += dot(x[row], val, ycol)
@@ -108,8 +108,8 @@ function dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abstr
     Arowval = getrowval(A)
     Anzval = getnzval(A)
     for (yi, yv) in zip(ynzind, ynzval)
-        A_ptr_lo = Int(first(nzrange(A, yi)))
-        A_ptr_hi = Int(last(nzrange(A, yi)))
+        A_ptr_lo = Int(first(getnzrange(A, yi)))
+        A_ptr_hi = Int(last(getnzrange(A, yi)))
         if A_ptr_lo <= A_ptr_hi
             r += _spdot((xv, av) -> dot(xv, av, yv), 1, length(xnzind), xnzind, xnzval,
                                             A_ptr_lo, A_ptr_hi, Arowval, Anzval)
@@ -127,10 +127,10 @@ function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseM
     if m * n == 0
         return s
     end
-    rows = rowvals(B)
-    vals = nonzeros(B)
+    rows = getrowval(B)
+    vals = getnzval(B)
     @inbounds for j in axes(A,2)
-        for ridx in nzrange(B, j)
+        for ridx in getnzrange(B, j)
             i = rows[ridx]
             v = vals[ridx]
             s += dot(A[i,j], v)
@@ -184,12 +184,12 @@ _colstops(Y::AbstractSparseMatrixCSC) = (getcolptr(Y), 1)
 _colstops(Y::SparseMatrixCSCColumnSubset) = ([last(_colbounds(Y, i)) for i in axes(Y, 2)], 0)
 
 function _dot_transposed_walk(f::F, X::SparseMatrixCSCOrColumnSubset, Y::SparseMatrixCSCOrColumnSubset, r) where F
-    Xrows, Xvals = rowvals(X), nonzeros(X)
-    Yrows, Yvals = rowvals(Y), nonzeros(Y)
+    Xrows, Xvals = getrowval(X), getnzval(X)
+    Yrows, Yvals = getrowval(Y), getnzval(Y)
     if size(Y, 2) + nnz(Y) > 32 * nnz(X)
-        @inbounds for j in axes(X, 2), k in nzrange(X, j)
+        @inbounds for j in axes(X, 2), k in getnzrange(X, j)
             i = Xrows[k]
-            rng = nzrange(Y, i)
+            rng = getnzrange(Y, i)
             p = searchsortedfirst(view(Yrows, rng), j) + first(rng) - 1
             if p <= last(rng) && Yrows[p] == j
                 r += f(Xvals[k], Yvals[p])
@@ -199,7 +199,7 @@ function _dot_transposed_walk(f::F, X::SparseMatrixCSCOrColumnSubset, Y::SparseM
     end
     cursor = _colstarts(Y)   # cursor[i] indexes into column i of Y
     pends, off = _colstops(Y)
-    @inbounds for j in axes(X, 2), k in nzrange(X, j)
+    @inbounds for j in axes(X, 2), k in getnzrange(X, j)
         i = Xrows[k]
         p = cursor[i]
         pend = pends[i+off]
@@ -649,8 +649,8 @@ function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abst
     end
     # diagonal
     @inbounds for i in axes(A,1)
-        r1 = Int(first(nzrange(A, i)))
-        r2 = Int(last(nzrange(A, i)))
+        r1 = Int(first(getnzrange(A, i)))
+        r2 = Int(last(getnzrange(A, i)))
         r1 > r2 && continue
         r1 += searchsortedfirst(view(Arowval, r1:r2), i) - 1
         ((r1 > r2) || (Arowval[r1] != i)) && continue

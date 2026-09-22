@@ -113,7 +113,7 @@ _reduced_eltype(f, op, ::Base._InitialValue, A::AbstractArray{T}) where T =
     eltype(Base.reducedim_init(f, op, fill!(Matrix{T}(undef, 1, 1), nnz(A) == length(A) > 0 ? _firststored(A) : zero(T)), 1))
 _reduced_eltype(f, op, init, A) = typeof(init)
 _firststored(A::AbstractVector) = first(nonzeros(A))
-_firststored(A::AbstractMatrix) = nonzeros(A)[first(nzrange(A, 1))]
+_firststored(A::AbstractMatrix) = getnzval(A)[first(getnzrange(A, 1))]
 # the reduction of a slice with no entries at all, as Base initializes the dense result
 _reduced_empty(f, op, ::Base._InitialValue, ::Type{T}) where T =
     Base.reducedim_init(f, op, Matrix{T}(undef, 0, 1), 1)[1]
@@ -172,7 +172,7 @@ end
 
 # `R` is a structurally empty `1 x n` sparse matrix: its columns are built in order
 function _mapreducerows_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrixCSCOrColumnSubset{T}) where T
-    nzval = nonzeros(A)
+    nzval = getnzval(A)
     m, n = size(A)
     z = zero(eltype(R))
     # the reduction of a column that stores nothing; when every column is full it is not
@@ -180,13 +180,13 @@ function _mapreducerows_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrix
     zunstored = nnz(A) == m*n && m > 0 ? z : _reduce_unstored(f, op, init, T, m)
     store_unstored = !isequal(zunstored, z)
     Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
-    nstored = store_unstored ? n : count(col -> !isempty(nzrange(A, col)), 1:n)
+    nstored = store_unstored ? n : count(col -> !isempty(getnzrange(A, col)), 1:n)
     resize!(Rrowval, nstored)
     fill!(Rrowval, 1)
     resize!(Rnzval, nstored)
     k = 0
     @inbounds for col in 1:n
-        rng = nzrange(A, col)
+        rng = getnzrange(A, col)
         if isempty(rng)
             store_unstored || (Rcolptr[col+1] = k + 1; continue)
             v = zunstored
@@ -211,8 +211,8 @@ function _mapreducecols_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrix
     m, n = size(A)
     Tr = eltype(R)
     z = zero(Tr)
-    rows = view(rowvals(A), _storedinds(A))
-    vals = view(nonzeros(A), _storedinds(A))
+    rows = view(getrowval(A), _storedinds(A))
+    vals = view(getnzval(A), _storedinds(A))
     nz = length(rows)
     zunstored = nz == m*n && n > 0 ? z : _reduce_unstored(f, op, init, T, n)
     store_unstored = !isequal(zunstored, z)
@@ -264,27 +264,27 @@ end
 # General mapreducedim
 function _mapreducerows!(f, op, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where T
     require_one_based_indexing(A, R)
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     m, n = size(A)
     @inbounds for col in axes(A,2)
         r = R[1, col]
-        @simd for j in nzrange(A, col)
+        @simd for j in getnzrange(A, col)
             r = op(r, f(nzval[j]))
         end
-        R[1, col] = _mapreducezeros(f, op, T, m-length(nzrange(A, col)), r)
+        R[1, col] = _mapreducezeros(f, op, T, m-length(getnzrange(A, col)), r)
     end
     R
 end
 
 function _mapreducecols!(f, op, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     require_one_based_indexing(A, R)
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     m, n = size(A)
     rownz = fill(convert(Ti, n), m)
     @inbounds for col in axes(A,2)
-        @simd for j in nzrange(A, col)
+        @simd for j in getnzrange(A, col)
             row = rowval[j]
             R[row, 1] = op(R[row, 1], f(nzval[j]))
             rownz[row] -= 1
@@ -314,12 +314,12 @@ function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOr
         # Reduction along a dimension > 2
         # Compute op(R, f(A))
         m, n = size(A)
-        rowval = rowvals(A)
-        nzval = nonzeros(A)
+        rowval = getrowval(A)
+        nzval = getnzval(A)
         if nnz(A) == m*n
             # No zeros, so don't compute f(0) since it might throw
             @inbounds for col in axes(A,2)
-                @simd for j in nzrange(A, col)
+                @simd for j in getnzrange(A, col)
                     R[rowval[j], col] = op(R[rowval[j], col], f(nzval[j]))
                 end
             end
@@ -327,7 +327,7 @@ function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOr
             zeroval = f(zero(T))
             @inbounds for col in axes(A,2)
                 lastrow = 0
-                for j in nzrange(A, col)
+                for j in getnzrange(A, col)
                     row = rowval[j]
                     @simd for i = lastrow+1:row-1 # Zeros before this nonzero
                         R[i, col] = op(R[i, col], zeroval)
@@ -360,13 +360,13 @@ end
 # temporary array when f(0) == 0
 function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     require_one_based_indexing(A, R)
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     m, n = size(A)
     if nnz(A) == m*n
         # No zeros, so don't compute f(0) since it might throw
         @inbounds for col in axes(A,2)
-            @simd for j in nzrange(A, col)
+            @simd for j in getnzrange(A, col)
                 R[rowval[j], 1] = op(R[rowval[j], 1], f(nzval[j]))
             end
         end
@@ -375,7 +375,7 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
         if isequal(zeroval, zero(Tv))
             # Case where f(0) == 0
             @inbounds for col in axes(A,2)
-                @simd for j in nzrange(A, col)
+                @simd for j in getnzrange(A, col)
                     R[rowval[j], 1] += f(nzval[j])
                 end
             end
@@ -383,7 +383,7 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
             # Case where f(0) != 0
             rownz = fill(convert(Ti, n), m)
             @inbounds for col in axes(A,2)
-                @simd for j in nzrange(A, col)
+                @simd for j in getnzrange(A, col)
                     row = rowval[j]
                     R[row, 1] += f(nzval[j])
                     rownz[row] -= 1
@@ -401,10 +401,10 @@ end
 # final argument `post` is to allow post-mapping each columnar mapreduce
 function _mapreducerows!(pred::P, ::typeof(|), R::AbstractMatrix{Bool}, A::SparseMatrixCSCOrColumnSubset{Tv},
                          post::F = identity) where {P, F, Tv}
-    nzval = nonzeros(A)
+    nzval = getnzval(A)
     m, n = size(A)
     @inbounds for ii in axes(A,2)
-        rng = nzrange(A, ii)
+        rng = getnzrange(A, ii)
         len = length(rng)
         # An empty column is trivial
         if len == 0
