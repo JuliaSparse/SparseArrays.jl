@@ -972,12 +972,12 @@ end
 _masklinearindices(I::AbstractMatrix{Bool}) = findall(vec(I))
 function _masklinearindices(I::SparseMatrixCSCOrColumnSubset{Bool})
     m = size(I, 1)
-    rowvalI = rowvals(I); nzvalI = nonzeros(I)
+    rowvalI = getrowval(I); nzvalI = getnzval(I)
     L = Int[]
     sizehint!(L, nnz(I))
     for j in axes(I, 2)
         offset = (j - 1) * m
-        for k in nzrange(I, j)
+        for k in getnzrange(I, j)
             nzvalI[k] && push!(L, offset + Int(rowvalI[k]))
         end
     end
@@ -986,11 +986,11 @@ end
 function _masklinearindices(I::AdjOrTrans{Bool,<:SparseMatrixCSCOrColumnSubset{Bool}})
     P = parent(I)
     mI = size(I, 1)
-    rowvalP = rowvals(P); nzvalP = nonzeros(P)
+    rowvalP = getrowval(P); nzvalP = getnzval(P)
     L = Int[]
     sizehint!(L, nnz(P))
     for j in axes(P, 2)
-        for k in nzrange(P, j)
+        for k in getnzrange(P, j)
             nzvalP[k] && push!(L, (Int(rowvalP[k]) - 1) * mI + j)
         end
     end

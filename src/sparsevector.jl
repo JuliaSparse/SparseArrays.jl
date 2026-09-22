@@ -143,6 +143,7 @@ end
 
 getrowval(x::SparseVectorOrView) = nonzeroinds(x)
 getnzval(x::SparseVectorOrView) = nonzeros(x)
+getnzrange(x::SparseVectorOrView, j::Integer) = nzrange(x, j)
 rowvals(x::SparseVectorOrView) = nonzeroinds(x)
 
 indtype(x::SparseColumnView) = indtype(parent(x))
@@ -989,11 +990,11 @@ function _iseq_dense(eq::F, A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:
                      _iseq_dense(eq, P, D, za, op)
 end
 function _iseq_dense(eq::F, A::SparseMatrixCSCOrColumnSubset, D::AbstractMatrix, za, op::O) where {F,O}
-    rv, nz = rowvals(A), nonzeros(A)
+    rv, nz = getrowval(A), getnzval(A)
     anymissing = false
     @inbounds for j in axes(A, 2)
         i = 1
-        for k in nzrange(A, j)
+        for k in getnzrange(A, j)
             r = Int(rv[k])
             for ii in i:r-1
                 c = _implicit_eq(eq, za, D[ii, j])
