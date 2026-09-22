@@ -210,6 +210,31 @@ end
     @test opnorm(rowM) ≈ opnorm(MrowM)
     @test opnorm(rowM, Inf) ≈ opnorm(MrowM, Inf)
     @test_throws ArgumentError opnorm(rowM, 3)
+
+    @testset "2-norm" begin
+        rng = Random.Xoshiro(1)
+        for T in (Float64, ComplexF32), (m, n) in ((60, 40), (40, 60))
+            A = sprandn(rng, T, m, n, 0.1)
+            @test opnorm(A) ≈ opnorm(Array(A))
+            @test opnorm(A) isa real(T)
+        end
+        @test opnorm(sparse([1 2; 3 4])) ≈ opnorm([1 2; 3 4])
+        # the vector of ones is in the null space
+        @test opnorm(sparse([1.0 -1.0; -1.0 1.0])) ≈ 2
+        # clustered singular values
+        @test opnorm(spdiagm([fill(1.0, 9999); 1 + 1e-6])) ≈ 1 + 1e-6 rtol=1e-12
+        # slow convergence, with about as many iterations as columns
+        L = spdiagm(-1 => -ones(1999), 0 => 2ones(2000), 1 => -ones(1999))
+        @test opnorm(L) ≈ 4cos(pi/4002)^2 rtol=1e-12
+        # magnitudes beyond the range of `Float64`, at `Float64` accuracy
+        @test opnorm(spdiagm([1e-307, 5e-308])) ≈ 1e-307
+        @test opnorm(spdiagm([big"1e400", big"5e399"])) ≈ big"1e400" rtol=1e-10
+        @test isnan(opnorm(sparse([1.0 NaN; 2.0 3.0])))
+        Z = spzeros(4, 5)
+        Z[2, 3] = 1
+        nonzeros(Z)[1] = 0
+        @test opnorm(Z) === 0.0
+    end
 end
 
 @testset "fillstored!" begin
@@ -269,7 +294,6 @@ end
     A = sparse([1.0])
     @test norm(A) == 1.0
     @test_throws ArgumentError opnorm(sprand(5,5,0.2),3)
-    @test_throws ArgumentError opnorm(sprand(5,5,0.2),2)
 end
 
 @testset "ishermitian/issymmetric" begin

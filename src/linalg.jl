@@ -2,7 +2,7 @@
 
 using LinearAlgebra: AbstractTriangular, UpperOrLowerTriangular,
     RealHermSymComplexHerm, checksquare, sym_uplo, wrap
-using Random: rand!
+using Random: rand!, Xoshiro
 
 import LinearAlgebra: _uppercase, _isuppercase
 
@@ -894,6 +894,18 @@ diff(a::AbstractSparseMatrixCSC; dims::Integer) = dims==1 ? sparse_diff1(a) : sp
 ## norm and rank
 norm(A::AbstractSparseMatrixCSC, p::Real=2) = norm(view(nonzeros(A), 1:nnz(A)), p)
 
+"""
+    opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
+
+Operator `p`-norm of the sparse matrix `A`, for `p` equal to `1`, `2` or `Inf`.
+
+For `p = 2` the norm is an iterative estimate from Lanczos bidiagonalization rather than a
+full singular value decomposition. It approaches the norm from below, to a relative accuracy
+of about `1e-10`, and is computed in `Float64` arithmetic even when the element type is
+wider. Each iteration costs a product with `A` and one with `A'`. Matrices whose largest
+singular values are tightly clustered may need a number of iterations comparable to their
+size; use `opnorm(Array(A))` when such a matrix is small enough.
+"""
 function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
     m, n = size(A)
     if m == 0 || n == 0 || isempty(A)
@@ -922,7 +934,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             end
             return convert(Tnorm, nA)
         elseif p==2
-            throw(ArgumentError("2-norm not yet implemented for sparse matrices. Try opnorm(Array(A)) or opnorm(A, p) where p=1 or Inf."))
+            return convert(Tnorm, opnorm2est(A))
         elseif p==Inf
             rowSum = zeros(Tsum,m)
             @inbounds for i in axes(nonzeros(A),1)
@@ -931,7 +943,65 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             return convert(Tnorm, maximum(rowSum))
         end
     end
-    throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, Inf"))
+    throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, 2, Inf"))
+end
+
+# Largest singular value by Golub-Kahan-Lanczos bidiagonalization, stopped once the residual
+# of the leading Ritz pair stays below `tol` relative to it on two checks in a row. The
+# estimate converges from below. With residual `r` and a gap `g` to the next singular value
+# its error is of the order of `min(r, r^2/g)`, so singular values clustered more tightly
+# than `tol` are not told apart. The start vector is seeded so that the result is
+# reproducible; a fixed one such as `ones` may lie in the null space. The recurrence runs on
+# `A/s`, with `s` the largest stored magnitude, which keeps its coefficients representable
+# as `Float64` whatever the range of the element type.
+function opnorm2est(A::AbstractSparseMatrixCSC, tol::Real=1e-10, maxiter::Integer=max(100, 2*minimum(size(A))))
+    Tnorm = typeof(float(real(zero(eltype(A)))))
+    s = convert(Tnorm, norm(nzvalview(A), Inf))
+    (iszero(s) || !isfinite(s)) && return s
+    T = promote_type(Float64, eltype(A))
+    v = convert(Vector{T}, normalize!(randn(Xoshiro(0x2a), size(A, 2))))
+    u = A * v
+    α, β = [Float64(norm(u) / s)], Float64[]
+    σ = α[1]
+    passed = false
+    for k in 1:maxiter
+        if iszero(α[k])
+            σ = first(_leading_ritz(α, β, k - 1))
+            break
+        end
+        u ./= α[k] * s
+        mul!(v, A', u, true, -α[k] * s)
+        push!(β, norm(v) / s)
+        # past the first steps the check runs only now and then, or when the recurrence is
+        # about to break down
+        if k <= 32 || k % 8 == 0 || k == maxiter || β[k] <= tol * σ
+            σ, uk = _leading_ritz(α, β, k)
+            converged = β[k] * uk <= tol * σ
+            converged && (passed || iszero(β[k])) && break
+            passed = converged
+        end
+        v ./= β[k] * s
+        mul!(u, A, v, true, -β[k] * s)
+        push!(α, norm(u) / s)
+    end
+    return s * convert(Tnorm, σ)
+end
+
+# Largest singular value of the upper bidiagonal matrix with diagonal `α[1:k]` and
+# superdiagonal `β[1:k-1]`, and the magnitude of the last entry of its left singular vector.
+# Both come from one eigenpair of the Golub-Kahan tridiagonal matrix, at O(k) cost, where a
+# full SVD would cost O(k^2) memory.
+function _leading_ritz(α::Vector{Float64}, β::Vector{Float64}, k::Integer)
+    k == 0 && return 0.0, 1.0
+    k == 1 && return α[1], 1.0
+    ev = Vector{Float64}(undef, 2k - 1)
+    for i in 1:k-1
+        ev[2i-1] = α[i]
+        ev[2i] = β[i]
+    end
+    ev[2k-1] = α[k]
+    F = eigen(SymTridiagonal(zeros(2k), ev), 2k:2k)
+    return F.values[1], sqrt(2) * abs(F.vectors[2k, 1])
 end
 
 # TODO rank
