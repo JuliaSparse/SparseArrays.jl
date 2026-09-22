@@ -47,7 +47,8 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
     @test @inferred(nnz(view(x32, 2:6))) == 3
     end
     for T in (UpperTriangular(sparse(1.0I, 3, 3)), (@static COMPREHENSIVE ? (LowerTriangular(sparse(1.0I, 3, 3)),) : ())...)
-        @test getrowval(T) === rowvals(T) && getnzval(T) === nonzeros(T)
+        @test getrowval(T) === rowvals(parent(T)) && getnzval(T) === nonzeros(parent(T))
+        @test rowvals(T) == rowvals(parent(T)) && nonzeros(T) == nonzeros(parent(T))
     end
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
     @static if COMPREHENSIVE
