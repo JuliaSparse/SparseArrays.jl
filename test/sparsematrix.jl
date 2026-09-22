@@ -308,7 +308,8 @@ end
         @test I == imag.(S) == imag(S)
         @test conj(Array(S)) == conj.(S) == conj(S)
         @test real.(spR) == R
-        @test nnz(imag.(spR)) == nnz(imag(spR)) == 0
+        @test nnz(imag(spR)) == 0
+        @test iszero(imag.(spR)) && nnz(imag.(spR)) == nnz(spR)   # broadcast keeps the pattern
         @test abs.(S) == abs.(D)
         @test abs2.(S) == abs2.(D)
 

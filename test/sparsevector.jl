@@ -910,9 +910,9 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test exact_equal(imag(x), spzeros(Float64, length(x)))
         @test conj(x) === x
 
-        xcp = complex.(x, x2)
-        @test exact_equal(real(xcp), x)
-        @test exact_equal(imag(xcp), x2)
+        xcp = complex.(x, x2)   # real and imag keep the pattern of xcp, zeros included
+        @test real(xcp) == x && nonzeroinds(real(xcp)) == nonzeroinds(xcp)
+        @test imag(xcp) == x2 && nonzeroinds(imag(xcp)) == nonzeroinds(xcp)
         @test exact_equal(conj(xcp), complex.(x, -x2))
     end
 end
@@ -929,7 +929,7 @@ end
         for op in operations
             spresvec = op.(spvec)
             @test spresvec == op.(densevec)
-            @test all(!iszero, nonzeros(spresvec))
+            @test nonzeroinds(spresvec) == nonzeroinds(spvec)   # the pattern is kept, zeros included
             resvaltype = typeof(op(zero(eltype(spvec))))
             resindtype = SparseArrays.indtype(spvec)
             @test isa(spresvec, SparseVector{resvaltype,resindtype})
