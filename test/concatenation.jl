@@ -422,4 +422,29 @@ end
     @test vcat(fill("a", 3), sparse([1, 0, 0]))::Vector == vcat(fill("a", 3), [1, 0, 0])
 end
 
+@testset "concatenation with a leading number fills its block like dense (#383)" begin
+    M = sparse([1 2]); V = sparse([1, 2]); dM = Array(M); dV = Array(V)
+    @test vcat(1, M)::SparseMatrixCSC == vcat(1, dM)
+    @test vcat(1.5, M)::SparseMatrixCSC{Float64} == vcat(1.5, dM)
+    @test vcat(1, M, M)::SparseMatrixCSC == vcat(1, dM, dM)
+    @test vcat(1, V)::SparseVector == vcat(1, dV)
+    @test vcat(V, 3)::SparseVector == vcat(dV, 3)
+    @test hcat(1, M)::SparseMatrixCSC == hcat(1, dM)
+    @test hcat(1, M, 3)::SparseMatrixCSC == hcat(1, dM, 3)
+    @test hvcat((2,), 1, M)::SparseMatrixCSC == hvcat((2,), 1, dM)
+    @test cat(1, M; dims=1)::SparseMatrixCSC == cat(1, dM; dims=1)
+    @test cat(1, M; dims=(1, 2))::SparseMatrixCSC == cat(1, dM; dims=(1, 2))
+    @test [1; M]::SparseMatrixCSC == [1; dM]
+    @test sparse_vcat(1, dM)::SparseMatrixCSC == vcat(1, dM)
+    @test sparse_hcat(1, dM, 3)::SparseMatrixCSC == hcat(1, dM, 3)
+    @test sparse_hvcat((2,), 1, dM)::SparseMatrixCSC == hvcat((2,), 1, dM)
+    @test sparse_vcat(1, 2)::SparseVector == [1, 2]
+    @test sparse_hcat(1, 2)::SparseMatrixCSC == [1 2]
+    # shape mismatches throw as for dense
+    @test_throws DimensionMismatch vcat(M, 3)
+    @test_throws DimensionMismatch vcat(1, M, 3)
+    @test_throws DimensionMismatch hcat(1, V)
+    @test_throws DimensionMismatch hcat(V, 3)
+end
+
 end # module SparseConcatenationTests

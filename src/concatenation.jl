@@ -322,25 +322,50 @@ end
 # ambiguity is introduced for arrays that are not sparse (#431).
 const _SparseConcatGroup = Union{AbstractVecOrMat,Number}
 
+# Base's `_cat_t` takes the output type from its first argument, so with a leading number
+# it would build a dense array. Choose the destination from the first array instead, and
+# keep the number as is so that it fills its block the way it does in dense
+# concatenation (#383). `X` has already been through `_makesparse`.
+_catleader(X1::AbstractArray, X...) = X1
+_catleader(X1::Number, X...) = _catleader(X...)
+_catleader(X1::Number) = _sparse(X1)
+Base.@constprop :aggressive function _sparse_cat_t(dims, ::Type{T}, X...) where {T}
+    catdims = Base.dims2cat(dims)
+    shape = Base.cat_size_shape(catdims, X...)
+    A = similar(_catleader(X...), T, shape)
+    if count(!iszero, catdims)::Int > 1
+        fill!(A, zero(T))
+    end
+    return Base.__cat(A, shape, catdims, X...)
+end
+# with only arrays, `typed_hcat`/`typed_vcat` reach the same destination through `similar`
+# of the first, now sparse, array; a number among them takes the `cat` path as in Base
+_sparse_typed_hcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_hcat(T, X...)
+_sparse_typed_hcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(2), T, X...)
+_sparse_typed_vcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_vcat(T, X...)
+_sparse_typed_vcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(1), T, X...)
+
 # `@constprop :aggressive` allows `dims` to be propagated as constant improving return type inference
 Base.@constprop :aggressive function cat_internal(dims, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
-        X1, X = _sparse(X1), map(_makesparse, X)
+        return _sparse_cat_t(dims, T, _makesparse(X1), map(_makesparse, X)...)
     end
     return Base._cat_t(dims, T, X1, X...)
 end
 function hcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+    T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
-        X1, X = _sparse(X1), map(_makesparse, X)
+        return _sparse_typed_hcat(T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_hcat(Base.promote_eltype(X1, X...), X1, X...)
+    return Base.typed_hcat(T, X1, X...)
 end
 function vcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+    T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
-        X1, X = _sparse(X1), map(_makesparse, X)
+        return _sparse_typed_vcat(T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_vcat(Base.promote_eltype(X1, X...), X1, X...)
+    return Base.typed_vcat(T, X1, X...)
 end
 function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if _concatsparse(X1, X...)
@@ -431,7 +456,7 @@ Concatenate along dimension 2. Return a SparseMatrixCSC object.
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
-sparse_hcat(Xin::Union{AbstractVecOrMat,Number}...) = cat(_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))..., dims=Val(2))
+sparse_hcat(Xin::Union{AbstractVecOrMat,Number}...) = _sparse_cat_t(Val(2), promote_eltype(Xin...), map(_makesparse, Xin)...)
 function sparse_hcat(X::Union{AbstractVecOrMat,UniformScaling,Number}...)
     LinearAlgebra._hcat(_sparse(first(X)), map(_makesparse, Base.tail(X))...; array_type = SparseMatrixCSC)
 end
@@ -446,7 +471,7 @@ Concatenate along dimension 1. Return a SparseMatrixCSC object.
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
-sparse_vcat(Xin::Union{AbstractVecOrMat,Number}...) = cat(_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))..., dims=Val(1))
+sparse_vcat(Xin::Union{AbstractVecOrMat,Number}...) = _sparse_cat_t(Val(1), promote_eltype(Xin...), map(_makesparse, Xin)...)
 function sparse_vcat(X::Union{AbstractVecOrMat,UniformScaling,Number}...)
     LinearAlgebra._vcat(_sparse(first(X)), map(_makesparse, Base.tail(X))...; array_type = SparseMatrixCSC)
 end
