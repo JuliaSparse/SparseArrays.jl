@@ -30,11 +30,11 @@ import Base: adjoint, argmin, argmax, Array, broadcast, circshift, circshift!, c
 
 using Random: default_rng, AbstractRNG, randsubseq, randsubseq!
 
-export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector,
+export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector, AbstractSparseMatrixCSC,
     SparseMatrixCSC, SparseVector, blockdiag, droptol!, dropzeros!, dropzeros,
     issparse, nonzeros, nzrange, rowvals, sparse, sparsevec, spdiagm,
-    sprand, sprandn, spzeros, nnz, permute, findnz,  fkeep!, ftranspose!,
-    sparse_hcat, sparse_vcat, sparse_hvcat, getrowval, getnzval
+    sprand, sprandn, spzeros, nnz, indtype, permute, findnz,  fkeep!, ftranspose!,
+    sparse_hcat, sparse_vcat, sparse_hvcat, getcolptr, getrowval, getnzval
 
 public sparse!, spzeros!
 
@@ -213,6 +213,17 @@ end
 issparse(A::DenseArray) = false
 issparse(S::AbstractSparseArray) = true
 
+"""
+    indtype(S)
+
+Return the type used to index sparse array entries.
+
+# Examples
+```jldoctest
+julia> indtype(sparse(Int32[1, 2], Int32[1, 2], [1.0, 2.0]))
+Int32
+```
+"""
 indtype(S::AbstractSparseArray{<:Any,Ti}) where {Ti} = Ti
 indtype(T::UpperOrLowerTriangular{<:Any,<:Union{AbstractSparseArray,SparseMatrixCSCColumnSubset}}) = indtype(parent(T))
 

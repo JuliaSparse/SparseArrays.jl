@@ -134,6 +134,32 @@ function _goodbuffers(m, n, colptr, rowval, nzval)
     # && all(issorted(@view rowval[colptr[i]:colptr[i+1]-1]) for i=1:n)
 end
 
+"""
+    getcolptr(S)
+
+Return the vector of column start indices of an `AbstractSparseMatrixCSC` pointing
+into [`rowvals`](@ref) and [`nonzeros`](@ref): column `j` is stored at positions
+`getcolptr(S)[j]:(getcolptr(S)[j+1] - 1)`. The returned vector aliases `S`, but
+implementations with fixed sparsity may make it read-only. When it is writable,
+modifications to it mutate `S`. See also [`getrowval`](@ref), [`getnzval`](@ref)
+and [`nzrange`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse(2I, 3, 3)
+3×3 SparseMatrixCSC{Int64, Int64} with 3 stored entries:
+ 2  ⋅  ⋅
+ ⋅  2  ⋅
+ ⋅  ⋅  2
+
+julia> getcolptr(A)
+4-element Vector{Int64}:
+ 1
+ 2
+ 3
+ 4
+```
+"""
 getcolptr(S::SparseMatrixCSC) = getfield(S, :colptr)
 getcolptr(S::FixedSparseCSC) = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(parentindices(S)[2]):(last(parentindices(S)[2]) + 1))
