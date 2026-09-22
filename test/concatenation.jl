@@ -420,6 +420,12 @@ end
     @test hcat(M, S)::Matrix == hcat(M, Array(S))
     @test hvcat((1, 1), M, S)::Matrix == hvcat((1, 1), M, Array(S))
     @test vcat(fill("a", 3), sparse([1, 0, 0]))::Vector == vcat(fill("a", 3), [1, 0, 0])
+    # with a UniformScaling, the array type is chosen by `promote_to_array_type`
+    A = fill("a", 2, 2); Z = spzeros(2, 2)
+    @test hcat(I, A, Z)::Matrix == hcat(Matrix(I, 2, 2), A, Array(Z))
+    @test vcat(I, A, Z)::Matrix == vcat(Matrix(I, 2, 2), A, Array(Z))
+    @test hvcat((3,), I, A, Z)::Matrix == hvcat((3,), Matrix(I, 2, 2), A, Array(Z))
+    @test hcat(I, Z, spzeros(2, 2))::SparseMatrixCSC == hcat(Matrix(I, 2, 2), Array(Z), zeros(2, 2))
 end
 
 @testset "concatenation with a leading number fills its block like dense (#383)" begin
