@@ -397,7 +397,7 @@ end
     if 1 <= k <= m && nzind[k] == i  # i found
         nzval[k] = v
     else  # i not found
-        if v isa AbstractArray || v !== zero(eltype(x)) # stricter than iszero to support v[i] = -0.0
+        if !_isimplicitzero(v, Tv)
             _is_fixed(x) && _throwfixedinsert(x, i)
             insert!(nzind, k, i)
             insert!(nzval, k, v)
@@ -621,7 +621,7 @@ function _splice_source(src::Union{SparseVectorOrView,SparseVectorPartialView}, 
 end
 function _splice_source(src::AbstractVector, ::Type{Ti}, ::Type{Tv}) where {Ti,Tv}
     vals = convert(Vector{Tv}, src)
-    inds = findall(v -> v !== zero(Tv), vals)
+    inds = findall(v -> !_isimplicitzero(v, Tv), vals)
     return Vector{Ti}(inds), vals[inds]
 end
 

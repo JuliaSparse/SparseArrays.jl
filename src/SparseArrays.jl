@@ -48,6 +48,14 @@ public sparse!, spzeros!
 @inline _isnotzero(x::Number) = !iszero(x)
 @inline _isnotzero(x::AbstractArray) = !iszero(x)
 
+# Whether scalar `setindex!` can leave `v` unstored. `===` keeps `-0.0`, `missing` and duals
+# with nonzero partials stored (#296), but a fresh `big(0)` is never `===` `zero(BigInt)` (#389).
+@inline function _isimplicitzero(v, ::Type{Tv}) where Tv
+    v isa AbstractArray && return false
+    isbits(v) && return v === zero(Tv)
+    return iszero(v) === true && !(v isa AbstractFloat && signbit(v))
+end
+
 ## Functions to switch to 0-based indexing to call external sparse solvers
 
 # Convert from 1-based to 0-based indices

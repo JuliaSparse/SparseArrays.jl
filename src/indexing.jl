@@ -563,9 +563,8 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
         nonzeros(A)[searchk] = v
         return A
     end
-    # Column j does not contain entry A[i,j]. If v is nonzero, insert entry A[i,j] = v
-    # and return. If to the contrary v is zero, then simply return.
-    if v isa AbstractArray || v !== zero(eltype(A)) # stricter than iszero to support A[i] = -0.0
+    # Column j does not contain entry A[i,j].
+    if !_isimplicitzero(v, Tv)
         nz = getcolptr(A)[size(A, 2)+1]
         # throw exception before state is partially modified
         !isbitstype(Ti) || nz < typemax(Ti) ||
