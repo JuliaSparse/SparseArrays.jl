@@ -144,11 +144,8 @@ but implementations with fixed sparsity may make it read-only. When it is writab
 modifications to it mutate `S`. See also [`getrowval`](@ref), [`getnzval`](@ref)
 and [`nzrange`](@ref).
 
-`getcolptr` is defined for CSC matrices and for views of them taking all rows and a
-range of columns, where it is an offset view into the parent's column pointers. It is
-not defined for a [`SparseVector`](@ref), which has a single column and no column
-pointers, nor for triangular wrappers, whose stored pattern is not the wrapped one;
-use `nzrange(A, j)` there instead.
+`getcolptr` is not defined for a [`SparseVector`](@ref), which has no column pointers;
+use `nzrange(x, 1)` instead.
 
 # Examples
 ```jldoctest
