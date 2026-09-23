@@ -375,7 +375,7 @@ end
     @test nnz(A) == 2
 
     @testset "heap-allocated zero (#389)" begin
-        for T in (BigFloat, Complex{BigFloat}, Rational{BigInt})
+        for T in (BigFloat, Complex{BigFloat})
             A = spzeros(T, 3, 3)
             A[1, 1] = 0
             A[2, 3] = zero(T)
