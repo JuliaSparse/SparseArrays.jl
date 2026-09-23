@@ -145,7 +145,19 @@ end
 end
 
 @testset "indtype" begin
-    @test SparseArrays.indtype(sparse(Int8[1,1],Int8[1,1],[1,1])) == Int8
+    A = sparse(Int8[1,1],Int8[1,1],[1,1])
+    @test SparseArrays.indtype(A) == Int8
+    for W in (A', transpose(A), Symmetric(A), Hermitian(A), UpperTriangular(A),
+              view(A, :, 1:1), view(A, :, [1]), view(A, :, 1))
+        @test SparseArrays.indtype(W) == Int8
+    end
+    @test SparseArrays.indtype(sparsevec(Int8[1], [1.0])') == Int8
+end
+
+@testset "exported CSC accessors" begin
+    for name in (:AbstractSparseMatrixCSC, :getcolptr, :getrowval, :getnzval, :indtype)
+        @test Base.isexported(SparseArrays, name)
+    end
 end
 
 se33 = SparseMatrixCSC{Float64}(I, 3, 3)

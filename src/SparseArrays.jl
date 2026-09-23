@@ -94,7 +94,18 @@ const AbstractSparseMatrix{Tv,Ti} = AbstractSparseArray{Tv,Ti,2}
 """
     AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
 
-Supertype for matrix with compressed sparse column (CSC).
+Supertype for matrices stored in compressed sparse column (CSC) format with element type
+`Tv` and index type `Ti`. [`SparseMatrixCSC`](@ref) is the concrete type; packages define
+their own subtypes to reuse the CSC kernels on other storage.
+
+A subtype must define `size` and the three storage accessors [`getcolptr`](@ref),
+[`rowvals`](@ref) and [`nonzeros`](@ref), which return vectors that alias the matrix and
+satisfy the invariants documented for the [`SparseMatrixCSC`](@ref) constructor:
+`getcolptr(S)` has length `size(S, 2) + 1`, starts at `1` and is nondecreasing;
+`rowvals(S)` and `nonzeros(S)` have length `getcolptr(S)[end] - 1`; and within each column
+the row indices are sorted, unique and in `1:size(S, 1)`. Everything else, such as
+[`nnz`](@ref), [`nzrange`](@ref), indexing, `copy`, `similar` and the sparse linear
+algebra, is derived from these.
 """
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
@@ -216,16 +227,27 @@ issparse(S::AbstractSparseArray) = true
 """
     indtype(S)
 
-Return the type used to index sparse array entries.
+Return the integer type in which sparse array `S` stores its indices: the `Ti` in
+`SparseMatrixCSC{Tv,Ti}` and `SparseVector{Tv,Ti}`, the element type of
+[`rowvals`](@ref) and [`getcolptr`](@ref). It is the index-type counterpart of
+`eltype`, and like `eltype` it looks through views and the `Adjoint`, `Transpose`,
+`Symmetric`, `Hermitian` and triangular wrappers.
 
 # Examples
 ```jldoctest
 julia> indtype(sparse(Int32[1, 2], Int32[1, 2], [1.0, 2.0]))
 Int32
+
+julia> indtype(sparsevec(Int8[2, 5], [3.0, 4.0]))
+Int8
+
+julia> indtype(sparse([1, 2], [1, 2], [1.0, 2.0])')
+Int64
 ```
 """
 indtype(S::AbstractSparseArray{<:Any,Ti}) where {Ti} = Ti
 indtype(T::UpperOrLowerTriangular{<:Any,<:Union{AbstractSparseArray,SparseMatrixCSCColumnSubset}}) = indtype(parent(T))
+indtype(T::Union{AdjOrTrans,HermOrSym}) = indtype(parent(T))
 
 # The following two methods should be overloaded by concrete types to avoid
 # allocating the I = findall(...)
