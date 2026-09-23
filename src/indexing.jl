@@ -664,13 +664,15 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
     m, n = size(A)
     lenI = length(I)
 
-    nnzA = nnz(A) + lenI * length(J)
+    nnzold = nnz(A)
+    nnzA = nnzold + lenI * length(J)
 
-    rowvalA = rowval = rowvals(A)
-    nzvalA = nzval = nonzeros(A)
+    rowvalA = rowvals(A)
+    nzvalA = nonzeros(A)
 
     rowidx = 1
     nadd = 0
+    shift = 0   # the unread old entries sit `shift` places further along once the buffers grow
     @inbounds for col in axes(A,2)
         rrange = nzrange(A, col)
         if nadd > 0
@@ -681,10 +683,7 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
             if isempty(rrange) # set new vals only
                 nincl = lenI
                 if nadd == 0
-                    rowval = copy(rowvalA)
-                    nzval = copy(nzvalA)
-                    resize!(rowvalA, nnzA)
-                    resize!(nzvalA, nnzA)
+                    shift = _spsetnz_makeroom!(rowvalA, nzvalA, first(rrange), nnzold, nnzA)
                 end
                 r = rowidx:(rowidx+nincl-1)
                 rowvalA[r] .= I
@@ -700,11 +699,11 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
                 new_stop = lenI
 
                 while true
-                    old_row = rowval[old_ptr]
+                    old_row = rowvalA[old_ptr+shift]
                     new_row = I[new_ptr]
                     if old_row < new_row
                         rowvalA[rowidx] = old_row
-                        nzvalA[rowidx] = nzval[old_ptr]
+                        nzvalA[rowidx] = nzvalA[old_ptr+shift]
                         rowidx += 1
                         old_ptr += 1
                     else
@@ -712,10 +711,7 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
                             old_ptr += 1
                         else
                             if nadd == 0
-                                rowval = copy(rowvalA)
-                                nzval = copy(nzvalA)
-                                resize!(rowvalA, nnzA)
-                                resize!(nzvalA, nnzA)
+                                shift = _spsetnz_makeroom!(rowvalA, nzvalA, old_ptr, nnzold, nnzA)
                             end
                             nadd += 1
                         end
@@ -728,10 +724,7 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
                     if old_ptr > old_stop
                         if new_ptr <= new_stop
                             if nadd == 0
-                                rowval = copy(rowvalA)
-                                nzval = copy(nzvalA)
-                                resize!(rowvalA, nnzA)
-                                resize!(nzvalA, nnzA)
+                                shift = _spsetnz_makeroom!(rowvalA, nzvalA, old_ptr, nnzold, nnzA)
                             end
                             r = rowidx:(rowidx+(new_stop-new_ptr))
                             rowvalA[r] .= I isa Number ? I : I[new_ptr:new_stop]
@@ -746,8 +739,8 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
 
                     if new_ptr > new_stop
                         nincl = old_stop-old_ptr+1
-                        copyto!(rowvalA, rowidx, rowval, old_ptr, nincl)
-                        copyto!(nzvalA, rowidx, nzval, old_ptr, nincl)
+                        copyto!(rowvalA, rowidx, rowvalA, old_ptr+shift, nincl)
+                        copyto!(nzvalA, rowidx, nzvalA, old_ptr+shift, nincl)
                         rowidx += nincl
                         break
                     end
@@ -755,8 +748,10 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
             end
         elseif !isempty(rrange) # set old vals only
             nincl = length(rrange)
-            copyto!(rowvalA, rowidx, rowval, rrange[1], nincl)
-            copyto!(nzvalA, rowidx, nzval, rrange[1], nincl)
+            if nadd > 0
+                copyto!(rowvalA, rowidx, rowvalA, rrange[1]+shift, nincl)
+                copyto!(nzvalA, rowidx, nzvalA, rrange[1]+shift, nincl)
+            end
             rowidx += nincl
         end
     end
@@ -767,6 +762,19 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
         deleteat!(nzvalA, rowidx:nnzA)
     end
     return A
+end
+
+# Grow the buffers to `nnzA`, the most entries the assignment can produce, and move the old
+# entries not yet merged, `from:nnzold`, to the end. The merge writes at most `shift` places
+# ahead of where it reads, so the moved entries are never overwritten before they are read.
+function _spsetnz_makeroom!(rowvalA, nzvalA, from::Integer, nnzold::Integer, nnzA::Integer)
+    resize!(rowvalA, nnzA)
+    resize!(nzvalA, nnzA)
+    shift = nnzA - nnzold
+    nmove = nnzold - from + 1
+    copyto!(rowvalA, from+shift, rowvalA, from, nmove)
+    copyto!(nzvalA, from+shift, nzvalA, from, nmove)
+    return shift
 end
 
 # Nonscalar A[I,J] = B: Convert B to a SparseMatrixCSC of the appropriate shape first
