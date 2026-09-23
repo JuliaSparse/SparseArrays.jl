@@ -390,7 +390,7 @@ Apart from `F.p`, these are lazy components for use with `\\`, each applying one
 a solve. Only `sparse(F.L)`, and for `ldlt` `sparse(F.LD)` (the unit `L` with `D` on its
 diagonal), can be materialized. `sparse(F)` reconstructs the factorized matrix.
 
-`F` supports `\\`, `ldiv!`, [`det`](@ref), [`logdet`](@ref), [`diag`](@ref),
+`F` supports `\\`, `ldiv!`, [`det`](@ref), [`logdet`](@ref), `logabsdet`, [`diag`](@ref),
 [`issuccess`](@ref), `nnz`, `copy`, [`CHOLMOD.rcond`](@ref SparseArrays.CHOLMOD.rcond),
 refactorization with [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!`, and
 the low-rank modifications [`lowrankdowndate`](@ref SparseArrays.CHOLMOD.lowrankdowndate)
@@ -855,14 +855,7 @@ for TI ∈ IndexTypes
             throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
                 "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
         end
-        if !issuccess(F)
-            s = unsafe_load(pointer(F))
-            if s.is_ll == 1
-                throw(LinearAlgebra.PosDefException(s.minor))
-            else
-                throw(LinearAlgebra.ZeroPivotException(s.minor))
-            end
-        end
+        issuccess(F) || throw(factorization_exception(F))
         Dense{Tv}(@checked $(cholname(:solve, TI))(sys, F, B, getcommon($TI)))
     end
 
@@ -882,6 +875,7 @@ for TI ∈ IndexTypes
         Sparse(@checked $(cholname(:read_sparse2, TI))(file.ptr, dtyp(Tv), getcommon($TI)))
     end
     function lowrankupdowndate!(F::Factor{Tv, $TI}, C::Sparse{Tv, $TI}, update::Cint) where Tv<:VTypes
+        check_real_updown(F)
         lF = unsafe_load(pointer(F))
         lC = unsafe_load(pointer(C))
         if lF.n != lC.nrow
@@ -960,14 +954,7 @@ function solve(sys::Integer, F::Factor{Tv1}, B::Dense{Tv2}) where {Tv1, Tv2}
         throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
             "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
     end
-    if !issuccess(F)
-        s = unsafe_load(pointer(F))
-        if s.is_ll == 1
-            throw(LinearAlgebra.PosDefException(s.minor))
-        else
-            throw(LinearAlgebra.ZeroPivotException(s.minor))
-        end
-    end
+    issuccess(F) || throw(factorization_exception(F))
     T = promote_type(Tv1, Tv2)
     return solve(sys, T === Tv1 ? F : change_xdtype(F, T), convert(Dense{T}, B))
 end
@@ -983,6 +970,12 @@ function spsolve(sys::Integer, F::Factor{Tv1, Ti1}, B::Sparse{Tv2}) where {Tv1, 
 end
 function lowrankupdowndate!(F::Factor{Tv, Ti}, C::Sparse, update::Cint) where {Tv, Ti}
     return lowrankupdowndate!(F, convert(Sparse{Tv, Ti}, C), update)
+end
+function check_real_updown(::Factor{Tv}) where Tv
+    Tv <: Complex && throw(ArgumentError(
+        "CHOLMOD supports rank updates and downdates only of real factorizations; " *
+        "refactorize the updated matrix with `cholesky` or `ldlt` instead"))
+    return nothing
 end
 
 function speye(m::Integer, n::Integer, ::Type{Tv}) where Tv<:VTypes
@@ -1268,18 +1261,18 @@ function _copy!(dest::AbstractArray, D::Dense{T}) where {T<:VTypes}
     s = unsafe_load(pointer(D))
     n = s.nrow*s.ncol
     n <= length(dest) || throw(BoundsError(dest, n))
-    if s.d == s.nrow && isa(dest, Array{T})
-        unsafe_copyto!(pointer(dest), Ptr{T}(s.x), s.d*s.ncol)
-    elseif s.d == s.nrow && isa(dest, Array)
-        GC.@preserve D begin
+    GC.@preserve D dest begin
+        if s.d == s.nrow && isa(dest, Array{T})
+            unsafe_copyto!(pointer(dest), Ptr{T}(s.x), s.d*s.ncol)
+        elseif s.d == s.nrow && isa(dest, Array)
             X = unsafe_wrap(Array, Ptr{T}(s.x), (s.nrow, s.ncol), own = false)
             copyto!(dest, X)
-        end
-    else
-        k = 0
-        for j = 1:s.ncol
-            for i = 1:s.nrow
-                dest[k+=1] = unsafe_load(Ptr{T}(s.x), i + (j - 1)*s.d)
+        else
+            k = 0
+            for j = 1:s.ncol
+                for i = 1:s.nrow
+                    dest[k+=1] = unsafe_load(Ptr{T}(s.x), i + (j - 1)*s.d)
+                end
             end
         end
     end
@@ -1397,8 +1390,8 @@ end
 function sparse(F::Factor)
     s = unsafe_load(pointer(F))
     if s.is_ll != 0
-        L = Sparse(F)
-        A = sparse(L*L')
+        L = sparse(Sparse(F))
+        A = L * L'
     else
         LD = sparse(F.LD)
         L, d = getLd!(LD)
@@ -1653,6 +1646,13 @@ end
 
 ## Factorization methods
 
+# An unsymmetric `A` (stype 0) would make CHOLMOD factorize `A*A'` instead.
+function check_hermitian_stype(A::Sparse)
+    unsafe_load(pointer(A)).stype == 0 &&
+        throw(ArgumentError("sparse matrix is not symmetric/Hermitian"))
+    return nothing
+end
+
 ## Compute that symbolic factorization only
 function symbolic(A::Sparse{<:VTypes, Ti};
                   perm::Union{Nothing,AbstractVector{<:Integer}}=nothing,
@@ -1660,8 +1660,7 @@ function symbolic(A::Sparse{<:VTypes, Ti};
                   userperm_only::Bool=true,
                   nested_dissection::Bool=false) where Ti
 
-    sA = unsafe_load(pointer(A))
-    sA.stype == 0 && throw(ArgumentError("sparse matrix is not symmetric/Hermitian"))
+    check_hermitian_stype(A)
 
     # The default is to just use AMD. Use nested dissection only if explicitly asked for.
     # https://github.com/JuliaSparse/SparseArrays.jl/issues/548
@@ -1671,6 +1670,10 @@ function symbolic(A::Sparse{<:VTypes, Ti};
             if perm === nothing || isempty(perm) # TODO: deprecate empty perm
                 return analyze(A)
             else # user permutation provided
+                n = size(A, 1)
+                length(perm) == n || throw(DimensionMismatch(
+                    "permutation has length $(length(perm)), but the matrix has size $n"))
+                isperm(perm) || throw(ArgumentError("perm must be a permutation of 1:$n"))
                 if userperm_only # use perm even if it is worse than AMD
                     @cholmod_param nmethods = 1 begin
                         return analyze_p(A, Ti[p-1 for p in perm])
@@ -1686,12 +1689,13 @@ end
 
 function cholesky!(F::Factor{Tv}, A::Sparse{Tv};
                    shift::Real=0.0, check::Bool = true) where Tv
+    check_hermitian_stype(A)
     @lock F.lock begin
         @cholmod_param final_ll = true begin
             factorize_p!(A, shift, F)
         end
     end
-    check && (issuccess(F) || throw(LinearAlgebra.PosDefException(1)))
+    check && (issuccess(F) || throw(factorization_exception(F)))
     return F
 end
 
@@ -1861,11 +1865,12 @@ LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}}
 
 function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
+    check_hermitian_stype(A)
     @lock F.lock begin
         change_factor!(F, false, false, true, false)
         factorize_p!(A, shift, F)
     end
-    check && (issuccess(F) || throw(LinearAlgebra.ZeroPivotException(1)))
+    check && (issuccess(F) || throw(factorization_exception(F)))
     return F
 end
 
@@ -2013,12 +2018,16 @@ Update an `LDLt` or `LLt` Factorization `F` of `A` to a factorization of `A + C*
 
 `LLt` factorizations are converted to `LDLt`.
 
+Only real factorizations are supported; CHOLMOD cannot update or downdate a complex one.
+
 See also [`lowrankupdate`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!`](@ref).
 """
 function lowrankupdate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
-    #Reorder and copy V to account for permutation
-    C = lowrank_reorder(V, get_perm(F), Tv, Ti)
-    lowrankupdowndate!(F, C, Cint(1))
+    @lock F.lock begin
+        #Reorder and copy V to account for permutation
+        C = lowrank_reorder(V, get_perm(F), Tv, Ti)
+        lowrankupdowndate!(F, C, Cint(1))
+    end
 end
 
 """
@@ -2028,12 +2037,16 @@ Update an `LDLt` or `LLt` Factorization `F` of `A` to a factorization of `A - C*
 
 `LLt` factorizations are converted to `LDLt`.
 
+Only real factorizations are supported; CHOLMOD cannot update or downdate a complex one.
+
 See also [`lowrankdowndate`](@ref), [`lowrankupdate`](@ref), [`lowrankupdate!`](@ref).
 """
 function lowrankdowndate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
-    #Reorder and copy V to account for permutation
-    C = lowrank_reorder(V, get_perm(F), Tv, Ti)
-    lowrankupdowndate!(F, C, Cint(0))
+    @lock F.lock begin
+        #Reorder and copy V to account for permutation
+        C = lowrank_reorder(V, get_perm(F), Tv, Ti)
+        lowrankupdowndate!(F, C, Cint(0))
+    end
 end
 
 """
@@ -2042,6 +2055,8 @@ end
 Get an `LDLt` Factorization of `A + C*C'` given an `LDLt` or `LLt` factorization `F` of `A`.
 
 The returned factor is always an `LDLt` factorization.
+
+Only real factorizations are supported; CHOLMOD cannot update or downdate a complex one.
 
 See also [`lowrankupdate!`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!`](@ref).
 """
@@ -2054,9 +2069,11 @@ lowrankupdate(F::Factor{Tv}, V::AbstractArray{Tv2}) where {Tv, Tv2} =
 """
     lowrankdowndate(F::CHOLMOD.Factor, C::AbstractArray) -> FF::CHOLMOD.Factor
 
-Get an `LDLt` Factorization of `A + C*C'` given an `LDLt` or `LLt` factorization `F` of `A`.
+Get an `LDLt` Factorization of `A - C*C'` given an `LDLt` or `LLt` factorization `F` of `A`.
 
 The returned factor is always an `LDLt` factorization.
+
+Only real factorizations are supported; CHOLMOD cannot update or downdate a complex one.
 
 See also [`lowrankdowndate!`](@ref), [`lowrankupdate`](@ref), [`lowrankupdate!`](@ref).
 """
@@ -2146,7 +2163,7 @@ const FactorComponentRHS = Union{StridedVecOrMatMaybeAdjOrTrans, SparseVectorOrM
 # the eltype restriction is necessary for disambiguation with the B::StridedMatrix below
 \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::Dense) = (L = parent(adjL); solve(CHOLMOD_A, L, B))
 \(adjL::AdjointFactorization{<:Any,<:Factor}, B::Sparse) = (L = parent(adjL); spsolve(CHOLMOD_A, L, B))
-\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVectorOrMatrixCSC) = (L = parent(adjL); \(adjoint(L), Sparse(B)))
+\(adjL::AdjointFactorization{<:Any,<:Factor}, B::SparseVectorOrMatrixCSC) = parent(adjL) \ B
 
 # These mirror the `Factor` methods above, `VecOrMat` tie-breaker included.
 \(adjL::AdjointFactorization{<:VTypes,<:Factor}, B::StridedVecOrMatMaybeAdjOrTrans) = strided_solve(adjL, B)
@@ -2262,14 +2279,7 @@ for TI in IndexTypes
             throw(ArgumentError("RHS array must have unit stride along its first dimension; " *
                 "got strides $(strides(b)) for size $(size(b))"))
         end
-        if !issuccess(L)
-            s = unsafe_load(pointer(L))
-            if s.is_ll == 1
-                throw(LinearAlgebra.PosDefException(s.minor))
-            else
-                throw(LinearAlgebra.ZeroPivotException(s.minor))
-            end
-        end
+        issuccess(L) || throw(factorization_exception(L))
         solve!(x, L, b)
         return x
     end
@@ -2312,14 +2322,32 @@ function diag(F::Factor{Tv, Ti}) where {Tv, Ti}
     res
 end
 
-function logdet(F::Factor{Tv}) where Tv<:VTypes
+function LinearAlgebra.logabsdet(F::Factor{Tv}) where Tv<:VTypes
     f = unsafe_load(pointer(F))
-    res = zero(Tv)
-    for d in diag(F); res += log(abs(d)) end
-    f.is_ll != 0 ? 2res : res
+    res = zero(real(Tv))
+    sgn = one(real(Tv))
+    if f.is_ll != 0
+        for d in diag(F); res += log(abs(d)) end
+        res *= 2
+    else
+        # The entries of D are real, but an indefinite matrix has negative ones.
+        for d in diag(F)
+            res += log(abs(d))
+            sgn *= sign(real(d))
+        end
+    end
+    return res, Tv(sgn)
 end
 
-det(L::Factor) = exp(logdet(L))
+function logdet(F::Factor)
+    d, s = logabsdet(F)
+    return d + log(s)
+end
+
+function det(F::Factor)
+    d, s = logabsdet(F)
+    return s * exp(d)
+end
 
 """
     rcond(F::CHOLMOD.Factor) -> Float64
@@ -2359,6 +2387,13 @@ rcond
 function issuccess(F::Factor)
     s = unsafe_load(pointer(F))
     return s.minor == size(F, 1)
+end
+
+# CHOLMOD records the column where the factorization failed as the 0-based `minor`.
+function factorization_exception(F::Factor)
+    s = unsafe_load(pointer(F))
+    info = Int(s.minor) + 1
+    return s.is_ll == 1 ? LinearAlgebra.PosDefException(info) : LinearAlgebra.ZeroPivotException(info)
 end
 
 function isposdef(F::Factor)
