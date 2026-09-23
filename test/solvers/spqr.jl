@@ -65,6 +65,31 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test_throws DimensionMismatch lmul!(adjoint(Q), offsizeA)
         @test_throws DimensionMismatch rmul!(offsizeA, Q)
         @test_throws DimensionMismatch rmul!(offsizeA, adjoint(Q))
+
+        # products with an operand of another element type convert Q
+        Qd = Q * Matrix{eltyA}(I, m, m)
+        b, B = complex.(randn(m), randn(m)), complex.(randn(3, m), randn(3, m))
+        @test Q * b ≈ Qd * b
+        @test Q' * b ≈ Qd' * b
+        @test B * Q' ≈ B * Qd'
+    end
+
+    @testset "right-hand sides that are not strided arrays of the same element type" begin
+        rhs(k) = (randn(2, k)', transpose(randn(2, k)), sprandn(k, 0.5), 1:k,
+                  view(complex.(randn(k, 2), randn(k, 2)), :, 1),
+                  complex.(randn(2, k), randn(2, k))', randn(ComplexF32, k))
+        C = A[1:9, :]   # wide
+        for X in rhs(m)
+            @test A \ X ≈ Array(A) \ Array(X)
+            @test F \ X ≈ Array(A) \ Array(X)
+        end
+        for X in rhs(9)
+            @test C \ X ≈ Array(C) \ Array(X)
+            @test lq(C) \ X ≈ Array(C) \ Array(X)
+        end
+        for X in rhs(n)
+            @test F' \ X ≈ Array(A)' \ Array(X)
+        end
     end
 
     @testset "element type of B: $eltyB" for eltyB in (Int, Float64, ComplexF64)
@@ -198,6 +223,10 @@ end
     F = qr(A)
     @test eltype(F.Q) == eltype(F.R) == eltyA
     @test Matrix(F.Q) * F.R ≈ A[F.prow, F.pcol]
+    # products with double-precision operands convert Q
+    b, B = randn(m), randn(3, m)
+    @test F.Q * b ≈ F.Q * eltyA.(b)
+    @test B * F.Q' ≈ eltyA.(B) * F.Q'
 end
 
 @testset "select ordering overdetermined" begin
@@ -208,6 +237,8 @@ end
      cref = Array(A)' \ c
      for ordering ∈ SPQR.ORDERINGS
          QR = qr(A, ordering=ordering)
+         @test isperm(QR.pcol)
+         @test QR.Q * QR.R ≈ A[QR.prow, QR.pcol]
          x = QR \ b
          @test x ≈ xref
          @test QR' \ c ≈ cref
@@ -227,6 +258,36 @@ end
      @test_throws ErrorException qr(A, ordering=Int32(10))
 end
 
+@testset "ORDERING_FIXED with a dependent column, $Tv $Ti" for Tv in (Float64, ComplexF64), Ti in itypes
+    # the second column is twice the first
+    A = SparseMatrixCSC{Tv, Ti}([1 2 3; 4 8 6; 7 14 9; 1 2 5])
+    F = qr(A; ordering=SPQR.ORDERING_FIXED)
+    @test rank(F) == 2
+    @test isperm(F.pcol) && istriu(F.R)
+    @test F.Q * F.R ≈ A[F.prow, F.pcol]
+    b = A * Tv[1, 2, 3]
+    @test A * (F \ b) ≈ b
+    c = A' * Tv[1, 2, 3, 4]
+    @test A' * (F' \ c) ≈ c
+    W = sparse(A')   # wide
+    G = qr(W; ordering=SPQR.ORDERING_FIXED)
+    @test G.Q * G.R ≈ W[G.prow, G.pcol]
+    @test W * (G \ c) ≈ c
+    # without dependent columns the ordering is the identity
+    @test qr(A[:, [1, 3]]; ordering=SPQR.ORDERING_FIXED).pcol == 1:2
+end
+
+@testset "non-floating-point element types" begin
+    A = sparse(Complex{Int}[1 2; 3 4im])
+    @test qr(A) isa SPQR.QRSparse{ComplexF64}
+    @test qr(A) \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
+    @test rank(A) == 2
+    B = sparse([1 2; 3 4])
+    F = qr(B; ordering=SPQR.ORDERING_NATURAL)
+    @test F isa SPQR.QRSparse{Float64} && F.pcol == [1, 2]
+    @test_throws ArgumentError qr(SparseMatrixCSC{Float64, Int16}(B); ordering=SPQR.ORDERING_NATURAL)
+end
+
 @testset "propertynames of QRSparse" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
@@ -239,7 +300,9 @@ end
     @test rank(qr(S; tol=1e-5)) == 5
     @test rank(S; tol=1e-5) == 5
     @test all(iszero, (rank(qr(spzeros(10, i))) for i in 1:10))
-    @test all(iszero, (rank(spzeros(10, i)) for i in 1:10))
+    @test all(iszero, (rank(spzeros(10, i)) for i in 0:10))
+    @test size(qr(spzeros(3, 0))) == (3, 0)
+    @test qr(spzeros(3, 0)) \ ones(3) == zeros(0)
 end
 
 
@@ -289,6 +352,12 @@ end
         @test_throws DimensionMismatch ldiv!(zeros(m), F', zeros(n - 1))
         @test_throws DimensionMismatch ldiv!(zeros(m - 1), F', zeros(n))
         @test_throws DimensionMismatch ldiv!(zeros(m, 2), F', zeros(n, 3))
+        X = fill(7.0, n, 2)
+        @test_throws DimensionMismatch ldiv!(X, F, zeros(m))
+        @test all(==(7.0), X)
+        X = fill(7.0, m, 2)
+        @test_throws DimensionMismatch ldiv!(X, F', zeros(n))
+        @test all(==(7.0), X)
         # A' is overdetermined when A is wide, which needs a factorization of A'
         @test_throws DimensionMismatch qr(sprandn(n, m, 0.5))' \ zeros(m)
     end

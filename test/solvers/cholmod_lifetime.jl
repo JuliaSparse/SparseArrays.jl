@@ -9,7 +9,7 @@ using SparseArrays.CHOLMOD: getcommon
 using SparseArrays.LibSuiteSparse
 using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse,
     cholmod_l_allocate_dense, cholmod_allocate_dense
-using LinearAlgebra: I, cholesky, diag, ldiv!, ldlt, Symmetric
+using LinearAlgebra: I, cholesky, diag, ldiv!, ldlt, qr, Symmetric
 using Random
 
 # Run in a fresh process: intentional collections exercise finalization and rooting.
@@ -218,6 +218,22 @@ end
         @test Matrix(CHOLMOD.Dense(Matrix(S[1:20, 1:20]))) == Matrix(S[1:20, 1:20])
         GC.gc(false)
     end
+end
+
+# For Int64 both Commons coincide, so the check is only meaningful for Ti == Int32.
+if Ti == Int32 && Int64 in itypes && Tv == Float64
+@testset "qr releases its outputs through the matching Common $Ti" begin
+    A = SparseMatrixCSC{Tv,Ti}(sprand(20, 10, 0.3) + sparse(1:10, 1:10, 1.0, 20, 10))
+    qr(A)
+    GC.gc()
+    n32, n64 = getcommon(Int32)[].memory_inuse, getcommon(Int64)[].memory_inuse
+    for _ in 1:10
+        qr(A)
+    end
+    GC.gc()
+    @test getcommon(Int32)[].memory_inuse == n32
+    @test getcommon(Int64)[].memory_inuse == n64
+end
 end
 
 @testset "Check common is still in default state" begin
