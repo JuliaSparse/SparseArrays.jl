@@ -204,6 +204,18 @@ end
     @test nnz(a) == 19
     @test count(!iszero, a) == 0
 
+    @testset "ranged -0.0 (#891)" begin
+        A = spzeros(3, 3)
+        A[1:2, 1:2] .= -0.0     # stored, as by A[i, j] = -0.0
+        A[3, :] .= 0
+        @test nnz(A) == 4 && all(signbit, nonzeros(A))
+        A = spzeros(BigFloat, 3, 3)
+        A[1:2, 1:2] .= 0
+        @test nnz(A) == 0
+        A[1:2, 1:2] .= -big(0.0)
+        @test nnz(A) == 4 && all(signbit, nonzeros(A))
+    end
+
     # Zero-assignment behavior of setindex!(A, B::SparseMatrixCSC, I, J)
     a = copy(b)
     a[1:2,:] = spzeros(2, 10)
