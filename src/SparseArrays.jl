@@ -48,15 +48,11 @@ public sparse!, spzeros!
 @inline _isnotzero(x::Number) = !iszero(x)
 @inline _isnotzero(x::AbstractArray) = !iszero(x)
 
-# Scalar `setindex!` need not store `v` when the implicit `zero(Tv)` reads back the same.
-# Egality is exact for isbits values and keeps `-0.0`, `missing` and dual numbers with nonzero
-# partials (#296); a heap-allocated zero such as `big(0)` is never egal to a fresh `zero(Tv)`,
-# so those compare by value (#389). Array elements are always stored: `zero(Tv)` has no shape.
+# Whether scalar `setindex!` can leave `v` unstored. `===` keeps `-0.0`, `missing` and duals
+# with nonzero partials stored (#296), but a fresh `big(0)` is never `===` `zero(BigInt)` (#389).
 @inline function _isimplicitzero(v, ::Type{Tv}) where Tv
     v isa AbstractArray && return false
-    z = zero(Tv)
-    v === z && return true
-    isbits(v) && return false
+    isbits(v) && return v === zero(Tv)
     return iszero(v) === true && !(v isa AbstractFloat && signbit(v))
 end
 

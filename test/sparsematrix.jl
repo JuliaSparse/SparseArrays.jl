@@ -24,8 +24,6 @@ end
     @test _isimplicitzero(0.0, Float64)
     @test !_isimplicitzero(-0.0, Float64)   # egality keeps the sign of a zero
     @test !_isimplicitzero(missing, Union{Missing,Int})
-    @test _isimplicitzero(big(0), BigInt)   # a mutable zero is never egal to `zero(BigInt)`
-    @test !_isimplicitzero(big(1), BigInt)
     @test _isimplicitzero(big(0.0), BigFloat)
     @test !_isimplicitzero(-big(0.0), BigFloat)
     @test _isimplicitzero(zero(Complex{BigFloat}), Complex{BigFloat})

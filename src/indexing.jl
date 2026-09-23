@@ -563,8 +563,7 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
         nonzeros(A)[searchk] = v
         return A
     end
-    # Column j does not contain entry A[i,j]. Insert entry A[i,j] = v unless the implicit
-    # zero already reads back as v.
+    # Column j does not contain entry A[i,j].
     if !_isimplicitzero(v, Tv)
         nz = getcolptr(A)[size(A, 2)+1]
         # throw exception before state is partially modified

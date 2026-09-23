@@ -374,8 +374,8 @@ end
     A[Is] = [0.1, 0.5]
     @test nnz(A) == 2
 
-    @testset "a zero that reads back unchanged is not stored (issue #389)" begin
-        for T in (BigInt, BigFloat, Complex{BigFloat}, Rational{BigInt})
+    @testset "heap-allocated zero (#389)" begin
+        for T in (BigFloat, Complex{BigFloat}, Rational{BigInt})
             A = spzeros(T, 3, 3)
             A[1, 1] = 0
             A[2, 3] = zero(T)

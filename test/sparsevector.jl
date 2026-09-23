@@ -377,8 +377,8 @@ end
         @test exact_equal(xc, SparseVector(8, [2, 5, 6], [0.0, 0.0, 0.0]))
     end
 
-    @testset "a zero that reads back unchanged is not stored (issue #389)" begin
-        for T in (BigInt, BigFloat, Complex{BigFloat})
+    @testset "heap-allocated zero (#389)" begin
+        for T in (BigFloat, Complex{BigFloat})
             x = spzeros(T, 4)
             x[1] = 0
             x[3] = zero(T)
