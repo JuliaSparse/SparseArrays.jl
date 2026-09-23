@@ -4,7 +4,7 @@ module SparseTests
 
 using Test
 using SparseArrays
-using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero
+using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, _isimplicitzero
 using LinearAlgebra
 using Printf: @printf # for debug
 using Random
@@ -22,6 +22,19 @@ include("simplesmatrix.jl")
     @test _isnotzero(1.0)
 end
 
+
+@testset "_isimplicitzero" begin
+    @test _isimplicitzero(0, Int)
+    @test !_isimplicitzero(1, Int)
+    @test _isimplicitzero(0.0, Float64)
+    @test !_isimplicitzero(-0.0, Float64)   # egality keeps the sign of a zero
+    @test !_isimplicitzero(missing, Union{Missing,Int})
+    @test _isimplicitzero(big(0.0), BigFloat)
+    @test !_isimplicitzero(-big(0.0), BigFloat)
+    @test _isimplicitzero(zero(Complex{BigFloat}), Complex{BigFloat})
+    @test !_isimplicitzero(Complex{BigFloat}(0, 1), Complex{BigFloat})
+    @test !_isimplicitzero([0.0], Vector{Float64})   # array elements are always stored
+end
 
 @testset "issparse" begin
     @test issparse(sparse(fill(1,5,5)))
