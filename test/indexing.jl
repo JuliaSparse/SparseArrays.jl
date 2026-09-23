@@ -216,6 +216,14 @@ end
         @test nnz(A) == 4 && all(signbit, nonzeros(A))
     end
 
+    @testset "first insertion between stored rows" begin
+        A = sparse([1, 3, 1, 3], [1, 1, 3, 3], [1.0, 3.0, 7.0, 9.0], 3, 3)
+        D = Matrix(A)
+        A[2, 1:3] .= 5.0    # column 1 inserts before its last stored row is merged
+        D[2, 1:3] .= 5.0
+        @test A == D && nnz(A) == 7
+    end
+
     # Zero-assignment behavior of setindex!(A, B::SparseMatrixCSC, I, J)
     a = copy(b)
     a[1:2,:] = spzeros(2, 10)
