@@ -228,10 +228,8 @@ issparse(S::AbstractSparseArray) = true
     indtype(S)
 
 Return the integer type in which sparse array `S` stores its indices: the `Ti` in
-`SparseMatrixCSC{Tv,Ti}` and `SparseVector{Tv,Ti}`, the element type of
-[`rowvals`](@ref) and [`getcolptr`](@ref). It is the index-type counterpart of
-`eltype`, and like `eltype` it looks through views and the `Adjoint`, `Transpose`,
-`Symmetric`, `Hermitian` and triangular wrappers.
+`SparseMatrixCSC{Tv,Ti}` and `SparseVector{Tv,Ti}`. It is the index-type counterpart
+of `eltype`.
 
 # Examples
 ```jldoctest
