@@ -199,11 +199,21 @@ end
     @test A * Matrix(S) == S * Matrix(S)
 end
 
-@static if COMPREHENSIVE
 @testset "indtype" begin
     Ti = @static COMPREHENSIVE ? Int8 : Int
-    @test SparseArrays.indtype(sparse(Ti[1,1],Ti[1,1],[1,1])) == Ti
+    A = sparse(Ti[1,1],Ti[1,1],[1,1])
+    @test SparseArrays.indtype(A) == Ti
+    for W in (A', transpose(A), Symmetric(A), Hermitian(A), UpperTriangular(A),
+              view(A, :, 1:1), view(A, :, [1]), view(A, :, 1))
+        @test SparseArrays.indtype(W) == Ti
+    end
+    @test SparseArrays.indtype(sparsevec(Ti[1], [1.0])') == Ti
 end
+
+@testset "exported CSC accessors" begin
+    for name in (:AbstractSparseMatrixCSC, :getcolptr, :getrowval, :getnzval, :indtype)
+        @test Base.isexported(SparseArrays, name)
+    end
 end
 
 @testset "sparse binary operations" begin
