@@ -224,6 +224,28 @@ end
         @test A == D && nnz(A) == 7
     end
 
+    @testset "-0.0 handling in non-scalar setindex" begin
+        negzeros(A) = count(v -> iszero(v) && signbit(v), nonzeros(A))
+        A = spzeros(3, 3); A[1:2, 2:3] = fill(-0.0, 2, 2)
+        @test nnz(A) == 4 && negzeros(A) == 4
+        A = spzeros(3, 3); A[trues(3, 3)] = fill(-0.0, 9)
+        @test nnz(A) == 9 && negzeros(A) == 9
+        A = spzeros(3, 3); A[[2, 4]] = [-0.0, -0.0]
+        @test nnz(A) == 2 && negzeros(A) == 2
+        B = spzeros(2, 2); B[1, 1] = -0.0
+        A = spzeros(3, 3); A[[3, 1], 1:2] = B
+        @test nnz(A) == 1 && negzeros(A) == 1 && A[3, 1] === -0.0
+        A = spzeros(Union{Missing,Float64}, 3, 3); A[1:1, 1:1] = [missing;;]
+        @test nnz(A) == 1 && ismissing(A[1, 1])
+        A = sparse(1.0I, 3, 3); A[1:2, 2:3] = zeros(Int, 2, 2)
+        @test nnz(A) == 3 && A[2, 2] === 0.0
+        A = spzeros(BigFloat, 3, 3)
+        A[1:2, 1:2] = fill(big(0), 2, 2); A[trues(3, 3)] = fill(big(0), 9); A[[3]] = [big(0)]
+        @test nnz(A) == 0
+        A = sparse(1.0I, 3, 3); A[Int[], 1:2] = zeros(0, 2)
+        @test A == I
+    end
+
     # Zero-assignment behavior of setindex!(A, B::SparseMatrixCSC, I, J)
     a = copy(b)
     a[1:2,:] = spzeros(2, 10)

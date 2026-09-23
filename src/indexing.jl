@@ -779,10 +779,31 @@ end
 
 # Nonscalar A[I,J] = B: Convert B to a SparseMatrixCSC of the appropriate shape first
 # (reshape also fixes a 1×n V assigned to A[:, j], which the shape check allows; see #569)
-_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I...) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, map(length, I)))
+# a dense `V` keeps what scalar `setindex!` would store, such as `-0.0`, which `sparse` drops
+function _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I, J) where {Tv,Ti}
+    M = reshape(V, length(I), length(J))
+    nz = count(x -> !_isimplicitzero(convert(Tv, x), Tv), M)
+    colptr = Vector{Ti}(undef, size(M, 2) + 1)
+    rowval = Vector{Ti}(undef, nz)
+    nzval = Vector{Tv}(undef, nz)
+    colptr[1] = 1
+    k = 1
+    for j in axes(M, 2)
+        for i in axes(M, 1)
+            v = convert(Tv, M[i, j])
+            if !_isimplicitzero(v, Tv)
+                rowval[k] = i
+                nzval[k] = v
+                k += 1
+            end
+        end
+        colptr[j+1] = k
+    end
+    return SparseMatrixCSC{Tv,Ti}(size(M)..., colptr, rowval, nzval)
+end
 # a sparse `V` is copied through its storage; converting the lazy reshape would visit every element
-_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I...) where {Tv,Ti} =
-    SparseMatrixCSC{Tv,Ti}(size(V) == map(length, I) ? V : copy(reshape(V, map(length, I))))
+_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I, J) where {Tv,Ti} =
+    SparseMatrixCSC{Tv,Ti}(size(V) == (length(I), length(J)) ? V : copy(reshape(V, length(I), length(J))))
 
 # The positions of `I` that a sorted merge has to visit, in increasing order of index:
 # of a repeated index only the last position, whose write wins. `nothing` if `I` is
@@ -887,7 +908,7 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
                 ptrS += 1
                 ptrA += 1
             elseif rowB < rowA
-                if nzvalB[ptrB] != zero(Tv)
+                if !_isimplicitzero(nzvalB[ptrB], Tv)
                     rowvalA[ptrS] = rowB
                     nzvalA[ptrS] = nzvalB[ptrB]
                     ptrS += 1
@@ -912,7 +933,7 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
 
         while ptrB < stopB
             rowB = I[rowvalB[ptrB]]
-            if nzvalB[ptrB] != zero(Tv)
+            if !_isimplicitzero(nzvalB[ptrB], Tv)
                 rowvalA[ptrS] = rowB
                 nzvalA[ptrS] = nzvalB[ptrB]
                 ptrS += 1
@@ -963,7 +984,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatr
 
         for row in axes(A,1)
             if I[row, col]
-                v = x[xidx]
+                v = convert(eltype(A), x[xidx])
                 xidx += 1
 
                 if r1 <= r2
@@ -979,7 +1000,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatr
                 end
 
                 # 0: no change, 1: update, 2: add new
-                mode = ((r1 <= r2) && (rowvalA[r1] == row)) ? 1 : ((v == 0) ? 0 : 2)
+                mode = ((r1 <= r2) && (rowvalA[r1] == row)) ? 1 : (_isimplicitzero(v, eltype(A)) ? 0 : 2)
 
                 if (mode > 1) && (nadd == 0)
                     # copy storage to take changes
@@ -1082,7 +1103,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
         (xidx < n) && (I[sxidx] == I[S[xidx+1]]) && continue
 
         row,col = Tuple(CartIndsA[I[sxidx]])
-        v = x[sxidx]
+        v = convert(eltype(A), x[sxidx])
 
         if col > lastcol
             r1 = Int(first(nzrange(A, col)))
@@ -1118,7 +1139,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
         end
 
         # 0: no change, 1: update, 2: add new
-        mode = ((r1 <= r2) && (rowvalA[r1] == row)) ? 1 : ((v == 0) ? 0 : 2)
+        mode = ((r1 <= r2) && (rowvalA[r1] == row)) ? 1 : (_isimplicitzero(v, eltype(A)) ? 0 : 2)
 
         if (mode > 1) && (nadd == 0)
             # copy storage to take changes
