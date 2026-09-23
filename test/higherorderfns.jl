@@ -570,8 +570,8 @@ end
         if length(fa) == length(fb)
             for f in (+, -)
                 @test @inferred(f(sa, sb))::SparseVector == f(fa, fb)
-                @test @inferred(f(Vector(sa), sb))::SparseVector == f(fa, fb)
-                @test @inferred(f(sa, Vector(sb)))::SparseVector == f(fa, fb)
+                @test @inferred(f(Vector(sa), sb))::Vector == f(fa, fb)
+                @test @inferred(f(sa, Vector(sb)))::Vector == f(fa, fb)
             end
         end
     end

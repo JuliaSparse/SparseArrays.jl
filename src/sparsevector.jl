@@ -1284,6 +1284,13 @@ for fun in (:+, :-)
     end
 end
 
+# A sum with a dense array, or a view of one, is dense, as for a sparse and a dense matrix. Densifying
+# the sparse side leaves the shape and element type of the result to the dense method.
+for fun in (:+, :-)
+    @eval $(fun)(x::SparseVectorOrView, y::StridedVecOrMat) = $(fun)(Array(x), y)
+    @eval $(fun)(x::StridedVecOrMat, y::SparseVectorOrView) = $(fun)(x, Array(y))
+end
+
 ### Reduction
 Base.reducedim_initarray(A::SparseVectorOrView, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
