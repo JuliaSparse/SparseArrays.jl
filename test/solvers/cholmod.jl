@@ -471,6 +471,8 @@ using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
 using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
+using SparseArrays: _factorlock, _rdlock, _rdunlock, _wrlock, _wrunlock, _nreaders,
+    _haswriter, _nwaiting
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
@@ -1253,5 +1255,119 @@ end
 end
 
 end # for Tv ∈ (Float32, Float64)
+
+@testset "every call on a Factor takes its lock" begin
+    Tv, Ti = Float64, Int
+    # Cooperative tasks on this thread. A task that has started and is not done is
+    # blocked on the lock, since nothing else in these calls yields.
+    n = 10
+    tri(d) = SparseMatrixCSC{Tv,Ti}(spdiagm(-1 => fill(Tv(1), n - 1), 0 => fill(Tv(d), n),
+        1 => fill(Tv(1), n - 1)))
+    A, A2 = tri(4), tri(5)
+    b = Tv.(1:n)
+    x, x2 = Matrix(A) \ b, Matrix(A2) \ b
+    v = zeros(Tv, n); v[2] = 1
+    xv, xd = Matrix(A + v*v') \ b, Matrix(A - v*v') \ b
+    p = cholesky(A).p
+    reads = (
+        F -> F \ b ≈ x,
+        F -> F \ sparse(complex.(b)) ≈ x,
+        F -> F' \ b ≈ x,
+        F -> F.UP \ (F.PtL \ b) ≈ x,
+        F -> ldiv!(similar(b), F, b) ≈ x,
+        F -> size(F) == (n, n) && size(F, 1) == n,
+        F -> issuccess(F) && isposdef(F) && CHOLMOD.isvalid(F),
+        F -> logdet(F) ≈ logdet(Matrix(A)),
+        F -> diag(F) isa Vector{Tv},
+        F -> CHOLMOD.rcond(F) > 0,
+        F -> sparse(F) ≈ A,
+        F -> sparse(F.L) isa SparseMatrixCSC,
+        F -> nnz(F) > 0,
+        F -> isperm(F.p),
+        F -> :p in propertynames(F),
+        F -> copy(F) \ b ≈ x,
+        F -> occursin("LLt", sprint(show, F)),
+        F -> CHOLMOD.lowrankupdate(F, v) \ b ≈ xv,
+    )
+    writes = (
+        F -> cholesky!(F, A2) \ b ≈ x2,
+        F -> ldlt!(F, A2) \ b ≈ x2,
+        F -> CHOLMOD.lowrankupdate!(F, v) \ b ≈ xv,
+        F -> CHOLMOD.lowrankdowndate!(F, v) \ b ≈ xd,
+        F -> CHOLMOD.lowrankupdowndate!(F, CHOLMOD.Sparse(sparse(v[p, :])), Cint(1)) \ b ≈ xv,
+        F -> CHOLMOD.free!(F),
+    )
+    @testset "reads run while the test holds a read" begin
+        F = cholesky(A)
+        l = _factorlock(F)
+        _rdlock(l)
+        try
+            for f in reads
+                t = @async f(F)
+                @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+                @test fetch(t)
+            end
+        finally
+            _rdunlock(l)
+        end
+    end
+    @testset "writes wait for a read" begin
+        for f in writes
+            F = cholesky(A)
+            l = _factorlock(F)
+            _rdlock(l)
+            t = @async f(F)
+            @test timedwait(() -> _nwaiting(l) == 1, 60; pollint=0.001) === :ok
+            # the task holding the read may read again while the writer waits
+            @test issuccess(F)
+            _rdunlock(l)
+            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+            @test fetch(t)
+            @test _nreaders(l) == 0 && !_haswriter(l)
+        end
+    end
+    @testset "every call waits for a write" begin
+        for f in (reads..., writes...)
+            F = cholesky(A)
+            l = _factorlock(F)
+            started = Ref(false)
+            _wrlock(l)
+            t = @async (started[] = true; f(F))
+            @test timedwait(() -> started[], 60; pollint=0.001) === :ok
+            @test !istaskdone(t)
+            _wrunlock(l)
+            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+            @test fetch(t)
+        end
+    end
+    @testset "ldiv! calls on one Factor exclude each other, but not other solves" begin
+        F = cholesky(A)
+        ws = getfield(F, :_wslock)
+        started = Ref(false)
+        lock(ws)
+        t = @async (started[] = true; ldiv!(similar(b), F, b) ≈ x)
+        @test timedwait(() -> started[], 60; pollint=0.001) === :ok
+        @test !istaskdone(t)
+        @test fetch(@async F \ b ≈ x && ldiv!(similar(b), copy(F), b) ≈ x)
+        unlock(ws)
+        @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+        @test fetch(t)
+    end
+    @testset "a failed refactorization releases the lock" begin
+        F = cholesky(A)
+        l = _factorlock(F)
+        @test_throws PosDefException cholesky!(F, -A)
+        @test_throws PosDefException ldiv!(similar(b), F, b)
+        @test_throws ZeroPivotException ldlt!(F, 0*A)
+        @test _nreaders(l) == 0 && !_haswriter(l)
+    end
+    @testset "the lock is hidden" begin
+        F = cholesky(A)
+        for d in (:lock, :_lock, :_wslock)
+            @test d ∉ propertynames(F)
+            @test_throws CHOLMOD.CHOLMODException getproperty(F, d)
+        end
+    end
+end
 
 end # module

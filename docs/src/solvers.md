@@ -271,7 +271,7 @@ own `copy` of the factorization:
 |:-----|:----------|:-----------------------------------------|
 | `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new workspace, `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
 | `SPQR.QRSparse` | shares the factors and permutations, which never change; new, empty workspace and lock | `\`, `ldiv!`; every other call only reads the factors and needs no lock |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!`, `lowrankupdate!`, `lowrankdowndate!` |
+| `CHOLMOD.Factor` | independent deep copy of the whole factor | `cholesky!`, `ldlt!`, the low-rank updates and `free!` run alone; `ldiv!` calls exclude each other; every other call runs in parallel with `ldiv!` and with other calls |
 
 The copies of an `UmfpackLU` or a `QRSparse` are cheap, since only the workspace is
 duplicated:
@@ -292,12 +292,17 @@ once per right-hand side. Because the copies of an `UmfpackLU` share its factors
 call [`lu!`](@ref) on the original or on any copy while another task is solving with one
 of them: refactorization frees the numeric object they all point to.
 
-For CHOLMOD, only `ldiv!` uses the buffers stored in the `Factor`, and only `ldiv!`,
-[`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`, `lowrankupdate!` and
-`lowrankdowndate!` take its lock. `F \ b`, the queries on `F` and `lowrankupdowndate!` do
-not, so a `Factor` is not safe to share between tasks when any of them may refactorize or
-update it. Use a separate `copy(F)` per task in that case, and for
-parallel `ldiv!`; note that this duplicates the factor's memory.
+For CHOLMOD, the lock of a `Factor` is a readers-writer lock. `F \ b`, the solves with
+the components of `F` and the queries on `F` share it, so they run in parallel. `ldiv!`
+shares it too, but it uses buffers stored in the `Factor`, so the `ldiv!` calls on one `F`
+run one at a time. [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`,
+`lowrankupdate!`, `lowrankdowndate!`, `lowrankupdowndate!` and `free!` take the lock
+exclusively: each waits for the calls in progress to finish, and calls that start later
+wait for it. So a `Factor` can be refactorized while other tasks solve with it, and every
+solve sees either the old or the new factorization. A refactorization that is waiting goes
+ahead of new solves, so if refactorizations follow each other without pause, solves can be
+held back indefinitely. For parallel `ldiv!`, give each task its own `copy(F)`; note that
+this duplicates the factor's memory.
 
 CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
 structure. SparseArrays creates one lazily for each Julia task (and index type) and keeps
