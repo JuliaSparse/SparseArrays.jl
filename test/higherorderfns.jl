@@ -282,7 +282,8 @@ end
         A = sprand(T, m, n, 0.05)
         v = rand(T, m) .+ 1
         ncalls = Ref(0)
-        for (f, args) in ((*, (v, A)), (*, (A, v)), (/, (A, v)), (\, (v, A)), (*, (A, sparse(v))))
+        for (f, args) in ((*, (v, A)), (*, (A, v)), (/, (A, v)), (\, (v, A)),
+                           (*, (A, sparse(v))), (*, (sparse(v), A)))
             ncalls[] = 0
             counted(x, y) = (ncalls[] += 1; f(x, y))
             C = broadcast(counted, args...)
@@ -297,10 +298,14 @@ end
         # a zero in the vector fills its row with `NaN`, which needs the merge
         v0 = copy(v); v0[3] = 0
         @test isequal(A ./ v0, sparse(Array(A) ./ v0))
+        @test isequal(v0 .\ A, sparse(v0 .\ Array(A)))
         @test isequal(view(A, :, 2:n) ./ view(v0, :), sparse(Array(A)[:, 2:n] ./ v0))
+        @test isequal(view(v0, :) .\ view(A, :, 2:n), v0 .\ Array(A)[:, 2:n])
         @test A .+ v == Array(A) .+ v
-        # `f(0, v[i])` is not probed for a row the matrix stores in full
+        @test v .+ A == v .+ Array(A)
+        # `f` is not probed against a zero for a row the matrix stores in full
         @test sqrt.(sparse(T[2 3; 0 0]) .- T[1, 0]) == sqrt.(T[2 3; 0 0] .- T[1, 0])
+        @test sqrt.(T[-1, 0] .- sparse(T[-2 -3; 0 0])) == sqrt.(T[-1, 0] .- T[-2 -3; 0 0])
     end
 
 end
