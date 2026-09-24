@@ -645,6 +645,15 @@ end
     @test F.:(:) == (F.L, F.U, F.p, F.q, F.Rs)
     UMFPACK.umfpack_report_numeric(F, 0)
     UMFPACK.umfpack_report_symbolic(F, 0)
+    # a solve's statistics go to a caller-owned info vector
+    info = fill(-1.0, UMFPACK.UMFPACK_INFO)
+    @test ldiv!(zeros(Tv, 3), F, b; info) ≈ x
+    L = SparseArrays.LibSuiteSparse
+    @test info[L.UMFPACK_STATUS + 1] == L.UMFPACK_OK
+    @test info[L.UMFPACK_SOLVE_FLOPS + 1] > 0
+    @test F' \ b ≈ ldiv!(zeros(Tv, 3), F', b; info)
+    @test_throws ArgumentError ldiv!(zeros(Tv, 3), F, b; info = zeros(3))
+    UMFPACK.show_umf_info(F, info, 0) # print level 0: checks the method, prints nothing
     @test all(map(isequal, map(f -> getfield(F, f), fieldnames(typeof(F))), snapshot))
     @test (F.symbolic.p, F.numeric.p) == ptrs
 end

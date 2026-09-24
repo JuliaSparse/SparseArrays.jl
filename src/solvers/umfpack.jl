@@ -255,7 +255,10 @@ factors, which are recomputed when it is deserialized.
 
 `ldiv!` takes an optional [`UMFPACK.UmfpackWS`](@ref SparseArrays.UMFPACK.UmfpackWS) to
 avoid allocating. Solves do not modify `F`, so several tasks can solve with one `F` at
-once; see [Multithreading and thread safety](@ref). The exception is an `F` without
+once; see [Multithreading and thread safety](@ref). To get UMFPACK's statistics for a
+solve, such as the iterative refinement steps taken and the backward error, pass
+`info = zeros(UMFPACK.UMFPACK_INFO)` to `ldiv!` and show it with
+`UMFPACK.show_umf_info(F, info)`. The exception is an `F` without
 factors, such as one built with `UmfpackLU(S)` or left by a failed `lu!`: its first use
 computes them.
 
@@ -354,6 +357,7 @@ show_umf_ctrl(F::UmfpackLU, level::Real=2.0) = show_umf_ctrl(F.control, level)
 
 
 show_umf_info(F::UmfpackLU, level::Real=2.0) = show_umf_info(F.control, F.info, level)
+show_umf_info(F::UmfpackLU, info::Vector{Float64}, level::Real=2.0) = show_umf_info(F.control, info, level)
 
 
 """
@@ -625,11 +629,19 @@ end
 # `F.Rs` always multiplies.
 _scale_factors!(Rs, do_recip) = do_recip == 0 ? map!(inv, Rs, Rs) : Rs
 
+# Solves write their statistics only into a caller-owned `info`, never into the
+# factorization, so that tasks can solve with one factorization at once.
+_check_info(::Nothing) = nothing
+_check_info(info::Vector{Float64}) = length(info) >= UMFPACK_INFO ||
+    throw(ArgumentError("info must have at least UMFPACK.UMFPACK_INFO = $UMFPACK_INFO entries, got $(length(info))"))
+_infoptr(::Nothing) = Ptr{Float64}(C_NULL)
+_infoptr(info::Vector{Float64}) = pointer(info)
+
 # UMFPACK needs contiguous vectors; solve through contiguous copies otherwise.
-function _unit_stride_solve!(x, lu, b, typ, workspace::UmfpackWS)
+function _unit_stride_solve!(x, lu, b, typ, workspace::UmfpackWS, info)
     xc = stride(x, 1) == 1 ? x : similar(x, length(x))
     bc = stride(b, 1) == 1 ? b : collect(b)
-    solve!(xc, lu, bc, typ; workspace)
+    solve!(xc, lu, bc, typ; workspace, info)
     xc === x || copyto!(x, xc)
     return x
 end
@@ -720,38 +732,42 @@ for itype in UmfpackIndexTypes
         end
         function solve!(x::StridedVector{Float64},
             lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64},
-            typ::Integer; workspace::Union{Nothing,UmfpackWS{$itype}} = nothing)
+            typ::Integer; workspace::Union{Nothing,UmfpackWS{$itype}} = nothing,
+            info::Union{Nothing,Vector{Float64}} = nothing)
             if x === b
                 throw(ArgumentError("output array must not be aliased with input array"))
             end
+            _check_info(info)
             workspace === nothing && (workspace = UmfpackWS(lu))
             if stride(x, 1) != 1 || stride(b, 1) != 1
-                return _unit_stride_solve!(x, lu, b, typ, workspace)
+                return _unit_stride_solve!(x, lu, b, typ, workspace, info)
             end
             resize!(workspace, lu, has_refinement(lu); expand_only = true)
             umfpack_numeric!(lu)
             (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
 
-            @isok $wsol_r(typ, lu.colptr, lu.rowval, lu.nzval,
+            GC.@preserve info @isok $wsol_r(typ, lu.colptr, lu.rowval, lu.nzval,
                 x, b, lu.numeric, lu.control,
-                C_NULL, workspace.Wi, workspace.W)
+                _infoptr(info), workspace.Wi, workspace.W)
             return x
         end
         function solve!(x::StridedVector{ComplexF64},
             lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64},
-            typ::Integer; workspace::Union{Nothing,UmfpackWS{$itype}} = nothing)
+            typ::Integer; workspace::Union{Nothing,UmfpackWS{$itype}} = nothing,
+            info::Union{Nothing,Vector{Float64}} = nothing)
             if x === b
                 throw(ArgumentError("output array must not be aliased with input array"))
             end
+            _check_info(info)
             workspace === nothing && (workspace = UmfpackWS(lu))
             if stride(x, 1) != 1 || stride(b, 1) != 1
-                return _unit_stride_solve!(x, lu, b, typ, workspace)
+                return _unit_stride_solve!(x, lu, b, typ, workspace, info)
             end
             resize!(workspace, lu, has_refinement(lu); expand_only = true)
             umfpack_numeric!(lu)
             (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
-            @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
-                C_NULL, lu.numeric, lu.control, C_NULL, workspace.Wi, workspace.W)
+            GC.@preserve info @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
+                C_NULL, lu.numeric, lu.control, _infoptr(info), workspace.Wi, workspace.W)
             return x
         end
         function det(lu::UmfpackLU{Float64,$itype})
@@ -1041,77 +1057,78 @@ end
 
 ### Solve with Factorization
 
-ldiv!(lu::UmfpackLU{T}, B::StridedVecOrMat{T}; workspace=nothing) where {T<:UMFVTypes} =
-    ldiv!(B, lu, copy(B); workspace)
-ldiv!(translu::TransposeFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=nothing) where {T<:UMFVTypes} =
-    ldiv!(B, translu, copy(B); workspace)
-ldiv!(adjlu::AdjointFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=nothing) where {T<:UMFVTypes} =
-    ldiv!(B, adjlu, copy(B); workspace)
-ldiv!(lu::UmfpackLU{Float64}, B::StridedVecOrMat{<:Complex}; workspace=nothing) =
-    ldiv!(B, lu, copy(B); workspace)
-ldiv!(translu::TransposeFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}; workspace=nothing) =
-    ldiv!(B, translu, copy(B); workspace)
-ldiv!(adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}; workspace=nothing) =
-    ldiv!(B, adjlu, copy(B); workspace)
+ldiv!(lu::UmfpackLU{T}, B::StridedVecOrMat{T}; workspace=nothing, info=nothing) where {T<:UMFVTypes} =
+    ldiv!(B, lu, copy(B); workspace, info)
+ldiv!(translu::TransposeFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=nothing, info=nothing) where {T<:UMFVTypes} =
+    ldiv!(B, translu, copy(B); workspace, info)
+ldiv!(adjlu::AdjointFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=nothing, info=nothing) where {T<:UMFVTypes} =
+    ldiv!(B, adjlu, copy(B); workspace, info)
+ldiv!(lu::UmfpackLU{Float64}, B::StridedVecOrMat{<:Complex}; workspace=nothing, info=nothing) =
+    ldiv!(B, lu, copy(B); workspace, info)
+ldiv!(translu::TransposeFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}; workspace=nothing, info=nothing) =
+    ldiv!(B, translu, copy(B); workspace, info)
+ldiv!(adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{<:Complex}; workspace=nothing, info=nothing) =
+    ldiv!(B, adjlu, copy(B); workspace, info)
 
-function ldiv!(lu::Union{UmfpackLU,UMFAdjOrTransLU}, B::AdjOrTrans{<:Any,<:StridedVecOrMat}; workspace=nothing)
+function ldiv!(lu::Union{UmfpackLU,UMFAdjOrTransLU}, B::AdjOrTrans{<:Any,<:StridedVecOrMat}; workspace=nothing, info=nothing)
     X = Matrix(B)
-    ldiv!(lu, X; workspace)
+    ldiv!(lu, X; workspace, info)
     return copyto!(B, X)
 end
 
-ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}; workspace=nothing) where {T<:UMFVTypes} =
-    _Aq_ldiv_B!(X, lu, B, UMFPACK_A, workspace)
-ldiv!(X::StridedVecOrMat{T}, translu::TransposeFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=nothing) where {T<:UMFVTypes} =
-    (lu = parent(translu); _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat, workspace))
-ldiv!(X::StridedVecOrMat{T}, adjlu::AdjointFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=nothing) where {T<:UMFVTypes} =
-    (lu = parent(adjlu); _Aq_ldiv_B!(X, lu, B, UMFPACK_At, workspace))
-ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}; workspace=nothing) where {Tb<:Complex} =
-    _Aq_ldiv_B!(X, lu, B, UMFPACK_A, workspace)
-ldiv!(X::StridedVecOrMat{Tb}, translu::TransposeFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}; workspace=nothing) where {Tb<:Complex} =
-    (lu = parent(translu); _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat, workspace))
-ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}; workspace=nothing) where {Tb<:Complex} =
-    (lu = parent(adjlu); _Aq_ldiv_B!(X, lu, B, UMFPACK_At, workspace))
+ldiv!(X::StridedVecOrMat{T}, lu::UmfpackLU{T}, B::StridedVecOrMat{T}; workspace=nothing, info=nothing) where {T<:UMFVTypes} =
+    _Aq_ldiv_B!(X, lu, B, UMFPACK_A, workspace, info)
+ldiv!(X::StridedVecOrMat{T}, translu::TransposeFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=nothing, info=nothing) where {T<:UMFVTypes} =
+    (lu = parent(translu); _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat, workspace, info))
+ldiv!(X::StridedVecOrMat{T}, adjlu::AdjointFactorization{T,<:UmfpackLU{T}}, B::StridedVecOrMat{T}; workspace=nothing, info=nothing) where {T<:UMFVTypes} =
+    (lu = parent(adjlu); _Aq_ldiv_B!(X, lu, B, UMFPACK_At, workspace, info))
+ldiv!(X::StridedVecOrMat{Tb}, lu::UmfpackLU{Float64}, B::StridedVecOrMat{Tb}; workspace=nothing, info=nothing) where {Tb<:Complex} =
+    _Aq_ldiv_B!(X, lu, B, UMFPACK_A, workspace, info)
+ldiv!(X::StridedVecOrMat{Tb}, translu::TransposeFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}; workspace=nothing, info=nothing) where {Tb<:Complex} =
+    (lu = parent(translu); _Aq_ldiv_B!(X, lu, B, UMFPACK_Aat, workspace, info))
+ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOrMat{Tb}; workspace=nothing, info=nothing) where {Tb<:Complex} =
+    (lu = parent(adjlu); _Aq_ldiv_B!(X, lu, B, UMFPACK_At, workspace, info))
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype,
-                     workspace::Union{Nothing,UmfpackWS})
+                     workspace::Union{Nothing,UmfpackWS}, info::Union{Nothing,Vector{Float64}})
+    _check_info(info)
     checksquare(lu)
     if size(X, 2) != size(B, 2)
         throw(DimensionMismatch("input and output arrays must have same number of columns"))
     end
-    _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace)
+    _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace, info)
     return X
 end
 function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},
-                          b::StridedVector{T}, transposeoptype, workspace) where {T<:UMFVTypes}
-    solve!(x, lu, b, transposeoptype; workspace)
+                          b::StridedVector{T}, transposeoptype, workspace, info) where {T<:UMFVTypes}
+    solve!(x, lu, b, transposeoptype; workspace, info)
 end
 function _AqldivB_kernel!(X::StridedMatrix{T}, lu::UmfpackLU{T},
-                          B::StridedMatrix{T}, transposeoptype, workspace) where {T<:UMFVTypes}
+                          B::StridedMatrix{T}, transposeoptype, workspace, info) where {T<:UMFVTypes}
     for col in axes(X, 2)
-        solve!(view(X, :, col), lu, view(B, :, col), transposeoptype; workspace)
+        solve!(view(X, :, col), lu, view(B, :, col), transposeoptype; workspace, info)
     end
 end
 function _AqldivB_kernel!(x::StridedVector{Tb}, lu::UmfpackLU{Float64},
-                          b::StridedVector{Tb}, transposeoptype, workspace) where Tb<:Complex
+                          b::StridedVector{Tb}, transposeoptype, workspace, info) where Tb<:Complex
     r = similar(b, Float64)
     i = similar(b, Float64)
     c = real.(b)
-    solve!(r, lu, c, transposeoptype; workspace)
+    solve!(r, lu, c, transposeoptype; workspace, info)
     c .= imag.(b)
-    solve!(i, lu, c, transposeoptype; workspace)
+    solve!(i, lu, c, transposeoptype; workspace, info)
     map!(complex, x, r, i)
 end
 function _AqldivB_kernel!(X::StridedMatrix{Tb}, lu::UmfpackLU{Float64},
-                          B::StridedMatrix{Tb}, transposeoptype, workspace) where Tb<:Complex
+                          B::StridedMatrix{Tb}, transposeoptype, workspace, info) where Tb<:Complex
     r = similar(B, Float64, size(B, 1))
     i = similar(B, Float64, size(B, 1))
     c = similar(B, Float64, size(B, 1))
     for j in axes(B, 2)
         c .= real.(view(B, :, j))
-        solve!(r, lu, c, transposeoptype; workspace)
+        solve!(r, lu, c, transposeoptype; workspace, info)
         c .= imag.(view(B, :, j))
-        solve!(i, lu, c, transposeoptype; workspace)
+        solve!(i, lu, c, transposeoptype; workspace, info)
         map!(complex, view(X, :, j), r, i)
     end
 end
