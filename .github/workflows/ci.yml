@@ -35,14 +35,16 @@ jobs:
           # or a cache built with other flags is restored and everything is precompiled
           # again. The other jobs use `--check-bounds=auto` (Julia's default, matching the
           # precompiled code); `no` would break the tests that expect a `BoundsError`.
+          # Coverage also slows every test, so it goes on ubuntu x64, which has more cores
+          # and memory than the macOS runner; bounds checking costs little.
           - os: macOS-latest
             julia-arch: aarch64
             julia-version: 'nightly'
-            coverage: true
+            check-bounds: 'yes'
           - os: ubuntu-latest
             julia-arch: x64
             julia-version: 'nightly'
-            check-bounds: 'yes'
+            coverage: true
     steps:
       - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
