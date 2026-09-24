@@ -135,11 +135,11 @@ end
     @test SparseArrays._unsafe_unfix(A) == A
 end
 @testset "FixedSparseVector" begin
-    y = sprandn(10, 0.3)
+    y = sparsevec([2, 5, 7], [1.5, -2.0, 0.25], 10)
     x = FixedSparseVector(copy(y))
     @test struct_eq(x, y)
     @test_throws ArgumentError map!(v -> v + 1, x, y)
-    @test_throws ArgumentError map!(identity, x, sprandn(10, 0.3))
+    @test_throws ArgumentError map!(identity, x, sparsevec([1, 5], [3.0, 4.0], 10))
     @test struct_eq(x, y)
     nonzeros(x) .= 0
     @test struct_eq(x, y)
