@@ -492,6 +492,7 @@ end
         @test !issuccess(F)
         @test _isnull_numeric(F)
         # anything needing the factors refactorizes the matrix now held, B
+        @test all(logabsdet(F) .≈ logabsdet(Matrix(B)))
         @test F \ ones(3) ≈ Matrix(B) \ ones(3)
     end
 

@@ -802,6 +802,7 @@ for itype in UmfpackIndexTypes
         end
         function logabsdet(F::UmfpackLU{T, $itype}) where {T<:Union{Float64,ComplexF64}} # return log(abs(det)) and sign(det)
             n = checksquare(F)
+            umfpack_numeric!(F)
             issuccess(F) || return log(zero(real(T))), zero(T)
             U = F.U
             Rs = F.Rs
