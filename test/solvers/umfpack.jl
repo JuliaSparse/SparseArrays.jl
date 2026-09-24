@@ -8,7 +8,8 @@ using SparseArrays
 using Serialization
 using LinearAlgebra:
     LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet, Symmetric, Hermitian
-using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
+using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!,
+    _factorlock, _wrlock, _wrunlock, _nwaiting
 
 function umfpack_report(l::UMFPACK.UmfpackLU)
     UMFPACK.umfpack_report_numeric(l, 0)
@@ -124,9 +125,11 @@ end
         for i in [:n, :m]
             @test getproperty(Af, i) == getproperty(Af1, i)
         end
-        for i in [:workspace, :control, :info, :lock]
+        for i in [:workspace, :control, :info]
             @test getproperty(Af, i) !== getproperty(Af1, i)
         end
+        @test _factorlock(Af) !== _factorlock(Af1)
+        @test getfield(Af, :_share) === getfield(Af1, :_share)
     end
     @testset "test copy(UmfpackLU)" begin
         Af = lu(A0)
@@ -630,15 +633,123 @@ end
     B = copy(A)
     @test A.numeric === B.numeric
     @test A.symbolic === B.symbolic
-    # refactoring frees the shared numeric (and freeing again is a no-op);
-    # the copy then refactors on demand instead of using freed memory
+    # refactoring A gives it its own factors and leaves the shared ones to B
     num = A.numeric
     lu!(A, S)
+    @test num.p != C_NULL
+    @test B.numeric === num && A.numeric !== num
+    b = ones(10)
+    @test B \ b ≈ Matrix(S) \ b
+    # without copies, lu! frees the old factors eagerly (and freeing again is a no-op)
+    C = lu(S)
+    num = C.numeric
+    lu!(C, S)
     @test num.p == C_NULL
     UMFPACK.umfpack_free_numeric(num, Float64, Int)
     @test num.p == C_NULL
-    b = ones(10)
-    @test B \ b ≈ Matrix(S) \ b
+end
+
+@testset "copy-on-write, $Tv, $Ti, reuse_symbolic=$reuse" for Tv in (Float64, ComplexF64),
+        Ti in Base.uniontypes(UMFPACK.UMFITypes), reuse in (true, false)
+    A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    B = SparseMatrixCSC{Tv,Ti}(sparse(Tv[5 2 0; 2 5 2; 0 2 5]))
+    C = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1; 1 3]))
+    b = Tv[1, 2, 3]
+    xA, xB = Matrix(A) \ b, Matrix(B) \ b
+    F = lu(A)
+    G = copy(F)
+    lu!(F, B; reuse_symbolic=reuse)
+    @test G \ b ≈ xA
+    @test F \ b ≈ xB
+    @test G.colptr !== F.colptr && G.nzval !== F.nzval
+    @test G.numeric !== F.numeric && G.symbolic !== F.symbolic
+    @test getfield(G, :_share) !== getfield(F, :_share)
+    # refactorizing the copy leaves the original alone, also without a new matrix
+    H = copy(G)
+    lu!(H, C; reuse_symbolic=false)
+    lu!(G; reuse_symbolic=reuse)
+    @test size(H) == (2, 2) && H \ Tv[1, 2] ≈ Matrix(C) \ Tv[1, 2]
+    @test size(G) == (3, 3) && G \ b ≈ xA
+    @test F \ b ≈ xB
+    # a factorization with lazily computed factors can be copied and refactorized
+    L = UMFPACK.UmfpackLU(A)
+    M = copy(L)
+    lu!(L, B; reuse_symbolic=reuse)
+    @test M \ b ≈ xA && L \ b ≈ xB
+    # so can one that was deserialized
+    D = deserialize(seekstart(let io = IOBuffer(); serialize(io, F); io; end))
+    E = copy(D)
+    @test getfield(D, :_share) === getfield(E, :_share)
+    lu!(D, A; reuse_symbolic=reuse)
+    @test E \ b ≈ xB && D \ b ≈ xA
+    # a failed lu! on a shared factorization leaves the copies intact
+    F = lu(A)
+    G = copy(F)
+    Bs = copy(A)
+    nonzeros(Bs) .= [1, 1, 1, 2, 1, 1, 1]  # the pattern of A, but singular
+    @test_throws SingularException lu!(F, Bs; reuse_symbolic=reuse)
+    @test !issuccess(F) && issuccess(G)
+    @test G \ b ≈ xA
+    @test_throws DimensionMismatch lu!(G, B; q=[1, 2])
+    @test G \ b ≈ xA
+end
+
+@testset "the lock is internal" begin
+    F = lu(sparse([4.0 1; 1 3]))
+    @test propertynames(F) == (:L, :U, :p, :q, :Rs)
+    for d in (:lock, :_lock, :_share)
+        @test d ∉ propertynames(F, true)
+        @test_throws FieldError getproperty(F, d)
+    end
+    @test :workspace in propertynames(F, true)
+end
+
+@testset "every call takes the lock of F" begin
+    # Cooperative tasks on this thread; `_nwaiting` counts the tasks blocked on the lock.
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    b = [1.0, 2.0, 3.0]
+    x = Matrix(A) \ b
+    F = lu(A)
+    L, U, p, q, Rs = F.:(:)
+    G = copy(F)
+    io = IOBuffer()
+    calls = (() -> F \ b ≈ x,
+             () -> F' \ b ≈ Matrix(A)' \ b,
+             () -> transpose(F) \ b ≈ transpose(Matrix(A)) \ b,
+             () -> ldiv!(zeros(3), F, b) ≈ x,
+             () -> ldiv!(F, copy(b)) ≈ x,
+             () -> F \ complex.(b) ≈ x,
+             () -> UMFPACK.solve!(zeros(3), F, b, UMFPACK.UMFPACK_A) ≈ x,
+             () -> det(F) ≈ det(Matrix(A)),
+             () -> logabsdet(F)[1] ≈ logabsdet(Matrix(A))[1],
+             () -> UMFPACK.rcond(F) > 0,
+             () -> nnz(F) > 0,
+             () -> size(F) == (3, 3),
+             () -> size(F, 1) == 3,
+             () -> issuccess(F),
+             () -> F.L == L, () -> F.U == U, () -> F.p == p, () -> F.q == q, () -> F.Rs == Rs,
+             () -> F.:(:) == (L, U, p, q, Rs),
+             () -> occursin("L factor", sprint(show, MIME"text/plain"(), F)),
+             () -> (serialize(io, F); true),
+             () -> copy(F) \ b ≈ x,
+             () -> length(UMFPACK.UmfpackWS(F).Wi) == 3,
+             () -> length(UMFPACK.getworkspace(F).Wi) == 3,
+             () -> UMFPACK.umfpack_report_numeric(F, 0) === F,
+             () -> UMFPACK.umfpack_report_symbolic(F, 0) === F,
+             () -> UMFPACK.umfpack_numeric!(F) === F,
+             () -> lu!(F) \ b ≈ x,
+             () -> lu!(F, A) \ b ≈ x)
+    l = _factorlock(F)
+    for f in calls
+        _wrlock(l)
+        t = @async f()
+        @test timedwait(() -> _nwaiting(l) == 1, 60; pollint=0.001) === :ok
+        # a copy has its own lock
+        @test fetch(@async G \ b ≈ x && issuccess(G) && size(G) == (3, 3))
+        _wrunlock(l)
+        @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+        @test fetch(t)
+    end
 end
 
 

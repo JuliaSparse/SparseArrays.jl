@@ -262,14 +262,14 @@ Each factorization object carries scratch space for its solves, and some can be
 refactorized in place. The rule the solver wrappers follow is that every call that reads
 or changes the mutable state of a factorization holds that factorization's internal lock
 for the whole call. Such calls are therefore safe on one factorization shared by several
-tasks, but the ones that need the lock exclusively run one at a time. `QRSparse` follows
-this rule; the exceptions for `UmfpackLU` and `Factor` are described below. The lock is
+tasks, but the ones that need the lock exclusively run one at a time. `QRSparse` and
+`UmfpackLU` follow this rule; the exceptions for `Factor` are described below. The lock is
 internal: there is no public interface to it. To solve in parallel, give every task its
 own `copy` of the factorization:
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new workspace, `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
+| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors until either object is refactorized (copy-on-write); new workspace, `control`, `info` and lock | every call |
 | `SPQR.QRSparse` | shares the factors and permutations, which never change; new, empty workspace and lock | `\`, `ldiv!`; every other call only reads the factors and needs no lock |
 | `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!`, `lowrankupdate!`, `lowrankdowndate!` |
 
@@ -288,9 +288,18 @@ end
 ```
 
 A loop that performs many solves per task should make the copy once per task rather than
-once per right-hand side. Because the copies of an `UmfpackLU` share its factors, do not
-call [`lu!`](@ref) on the original or on any copy while another task is solving with one
-of them: refactorization frees the numeric object they all point to.
+once per right-hand side.
+
+The copies of an `UmfpackLU` are copy-on-write: calling [`lu!`](@ref) on the original or
+on any copy gives that object its own matrix and factors, and the others keep solving with
+the old ones, so refactorizing one object while tasks solve with its copies is safe.
+Every call on an `UmfpackLU` takes its lock exclusively, including the queries and the
+properties `F.L`, `F.U`, `F.p`, `F.q` and `F.Rs`, since any of them may compute missing
+factors. `lu!` frees the old factors eagerly only when the object has no copies;
+otherwise they are freed by the garbage collector once no copy uses them. A copy counts
+until it has been finalized, and the collector does not see the memory UMFPACK allocates,
+so call `GC.gc()` if a loop that copies and refactorizes large factorizations needs that
+memory back sooner.
 
 For CHOLMOD, only `ldiv!` uses the buffers stored in the `Factor`, and only `ldiv!`,
 [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`, `lowrankupdate!` and

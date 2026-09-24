@@ -15,7 +15,8 @@ on the GPL libraries; see the Layout section there.
   Keep wrappers rooted while reading through raw pointers.
 - Guard the invariants the C side assumes (contiguous outputs, matching types, sorted
   and packed flags on CHOLMOD sparse structs). Drop stale state on failure and free
-  eagerly on refactorization.
+  eagerly on refactorization, except what copies still share: `UmfpackLU` copies are
+  copy-on-write, so never write or free anything while its share count exceeds one.
 - The solvers work in double precision. Convert inputs explicitly; `float` is not a
   Float64 cast for generic eltypes. Convert results back and keep `\` type-stable.
 - Accept strided right-hand sides and their adjoint and transpose wrappers.

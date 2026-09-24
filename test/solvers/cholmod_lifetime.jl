@@ -9,7 +9,7 @@ using SparseArrays.CHOLMOD: getcommon
 using SparseArrays.LibSuiteSparse
 using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse,
     cholmod_l_allocate_dense, cholmod_allocate_dense
-using LinearAlgebra: I, cholesky, diag, ldiv!, ldlt, qr, Symmetric
+using LinearAlgebra: I, cholesky, diag, ldiv!, ldlt, lu, lu!, qr, Symmetric
 using Random
 
 # Run in a fresh process: intentional collections exercise finalization and rooting.
@@ -254,5 +254,34 @@ end
 end
 
 end # Ti, Tv
+
+# The copies of an UmfpackLU leave the count of objects sharing its factors when they are
+# finalized, and lu! frees the factors eagerly again once no copy is left.
+dropcopies(F, k) = (for _ in 1:k; copy(F); end)
+@testset "UMFPACK copies are counted until finalized" begin
+    S = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    F = lu(S)
+    share = getfield(F, :_share)
+    dropcopies(F, 3)
+    @test (@atomic share.n) >= 1
+    GC.gc(); GC.gc()
+    @test (@atomic share.n) == 1
+    num = F.numeric
+    lu!(F, S)
+    @test num.p == C_NULL
+    # with a copy that is still counted, lu! leaves the old factors to the GC
+    dropcopies(F, 1)
+    old = WeakRef(F.numeric)
+    lu!(F, 2S)
+    @test old.value !== nothing && old.value.p != C_NULL
+    @test F \ ones(3) ≈ Matrix(2S) \ ones(3)
+    # the dead copy, and then the factors it kept alive, are finalized in turn
+    for _ in 1:10
+        GC.gc()
+        old.value === nothing && break
+    end
+    @test old.value === nothing
+    @test (@atomic getfield(F, :_share).n) == 1
+end
 
 end # module
