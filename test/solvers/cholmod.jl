@@ -465,7 +465,7 @@ using Random
 using Serialization
 using LinearAlgebra:
     I, cholesky, cholesky!, cond, det, diag, eigmax, factorize, ishermitian, isposdef, issuccess,
-    issymmetric, ldiv!, ldlt, ldlt!, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
+    issymmetric, ldiv!, ldlt, ldlt!, logabsdet, logdet, norm, opnorm, Diagonal, Hermitian, Symmetric,
     PosDefException, ZeroPivotException, RowMaximum, NoPivot
 using SparseArrays
 using SparseArrays: getcolptr
@@ -772,6 +772,20 @@ end
     @test sparse(cholesky(sparse(A))) ≈ A
 end
 
+@testset "sparse(F) of an LL' factorization stays sparse, Ti = $Ti2" for Ti2 in itypes
+    tridiag(T, n) = SparseMatrixCSC{T,Ti2}(spdiagm(-1 => fill(T <: Real ? T(1) : T(1, 1), n - 1),
+        0 => fill(T(4), n), 1 => fill(T <: Real ? T(1) : T(1, -1), n - 1)))
+    for T in (Tv, Complex{Tv})
+        A = tridiag(T, 10)
+        @test sparse(cholesky(A)) isa SparseMatrixCSC{T}
+        @test sparse(cholesky(A)) ≈ A
+        # a dense intermediate would make the allocations grow quadratically
+        F1, F2 = cholesky(tridiag(T, 250)), cholesky(tridiag(T, 2000))
+        sparse(F1); sparse(F2)
+        @test @allocated(sparse(F2)) < 16 * @allocated(sparse(F1))
+    end
+end
+
 @testset "Issue 11747 - Wrong show method defined for FactorComponent" begin
     v = cholesky(sparse(Tv[ 10 1 1 1; 1 10 0 0; 1 0 10 0; 1 0 0 10])).L
     for s in (sprint(show, MIME("text/plain"), v), sprint(show, v))
@@ -948,6 +962,21 @@ end
     end
 end
 
+@testset "low rank update of a complex factorization, Ti = $Ti2" for Ti2 in itypes
+    A = SparseMatrixCSC{Complex{Tv},Ti2}(Complex{Tv}[4 1 0; 1 3 1; 0 1 2])
+    b = Complex{Tv}[1, 2, 3]
+    F = cholesky(A)
+    c = Complex{Tv}[1, 0, 0]
+    @test_throws "only of real factorizations" CHOLMOD.lowrankupdate(F, c)
+    @test_throws "only of real factorizations" CHOLMOD.lowrankdowndate(F, c)
+    @test_throws ArgumentError CHOLMOD.lowrankupdate!(F, c)
+    @test_throws ArgumentError CHOLMOD.lowrankdowndate!(F, c)
+    @test sparse(F) ≈ A
+    @test F \ b ≈ Matrix(A) \ b
+    # a complex update of a real factorization promotes to a complex one
+    @test_throws ArgumentError CHOLMOD.lowrankupdate(cholesky(real(A)), c)
+end
+
 @testset "Issue #22335" begin
     local A, F
     A = sparse(1.0I, 3, 3)
@@ -979,6 +1008,75 @@ end
         @test !issuccess(ldlt(M; check = false))
         @test !issuccess(ldlt!(F, M; check = false))
     end
+end
+
+@testset "failed column in PosDefException and ZeroPivotException, Ti = $Ti2" for Ti2 in itypes
+    for T in (Float32, ComplexF32, Tv, Complex{Tv})
+        # CHOLMOD's 0-based failed column is reported 1-based, as dense `cholesky` does
+        A = SparseMatrixCSC{T,Ti2}(sparse(Diagonal(T[1, 1, -1])))
+        @test_throws PosDefException(3) cholesky(A; perm=1:3)
+        F = cholesky(A; perm=1:3, check=false)
+        @test_throws PosDefException(3) cholesky!(F, A)
+        @test_throws PosDefException(3) F \ ones(T, 3)
+        @test_throws PosDefException(3) F \ ones(Complex{Float32}, 3)
+        @test_throws PosDefException(3) ldiv!(zeros(T, 3), F, ones(T, 3))
+        Z = SparseMatrixCSC{T,Ti2}(sparse(Diagonal(T[1, 0, 1])))
+        @test_throws ZeroPivotException(2) ldlt(Z; perm=1:3)
+        G = ldlt(Z; perm=1:3, check=false)
+        @test_throws ZeroPivotException(2) ldlt!(G, Z)
+        @test_throws ZeroPivotException(2) G \ ones(T, 3)
+    end
+end
+
+@testset "cholesky! and ldlt! reject a non-Hermitian matrix, Ti = $Ti2" for Ti2 in itypes
+    for T in (Tv, Complex{Tv})
+        A = SparseMatrixCSC{T,Ti2}(T[4 1 0; 1 3 1; 0 1 2])
+        N = SparseMatrixCSC{T,Ti2}(T[4 1 0; 0 3 1; 0 0 2])
+        b = T[1, 2, 3]
+        for (f, f!) in ((cholesky, cholesky!), (ldlt, ldlt!))
+            F = f(A)
+            @test_throws ArgumentError f(N)
+            @test_throws "not symmetric/Hermitian" f!(F, N)
+            @test sparse(F) ≈ A
+            @test F \ b ≈ Matrix(A) \ b
+        end
+    end
+end
+
+@testset "det and logdet keep the sign of D, Ti = $Ti2" for Ti2 in itypes
+    for T in (Float32, ComplexF32, Tv, Complex{Tv})
+        A = SparseMatrixCSC{T,Ti2}(sparse(Diagonal(T[2, -3, 1])))
+        F = ldlt(A)
+        @test det(F) ≈ -6
+        @test logabsdet(F)[1] ≈ log(6)
+        @test logabsdet(F)[2] ≈ -1
+        if T <: Real
+            @test_throws DomainError logdet(F)
+        else
+            @test logdet(F) ≈ logdet(Matrix(A))
+        end
+        P = SparseMatrixCSC{T,Ti2}(T[4 1 0; 1 3 1; 0 1 2])
+        @test det(ldlt(P)) ≈ det(Matrix(P))
+        @test logdet(ldlt(P)) ≈ logdet(Matrix(P))
+        @test logabsdet(cholesky(P))[1] ≈ logabsdet(Matrix(P))[1]
+        @test det(cholesky(P)) ≈ det(Matrix(P))
+        # an indefinite matrix with off-diagonal entries and a permutation
+        M = SparseMatrixCSC{T,Ti2}(T[4 1 0; 1 -3 1; 0 1 2])
+        @test det(ldlt(M)) ≈ det(Matrix(M))
+        # an overflowing determinant is ±Inf with no NaN part
+        big = floatmax(real(T)) / 4
+        H = SparseMatrixCSC{T,Ti2}(sparse(Diagonal(T[big, big])))
+        @test det(cholesky(H)) === T(Inf)
+        @test det(ldlt(H)) === T(Inf)
+        @test det(ldlt(-H)) === T(Inf)
+        @test typeof(det(F)) === T
+    end
+    # a downdate that makes the matrix indefinite
+    A = SparseMatrixCSC{Tv,Ti2}(Tv[4 1 0; 1 3 1; 0 1 2])
+    v = Tv[0, 0, 2]
+    G = CHOLMOD.lowrankdowndate(cholesky(A), v)
+    @test det(G) ≈ det(Matrix(A) - v*v') ≈ -26
+    @test_throws DomainError logdet(G)
 end
 
 @testset "Issues #27860 & #28363" begin
@@ -1020,6 +1118,17 @@ end
         n = 100
         A = sprand(Tv, n,n,5/n) |> t -> t't + I
         @test cholesky(A, perm=1:n).p == 1:n
+    end
+
+    @testset "invalid permutation, Ti = $Ti2" for Ti2 in itypes
+        A = SparseMatrixCSC{Tv,Ti2}(Tv[4 1 0; 1 3 1; 0 1 2])
+        for f in (cholesky, ldlt)
+            for p in ([1, 1, 2], [0, 1, 2], [1, 2, 4])
+                @test_throws ArgumentError f(A; perm=p)
+            end
+            @test_throws DimensionMismatch f(A; perm=[1, 2])
+            @test_throws DimensionMismatch f(A; perm=1:4)
+        end
     end
 end
 
@@ -1080,6 +1189,27 @@ end
     @test F \ B ≈ F \ Bt'
     @test F \ B ≈ F \ Bts'
     @test issparse(F \ Bts')
+end
+
+@testset "adjoint and transpose factorization with a sparse rhs, Ti = $Ti2" for Ti2 in itypes
+    for T in (Tv, Complex{Tv})
+        A = SparseMatrixCSC{T,Ti2}(T[4 1 0; 1 3 1; 0 1 2])
+        F = cholesky(A)
+        # a symmetric square rhs, which `Sparse` would otherwise mark symmetric
+        S = sparse(T[1 2 0; 2 1 0; 0 0 5])
+        N = sparse(T[1 2; 0 1; 3 0])
+        v = sparsevec(T[1, 0, 2])
+        for (op, M) in ((adjoint, Matrix(A)'), (transpose, transpose(Matrix(A))))
+            for B in (S, N)
+                X = op(F) \ B
+                @test X isa SparseMatrixCSC{T}
+                @test X ≈ M \ Matrix(B)
+            end
+            x = op(F) \ v
+            @test x isa SparseVector{T}
+            @test x ≈ M \ Vector(v)
+        end
+    end
 end
 
 @testset "getindex with unsorted or unpacked buffers (#758), Ti = $Ti" begin
