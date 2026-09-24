@@ -1063,6 +1063,13 @@ end
         # an indefinite matrix with off-diagonal entries and a permutation
         M = SparseMatrixCSC{T,Ti2}(T[4 1 0; 1 -3 1; 0 1 2])
         @test det(ldlt(M)) ≈ det(Matrix(M))
+        # an overflowing determinant is ±Inf with no NaN part
+        big = floatmax(real(T)) / 4
+        H = SparseMatrixCSC{T,Ti2}(sparse(Diagonal(T[big, big])))
+        @test det(cholesky(H)) === T(Inf)
+        @test det(ldlt(H)) === T(Inf)
+        @test det(ldlt(-H)) === T(Inf)
+        @test typeof(det(F)) === T
     end
     # a downdate that makes the matrix indefinite
     A = SparseMatrixCSC{Tv,Ti2}(Tv[4 1 0; 1 3 1; 0 1 2])

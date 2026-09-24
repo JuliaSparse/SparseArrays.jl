@@ -2344,9 +2344,10 @@ function logdet(F::Factor)
     return d + log(s)
 end
 
-function det(F::Factor)
+function det(F::Factor{Tv}) where Tv
     d, s = logabsdet(F)
-    return s * exp(d)
+    # the sign is real; a complex one would turn an overflowing det into Inf + NaN*im
+    return Tv(real(s) * exp(d))
 end
 
 """
