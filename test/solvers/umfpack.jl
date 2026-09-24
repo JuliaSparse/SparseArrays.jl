@@ -16,6 +16,8 @@ function umfpack_report(l::UMFPACK.UmfpackLU)
     return
 end
 
+_isnull_numeric(F::UMFPACK.UmfpackLU) = F.numeric.p == C_NULL
+
 const TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
     LinearAlgebra.TransposeFactorization :
     Transpose
@@ -451,6 +453,111 @@ end
             end
         end
     end
+
+    @testset "F.Rs and logabsdet when UMFPACK divides by the scale factors, $Tv, $Ti" for
+            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        # UMFPACK stores reciprocal scale factors for badly scaled rows
+        A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[1e-20 2e-20 0; 0 1 3; 1 0 1]))
+        F = lu(A)
+        @test F.L * F.U ≈ (F.Rs .* A)[F.p, F.q]
+        L, U, p, q, Rs = F.:(:)
+        @test Rs == F.Rs
+        @test all(logabsdet(F) .≈ logabsdet(Matrix(A)))
+        @test det(F) ≈ det(Matrix(A))
+        B = SparseMatrixCSC{Tv,Ti}(1e-15 * (sprandn(MersenneTwister(1), 50, 50, 0.1) + 10I))
+        @test all(logabsdet(lu(B)) .≈ logabsdet(Matrix(B)))
+    end
+
+    @testset "factors are rebuilt on demand, $Tv, $Ti" for
+            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1; 1 3]))
+        for G in (UMFPACK.UmfpackLU(A), deserialize(seekstart(let io = IOBuffer(); serialize(io, lu(A)); io; end)))
+            @test det(G) ≈ det(Matrix(A))
+            @test nnz(G) == nnz(lu(A))
+        end
+        # a failed factorization stays failed across serialization
+        S = SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 2; 2 4]))
+        io = IOBuffer(); serialize(io, lu(S; check=false)); seekstart(io)
+        G = deserialize(io)
+        @test !issuccess(G)
+        @test occursin("Failed factorization", sprint(show, MIME"text/plain"(), G))
+    end
+
+    @testset "failed lu! drops the old numeric factorization, $Tv, $Ti" for
+            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+        B = SparseMatrixCSC{Tv,Ti}(sparse(Tv[5 1 0; 1 5 1; 0 1 5]))
+        F = lu(A)
+        @test_throws ArgumentError lu!(F, B; reuse_symbolic=false, q=[1, 1, 2])
+        @test !issuccess(F)
+        @test _isnull_numeric(F)
+        # anything needing the factors refactorizes the matrix now held, B
+        @test all(logabsdet(F) .≈ logabsdet(Matrix(B)))
+        @test F \ ones(3) ≈ Matrix(B) \ ones(3)
+    end
+
+    @testset "lu!(F, S) validates S before mutating F, $Ti" for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        A = SparseMatrixCSC{Float64,Ti}(sparse([4.0 1; 1 3]))
+        F = lu(A)
+        L, U = F.L, F.U
+        @test_throws ArgumentError lu!(F, sparse(ComplexF64[4 1 0; 1 3 0; 0 0 1im]))
+        @test size(F) == (2, 2)
+        @test F.L == L && F.U == U
+        @test F \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
+        # integer and differently indexed inputs convert, and the workspace follows the new size
+        C = sparse([4 1 0; 1 3 0; 0 0 1])
+        lu!(F, C)
+        @test size(F) == (3, 3)
+        @test F \ [1.0, 2.0, 3.0] ≈ Matrix(C) \ [1.0, 2.0, 3.0]
+        lu!(F, sparse([4 1; 1 3]))
+        @test F \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
+        Fc = lu(SparseMatrixCSC{ComplexF64,Ti}(A))
+        lu!(Fc, sparse([4 1 0; 1 3 0; 0 0 1]))
+        @test Fc \ ComplexF64[1, 2, 3] ≈ Matrix(C) \ ComplexF64[1, 2, 3]
+    end
+
+    @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+        b = [1.0, 2.0, 3.0]
+        x = Matrix(A) \ b
+        for S in (SparseMatrixCSC{Float32,Ti}(A), SparseMatrixCSC{ComplexF32,Ti}(A),
+                  SparseMatrixCSC{Int,Ti}(A), SparseMatrixCSC{Float64,Ti}(A))
+            @test lu(S; q=[3, 2, 1]) \ b ≈ x
+            @test lu(S; q=Int32[2, 1, 0]) \ b ≈ x
+            @test lu(S; q=3:-1:1) \ b ≈ x
+            @test lu(S; control=UMFPACK.get_umfpack_control(Float64, Ti)) \ b ≈ x
+        end
+        @test_throws DimensionMismatch lu(SparseMatrixCSC{Float64,Ti}(A); q=[1, 2])
+    end
+
+    @testset "non-square det and \\ throw DimensionMismatch" begin
+        F = lu(sparse([1.0 2 0; 0 1 3]))
+        @test_throws DimensionMismatch det(F)
+        @test_throws DimensionMismatch F \ [1.0, 2.0]
+    end
+
+    @testset "ldiv! with strided and adjoint/transpose right-hand sides, $Tv, $Ti" for
+            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0 0; 1 4 1 0; 0 1 4 1; 0 0 1 4.5]))
+        F = lu(A)
+        Ad = Matrix(A)
+        w = Tv.(collect(1.0:8.0))
+        v = view(w, 1:2:8)
+        @test ldiv!(F, v) ≈ Ad \ Tv.(1:2:8)
+        @test w[2:2:8] == 2:2:8
+        @test ldiv!(zeros(Tv, 4), F, view(Tv.(collect(1.0:8.0)), 1:2:8)) ≈ Ad \ Tv.(1:2:8)
+        M = Tv.(reshape(1.0:24.0, 8, 3))
+        Y = zeros(Tv, 8, 3)
+        ldiv!(view(Y, 1:2:8, :), transpose(F), view(M, 2:2:8, :))
+        @test Y[1:2:8, :] ≈ transpose(Ad) \ M[2:2:8, :]
+        @test iszero(Y[2:2:8, :])
+        for op in (adjoint, transpose), G in (F, F', transpose(F))
+            B = Tv.(reshape(1.0:12.0, 3, 4))
+            Bw = op(copy(B))
+            @test ldiv!(G, Bw) === Bw
+            @test Bw ≈ (G === F ? Ad : G isa TransposeFact ? transpose(Ad) : Ad') \ op(B)
+        end
+    end
 end
 
 @testset "REPL printing of UmfpackLU" begin
@@ -469,6 +576,12 @@ end
     facstring = sprint((t, s) -> show(t, "text/plain", s), F)
     @test facstring == "Failed factorization of type $(summary(F))"
     umfpack_report(F)
+
+    # factors not computed yet
+    F = UMFPACK.UmfpackLU(A)
+    facstring = sprint((t, s) -> show(t, "text/plain", s), F)
+    @test startswith(facstring, summary(F))
+    @test occursin("not computed", facstring)
 end
 
 
