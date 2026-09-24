@@ -105,18 +105,21 @@ end
     @test_throws ArgumentError pointer(S)
     @test !CHOLMOD.free!(S)
 
-    # A Factor that has been used in ldiv! owns Y/E scratch buffers; free! must
-    # release them and null the handles as well as the factor pointer.
+    # A SolveWorkspace used by ldiv! owns Y/E scratch buffers; free! must
+    # release them and null the handles.
     A = convert(SparseMatrixCSC{Tv,Ti}, sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
     F = cholesky(A)
     b = fill(Tv(1), 3)
-    ldiv!(similar(b), F, b)
+    ws = CHOLMOD.SolveWorkspace(F)
+    ldiv!(similar(b), F, b; workspace = ws)
     # cholmod_solve2 always allocates Y; E is only allocated when needed.
-    @test getfield(F, :Y)[] != C_NULL
+    @test ws.Y[] != C_NULL
+    @test CHOLMOD.free!(ws)
+    @test ws.Y[] == C_NULL
+    @test ws.E[] == C_NULL
+    @test !CHOLMOD.free!(ws)
     @test CHOLMOD.free!(F)
     @test getfield(F, :ptr) == C_NULL
-    @test getfield(F, :Y)[] == C_NULL
-    @test getfield(F, :E)[] == C_NULL
     @test_throws ArgumentError pointer(F)
     @test !CHOLMOD.free!(F)
 
@@ -133,20 +136,25 @@ end
     b = A * fill(Tv(1), 10)
     x = zero(b)
 
-    ldiv!(x, F, b) # allocate buffers
+    ws = CHOLMOD.SolveWorkspace(F)
+    ldiv!(x, F, b; workspace = ws) # allocate buffers
     GC.gc()
     before = getcommon(Ti)[].memory_inuse
     for _ in 1:1000
+        ldiv!(x, F, b; workspace = ws)
+    end
+    @test getcommon(Ti)[].memory_inuse == before
+    # without a workspace each call allocates its buffers and frees them eagerly
+    for _ in 1:1000
         ldiv!(x, F, b)
     end
-    after = getcommon(Ti)[].memory_inuse
-    @test before == after
+    @test getcommon(Ti)[].memory_inuse == before
 end
 
 # For an Int64 factor both Commons coincide, so the check is only meaningful
 # for Ti == Int32.
 if Ti == Int32 && Int64 in itypes
-@testset "free!(Factor) releases Y/E through the matching Common $Tv $Ti" begin
+@testset "free!(SolveWorkspace) releases Y/E through the matching Common $Tv $Ti" begin
     local A, b, x, F
     A = sprand(10, 10, 0.1)
     A = I + A * A'
@@ -156,7 +164,9 @@ if Ti == Int32 && Int64 in itypes
     with_gc_disabled() do
         n64 = malloc_count(Int64)
         F = cholesky(A)
-        ldiv!(x, F, b) # allocates the Y/E buffers in the Int32 Common
+        ws = CHOLMOD.SolveWorkspace(F)
+        ldiv!(x, F, b; workspace = ws) # allocates the Y/E buffers in the Int32 Common
+        CHOLMOD.free!(ws)
         CHOLMOD.free!(F)
         # Y/E must be released through the Int32 Common as well; freeing them
         # through the Int64 Common would decrement its count by two.
@@ -183,8 +193,8 @@ end
     @test x2 ≈ x
     @test x3 ≈ x
 
-    # Verify each copy has its own independent buffers
-    @test getfield(factor, :Y) !== getfield(factor2, :Y)
+    # The copies share no C memory
+    @test getfield(factor, :ptr) != getfield(factor2, :ptr)
 end
 
 @testset "temporaries stay rooted while reading raw pointers $Tv $Ti" begin

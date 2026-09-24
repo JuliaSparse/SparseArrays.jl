@@ -109,4 +109,23 @@ end
     @test b == a
 end
 
+
+@testset "ldiv! with and without a workspace, $name" for (name, fact, M) in (
+        ("lu", lu, sparse([4.0 1 0; 1 4 1; 0 1 4] + im * [0 1 0; 0 0 1; 1 0 0])),
+        ("cholesky", cholesky, sparse(ComplexF64[4 1+im 0; 1-im 4 1; 0 1 4])),
+        ("qr", qr, sparse([4.0 1 0; 1 4 1; 0 1 4] + im * [0 1 0; 0 0 1; 1 0 0])))
+    F = fact(M)
+    b = ComplexF64[1, 2, 3]
+    ws = fact === lu ? SparseArrays.UMFPACK.UmfpackWS(F) :
+         fact === cholesky ? SparseArrays.CHOLMOD.SolveWorkspace(F) : ComplexF64[]
+    for (G, D) in ((F, Matrix(M)), (F', Matrix(M)'), (transpose(F), transpose(Matrix(M))))
+        x = D \ b
+        @test ldiv!(similar(b), G, b) ≈ x
+        @test ldiv!(similar(b), G, b; workspace = ws) ≈ x
+        @test ldiv!(G, copy(b)) ≈ x
+        @test ldiv!(G, copy(b); workspace = ws) ≈ x
+        @test ldiv!(similar([b b]), G, [b b]; workspace = ws) ≈ [x x]
+    end
+end
+
 end # module

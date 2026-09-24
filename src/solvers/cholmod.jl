@@ -17,7 +17,7 @@ using Base: require_one_based_indexing
 
 using LinearAlgebra
 using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans, AdjOrTransAbsMat
-import LinearAlgebra: (\), AdjointFactorization,
+import LinearAlgebra: (\), AdjointFactorization, TransposeFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
                  issuccess, issymmetric, ldiv!, ldlt, ldlt!, logdet,
                  lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
@@ -397,9 +397,9 @@ the low-rank modifications [`lowrankdowndate`](@ref SparseArrays.CHOLMOD.lowrank
 and `lowrankupdate`.
 
 CHOLMOD owns the memory, which is released by a finalizer. The pointer is null after
-deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!(x, F, b)`
-reuses a solve workspace kept in `F`; it and the refactorizations take a lock internal to
-`F`.
+deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!` takes
+an optional [`CHOLMOD.SolveWorkspace`](@ref SparseArrays.CHOLMOD.SolveWorkspace) to avoid
+allocating; the refactorizations take a lock internal to `F`.
 
 # Examples
 ```jldoctest
@@ -414,11 +414,6 @@ true
 """
 mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
     ptr::Ptr{cholmod_factor}
-    dense_x::cholmod_dense_struct
-    dense_b::cholmod_dense_struct
-    X::Base.RefValue{Ptr{cholmod_dense_struct}}
-    Y::Base.RefValue{Ptr{cholmod_dense_struct}}
-    E::Base.RefValue{Ptr{cholmod_dense_struct}}
     lock::ReentrantLock
     function Factor{Tv, Ti}(ptr::Ptr{cholmod_factor}, register_finalizer = true) where {Tv, Ti}
         if ptr == C_NULL
@@ -436,15 +431,9 @@ mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
             free!(ptr, Ti)
             throw(CHOLMODException("dtype=$(dtyp(Tv)) not supported"))
         end
-        F = new(ptr,
-            cholmod_dense_struct(),
-            cholmod_dense_struct(),
-            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
-            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
-            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
-            ReentrantLock())
+        F = new(ptr, ReentrantLock())
         if register_finalizer
-            finalizer(free!, F) # includes Y/E buffers
+            finalizer(free!, F)
         end
         return F
     end
@@ -1454,15 +1443,6 @@ function free!(A::Sparse{<:Any, Ti}) where Ti
     return free!(p, Ti)
 end
 function free!(F::Factor{<:Any, Ti}) where Ti
-    # Release the Y/E scratch buffers used by `solve!` and null the handles so
-    # that a later `ldiv!` allocates fresh ones instead of reusing freed memory.
-    # Y/E were allocated by cholmod(_l)_solve2 with getcommon(Ti).
-    Y = getfield(F, :Y)
-    E = getfield(F, :E)
-    y, e = Y[], E[]
-    Y[] = E[] = Ptr{cholmod_dense_struct}(C_NULL)
-    y == C_NULL || free!(y, Ti)
-    e == C_NULL || free!(e, Ti)
     p = getfield(F, :ptr)
     p == C_NULL && return false
     setfield!(F, :ptr, Ptr{cholmod_factor}(C_NULL))
@@ -2201,8 +2181,46 @@ end
 end
 @inline _setup_bptr(b::Dense{<:VTypes}, ::cholmod_dense_struct) = b.ptr
 
+"""
+    CHOLMOD.SolveWorkspace(F::CHOLMOD.Factor)
+
+Scratch space for `ldiv!(x, F, b; workspace)`, which makes repeated solves allocation-free.
+Without it, `ldiv!` allocates its scratch space on each call. A workspace can be reused with
+any `Factor` of the same index type, but not by two calls at once. Its memory is released
+by a finalizer or by `CHOLMOD.free!`.
+"""
+mutable struct SolveWorkspace{Ti<:ITypes}
+    dense_x::cholmod_dense_struct
+    dense_b::cholmod_dense_struct
+    X::Base.RefValue{Ptr{cholmod_dense_struct}}
+    Y::Base.RefValue{Ptr{cholmod_dense_struct}}
+    E::Base.RefValue{Ptr{cholmod_dense_struct}}
+    function SolveWorkspace{Ti}() where {Ti<:ITypes}
+        ws = new{Ti}(cholmod_dense_struct(), cholmod_dense_struct(),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)),
+            Ref(Ptr{cholmod_dense_struct}(C_NULL)))
+        return finalizer(free!, ws)
+    end
+end
+SolveWorkspace(::Factor{<:Any, Ti}) where {Ti} = SolveWorkspace{Ti}()
+SolveWorkspace(F::Union{AdjointFactorization{<:Any,<:Factor},
+                        TransposeFactorization{<:Any,<:Factor}}) = SolveWorkspace(parent(F))
+
+# cholmod(_l)_solve2 allocates Y and E through getcommon(Ti), so they are released through
+# the Common of the same index type. Nulling the handles makes a later solve allocate
+# fresh buffers and a second `free!` a no-op.
+function free!(ws::SolveWorkspace{Ti}) where {Ti}
+    y, e = ws.Y[], ws.E[]
+    ws.Y[] = ws.E[] = Ptr{cholmod_dense_struct}(C_NULL)
+    y == C_NULL || free!(y, Ti)
+    e == C_NULL || free!(e, Ti)
+    return y != C_NULL || e != C_NULL
+end
+
 for TI in IndexTypes
-    @eval function solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T}) where {T<:VTypes}
+    @eval function solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T},
+                          ws::SolveWorkspace{$TI}) where {T<:VTypes}
         # CHOLMOD's solve2 reuses the caller-provided X handle only if it is
         # large enough and its xtype/dtype match the factor; otherwise it calls
         # cholmod_free_dense on the handle, which would free() the Julia-owned
@@ -2225,11 +2243,7 @@ for TI in IndexTypes
             throw(ArgumentError("element type of the solution array does not match the factorization"))
         end
         @lock L.lock begin
-            dense_x = getfield(L, :dense_x)
-            X = getfield(L, :X)
-            Y = getfield(L, :Y)
-            E = getfield(L, :E)
-
+            dense_x = ws.dense_x
             dense_x.nrow  = size(x, 1)
             dense_x.ncol  = size(x, 2)
             dense_x.nzmax = length(x)
@@ -2239,14 +2253,14 @@ for TI in IndexTypes
             dense_x.xtype = xtyp(T)
             dense_x.dtype = dtyp(T)
 
-            X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
-            Bptr = _setup_bptr(b, getfield(L, :dense_b))
-            status = GC.@preserve x b L begin
+            ws.X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
+            Bptr = _setup_bptr(b, ws.dense_b)
+            status = GC.@preserve x b L ws begin
                 @checked $(cholname(:solve2, TI))(
                     CHOLMOD_A, L,
                     Bptr, C_NULL,
-                    X, C_NULL,
-                    Y, E,
+                    ws.X, C_NULL,
+                    ws.Y, ws.E,
                     getcommon($TI))
             end
             @assert !iszero(status)
@@ -2255,7 +2269,8 @@ for TI in IndexTypes
 
     @eval function ldiv!(x::StridedVecOrMat{T},
                          L::Factor{T, $TI},
-                         b::StridedVecOrMat{T}) where {T<:VTypes}
+                         b::StridedVecOrMat{T};
+                         workspace::Union{Nothing, SolveWorkspace{$TI}} = nothing) where {T<:VTypes}
         if x === b
             throw(ArgumentError("output array must not be aliased with input array"))
         end
@@ -2280,12 +2295,32 @@ for TI in IndexTypes
                 "got strides $(strides(b)) for size $(size(b))"))
         end
         issuccess(L) || throw(factorization_exception(L))
-        solve!(x, L, b)
+        if workspace === nothing
+            ws = SolveWorkspace{$TI}()
+            try
+                solve!(x, L, b, ws)
+            finally
+                free!(ws)
+            end
+        else
+            solve!(x, L, b, workspace)
+        end
         return x
     end
 end
 
-ldiv!(L::Factor{T}, B::StridedVecOrMat{T}) where {T<:VTypes} = ldiv!(B, L, copy(B))
+ldiv!(L::Factor{T}, B::StridedVecOrMat{T}; workspace=nothing) where {T<:VTypes} =
+    ldiv!(B, L, copy(B); workspace)
+# The factorized matrix is Hermitian, so its adjoint solves the same system, and its
+# transpose solves the conjugate one.
+ldiv!(x::StridedVecOrMat{T}, L::AdjointFactorization{T,<:Factor{T}}, b::StridedVecOrMat{T};
+      workspace=nothing) where {T<:VTypes} = ldiv!(x, parent(L), b; workspace)
+ldiv!(x::StridedVecOrMat{T}, L::TransposeFactorization{T,<:Factor{T}}, b::StridedVecOrMat{T};
+      workspace=nothing) where {T<:VRealTypes} = ldiv!(x, parent(L), b; workspace)
+ldiv!(x::StridedVecOrMat{T}, L::TransposeFactorization{T,<:Factor{T}}, b::StridedVecOrMat{T};
+      workspace=nothing) where {T<:Complex} = conj!(ldiv!(x, parent(L), conj(b); workspace))
+ldiv!(L::Union{AdjointFactorization{T,<:Factor{T}},TransposeFactorization{T,<:Factor{T}}},
+      B::StridedVecOrMat{T}; workspace=nothing) where {T<:VTypes} = ldiv!(B, L, copy(B); workspace)
 
 ## Other convenience methods
 function diag(F::Factor{Tv, Ti}) where {Tv, Ti}

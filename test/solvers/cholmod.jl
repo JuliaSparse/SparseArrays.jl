@@ -278,14 +278,20 @@ end
     @inferred ldiv!(X2, factor, B)
     @test X2 ≈ X
 
-    # reuse across multiple calls (Y/E buffers kept in workspace)
+    # a caller-provided workspace keeps the Y/E buffers across calls
+    ws = CHOLMOD.SolveWorkspace(factor)
     fill!(x2, 0)
-    ldiv!(x2, factor, b)
+    ldiv!(x2, factor, b; workspace = ws)
     @test x2 ≈ x
+    ldiv!(X2, factor, B; workspace = ws)
+    @test X2 ≈ X
 
-    # Y/E buffers are reused across calls, remaining 16 bytes come from CHOLMOD internals
-    allocs = @allocated ldiv!(x2, factor, b)
+    # with the workspace reused, the remaining 16 bytes come from CHOLMOD internals
+    ldiv!(x2, factor, b; workspace = ws)
+    allocs = @allocated ldiv!(x2, factor, b; workspace = ws)
     @test allocs <= 16
+    @test CHOLMOD.free!(ws)
+    @test !CHOLMOD.free!(ws)
 
     c = fill(Tv(1), size(x, 1) + 1)
     C = fill(Tv(1), size(X, 1) + 1, size(X, 2))
@@ -345,7 +351,8 @@ for Tv ∈ (Float32, Float64)
 @testset "per-type buffers should be concretely typed" begin
     @test @inferred(SparseArrays.CHOLMOD.getcommon()) isa Base.RefValue
     F = cholesky(sparse(Tv[2 1; 1 2]))
-    @test @inferred((F -> getfield(F, :Y)[])(F)) isa Ptr
+    ws = CHOLMOD.SolveWorkspace(F)
+    @test @inferred((ws -> ws.Y[])(ws)) isa Ptr
 end
 
 @testset "Issue #9915" begin
