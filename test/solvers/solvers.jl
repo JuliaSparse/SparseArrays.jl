@@ -6,6 +6,9 @@ using Test
 using SparseArrays
 using Random
 using LinearAlgebra
+using Serialization
+using SparseArrays: FactorLock, @_readlock, @_writelock, _rdlock, _rdunlock,
+    _wrlock, _wrunlock, _nreaders, _haswriter, _nwaiting
 
 @testset "explicit zeros" begin
     a = SparseMatrixCSC(2, 2, [1, 3, 5], [1, 2, 1, 2], [1.0, 0.0, 0.0, 1.0])
@@ -107,6 +110,137 @@ end
     @test b == a
     @test (qr(a + a') \ randn(10); true)
     @test b == a
+end
+
+@testset "FactorLock" begin
+    # Cooperative tasks on this thread: a task that has started and is not done while this
+    # task runs is blocked on the lock.
+    # timedwait only guards against hangs
+    poll(f) = timedwait(f, 60; pollint=0.001) === :ok
+    blocked(t) = poll(() -> istaskstarted(t)) && !istaskdone(t)
+    finishes(t) = poll(() -> istaskdone(t))
+
+    @testset "reentrancy" begin
+        l = FactorLock()
+        r = @_writelock l begin
+            @_writelock l begin
+                @_readlock l begin
+                    @test _haswriter(l) && _nreaders(l) == 1
+                    @_readlock l 42
+                end
+            end
+        end
+        @test r == 42 && !_haswriter(l) && _nreaders(l) == 0
+        @_readlock l @_readlock l @test _nreaders(l) == 2
+        @test _nreaders(l) == 0
+    end
+
+    @testset "upgrade throws" begin
+        l = FactorLock()
+        @_readlock l begin
+            @test_throws ConcurrencyViolationError @_writelock l nothing
+            @test _nreaders(l) == 1 && !_haswriter(l) && _nwaiting(l) == 0
+        end
+        @test _nreaders(l) == 0
+    end
+
+    @testset "released on exceptions" begin
+        l = FactorLock()
+        @test_throws ErrorException @_writelock l error("boom")
+        @test_throws ErrorException @_readlock l error("boom")
+        @test !_haswriter(l) && _nreaders(l) == 0
+        @test (@_writelock l 1) == 1
+    end
+
+    @testset "release by a task that does not hold the lock" begin
+        l = FactorLock()
+        @test_throws ConcurrencyViolationError _rdunlock(l)
+        @test_throws ConcurrencyViolationError _wrunlock(l)
+        _wrlock(l)
+        @test fetch(@async try _wrunlock(l) catch e; e end) isa ConcurrencyViolationError
+        @test _haswriter(l)
+        _wrunlock(l)
+        _rdlock(l)
+        @test fetch(@async try _rdunlock(l) catch e; e end) isa ConcurrencyViolationError
+        @test _nreaders(l) == 1
+        _rdunlock(l)
+    end
+
+    @testset "shared reads, exclusive writes" begin
+        l = FactorLock()
+        _rdlock(l)
+        @test fetch(@async @_readlock l _nreaders(l)) == 2
+        w = @async @_writelock l _haswriter(l)
+        @test poll(() -> _nwaiting(l) == 1)
+        @test blocked(w)
+        _rdunlock(l)
+        @test finishes(w) && fetch(w)
+        _wrlock(l)
+        r = @async @_readlock l _nreaders(l)
+        @test blocked(r)
+        _wrunlock(l)
+        @test finishes(r) && fetch(r) == 1
+    end
+
+    @testset "writer preference and ordering" begin
+        l = FactorLock()
+        order = Symbol[]
+        _rdlock(l)
+        w = @async @_writelock l push!(order, :w)
+        @test poll(() -> _nwaiting(l) == 1)
+        r = @async @_readlock l push!(order, :r)
+        @test blocked(r)
+        # a task already holding a read lock does not queue behind the writer
+        @test (@_readlock l _nreaders(l)) == 2
+        _rdunlock(l)
+        @test finishes(w) && finishes(r)
+        @test order == [:w, :r]
+        @test _nreaders(l) == 0 && !_haswriter(l) && _nwaiting(l) == 0
+    end
+
+    @testset "interrupting a waiting writer releases the readers behind it" begin
+        l = FactorLock()
+        _rdlock(l)
+        w = @async @_writelock l :w
+        @test poll(() -> _nwaiting(l) == 1)
+        r = @async @_readlock l :r
+        @test blocked(r)
+        schedule(w, InterruptException(); error=true)
+        @test finishes(w) && istaskfailed(w)
+        @test finishes(r) && fetch(r) === :r
+        @test _nwaiting(l) == 0 && !_haswriter(l)
+        _rdunlock(l)
+        @test _nreaders(l) == 0
+    end
+
+    @testset "serialization gives a fresh lock" begin
+        l = FactorLock()
+        _wrlock(l)
+        io = IOBuffer()
+        serialize(io, (1, l))
+        _, l2 = deserialize(seekstart(io))
+        @test l2 isa FactorLock && l2 !== l
+        @test !_haswriter(l2) && _nreaders(l2) == 0 && _nwaiting(l2) == 0
+        @test _haswriter(l)
+        _wrunlock(l)
+    end
+
+    @testset "ReentrantLock is exclusive in both modes" begin
+        rl = ReentrantLock()
+        @test (@_writelock rl @_readlock rl islocked(rl))
+        @test !islocked(rl)
+        @test_throws ErrorException @_readlock rl error("boom")
+        @test !islocked(rl)
+    end
+
+    @testset "uncontended locking does not allocate" begin
+        l = FactorLock()
+        rd(l) = @_readlock l 1
+        wr(l) = @_writelock l 1
+        rd(l); wr(l)
+        @test (@allocated rd(l)) == 0
+        @test (@allocated wr(l)) == 0
+    end
 end
 
 end # module

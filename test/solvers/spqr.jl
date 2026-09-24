@@ -6,7 +6,8 @@ using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, factorize, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
-using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
+using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC,
+    _factorlock, _wrlock, _wrunlock, _nwaiting
 using Random: seed!
 
 
@@ -292,7 +293,14 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
     @test propertynames(F) == (:R, :Q, :prow, :pcol)
-    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv, :_lock, :_ldiv_workspace)
+    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv)
+    # the lock and the workspace are internal
+    for d in (:lock, :_lock, :_ldiv_workspace)
+        @test d ∉ propertynames(F, true)
+        @test_throws FieldError getproperty(F, d)
+    end
+    @test :lock ∉ propertynames(F', true)
+    @test_throws FieldError F'.lock
 end
 
 @testset "rank" begin
@@ -333,7 +341,7 @@ end
 
         # First call will allocate the workspace
         first_allocs = @allocated ldiv!(x, F, b)
-        @test length(F._ldiv_workspace) > 0
+        @test length(getfield(F, :_ldiv_workspace)) > 0
         @test x ≈ Array(A) \ b
 
         # Second call with same-sized RHS should reuse workspace
@@ -376,8 +384,36 @@ end
         F_copy = copy(F)
 
         # These fields must not be shared
-        @test F._lock !== F_copy._lock
-        @test F._ldiv_workspace !== F_copy._ldiv_workspace
+        @test _factorlock(F) !== _factorlock(F_copy)
+        @test getfield(F, :_ldiv_workspace) !== getfield(F_copy, :_ldiv_workspace)
+        # the copy does not read the workspace of F, which a concurrent ldiv! may resize
+        ldiv!(zeros(n), F, randn(m))
+        @test isempty(getfield(copy(F), :_ldiv_workspace))
+    end
+
+    @testset "solves take the lock of F" begin
+        # Cooperative tasks on this thread; `_nwaiting` counts the tasks blocked on the lock.
+        A = sprandn(m, n, 0.5) + sparse(I, m, n)
+        F = qr(A)
+        b, c = randn(m), randn(n)
+        x, y = F \ b, F' \ c
+        G = copy(F)
+        calls = (() -> ldiv!(zeros(n), F, b) ≈ x,
+                 () -> F \ b ≈ x,
+                 () -> F \ complex.(b) ≈ x,
+                 () -> ldiv!(zeros(m), F', c) ≈ y,
+                 () -> F' \ c ≈ y)
+        l = _factorlock(F)
+        for f in calls
+            _wrlock(l)
+            t = @async f()
+            @test timedwait(() -> _nwaiting(l) == 1, 60; pollint=0.001) === :ok
+            # neither a copy nor the queries that read only the immutable factors are blocked
+            @test fetch(@async G \ b ≈ x && rank(F) == n && size(F) == (m, n))
+            _wrunlock(l)
+            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+            @test fetch(t)
+        end
     end
 end
 

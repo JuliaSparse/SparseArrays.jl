@@ -379,6 +379,7 @@ include("solvers/LibSuiteSparse.jl")
 using .LibSuiteSparse
 
 @static if Base.USE_GPL_LIBS
+    include("solvers/factorlock.jl")
     include("solvers/umfpack.jl")
     include("solvers/cholmod.jl")
     include("solvers/spqr.jl")

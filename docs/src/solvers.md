@@ -258,15 +258,20 @@ SparseArrays.UMFPACK.rcond
 
 ## Multithreading and thread safety
 
-Each factorization object carries scratch space for its in-place solves, guarded by an
-internal lock. Calls that take the lock are therefore safe from several tasks but run one
-at a time. To solve in parallel, give every task its own `copy` of the factorization:
+Each factorization object carries scratch space for its solves, and some can be
+refactorized in place. The rule the solver wrappers follow is that every call that reads
+or changes the mutable state of a factorization holds that factorization's internal lock
+for the whole call. Such calls are therefore safe on one factorization shared by several
+tasks, but the ones that need the lock exclusively run one at a time. `QRSparse` follows
+this rule; the exceptions for `UmfpackLU` and `Factor` are described below. The lock is
+internal: there is no public interface to it. To solve in parallel, give every task its
+own `copy` of the factorization:
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
 | `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new workspace, `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
-| `SPQR.QRSparse` | shares the factors and permutations; new workspace and lock | `\`, `ldiv!` |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
+| `SPQR.QRSparse` | shares the factors and permutations, which never change; new, empty workspace and lock | `\`, `ldiv!`; every other call only reads the factors and needs no lock |
+| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!`, `lowrankupdate!`, `lowrankdowndate!` |
 
 The copies of an `UmfpackLU` or a `QRSparse` are cheap, since only the workspace is
 duplicated:
@@ -288,9 +293,10 @@ call [`lu!`](@ref) on the original or on any copy while another task is solving 
 of them: refactorization frees the numeric object they all point to.
 
 For CHOLMOD, only `ldiv!` uses the buffers stored in the `Factor`, and only `ldiv!`,
-[`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!` take its lock. `F \ b` and
-the low-rank updates do not, so a `Factor` is not safe to share between tasks when any of
-them may refactorize or update it. Use a separate `copy(F)` per task in that case, and for
+[`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`, `lowrankupdate!` and
+`lowrankdowndate!` take its lock. `F \ b`, the queries on `F` and `lowrankupdowndate!` do
+not, so a `Factor` is not safe to share between tasks when any of them may refactorize or
+update it. Use a separate `copy(F)` per task in that case, and for
 parallel `ldiv!`; note that this duplicates the factor's memory.
 
 CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
