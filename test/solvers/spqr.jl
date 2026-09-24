@@ -292,7 +292,7 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
     @test propertynames(F) == (:R, :Q, :prow, :pcol)
-    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv, :_lock)
+    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv)
 end
 
 @testset "rank" begin
@@ -373,36 +373,8 @@ end
         @test ldiv!(b, F, b) == x
     end
 
-    @testset "copying QRSparse" begin
-        A = sprandn(m, n, 0.5)
-        F = qr(A)
-        F_copy = copy(F)
-
-        # The lock must not be shared
-        @test F._lock !== F_copy._lock
-    end
-
-    @testset "solves take the lock of F" begin
-        A = sprandn(m, n, 0.5) + sparse(I, m, n)
-        F = qr(A)
-        b, c = randn(m), randn(n)
-        x, y = F \ b, F' \ c
-        calls = (() -> ldiv!(zeros(n), F, b) ≈ x,
-                 () -> F \ b ≈ x,
-                 () -> F \ complex.(b) ≈ x,
-                 () -> ldiv!(zeros(m), F', c) ≈ y,
-                 () -> F' \ c ≈ y)
-        for f in calls
-            lock(F._lock)
-            t = @async f()
-            yield()
-            @test !istaskdone(t)
-            # copying F and solving with the copy do not wait for the lock of F
-            @test fetch(@async copy(F) \ b ≈ x && copy(F)' \ c ≈ y)
-            unlock(F._lock)
-            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
-            @test fetch(t)
-        end
+    @testset "the factorization holds no solve state" begin
+        @test fieldnames(SPQR.QRSparse) == (:factors, :τ, :R, :Q, :cpiv, :rpivinv)
     end
 
     @testset "copy and deepcopy are independent" begin

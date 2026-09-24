@@ -149,9 +149,8 @@ columns enter the product.
 and `F'`, which is the LQ factorization
 [`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `ldiv!`, with `F`
 or `F'`, takes an optional [`SPQR.SpqrWS`](@ref SparseArrays.SPQR.SpqrWS) to avoid
-allocating. Solves with one `F` take an internal lock, so they are safe
-from several tasks but run one at a time. For parallel solves, give each task its own
-`copy(F)`.
+allocating. Solves do not modify `F`, so several tasks can solve with one `F` at once; see
+[Multithreading and thread safety](@ref).
 
 # Examples
 ```jldoctest
@@ -173,8 +172,6 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     Q::QRSparseQ{Tv,Ti}
     cpiv::Vector{Ti}
     rpivinv::Vector{Ti}
-
-    _lock::ReentrantLock
 end
 
 function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
@@ -182,7 +179,7 @@ function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
     newτ = convert(Vector{Tv}, F.τ)
     newR = convert(SparseMatrixCSC{Tv}, F.R)
     newQ = QRSparseQ{Tv,Ti}(newfactors, newτ, size(newR, 2))
-    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock())
+    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv)
 end
 
 Base.size(F::QRSparse) = (size(F.factors, 1), size(F.R, 2))
@@ -255,11 +252,6 @@ are used such that `F.R = F.Q'*A[F.prow,F.pcol]`. The main application of this t
 solve least squares or underdetermined problems with [`\\`](@ref). The function calls the C library SPQR[^ACM933].
 With `ordering=ORDERING_FIXED`, `F.pcol` is the identity unless `A` is rank deficient, in
 which case the columns that SPQR finds dependent are moved to the end.
-
-!!! note
-    Solves with the returned `QRSparse` object take an internal lock, so concurrent solves
-    with one object run one at a time. For parallel solves, create a separate copy of
-    this object for each task with `copy(F)`.
 
 !!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
@@ -343,8 +335,7 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
 
     return QRSparse(factors, τ, R,
                     QRSparseQ(factors, τ, size(R, 2)),
-                    p, hpinv,
-                    ReentrantLock())
+                    p, hpinv)
 end
 LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{Float16, Float32}} =
     QRSparse{Tv}(qr(convert(SparseMatrixCSC{Float64}, A); tol, ordering))
@@ -498,15 +489,14 @@ end
 """
     copy(F::QRSparse)
 
-Return an independent copy of `F`, with its own factors, permutations and lock, for solving
-in parallel, one copy per task; its solves never wait for those of `F`.
+Return an independent copy of `F`, with its own factors and permutations.
 `deepcopy(F)` does the same.
 """
 function Base.copy(F::QRSparse)
     factors = copy(F.factors)
     τ = copy(F.τ)
     QRSparse(factors, τ, copy(F.R), QRSparseQ(factors, τ, F.Q.n), copy(F.cpiv),
-             copy(F.rpivinv), ReentrantLock())
+             copy(F.rpivinv))
 end
 Base.copy(F::AdjointFactorization{<:Any,<:QRSparse}) = AdjointFactorization(copy(parent(F)))
 Base.copy(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) =
@@ -720,48 +710,46 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
     m = size(F, 1)
     n = size(F, 2)
 
-    @lock F._lock begin
-        W = _get_ldiv_workspace(workspace, F, B)
+    W = _get_ldiv_workspace(workspace, F, B)
 
-        # Apply left permutation to B and store in W
-        for j in axes(B, 2)
-            for i in 1:length(F.rpivinv)
-                W[F.rpivinv[i], j] = B[i, j]
-            end
+    # Apply left permutation to B and store in W
+    for j in axes(B, 2)
+        for i in 1:length(F.rpivinv)
+            W[F.rpivinv[i], j] = B[i, j]
         end
+    end
 
-        # Make a view into W corresponding to the size of B
-        W0 = @view W[Base.OneTo(m), :]
+    # Make a view into W corresponding to the size of B
+    W0 = @view W[Base.OneTo(m), :]
 
-        # Apply Q' to permuted B
-        lmul!(adjoint(F.Q), W0)
+    # Apply Q' to permuted B
+    lmul!(adjoint(F.Q), W0)
 
-        # Solve R*X = Q'*P*B
-        #
-        # We call generic_trimatdiv! directly instead of going through
-        # ldiv!(UpperTriangular(R_sub), ...) for two reasons:
-        # 1. UpperTriangular requires a square matrix, but F.R is m×n
-        #    so we can only take a column view R[:, 1:rnk] (which is
-        #    m×rnk, not square). A row+column view R[1:rnk, 1:rnk]
-        #    would be square but doesn't match SparseMatrixCSCView,
-        #    causing dispatch to a slow generic fallback.
-        # 2. generic_trimatdiv! is what UpperTriangular ldiv! dispatches
-        #    to anyway — calling it directly with uploc='U', isunitc='N',
-        #    tfun=identity is equivalent. The back-substitution loop
-        #    iterates over axes(B,1) = 1:rnk and searchsortedlast
-        #    excludes entries with row > j, so the extra rows in the
-        #    column view are never accessed.
-        W_rnk = @view(W0[Base.OneTo(rnk), :])
-        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', identity,
-                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
+    # Solve R*X = Q'*P*B
+    #
+    # We call generic_trimatdiv! directly instead of going through
+    # ldiv!(UpperTriangular(R_sub), ...) for two reasons:
+    # 1. UpperTriangular requires a square matrix, but F.R is m×n
+    #    so we can only take a column view R[:, 1:rnk] (which is
+    #    m×rnk, not square). A row+column view R[1:rnk, 1:rnk]
+    #    would be square but doesn't match SparseMatrixCSCView,
+    #    causing dispatch to a slow generic fallback.
+    # 2. generic_trimatdiv! is what UpperTriangular ldiv! dispatches
+    #    to anyway — calling it directly with uploc='U', isunitc='N',
+    #    tfun=identity is equivalent. The back-substitution loop
+    #    iterates over axes(B,1) = 1:rnk and searchsortedlast
+    #    excludes entries with row > j, so the extra rows in the
+    #    column view are never accessed.
+    W_rnk = @view(W0[Base.OneTo(rnk), :])
+    LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', identity,
+                                     @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
 
-        # Apply right permutation: scatter solved rows into X using cpiv directly.
-        # Zero X first so free variables (beyond rank) are zero in the basic solution.
-        fill!(X, zero(T))
-        for j in axes(W, 2)
-            for i in 1:rnk
-                X[F.cpiv[i], j] = W[i, j]
-            end
+    # Apply right permutation: scatter solved rows into X using cpiv directly.
+    # Zero X first so free variables (beyond rank) are zero in the basic solution.
+    fill!(X, zero(T))
+    for j in axes(W, 2)
+        for i in 1:rnk
+            X[F.cpiv[i], j] = W[i, j]
         end
     end
 
@@ -837,38 +825,36 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
     rnk = rank(F)
 
     # With A[prow, pcol] == Q*R we have A' == Pcol*R'*Q'*Prow, so x = Prow'*Q*(R' \ Pcol'*b)
-    @lock F._lock begin
-        W = _get_ldiv_workspace(workspace, F, B)
+    W = _get_ldiv_workspace(workspace, F, B)
 
-        # Gather the column permutation of B into the leading n rows of W
-        for j in axes(W, 2)
-            for i in 1:n
-                W[i, j] = B[F.cpiv[i], j]
-            end
+    # Gather the column permutation of B into the leading n rows of W
+    for j in axes(W, 2)
+        for i in 1:n
+            W[i, j] = B[F.cpiv[i], j]
         end
+    end
 
-        # Zero the free variables so that Q*W is the minimum-norm solution. When A is
-        # rank deficient this also drops the equations that the leading block of R
-        # cannot represent, which is the counterpart of the basic solution above.
-        for j in axes(W, 2)
-            for i in (rnk + 1):m
-                W[i, j] = zero(T)
-            end
+    # Zero the free variables so that Q*W is the minimum-norm solution. When A is
+    # rank deficient this also drops the equations that the leading block of R
+    # cannot represent, which is the counterpart of the basic solution above.
+    for j in axes(W, 2)
+        for i in (rnk + 1):m
+            W[i, j] = zero(T)
         end
+    end
 
-        # Solve R'*W = Pcol'*B by forward substitution. See the ldiv! above for why
-        # generic_trimatdiv! is called directly rather than through LowerTriangular.
-        W_rnk = @view(W[Base.OneTo(rnk), :])
-        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', adjoint,
-                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
+    # Solve R'*W = Pcol'*B by forward substitution. See the ldiv! above for why
+    # generic_trimatdiv! is called directly rather than through LowerTriangular.
+    W_rnk = @view(W[Base.OneTo(rnk), :])
+    LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', adjoint,
+                                     @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
 
-        # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W. W has
-        # exactly m rows, which is what Q acts on.
-        lmul!(F.Q, W)
-        for j in axes(W, 2)
-            for i in 1:m
-                X[i, j] = W[F.rpivinv[i], j]
-            end
+    # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W. W has
+    # exactly m rows, which is what Q acts on.
+    lmul!(F.Q, W)
+    for j in axes(W, 2)
+        for i in 1:m
+            X[i, j] = W[F.rpivinv[i], j]
         end
     end
 
