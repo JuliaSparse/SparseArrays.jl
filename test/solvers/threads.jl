@@ -54,6 +54,47 @@ end
     end
 end
 
+@testset "solves with a Factor while another task changes it with $change" for change in
+        (:cholesky!, :ldlt!, :lowrankupdate!)
+    n = 12
+    tri(d) = spdiagm(-1 => ones(n - 1), 0 => fill(d, n), 1 => ones(n - 1))
+    v = zeros(n); v[3] = 1
+    A1 = tri(4.0)
+    A2 = change === :lowrankupdate! ? A1 + sparse(v * v') : tri(6.0)
+    b = collect(1.0:n)
+    x1, x2 = Matrix(A1) \ b, Matrix(A2) \ b
+    F = change === :ldlt! ? ldlt(A1) : cholesky(A1)
+    writer = Threads.@spawn for i in 1:200
+        if change === :cholesky!
+            cholesky!(F, isodd(i) ? A2 : A1)
+        elseif change === :ldlt!
+            ldlt!(F, isodd(i) ? A2 : A1)
+        else
+            isodd(i) ? SparseArrays.CHOLMOD.lowrankupdate!(F, v) :
+                SparseArrays.CHOLMOD.lowrankdowndate!(F, v)
+        end
+        yield()
+    end
+    readers = map(1:4) do _
+        Threads.@spawn begin
+            y = similar(b)
+            ok = true
+            for k in 1:200
+                r = isodd(k) ? F \ b : ldiv!(y, F, b)
+                ok &= r ≈ x1 || r ≈ x2
+                yield()
+            end
+            ok
+        end
+    end
+    finished = timedwait(() -> istaskdone(writer) && all(istaskdone, readers), 60) === :ok
+    @test finished
+    if finished
+        wait(writer)
+        @test all(fetch, readers)
+    end
+end
+
 else
 
 include("testprocess.jl")

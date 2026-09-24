@@ -397,9 +397,12 @@ the low-rank modifications [`lowrankdowndate`](@ref SparseArrays.CHOLMOD.lowrank
 and `lowrankupdate`.
 
 CHOLMOD owns the memory, which is released by a finalizer. The pointer is null after
-deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!(x, F, b)`
-reuses a solve workspace kept in `F`; it and the refactorizations take a lock internal to
-`F`.
+deserialization, and using such a factorization throws an `ArgumentError`.
+
+Every call on `F` holds a lock internal to `F` for the whole call, so calls on one `F` from
+different tasks run one at a time, and each sees `F` either before or after a
+refactorization or update. For parallel solves, give each task its own `copy(F)`, which
+duplicates the factor's memory.
 
 # Examples
 ```jldoctest
@@ -419,7 +422,8 @@ mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
     X::Base.RefValue{Ptr{cholmod_dense_struct}}
     Y::Base.RefValue{Ptr{cholmod_dense_struct}}
     E::Base.RefValue{Ptr{cholmod_dense_struct}}
-    lock::ReentrantLock
+    # Every call on the factor, including the use of the `ldiv!` buffers above, holds `_lock`.
+    _lock::ReentrantLock
     function Factor{Tv, Ti}(ptr::Ptr{cholmod_factor}, register_finalizer = true) where {Tv, Ti}
         if ptr == C_NULL
             throw(ArgumentError("factorization construction failed for " *
@@ -444,7 +448,7 @@ mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
             Ref(Ptr{cholmod_dense_struct}(C_NULL)),
             ReentrantLock())
         if register_finalizer
-            finalizer(free!, F) # includes Y/E buffers
+            finalizer(_free_factor!, F) # includes Y/E buffers
         end
         return F
     end
@@ -490,7 +494,7 @@ mutable struct FactorComponent{Tv, S, Ti} <: AbstractMatrix{Tv}
     F::Factor{Tv, Ti}
 
   function FactorComponent{Tv,S,Ti}(F::Factor{Tv,Ti}) where {Tv,S,Ti}
-      s = unsafe_load(pointer(F))
+      s = @lock F._lock unsafe_load(pointer(F))
       is_ll = (s.is_ll != 0)
       components = _factor_components(is_ll)
       if !(S in components)
@@ -693,24 +697,29 @@ for TI ∈ IndexTypes
     end
 
     function factor_to_sparse!(F::Factor{Tv, $TI}) where Tv<:VTypes
-        ss = unsafe_load(pointer(F))
-        ss.xtype == CHOLMOD_PATTERN && throw(CHOLMODException("only numeric factors are supported"))
-        Sparse{Tv, $TI}(@checked $(cholname(:factor_to_sparse, TI))(F, getcommon($TI)))
+        S = @lock F._lock begin
+            ss = unsafe_load(pointer(F))
+            ss.xtype == CHOLMOD_PATTERN && throw(CHOLMODException("only numeric factors are supported"))
+            @checked $(cholname(:factor_to_sparse, TI))(F, getcommon($TI))
+        end
+        Sparse{Tv, $TI}(S)
     end
     # changing single <=> double precision is not supported
     function change_factor!(F::Factor{Tv, $TI}, to_ll::Bool, to_super::Bool, to_packed::Bool,
         to_monotonic::Bool) where Tv<:VTypes
-        (@checked $(cholname(:change_factor, TI))(xtyp(Tv), to_ll, to_super, to_packed, to_monotonic, F, getcommon($TI))) == TRUE
+        @lock F._lock begin
+            (@checked $(cholname(:change_factor, TI))(xtyp(Tv), to_ll, to_super, to_packed, to_monotonic, F, getcommon($TI))) == TRUE
+        end
     end
     function check_sparse(A::Sparse{Tv, $TI}) where Tv<:VTypes
         (@checked $(cholname(:check_sparse, TI))(A, getcommon($TI))) != 0
     end
 
     function check_factor(F::Factor{Tv, $TI}) where Tv<:VTypes
-        (@checked $(cholname(:check_factor, TI))(F, getcommon($TI))) != 0
+        @lock F._lock (@checked $(cholname(:check_factor, TI))(F, getcommon($TI))) != 0
     end
     function rcond(F::Factor{Tv, $TI}) where Tv<:VTypes
-        @checked $(cholname(:rcond, TI))(F, getcommon($TI))
+        @lock F._lock @checked $(cholname(:rcond, TI))(F, getcommon($TI))
     end
     nnz(A::Sparse{<:VTypes, $TI}) = @checked $(cholname(:nnz, TI))(A, getcommon($TI))
 
@@ -727,7 +736,8 @@ for TI ∈ IndexTypes
     end
 
     function copy(F::Factor{Tv, $TI}) where Tv<:VTypes
-        Factor{Tv, $TI}(@checked $(cholname(:copy_factor, TI))(F, getcommon($TI)))
+        c = @lock F._lock @checked $(cholname(:copy_factor, TI))(F, getcommon($TI))
+        Factor{Tv, $TI}(c)
     end
     function copy(A::Sparse{Tv, $TI}) where Tv<:VTypes
         Sparse{Tv, $TI}(@checked $(cholname(:copy_sparse, TI))(A, getcommon($TI)))
@@ -744,8 +754,10 @@ for TI ∈ IndexTypes
         nothing
     end
     function print_factor(F::Factor{Tv, $TI}, name::String) where Tv<:VTypes
-        @cholmod_param print = 3 begin
-            @checked $(cholname(:print_factor, TI))(F, name, getcommon($TI))
+        @lock F._lock begin
+            @cholmod_param print = 3 begin
+                @checked $(cholname(:print_factor, TI))(F, name, getcommon($TI))
+            end
         end
         nothing
     end
@@ -835,13 +847,13 @@ for TI ∈ IndexTypes
         Factor{Tv, $TI}(@checked $(cholname(:analyze_p, TI))(A, perm, C_NULL, 0, getcommon($TI)))
     end
     function factorize!(A::Sparse{Tv, $TI}, F::Factor{Tv, $TI}) where Tv<:VTypes
-        @checked $(cholname(:factorize, TI))(A, F, getcommon($TI))
+        @lock F._lock @checked $(cholname(:factorize, TI))(A, F, getcommon($TI))
         return F
     end
     function factorize_p!(A::Sparse{Tv, $TI}, β::Real, F::Factor{Tv, $TI}) where Tv<:VTypes
         # note that β is passed as a complex number (double beta[2]),
         # but the CHOLMOD manual says that only beta[0] (real part) is used
-        @checked $(cholname(:factorize_p, TI))(A, Float64[β, 0], C_NULL, 0, F, getcommon($TI))
+        @lock F._lock @checked $(cholname(:factorize_p, TI))(A, Float64[β, 0], C_NULL, 0, F, getcommon($TI))
         return F
     end
 
@@ -851,20 +863,19 @@ for TI ∈ IndexTypes
     # below. `Complex` accepts only real parameters, so `Complex{Tf}` is unmatchable for a
     # complex `Tf` and the union then admits `Tf` alone, as intended.
     function solve(sys::Integer, F::Factor{Tf, $TI}, B::Dense{Tv}) where {Tf<:VTypes, Tv<:Union{Tf,Complex{Tf}}}
-        if size(F,1) != size(B,1)
-            throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
-                "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
+        X = @lock F._lock begin
+            _check_solve(F, size(B, 1))
+            @checked $(cholname(:solve, TI))(sys, F, B, getcommon($TI))
         end
-        issuccess(F) || throw(factorization_exception(F))
-        Dense{Tv}(@checked $(cholname(:solve, TI))(sys, F, B, getcommon($TI)))
+        Dense{Tv}(X)
     end
 
     function spsolve(sys::Integer, F::Factor{Tv, $TI}, B::Sparse{Tv, $TI}) where Tv<:VTypes
-        if size(F,1) != size(B,1)
-            throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
-                "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
+        X = @lock F._lock begin
+            _check_size(F, size(B, 1))
+            @checked $(cholname(:spsolve, TI))(sys, F, B, getcommon($TI))
         end
-        Sparse{Tv, $TI}(@checked $(cholname(:spsolve, TI))(sys, F, B, getcommon($TI)))
+        Sparse{Tv, $TI}(X)
     end
     # Autodetects the types
     # TODO: does this need another Sparse method to autodetect index type?
@@ -876,12 +887,14 @@ for TI ∈ IndexTypes
     end
     function lowrankupdowndate!(F::Factor{Tv, $TI}, C::Sparse{Tv, $TI}, update::Cint) where Tv<:VTypes
         check_real_updown(F)
-        lF = unsafe_load(pointer(F))
         lC = unsafe_load(pointer(C))
-        if lF.n != lC.nrow
-            throw(DimensionMismatch("matrix dimensions do not fit"))
+        @lock F._lock begin
+            lF = unsafe_load(pointer(F))
+            if lF.n != lC.nrow
+                throw(DimensionMismatch("matrix dimensions do not fit"))
+            end
+            @checked $(cholname(:updown, TI))(update, C, F, getcommon($TI))
         end
-        @checked $(cholname(:updown, TI))(update, C, F, getcommon($TI))
         return F
     end
     # TODO: Change these to new methods in CHOLMOD v5.2 when available.
@@ -898,7 +911,7 @@ for TI ∈ IndexTypes
         return Sparse{Tnew, $TI}(s)
     end
     function change_xdtype(F::Factor{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
-        c = @checked $(cholname(:copy_factor, TI))(F, getcommon($TI))
+        c = @lock F._lock @checked $(cholname(:copy_factor, TI))(F, getcommon($TI))
         try
             @checked $(cholname(:factor_xtype, TI))(xdtyp(Tnew), c, getcommon($TI))
         catch
@@ -949,24 +962,25 @@ end
 function factorize_p!(A::Sparse, β::Real, F::Factor{Tv, Ti}) where {Tv, Ti}
     return factorize_p!(convert(Sparse{Tv, Ti}, A), β, F)
 end
+# A promoting solve converts a copy of `F` under its lock, and solves with it after releasing
+# the lock, so that it never holds the locks of two factors.
 function solve(sys::Integer, F::Factor{Tv1}, B::Dense{Tv2}) where {Tv1, Tv2}
-    if size(F,1) != size(B,1)
-        throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
-            "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
-    end
-    issuccess(F) || throw(factorization_exception(F))
     T = promote_type(Tv1, Tv2)
-    return solve(sys, T === Tv1 ? F : change_xdtype(F, T), convert(Dense{T}, B))
+    G = @lock F._lock begin
+        _check_solve(F, size(B, 1))
+        T === Tv1 ? F : change_xdtype(F, T)
+    end
+    return solve(sys, G, convert(Dense{T}, B))
 end
 
 # No method at this time to change the Ti type of a factorization.
 function spsolve(sys::Integer, F::Factor{Tv1, Ti1}, B::Sparse{Tv2}) where {Tv1, Ti1, Tv2}
-    if size(F,1) != size(B,1)
-        throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
-            "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
-    end
     T = promote_type(Tv1, Tv2)
-    return spsolve(sys, T === Tv1 ? F : change_xdtype(F, T), convert(Sparse{T, Ti1}, B))
+    G = @lock F._lock begin
+        _check_size(F, size(B, 1))
+        T === Tv1 ? F : change_xdtype(F, T)
+    end
+    return spsolve(sys, G, convert(Sparse{T, Ti1}, B))
 end
 function lowrankupdowndate!(F::Factor{Tv, Ti}, C::Sparse, update::Cint) where {Tv, Ti}
     return lowrankupdowndate!(F, convert(Sparse{Tv, Ti}, C), update)
@@ -996,11 +1010,10 @@ read_sparse(file::IO, Ti) = read_sparse(file, Float64, Ti)
 function get_perm(F::Factor)
     # `F` must stay rooted while we read through the raw `Perm` pointer;
     # otherwise the finalizer of a temporary `F` could free it mid-copy.
-    GC.@preserve F begin
+    return @lock F._lock GC.@preserve F begin
         s = unsafe_load(typedpointer(F))
-        p = unsafe_wrap(Array, s.Perm, s.n, own = false) .+ 1
+        unsafe_wrap(Array, s.Perm, s.n, own = false) .+ 1
     end
-    return p
 end
 get_perm(FC::FactorComponent) = get_perm(Factor(FC))
 
@@ -1388,18 +1401,19 @@ function sparse(A::Sparse{Tv, Ti}) where {Tv<:VComplexTypes, Ti} # Notice! Canno
     Hermitian{Tv,SparseMatrixCSC{Tv, Ti}}(A)
 end
 function sparse(F::Factor)
-    s = unsafe_load(pointer(F))
+    # Work on a private copy, so that the lock of `F` is held only while copying it.
+    G = copy(F)
+    s = unsafe_load(pointer(G))
+    p = get_perm(G)
     if s.is_ll != 0
-        L = sparse(Sparse(F))
+        L = sparse(factor_to_sparse!(G))
         A = L * L'
     else
-        LD = sparse(F.LD)
-        L, d = getLd!(LD)
+        L, d = getLd!(sparse(factor_to_sparse!(G)))
         A = (L * Diagonal(d)) * L'
     end
     # no need to sort buffers here, as A isa SparseMatrixCSC
     # and it is taken care in sparse
-    p = get_perm(F)
     if p != [1:s.n;]
         pinv = Vector{Int}(undef, length(p))
         for k = 1:length(p)
@@ -1413,17 +1427,17 @@ end
 sparse(D::Dense) = SparseMatrixCSC(D)
 
 function sparse(FC::FactorComponent{Tv,:L}) where Tv
-    F = Factor(FC)
-    s = unsafe_load(pointer(F))
+    G = copy(Factor(FC))
+    s = unsafe_load(pointer(G))
     if s.is_ll == 0
-        _sparse_exception(F)
+        _sparse_exception(G)
     end
-    sparse(Sparse(F))
+    sparse(factor_to_sparse!(G))
 end
 sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = sparse(Sparse(Factor(FC)))
 sparse(FC::FactorComponent{Tv}) where {Tv} = _sparse_exception(Factor(FC))
 function _sparse_exception(F::Factor)
-    s = unsafe_load(pointer(F))
+    s = @lock F._lock unsafe_load(pointer(F))
     details = (s.is_ll == 0) ? ":LD on LDLt" : ":L on LLt"
     throw(CHOLMODException("sparse: supported only for $details factorizations"))
 end
@@ -1453,7 +1467,9 @@ function free!(A::Sparse{<:Any, Ti}) where Ti
     setfield!(A, :ptr, Ptr{cholmod_sparse}(C_NULL))
     return free!(p, Ti)
 end
-function free!(F::Factor{<:Any, Ti}) where Ti
+free!(F::Factor) = @lock F._lock _free_factor!(F)
+# The finalizer calls this directly, since finalizers must not take locks.
+function _free_factor!(F::Factor{<:Any, Ti}) where Ti
     # Release the Y/E scratch buffers used by `solve!` and null the handles so
     # that a later `ldiv!` allocates fresh ones instead of reusing freed memory.
     # Y/E were allocated by cholmod(_l)_solve2 with getcommon(Ti).
@@ -1482,13 +1498,15 @@ function show(io::IO, FC::FactorComponent)
 end
 
 function showfactor(io::IO, F::Factor)
-    s = unsafe_load(pointer(F))
+    # Work on a private copy, so that the lock of `F` is not held while printing.
+    G = copy(F)
+    s = unsafe_load(pointer(G))
     print(io, """
         type:    $(s.is_ll!=0 ? "LLt" : "LDLt")
         method:  $(s.is_super!=0 ? "supernodal" : "simplicial")
         maxnnz:  $(Int(s.nzmax))
-        nnz:     $(nnz(F))
-        success: $(s.minor == size(F, 1))
+        nnz:     $(nnz(factor_to_sparse!(G)))
+        success: $(s.minor == s.n)
         """)
 end
 
@@ -1508,13 +1526,30 @@ function size(F::Factor, i::Integer)
     if i < 1
         throw(ArgumentError("dimension must be positive"))
     end
-    s = unsafe_load(pointer(F))
-    if i <= 2
-        return Int(s.n)
-    end
-    return 1
+    n = @lock F._lock _size(F)
+    return i <= 2 ? n : 1
 end
-size(F::Factor) = (size(F, 1), size(F, 2))
+size(F::Factor) = (n = @lock(F._lock, _size(F)); (n, n))
+
+# Unlocked kernels for the calls above and below; the caller holds the lock of `F`.
+_size(F::Factor) = Int(unsafe_load(pointer(F)).n)
+function _issuccess(F::Factor)
+    s = unsafe_load(pointer(F))
+    return s.minor == s.n
+end
+function _check_size(F::Factor, nrhs::Integer)
+    n = _size(F)
+    if n != nrhs
+        throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
+            "LHS has $n rows, but RHS has $nrhs rows."))
+    end
+    return nothing
+end
+function _check_solve(F::Factor, nrhs::Integer)
+    _check_size(F, nrhs)
+    _issuccess(F) || throw(factorization_exception(F))
+    return nothing
+end
 
 IndexStyle(::Type{<:Dense}) = IndexLinear()
 
@@ -1571,7 +1606,7 @@ end
 @inline function getproperty(F::Factor, sym::Symbol)
     if sym === :p
         return get_perm(F)
-    elseif sym === :ptr || sym === :lock
+    elseif sym === :ptr || sym === :_lock
         return getfield(F, sym)
     else
         return FactorComponent(F, sym)
@@ -1579,7 +1614,7 @@ end
 end
 
 function propertynames(F::Factor)
-    s = unsafe_load(pointer(F))
+    s = @lock F._lock unsafe_load(pointer(F))
     (_factor_components(s.is_ll != 0)..., :p, :ptr)
 end
 
@@ -1690,12 +1725,12 @@ end
 function cholesky!(F::Factor{Tv}, A::Sparse{Tv};
                    shift::Real=0.0, check::Bool = true) where Tv
     check_hermitian_stype(A)
-    @lock F.lock begin
+    @lock F._lock begin
         @cholmod_param final_ll = true begin
             factorize_p!(A, shift, F)
         end
+        check && (_issuccess(F) || throw(factorization_exception(F)))
     end
-    check && (issuccess(F) || throw(factorization_exception(F)))
     return F
 end
 
@@ -1866,11 +1901,11 @@ LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}}
 function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
     check_hermitian_stype(A)
-    @lock F.lock begin
+    @lock F._lock begin
         change_factor!(F, false, false, true, false)
         factorize_p!(A, shift, F)
+        check && (_issuccess(F) || throw(factorization_exception(F)))
     end
-    check && (issuccess(F) || throw(factorization_exception(F)))
     return F
 end
 
@@ -2023,7 +2058,7 @@ Only real factorizations are supported; CHOLMOD cannot update or downdate a comp
 See also [`lowrankupdate`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!`](@ref).
 """
 function lowrankupdate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
-    @lock F.lock begin
+    @lock F._lock begin
         #Reorder and copy V to account for permutation
         C = lowrank_reorder(V, get_perm(F), Tv, Ti)
         lowrankupdowndate!(F, C, Cint(1))
@@ -2042,7 +2077,7 @@ Only real factorizations are supported; CHOLMOD cannot update or downdate a comp
 See also [`lowrankdowndate`](@ref), [`lowrankupdate`](@ref), [`lowrankupdate!`](@ref).
 """
 function lowrankdowndate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
-    @lock F.lock begin
+    @lock F._lock begin
         #Reorder and copy V to account for permutation
         C = lowrank_reorder(V, get_perm(F), Tv, Ti)
         lowrankupdowndate!(F, C, Cint(0))
@@ -2097,11 +2132,11 @@ for (T, f) in ((:Dense, :solve), (:Sparse, :spsolve))
         # Solve PLx = b and L'P'x=b where A = P*L*L'*P'
         function (\)(L::FactorComponent{T,:PtL}, B::$T) where T
             F = Factor(L)
-            ($f)(CHOLMOD_L, F, ($f)(CHOLMOD_P, F, B)) # Confusingly, CHOLMOD_P solves P'x = b
+            @lock F._lock ($f)(CHOLMOD_L, F, ($f)(CHOLMOD_P, F, B)) # Confusingly, CHOLMOD_P solves P'x = b
         end
         function (\)(L::FactorComponent{T,:UP}, B::$T) where T
             F = Factor(L)
-            ($f)(CHOLMOD_Pt, F, ($f)(CHOLMOD_Lt, F, B))
+            @lock F._lock ($f)(CHOLMOD_Pt, F, ($f)(CHOLMOD_Lt, F, B))
         end
         # Solve various equations for A = L*D*L' and A = P*L*D*L'*P'
         function (\)(L::FactorComponent{T,:D}, B::$T) where T
@@ -2115,11 +2150,11 @@ for (T, f) in ((:Dense, :solve), (:Sparse, :spsolve))
         end
         function (\)(L::FactorComponent{T,:PtLD}, B::$T) where T
             F = Factor(L)
-            ($f)(CHOLMOD_LD, F, ($f)(CHOLMOD_P, F, B))
+            @lock F._lock ($f)(CHOLMOD_LD, F, ($f)(CHOLMOD_P, F, B))
         end
         function (\)(L::FactorComponent{T,:DUP}, B::$T) where T
             F = Factor(L)
-            ($f)(CHOLMOD_Pt, F, ($f)(CHOLMOD_DLt, F, B))
+            @lock F._lock ($f)(CHOLMOD_Pt, F, ($f)(CHOLMOD_DLt, F, B))
         end
     end
 end
@@ -2202,14 +2237,18 @@ end
 @inline _setup_bptr(b::Dense{<:VTypes}, ::cholmod_dense_struct) = b.ptr
 
 for TI in IndexTypes
-    @eval function solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T}) where {T<:VTypes}
+    @eval solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T}) where {T<:VTypes} =
+        @lock L._lock _solve!(x, L, b)
+
+    # The caller holds the lock of `L`.
+    @eval function _solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T}) where {T<:VTypes}
         # CHOLMOD's solve2 reuses the caller-provided X handle only if it is
         # large enough and its xtype/dtype match the factor; otherwise it calls
         # cholmod_free_dense on the handle, which would free() the Julia-owned
         # dense_x struct.  In the reuse branch it also overwrites X->d with
         # n, so the output must be a contiguous column-major buffer.  Verify
         # these invariants here so CHOLMOD can never take the other branch.
-        n = size(L, 1)
+        n = _size(L)
         if size(x, 1) != n || size(b, 1) != n || size(x, 2) != size(b, 2)
             throw(DimensionMismatch("solution has size $(size(x)), RHS has size $(size(b)), " *
                 "but the factorization is $(n)×$(n)"))
@@ -2224,33 +2263,31 @@ for TI in IndexTypes
         if xtyp(T) != s.xtype || dtyp(T) != s.dtype
             throw(ArgumentError("element type of the solution array does not match the factorization"))
         end
-        @lock L.lock begin
-            dense_x = getfield(L, :dense_x)
-            X = getfield(L, :X)
-            Y = getfield(L, :Y)
-            E = getfield(L, :E)
+        dense_x = getfield(L, :dense_x)
+        X = getfield(L, :X)
+        Y = getfield(L, :Y)
+        E = getfield(L, :E)
 
-            dense_x.nrow  = size(x, 1)
-            dense_x.ncol  = size(x, 2)
-            dense_x.nzmax = length(x)
-            dense_x.d     = stride(x, 2)
-            dense_x.x     = pointer(x)
-            dense_x.z     = C_NULL
-            dense_x.xtype = xtyp(T)
-            dense_x.dtype = dtyp(T)
+        dense_x.nrow  = size(x, 1)
+        dense_x.ncol  = size(x, 2)
+        dense_x.nzmax = length(x)
+        dense_x.d     = stride(x, 2)
+        dense_x.x     = pointer(x)
+        dense_x.z     = C_NULL
+        dense_x.xtype = xtyp(T)
+        dense_x.dtype = dtyp(T)
 
-            X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
-            Bptr = _setup_bptr(b, getfield(L, :dense_b))
-            status = GC.@preserve x b L begin
-                @checked $(cholname(:solve2, TI))(
-                    CHOLMOD_A, L,
-                    Bptr, C_NULL,
-                    X, C_NULL,
-                    Y, E,
-                    getcommon($TI))
-            end
-            @assert !iszero(status)
+        X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
+        Bptr = _setup_bptr(b, getfield(L, :dense_b))
+        status = GC.@preserve x b L begin
+            @checked $(cholname(:solve2, TI))(
+                CHOLMOD_A, L,
+                Bptr, C_NULL,
+                X, C_NULL,
+                Y, E,
+                getcommon($TI))
         end
+        @assert !iszero(status)
     end
 
     @eval function ldiv!(x::StridedVecOrMat{T},
@@ -2259,28 +2296,31 @@ for TI in IndexTypes
         if x === b
             throw(ArgumentError("output array must not be aliased with input array"))
         end
-        if size(L, 1) != size(b, 1)
-            throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
-                "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
+        @lock L._lock begin
+            n = _size(L)
+            if n != size(b, 1)
+                throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
+                    "Factorization has $n rows, but RHS has $(size(b, 1)) rows."))
+            end
+            if n != size(x, 1)
+                throw(DimensionMismatch("Factorization and solution should match sizes. " *
+                    "Factorization has $n columns, but solution has $(size(x, 1)) rows."))
+            end
+            if size(x, 2) != size(b, 2)
+                throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
+                    "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
+            end
+            if stride(x, 1) != 1 || stride(x, 2) != size(x, 1)
+                throw(ArgumentError("solution array must be a contiguous column-major array " *
+                    "(e.g. a Vector, Matrix, or view(M, :, 1:k)); got strides $(strides(x)) for size $(size(x))"))
+            end
+            if stride(b, 1) != 1
+                throw(ArgumentError("RHS array must have unit stride along its first dimension; " *
+                    "got strides $(strides(b)) for size $(size(b))"))
+            end
+            _issuccess(L) || throw(factorization_exception(L))
+            _solve!(x, L, b)
         end
-        if size(L, 2) != size(x, 1)
-            throw(DimensionMismatch("Factorization and solution should match sizes. " *
-                "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
-        end
-        if size(x, 2) != size(b, 2)
-            throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
-                "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
-        end
-        if stride(x, 1) != 1 || stride(x, 2) != size(x, 1)
-            throw(ArgumentError("solution array must be a contiguous column-major array " *
-                "(e.g. a Vector, Matrix, or view(M, :, 1:k)); got strides $(strides(x)) for size $(size(x))"))
-        end
-        if stride(b, 1) != 1
-            throw(ArgumentError("RHS array must have unit stride along its first dimension; " *
-                "got strides $(strides(b)) for size $(size(b))"))
-        end
-        issuccess(L) || throw(factorization_exception(L))
-        solve!(x, L, b)
         return x
     end
 end
@@ -2288,7 +2328,8 @@ end
 ldiv!(L::Factor{T}, B::StridedVecOrMat{T}) where {T<:VTypes} = ldiv!(B, L, copy(B))
 
 ## Other convenience methods
-function diag(F::Factor{Tv, Ti}) where {Tv, Ti}
+diag(F::Factor) = @lock F._lock _diag(F)
+function _diag(F::Factor{Tv, Ti}) where {Tv, Ti}
     GC.@preserve F begin
         f = unsafe_load(typedpointer(F))
         fsuper = f.super
@@ -2323,15 +2364,15 @@ function diag(F::Factor{Tv, Ti}) where {Tv, Ti}
 end
 
 function LinearAlgebra.logabsdet(F::Factor{Tv}) where Tv<:VTypes
-    f = unsafe_load(pointer(F))
+    is_ll, dg = @lock F._lock (unsafe_load(pointer(F)).is_ll != 0, _diag(F))
     res = zero(real(Tv))
     sgn = one(real(Tv))
-    if f.is_ll != 0
-        for d in diag(F); res += log(abs(d)) end
+    if is_ll
+        for d in dg; res += log(abs(d)) end
         res *= 2
     else
         # The entries of D are real, but an indefinite matrix has negative ones.
-        for d in diag(F)
+        for d in dg
             res += log(abs(d))
             sgn *= sign(real(d))
         end
@@ -2385,12 +2426,10 @@ julia> SparseArrays.CHOLMOD.rcond(cholesky(sparse(Diagonal([1.0, 0.0])); check=f
 """
 rcond
 
-function issuccess(F::Factor)
-    s = unsafe_load(pointer(F))
-    return s.minor == size(F, 1)
-end
+issuccess(F::Factor) = @lock F._lock _issuccess(F)
 
 # CHOLMOD records the column where the factorization failed as the 0-based `minor`.
+# The caller holds the lock of `F`.
 function factorization_exception(F::Factor)
     s = unsafe_load(pointer(F))
     info = Int(s.minor) + 1
@@ -2398,10 +2437,12 @@ function factorization_exception(F::Factor)
 end
 
 function isposdef(F::Factor)
-    issuccess(F) || return false
-    s = unsafe_load(pointer(F))
-    # an LDLt factor is positive definite iff D is positive
-    return s.is_ll != 0 || all(d -> real(d) > 0, diag(F))
+    @lock F._lock begin
+        _issuccess(F) || return false
+        s = unsafe_load(pointer(F))
+        # an LDLt factor is positive definite iff D is positive
+        s.is_ll != 0 || all(d -> real(d) > 0, _diag(F))
+    end
 end
 
 function ishermitian(A::Sparse{<:VRealTypes})

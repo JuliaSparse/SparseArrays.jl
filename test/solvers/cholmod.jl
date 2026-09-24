@@ -1254,4 +1254,69 @@ end
 
 end # for Tv ∈ (Float32, Float64)
 
+@testset "every call on a Factor takes its lock" begin
+    Tv = Float64
+    n = 10
+    tri(d) = spdiagm(-1 => fill(Tv(1), n - 1), 0 => fill(Tv(d), n), 1 => fill(Tv(1), n - 1))
+    A, A2 = tri(4), tri(5)
+    b = Tv.(1:n)
+    x, x2 = Matrix(A) \ b, Matrix(A2) \ b
+    v = zeros(Tv, n); v[2] = 1
+    xv, xd = Matrix(A + v*v') \ b, Matrix(A - v*v') \ b
+    p = cholesky(A).p
+    calls = (
+        F -> F \ b ≈ x,
+        F -> Array(F \ CHOLMOD.Dense(ComplexF32.(b)))[:, 1] ≈ x,
+        F -> F \ sparse(complex.(b)) ≈ x,
+        F -> F' \ b ≈ x,
+        F -> F.UP \ (F.PtL \ b) ≈ x,
+        F -> ldiv!(similar(b), F, b) ≈ x,
+        F -> size(F) == (n, n) && size(F, 1) == n,
+        F -> issuccess(F) && isposdef(F) && CHOLMOD.isvalid(F),
+        F -> logdet(F) ≈ logdet(Matrix(A)),
+        F -> diag(F) isa Vector{Tv},
+        F -> CHOLMOD.rcond(F) > 0,
+        F -> sparse(F) ≈ A,
+        F -> sparse(F.L) isa SparseMatrixCSC,
+        F -> CHOLMOD.Sparse(F) isa CHOLMOD.Sparse,
+        F -> nnz(F) > 0,
+        F -> isperm(F.p),
+        F -> :p in propertynames(F),
+        F -> copy(F) \ b ≈ x,
+        F -> occursin("LLt", sprint(show, F)),
+        F -> CHOLMOD.lowrankupdate(F, v) \ b ≈ xv,
+        F -> cholesky!(F, A2) \ b ≈ x2,
+        F -> ldlt!(F, A2) \ b ≈ x2,
+        F -> CHOLMOD.lowrankupdate!(F, v) \ b ≈ xv,
+        F -> CHOLMOD.lowrankdowndate!(F, v) \ b ≈ xd,
+        F -> CHOLMOD.lowrankupdowndate!(F, CHOLMOD.Sparse(sparse(v[p, :])), Cint(1)) \ b ≈ xv,
+        F -> CHOLMOD.free!(F),
+    )
+    # Cooperative tasks on this thread: a task that has started and is not done is waiting
+    # for the lock, since nothing else in these calls yields.
+    for f in calls
+        F = cholesky(A)
+        G = copy(F)
+        started = Ref(false)
+        lock(F._lock)
+        t = @async (started[] = true; f(F))
+        @test timedwait(() -> started[], 60; pollint=0.001) === :ok
+        @test !istaskdone(t)
+        # a copy shares nothing with `F`, so it does not wait
+        @test fetch(@async f(G))
+        unlock(F._lock)
+        @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+        @test fetch(t)
+        @test !islocked(F._lock)
+    end
+    @testset "a failed call releases the lock" begin
+        F = cholesky(A)
+        @test_throws PosDefException cholesky!(F, -A)
+        @test_throws PosDefException ldiv!(similar(b), F, b)
+        @test_throws ZeroPivotException ldlt!(F, 0*A)
+        @test_throws DimensionMismatch ldiv!(similar(b, n + 1), F, b)
+        @test !islocked(F._lock)
+    end
+end
+
 end # module

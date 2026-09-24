@@ -266,7 +266,7 @@ at a time. To solve in parallel, give every task its own `copy` of the factoriza
 |:-----|:----------|:-----------------------------------------|
 | `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new workspace, `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
 | `SPQR.QRSparse` | shares the factors and permutations; new workspace and lock | `\`, `ldiv!` |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
+| `CHOLMOD.Factor` | independent deep copy of the whole factor | every call |
 
 The copies of an `UmfpackLU` or a `QRSparse` are cheap, since only the workspace is
 duplicated:
@@ -287,11 +287,15 @@ once per right-hand side. Because the copies of an `UmfpackLU` share its factors
 call [`lu!`](@ref) on the original or on any copy while another task is solving with one
 of them: refactorization frees the numeric object they all point to.
 
-For CHOLMOD, only `ldiv!` uses the buffers stored in the `Factor`, and only `ldiv!`,
-[`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!` take its lock. `F \ b` and
-the low-rank updates do not, so a `Factor` is not safe to share between tasks when any of
-them may refactorize or update it. Use a separate `copy(F)` per task in that case, and for
-parallel `ldiv!`; note that this duplicates the factor's memory.
+For CHOLMOD, every call on a `Factor` holds its lock for the whole call: the solves (`\`,
+`ldiv!` and the solves with the components of `F`), the queries such as `size`, `diag`,
+`logdet` and `F.p`, `copy`, and the calls that change `F`:
+[`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`, the low-rank updates and
+`free!`. A `Factor` can therefore be shared between tasks, and refactorized or updated
+while other tasks solve with it: each solve sees either the old or the new factorization.
+The calls on one `Factor` run one at a time, so `F \ b` from several tasks does not run in
+parallel. For parallel solves, give each task its own `copy(F)`; note that this duplicates
+the factor's memory.
 
 CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
 structure. SparseArrays creates one lazily for each Julia task (and index type) and keeps
