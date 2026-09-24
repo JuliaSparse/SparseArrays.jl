@@ -54,6 +54,71 @@ end
     end
 end
 
+# Hang guard only: every task is expected to finish long before.
+finishes(tasks) = timedwait(() -> all(istaskdone, tasks), 300; pollint=0.01) === :ok
+
+@testset "UMFPACK copies solve while the original is refactorized, $T" for T in (Float64, ComplexF64)
+    n = 30
+    offdiag = T <: Real ? one(T) : T(1 + im)
+    As = [SparseMatrixCSC{T,Int}(spdiagm(-1 => fill(offdiag * k, n - 1),
+        0 => fill(T(4 + k), n), 1 => fill(conj(offdiag), n - 1))) for k in 1:3]
+    b = T.(1:n)
+    K = 60
+    reuse(k) = k % 4 != 0
+    expected = [Matrix(As[mod1(k, 3)]) \ b for k in 1:K]
+    F = lu(As[1])
+    ch = Channel{Tuple{Int,Any}}(8)
+    writer = Threads.@spawn begin
+        for k in 1:K
+            lu!(F, As[mod1(k, 3)]; reuse_symbolic=reuse(k))
+            put!(ch, (k, copy(F)))
+        end
+        close(ch)
+    end
+    # each copy is solved with by one task while the writer keeps refactorizing F
+    readers = [Threads.@spawn begin
+                   ok = true
+                   for (k, G) in ch, _ in 1:5
+                       ok &= G \ b ≈ expected[k]
+                       yield()
+                   end
+                   ok
+               end for _ in 1:4]
+    @test finishes([writer; readers])
+    @test !istaskfailed(writer)
+    @test all(fetch, readers)
+end
+
+@testset "UMFPACK factors read while lu! runs on the same F, $T" for T in (Float64, ComplexF64)
+    n = 20
+    As = [SparseMatrixCSC{T,Int}(spdiagm(-1 => fill(T(k), n - 1), 0 => fill(T(4 + k), n),
+        1 => fill(T(1), n - 1))) for k in 1:2]
+    consistent(f) = any(A -> f[1] * f[2] ≈ (f[5] .* A)[f[3], f[4]], As)
+    F = lu(As[1])
+    done = Threads.Atomic{Bool}(false)
+    writer = Threads.@spawn try
+        for k in 1:100
+            lu!(F, As[mod1(k, 2)]; reuse_symbolic=isodd(k))
+            yield()
+        end
+    finally
+        done[] = true
+    end
+    readers = [Threads.@spawn begin
+                   ok = true
+                   while !done[]
+                       ok &= consistent(F.:(:))
+                       L, U, p, q, Rs = F.L, F.U, F.p, F.q, F.Rs
+                       ok &= size(L) == size(U) == (n, n) && isperm(p) && isperm(q) && length(Rs) == n
+                       yield()
+                   end
+                   ok
+               end for _ in 1:3]
+    @test finishes([writer; readers])
+    @test !istaskfailed(writer)
+    @test all(fetch, readers)
+end
+
 else
 
 include("testprocess.jl")

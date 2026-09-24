@@ -264,12 +264,12 @@ at a time. To solve in parallel, give every task its own `copy` of the factoriza
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new workspace, `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
+| `UMFPACK.UmfpackLU` | independent deep copy of the matrix, the factors, the workspace, `control` and `info` | every call |
 | `SPQR.QRSparse` | shares the factors and permutations; new workspace and lock | `\`, `ldiv!` |
 | `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
 
-The copies of an `UmfpackLU` or a `QRSparse` are cheap, since only the workspace is
-duplicated:
+The copy of a `QRSparse` is cheap, since only its workspace is duplicated; the copy of an
+`UmfpackLU` also duplicates the matrix and the factors:
 
 ```julia
 using LinearAlgebra, SparseArrays
@@ -277,15 +277,17 @@ using LinearAlgebra, SparseArrays
 F = lu(A)                       # or qr(A)
 X = similar(B)
 Threads.@threads for j in axes(B, 2)
-    Fj = copy(F)                # own workspace, shared factors
+    Fj = copy(F)                # own workspace; for lu, also own factors
     ldiv!(view(X, :, j), Fj, view(B, :, j))
 end
 ```
 
 A loop that performs many solves per task should make the copy once per task rather than
-once per right-hand side. Because the copies of an `UmfpackLU` share its factors, do not
-call [`lu!`](@ref) on the original or on any copy while another task is solving with one
-of them: refactorization frees the numeric object they all point to.
+once per right-hand side. Every call on an `UmfpackLU`, including the extraction of `F.L`,
+`F.U`, `F.p`, `F.q` and `F.Rs` and refactorization with [`lu!`](@ref), holds its lock for
+the whole call, so calls on one `F` never see a partial refactorization. The copies of an
+`UmfpackLU` are independent of it: calling `lu!` on one leaves the others unchanged, and
+each copy costs the memory of the factors.
 
 For CHOLMOD, only `ldiv!` uses the buffers stored in the `Factor`, and only `ldiv!`,
 [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!` take its lock. `F \ b` and

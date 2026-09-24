@@ -118,15 +118,17 @@ end
         umfpack_report(Af)
     end
     function test_ws_dup(Af, Af1)
-        for i in [:colptr, :rowval, :nzval]
-            @test getproperty(Af, i) === getproperty(Af1, i)
-        end
-        for i in [:n, :m]
+        for i in [:colptr, :rowval, :nzval, :control, :info]
             @test getproperty(Af, i) == getproperty(Af1, i)
-        end
-        for i in [:workspace, :control, :info, :lock]
             @test getproperty(Af, i) !== getproperty(Af1, i)
         end
+        for i in [:n, :m, :status]
+            @test getproperty(Af, i) == getproperty(Af1, i)
+        end
+        for i in [:workspace, :_lock, :symbolic, :numeric]
+            @test getproperty(Af, i) !== getproperty(Af1, i)
+        end
+        @test Af1.symbolic.p != Af.symbolic.p && Af1.numeric.p != Af.numeric.p
     end
     @testset "test copy(UmfpackLU)" begin
         Af = lu(A0)
@@ -135,10 +137,9 @@ end
         test_ws_dup(Af, copy(parent(transpose(Af))))
         test_ws_dup(Af, copy(parent(adjoint(Af))))
         umfpack_report(Af)
-
-        Afcopy = copy(Af)
-        @test Afcopy.numeric === Af.numeric
-        @test Afcopy.symbolic === Af.symbolic
+        ws = UMFPACK.UmfpackWS(Af)
+        @test copy(Af, ws).workspace === ws
+        @test parent(copy(transpose(Af), ws)).workspace === ws
     end
 end
 
@@ -624,23 +625,90 @@ end
 end
 
 
-@testset "copy should keep the numeric/symbolic by default" begin
-    S = sprandn(10, 10, 0.1) + I
-    A = lu(S)
-    B = copy(A)
-    @test A.numeric === B.numeric
-    @test A.symbolic === B.symbolic
-    # refactoring frees the shared numeric (and freeing again is a no-op);
-    # the copy then refactors on demand instead of using freed memory
-    num = A.numeric
-    lu!(A, S)
-    @test num.p == C_NULL
-    UMFPACK.umfpack_free_numeric(num, Float64, Int)
-    @test num.p == C_NULL
-    b = ones(10)
-    @test B \ b ≈ Matrix(S) \ b
+@testset "copy is independent of the original, $Tv, $Ti, reuse_symbolic=$reuse" for
+        Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes), reuse in (true, false)
+    A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    C = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1; 1 3]))
+    b = Tv[1, 2, 3]
+    xA, x2A = Matrix(A) \ b, Matrix(2A) \ b
+    F = lu(A)
+    G = copy(F)
+    # refactorizing F frees its old numeric object; G has its own
+    lu!(F, 2A; reuse_symbolic=reuse)
+    @test G \ b ≈ xA
+    @test F \ b ≈ x2A
+    # refactorizing the copy, also to another size, leaves the original alone
+    lu!(G, C; reuse_symbolic=false)
+    @test size(G) == (2, 2) && G \ Tv[1, 2] ≈ Matrix(C) \ Tv[1, 2]
+    @test size(F) == (3, 3) && F \ b ≈ x2A
+    # the matrix is copied too: refactorizing F from its own matrix does not see G's
+    H = copy(F)
+    lu!(H, A; reuse_symbolic=reuse)
+    lu!(F; reuse_symbolic=reuse)
+    @test F \ b ≈ x2A && H \ b ≈ xA
+    # a factorization with lazily computed factors copies as one
+    for L in (UMFPACK.UmfpackLU(A), deserialize(seekstart(let io = IOBuffer(); serialize(io, lu(A)); io; end)))
+        @test _isnull_numeric(L)
+        M = copy(L)
+        @test _isnull_numeric(M) && M.symbolic.p == C_NULL
+        lu!(L, 2A; reuse_symbolic=reuse)
+        @test M \ b ≈ xA && L \ b ≈ x2A
+    end
+    # a failed factorization copies as failed
+    S = SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 2; 2 4]))
+    @test !issuccess(copy(lu(S; check=false)))
 end
 
+@testset "every call holds the lock of F" begin
+    # Cooperative tasks on this thread: a started task that is not done while this task
+    # holds the lock is blocked on it. timedwait only guards against hangs.
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    b = [1.0, 2.0, 3.0]
+    x = Matrix(A) \ b
+    F = lu(A)
+    L, U, p, q, Rs = F.:(:)
+    G = copy(F)
+    io = IOBuffer()
+    calls = (() -> F \ b ≈ x,
+             () -> F' \ b ≈ Matrix(A)' \ b,
+             () -> transpose(F) \ b ≈ transpose(Matrix(A)) \ b,
+             () -> ldiv!(zeros(3), F, b) ≈ x,
+             () -> ldiv!(zeros(3, 2), F, [b b]) ≈ [x x],
+             () -> ldiv!(F, copy(b)) ≈ x,
+             () -> F \ complex.(b) ≈ x,
+             () -> UMFPACK.solve!(zeros(3), F, b, UMFPACK.UMFPACK_A) ≈ x,
+             () -> det(F) ≈ det(Matrix(A)),
+             () -> logabsdet(F)[1] ≈ logabsdet(Matrix(A))[1],
+             () -> UMFPACK.rcond(F) > 0,
+             () -> nnz(F) > 0,
+             () -> size(F) == (3, 3),
+             () -> size(F, 1) == 3,
+             () -> issuccess(F),
+             () -> F.L == L, () -> F.U == U, () -> F.p == p, () -> F.q == q, () -> F.Rs == Rs,
+             () -> F.:(:) == (L, U, p, q, Rs),
+             () -> occursin("L factor", sprint(show, MIME"text/plain"(), F)),
+             () -> (serialize(io, F); true),
+             () -> copy(F) \ b ≈ x,
+             () -> length(UMFPACK.UmfpackWS(F).Wi) == 3,
+             () -> length(UMFPACK.getworkspace(F).Wi) == 3,
+             () -> UMFPACK.umfpack_report_numeric(F, 0) === F,
+             () -> UMFPACK.umfpack_report_symbolic(F, 0) === F,
+             () -> UMFPACK.umfpack_numeric!(F) === F,
+             () -> UMFPACK.umfpack_symbolic!(F, nothing) === F,
+             () -> lu!(F) \ b ≈ x,
+             () -> lu!(F, A) \ b ≈ x)
+    for f in calls
+        lock(F._lock)
+        t = @async f()
+        yield()
+        @test istaskstarted(t) && !istaskdone(t)
+        # a copy has its own lock
+        @test fetch(@async G \ b ≈ x && issuccess(G) && size(G) == (3, 3) && G.L == L)
+        unlock(F._lock)
+        @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+        @test fetch(t)
+    end
+end
 
 A = I + sprandn(100, 100, 0.01)
 Af = lu(A)
