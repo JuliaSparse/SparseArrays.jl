@@ -394,7 +394,8 @@ diagonal), can be materialized. `sparse(F)` reconstructs the factorized matrix.
 [`issuccess`](@ref), `nnz`, `copy`, [`CHOLMOD.rcond`](@ref SparseArrays.CHOLMOD.rcond),
 refactorization with [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!`, and
 the low-rank modifications [`lowrankdowndate`](@ref SparseArrays.CHOLMOD.lowrankdowndate)
-and `lowrankupdate`.
+and `lowrankupdate`. `copy(F)` and `deepcopy(F)` return an independent factorization:
+nothing done to one affects the other.
 
 CHOLMOD owns the memory, which is released by a finalizer. The pointer is null after
 deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!` takes
@@ -897,6 +898,19 @@ for TI ∈ IndexTypes
         return Factor{Tnew, $TI}(c)
     end
 end
+end
+
+copy(F::AdjointFactorization{<:Any,<:Factor}) = AdjointFactorization(copy(parent(F)))
+copy(F::LinearAlgebra.TransposeFactorization{<:Any,<:Factor}) =
+    LinearAlgebra.TransposeFactorization(copy(parent(F)))
+
+# The default deepcopy would duplicate the raw pointer into a wrapper without a
+# finalizer, leaving it dangling once the original is freed or refactorized in place.
+function Base.deepcopy_internal(x::Union{Dense,Sparse,Factor}, stackdict::IdDict)
+    haskey(stackdict, x) && return stackdict[x]::typeof(x)
+    y = copy(x)
+    stackdict[x] = y
+    return y
 end
 
 # promotion functions for the strictly single typed functions above:

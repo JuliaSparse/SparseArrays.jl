@@ -318,17 +318,18 @@ UmfpackWS(F::UMFAdjOrTransLU, refinement::Bool=has_refinement(F)) = UmfpackWS(pa
 
 """
     copy(F::UmfpackLU)::UmfpackLU
-A shallow copy of UmfpackLU to use in multithreaded solve applications.
-This function duplicates the control, info and lock fields.
+
+Return an independent copy of `F`, with its own matrix, symbolic and numeric factors,
+`control`, `info` and lock; refactorizing either one with [`lu!`](@ref) does not affect
+the other. `deepcopy(F)` does the same.
 """
-Base.copy(F::UmfpackLU{Tv, Ti}) where {Tv, Ti} =
-    UmfpackLU(
-        F.symbolic,
-        F.numeric,
+Base.copy(F::UmfpackLU) = @lock F.lock UmfpackLU(
+        umfpack_copy_symbolic(F.symbolic),
+        umfpack_copy_numeric(F.numeric),
         F.m, F.n,
-        F.colptr,
-        F.rowval,
-        F.nzval,
+        copy(F.colptr),
+        copy(F.rowval),
+        copy(F.nzval),
         F.status,
         copy(F.control),
         copy(F.info),
@@ -339,6 +340,15 @@ Base.copy(F::UmfpackLU{Tv, Ti}) where {Tv, Ti} =
 Base.copy(F::UmfpackLU, ::UmfpackWS) = copy(F)
 Base.copy(F::T) where {T <: UMFAdjOrTransLU} = T(copy(parent(F)))
 Base.copy(F::T, ::UmfpackWS) where {T <: UMFAdjOrTransLU} = T(copy(parent(F)))
+
+# The default deepcopy would duplicate the raw symbolic and numeric pointers into
+# wrappers without finalizers, leaving them dangling once the original is freed.
+function Base.deepcopy_internal(F::UmfpackLU, stackdict::IdDict)
+    haskey(stackdict, F) && return stackdict[F]::typeof(F)
+    G = copy(F)
+    stackdict[F] = G
+    return G
+end
 
 Base.transpose(F::UmfpackLU) = TransposeFactorization(F)
 
@@ -1150,6 +1160,27 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
             $_free_numeric(r)
         end
         return numeric
+    end
+
+    # A null object copies to a null object. The copy is wrapped before the status is
+    # checked, so that its finalizer owns whatever UMFPACK returned.
+    _copy_symbolic = Symbol(umf_nm("copy_symbolic", Tv, Ti))
+    @eval function umfpack_copy_symbolic(symbolic::Symbolic{$Tv,$Ti})
+        _isnull(symbolic) && return Symbolic{$Tv,$Ti}(C_NULL)
+        tmp = Ref{Ptr{Cvoid}}(C_NULL)
+        status = $_copy_symbolic(tmp, symbolic)
+        res = Symbolic{$Tv,$Ti}(tmp[])
+        umferror(status)
+        return res
+    end
+    _copy_numeric = Symbol(umf_nm("copy_numeric", Tv, Ti))
+    @eval function umfpack_copy_numeric(numeric::Numeric{$Tv,$Ti})
+        _isnull(numeric) && return Numeric{$Tv,$Ti}(C_NULL)
+        tmp = Ref{Ptr{Cvoid}}(C_NULL)
+        status = $_copy_numeric(tmp, numeric)
+        res = Numeric{$Tv,$Ti}(tmp[])
+        umferror(status)
+        return res
     end
 
     _report_symbolic = Symbol(umf_nm("report_symbolic", Tv, Ti))

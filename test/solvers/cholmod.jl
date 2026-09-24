@@ -1219,6 +1219,21 @@ end
     end
 end
 
+@testset "copy and deepcopy are independent, Ti = $Ti2" for Ti2 in itypes
+    A = SparseMatrixCSC{Tv,Ti2}(Tv[4 1 0; 1 3 1; 0 1 2])
+    b = Tv[1, 2, 3]
+    x = Matrix(A) \ b
+    F = cholesky(A)
+    G, H = copy(F), deepcopy(F)
+    cholesky!(F, 2A)
+    @test G \ b ≈ x
+    @test H \ b ≈ x
+    @test getfield(H, :ptr) != getfield(F, :ptr)
+    @test copy(F') \ b ≈ x / 2
+    S = CHOLMOD.Sparse(A)
+    @test getfield(deepcopy(S), :ptr) != getfield(S, :ptr)
+end
+
 @testset "getindex with unsorted or unpacked buffers (#758), Ti = $Ti" begin
     # the product of two matrices with sorted row indices need not be sorted
     A = sparse(Ti[2, 1, 2], Ti[1, 2, 2], Tv[1, 2, 3])
