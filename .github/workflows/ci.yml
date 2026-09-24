@@ -28,14 +28,21 @@ jobs:
         julia-version:
           - 'nightly'
         include:
-          # Only one job runs with coverage instrumentation and forced bounds checking
-          # (`--check-bounds=yes`). Both invalidate precompiled code, and the test suite
-          # is 95%+ JIT time, so they multiply the wall time of every job they are on.
-          # It is the macOS job, the fastest runner, so that it is not the critical path.
-          # The other jobs use `--check-bounds=auto` (Julia's default, matching the
+          # Coverage instrumentation and forced bounds checking (`--check-bounds=yes`)
+          # each invalidate precompiled code, and the test suite is 95%+ JIT time, so
+          # each runs on one job only, and never both on the same job. The matrix values
+          # are part of the julia-actions/cache key, so each job's flags must stay fixed,
+          # or a cache built with other flags is restored and everything is precompiled
+          # again. The other jobs use `--check-bounds=auto` (Julia's default, matching the
           # precompiled code); `no` would break the tests that expect a `BoundsError`.
+          # Coverage also slows every test, so it goes on ubuntu x64, which has more cores
+          # and memory than the macOS runner; bounds checking costs little.
           - os: macOS-latest
             julia-arch: aarch64
+            julia-version: 'nightly'
+            check-bounds: 'yes'
+          - os: ubuntu-latest
+            julia-arch: x64
             julia-version: 'nightly'
             coverage: true
     steps:
@@ -49,7 +56,7 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
         with:
           coverage: ${{ matrix.coverage == true }}
-          check_bounds: ${{ matrix.coverage == true && 'yes' || 'auto' }}
+          check_bounds: ${{ matrix.check-bounds || 'auto' }}
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.coverage == true
       - uses: codecov/codecov-action@v7
