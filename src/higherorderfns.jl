@@ -910,16 +910,16 @@ function _scalesrows(f::Tf, C, A, v) where Tf
     numcols(v) == 1 != numcols(C) && numcols(A) == numcols(C) || return false
     nnz(v) == numrows(C) || return false
     # Probe only the rows where `A` has a structural zero: for a row stored in full the
-    # merge never evaluates `f(0, v[i])`, which may throw, e.g. `sqrt.(A .- v)`.
+    # merge never evaluates `f(0, v[i])`, which may throw, e.g. `sqrt.(A .- v)`, nor
+    # `zero(eltype(A))`, which does not exist for `Any`.
     nstoredinrow = zeros(Int, numrows(C))
     @inbounds for j in columns(C), Ak in colstartind(A, j):(colboundind(A, j) - 1)
         nstoredinrow[storedinds(A)[Ak]] += 1
     end
-    zA = zero(eltype(A))
     voffset = colstartind(v, 1) - 1
     @inbounds for i in 1:numrows(C)
         nstoredinrow[i] == numcols(C) && continue
-        _iszero(f(zA, storedvals(v)[voffset + i])) || return false
+        _iszero(f(zero(eltype(A)), storedvals(v)[voffset + i])) || return false
     end
     return true
 end

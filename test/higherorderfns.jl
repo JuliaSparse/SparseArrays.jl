@@ -307,6 +307,9 @@ end
         @test sqrt.(sparse(T[2 3; 0 0]) .- T[1, 0]) == sqrt.(T[2 3; 0 0] .- T[1, 0])
         @test sqrt.(T[-1, 0] .- sparse(T[-2 -3; 0 0])) == sqrt.(T[-1, 0] .- T[-2 -3; 0 0])
     end
+    # nor is a zero constructed, which does not exist for `Any`
+    @test sparse(Any[1 3; 2 4]) .* [2, 3] == [2 6; 6 12]
+    @test [2, 3] .* sparse(Any[1 3; 2 4]) == [2 6; 6 12]
 
 end
 
