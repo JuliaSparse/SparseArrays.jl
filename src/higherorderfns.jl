@@ -218,18 +218,21 @@ end
 
 
 function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
-    fofzeros = f(_zeros_eltypes(A, Bs...)...)
-    fpreszeros = _iszero(fofzeros)
     indextypeC = _promote_indtype(A, Bs...)
     entrytypeC = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, (A, Bs...))...))
     shapeC = to_shape(Base.Broadcast.combine_axes(A, Bs...))
     # `_checked_maxnnzbcres` can be as large as the dense size, so start from the inputs'
     # stored entries and let the kernels grow the storage on demand (see `_growstorage!`).
-    maxnnzC = fpreszeros ? min(_checked_maxnnzbcres(shapeC, A, Bs...), _sumnnzs(A, Bs...)) :
-                           _densennz(shapeC)
-    C = _allocres(shapeC, indextypeC, entrytypeC, maxnnzC)
-    r = fpreszeros ? _broadcast_zeropres!(f, C, A, Bs...) :
-                        _broadcast_notzeropres!(f, fofzeros, C, A, Bs...)
+    maxnnzC = min(_checked_maxnnzbcres(shapeC, A, Bs...), _sumnnzs(A, Bs...))
+    # Avoid calculating f(zero) unless necessary as it may fail.
+    r = if _haszeros(A) && all(_haszeros, Bs)
+            fofzeros = f(_zeros_eltypes(A, Bs...)...)
+            _iszero(fofzeros) ?
+                _broadcast_zeropres!(f, _allocres(shapeC, indextypeC, entrytypeC, maxnnzC), A, Bs...) :
+                _broadcast_notzeropres!(f, fofzeros, _allocres(shapeC, indextypeC, entrytypeC, _densennz(shapeC)), A, Bs...)
+        else
+            _broadcast_zeropres!(f, _allocres(shapeC, indextypeC, entrytypeC, maxnnzC), A, Bs...)
+        end
     return @if_move_fixed A Bs... r
 end
 # helper functions for map[!]/broadcast[!] entry points (and related methods below)
@@ -1131,6 +1134,8 @@ end
 @inline function _copyto!(f, dest, As::SparseVecOrMat...)
     _aresameshape(dest, As...) && return _noshapecheck_map!(f, dest, As...)
     Base.Broadcast.check_broadcast_axes(axes(dest), As...)
+    # Avoid calculating f(zero) unless necessary as it may fail.
+    all(_haszeros, As) || return _broadcast_zeropres!(f, dest, As...)
     fofzeros = f(_zeros_eltypes(As...)...)
     if _iszero(fofzeros)
         return _broadcast_zeropres!(f, dest, As...)
@@ -1236,10 +1241,23 @@ end
     end
 end
 
-_sparsifystructured(M::AbstractMatrix) = SparseMatrixCSC(M)
-_sparsifystructured(V::AbstractVector) = SparseVector(V)
+_sparsifystructured(M::AbstractMatrix) = _isdenselike(M) ? _fullystored(M) : SparseMatrixCSC(M)
+_sparsifystructured(V::AbstractVector) = _isdenselike(V) ? _fullystored(V) : SparseVector(V)
 _sparsifystructured(S::SparseVecOrMat) = S
 _sparsifystructured(x) = x
+
+# Dense arguments keep every entry stored, zeros included. No position of such an argument
+# is structurally zero, so the kernels evaluate `f` on its actual values everywhere and
+# `f(zeros...)`, which for e.g. `/` is `NaN` and would densify the result, is never needed.
+_isdenselike(::Array) = true
+_isdenselike(A::Union{Adjoint,Transpose,SubArray}) = _isdenselike(parent(A))
+_isdenselike(x) = false
+
+_fullystored(V::AbstractVector) = SparseVector(length(V), collect(1:length(V)), collect(V))
+function _fullystored(M::AbstractMatrix)
+    m, n = size(M)
+    return SparseMatrixCSC(m, n, Int[1 + m * j for j in 0:n], repeat(1:m, n), vec(collect(M)))
+end
 
 
 # (12) map[!] over combinations of sparse and structured matrices
