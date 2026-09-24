@@ -337,9 +337,9 @@ end
         @test @allocated(ldiv!(x, F, b)) > 0
 
         # a caller-provided workspace is resized on first use and then reused
-        ws = Float64[]
+        ws = SPQR.SpqrWS(F)
         ldiv!(x, F, b; workspace = ws)
-        @test !isempty(ws)
+        @test !isempty(ws.w)
         b2 = randn(m)
         ldiv!(x, F, b2; workspace = ws)
         @test x ≈ Array(A) \ b2

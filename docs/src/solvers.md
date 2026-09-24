@@ -56,8 +56,8 @@ matrix of right-hand sides, and `ldiv!(x, F, b)` writes into `x`.
 `ldiv!` allocates scratch space on each call. To avoid that in a loop, create a workspace
 once and pass it with the `workspace` keyword:
 [`UMFPACK.UmfpackWS(F)`](@ref SparseArrays.UMFPACK.UmfpackWS) for `lu`,
-[`CHOLMOD.SolveWorkspace(F)`](@ref SparseArrays.CHOLMOD.SolveWorkspace) for `cholesky`
-and `ldlt`, and an empty vector of the element type for `qr`. This works with `F`, `F'`
+[`CHOLMOD.CholmodWS(F)`](@ref SparseArrays.CHOLMOD.CholmodWS) for `cholesky` and `ldlt`,
+and [`SPQR.SpqrWS(F)`](@ref SparseArrays.SPQR.SpqrWS) for `qr`. This works with `F`, `F'`
 and `transpose(F)`, and in `ldiv!(F, b)`. A workspace grows as needed and can be reused,
 but not by two calls at once.
 
@@ -151,7 +151,8 @@ SparseArrays.UMFPACK.lu
 SparseArrays.UMFPACK.lu!
 SparseArrays.UMFPACK.rcond
 SparseArrays.UMFPACK.UmfpackWS
-SparseArrays.CHOLMOD.SolveWorkspace
+SparseArrays.CHOLMOD.CholmodWS
+SparseArrays.SPQR.SpqrWS
 ```
 
 ## Multithreading and thread safety

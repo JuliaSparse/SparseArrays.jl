@@ -279,7 +279,7 @@ end
     @test X2 ≈ X
 
     # a caller-provided workspace keeps the Y/E buffers across calls
-    ws = CHOLMOD.SolveWorkspace(factor)
+    ws = CHOLMOD.CholmodWS(factor)
     fill!(x2, 0)
     ldiv!(x2, factor, b; workspace = ws)
     @test x2 ≈ x
@@ -351,7 +351,7 @@ for Tv ∈ (Float32, Float64)
 @testset "per-type buffers should be concretely typed" begin
     @test @inferred(SparseArrays.CHOLMOD.getcommon()) isa Base.RefValue
     F = cholesky(sparse(Tv[2 1; 1 2]))
-    ws = CHOLMOD.SolveWorkspace(F)
+    ws = CHOLMOD.CholmodWS(F)
     @test @inferred((ws -> ws.Y[])(ws)) isa Ptr
 end
 

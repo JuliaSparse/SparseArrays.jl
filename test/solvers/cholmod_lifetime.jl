@@ -105,12 +105,12 @@ end
     @test_throws ArgumentError pointer(S)
     @test !CHOLMOD.free!(S)
 
-    # A SolveWorkspace used by ldiv! owns Y/E scratch buffers; free! must
+    # A CholmodWS used by ldiv! owns Y/E scratch buffers; free! must
     # release them and null the handles.
     A = convert(SparseMatrixCSC{Tv,Ti}, sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
     F = cholesky(A)
     b = fill(Tv(1), 3)
-    ws = CHOLMOD.SolveWorkspace(F)
+    ws = CHOLMOD.CholmodWS(F)
     ldiv!(similar(b), F, b; workspace = ws)
     # cholmod_solve2 always allocates Y; E is only allocated when needed.
     @test ws.Y[] != C_NULL
@@ -136,7 +136,7 @@ end
     b = A * fill(Tv(1), 10)
     x = zero(b)
 
-    ws = CHOLMOD.SolveWorkspace(F)
+    ws = CHOLMOD.CholmodWS(F)
     ldiv!(x, F, b; workspace = ws) # allocate buffers
     GC.gc()
     before = getcommon(Ti)[].memory_inuse
@@ -154,7 +154,7 @@ end
 # For an Int64 factor both Commons coincide, so the check is only meaningful
 # for Ti == Int32.
 if Ti == Int32 && Int64 in itypes
-@testset "free!(SolveWorkspace) releases Y/E through the matching Common $Tv $Ti" begin
+@testset "free!(CholmodWS) releases Y/E through the matching Common $Tv $Ti" begin
     local A, b, x, F
     A = sprand(10, 10, 0.1)
     A = I + A * A'
@@ -164,7 +164,7 @@ if Ti == Int32 && Int64 in itypes
     with_gc_disabled() do
         n64 = malloc_count(Int64)
         F = cholesky(A)
-        ws = CHOLMOD.SolveWorkspace(F)
+        ws = CHOLMOD.CholmodWS(F)
         ldiv!(x, F, b; workspace = ws) # allocates the Y/E buffers in the Int32 Common
         CHOLMOD.free!(ws)
         CHOLMOD.free!(F)

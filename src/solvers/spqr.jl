@@ -148,8 +148,8 @@ columns enter the product.
 `F` supports `\\` and `ldiv!` for least squares and minimum-norm solutions, `rank`, `copy`,
 and `F'`, which is the LQ factorization
 [`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `ldiv!`, with `F`
-or `F'`, takes an optional `workspace::Vector{eltype(F)}`, which it resizes as needed and
-reuses to avoid allocating. Solves with one `F` take an internal lock, so they are safe
+or `F'`, takes an optional [`SPQR.SpqrWS`](@ref SparseArrays.SPQR.SpqrWS) to avoid
+allocating. Solves with one `F` take an internal lock, so they are safe
 from several tasks but run one at a time. For parallel solves, give each task its own
 `copy(F)`.
 
@@ -637,12 +637,27 @@ function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.Bla
     return collect(reshape(reinterpret(Complex{T}, copy(transpose(reshape(x, (length(x) >> 1), 2)))), _ret_size(F, B)))
 end
 
+"""
+    SPQR.SpqrWS(F::QRSparse)
+
+Scratch space for `ldiv!(x, F, b; workspace)`, which makes repeated solves allocation-free.
+Without it, `ldiv!` allocates its scratch space on each call. A workspace grows as needed,
+so it can be reused with any factorization of the same element type, but not by two calls
+at once.
+"""
+struct SpqrWS{Tv}
+    w::Vector{Tv}
+end
+SpqrWS(F::QRSparse{Tv}) where {Tv} = SpqrWS{Tv}(Tv[])
+SpqrWS(F::LinearAlgebra.AdjointFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
+SpqrWS(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
+
 function _get_ldiv_workspace(workspace, F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
     m, n = size(F)
     k = ndims(B) == 1 ? 1 : size(B, 2)
     wrows = max(m, n)
     wlen = wrows * k
-    ws = workspace === nothing ? Vector{Tv}(undef, wlen) : workspace
+    ws = workspace === nothing ? Vector{Tv}(undef, wlen) : workspace.w
     length(ws) == wlen || resize!(ws, wlen)
 
     # Reshape into matrix. Note that we use ReshapedArray here instead of
@@ -682,7 +697,7 @@ julia> qr(A)\\fill(1.0, 4)
 (\)(F::QRSparse, B::AbstractVecOrMat) = F\_rhs_array(F, B)
 
 function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T};
-                             workspace::Union{Nothing,Vector{T}} = nothing) where {T}
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     if size(F, 1) != size(B, 1)
         throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
     end
@@ -793,7 +808,7 @@ julia> A'x
 (\)(Fadj::AdjointQRSparse, B::AbstractVecOrMat) = Fadj\_rhs_array(Fadj, B)
 
 function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T};
-                             workspace::Union{Nothing,Vector{T}} = nothing) where {T}
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     F = parent(Fadj)
     m, n = size(F)
     # Solving A'x = b for a wide A would be an overdetermined problem requiring a
@@ -856,15 +871,15 @@ const TransposeQRSparse{Tv} = LinearAlgebra.TransposeFactorization{Tv,<:QRSparse
 
 # transpose(A) == conj(A'), so a transposed solve is a conjugated adjoint solve
 LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
-                    workspace::Union{Nothing,Vector{T}} = nothing) where {T<:Real} =
+                    workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Real} =
     ldiv!(X, parent(Ft)', B; workspace)
 LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
-                    workspace::Union{Nothing,Vector{T}} = nothing) where {T<:Complex} =
+                    workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Complex} =
     conj!(ldiv!(X, parent(Ft)', conj(B); workspace))
 
 # In place, only for a square A, whose solution has the size of B.
 function LinearAlgebra.ldiv!(F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
-                             B::StridedVecOrMat{T}; workspace::Union{Nothing,Vector{T}} = nothing) where {T}
+                             B::StridedVecOrMat{T}; workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     LinearAlgebra.checksquare(F)
     return copyto!(B, ldiv!(similar(B), F, B; workspace))
 end

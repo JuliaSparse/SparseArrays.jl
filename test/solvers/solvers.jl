@@ -117,7 +117,7 @@ end
     F = fact(M)
     b = ComplexF64[1, 2, 3]
     ws = fact === lu ? SparseArrays.UMFPACK.UmfpackWS(F) :
-         fact === cholesky ? SparseArrays.CHOLMOD.SolveWorkspace(F) : ComplexF64[]
+         fact === cholesky ? SparseArrays.CHOLMOD.CholmodWS(F) : SparseArrays.SPQR.SpqrWS(F)
     for (G, D) in ((F, Matrix(M)), (F', Matrix(M)'), (transpose(F), transpose(Matrix(M))))
         x = D \ b
         @test ldiv!(similar(b), G, b) ≈ x

@@ -398,7 +398,7 @@ and `lowrankupdate`.
 
 CHOLMOD owns the memory, which is released by a finalizer. The pointer is null after
 deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!` takes
-an optional [`CHOLMOD.SolveWorkspace`](@ref SparseArrays.CHOLMOD.SolveWorkspace) to avoid
+an optional [`CHOLMOD.CholmodWS`](@ref SparseArrays.CHOLMOD.CholmodWS) to avoid
 allocating; the refactorizations take a lock internal to `F`.
 
 # Examples
@@ -2182,20 +2182,20 @@ end
 @inline _setup_bptr(b::Dense{<:VTypes}, ::cholmod_dense_struct) = b.ptr
 
 """
-    CHOLMOD.SolveWorkspace(F::CHOLMOD.Factor)
+    CHOLMOD.CholmodWS(F::CHOLMOD.Factor)
 
 Scratch space for `ldiv!(x, F, b; workspace)`, which makes repeated solves allocation-free.
 Without it, `ldiv!` allocates its scratch space on each call. A workspace can be reused with
 any `Factor` of the same index type, but not by two calls at once. Its memory is released
 by a finalizer or by `CHOLMOD.free!`.
 """
-mutable struct SolveWorkspace{Ti<:ITypes}
+mutable struct CholmodWS{Ti<:ITypes}
     dense_x::cholmod_dense_struct
     dense_b::cholmod_dense_struct
     X::Base.RefValue{Ptr{cholmod_dense_struct}}
     Y::Base.RefValue{Ptr{cholmod_dense_struct}}
     E::Base.RefValue{Ptr{cholmod_dense_struct}}
-    function SolveWorkspace{Ti}() where {Ti<:ITypes}
+    function CholmodWS{Ti}() where {Ti<:ITypes}
         ws = new{Ti}(cholmod_dense_struct(), cholmod_dense_struct(),
             Ref(Ptr{cholmod_dense_struct}(C_NULL)),
             Ref(Ptr{cholmod_dense_struct}(C_NULL)),
@@ -2203,14 +2203,14 @@ mutable struct SolveWorkspace{Ti<:ITypes}
         return finalizer(free!, ws)
     end
 end
-SolveWorkspace(::Factor{<:Any, Ti}) where {Ti} = SolveWorkspace{Ti}()
-SolveWorkspace(F::Union{AdjointFactorization{<:Any,<:Factor},
-                        TransposeFactorization{<:Any,<:Factor}}) = SolveWorkspace(parent(F))
+CholmodWS(::Factor{<:Any, Ti}) where {Ti} = CholmodWS{Ti}()
+CholmodWS(F::Union{AdjointFactorization{<:Any,<:Factor},
+                        TransposeFactorization{<:Any,<:Factor}}) = CholmodWS(parent(F))
 
 # cholmod(_l)_solve2 allocates Y and E through getcommon(Ti), so they are released through
 # the Common of the same index type. Nulling the handles makes a later solve allocate
 # fresh buffers and a second `free!` a no-op.
-function free!(ws::SolveWorkspace{Ti}) where {Ti}
+function free!(ws::CholmodWS{Ti}) where {Ti}
     y, e = ws.Y[], ws.E[]
     ws.Y[] = ws.E[] = Ptr{cholmod_dense_struct}(C_NULL)
     y == C_NULL || free!(y, Ti)
@@ -2220,7 +2220,7 @@ end
 
 for TI in IndexTypes
     @eval function solve!(x::StridedVecOrMat{T}, L::Factor{T, $TI}, b::StridedVecOrMat{T},
-                          ws::SolveWorkspace{$TI}) where {T<:VTypes}
+                          ws::CholmodWS{$TI}) where {T<:VTypes}
         # CHOLMOD's solve2 reuses the caller-provided X handle only if it is
         # large enough and its xtype/dtype match the factor; otherwise it calls
         # cholmod_free_dense on the handle, which would free() the Julia-owned
@@ -2270,7 +2270,7 @@ for TI in IndexTypes
     @eval function ldiv!(x::StridedVecOrMat{T},
                          L::Factor{T, $TI},
                          b::StridedVecOrMat{T};
-                         workspace::Union{Nothing, SolveWorkspace{$TI}} = nothing) where {T<:VTypes}
+                         workspace::Union{Nothing, CholmodWS{$TI}} = nothing) where {T<:VTypes}
         if x === b
             throw(ArgumentError("output array must not be aliased with input array"))
         end
@@ -2296,7 +2296,7 @@ for TI in IndexTypes
         end
         issuccess(L) || throw(factorization_exception(L))
         if workspace === nothing
-            ws = SolveWorkspace{$TI}()
+            ws = CholmodWS{$TI}()
             try
                 solve!(x, L, b, ws)
             finally
