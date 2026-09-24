@@ -8,69 +8,37 @@ EditURL = "https://github.com/JuliaSparse/SparseArrays.jl/blob/main/docs/src/sol
 DocTestSetup = :(using LinearAlgebra, SparseArrays)
 ```
 
-Sparse matrix solvers call functions from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
+Sparse factorizations call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse):
 
-The following factorizations are available:
-
-1. [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky)
-2. [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt)
-3. [`lu`](@ref SparseArrays.UMFPACK.lu)
-4. [`qr`](@ref SparseArrays.SPQR.qr)
-5. [`lq`](@ref SparseArrays.SPQR.lq)
-
-| Type                  | Description                                   |
-|:----------------------|:--------------------------------------------- |
-| [`CHOLMOD.Factor`](@ref SparseArrays.CHOLMOD.Factor) | Cholesky and LDLt factorizations |
-| [`UMFPACK.UmfpackLU`](@ref SparseArrays.UMFPACK.UmfpackLU) | LU factorization |
-| [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | QR factorization |
-| [`SPQR.AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) | LQ factorization, the adjoint of a QR factorization |
+| Function | Returns | Library |
+|:---------|:--------|:--------|
+| [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky), [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt) | [`CHOLMOD.Factor`](@ref SparseArrays.CHOLMOD.Factor) | CHOLMOD |
+| [`lu`](@ref SparseArrays.UMFPACK.lu) | [`UMFPACK.UmfpackLU`](@ref SparseArrays.UMFPACK.UmfpackLU) | UMFPACK |
+| [`qr`](@ref SparseArrays.SPQR.qr) | [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | SPQR |
+| [`lq`](@ref SparseArrays.SPQR.lq) | [`SPQR.AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse), the adjoint of `qr(A')` | SPQR |
 
 ## [Solving linear systems](@id man-sparse-solving)
 
-### What `A \ b` does
+For a sparse `A` and a dense `b`, `A \ b` picks a method from the structure of `A` and
+returns a dense result. `factorize(A)` makes the same choice and returns the
+factorization.
 
-For a sparse `A`, `A \ b` inspects the matrix and picks a method, and
-`factorize` makes the same choice and returns the factorization instead of
-the solution. The right-hand side is a dense vector or matrix and so is the result.
-
-* A square `A` that is diagonal or triangular is solved by substitution, with no
-  factorization.
-* A square `A` that is Hermitian (symmetric, if real) is tried with
-  [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky). If it is not positive definite, `\`
-  falls back to [`lu`](@ref SparseArrays.UMFPACK.lu), while `factorize` falls back to
+* Diagonal or triangular: substitution, no factorization.
+* Hermitian (symmetric, if real): [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky). If
+  that fails, `\` uses [`lu`](@ref SparseArrays.UMFPACK.lu) and `factorize` uses
   [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt).
-* Any other square `A` is factorized with [`lu`](@ref SparseArrays.UMFPACK.lu).
-* A tall `A` is factorized with [`qr`](@ref SparseArrays.SPQR.qr), and `\` returns the
-  least squares solution.
-* A wide `A` is factorized with [`lq`](@ref SparseArrays.SPQR.lq), and `\` returns the
-  minimum-norm solution, as dense `\` does.
+* Other square: [`lu`](@ref SparseArrays.UMFPACK.lu).
+* Tall: [`qr`](@ref SparseArrays.SPQR.qr), giving the least squares solution.
+* Wide: [`lq`](@ref SparseArrays.SPQR.lq), giving the minimum-norm solution, as dense `\`
+  does. `qr(A) \ b` instead returns a basic solution, with the free variables zero.
 
-The structure tests look at the stored values, so a symmetric positive definite matrix
-gets a Cholesky factorization without being wrapped in `Symmetric`. `A' \ b` and
-`transpose(A) \ b` make the same choices without copying `A` where the factorization of
-`A` can be reused.
+The structure is read from the stored values, so a symmetric matrix does not need a
+`Symmetric` wrapper. `A' \ b` and `transpose(A) \ b` make the same choices.
 
 ```jldoctest
-julia> A = sparse([4.0 1 0; 1 4 1; 0 1 4]); b = [1.0, 2.0, 3.0];
-
-julia> A \ b ≈ Matrix(A) \ b
+julia> factorize(sparse([4.0 1 0; 1 4 1; 0 1 4])) isa SparseArrays.CHOLMOD.Factor
 true
 
-julia> factorize(A) isa SparseArrays.CHOLMOD.Factor
-true
-
-julia> factorize(sparse([2.0 1 0; 0 3 1; 1 0 4])) isa SparseArrays.UMFPACK.UmfpackLU
-true
-
-julia> factorize(sparse([1.0 0; 2 1; 0 3])) isa SparseArrays.SPQR.QRSparse
-true
-```
-
-An underdetermined system has many solutions. `A \ b` and `lq(A) \ b` return the one of
-smallest norm, whereas `qr(A) \ b` returns a basic solution, in which the free variables
-are zero.
-
-```jldoctest
 julia> A = sparse([1.0 0 1 0; 0 1 0 1]); b = [1.0, 2.0];
 
 julia> A \ b ≈ [0.5, 1.0, 0.5, 1.0]
@@ -80,155 +48,75 @@ julia> qr(A) \ b ≈ [1.0, 2.0, 0.0, 0.0]
 true
 ```
 
-`lq(A)` is computed as the adjoint of `qr(A')`, so it costs one sparse QR factorization
-and `lq(A')` reuses `qr(A)` without a copy. The `Q` of a sparse QR factorization is kept
-as a product of Householder reflectors and is never formed: products of `F.Q` or `F.Q'`
-with a dense or a sparse operand apply the reflectors and return a dense array.
-
 ### Reusing a factorization
 
-When several systems share a matrix, factorize once and solve with the factorization.
-`F \ B` accepts a vector or a matrix whose columns are the right-hand sides, and
-`ldiv!` writes the solution into a preallocated array.
+To solve several systems with one matrix, factorize once. `F \ B` takes a vector or a
+matrix of right-hand sides, and `ldiv!(x, F, b)` writes into `x`.
 
-```jldoctest reuse
+For a new matrix with the same sparsity pattern, `lu!(F, A2)`,
+[`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!)`(F, A2)` and `ldlt!(F, A2)` redo only
+the numerical factorization, reusing the symbolic analysis in `F`.
+
+```jldoctest
 julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]); b = [1.0, 2.0, 3.0];
 
 julia> F = lu(A);
 
-julia> B = [1.0 2; 3 4; 5 6];
+julia> x = similar(b); ldiv!(x, F, b);
 
-julia> A * (F \ B) ≈ B
-true
-
-julia> x = similar(b);
-
-julia> ldiv!(x, F, b);
-
-julia> A * x ≈ b
-true
-```
-
-A sequence of matrices with the same sparsity pattern, as in a time-stepping or Newton
-iteration, can share the symbolic analysis, which is the part that depends only on the
-pattern. `lu!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!` recompute
-the numerical factorization of a new matrix in an existing `F`.
-
-```jldoctest reuse
-julia> A2 = copy(A); nonzeros(A2) .*= 2;
-
-julia> lu!(F, A2);
+julia> lu!(F, 2A);
 
 julia> F \ b ≈ x / 2
-true
-
-julia> S = sparse([4.0 1 0; 1 4 1; 0 1 4]);
-
-julia> C = cholesky(S);
-
-julia> cholesky!(C, 2S);
-
-julia> C \ b ≈ (S \ b) / 2
 true
 ```
 
 ### Extracting the factors
 
-All the factorizations permute rows and columns to reduce fill-in, and `lu` also scales
-the rows. The factors therefore reproduce a permuted `A`, not `A` itself, and using
-`F.L` alone as if it were the factor of `A` gives wrong answers. Solve with `F \ b`
-where possible, and include the permutations when the factors themselves are needed.
+The factorizations permute rows and columns to reduce fill-in, so the factors reproduce a
+permuted `A`. Using `F.L` as if it were a factor of `A` gives wrong answers. Solve with
+`F \ b` where you can.
 
-An `lu` factorization has sparse factors `F.L` and `F.U`, a row permutation `F.p`, a column
-permutation `F.q` and a vector of row scaling factors `F.Rs`, with
-`F.L * F.U == (F.Rs .* A)[F.p, F.q]`. `F.:(:)` returns all five.
+| Factorization | Factors | Relation |
+|:--------------|:--------|:---------|
+| `lu` | `L`, `U`, `p`, `q`, `Rs` (row scaling) | `F.L * F.U == (F.Rs .* A)[F.p, F.q]` |
+| `cholesky` | `L`, `p` | `L * L' == A[F.p, F.p]` with `L = sparse(F.L)` |
+| `ldlt` | `LD`, `p` | `L * D * L' == A[F.p, F.p]`, with `D` on the diagonal of `sparse(F.LD)` and the unit triangular `L` below it |
+| `qr` | `Q`, `R`, `prow`, `pcol` | `F.Q * F.R == A[F.prow, F.pcol]` |
+| `lq` | `L`, `Q`, `prow`, `pcol` | `F.L * F.Q == A[F.prow, F.pcol]` |
 
-```jldoctest factors
-julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]);
+`F.:(:)` returns all five `lu` factors at once. The CHOLMOD factors are lazy: they support
+solves, and `sparse(F.L)` for `cholesky` or `sparse(F.LD)` for `ldlt` materializes them. `F.PtL` (`P' * L`) and `F.UP`
+(`L' * P`) include the permutation, and `ldlt` adds `F.D`, `F.DU`, `F.PtLD` and `F.DUP`.
+The `Q` of `qr` is square and is never formed: products with it return dense arrays.
 
-julia> F = lu(A);
-
-julia> F.L * F.U ≈ (F.Rs .* A)[F.p, F.q]
-true
-```
-
-A `cholesky` factorization has the permutation `F.p` and the factor `F.L`, with
-`L * L' == A[F.p, F.p]`. `F.L` is a lazy component that can be used in solves and
-products, and `sparse(F.L)` materializes it. The combined components `F.PtL` and `F.UP`
-stand for `P' * L` and `L' * P`, and can be used in solves without handling `F.p`.
-An `ldlt` factorization also has `F.D` and the combinations `F.LD`, `F.DU`, `F.PtLD` and
-`F.DUP`.
-
-```jldoctest factors
+```jldoctest
 julia> S = sparse([4.0 1 0; 1 4 1; 0 1 4]); b = [1.0, 2.0, 3.0];
 
 julia> C = cholesky(S);
 
-julia> L = sparse(C.L);
-
-julia> L * L' ≈ S[C.p, C.p]
+julia> sparse(C.L) * sparse(C.L)' ≈ S[C.p, C.p]
 true
 
 julia> C.UP \ (C.PtL \ b) ≈ S \ b
 true
 ```
 
-A `qr` factorization has the row and column permutations `F.prow` and `F.pcol`, the sparse
-upper triangular `F.R` and the orthogonal `F.Q`, with `F.Q * F.R == A[F.prow, F.pcol]`.
-`F.R` has `size(A, 2)` columns and `F.Q` is square, and the product pads `F.R` with zero
-rows as needed. An `lq` factorization has `F.L`, `F.Q`, `F.prow` and `F.pcol` with
-`F.L * F.Q == A[F.prow, F.pcol]`.
+### Failures
 
-```jldoctest factors
-julia> T = sparse([1.0 0; 2 1; 0 3]);
+`cholesky` and `ldlt` take a `Symmetric` or `Hermitian` view, which reads one triangle,
+or a matrix that is itself symmetric or Hermitian. Any other matrix throws an
+`ArgumentError`.
 
-julia> Q = qr(T);
+A failed factorization throws a `PosDefException` (`cholesky`), a `ZeroPivotException`
+(`ldlt`) or a `SingularException` (`lu`). With `check = false` it returns anyway, and
+`issuccess(F)` tells whether it can be used.
 
-julia> Q.Q * Q.R ≈ T[Q.prow, Q.pcol]
-true
-
-julia> G = lq(sparse([1.0 0 1 0; 0 1 0 1]));
-
-julia> G.L * G.Q ≈ sparse([1.0 0 1 0; 0 1 0 1])[G.prow, G.pcol]
-true
-```
-
-### Practical notes
-
-`cholesky` and `ldlt` accept a `Symmetric` or `Hermitian` view of a sparse
-matrix, which reads one triangle only, or a plain sparse matrix that is itself symmetric
-or Hermitian. Any other matrix throws an `ArgumentError` instead of being symmetrized.
-
-```jldoctest notes
-julia> A = sparse([4.0 1 0; 9 4 1; 9 9 4]); b = [1.0, 2.0, 3.0];
-
-julia> cholesky(A)
-ERROR: ArgumentError: sparse matrix is not symmetric/Hermitian
-[...]
-
-julia> cholesky(Symmetric(A)) \ b ≈ Matrix(Symmetric(A)) \ b
-true
-```
-
-A failed factorization throws: a `PosDefException` from `cholesky`, a
-`ZeroPivotException` from `ldlt` and a `SingularException` from `lu`. With
-`check = false` the factorization is returned regardless, and `issuccess` tells
-whether it can be used. This is how `\` falls back from `cholesky` to `lu`, and it avoids
-a `try` block when trying a cheaper factorization first.
-
-```jldoctest notes
+```jldoctest
 julia> N = sparse([1.0 2; 2 1]);
 
-julia> issuccess(cholesky(N; check = false))
-false
-
-julia> issuccess(ldlt(N; check = false))
-true
-
-julia> issuccess(lu(sparse([1.0 2; 2 4]); check = false))
-false
+julia> issuccess(cholesky(N; check = false)), issuccess(ldlt(N; check = false))
+(false, true)
 ```
-
 
 ```@docs
 SparseArrays.CHOLMOD.Factor
@@ -304,18 +192,15 @@ coordination.
 
 ## Tuning the factorizations
 
-The defaults suit most problems. The keywords below are the supported ways to change them.
+The defaults suit most problems. These keywords change them.
 
 ### `cholesky` and `ldlt`
 
-- `perm`: a permutation of `1:size(A, 1)` to use instead of the fill-reducing AMD ordering
-  that CHOLMOD computes by default. `perm = 1:size(A, 1)` disables reordering, which
-  usually increases fill-in. The ordering in use is available as `F.p`.
+- `perm`: a permutation of `1:size(A, 1)` to use instead of CHOLMOD's AMD ordering.
+  `perm = 1:size(A, 1)` disables reordering, which usually increases fill-in.
 - `shift`: factorize `A + shift*I` without forming it, for example to regularize a
-  semidefinite matrix or for shifted solves with [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!),
-  which reuses the symbolic analysis.
-- `check`: with `check = false` a failed factorization does not throw; test it with
-  [`issuccess`](@ref).
+  semidefinite matrix.
+- `check`: see [Failures](@ref).
 
 ```jldoctest
 julia> A = sparse([2.0 1 1; 1 2 0; 1 0 2]);
@@ -331,55 +216,39 @@ julia> issuccess(cholesky(B; check = false)), issuccess(cholesky(B; shift = 1.0)
 
 ### `lu`
 
-- `check`: as above; a singular matrix otherwise throws a `SingularException`.
-- `q`: an initial column ordering that replaces UMFPACK's fill-reducing one. UMFPACK may
-  still refine it during the numerical factorization; `F.q` holds the final permutation.
-- `control`: the UMFPACK `Control` array as a `Vector{Float64}`. Obtain the defaults with
-  `SparseArrays.UMFPACK.get_umfpack_control(Tv, Ti)`, where `Tv` and `Ti` are the element
-  and index types of the matrix, and set entries through the one-based index constants
-  `SparseArrays.UMFPACK.JL_UMFPACK_*` (such as `JL_UMFPACK_PIVOT_TOLERANCE`,
-  `JL_UMFPACK_ORDERING`, `JL_UMFPACK_SCALE` and `JL_UMFPACK_IRSTEP`). Their meaning is
-  described in the UMFPACK user guide. `lu` copies the vector into `F.control`, where
-  later solves and [`lu!`](@ref) read it.
+- `q`: an initial column ordering, which UMFPACK may still refine. `F.q` is the final one.
+- `control`: UMFPACK's `Control` array. Get the defaults with
+  `SparseArrays.UMFPACK.get_umfpack_control(Tv, Ti)` for the element and index types of
+  `A`, and index it with the one-based constants `SparseArrays.UMFPACK.JL_UMFPACK_*`,
+  such as `JL_UMFPACK_PIVOT_TOLERANCE` or `JL_UMFPACK_ORDERING`. The UMFPACK user guide
+  describes each entry. The factorization keeps a copy, which later solves and
+  [`lu!`](@ref) use.
 
-SparseArrays changes one UMFPACK default: iterative refinement is off
-(`JL_UMFPACK_IRSTEP` is 0), which also lets solves use a smaller workspace. To turn it
-back on, for example for ill-conditioned systems:
+Unlike UMFPACK itself, SparseArrays turns iterative refinement off by default. To turn it
+back on, for example for an ill-conditioned matrix:
 
-```jldoctest
-julia> A = sparse([4.0 1 0; 1 4 1; 0 1 4]);
-
-julia> control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int);
-
-julia> control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP]
-0.0
-
-julia> control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2;  # UMFPACK's own default
-
-julia> F = lu(A; control);
-
-julia> F \ [5.0, 6.0, 5.0] ≈ ones(3)
-true
+```julia
+control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int)
+control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2  # UMFPACK's default
+F = lu(A; control)
 ```
 
-`SparseArrays.UMFPACK.show_umf_ctrl(F)` prints the control settings of a factorization (or
-of a control vector) and `SparseArrays.UMFPACK.show_umf_info(F)` prints the statistics
-UMFPACK recorded for it, such as the fill-in, the flop count and a condition estimate.
+`SparseArrays.UMFPACK.show_umf_ctrl(F)` prints the settings of `F`, and
+`SparseArrays.UMFPACK.show_umf_info(F)` prints UMFPACK's statistics for it, such as
+fill-in, flop count and a condition estimate.
 
 ### `qr`
 
-- `ordering`: the fill-reducing column ordering, one of the constants in `SparseArrays.SPQR`:
-  `ORDERING_DEFAULT` (SuiteSparseQR's own choice, the default), `ORDERING_FIXED` and
-  `ORDERING_NATURAL` (keep the given column order), `ORDERING_COLAMD`, `ORDERING_AMD` (AMD on
-  `A'A`), `ORDERING_METIS`, `ORDERING_CHOLMOD` (CHOLMOD's strategy), `ORDERING_BEST` (try
-  COLAMD, AMD and METIS and keep the best) and `ORDERING_BESTAMD` (try COLAMD and AMD).
-- `tol`: columns whose norm falls to `tol` or below during the factorization are treated as
-  zero, which is how SPQR detects rank deficiency. The default is
-  `20 * (m + n) * eps() * maximum(norm, eachcol(A))`. Raise it when the data carry noise
-  well above rounding error.
+- `ordering`: the fill-reducing column ordering, one of the `SparseArrays.SPQR.ORDERING_*`
+  constants: `DEFAULT` (SPQR's choice), `FIXED` and `NATURAL` (no fill-reducing
+  ordering), `COLAMD`, `AMD` (on `A'A`), `METIS`, `CHOLMOD`, `BEST` (best of COLAMD, AMD
+  and METIS) and `BESTAMD` (best of COLAMD and AMD).
+- `tol`: columns whose norm drops to `tol` or below are treated as zero, which is how
+  rank deficiency is detected. The default is
+  `20 * (m + n) * eps() * maximum(norm, eachcol(A))`. Raise it for noisy data.
 
-`rank(F)` returns the numerical rank found for the chosen `tol`, and `rank(A; tol)` is a
-shorthand for `rank(qr(A; tol))`.
+`rank(F)` is the numerical rank for that `tol`, and `rank(A; tol)` computes
+`rank(qr(A; tol))`.
 
 ```jldoctest
 julia> A = sparse([1.0 1; 1 1; 1 1 + 1e-10]);
@@ -390,19 +259,13 @@ julia> rank(qr(A)), rank(qr(A; tol = 1e-8))
 
 ## Using a different SuiteSparse build
 
-The SuiteSparse libraries are loaded on first use from the copies bundled with Julia.
-To use another build instead, for example one with GPU support or a development build,
-point SparseArrays at a directory holding the whole set of libraries
-(`libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod`,
-`libspqr` and `libumfpack`) under the same file names as the bundled ones and built
-from the same major SuiteSparse version. In order of precedence:
-
-1. Call `SparseArrays.LibSuiteSparse.set_libdir!(dir)` before the first solver call.
-2. Set the `JULIA_SUITESPARSE_LIBDIR` environment variable before starting Julia.
-
-The directory applies to the whole set at once, so that every library binds to the same
-`libsuitesparseconfig` and the memory management functions SparseArrays installs there.
-Packages that call SuiteSparse through `SuiteSparse_jll` directly are not affected.
+By default the solvers use the SuiteSparse libraries bundled with Julia. To use another
+build, such as one with GPU support, point SparseArrays at a directory holding all of
+`libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod`,
+`libspqr` and `libumfpack`, with the bundled file names and the same major SuiteSparse
+version. Either call `SparseArrays.LibSuiteSparse.set_libdir!(dir)` before the first
+solver call, or set `JULIA_SUITESPARSE_LIBDIR` before starting Julia; `set_libdir!` wins.
+Packages that call `SuiteSparse_jll` directly are not affected.
 
 ```@docs
 SparseArrays.LibSuiteSparse.set_libdir!
