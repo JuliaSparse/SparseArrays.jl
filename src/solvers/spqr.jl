@@ -147,10 +147,11 @@ columns enter the product.
 
 `F` supports `\\` and `ldiv!` for least squares and minimum-norm solutions, `rank`, `copy`,
 and `F'`, which is the LQ factorization
-[`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `F` owns the
-workspace used by `\\` and `ldiv!`, with `F` or `F'`, and guards it with an internal lock,
-so solves with one `F` from several tasks are safe but run one at a time. For parallel
-solves, give each task its own `copy(F)`.
+[`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `ldiv!`, with `F`
+or `F'`, takes an optional [`SPQR.SpqrWS`](@ref SparseArrays.SPQR.SpqrWS) to avoid
+allocating. Solves with one `F` take an internal lock, so they are safe
+from several tasks but run one at a time. For parallel solves, give each task its own
+`copy(F)`.
 
 # Examples
 ```jldoctest
@@ -174,7 +175,6 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     rpivinv::Vector{Ti}
 
     _lock::ReentrantLock
-    _ldiv_workspace::Vector{Tv}   # backing storage for work buffer (resizable)
 end
 
 function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
@@ -182,7 +182,7 @@ function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
     newτ = convert(Vector{Tv}, F.τ)
     newR = convert(SparseMatrixCSC{Tv}, F.R)
     newQ = QRSparseQ{Tv,Ti}(newfactors, newτ, size(newR, 2))
-    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock(), Tv[])
+    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock())
 end
 
 Base.size(F::QRSparse) = (size(F.factors, 1), size(F.R, 2))
@@ -257,8 +257,7 @@ With `ordering=ORDERING_FIXED`, `F.pcol` is the identity unless `A` is rank defi
 which case the columns that SPQR finds dependent are moved to the end.
 
 !!! note
-    The returned `QRSparse` object uses an internal workspace for `\\` and
-    [`ldiv!()`](@ref) calls that is protected by an internal lock, so concurrent solves
+    Solves with the returned `QRSparse` object take an internal lock, so concurrent solves
     with one object run one at a time. For parallel solves, create a separate copy of
     this object for each task with `copy(F)`.
 
@@ -345,8 +344,7 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
     return QRSparse(factors, τ, R,
                     QRSparseQ(factors, τ, size(R, 2)),
                     p, hpinv,
-                    ReentrantLock(),
-                    Tv[])              # _ldiv_workspace (lazily sized on first solve)
+                    ReentrantLock())
 end
 LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{Float16, Float32}} =
     QRSparse{Tv}(qr(convert(SparseMatrixCSC{Float64}, A); tol, ordering))
@@ -501,14 +499,10 @@ end
     copy(F::QRSparse)
 
 A copy of `F` for solving in parallel, one copy per task. The copy shares the factors and
-permutations, which no call modifies, and has its own lock and workspace, so its solves
-never wait for those of `F`.
+permutations, which no call modifies, and has its own lock, so its solves never wait for
+those of `F`.
 """
-function Base.copy(F::QRSparse)
-    # Read nothing from the workspace of `F`: a solve holding its lock may be resizing it.
-    QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv,
-             ReentrantLock(), eltype(F)[])
-end
+Base.copy(F::QRSparse) = QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv, ReentrantLock())
 
 function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     summary(io, F); println(io)
@@ -643,20 +637,32 @@ function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.Bla
     return collect(reshape(reinterpret(Complex{T}, copy(transpose(reshape(x, (length(x) >> 1), 2)))), _ret_size(F, B)))
 end
 
-function _get_ldiv_workspace(F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
+"""
+    SPQR.SpqrWS(F::QRSparse)
+
+Scratch space for `ldiv!(x, F, b; workspace)`, which makes repeated solves allocation-free.
+Without it, `ldiv!` allocates its scratch space on each call. A workspace grows as needed,
+so it can be reused with any factorization of the same element type, but not by two calls
+at once.
+"""
+struct SpqrWS{Tv}
+    w::Vector{Tv}
+end
+SpqrWS(F::QRSparse{Tv}) where {Tv} = SpqrWS{Tv}(Tv[])
+SpqrWS(F::LinearAlgebra.AdjointFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
+SpqrWS(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
+
+function _get_ldiv_workspace(workspace, F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
     m, n = size(F)
     k = ndims(B) == 1 ? 1 : size(B, 2)
     wrows = max(m, n)
-
-    # Resize backing vector if needed
     wlen = wrows * k
-    if length(F._ldiv_workspace) != wlen
-        resize!(F._ldiv_workspace, wlen)
-    end
+    ws = workspace === nothing ? Vector{Tv}(undef, wlen) : workspace.w
+    length(ws) == wlen || resize!(ws, wlen)
 
     # Reshape into matrix. Note that we use ReshapedArray here instead of
     # reshape() to avoid allocations later when taking a view.
-    W = Base.ReshapedArray(F._ldiv_workspace, (wrows, k), ())
+    W = Base.ReshapedArray(ws, (wrows, k), ())
     return W
 end
 
@@ -690,7 +696,8 @@ julia> qr(A)\\fill(1.0, 4)
 """
 (\)(F::QRSparse, B::AbstractVecOrMat) = F\_rhs_array(F, B)
 
-function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     if size(F, 1) != size(B, 1)
         throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
     end
@@ -706,7 +713,7 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
     n = size(F, 2)
 
     @lock F._lock begin
-        W = _get_ldiv_workspace(F, B)
+        W = _get_ldiv_workspace(workspace, F, B)
 
         # Apply left permutation to B and store in W
         for j in axes(B, 2)
@@ -800,7 +807,8 @@ julia> A'x
 """
 (\)(Fadj::AdjointQRSparse, B::AbstractVecOrMat) = Fadj\_rhs_array(Fadj, B)
 
-function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T}) where {T}
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     F = parent(Fadj)
     m, n = size(F)
     # Solving A'x = b for a wide A would be an overdetermined problem requiring a
@@ -822,7 +830,7 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
 
     # With A[prow, pcol] == Q*R we have A' == Pcol*R'*Q'*Prow, so x = Prow'*Q*(R' \ Pcol'*b)
     @lock F._lock begin
-        W = _get_ldiv_workspace(F, B)
+        W = _get_ldiv_workspace(workspace, F, B)
 
         # Gather the column permutation of B into the leading n rows of W
         for j in axes(W, 2)
@@ -857,6 +865,23 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
     end
 
     return X
+end
+
+const TransposeQRSparse{Tv} = LinearAlgebra.TransposeFactorization{Tv,<:QRSparse{Tv}}
+
+# transpose(A) == conj(A'), so a transposed solve is a conjugated adjoint solve
+LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
+                    workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Real} =
+    ldiv!(X, parent(Ft)', B; workspace)
+LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
+                    workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Complex} =
+    conj!(ldiv!(X, parent(Ft)', conj(B); workspace))
+
+# In place, only for a square A, whose solution has the size of B.
+function LinearAlgebra.ldiv!(F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
+                             B::StridedVecOrMat{T}; workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
+    LinearAlgebra.checksquare(F)
+    return copyto!(B, ldiv!(similar(B), F, B; workspace))
 end
 
 end # module

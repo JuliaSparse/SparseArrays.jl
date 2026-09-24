@@ -89,12 +89,13 @@ end
         umfpack_report(Af)
         b = convert(Vector{Tv}, b0)
         x = similar(b)
-        ldiv!(x, Af, b)
-        aloc1 = @allocated ldiv!(x, Af, b)
+        ws = UMFPACK.UmfpackWS(Af)
+        ldiv!(x, Af, b; workspace = ws)
+        aloc1 = @allocated ldiv!(x, Af, b; workspace = ws)
         bn = convert(Matrix{Tv}, bn0)
         xn = similar(bn)
-        ldiv!(xn, Af, bn)
-        aloc2 = @allocated ldiv!(xn, Af, bn)
+        ldiv!(xn, Af, bn; workspace = ws)
+        aloc2 = @allocated ldiv!(xn, Af, bn; workspace = ws)
         umfpack_report(Af)
         return aloc1 + aloc2
     end
@@ -109,11 +110,12 @@ end
     @testset "test similar" begin
         Af = lu(A0)
         umfpack_report(Af)
-        sim = similar(Af.workspace)
+        ws = UMFPACK.UmfpackWS(Af)
+        sim = similar(ws)
         for f in [typeof, length],
             p in [:Wi, :W]
-            @test f(getproperty(sim, p)) == f(getproperty(Af.workspace, p))
-            @test getproperty(sim, p) !== getproperty(Af.workspace, p)
+            @test f(getproperty(sim, p)) == f(getproperty(ws, p))
+            @test getproperty(sim, p) !== getproperty(ws, p)
         end
         umfpack_report(Af)
     end
@@ -124,7 +126,7 @@ end
         for i in [:n, :m]
             @test getproperty(Af, i) == getproperty(Af1, i)
         end
-        for i in [:workspace, :control, :info, :lock]
+        for i in [:control, :info, :lock]
             @test getproperty(Af, i) !== getproperty(Af1, i)
         end
     end
@@ -376,10 +378,6 @@ end
     @testset "deserialization" begin
         A  = 10*I + sprandn(10, 10, 0.4)
         F1 = lu(A)
-        for nm in (:W, :Wi)
-            x = getfield(F1.workspace, nm)
-            x .= rand(eltype(x), length(x))
-        end
 
         umfpack_report(F1)
         b  = IOBuffer()
@@ -389,9 +387,6 @@ end
         for nm in (:colptr, :m, :n, :nzval, :rowval, :status)
             @test getfield(F1, nm) == getfield(F2, nm)
         end
-        for nm in (:W, :Wi)
-            @test size(getfield(F1.workspace, nm)) == size(getfield(F2.workspace, nm))
-        end
         b1 = IOBuffer()
         serialize(b1, (a=F1, b=F2))
         seekstart(b1)
@@ -400,10 +395,6 @@ end
         lu!(x.b)
         for nm in (:colptr, :m, :n, :nzval, :rowval, :status)
             @test getfield(F1, nm) == getfield(x.a, nm) == getfield(x.b, nm)
-        end
-        for nm in (:W, :Wi)
-            @test size(getfield(x.a.workspace, nm)) == size(getfield(F1.workspace, nm))
-            @test size(getfield(x.b.workspace, nm)) == size(getfield(F2.workspace, nm))
         end
 
         umfpack_report(F1)
@@ -608,18 +599,19 @@ end
     end
 end
 
-@testset "changing refinement should resize workspace" begin
+@testset "a workspace grows when refinement is turned on" begin
     A = lu(sprandn(100, 100, 0.1) + I)
     umfpack_report(A)
     b = randn(100)
-    @test length(A.workspace.Wi) == 100
-    @test length(A.workspace.W) == 100
-    x = A \ b
+    ws = UMFPACK.UmfpackWS(A)
+    @test length(ws.Wi) == 100
+    @test length(ws.W) == 100
+    x = ldiv!(similar(b), A, b; workspace = ws)
     A.control[UMFPACK.JL_UMFPACK_IRSTEP] = 2
-    y = A \ b
+    y = ldiv!(similar(b), A, b; workspace = ws)
     @test x ≈ y
-    @test length(A.workspace.Wi) == 100
-    @test length(A.workspace.W) == 500
+    @test length(ws.Wi) == 100
+    @test length(ws.W) == 500
     umfpack_report(A)
 end
 

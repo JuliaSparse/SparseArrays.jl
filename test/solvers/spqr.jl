@@ -292,7 +292,7 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
     @test propertynames(F) == (:R, :Q, :prow, :pcol)
-    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv, :_lock, :_ldiv_workspace)
+    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv, :_lock)
 end
 
 @testset "rank" begin
@@ -331,16 +331,19 @@ end
         b = randn(m)
         x = zeros(n)
 
-        # First call will allocate the workspace
-        first_allocs = @allocated ldiv!(x, F, b)
-        @test length(F._ldiv_workspace) > 0
+        # without a workspace each call allocates its own
+        ldiv!(x, F, b)
         @test x ≈ Array(A) \ b
+        @test @allocated(ldiv!(x, F, b)) > 0
 
-        # Second call with same-sized RHS should reuse workspace
+        # a caller-provided workspace is resized on first use and then reused
+        ws = SPQR.SpqrWS(F)
+        ldiv!(x, F, b; workspace = ws)
+        @test !isempty(ws.w)
         b2 = randn(m)
-        second_allocs = @allocated ldiv!(x, F, b2)
-        @test second_allocs < first_allocs
+        ldiv!(x, F, b2; workspace = ws)
         @test x ≈ Array(A) \ b2
+        @test @allocated(ldiv!(x, F, b2; workspace = ws)) == 0
     end
 
     @testset "dimension errors" begin
@@ -375,12 +378,8 @@ end
         F = qr(A)
         F_copy = copy(F)
 
-        # These fields must not be shared
+        # The lock must not be shared
         @test F._lock !== F_copy._lock
-        @test F._ldiv_workspace !== F_copy._ldiv_workspace
-        # the copy does not read the workspace of F, which a concurrent ldiv! may resize
-        ldiv!(zeros(n), F, randn(m))
-        @test isempty(copy(F)._ldiv_workspace)
     end
 
     @testset "solves take the lock of F" begin

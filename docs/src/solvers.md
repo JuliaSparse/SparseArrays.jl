@@ -53,6 +53,14 @@ true
 To solve several systems with one matrix, factorize once. `F \ B` takes a vector or a
 matrix of right-hand sides, and `ldiv!(x, F, b)` writes into `x`.
 
+`ldiv!` allocates scratch space on each call. To avoid that in a loop, create a workspace
+once and pass it with the `workspace` keyword:
+[`UMFPACK.UmfpackWS(F)`](@ref SparseArrays.UMFPACK.UmfpackWS) for `lu`,
+[`CHOLMOD.CholmodWS(F)`](@ref SparseArrays.CHOLMOD.CholmodWS) for `cholesky` and `ldlt`,
+and [`SPQR.SpqrWS(F)`](@ref SparseArrays.SPQR.SpqrWS) for `qr`. This works with `F`, `F'`
+and `transpose(F)`, and in `ldiv!(F, b)`. A workspace grows as needed and can be reused,
+but not by two calls at once.
+
 For a new matrix with the same sparsity pattern, `lu!(F, A2)`,
 [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!)`(F, A2)` and `ldlt!(F, A2)` redo only
 the numerical factorization, reusing the symbolic analysis in `F`.
@@ -142,13 +150,15 @@ Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::StridedVecOrMat)
 SparseArrays.UMFPACK.lu
 SparseArrays.UMFPACK.lu!
 SparseArrays.UMFPACK.rcond
+SparseArrays.UMFPACK.UmfpackWS
+SparseArrays.CHOLMOD.CholmodWS
+SparseArrays.SPQR.SpqrWS
 ```
 
 ## Multithreading and thread safety
 
 Each factorization object has an internal lock, and every call that reads or changes its
-mutable state (the factors held by the C library, the stored matrix, the workspaces and
-the status) holds that lock for the whole call. Calls with one factorization from several
+mutable state (the factors held by the C library, the stored matrix and the status) holds that lock for the whole call. Calls with one factorization from several
 tasks are therefore safe but run one at a time, even those that only read it. To work in
 parallel, give every task its own `copy` of the factorization: a copy shares nothing that
 any call modifies with the original or with the other copies, so its calls never wait for
@@ -156,12 +166,11 @@ theirs.
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new workspace, `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
-| `SPQR.QRSparse` | shares the factors and permutations, which no call modifies; new workspace and lock | `\` and `ldiv!`, with `F` or `F'` |
+| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
+| `SPQR.QRSparse` | shares the factors and permutations, which no call modifies; new lock | `\` and `ldiv!`, with `F` or `F'` |
 | `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
 
-The copies of an `UmfpackLU` or a `QRSparse` are cheap, since only the workspace is
-duplicated:
+The copies of an `UmfpackLU` or a `QRSparse` are cheap, since they share the factors:
 
 ```julia
 using LinearAlgebra, SparseArrays
@@ -169,7 +178,7 @@ using LinearAlgebra, SparseArrays
 F = lu(A)                       # or qr(A)
 X = similar(B)
 Threads.@threads for j in axes(B, 2)
-    Fj = copy(F)                # own workspace, shared factors
+    Fj = copy(F)                # shared factors, own lock
     ldiv!(view(X, :, j), Fj, view(B, :, j))
 end
 ```
@@ -179,11 +188,11 @@ once per right-hand side. Because the copies of an `UmfpackLU` share its factors
 call [`lu!`](@ref) on the original or on any copy while another task is solving with one
 of them: refactorization frees the numeric object they all point to.
 
-For CHOLMOD, only `ldiv!` uses the buffers stored in the `Factor`, and only `ldiv!`,
-[`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!` take its lock. `F \ b` and
-the low-rank updates do not, so a `Factor` is not safe to share between tasks when any of
-them may refactorize or update it. Use a separate `copy(F)` per task in that case, and for
-parallel `ldiv!`; note that this duplicates the factor's memory.
+For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`
+and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
+`Factor` is not safe to share between tasks when any of them may refactorize or update it.
+Use a separate `copy(F)` per task in that case; note that this duplicates the factor's
+memory.
 
 CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
 structure. SparseArrays creates one lazily for each Julia task (and index type) and keeps
