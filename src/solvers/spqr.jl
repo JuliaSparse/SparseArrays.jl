@@ -148,8 +148,9 @@ columns enter the product.
 `F` supports `\\` and `ldiv!` for least squares and minimum-norm solutions, `rank`, `copy`,
 and `F'`, which is the LQ factorization
 [`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `F` owns the
-workspace used by `ldiv!` and guards it with an internal lock; for solves from several
-tasks at once, give each task its own `copy(F)`.
+workspace used by `\\` and `ldiv!`, with `F` or `F'`, and guards it with an internal lock,
+so solves with one `F` from several tasks are safe but run one at a time. For parallel
+solves, give each task its own `copy(F)`.
 
 # Examples
 ```jldoctest
@@ -256,10 +257,10 @@ With `ordering=ORDERING_FIXED`, `F.pcol` is the identity unless `A` is rank defi
 which case the columns that SPQR finds dependent are moved to the end.
 
 !!! note
-    The returned `QRSparse` object uses an internal workspace for
-    [`ldiv!()`](@ref) calls that is protected by a lock for threadsafety. For
-    multithreaded use, create a separate copy of this object for each task with
-    `copy(F)`.
+    The returned `QRSparse` object uses an internal workspace for `\\` and
+    [`ldiv!()`](@ref) calls that is protected by an internal lock, so concurrent solves
+    with one object run one at a time. For parallel solves, create a separate copy of
+    this object for each task with `copy(F)`.
 
 !!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
@@ -499,13 +500,14 @@ end
 """
     copy(F::QRSparse)
 
-A shallow copy of QRSparse for use in multithreaded solve applications.
-Shares the factorization data but duplicates the workspace so that
-each copy can be used independently in a different thread.
+A copy of `F` for solving in parallel, one copy per task. The copy shares the factors and
+permutations, which no call modifies, and has its own lock and workspace, so its solves
+never wait for those of `F`.
 """
 function Base.copy(F::QRSparse)
+    # Read nothing from the workspace of `F`: a solve holding its lock may be resizing it.
     QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv,
-             ReentrantLock(), similar(F._ldiv_workspace))
+             ReentrantLock(), eltype(F)[])
 end
 
 function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)

@@ -258,14 +258,18 @@ SparseArrays.UMFPACK.rcond
 
 ## Multithreading and thread safety
 
-Each factorization object carries scratch space for its in-place solves, guarded by an
-internal lock. Calls that take the lock are therefore safe from several tasks but run one
-at a time. To solve in parallel, give every task its own `copy` of the factorization:
+Each factorization object has an internal lock, and every call that reads or changes its
+mutable state (the factors held by the C library, the stored matrix, the workspaces and
+the status) holds that lock for the whole call. Calls with one factorization from several
+tasks are therefore safe but run one at a time, even those that only read it. To work in
+parallel, give every task its own `copy` of the factorization: a copy shares nothing that
+any call modifies with the original or with the other copies, so its calls never wait for
+theirs.
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
 | `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new workspace, `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
-| `SPQR.QRSparse` | shares the factors and permutations; new workspace and lock | `\`, `ldiv!` |
+| `SPQR.QRSparse` | shares the factors and permutations, which no call modifies; new workspace and lock | `\` and `ldiv!`, with `F` or `F'` |
 | `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
 
 The copies of an `UmfpackLU` or a `QRSparse` are cheap, since only the workspace is

@@ -378,6 +378,32 @@ end
         # These fields must not be shared
         @test F._lock !== F_copy._lock
         @test F._ldiv_workspace !== F_copy._ldiv_workspace
+        # the copy does not read the workspace of F, which a concurrent ldiv! may resize
+        ldiv!(zeros(n), F, randn(m))
+        @test isempty(copy(F)._ldiv_workspace)
+    end
+
+    @testset "solves take the lock of F" begin
+        A = sprandn(m, n, 0.5) + sparse(I, m, n)
+        F = qr(A)
+        b, c = randn(m), randn(n)
+        x, y = F \ b, F' \ c
+        calls = (() -> ldiv!(zeros(n), F, b) ≈ x,
+                 () -> F \ b ≈ x,
+                 () -> F \ complex.(b) ≈ x,
+                 () -> ldiv!(zeros(m), F', c) ≈ y,
+                 () -> F' \ c ≈ y)
+        for f in calls
+            lock(F._lock)
+            t = @async f()
+            yield()
+            @test !istaskdone(t)
+            # copying F and solving with the copy do not wait for the lock of F
+            @test fetch(@async copy(F) \ b ≈ x && copy(F)' \ c ≈ y)
+            unlock(F._lock)
+            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+            @test fetch(t)
+        end
     end
 end
 
