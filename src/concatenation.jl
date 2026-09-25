@@ -325,14 +325,21 @@ const _SparseConcatGroup = Union{AbstractVecOrMat,Number}
 # Base's `_cat_t` takes the output type from its first argument, so with a leading number
 # it would build a dense array. Choose the destination from the first array instead, and
 # keep the number as is so that it fills its block the way it does in dense
-# concatenation (#383). `X` has already been through `_makesparse`.
+# concatenation (#383). A leading number still widens the index type to at least `Int`,
+# as the one-element sparse vector standing in for it used to. `X` has already been
+# through `_makesparse`.
 _catleader(X1::AbstractArray, X...) = X1
 _catleader(X1::Number, X...) = _catleader(X...)
 _catleader(X1::Number) = _sparse(X1)
+_catdest(::Type{T}, shape, X1::AbstractArray, X...) where {T} = similar(X1, T, shape)
+function _catdest(::Type{T}, shape, X1::Number, X...) where {T}
+    A = _catleader(X1, X...)
+    return similar(A, T, promote_type(Int, indtype(A)), shape)
+end
 Base.@constprop :aggressive function _sparse_cat_t(dims, ::Type{T}, X...) where {T}
     catdims = Base.dims2cat(dims)
     shape = Base.cat_size_shape(catdims, X...)
-    A = similar(_catleader(X...), T, shape)
+    A = _catdest(T, shape, X...)
     if count(!iszero, catdims)::Int > 1
         fill!(A, zero(T))
     end

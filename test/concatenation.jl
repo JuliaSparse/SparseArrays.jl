@@ -446,6 +446,11 @@ end
     @test sparse_hvcat((2,), 1, dM)::SparseMatrixCSC == hvcat((2,), 1, dM)
     @test sparse_vcat(1, 2)::SparseVector == [1, 2]
     @test sparse_hcat(1, 2)::SparseMatrixCSC == [1 2]
+    # a leading number widens a narrow index type as it did before
+    v8 = sparsevec(Int8[127], [2], 127); A8 = sparse(Int8[127], Int8[1], [2], 127, 2)
+    @test vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
+    @test sparse_vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
+    @test vcat(1, A8)::SparseMatrixCSC{Int,Int} == vcat(1, Array(A8))
     # shape mismatches throw as for dense
     @test_throws DimensionMismatch vcat(M, 3)
     @test_throws DimensionMismatch vcat(1, M, 3)
