@@ -480,11 +480,12 @@ for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
     end
 end
 
+# `getfield` rather than `F.rpivinv`: a recursive `getproperty` call is not inferred.
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :prow
-        return invperm(F.rpivinv)
+        return invperm(getfield(F, :rpivinv))
     elseif d === :pcol
-        return F.cpiv
+        return getfield(F, :cpiv)
     else
         getfield(F, d)
     end
@@ -587,10 +588,10 @@ LinearAlgebra.lq(A::Transpose{<:Any,<:SparseMatrixCSC}; kwargs...) = lq(copy(A);
 
 @inline function Base.getproperty(F::AdjointQRSparse, d::Symbol)
     P = getfield(F, :parent)
-    d === :L && return copy(adjoint(P.R))
-    d === :Q && return adjoint(P.Q)
-    d === :prow && return P.pcol
-    d === :pcol && return P.prow
+    d === :L && return copy(adjoint(getfield(P, :R)))
+    d === :Q && return adjoint(getfield(P, :Q))
+    d === :prow && return getfield(P, :cpiv)
+    d === :pcol && return invperm(getfield(P, :rpivinv))
     return getfield(F, d)
 end
 Base.propertynames(F::AdjointQRSparse, private::Bool=false) =
