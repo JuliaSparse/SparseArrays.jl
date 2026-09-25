@@ -55,6 +55,41 @@ dA = Array(sA)
         end
     end
 
+    @testset "small integers: the entries not stored widen as for dense" begin
+        # `sum` and `prod` of small integers give an `Int` (a `UInt`), `mapreduce` with `+` or `*`
+        # keeps the element type and wraps, and `Bool` products stay `Bool`, as for dense input
+        for T in (Int8, UInt8, Int16, Bool)
+            a, b, z = T(1), T <: Bool ? true : T(3), zero(T)
+            full = sparse([a b; b a])
+            stored = copy(full); stored[1, 2] = z   # a stored zero
+            for A in (full, stored, sparse([a z; z b]), spzeros(T, 2, 2), spzeros(T, 1, 1), sparse(fill(a, 1, 1)),
+                      sparsevec([a, b]), sparsevec([a, z, b]), spzeros(T, 3), sparse([a z; z b])', view(sparse([a z z; z b a]), :, 2:3))
+                M = Array(A)
+                for f in (abs2, x -> x + a), op in (+, *, Base.add_sum, Base.mul_prod)
+                    r, rd = mapreduce(f, op, A), mapreduce(f, op, M)
+                    @test typeof(r) == typeof(rd) && r == rd
+                    A isa SparseMatrixCSC || continue   # the `dims` kernels are the matrix ones
+                    for dims in (1, 2)
+                        r, rd = mapreduce(f, op, A; dims), mapreduce(f, op, M; dims)
+                        @test typeof(r) == typeof(rd) && r == rd
+                    end
+                end
+                @test sum(A) === sum(M) && prod(A) === prod(M)
+                @test @inferred(prod(A)) === prod(M) && @inferred(sum(A)) === sum(M)
+                @test @inferred(mapreduce(abs2, +, A)) === mapreduce(abs2, +, M)
+                @test @inferred(mapreduce(abs2, *, A)) === mapreduce(abs2, *, M)
+            end
+        end
+        # the unstored entries wrap with `+` and `*` as the stored ones do, and widen for `sum`
+        f = x -> x + Int8(3)
+        @test mapreduce(f, +, spzeros(Int8, 300)) === mapreduce(f, +, zeros(Int8, 300)) === Int8(-124)
+        @test mapreduce(f, *, spzeros(Int8, 300)) === mapreduce(f, *, zeros(Int8, 300))
+        @test mapreduce(f, +, spzeros(Int8, 300, 2); dims = 1) == mapreduce(f, +, zeros(Int8, 300, 2); dims = 1)
+        @test mapreduce(f, +, spzeros(Int8, 2, 300); dims = 2) == mapreduce(f, +, zeros(Int8, 2, 300); dims = 2)
+        @test sum(f, spzeros(Int8, 300)) === 900 && sum(f, spzeros(Int8, 2, 300); dims = 2) == [900; 900;;]
+        @test mapreduce(x -> x + big(1), +, spzeros(Int8, 300)) == 300
+    end
+
     @testset "logical reductions" begin
         v = spzeros(Bool, 5, 2)
         @test !any(v)
