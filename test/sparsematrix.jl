@@ -714,6 +714,15 @@ end
             @test repeat(A, m, n) == repeat(A_full, m, n)
         end
     end
+    # a non-Int index type is kept, including in the column pointers
+    A32 = SparseMatrixCSC{ComplexF64,Int32}(sprand(ComplexF64, 5, 3, 0.5))
+    A32_full = Matrix(A32)
+    for m = 0:2, n = 0:3
+        R = repeat(A32, m, n)
+        @test R isa SparseMatrixCSC{ComplexF64,Int32}
+        @test R == repeat(A32_full, m, n)
+        @test repeat(A32, m) isa SparseMatrixCSC{ComplexF64,Int32}
+    end
 end
 
 @testset "copyto!" begin
