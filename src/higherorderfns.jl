@@ -12,6 +12,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
                       SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, SparseMatrixCSCOrView,
+                      SparseColumnView, SparseVectorView, SparseVectorPartialView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
                       _iszero, _isnotzero, _is_fixed, _checkbuffers, @if_move_fixed
@@ -154,6 +155,10 @@ end
 # (2) map[!] entry points
 map(f::Tf, A::AbstractCompressedVector) where {Tf} = _noshapecheck_map(f, A)
 map(f::Tf, A::AbstractSparseMatrixCSC) where {Tf} = _noshapecheck_map(f, A)
+# `copy` keeps the stored entries, so these keep the input's pattern like the methods above
+map(f::Tf, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) where {Tf} = _noshapecheck_map(f, copy(A))
+map(f::Tf, x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) where {Tf} =
+    _noshapecheck_map(f, copy(x))
 # more specific than both the SparseVecOrMat and the SparseOrStructuredMatrix methods
 map(f::Tf, A::AbstractSparseMatrixCSC, Bs::Vararg{AbstractSparseMatrixCSC,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
@@ -255,6 +260,7 @@ end
 @inline _densennz(shape::NTuple{2}) = shape[1] * shape[2]
 _maxnnzfrom(shape::NTuple{1}, A::AbstractCompressedVector) = nnz(A) * div(shape[1], length(A))
 _maxnnzfrom(shape::NTuple{2}, A::AbstractCompressedVector) = nnz(A) * div(shape[1], length(A)) * shape[2]
+_maxnnzfrom(shape::NTuple{1}, A::AbstractSparseMatrixCSC) = nnz(A) * div(shape[1], size(A, 1))
 _maxnnzfrom(shape::NTuple{2}, A::AbstractSparseMatrixCSC) = nnz(A) * div(shape[1], size(A, 1)) * div(shape[2], size(A, 2))
 @inline _maxnnzfrom_each(shape, ::Tuple{}) = ()
 @inline _maxnnzfrom_each(shape, As) = (_maxnnzfrom(shape, first(As)), _maxnnzfrom_each(shape, tail(As))...)
@@ -270,22 +276,22 @@ _maxnnzfrom(shape::NTuple{2}, A::AbstractSparseMatrixCSC) = nnz(A) * div(shape[1
 end
 
 # (4) _map_zeropres!/_map_notzeropres! specialized for a single sparse vector/matrix
-"Stores only the nonzero entries of `map(f, Array(A))` in `C`."
+"""
+Gives `C` the pattern of `A` and stores `f(A[i])`/`f(A[i,j])` at each stored entry, whether or
+not that value is zero, so that `f.(A)` keeps its stored zeros like `2A` and `float(A)` do.
+"""
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     _is_fixed(C) && _checkfixedpattern(C, A)
     spaceC::Int = length(nonzeros(C))
-    isfixed = _is_fixed(C, A)
     Ck = 1
     @inbounds for j in columns(C)
         setcolptr!(C, j, Ck)
         for Ak in colrange(A, j)
             Cx = f(storedvals(A)[Ak])
-            if isfixed || _isnotzero(Cx)
-                Ck > spaceC && (spaceC = expandstorage!(C, Ck + nnz(A) - (Ak - 1)))
-                storedinds(C)[Ck] = storedinds(A)[Ak]
-                storedvals(C)[Ck] = Cx
-                Ck += 1
-            end
+            Ck > spaceC && (spaceC = expandstorage!(C, Ck + nnz(A) - (Ak - 1)))
+            storedinds(C)[Ck] = storedinds(A)[Ak]
+            storedvals(C)[Ck] = Cx
+            Ck += 1
         end
     end
     @inbounds setcolptr!(C, numcols(C) + 1, Ck)
@@ -544,11 +550,11 @@ end
 # (7) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a single (input) sparse vector/matrix
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(A)
     spaceC::Int = length(nonzeros(C))
     # C and A cannot have the same shape, as we directed that case to map in broadcast's
     # entry point; here we need efficiently handle only heterogeneous C-A combinations where
-    # one or both of C and A has at least one singleton dimension.
+    # one or both of C and A has at least one singleton dimension. As in the single-input
+    # `_map_zeropres!`, C gets the pattern of A expanded to its shape, stored zeros included.
     #
     # We first divide the cases into two groups: those in which the input argument does not
     # expand vertically, and those in which the input argument expands vertically.
@@ -561,12 +567,10 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where
             bccolrangejA = numcols(A) == 1 ? colrange(A, 1) : colrange(A, j)
             for Ak in bccolrangejA
                 Cx = f(storedvals(A)[Ak])
-                if isfixed || _isnotzero(Cx)
-                    Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A)))
-                    storedinds(C)[Ck] = storedinds(A)[Ak]
-                    storedvals(C)[Ck] = Cx
-                    Ck += 1
-                end
+                Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A)))
+                storedinds(C)[Ck] = storedinds(A)[Ak]
+                storedvals(C)[Ck] = Cx
+                Ck += 1
             end
         end
     # Cases with vertical expansion
@@ -574,13 +578,10 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where
         @inbounds for j in columns(C)
             setcolptr!(C, j, Ck)
             Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
-            Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
-            fofAx = f(Ax)
-            # if fofAx is zero, then either A's jth column is empty, or A's jth column
-            # contains a nonzero value x but f(Ax) is nonetheless zero, so we need store
-            # nothing in C's jth column. if to the contrary fofAx is nonzero, then we must
-            # densely populate C's jth column with fofAx.
-            if isfixed || _isnotzero(fofAx)
+            # an empty column of A gives an empty column of C, since f(0) is zero; a stored
+            # entry expands into a densely populated column
+            if Ak < stopAk
+                fofAx = f(storedvals(A)[Ak])
                 for Ci::indtype(C) in 1:numrows(C)
                     Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A)))
                     storedinds(C)[Ck] = Ci

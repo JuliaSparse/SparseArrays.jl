@@ -238,12 +238,27 @@ views of a subset of their columns, and sparse vectors, for which the result is 
 [`broadcast`](@ref) (including dot syntax such as `A .* B`) and [`map`](@ref) over sparse vectors
 and matrices return a sparse result. To decide which entries to store, the function is first
 evaluated once on the zeros of the arguments' element types. If `f(0, 0, ...)` is zero, as for
-`A .* B`, `abs.(A)` or `2 .* A`, only positions where some argument has a stored entry are visited,
-and only the results there that are nonzero are stored:
+`A .* B`, `abs.(A)` or `2 .* A`, only positions where some argument has a stored entry are visited.
+With a single sparse argument the result has exactly that argument's stored entries, so `2 .* A`,
+`abs.(A)` and `Float64.(A)` keep the stored zeros of `A`, just as `2A`, `-A` and `float(A)` do:
 
 ```jldoctest sparsebroadcast
-julia> A = sparse([1, 2, 3], [1, 2, 3], [1, -2, 3]);
+julia> A = sparse([1, 1, 2, 3], [1, 2, 2, 3], [1, 0, -2, 3])
+3×3 SparseMatrixCSC{Int64, Int64} with 4 stored entries:
+ 1   0  ⋅
+ ⋅  -2  ⋅
+ ⋅   ⋅  3
 
+julia> Float64.(A)
+3×3 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
+ 1.0   0.0   ⋅
+  ⋅   -2.0   ⋅
+  ⋅     ⋅   3.0
+```
+
+With two or more sparse arguments, only the results that are nonzero are stored:
+
+```jldoctest sparsebroadcast
 julia> B = sparse([1, 1, 3], [1, 3, 3], [1, 5, -3]);
 
 julia> A .* B
@@ -259,8 +274,8 @@ julia> A .+ B
  ⋅   ⋅  ⋅
 ```
 
-The entry `A[3, 3] + B[3, 3]` cancels to zero and is dropped rather than stored. Stored zeros in an
-argument are dropped the same way, so `2 .* A` can have fewer stored entries than `A`.
+The entry `A[3, 3] + B[3, 3]` cancels to zero and is dropped rather than stored, and so is the
+stored zero `A[1, 2]`, because `A[1, 2] + B[1, 2]` computes to zero.
 
 If `f(0, 0, ...)` is not zero, as for `A .+ 1`, `cos.(A)` or `A ./ B` (where `0/0` is `NaN`), the
 result is still a sparse array, but every entry is stored, including any that happen to compute to

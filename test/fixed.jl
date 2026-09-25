@@ -164,6 +164,12 @@ end
     @test struct_eq(w, sparsevec([1, 3], [1.0, 2.0], 4))
     w .= sparsevec([3], [5.0], 4)
     @test w == [0, 0, 5, 0] && nnz(w) == 2
+    v = fixed(sparsevec([1, 3], [1 + 2im, 3 + 0im], 4))
+    for (f, d) in ((real, [1, 0, 3, 0]), (imag, [2, 0, 0, 0]))
+        r = f(v)
+        @test r isa SparseVector{Int,Int}
+        @test r == d && nonzeroinds(r) == [1, 3]
+    end
 end
 
 @testset "Issue #190" begin

@@ -8,6 +8,7 @@ module HigherOrderFnsTests
 
 using Test
 using SparseArrays
+using SparseArrays: getcolptr, nonzeroinds
 using LinearAlgebra
 using Random
 include("forbidproperties.jl")
@@ -183,6 +184,46 @@ end
     for X in (mats..., vecs...)
         @test broadcast!(identity, Z, X) == sparse(broadcast!(identity, fZ, Array(X)))
         X isa SparseVector && @test broadcast!(identity, V, X) == sparse(broadcast!(identity, fV, Array(X)))
+    end
+end
+
+@testset "map[!] and broadcast[!] over one sparse array keep its pattern (issue #454)" begin
+    samepattern(C, A) = getcolptr(C) == getcolptr(A) && rowvals(C) == rowvals(A)
+    samepattern(c::SparseVector, a::SparseVector) = nonzeroinds(c) == nonzeroinds(a)
+    for A in (sparse([1, 1, 2, 3], [1, 2, 3, 2], [0, 2, 3, 4], 3, 3),                      # stored zero
+              sparse([1, 1, 2, 3], [1, 2, 3, 2], [0.0im, 2.0, 3.0im, 0.5], 3, 3),
+              sparsevec([1, 3, 5], [0, 2, 3], 6),
+              sparsevec([1, 3, 5], [0.0im, 2.0, 3.0im], 6))
+        fA = Array(A)
+        for f in (identity, Float64 ∘ real, x -> 2x, x -> 0 * x, x -> abs(x) > 1)        # every f has f(0) == 0
+            C = f.(A)
+            @test C == f.(fA) && samepattern(C, A)
+            @test samepattern(map(f, A), A)
+            @test samepattern(map!(f, similar(A, Base.promote_op(f, eltype(A))), A), A)
+        end
+        @test samepattern(Float64.(real(A)), A) && samepattern(2 .* A, A) && samepattern(A .* 0, A)
+        @test nnz(A .- A) == 0                  # cancellation between two arrays is still dropped
+    end
+    # a stored zero in a row expands into a densely stored column, an empty column stays empty
+    r = sparse([1, 1], [1, 3], [0, 2], 1, 3)
+    C = broadcast!(x -> 2x, spzeros(Int, 2, 3), r)
+    @test C == 2 .* repeat(Array(r), 2, 1) && getcolptr(C) == [1, 3, 3, 5]
+    # an n×1 matrix broadcast into an empty vector grows the destination
+    c = sparse([1, 3], [1, 1], [0.0, 2.0], 4, 1)
+    for f in (zero, x -> 2x)
+        y = broadcast!(f, spzeros(4), c)
+        @test y == f.(vec(Array(c))) && nonzeroinds(y) == [1, 3]
+    end
+    @test broadcast!(+, spzeros(4), c, c) == [0, 0, 4, 0]
+    # map over wrappers and views keeps the stored entries, as over the parent
+    M = sparse([1, 1, 2], [1, 2, 2], [1.0im, 0.0, 2.0], 3, 3)
+    x = sparsevec([1, 2], [0.0, 3.0], 4)
+    for (W, P) in ((transpose(M), copy(transpose(M))), (M', copy(M')), (view(x, :), x),
+                   (view(x, 1:3), x[1:3]), (view(M, :, 2), M[:, 2]))
+        for f in (zero, x -> 2x)
+            C = map(f, W)
+            @test C isa AbstractSparseArray && C == map(f, Array(W)) && samepattern(C, P)
+        end
     end
 end
 
