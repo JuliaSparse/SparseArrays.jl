@@ -68,6 +68,16 @@ end
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], 1.0, 2, 2, +) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [1.0, 1.0, 1.0, 2.0], 2, 2)
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], -1.0, 2, 2, *) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [-1.0, -1.0, -1.0, 1.0], 2, 2)
     @test sparse(sparse(Int32.(1:5), Int32.(1:5), trues(5))') isa SparseMatrixCSC{Bool,Int32}
+    # mismatched index vector types promote instead of throwing a MethodError
+    colptr, rowval, nzval = Int32[1, 3, 4], Int64[1, 3, 2], [1.0, 2.0, 3.0]
+    A = SparseMatrixCSC(3, 2, colptr, rowval, nzval)
+    @test A isa SparseMatrixCSC{Float64,Int64}
+    @test A == SparseMatrixCSC(3, 2, Int64[1, 3, 4], Int64[1, 3, 2], nzval)
+    @test SparseArrays.rowvals(A) === rowval    # the buffer already in `Ti` is shared, not copied
+    @test SparseArrays.nonzeros(A) === nzval
+    @test SparseMatrixCSC(3, 2, Int64[1, 3, 4], Int8[1, 3, 2], nzval) isa SparseMatrixCSC{Float64,Int64}
+    B = SparseMatrixCSC(3, 2, Int32[1, 3, 4], Int32[1, 3, 2], nzval)
+    @test B isa SparseMatrixCSC{Float64,Int32} && A == B
     # undef initializer
     sz = (3, 4)
     for m in (SparseMatrixCSC{Float32, Int16}(undef, sz...), SparseMatrixCSC{Float32, Int16}(undef, sz),

@@ -57,6 +57,10 @@ function SparseMatrixCSC(m::Integer, n::Integer, colptr::Vector, rowval::Vector,
     Tv = eltype(nzval)
     Ti = promote_type(eltype(colptr), eltype(rowval))
     sparse_check_Ti(m, n, Ti)
+    # `convert` returns the input itself when it already is a `Vector{Ti}`, so the
+    # buffers are shared with the result, and copied only when the index types differ.
+    colptr = convert(Vector{Ti}, colptr)
+    rowval = convert(Vector{Ti}, rowval)
     sparse_check(n, colptr, rowval, nzval)
     # silently shorten rowval and nzval to usable index positions.
     maxlen = abs(widemul(m, n))
