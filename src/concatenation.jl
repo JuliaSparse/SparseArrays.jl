@@ -124,11 +124,17 @@ end
 
 function Base.repeat(A::AbstractSparseMatrixCSC, m, n)
     B = repeat(A, m)
-    nnz_per_column = diff(getcolptr(B))
-    colptr = cumsum(vcat(1, repeat(nnz_per_column, n)))
+    nB = size(B, 2)
+    nnzB = nnz(B)
+    colptrB = getcolptr(B)
+    colptr = similar(colptrB, nB * n + 1)
+    colptr[1] = 1
+    for k = 0 : (n - 1), c = 1 : nB
+        colptr[k * nB + c + 1] = colptrB[c + 1] + k * nnzB
+    end
     rowval = repeat(rowvals(B), n)
     nzval = repeat(nonzeros(B), n)
-    SparseMatrixCSC(size(B, 1), size(B, 2) * n, colptr, rowval, nzval)
+    SparseMatrixCSC(size(B, 1), nB * n, colptr, rowval, nzval)
 end
 
 
