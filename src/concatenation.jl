@@ -290,6 +290,9 @@ _sparse(A) = _makesparse(A)
 _makesparse(x::Number) = x
 _makesparse(x::AbstractVector) = convert(SparseVector, x)::SparseVector
 _makesparse(x::AbstractMatrix) = convert(SparseMatrixCSC, x)::SparseMatrixCSC
+# a `UniformScaling` has no size of its own: `LinearAlgebra._hcat`/`_vcat`/`_hvcat` size it
+# from its neighbours and then call `promote_to_arrays_` below to make it sparse
+_makesparse(J::UniformScaling) = J
 anysparse() = false
 anysparse(X) = X isa AbstractArray && issparse(X)
 anysparse(X, Xs...) = anysparse(X) || anysparse(Xs...)
