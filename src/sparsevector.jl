@@ -694,7 +694,7 @@ function sprand(r::AbstractRNG, n::Integer, p::AbstractFloat, rfn::Function, ::T
     SparseVector(n, I, V)
 end
 
-sprand(n::Integer, p::AbstractFloat, rfn::Function) = sprand(default_rng(), n, p, rfn)
+sprand(n::Integer, p::AbstractFloat, rfn::Function) = sprand(default_rng(), n, p, (r, i) -> rfn(i))
 function sprand(r::AbstractRNG, n::Integer, p::AbstractFloat, rfn::Function)
     I = randsubseq(r, 1:convert(Int, n), p)
     V = rfn(r, length(I))
