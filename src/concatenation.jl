@@ -295,54 +295,91 @@ anysparse(X) = X isa AbstractArray && issparse(X)
 anysparse(X, Xs...) = anysparse(X) || anysparse(Xs...)
 anysparse(X::T, Xs::T...) where {T} = anysparse(X)
 
+# The result is sparse only when some input is sparse and every input has a `Number`
+# eltype; otherwise `zero` may not exist and Base's dense `cat` handles it (#71).
+_concatsparse(X...) = anysparse(X...) && _allnumeric(X...)
+_allnumeric() = true
+_allnumeric(X, Xs...) = eltype(X) <: Number && _allnumeric(Xs...)
+
 const _SparseVecConcatGroup = Union{Vector, AbstractSparseVector}
 function hcat(X::_SparseVecConcatGroup...)
-    if anysparse(X...)
+    if _concatsparse(X...)
         X = map(sparse, X)
     end
     return cat(X...; dims=Val(2))
 end
 function vcat(X::_SparseVecConcatGroup...)
-    if anysparse(X...)
+    if _concatsparse(X...)
         X = map(sparse, X)
     end
     return cat(X...; dims=Val(1))
 end
 
-# type-pirate the Base.cat design by making this a subtype of the existing method for it
-# in future versions of Julia (v1.10+), in which https://github.com/JuliaLang/julia/issues/2326 is not fixed yet, the <:Number constraint could be relaxed
-# but see also https://github.com/JuliaSparse/SparseArrays.jl/issues/71
-const _SparseConcatGroup = Union{AbstractVecOrMat{<:Number},Number}
+# Type piracy of Base's `cat` design; see https://github.com/JuliaLang/julia/issues/2326 for
+# what a principled hook would look like. Each entry point below mirrors one of Base's own
+# `Vararg` signatures with a fixed first argument, which makes it more specific than Base's
+# method but less specific than a package's `vcat(::AbstractMatrix, ::MyArray)`, so no
+# ambiguity is introduced for arrays that are not sparse (#431).
+const _SparseConcatGroup = Union{AbstractVecOrMat,Number}
+
+# Base's `_cat_t` takes the output type from its first argument, so with a leading number
+# it would build a dense array. Choose the destination from the first array instead, and
+# keep the number as is so that it fills its block the way it does in dense
+# concatenation (#383). A leading number still widens the index type to at least `Int`,
+# as the one-element sparse vector standing in for it used to. `X` has already been
+# through `_makesparse`.
+_catleader(X1::AbstractArray, X...) = X1
+_catleader(X1::Number, X...) = _catleader(X...)
+_catleader(X1::Number) = _sparse(X1)
+_catdest(::Type{T}, shape, X1::AbstractArray, X...) where {T} = similar(X1, T, shape)
+function _catdest(::Type{T}, shape, X1::Number, X...) where {T}
+    A = _catleader(X1, X...)
+    return similar(A, T, promote_type(Int, indtype(A)), shape)
+end
+Base.@constprop :aggressive function _sparse_cat_t(dims, ::Type{T}, X...) where {T}
+    catdims = Base.dims2cat(dims)
+    shape = Base.cat_size_shape(catdims, X...)
+    A = _catdest(T, shape, X...)
+    if count(!iszero, catdims)::Int > 1
+        fill!(A, zero(T))
+    end
+    return Base.__cat(A, shape, catdims, X...)
+end
+# with only arrays, `typed_hcat`/`typed_vcat` reach the same destination through `similar`
+# of the first, now sparse, array; a number among them takes the `cat` path as in Base
+_sparse_typed_hcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_hcat(T, X...)
+_sparse_typed_hcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(2), T, X...)
+_sparse_typed_vcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_vcat(T, X...)
+_sparse_typed_vcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(1), T, X...)
 
 # `@constprop :aggressive` allows `dims` to be propagated as constant improving return type inference
-Base.@constprop :aggressive function Base._cat(dims, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+Base.@constprop :aggressive function cat_internal(dims, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     T = promote_eltype(X1, X...)
-    if anysparse(X1) || anysparse(X...)
-        X1, X = _sparse(X1), map(_makesparse, X)
+    if _concatsparse(X1, X...)
+        return _sparse_cat_t(dims, T, _makesparse(X1), map(_makesparse, X)...)
     end
     return Base._cat_t(dims, T, X1, X...)
 end
-function hcat(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
-    if anysparse(X1) || anysparse(X...)
-        X1, X = _sparse(X1), map(_makesparse, X)
+function hcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+    T = promote_eltype(X1, X...)
+    if _concatsparse(X1, X...)
+        return _sparse_typed_hcat(T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_hcat(Base.promote_eltype(X1, X...), X1, X...)
+    return Base.typed_hcat(T, X1, X...)
 end
-function vcat(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
-    if anysparse(X1) || anysparse(X...)
-        X1, X = _sparse(X1), map(_makesparse, X)
+function vcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+    T = promote_eltype(X1, X...)
+    if _concatsparse(X1, X...)
+        return _sparse_typed_vcat(T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_vcat(Base.promote_eltype(X1, X...), X1, X...)
+    return Base.typed_vcat(T, X1, X...)
 end
 function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
-    if anysparse(X1) || anysparse(X...)
+    if _concatsparse(X1, X...)
         vcat(_hvcat_rows(rows, X1, X...)...)
     else
         Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
     end
-end
-function hvcat(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
-    return hvcat_internal(rows, X1, X...)
 end
 function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
     if row1 ≤ 0
@@ -359,11 +396,28 @@ function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup.
 end
 _hvcat_rows(::Tuple{}, X::_SparseConcatGroup...) = ()
 
-# disambiguation for type-piracy problems created above
-hcat(n1::Number, ns::Vararg{Number}) = invoke(hcat, Tuple{Vararg{Number}}, n1, ns...)
-vcat(n1::Number, ns::Vararg{Number}) = invoke(vcat, Tuple{Vararg{Number}}, n1, ns...)
-hcat(n1::N, ns::Vararg{N}) where {N<:Number} = invoke(hcat, Tuple{Vararg{N}}, n1, ns...)
-vcat(n1::N, ns::Vararg{N}) where {N<:Number} = invoke(vcat, Tuple{Vararg{N}}, n1, ns...)
+# `cat` is not overloaded by packages the way `vcat` and `hcat` are, so its hook keeps the
+# narrower numeric group, which avoids invalidating Base's `cat` on non-numeric vectors
+const _NumericSparseConcatGroup = Union{AbstractVecOrMat{<:Number},Number}
+Base.@constprop :aggressive Base._cat(dims, X1::_NumericSparseConcatGroup, X::_NumericSparseConcatGroup...) =
+    cat_internal(dims, X1, X...)
+for f in (:hcat, :vcat)
+    f_internal = Symbol(f, :_internal)
+    @eval begin
+        $f(X1::AbstractVecOrMat{T}, X::AbstractVecOrMat{T}...) where {T} = $f_internal(X1, X...)
+        $f(X1::AbstractVecOrMat, X::AbstractVecOrMat...) = $f_internal(X1, X...)
+        $f(X1::_SparseConcatGroup, X::_SparseConcatGroup...) = $f_internal(X1, X...)
+        # disambiguation against Base's `Vararg{Number}` and `Vararg{T<:Number}` methods
+        $f(n1::Number, ns::Vararg{Number}) = invoke($f, Tuple{Vararg{Number}}, n1, ns...)
+        $f(n1::N, ns::Vararg{N}) where {N<:Number} = invoke($f, Tuple{Vararg{N}}, n1, ns...)
+    end
+end
+# `vcat` alone has `Vararg{AbstractVector}` methods in Base
+vcat(X1::AbstractVector{T}, X::AbstractVector{T}...) where {T} = vcat_internal(X1, X...)
+vcat(X1::AbstractVector, X::AbstractVector...) = vcat_internal(X1, X...)
+hvcat(rows::Tuple{Vararg{Int}}, X1::AbstractVecOrMat{T}, X::AbstractVecOrMat{T}...) where {T} = hvcat_internal(rows, X1, X...)
+hvcat(rows::Tuple{Vararg{Int}}, X1::AbstractVecOrMat, X::AbstractVecOrMat...) = hvcat_internal(rows, X1, X...)
+hvcat(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...) = hvcat_internal(rows, X1, X...)
 hvcat(rows::Tuple{Vararg{Int}}, n1::Number, ns::Vararg{Number}) = hvcat_internal(rows, n1, ns...)
 hvcat(rows::Tuple{Vararg{Int}}, n1::N, ns::Vararg{N}) where {N<:Number} = hvcat_internal(rows, n1, ns...)
 
@@ -396,7 +450,7 @@ end
 
 
 # make sure UniformScaling objects are converted to sparse matrices for concatenation
-promote_to_array_type(A::Tuple{Vararg{Union{_SparseConcatGroup,UniformScaling}}}) = anysparse(A...) ? SparseMatrixCSC : Matrix
+promote_to_array_type(A::Tuple{Vararg{Union{_SparseConcatGroup,UniformScaling}}}) = _concatsparse(A...) ? SparseMatrixCSC : Matrix
 promote_to_arrays_(n::Int, ::Type{SparseMatrixCSC}, J::UniformScaling) = sparse(J, n, n)
 
 """
@@ -409,7 +463,7 @@ Concatenate along dimension 2. Return a SparseMatrixCSC object.
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
-sparse_hcat(Xin::Union{AbstractVecOrMat,Number}...) = cat(_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))..., dims=Val(2))
+sparse_hcat(Xin::Union{AbstractVecOrMat,Number}...) = _sparse_cat_t(Val(2), promote_eltype(Xin...), map(_makesparse, Xin)...)
 function sparse_hcat(X::Union{AbstractVecOrMat,UniformScaling,Number}...)
     LinearAlgebra._hcat(_sparse(first(X)), map(_makesparse, Base.tail(X))...; array_type = SparseMatrixCSC)
 end
@@ -424,7 +478,7 @@ Concatenate along dimension 1. Return a SparseMatrixCSC object.
     the concatenation with specialized "sparse" matrix types from LinearAlgebra.jl
     automatically yielded sparse output even in the absence of any SparseArray argument.
 """
-sparse_vcat(Xin::Union{AbstractVecOrMat,Number}...) = cat(_sparse(first(Xin)), map(_makesparse, Base.tail(Xin))..., dims=Val(1))
+sparse_vcat(Xin::Union{AbstractVecOrMat,Number}...) = _sparse_cat_t(Val(1), promote_eltype(Xin...), map(_makesparse, Xin)...)
 function sparse_vcat(X::Union{AbstractVecOrMat,UniformScaling,Number}...)
     LinearAlgebra._vcat(_sparse(first(X)), map(_makesparse, Base.tail(X))...; array_type = SparseMatrixCSC)
 end

@@ -375,4 +375,87 @@ end
     end
 end
 
+# An array type from another package that owns the `vcat`/`hcat`/`hvcat` of its own
+# arrays with anything; those methods must not become ambiguous when SparseArrays is
+# loaded (#431)
+struct ConcatArray{T,N} <: AbstractArray{T,N}
+    data::Array{T,N}
+end
+ConcatArray(x::AbstractArray) = ConcatArray(Array(x))
+Base.size(x::ConcatArray) = size(x.data)
+Base.getindex(x::ConcatArray, i::Int) = x.data[i]
+Base.IndexStyle(::Type{<:ConcatArray}) = IndexLinear()
+Base.vcat(x::AbstractMatrix, y::ConcatArray{<:Any,2}) = ConcatArray(vcat(x, y.data))
+Base.hcat(x::AbstractMatrix, y::ConcatArray{<:Any,2}) = ConcatArray(hcat(x, y.data))
+Base.hvcat(rows::Tuple{Vararg{Int}}, x::AbstractMatrix, y::ConcatArray{<:Any,2}) =
+    ConcatArray(hvcat(rows, x, y.data))
+Base.vcat(x::AbstractVector, y::ConcatArray{<:Any,1}) = ConcatArray(vcat(x, y.data))
+Base.hcat(x::AbstractVector, y::ConcatArray{<:Any,1}) = ConcatArray(hcat(x, y.data))
+
+@testset "no ambiguities with concatenation methods of other array types (#431)" begin
+    A = ConcatArray([1 2; 3 4])
+    v = ConcatArray([1, 2])
+    S = sparse([1 0; 0 1])
+    for x in (A, [5 6; 7 8], S)
+        @test vcat(x, A)::ConcatArray == vcat(Array(x), A.data)
+        @test hcat(x, A)::ConcatArray == hcat(Array(x), A.data)
+        @test hvcat((2,), x, A)::ConcatArray == hvcat((2,), Array(x), A.data)
+    end
+    for x in (v, [5, 6], sparse([1, 0]))
+        @test vcat(x, v)::ConcatArray == vcat(Array(x), v.data)
+        @test hcat(x, v)::ConcatArray == hcat(Array(x), v.data)
+    end
+    # with the sparse array first, the generic fallback still yields a sparse result
+    @test vcat(A, S)::SparseMatrixCSC == vcat(A.data, Array(S))
+    @test hcat(A, S)::SparseMatrixCSC == hcat(A.data, Array(S))
+    @test hvcat((2,), A, S)::SparseMatrixCSC == hvcat((2,), A.data, Array(S))
+    @test vcat(A, [5 6; 7 8])::Matrix == vcat(A.data, [5 6; 7 8])
+    @test vcat(v, sparse([1, 0]))::SparseVector == vcat(v.data, [1, 0])
+end
+
+@testset "concatenation with non-numeric eltypes stays dense (#71)" begin
+    S = sparse([1 0 0])
+    M = fill("a", 1, 3)
+    @test vcat(M, S)::Matrix == vcat(M, Array(S))
+    @test hcat(M, S)::Matrix == hcat(M, Array(S))
+    @test hvcat((1, 1), M, S)::Matrix == hvcat((1, 1), M, Array(S))
+    @test vcat(fill("a", 3), sparse([1, 0, 0]))::Vector == vcat(fill("a", 3), [1, 0, 0])
+    # with a UniformScaling, the array type is chosen by `promote_to_array_type`
+    A = fill("a", 2, 2); Z = spzeros(2, 2)
+    @test hcat(I, A, Z)::Matrix == hcat(Matrix(I, 2, 2), A, Array(Z))
+    @test vcat(I, A, Z)::Matrix == vcat(Matrix(I, 2, 2), A, Array(Z))
+    @test hvcat((3,), I, A, Z)::Matrix == hvcat((3,), Matrix(I, 2, 2), A, Array(Z))
+    @test hcat(I, Z, spzeros(2, 2))::SparseMatrixCSC == hcat(Matrix(I, 2, 2), Array(Z), zeros(2, 2))
+end
+
+@testset "concatenation with a leading number fills its block like dense (#383)" begin
+    M = sparse([1 2]); V = sparse([1, 2]); dM = Array(M); dV = Array(V)
+    @test vcat(1, M)::SparseMatrixCSC == vcat(1, dM)
+    @test vcat(1.5, M)::SparseMatrixCSC{Float64} == vcat(1.5, dM)
+    @test vcat(1, M, M)::SparseMatrixCSC == vcat(1, dM, dM)
+    @test vcat(1, V)::SparseVector == vcat(1, dV)
+    @test vcat(V, 3)::SparseVector == vcat(dV, 3)
+    @test hcat(1, M)::SparseMatrixCSC == hcat(1, dM)
+    @test hcat(1, M, 3)::SparseMatrixCSC == hcat(1, dM, 3)
+    @test hvcat((2,), 1, M)::SparseMatrixCSC == hvcat((2,), 1, dM)
+    @test cat(1, M; dims=1)::SparseMatrixCSC == cat(1, dM; dims=1)
+    @test cat(1, M; dims=(1, 2))::SparseMatrixCSC == cat(1, dM; dims=(1, 2))
+    @test [1; M]::SparseMatrixCSC == [1; dM]
+    @test sparse_vcat(1, dM)::SparseMatrixCSC == vcat(1, dM)
+    @test sparse_hcat(1, dM, 3)::SparseMatrixCSC == hcat(1, dM, 3)
+    @test sparse_hvcat((2,), 1, dM)::SparseMatrixCSC == hvcat((2,), 1, dM)
+    @test sparse_vcat(1, 2)::SparseVector == [1, 2]
+    @test sparse_hcat(1, 2)::SparseMatrixCSC == [1 2]
+    # a leading number widens a narrow index type as it did before
+    v8 = sparsevec(Int8[127], [2], 127); A8 = sparse(Int8[127], Int8[1], [2], 127, 2)
+    @test vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
+    @test sparse_vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
+    @test vcat(1, A8)::SparseMatrixCSC{Int,Int} == vcat(1, Array(A8))
+    # shape mismatches throw as for dense
+    @test_throws DimensionMismatch vcat(M, 3)
+    @test_throws DimensionMismatch vcat(1, M, 3)
+    @test_throws DimensionMismatch hcat(1, V)
+    @test_throws DimensionMismatch hcat(V, 3)
+end
+
 end # module SparseConcatenationTests
