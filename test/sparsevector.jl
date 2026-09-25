@@ -239,6 +239,17 @@ end
                 @test all(nonzeros(xr) .> 0.0)
             end
         end
+        # as documented, `rfn` takes `k` without an rng and `(rng, k)` with one, as for matrices
+        let rfn1 = k -> rand(Int8, k), rfn2 = (r, k) -> rand(r, Int8, k)
+            Random.seed!(1234)
+            xv = sprand(20, 0.5, rfn1)
+            Random.seed!(1234)
+            xr = sprand(Random.default_rng(), 20, 0.5, rfn2)
+            @test xv isa SparseVector{Int8,Int} && xr isa SparseVector{Int8,Int}
+            @test xv == xr
+            @test sprand(20, 1, 0.5, rfn1) isa SparseMatrixCSC{Int8,Int}
+            @test sprand(MersenneTwister(5), 20, 1, 0.5, rfn2) isa SparseMatrixCSC{Int8,Int}
+        end
     end
 
     @testset "Undef initializer" begin
