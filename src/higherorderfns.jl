@@ -651,7 +651,12 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
     #
     # Cases without vertical expansion
     Ck = 1
-    if numrows(A) == numrows(B) == numrows(C)
+    fswapped = (y, x) -> f(x, y)
+    if numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows(f, C, A, B)
+        Ck = _broadcast_scalerows!(f, C, A, B, spaceC)
+    elseif numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows(fswapped, C, B, A)
+        Ck = _broadcast_scalerows!(fswapped, C, B, A, spaceC)
+    elseif numrows(A) == numrows(B) == numrows(C)
         @inbounds for j in columns(C)
             setcolptr!(C, j, Ck)
             Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
@@ -897,6 +902,45 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
         end
     end
     return _checkbuffers(C)
+end
+# Row scaling, e.g. `v .* A` or `A ./ v`: `v` is one fully stored column, so its row `i` is its
+# `i`th stored entry, and `f` maps a structural zero of `A` to zero against the entry of `v`
+# in every row where `A` has one. C then has (at most) A's pattern, and scanning A's stored
+# entries replaces merging `v` against every column of `A`, which is O(m * n).
+function _scalesrows(f::Tf, C, A, v) where Tf
+    numcols(v) == 1 != numcols(C) && numcols(A) == numcols(C) || return false
+    nnz(v) == numrows(C) || return false
+    # Probe only the rows where `A` has a structural zero: for a row stored in full the
+    # merge never evaluates `f(0, v[i])`, which may throw, e.g. `sqrt.(A .- v)`, nor
+    # `zero(eltype(A))`, which does not exist for `Any`.
+    nstoredinrow = zeros(Int, numrows(C))
+    @inbounds for j in columns(C), Ak in colstartind(A, j):(colboundind(A, j) - 1)
+        nstoredinrow[storedinds(A)[Ak]] += 1
+    end
+    voffset = colstartind(v, 1) - 1
+    @inbounds for i in 1:numrows(C)
+        nstoredinrow[i] == numcols(C) && continue
+        _iszero(f(zero(eltype(A)), storedvals(v)[voffset + i])) || return false
+    end
+    return true
+end
+function _broadcast_scalerows!(f::Tf, C, A, v, spaceC::Int) where Tf
+    voffset = colstartind(v, 1) - 1
+    Ck = 1
+    @inbounds for j in columns(C)
+        setcolptr!(C, j, Ck)
+        for Ak in colstartind(A, j):(colboundind(A, j) - 1)
+            Ai = storedinds(A)[Ak]
+            Cx = f(storedvals(A)[Ak], storedvals(v)[voffset + Ai])
+            if _isnotzero(Cx)
+                Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, v)))
+                storedinds(C)[Ck] = Ai
+                storedvals(C)[Ck] = Cx
+                Ck += 1
+            end
+        end
+    end
+    return Ck
 end
 _finishempty!(C::AbstractCompressedVector) = C
 _finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)

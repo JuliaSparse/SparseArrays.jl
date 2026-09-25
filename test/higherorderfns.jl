@@ -275,6 +275,42 @@ end
     fthrows(a, b) = iszero(a) && iszero(b) ? error("f(0, 0) evaluated") : a * b
     @test broadcast(fthrows, sparse([0 1.0; 2.0 0]), [1.0, 2.0]) == [0 1.0; 4.0 0]
 
+    # scaling rows by a vector scans the matrix's stored entries instead of merging the
+    # vector against every column, so `f` is called O(nnz + m) times, not O(m * n) (#543)
+    for T in (Float64, ComplexF64)
+        m, n = 40, 30
+        A = sprand(T, m, n, 0.05)
+        v = rand(T, m) .+ 1
+        ncalls = Ref(0)
+        for (f, args) in ((*, (v, A)), (*, (A, v)), (/, (A, v)), (\, (v, A)),
+                           (*, (A, sparse(v))), (*, (sparse(v), A)))
+            ncalls[] = 0
+            counted(x, y) = (ncalls[] += 1; f(x, y))
+            C = broadcast(counted, args...)
+            @test ncalls[] <= nnz(A) + 2m
+            @test C == broadcast(f, map(Array, args)...)
+            @test nnz(C) == nnz(A)
+            ncalls[] = 0
+            D = sprand(T, m, n, 0.5)
+            @test broadcast!(counted, D, args...) == C
+            @test ncalls[] <= nnz(A) + 2m
+        end
+        # a zero in the vector fills its row with `NaN`, which needs the merge
+        v0 = copy(v); v0[3] = 0
+        @test isequal(A ./ v0, sparse(Array(A) ./ v0))
+        @test isequal(v0 .\ A, sparse(v0 .\ Array(A)))
+        @test isequal(view(A, :, 2:n) ./ view(v0, :), sparse(Array(A)[:, 2:n] ./ v0))
+        @test isequal(view(v0, :) .\ view(A, :, 2:n), v0 .\ Array(A)[:, 2:n])
+        @test A .+ v == Array(A) .+ v
+        @test v .+ A == v .+ Array(A)
+        # `f` is not probed against a zero for a row the matrix stores in full
+        @test sqrt.(sparse(T[2 3; 0 0]) .- T[1, 0]) == sqrt.(T[2 3; 0 0] .- T[1, 0])
+        @test sqrt.(T[-1, 0] .- sparse(T[-2 -3; 0 0])) == sqrt.(T[-1, 0] .- T[-2 -3; 0 0])
+    end
+    # nor is a zero constructed, which does not exist for `Any`
+    @test sparse(Any[1 3; 2 4]) .* [2, 3] == [2 6; 6 12]
+    @test [2, 3] .* sparse(Any[1 3; 2 4]) == [2 6; 6 12]
+
 end
 
 
