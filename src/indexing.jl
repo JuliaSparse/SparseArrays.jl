@@ -595,7 +595,7 @@ end
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
     A = parent(V)
     I, J = V.indices
-    if isempty(I) || isempty(J); return A; end
+    if isempty(I) || isempty(J); return V; end
     if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
         for j in J, i in I
             A[i, j] = x

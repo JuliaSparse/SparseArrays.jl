@@ -1096,6 +1096,12 @@ end
     @test sa_filled === sa
     b[1:10, 2:3] .= 0.0
     @test a == b
+    sb = view(a, 1:2, 1:2)
+    @test (@inferred fill!(sb, 1.0)) === sb
+    for empty in (view(a, 1:0, 1:2), view(a, 1:2, 1:0))
+        @test (@inferred fill!(empty, 3.0)) === empty
+    end
+    @test a[1:2, 1:2] == fill(1.0, 2, 2)
     A = sparse([1], [1], [Vector{Float64}(undef, 3)], 3, 3)
     A[1,1] = [1.0, 2.0, 3.0]
     B = deepcopy(A)
