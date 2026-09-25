@@ -1428,6 +1428,15 @@ function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatri
     C
 end
 
+# The Hermitian branches of `\` and `factorize` below lead to the sparse Cholesky/LDLt,
+# which exists only for these floating-point eltypes. Any other eltype, integers in
+# particular, would reach LinearAlgebra's generic `factorize(::HermOrSym)`, a dense
+# Bunch-Kaufman in `Rational{BigInt}`, so it takes the `lu` branch, which converts to
+# floating point like dense `\` does.
+_hermitian_solve(A::AbstractSparseMatrixCSC) =
+    eltype(A) <: Union{Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64} &&
+    ishermitian(A)
+
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
     m, n = size(A)
@@ -1441,7 +1450,7 @@ function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
         elseif istriu(A)
             return \(UpperTriangular(A), B)
         end
-        if ishermitian(A)
+        if _hermitian_solve(A)
             return \(Hermitian(A), B)
         end
         return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
@@ -1468,7 +1477,7 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
                 elseif istriu(A)
                     return \(LowerTriangular($xformop(A)), B)
                 end
-                if ishermitian(A)
+                if _hermitian_solve(A)
                     return \($xformop(Hermitian(A)), B)
                 end
                 return \($xformop(lu(A)), B)
@@ -1496,7 +1505,7 @@ function factorize(A::AbstractSparseMatrixCSC)
         elseif istriu(A)
             return UpperTriangular(A)
         end
-        if ishermitian(A)
+        if _hermitian_solve(A)
             return factorize(Hermitian(A))
         end
         return lu(A)
