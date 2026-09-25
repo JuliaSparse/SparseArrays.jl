@@ -82,8 +82,11 @@ end
 # nnz(A) + length(result) rather than to length(A). Base's `sum`, `prod`, `maximum` and
 # `minimum` forward unknown keywords to `mapreduce`, so the `mapreduce` method serves them all; `any`,
 # `all` and `count` do not and get their own methods below.
+# `@constprop :aggressive` so that the `sparse` branch is resolved from the literal keyword
+# for an adjoint or transpose too, where inference otherwise declines to propagate it and the
+# result type is a `Union` of the dense and the sparse result.
 for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView)
-    @eval function Base.mapreduce(f, op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false)
+    @eval Base.@constprop :aggressive function Base.mapreduce(f, op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false)
         sparse || return Base._mapreduce_dim(f, op, init, A, dims)
         dims === (:) && throw(ArgumentError("a sparse result needs a reduction along a dimension, pass `dims`"))
         return _mapreduce_dim_sparse(f, op, init, A, dims)
@@ -91,13 +94,13 @@ for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOr
     for (fname, _fname, op) in ((:any, :_any, :(Base.or_any)), (:all, :_all, :(Base.and_all)))
         @eval begin
             Base.$fname(A::$T; dims=:, sparse::Bool=false) = Base.$fname(identity, A; dims, sparse)
-            Base.$fname(f, A::$T; dims=:, sparse::Bool=false) =
+            Base.@constprop :aggressive Base.$fname(f, A::$T; dims=:, sparse::Bool=false) =
                 sparse ? mapreduce(f, $op, A; dims, sparse) : Base.$_fname(f, A, dims)
         end
     end
     @eval begin
         Base.count(A::$T; dims=:, init=0, sparse::Bool=false) = count(identity, A; dims, init, sparse)
-        Base.count(f, A::$T; dims=:, init=0, sparse::Bool=false) =
+        Base.@constprop :aggressive Base.count(f, A::$T; dims=:, init=0, sparse::Bool=false) =
             sparse ? mapreduce(Base._bool(f), Base.add_sum, A; dims, init, sparse) : Base._count(f, A, dims, init)
     end
 end

@@ -419,6 +419,27 @@ end
         @test any(!iszero, X; dims, sparse = true) == any(!iszero, M; dims)
         @test all(iszero, X; dims, sparse = true) == all(iszero, M; dims)
     end
+    # the result type of an adjoint or transpose is inferred from the `sparse` keyword, as for
+    # the parent: dense by default, sparse with `sparse = true`
+    B = C .!= 0
+    for (X, Xb) in ((A', B'), (transpose(A), transpose(B)), (C', B')), dims in (1, 2)
+        @test @inferred(sum(X; dims)) isa Matrix
+        @test @inferred(prod(X; dims)) isa Matrix
+        @test @inferred(sum(abs, X; dims, init = 0.0)) isa Matrix
+        @test @inferred(any(Xb; dims)) isa Matrix{Bool}
+        @test @inferred(any(!iszero, X; dims)) isa Matrix{Bool}
+        @test @inferred(all(Xb; dims)) isa Matrix{Bool}
+        @test @inferred(count(Xb; dims)) isa Matrix{Int}
+        @test @inferred(count(!iszero, X; dims)) isa Matrix{Int}
+        # the literal keyword is a constant only inside a function body, not in `@inferred`'s `kwcall`
+        @test @inferred((x -> sum(x; dims, sparse = true))(X)) isa SparseMatrixCSC
+        @test @inferred((x -> maximum(abs, x; dims, sparse = true))(X)) isa SparseMatrixCSC
+        @test @inferred((x -> any(x; dims, sparse = true))(Xb)) isa SparseMatrixCSC{Bool}
+        @test @inferred((x -> count(x; dims, sparse = true))(Xb)) isa SparseMatrixCSC{Int}
+        @test @inferred((x -> count(!iszero, x; dims, sparse = true))(X)) isa SparseMatrixCSC{Int}
+        @test Base.return_types(x -> maximum(x; dims), (typeof(X),)) == Base.return_types(x -> maximum(x; dims), (typeof(parent(X)),))
+    end
+    @test @inferred(any(!iszero, v; dims = 1)) isa Vector{Bool}
     @test sum(S) ≈ sum(Matrix(S)) && prod(x -> x + 1, S) ≈ prod(x -> x + 1, Matrix(S))
     @test nnz(sum(v; dims = 1, sparse = true)) == 1 && nnz(sum(spzeros(5); dims = 1, sparse = true)) == 0
     # reducing both dimensions of an adjoint keeps its element order for a non-commutative `op`
