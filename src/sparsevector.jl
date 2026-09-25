@@ -73,6 +73,7 @@ function nnz(x::SparseColumnView)
 end
 nnz(x::SparseVectorView) = nnz(parent(x))
 nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))
+nnz(x::AdjOrTransSparseVectorOrView) = nnz(parent(x))
 
 """
     nzrange(x::SparseVectorOrView, col)

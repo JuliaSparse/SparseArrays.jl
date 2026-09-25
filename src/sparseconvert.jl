@@ -87,15 +87,15 @@ _sparsem(A::AbstractSparseVector) = A
 # Transpose/Adjoint of sparse vector (returning sparse matrix)
 function _sparsem(A::AdjOrTrans{<:Any,<:AbstractSparseVector})
     B = parent(A)
-    n = length(B)
-    Ti = eltype(nonzeroinds(B))
-    fadj = A isa Transpose ? transpose : adjoint
+    return _rowmatrix(length(B), nonzeroinds(B), wrapperop(A).(nonzeros(B)))
+end
+# the `1 x n` sparse matrix storing `nzval` at the columns `nzind` (sorted)
+function _rowmatrix(n, nzind::AbstractVector{Ti}, nzval) where Ti
     colptr = fill!(Vector{Ti}(undef, n + 1), 0)
     colptr[1] = 1
-    colptr[nonzeroinds(B) .+ 1] .= 1
+    colptr[nzind .+ 1] .= 1
     cumsum!(colptr, colptr)
-    rowval = fill!(similar(nonzeroinds(B)), 1)
-    nzval = fadj.(nonzeros(B))
+    rowval = fill!(similar(nzind), 1)
     SparseMatrixCSC(1, n, colptr, rowval, nzval)
 end
 
