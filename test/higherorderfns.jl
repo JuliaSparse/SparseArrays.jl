@@ -208,6 +208,23 @@ end
     r = sparse([1, 1], [1, 3], [0, 2], 1, 3)
     C = broadcast!(x -> 2x, spzeros(Int, 2, 3), r)
     @test C == 2 .* repeat(Array(r), 2, 1) && getcolptr(C) == [1, 3, 3, 5]
+    # an n×1 matrix broadcast into an empty vector grows the destination
+    c = sparse([1, 3], [1, 1], [0.0, 2.0], 4, 1)
+    for f in (zero, x -> 2x)
+        y = broadcast!(f, spzeros(4), c)
+        @test y == f.(vec(Array(c))) && nonzeroinds(y) == [1, 3]
+    end
+    @test broadcast!(+, spzeros(4), c, c) == [0, 0, 4, 0]
+    # map over wrappers and views keeps the stored entries, as over the parent
+    M = sparse([1, 1, 2], [1, 2, 2], [1.0im, 0.0, 2.0], 3, 3)
+    x = sparsevec([1, 2], [0.0, 3.0], 4)
+    for (W, P) in ((transpose(M), copy(transpose(M))), (M', copy(M')), (view(x, :), x),
+                   (view(x, 1:3), x[1:3]), (view(M, :, 2), M[:, 2]))
+        for f in (zero, x -> 2x)
+            C = map(f, W)
+            @test C isa AbstractSparseArray && C == map(f, Array(W)) && samepattern(C, P)
+        end
+    end
 end
 
 @testset "broadcast[!] implementation specialized for pairs of (input) sparse vectors/matrices" begin
