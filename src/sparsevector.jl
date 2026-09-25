@@ -1324,29 +1324,32 @@ function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorOrVie
     map!((x, y) -> op(x, f(y)), R, R, A)
 end
 
-for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum"))
+# The first index of a sparse vector that is not stored; the caller guarantees one exists.
+function _firstimplicitzero(nzinds::AbstractVector)
+    @inbounds for k in eachindex(nzinds)
+        nzinds[k] == k || return k
+    end
+    return length(nzinds) + 1
+end
+
+# `replaces(best, new)` is the test Base's dense `findmin`/`findmax` scan uses to move on
+# to a later element, so the sparse result agrees with dense on ties, NaN and signed zeros.
+for (fun, replaces, word) in ((:findmin, :(Base.isgreater), "minimum"), (:findmax, :isless, "maximum"))
     @eval function $fun(f, x::AbstractSparseVector{T}) where {T}
         n = length(x)
         n > 0 || throw(ArgumentError($word * " over empty array is not allowed"))
         nzvals = nonzeros(x)
         m = length(nzvals)
-        m == 0 && return zero(T), firstindex(x)
+        m == 0 && return f(zero(T)), Int(firstindex(x))
         val, index = $fun(f, nzvals)
         m == n && return val, index
-        nzinds = nonzeroinds(x)
+        index = Int(nonzeroinds(x)[index])
         zeroval = f(zero(T))
-        ($comp(val, zeroval) || isnan(val)) && return val, nzinds[index]
-        # we need to find the first zero, which could be stored or implicit
-        # we try to avoid findfirst(iszero, x)
-        sindex = findfirst(_iszero, nzvals) # first stored zero, if any
-        zindex = findfirst(i -> i < nzinds[i], eachindex(nzinds)) # first non-stored zero
-        index = if isnothing(sindex)
-            # non-stored zero are contiguous and at the end
-            isnothing(zindex) && last(nzinds) < lastindex(x) ? last(nzinds) + 1 : zindex
-        else
-            min(sindex, zindex)
+        zindex = _firstimplicitzero(nonzeroinds(x))
+        if $replaces(val, zeroval) || (zindex < index && !$replaces(zeroval, val))
+            return zeroval, zindex
         end
-        return zeroval, index
+        return val, index
     end
 end
 
