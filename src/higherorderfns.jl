@@ -12,6 +12,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
                       SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, SparseMatrixCSCOrView,
+                      SparseMatrixCSCColumnSubset, SparseColumnView, SparseVectorPartialView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
                       _iszero, _isnotzero, _is_fixed, _checkbuffers, @if_move_fixed
@@ -71,6 +72,9 @@ PromoteToSparse(::Val{2}) = PromoteToSparse()
 PromoteToSparse(::Val{N}) where N = Broadcast.DefaultArrayStyle{N}()
 
 Broadcast.BroadcastStyle(::Type{<:AdjOrTrans{<:Any,<:SparseVecOrMat}}) = PromoteToSparse()
+# views whose `copy` is a sparse array built in O(nnz), used by `_sparsifystructured`
+const SparseViewOfColumns = Union{SparseMatrixCSCColumnSubset,SparseColumnView,SparseVectorPartialView}
+Broadcast.BroadcastStyle(::Type{<:SparseViewOfColumns}) = PromoteToSparse()
 
 Broadcast.BroadcastStyle(s::SparseVecOrMatStyle, ::Broadcast.AbstractArrayStyle{0}) = s
 Broadcast.BroadcastStyle(s::SparseVecOrMatStyle, ::Broadcast.DefaultArrayStyle{0}) = s
@@ -1288,6 +1292,7 @@ end
 _sparsifystructured(M::AbstractMatrix) = _isdenselike(M) ? _fullystored(M) : SparseMatrixCSC(M)
 _sparsifystructured(V::AbstractVector) = _isdenselike(V) ? _fullystored(V) : SparseVector(V)
 _sparsifystructured(S::SparseVecOrMat) = S
+_sparsifystructured(S::SparseViewOfColumns) = copy(S)
 _sparsifystructured(x) = x
 
 # Dense arguments keep every entry stored, zeros included. No position of such an argument

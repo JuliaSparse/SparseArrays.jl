@@ -300,7 +300,7 @@ end
         @test isequal(A ./ v0, sparse(Array(A) ./ v0))
         @test isequal(v0 .\ A, sparse(v0 .\ Array(A)))
         @test isequal(view(A, :, 2:n) ./ view(v0, :), sparse(Array(A)[:, 2:n] ./ v0))
-        @test isequal(view(v0, :) .\ view(A, :, 2:n), v0 .\ Array(A)[:, 2:n])
+        @test isequal(view(v0, :) .\ view(A, :, 2:n), sparse(v0 .\ Array(A)[:, 2:n]))
         @test A .+ v == Array(A) .+ v
         @test v .+ A == v .+ Array(A)
         # `f` is not probed against a zero for a row the matrix stores in full
@@ -506,6 +506,21 @@ end
     S = sprand(N, 2N, p)
     @test broadcast(*, A, view(S, :, 1:N))::SparseMatrixCSC ==
         sparse(broadcast(*, Array(A), Array(S[:, 1:N])))
+    # and on their own, sparse views of whole columns give a sparse result
+    x = sparsevec([1, 3, 5], [0.0im, 2.0, 3.0im], 6)
+    for (X, T) in ((view(S, :, :), SparseMatrixCSC), (view(S, :, 2:N), SparseMatrixCSC),
+                   (view(S, :, [1, 3]), SparseMatrixCSC), (view(S, :, 2), SparseVector),
+                   (view(x, :), SparseVector), (view(x, 2:5), SparseVector))
+        fX = Array(X)
+        @test (2 .* X)::T == 2 .* fX && nnz(2 .* X) <= nnz(copy(X))
+        @test (X .+ 1)::T == fX .+ 1
+        @test (X .* fX)::T == fX .* fX
+        @test (X .+ copy(X))::T == 2 .* fX
+        @test isequal((X ./ fX)::T, sparse(fX ./ fX))
+    end
+    # sparse views are converted with `copy`, which keeps their stored entries in O(nnz)
+    @test nnz(SparseArrays.HigherOrderFns._sparsifystructured(view(x, :))) == 3
+    @test nnz(SparseArrays.HigherOrderFns._sparsifystructured(view(sparse([1, 1], [1, 2], [0.0, 1.0]), :, 1:2))) == 2
     # a view of an unsupported array still diverts to generic dense broadcast
     @test broadcast(*, A, view(PermutedDimsArray(M, (2, 1)), :, :)) isa Matrix
 end
