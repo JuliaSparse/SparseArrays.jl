@@ -677,7 +677,7 @@ end
         Fs = cholesky(As, perm=[1:3;])
         @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :p, :ptr])
         @test Fs.p == [1:3;]
-        @test sparse(Fs.L) ≈ Lf
+        @test @inferred(sparse(Fs.L))::SparseMatrixCSC{Tv, Ti} ≈ Lf
         @test sparse(Fs) ≈ As
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.U)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.PtL)
@@ -720,7 +720,7 @@ end
         Fs = ldlt(As, perm=[1:3;])
         @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP, :p, :ptr])
         @test Fs.p == [1:3;]
-        @test sparse(Fs.LD) ≈ LDf
+        @test @inferred(sparse(Fs.LD))::SparseMatrixCSC{Tv, Ti} ≈ LDf
         @test sparse(Fs) ≈ As
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.L)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.U)
@@ -866,6 +866,27 @@ end
     @test chI \ sparseb ≈ sparseb
     @test chI \ sparseB ≈ sparseB
     @test chI \ sparseI ≈ sparseI
+    # a sparse right-hand side gives a `SparseMatrixCSC`, never a `Symmetric` or
+    # `Hermitian` wrapper, so the solve is inferred
+    for T in (Tv, Complex{Tv})
+        A = sparse(T <: Real ? T[4 1 0; 1 3 1; 0 1 2] : T[4 1+im 0; 1-im 3 1; 0 1 2])
+        B = sparse(T <: Real ? T[1 0 0; 0 2 0; 3 0 1] : T[1 0 0; 0 2im 0; 3 0 1])
+        Ad, Bd = Matrix(A), Matrix(B)
+        for F in (cholesky(A), ldlt(A))
+            @test @inferred(F \ B)::SparseMatrixCSC{T, Ti} ≈ Ad \ Bd
+            @test @inferred(F' \ B)::SparseMatrixCSC{T, Ti} ≈ Ad' \ Bd
+            @test @inferred(F \ B')::SparseMatrixCSC{T, Ti} ≈ Ad \ Bd'
+            @test @inferred(F.PtL \ B)::SparseMatrixCSC{T, Ti} ≈ F.PtL \ Bd
+            @test @inferred(F.PtL' \ B)::SparseMatrixCSC{T, Ti} ≈ F.PtL' \ Bd
+        end
+        F = cholesky(A)
+        L = @inferred(sparse(F.L))::SparseMatrixCSC{T, Ti}
+        @test L * L' ≈ Ad[F.p, F.p]
+        F = ldlt(A)
+        LD = @inferred(sparse(F.LD))::SparseMatrixCSC{T, Ti}
+        L, d = CHOLMOD.getLd!(copy(LD))
+        @test L * Diagonal(d) * L' ≈ Ad[F.p, F.p]
+    end
 end
 
 @testset "Issue 630" begin
