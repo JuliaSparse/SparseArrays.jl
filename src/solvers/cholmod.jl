@@ -400,7 +400,8 @@ nothing done to one affects the other.
 CHOLMOD owns the memory, which is released by a finalizer. The pointer is null after
 deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!` takes
 an optional [`CHOLMOD.CholmodWS`](@ref SparseArrays.CHOLMOD.CholmodWS) to avoid
-allocating; the refactorizations take a lock internal to `F`.
+allocating. Solves do not modify `F`, so several tasks can solve with one `F` at once; see
+[Multithreading and thread safety](@ref).
 
 # Examples
 ```jldoctest
@@ -415,7 +416,6 @@ true
 """
 mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
     ptr::Ptr{cholmod_factor}
-    lock::ReentrantLock
     function Factor{Tv, Ti}(ptr::Ptr{cholmod_factor}, register_finalizer = true) where {Tv, Ti}
         if ptr == C_NULL
             throw(ArgumentError("factorization construction failed for " *
@@ -432,7 +432,7 @@ mutable struct Factor{Tv<:VTypes, Ti<:ITypes} <: Factorization{Tv}
             free!(ptr, Ti)
             throw(CHOLMODException("dtype=$(dtyp(Tv)) not supported"))
         end
-        F = new(ptr, ReentrantLock())
+        F = new(ptr)
         if register_finalizer
             finalizer(free!, F)
         end
@@ -1565,7 +1565,7 @@ end
 @inline function getproperty(F::Factor, sym::Symbol)
     if sym === :p
         return get_perm(F)
-    elseif sym === :ptr || sym === :lock
+    elseif sym === :ptr
         return getfield(F, sym)
     else
         return FactorComponent(F, sym)
@@ -1684,10 +1684,8 @@ end
 function cholesky!(F::Factor{Tv}, A::Sparse{Tv};
                    shift::Real=0.0, check::Bool = true) where Tv
     check_hermitian_stype(A)
-    @lock F.lock begin
-        @cholmod_param final_ll = true begin
-            factorize_p!(A, shift, F)
-        end
+    @cholmod_param final_ll = true begin
+        factorize_p!(A, shift, F)
     end
     check && (issuccess(F) || throw(factorization_exception(F)))
     return F
@@ -1860,10 +1858,8 @@ LinearAlgebra._cholesky(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}}
 function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
     check_hermitian_stype(A)
-    @lock F.lock begin
-        change_factor!(F, false, false, true, false)
-        factorize_p!(A, shift, F)
-    end
+    change_factor!(F, false, false, true, false)
+    factorize_p!(A, shift, F)
     check && (issuccess(F) || throw(factorization_exception(F)))
     return F
 end
@@ -2017,11 +2013,9 @@ Only real factorizations are supported; CHOLMOD cannot update or downdate a comp
 See also [`lowrankupdate`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!`](@ref).
 """
 function lowrankupdate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
-    @lock F.lock begin
-        #Reorder and copy V to account for permutation
-        C = lowrank_reorder(V, get_perm(F), Tv, Ti)
-        lowrankupdowndate!(F, C, Cint(1))
-    end
+    #Reorder and copy V to account for permutation
+    C = lowrank_reorder(V, get_perm(F), Tv, Ti)
+    lowrankupdowndate!(F, C, Cint(1))
 end
 
 """
@@ -2036,11 +2030,9 @@ Only real factorizations are supported; CHOLMOD cannot update or downdate a comp
 See also [`lowrankdowndate`](@ref), [`lowrankupdate`](@ref), [`lowrankupdate!`](@ref).
 """
 function lowrankdowndate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
-    @lock F.lock begin
-        #Reorder and copy V to account for permutation
-        C = lowrank_reorder(V, get_perm(F), Tv, Ti)
-        lowrankupdowndate!(F, C, Cint(0))
-    end
+    #Reorder and copy V to account for permutation
+    C = lowrank_reorder(V, get_perm(F), Tv, Ti)
+    lowrankupdowndate!(F, C, Cint(0))
 end
 
 """
@@ -2256,29 +2248,27 @@ for TI in IndexTypes
         if xtyp(T) != s.xtype || dtyp(T) != s.dtype
             throw(ArgumentError("element type of the solution array does not match the factorization"))
         end
-        @lock L.lock begin
-            dense_x = ws.dense_x
-            dense_x.nrow  = size(x, 1)
-            dense_x.ncol  = size(x, 2)
-            dense_x.nzmax = length(x)
-            dense_x.d     = stride(x, 2)
-            dense_x.x     = pointer(x)
-            dense_x.z     = C_NULL
-            dense_x.xtype = xtyp(T)
-            dense_x.dtype = dtyp(T)
+        dense_x = ws.dense_x
+        dense_x.nrow  = size(x, 1)
+        dense_x.ncol  = size(x, 2)
+        dense_x.nzmax = length(x)
+        dense_x.d     = stride(x, 2)
+        dense_x.x     = pointer(x)
+        dense_x.z     = C_NULL
+        dense_x.xtype = xtyp(T)
+        dense_x.dtype = dtyp(T)
 
-            ws.X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
-            Bptr = _setup_bptr(b, ws.dense_b)
-            status = GC.@preserve x b L ws begin
-                @checked $(cholname(:solve2, TI))(
-                    CHOLMOD_A, L,
-                    Bptr, C_NULL,
-                    ws.X, C_NULL,
-                    ws.Y, ws.E,
-                    getcommon($TI))
-            end
-            @assert !iszero(status)
+        ws.X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
+        Bptr = _setup_bptr(b, ws.dense_b)
+        status = GC.@preserve x b L ws begin
+            @checked $(cholname(:solve2, TI))(
+                CHOLMOD_A, L,
+                Bptr, C_NULL,
+                ws.X, C_NULL,
+                ws.Y, ws.E,
+                getcommon($TI))
         end
+        @assert !iszero(status)
     end
 
     @eval function ldiv!(x::StridedVecOrMat{T},

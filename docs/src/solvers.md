@@ -157,47 +157,33 @@ SparseArrays.SPQR.SpqrWS
 
 ## Multithreading and thread safety
 
-Each factorization object has an internal lock, and every call that reads or changes its
-mutable state (the factors held by the C library, the stored matrix and the status) holds that lock for the whole call. Calls with one factorization from several
-tasks are therefore safe but run one at a time, even those that only read it. To work in
-parallel, give every task its own `copy` of the factorization: a copy shares nothing that
-any call modifies with the original or with the other copies, so its calls never wait for
-theirs.
+Solving with a factorization does not modify it, so any number of tasks can solve with one
+factorization at the same time, with `\` or `ldiv!`, and the solves run in parallel. The
+same holds for the other calls that only read it, such as `det`, `F.L` or `copy`, and for
+factorizing different matrices from different tasks. A `workspace` passed to `ldiv!` can
+only be used by one call at a time, so give each task its own.
 
-| Type | `copy(F)` | Calls serialized by the lock of one `F` |
-|:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
-| `SPQR.QRSparse` | independent copy of the factors and permutations; new lock | `\` and `ldiv!`, with `F` or `F'` |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
+With the default OpenBLAS, parallel solves with a supernodal `cholesky` or `ldlt` factor may
+not speed up, because OpenBLAS serializes the many small BLAS calls they make
+([OpenBLAS#5589](https://github.com/OpenMathLib/OpenBLAS/issues/5589)). A vendor-provided
+BLAS, such as MKL through [MKL.jl](https://github.com/JuliaLinearAlgebra/MKL.jl) or Apple's
+Accelerate through [AppleAccelerate.jl](https://github.com/JuliaLinearAlgebra/AppleAccelerate.jl),
+can potentially give better performance.
 
-An independent copy is unaffected by anything done to the original, and the original by
-anything done to the copy. `deepcopy(F)` returns `copy(F)` for all three types, and `copy`
-of `F'` or `transpose(F)` wraps `copy(F)`. A copy duplicates the factors, so make one per
-task rather than one per right-hand side:
+Changing a factorization while another task uses it is not safe. This covers `lu!`,
+`cholesky!`, `ldlt!`, the low-rank updates and `CHOLMOD.free!`. Synchronize those calls
+yourself, or give each task its own `copy(F)`. A copy is independent: nothing done to one
+affects the other. `deepcopy(F)` does the same.
 
 ```julia
 using LinearAlgebra, SparseArrays
 
 F = lu(A)
 X = similar(B)
-Threads.@threads for cols in collect(Iterators.partition(axes(B, 2), cld(size(B, 2), Threads.nthreads())))
-    Fj = copy(F)
-    for j in cols
-        ldiv!(view(X, :, j), Fj, view(B, :, j))
-    end
+Threads.@threads for j in axes(B, 2)
+    ldiv!(view(X, :, j), F, view(B, :, j))
 end
 ```
-
-For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`
-and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
-`Factor` is not safe to share between tasks when any of them may refactorize or update it.
-Use a separate `copy(F)` per task in that case; note that this duplicates the factor's
-memory.
-
-CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
-structure. SparseArrays creates one lazily for each Julia task (and index type) and keeps
-it in task-local storage, so factorizing different matrices from different tasks needs no
-coordination.
 
 ## Tuning the factorizations
 

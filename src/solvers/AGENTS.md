@@ -22,18 +22,12 @@ on the GPL libraries; see the Layout section there.
 - Initialization is lazy and process-once, done before the first C call rather than in
   `__init__`. Library handles belong to `LibSuiteSparse`; every submodule imports each
   symbol it uses explicitly, and never references a library by bare symbol.
-- Each factorization has one plain `_lock::ReentrantLock` field. Every call that touches
-  its mutable state (C factor objects, matrix arrays, workspaces, status, control and
-  info) holds `@lock F._lock` for the whole call, including argument checks that read
-  the factor and any `issuccess` check after refactorization. Read-only calls serialize
-  too. Where a locked method calls another, rely on reentrancy or split out an unlocked
-  kernel, whichever keeps hot paths to one acquisition.
-- `copy(F)` is fully independent: it shares nothing that any call modifies, and it
-  holds the source's lock while it reads any of that state. Parallel work uses one copy
-  per task; document threading in the docs.
-- Never hold the locks of two factorizations at once: lock the source, make the private
-  copy, release, then work on the copy. Finalizers never lock; an explicit `free!`
-  locks and the finalizer calls an unlocked helper.
+- Factorizations have no locks. Solves and other reads must not write the factorization:
+  keep solve scratch in a workspace passed to `ldiv!` or allocated per call, and pass
+  `C_NULL` for UMFPACK's `Info` where the call only reads. Changing a factorization while
+  another task uses it is the caller's responsibility, as for dense factorizations.
+- `copy(F)` and `deepcopy(F)` return an independent factorization that shares nothing
+  with `F`.
 - Do not change ordering or tolerance defaults without an opt-in keyword.
 - Test both index types: SuiteSparse selects the C entry point by index type.
   Single-precision tests need well-conditioned inputs. Explicit `GC.gc()` calls belong

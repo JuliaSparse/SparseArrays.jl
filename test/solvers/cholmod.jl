@@ -353,6 +353,10 @@ for Tv ∈ (Float32, Float64)
     F = cholesky(sparse(Tv[2 1; 1 2]))
     ws = CHOLMOD.CholmodWS(F)
     @test @inferred((ws -> ws.Y[])(ws)) isa Ptr
+    # solves keep nothing in the factor, and each task gets its own Common,
+    # so tasks can solve with one factor at once
+    @test fieldnames(typeof(F)) == (:ptr,)
+    @test fetch(@async SparseArrays.CHOLMOD.getcommon()) !== SparseArrays.CHOLMOD.getcommon()
 end
 
 @testset "Issue #9915" begin

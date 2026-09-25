@@ -19,14 +19,12 @@ measure test time, in addition to the top-level `AGENTS.md`.
 - Preserve issue references on regression tests.
 - `ambiguous.jl` is not part of the default run; CI gives it its own job.
 - `solvers/threads.jl` owns tests requiring fresh process state. Its `testprocess.jl`
-  helper preserves the active project and resolved load path, verifies the checkout
-  loaded by the child, and explicitly selects default-pool thread counts. The file has
-  two roles: the children it starts with one and four threads include it again with
-  `SPARSEARRAYS_TEST_THREADS_CHILD` set, which selects the solver concurrency checks
-  themselves. It also runs `cholmod_lifetime.jl`, which is not a suite of its own, and
-  covers library-directory selection. Keep the rooting stress
-  workload in the lifetime suite until a demonstrated reproducer supports a smaller
-  replacement.
+  helper preserves the active project and resolved load path and verifies the checkout
+  loaded by the child. It runs `cholmod_lifetime.jl`, which is not a suite of its own,
+  and covers library-directory selection. Keep the rooting stress workload in the
+  lifetime suite until a demonstrated reproducer supports a smaller replacement.
+- Solver thread safety is tested structurally, without threads: solves leave the
+  factorization unchanged and each task gets its own CHOLMOD Common.
 
 ## Coverage dimensions
 

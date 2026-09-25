@@ -127,7 +127,6 @@ end
         for i in [:n, :m, :status]
             @test getproperty(Af, i) == getproperty(Af1, i)
         end
-        @test Af1.lock !== Af.lock
         @test Af1.symbolic.p != Af.symbolic.p && Af1.numeric.p != Af.numeric.p
     end
     @testset "test copy(UmfpackLU)" begin
@@ -624,6 +623,39 @@ end
     # a factorization without factors, or a failed one, copies as one
     @test _isnull_numeric(copy(UMFPACK.UmfpackLU(A)))
     @test !issuccess(copy(lu(sparse([1.0 2; 2 4]); check=false)))
+end
+
+@testset "reads and solves do not write the factorization, $Tv" for Tv in (Float64, ComplexF64)
+    A = SparseMatrixCSC{Tv,Int}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    b = Tv[1, 2, 3]
+    x = Matrix(A) \ b
+    F = lu(A)
+    snapshot = map(f -> (v = getfield(F, f); v isa AbstractArray ? copy(v) : v), fieldnames(typeof(F)))
+    ptrs = (F.symbolic.p, F.numeric.p)
+    ws = UMFPACK.UmfpackWS(F)
+    @test F \ b ≈ x
+    @test F' \ b ≈ Matrix(A)' \ b
+    @test ldiv!(zeros(Tv, 3), F, b; workspace = ws) ≈ x
+    @test ldiv!(zeros(Tv, 3, 2), F, [b b]) ≈ [x x]
+    @test F \ complex.(b) ≈ x
+    @test det(F) ≈ det(Matrix(A))
+    @test logabsdet(F)[1] ≈ logabsdet(Matrix(A))[1]
+    @test UMFPACK.rcond(F) > 0
+    @test nnz(F) > 0
+    @test F.:(:) == (F.L, F.U, F.p, F.q, F.Rs)
+    UMFPACK.umfpack_report_numeric(F, 0)
+    UMFPACK.umfpack_report_symbolic(F, 0)
+    # a solve's statistics go to a caller-owned info vector
+    info = fill(-1.0, UMFPACK.UMFPACK_INFO)
+    @test ldiv!(zeros(Tv, 3), F, b; info) ≈ x
+    L = SparseArrays.LibSuiteSparse
+    @test info[L.UMFPACK_STATUS + 1] == L.UMFPACK_OK
+    @test info[L.UMFPACK_SOLVE_FLOPS + 1] > 0
+    @test F' \ b ≈ ldiv!(zeros(Tv, 3), F', b; info)
+    @test_throws ArgumentError ldiv!(zeros(Tv, 3), F, b; info = zeros(3))
+    UMFPACK.show_umf_info(F, info, 0) # print level 0: checks the method, prints nothing
+    @test all(map(isequal, map(f -> getfield(F, f), fieldnames(typeof(F))), snapshot))
+    @test (F.symbolic.p, F.numeric.p) == ptrs
 end
 
 @testset "deepcopy does not duplicate the C pointers" begin
