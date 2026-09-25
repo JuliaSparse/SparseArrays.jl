@@ -11,6 +11,27 @@ function Base.reducedim_initarray(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTr
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 end
 
+# Base seeds `maximum`, `minimum` and `extrema` along a dimension from the first slice and,
+# when `A` is empty, takes `map(f, slice)` as the result, which for a sparse `A` is sparse.
+# Seeding from a dense copy of the slice (one row, column or element) keeps the result an
+# `Array` either way.
+function _reducedim_init_dense(f, op, A, region)
+    ri = Base.reduced_indices(A, region)   # also validates `region`
+    any(i -> isempty(axes(A, i)), region) && Base._empty_reduce_error()
+    return Base.reducedim_init(f, op, Array(view(A, ri...)), region)
+end
+for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView)
+    @eval begin
+        Base.reducedim_init(f, op::typeof(max), A::$T, region) = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f, op::typeof(min), A::$T, region) = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), A::$T, region) =
+            _reducedim_init_dense(f, op, A, region)
+        # Base seeds these with zero, from no slice; disambiguates from the `max` method above
+        Base.reducedim_init(f::Union{typeof(abs),typeof(abs2)}, op::typeof(max), A::$T, region) =
+            Base.reducedim_initarray(A, region, zero(f(zero(eltype(A)))), Base._realtype(f, eltype(A)))
+    end
+end
+
 # General mapreduce
 function _mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G,T}
     nzeros == 0 && return v0
