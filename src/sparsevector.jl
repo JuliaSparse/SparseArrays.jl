@@ -1055,7 +1055,7 @@ macro unarymap_nz2z_z2z(op, TF)
             xnzval = nonzeros(x)
             m = length(xnzind)
 
-            ynzind = copy(xnzind)
+            ynzind = Vector{Ti}(xnzind)
             ynzval = Vector{R}(undef, m)
             @inbounds for j = 1:m
                 ynzval[j] = $(op)(xnzval[j])
