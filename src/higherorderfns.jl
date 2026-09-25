@@ -12,6 +12,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       AbstractCompressedVector, AbstractSparseVector, AbstractSparseMatrixCSC,
                       AbstractSparseMatrix, AbstractSparseArray,
                       SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, SparseMatrixCSCOrView,
+                      SparseColumnView, SparseVectorView, SparseVectorPartialView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
                       _iszero, _isnotzero, _is_fixed, _checkbuffers, @if_move_fixed
@@ -154,6 +155,10 @@ end
 # (2) map[!] entry points
 map(f::Tf, A::AbstractCompressedVector) where {Tf} = _noshapecheck_map(f, A)
 map(f::Tf, A::AbstractSparseMatrixCSC) where {Tf} = _noshapecheck_map(f, A)
+# `copy` keeps the stored entries, so these keep the input's pattern like the methods above
+map(f::Tf, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) where {Tf} = _noshapecheck_map(f, copy(A))
+map(f::Tf, x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) where {Tf} =
+    _noshapecheck_map(f, copy(x))
 # more specific than both the SparseVecOrMat and the SparseOrStructuredMatrix methods
 map(f::Tf, A::AbstractSparseMatrixCSC, Bs::Vararg{AbstractSparseMatrixCSC,N}) where {Tf,N} =
     (_checksameshape(A, Bs...); _noshapecheck_map(f, A, Bs...))
@@ -252,6 +257,7 @@ end
 @inline _densennz(shape::NTuple{2}) = shape[1] * shape[2]
 _maxnnzfrom(shape::NTuple{1}, A::AbstractCompressedVector) = nnz(A) * div(shape[1], length(A))
 _maxnnzfrom(shape::NTuple{2}, A::AbstractCompressedVector) = nnz(A) * div(shape[1], length(A)) * shape[2]
+_maxnnzfrom(shape::NTuple{1}, A::AbstractSparseMatrixCSC) = nnz(A) * div(shape[1], size(A, 1))
 _maxnnzfrom(shape::NTuple{2}, A::AbstractSparseMatrixCSC) = nnz(A) * div(shape[1], size(A, 1)) * div(shape[2], size(A, 2))
 @inline _maxnnzfrom_each(shape, ::Tuple{}) = ()
 @inline _maxnnzfrom_each(shape, As) = (_maxnnzfrom(shape, first(As)), _maxnnzfrom_each(shape, tail(As))...)
