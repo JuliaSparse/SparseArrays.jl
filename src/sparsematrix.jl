@@ -3249,7 +3249,7 @@ end
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
     A = V.parent
     I, J = V.indices
-    if isempty(I) || isempty(J); return A; end
+    if isempty(I) || isempty(J); return V; end
     # lt=≤ to check for strict sorting
     if !issorted(I, lt=≤); I = sort!(unique(I)); end
     if !issorted(J, lt=≤); J = sort!(unique(J)); end
