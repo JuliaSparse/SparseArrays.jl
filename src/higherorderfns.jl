@@ -651,10 +651,11 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
     #
     # Cases without vertical expansion
     Ck = 1
+    fswapped = (y, x) -> f(x, y)
     if numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows(f, C, A, B)
         Ck = _broadcast_scalerows!(f, C, A, B, spaceC)
-    elseif numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows((y, x) -> f(x, y), C, B, A)
-        Ck = _broadcast_scalerows!((y, x) -> f(x, y), C, B, A, spaceC)
+    elseif numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows(fswapped, C, B, A)
+        Ck = _broadcast_scalerows!(fswapped, C, B, A, spaceC)
     elseif numrows(A) == numrows(B) == numrows(C)
         @inbounds for j in columns(C)
             setcolptr!(C, j, Ck)
