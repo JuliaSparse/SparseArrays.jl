@@ -120,15 +120,15 @@ end
         umfpack_report(Af)
     end
     function test_ws_dup(Af, Af1)
-        for i in [:colptr, :rowval, :nzval]
-            @test getproperty(Af, i) === getproperty(Af1, i)
-        end
-        for i in [:n, :m]
+        for i in [:colptr, :rowval, :nzval, :control, :info]
             @test getproperty(Af, i) == getproperty(Af1, i)
-        end
-        for i in [:control, :info, :lock]
             @test getproperty(Af, i) !== getproperty(Af1, i)
         end
+        for i in [:n, :m, :status]
+            @test getproperty(Af, i) == getproperty(Af1, i)
+        end
+        @test Af1.lock !== Af.lock
+        @test Af1.symbolic.p != Af.symbolic.p && Af1.numeric.p != Af.numeric.p
     end
     @testset "test copy(UmfpackLU)" begin
         Af = lu(A0)
@@ -136,11 +136,9 @@ end
         test_ws_dup(Af, copy(Af))
         test_ws_dup(Af, copy(parent(transpose(Af))))
         test_ws_dup(Af, copy(parent(adjoint(Af))))
+        # the workspace argument is accepted for compatibility
+        test_ws_dup(Af, copy(Af, UMFPACK.UmfpackWS(Af)))
         umfpack_report(Af)
-
-        Afcopy = copy(Af)
-        @test Afcopy.numeric === Af.numeric
-        @test Afcopy.symbolic === Af.symbolic
     end
 end
 
@@ -616,21 +614,25 @@ end
 end
 
 
-@testset "copy should keep the numeric/symbolic by default" begin
-    S = sprandn(10, 10, 0.1) + I
-    A = lu(S)
-    B = copy(A)
-    @test A.numeric === B.numeric
-    @test A.symbolic === B.symbolic
-    # refactoring frees the shared numeric (and freeing again is a no-op);
-    # the copy then refactors on demand instead of using freed memory
-    num = A.numeric
-    lu!(A, S)
-    @test num.p == C_NULL
-    UMFPACK.umfpack_free_numeric(num, Float64, Int)
-    @test num.p == C_NULL
-    b = ones(10)
-    @test B \ b ≈ Matrix(S) \ b
+@testset "copy is independent of the original" begin
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    b = [1.0, 2, 3]
+    F = lu(A)
+    G = copy(F)
+    lu!(F, 2A)
+    @test G \ b ≈ Matrix(A) \ b
+    # a factorization without factors, or a failed one, copies as one
+    @test _isnull_numeric(copy(UMFPACK.UmfpackLU(A)))
+    @test !issuccess(copy(lu(sparse([1.0 2; 2 4]); check=false)))
+end
+
+@testset "deepcopy does not duplicate the C pointers" begin
+    S = sparse([4.0 1 0; 1 3 1; 0 1 2])
+    b = [1.0, 2, 3]
+    F = lu(S)
+    G = deepcopy(F)
+    @test G.numeric.p != F.numeric.p
+    @test deepcopy(F') \ b ≈ Matrix(S)' \ b
 end
 
 

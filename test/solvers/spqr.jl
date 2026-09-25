@@ -404,6 +404,19 @@ end
             @test fetch(t)
         end
     end
+
+    @testset "copy and deepcopy are independent" begin
+        A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
+        b, c = randn(m), randn(n)
+        F = qr(A)
+        x, y = F \ b, F' \ c
+        G, H = copy(F), deepcopy(F)
+        SparseArrays.nonzeros(F.R) .*= 2
+        @test G \ b ≈ x
+        @test H \ b ≈ x
+        SparseArrays.nonzeros(F.R) ./= 2
+        @test copy(F') \ c ≈ y
+    end
 end
 
 @testset "no strategies" begin

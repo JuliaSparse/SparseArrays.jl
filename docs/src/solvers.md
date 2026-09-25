@@ -166,27 +166,27 @@ theirs.
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
-| `SPQR.QRSparse` | shares the factors and permutations, which no call modifies; new lock | `\` and `ldiv!`, with `F` or `F'` |
+| `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
+| `SPQR.QRSparse` | independent copy of the factors and permutations; new lock | `\` and `ldiv!`, with `F` or `F'` |
 | `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
 
-The copies of an `UmfpackLU` or a `QRSparse` are cheap, since they share the factors:
+An independent copy is unaffected by anything done to the original, and the original by
+anything done to the copy. `deepcopy(F)` returns `copy(F)` for all three types, and `copy`
+of `F'` or `transpose(F)` wraps `copy(F)`. A copy duplicates the factors, so make one per
+task rather than one per right-hand side:
 
 ```julia
 using LinearAlgebra, SparseArrays
 
-F = lu(A)                       # or qr(A)
+F = lu(A)
 X = similar(B)
-Threads.@threads for j in axes(B, 2)
-    Fj = copy(F)                # shared factors, own lock
-    ldiv!(view(X, :, j), Fj, view(B, :, j))
+Threads.@threads for cols in collect(Iterators.partition(axes(B, 2), cld(size(B, 2), Threads.nthreads())))
+    Fj = copy(F)
+    for j in cols
+        ldiv!(view(X, :, j), Fj, view(B, :, j))
+    end
 end
 ```
-
-A loop that performs many solves per task should make the copy once per task rather than
-once per right-hand side. Because the copies of an `UmfpackLU` share its factors, do not
-call [`lu!`](@ref) on the original or on any copy while another task is solving with one
-of them: refactorization frees the numeric object they all point to.
 
 For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`
 and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a

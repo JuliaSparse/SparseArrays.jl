@@ -498,11 +498,19 @@ end
 """
     copy(F::QRSparse)
 
-A copy of `F` for solving in parallel, one copy per task. The copy shares the factors and
-permutations, which no call modifies, and has its own lock, so its solves never wait for
-those of `F`.
+Return an independent copy of `F`, with its own factors, permutations and lock, for solving
+in parallel, one copy per task; its solves never wait for those of `F`.
+`deepcopy(F)` does the same.
 """
-Base.copy(F::QRSparse) = QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv, ReentrantLock())
+function Base.copy(F::QRSparse)
+    factors = copy(F.factors)
+    τ = copy(F.τ)
+    QRSparse(factors, τ, copy(F.R), QRSparseQ(factors, τ, F.Q.n), copy(F.cpiv),
+             copy(F.rpivinv), ReentrantLock())
+end
+Base.copy(F::AdjointFactorization{<:Any,<:QRSparse}) = AdjointFactorization(copy(parent(F)))
+Base.copy(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) =
+    LinearAlgebra.TransposeFactorization(copy(parent(F)))
 
 function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     summary(io, F); println(io)
