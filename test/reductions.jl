@@ -113,7 +113,7 @@ dA = Array(sA)
         for (X, dims) in ((E, 1), (E, 3), (E', 2), (view(E, :, 1:0), 1), (spzeros(0), 2)), f in (minimum, maximum, extrema)
             r, rd = f(X; dims), f(Array(X); dims)
             @test typeof(r) == typeof(rd) && size(r) == size(rd)
-            X isa Adjoint || @test typeof(@inferred f(X; dims)) == typeof(rd)
+            @test typeof(@inferred f(X; dims)) == typeof(rd)
         end
     end
     @testset "seeds of minimum, maximum and extrema along a dimension" begin
@@ -407,6 +407,26 @@ end
         end
     end
     @test_throws ArgumentError sum(spzeros(3, 3); dims = 0, sparse = true)
+    # the `sparse` keyword is folded away, so the result type is inferred for every argument
+    # type that has the keyword, adjoints and transposes included (`@inferred` cannot pass
+    # the keyword as a constant, so the opt-in goes through a function)
+    A, v = sprand(4, 3, 0.5), sprand(4, 0.5)
+    B = sparse(A .> 0)
+    sparsesum(X, dims) = sum(X; dims, sparse = true)
+    sparsecount(X, dims) = count(iszero, X; dims, sparse = true)
+    sparseany(X, dims) = any(X; dims, sparse = true)
+    for (X, P) in ((A, B), (A', B'), (transpose(A), transpose(B)), (view(A, :, 1:2), view(B, :, 1:2)), (v, sparse(v .> 0))),
+        dims in (1, 2)
+        @test @inferred(sum(X; dims)) isa Array{Float64}
+        @test @inferred(maximum(abs, X; dims)) isa Array{Float64}
+        @test @inferred(count(iszero, X; dims)) isa Array{Int}
+        @test @inferred(count(P; dims)) isa Array{Int}
+        @test @inferred(any(iszero, X; dims)) isa Array{Bool}
+        @test @inferred(all(P; dims)) isa Array{Bool}
+        @test @inferred(sparsesum(X, dims)) isa AbstractSparseArray{Float64}
+        @test @inferred(sparsecount(X, dims)) isa AbstractSparseArray{Int}
+        @test @inferred(sparseany(P, dims)) isa AbstractSparseArray{Bool}
+    end
     # hypersparse: only the rows that store something are visited
     A = sparse([5, 10^6, 5], [1, 2, 3], [1.0, 2.0, 3.0], 10^6, 3)
     r = sum(A; dims = 2, sparse = true)
