@@ -391,7 +391,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                 for j in reverse(axes(B,1))
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
-                    akku = B[j,k]
+                    akku = C[j,k]
                     done = false
 
                     # loop through column j of A - only structural non-zeros
@@ -450,7 +450,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                 for j in axes(B,1)
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
-                    akku = B[j,k]
+                    akku = C[j,k]
                     done = false
 
                     # loop through column j of A - only structural non-zeros
@@ -716,7 +716,7 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     rowval = Vector{Ti}(undef, nnz)
     nzval = Vector{Tv}(undef, nnz)
     @inbounds for col = max(k+1,1) : n
-        c1 = getcolptr(S)[col]
+        c1 = Int(getcolptr(S)[col])
         for c2 in colptr[col]:colptr[col+1]-1
             rowval[c2] = rowvals(S)[c1]
             nzval[c2] = nonzeros(S)[c1]
