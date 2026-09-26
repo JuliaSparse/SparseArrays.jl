@@ -724,23 +724,21 @@ function findall(p::F, x::SparseVectorOrView) where {F<:Function}
         return invoke(findall, Tuple{Function, Any}, p, x)
     end
     numnz = nnz(x)
-    I = Vector{indtype(x)}(undef, numnz)
+    # `Int`, not `indtype(x)`, so both branches and dense `findall` agree
+    I = Vector{Int}(undef, numnz)
 
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
 
-    count = 1
+    count = 0
     @inbounds for i = 1 : numnz
         if p(nzval[i])
-            I[count] = nzind[i]
             count += 1
+            I[count] = nzind[i]
         end
     end
 
-    count -= 1
-    if numnz != count
-        deleteat!(I, (count+1):numnz)
-    end
+    resize!(I, count)
 
     return I
 end
