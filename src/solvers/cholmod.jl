@@ -1410,9 +1410,9 @@ function sparse(FC::FactorComponent{Tv,:L}) where Tv
     if s.is_ll == 0
         _sparse_exception(F)
     end
-    sparse(Sparse(F))
+    SparseMatrixCSC(Sparse(F))
 end
-sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = sparse(Sparse(Factor(FC)))
+sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = SparseMatrixCSC(Sparse(Factor(FC)))
 sparse(FC::FactorComponent{Tv}) where {Tv} = _sparse_exception(Factor(FC))
 function _sparse_exception(F::Factor)
     s = unsafe_load(pointer(F))
@@ -2120,8 +2120,11 @@ end
 function (\)(L::FactorComponent, B::SparseVector)
     sparsevec(L\Sparse(B))
 end
+# The solution of a sparse right-hand side, and a factor extracted as a sparse matrix, are
+# always unsymmetric (`stype == 0`), so `SparseMatrixCSC(::Sparse)` applies and, unlike
+# `sparse(::Sparse)`, is type-stable; it throws if CHOLMOD ever marks one symmetric.
 function (\)(L::FactorComponent, B::SparseMatrixCSC)
-    sparse(L\Sparse(B,0))
+    SparseMatrixCSC(L\Sparse(B,0))
 end
 (\)(L::FactorComponent, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::FactorComponent, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
@@ -2138,7 +2141,7 @@ const FactorComponentRHS = Union{StridedVecOrMatMaybeAdjOrTrans, SparseVectorOrM
 
 (\)(L::Factor, B::Sparse) = spsolve(CHOLMOD_A, L, B)
 # When right hand side is sparse, we have to ensure that the rhs is not marked as symmetric.
-(\)(L::Factor, B::SparseMatrixCSC) = sparse(spsolve(CHOLMOD_A, L, Sparse(B, 0)))
+(\)(L::Factor, B::SparseMatrixCSC) = SparseMatrixCSC(spsolve(CHOLMOD_A, L, Sparse(B, 0)))
 (\)(L::Factor, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::Factor, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::Factor, B::SparseVector) = sparsevec(spsolve(CHOLMOD_A, L, Sparse(B)))

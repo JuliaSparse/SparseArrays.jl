@@ -477,6 +477,24 @@ end
         @test all(isempty, findnz(@view Xc[:,1]))
         @test findnz(@view Xc[:,2]) == ([2], [1.25])
     end
+    # `Vector{Int}` like dense, whether or not the predicate holds at zero
+    @testset "findall index type, Ti = $Ti" for Ti in (Int, Int32)
+        x = SparseVector(6, Ti[2, 3, 5], [1.5, 0.0, -0.5])
+        xc = SparseVector(6, Ti[2, 3, 5], [1.5 + 1.0im, 0.0im, -0.5im])
+        for (v, ps) in ((x, (>(0.5), <(0.5), iszero, !iszero, t -> true)),
+                        (xc, (t -> abs2(t) > 1, t -> abs2(t) < 1, iszero, !iszero)))
+            d = Vector(v)
+            for p in ps, w in (v, view(v, :))
+                @test @inferred(findall(p, w)) == findall(p, d)
+                @test typeof(findall(p, w)) === Vector{Int}
+            end
+            @test @inferred(findall(in(d[2:3]), v)) == findall(in(d[2:3]), d)
+        end
+        b = SparseVector(6, Ti[2, 3, 5], [true, false, true])
+        @test @inferred(findall(b)) == findall(Vector(b)) == [2, 5]
+        @test typeof(findall(b)) === Vector{Int}
+        @test findall(p -> false, x) == Int[]
+    end
 end
 ### Array manipulation
 

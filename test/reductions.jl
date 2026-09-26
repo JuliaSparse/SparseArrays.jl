@@ -55,6 +55,36 @@ dA = Array(sA)
         end
     end
 
+    @testset "small integers: the entries not stored widen as for dense" begin
+        # `sum` and `prod` of small integers give an `Int`, `mapreduce` with `+` or `*` keeps
+        # the element type and wraps, and `Bool` products stay `Bool`, as for dense input
+        for T in (Int8, Bool), A in (sparse(T[1 1; 1 0]), sparse(T[1 0 0; 0 0 1])', spzeros(T, 2, 2), sparsevec(T[1, 0, 1]))
+            A isa AbstractMatrix && (A[1, 2] = zero(T))   # a stored zero
+            M = Array(A)
+            for f in (abs2, x -> x + one(T)), op in (+, *)
+                @test @inferred(mapreduce(f, op, A)) === mapreduce(f, op, M)
+                A isa SparseMatrixCSC || continue   # the `dims` kernels are the matrix ones
+                for dims in (1, 2)
+                    r, rd = mapreduce(f, op, A; dims), mapreduce(f, op, M; dims)
+                    @test typeof(r) == typeof(rd) && r == rd
+                end
+            end
+            @test @inferred(sum(A)) === sum(M) && @inferred(prod(A)) === prod(M)
+        end
+        # the unstored entries wrap with `+` and `*` as the stored ones do, widen for `sum`,
+        # and take the type of `init` or of another mapped value
+        f = x -> x + Int8(3)
+        A = spzeros(Int8, 2, 300)
+        @test mapreduce(f, +, A) === mapreduce(f, +, zeros(Int8, 600)) === Int8(8)
+        @test mapreduce(f, *, A) === mapreduce(f, *, zeros(Int8, 600))
+        @test mapreduce(f, +, A; dims = 2) == mapreduce(f, +, Array(A); dims = 2)
+        @test sum(f, A) === 1800 && sum(f, A; dims = 2) == [900; 900;;]
+        @test mapreduce(f, +, A; init = 0) === 1800
+        @test mapreduce(f, +, A; dims = 2, init = 0) == mapreduce(f, +, A; dims = 2, init = 0, sparse = true) == [900; 900;;]
+        @test mapreduce(f, *, A; dims = 2, init = 1) == mapreduce(f, *, Array(A); dims = 2, init = 1)
+        @test mapreduce(x -> iszero(x) ? Int8(100) : 1000.0, +, sparse([1, 0, 0])) === 1200.0
+    end
+
     @testset "logical reductions" begin
         v = spzeros(Bool, 5, 2)
         @test !any(v)
