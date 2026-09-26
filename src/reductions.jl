@@ -11,6 +11,27 @@ function Base.reducedim_initarray(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTr
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 end
 
+# Base seeds `maximum`, `minimum` and `extrema` along a dimension from the first slice and,
+# when `A` is empty, takes `map(f, slice)` as the result, which for a sparse `A` is sparse.
+# Seeding from a dense copy of the slice (one row, column or element) keeps the result an
+# `Array` either way.
+function _reducedim_init_dense(f, op, A, region)
+    ri = Base.reduced_indices(A, region)   # also validates `region`
+    any(i -> isempty(axes(A, i)), region) && Base._empty_reduce_error()
+    return Base.reducedim_init(f, op, Array(view(A, ri...)), region)
+end
+for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView)
+    @eval begin
+        Base.reducedim_init(f, op::typeof(max), A::$T, region) = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f, op::typeof(min), A::$T, region) = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), A::$T, region) =
+            _reducedim_init_dense(f, op, A, region)
+        # Base seeds these with zero, from no slice; disambiguates from the `max` method above
+        Base.reducedim_init(f::Union{typeof(abs),typeof(abs2)}, op::typeof(max), A::$T, region) =
+            Base.reducedim_initarray(A, region, zero(f(zero(eltype(A)))), Base._realtype(f, eltype(A)))
+    end
+end
+
 # General mapreduce
 function _mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G,T}
     nzeros == 0 && return v0
@@ -45,11 +66,21 @@ function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::SparseMatrixCSCO
     end
 end
 
-# Specialized mapreduce for +/*/min/max/_extrema_rf
+# Specialized mapreduce for +/*/min/max/_extrema_rf. The entries a sparse array does not
+# store are folded in at once, as `reduce_first` of `f(0)` (an `Int` for `sum` and `prod` of
+# small integers, as for dense input) times or to the power of their count, in the type the
+# accumulator `v0` has reached: `init` or another mapped value may have widened it.
 _mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? op(zero(v0), v0) : op(f(zero(T))*nzeros, v0)
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_addzeros(_unstored(op, f, T, v0), nzeros), v0)
 _mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? op(one(v0), v0) : op(f(zero(T))^nzeros, v0)
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_unstored(op, f, T, v0)^nzeros, v0)
+_unstored(op, f, ::Type{T}, v0) where T = _widen(Base.reduce_first(op, f(zero(T))), v0)
+_widen(z, v0) = _widen(z, typeof(v0))
+_widen(z, ::Type{S}) where S = convert(promote_type(typeof(z), S), z)
+# `nzeros` copies of `z` added up, in the type `+` keeps for them: a small integer wraps
+# rather than widening to the count's `Int`, as when dense input is summed with `+`
+_addzeros(z, nzeros) = z * nzeros
+_addzeros(z::Base.BitInteger, nzeros) = z * (nzeros % typeof(z))
 _mapreducezeros(f::F, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
@@ -68,7 +99,7 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
         # No zeros, so don't compute f(0) since it might throw
         Base._mapreduce(f, op, nzvalview(A))
     else
-        v = f(zero(T))^(nzeros)
+        v = Base.reduce_first(op, f(zero(T)))^nzeros
         # Bail out early if initial reduction value is zero or if there are no stored elements
         (_iszero(v) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
     end
@@ -371,7 +402,7 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
             end
         end
     else
-        zeroval = f(zero(Tv))
+        zeroval = _widen(f(zero(Tv)), eltype(R))
         if isequal(zeroval, zero(Tv))
             # Case where f(0) == 0
             @inbounds for col in axes(A,2)
@@ -390,7 +421,7 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
                 end
             end
             for i = 1:m
-                R[i, 1] += rownz[i]*zeroval
+                R[i, 1] += _addzeros(zeroval, rownz[i])
             end
         end
     end

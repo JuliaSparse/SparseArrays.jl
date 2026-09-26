@@ -239,6 +239,17 @@ end
                 @test all(nonzeros(xr) .> 0.0)
             end
         end
+        # as documented, `rfn` takes `k` without an rng and `(rng, k)` with one, as for matrices
+        let rfn1 = k -> rand(Int8, k), rfn2 = (r, k) -> rand(r, Int8, k)
+            Random.seed!(1234)
+            xv = sprand(20, 0.5, rfn1)
+            Random.seed!(1234)
+            xr = sprand(Random.default_rng(), 20, 0.5, rfn2)
+            @test xv isa SparseVector{Int8,Int} && xr isa SparseVector{Int8,Int}
+            @test xv == xr
+            @test sprand(20, 1, 0.5, rfn1) isa SparseMatrixCSC{Int8,Int}
+            @test sprand(MersenneTwister(5), 20, 1, 0.5, rfn2) isa SparseMatrixCSC{Int8,Int}
+        end
     end
 
     @testset "Undef initializer" begin
@@ -465,6 +476,24 @@ end
     let Xc = spdiagm(spv_x1)
         @test all(isempty, findnz(@view Xc[:,1]))
         @test findnz(@view Xc[:,2]) == ([2], [1.25])
+    end
+    # `Vector{Int}` like dense, whether or not the predicate holds at zero
+    @testset "findall index type, Ti = $Ti" for Ti in (Int, Int32)
+        x = SparseVector(6, Ti[2, 3, 5], [1.5, 0.0, -0.5])
+        xc = SparseVector(6, Ti[2, 3, 5], [1.5 + 1.0im, 0.0im, -0.5im])
+        for (v, ps) in ((x, (>(0.5), <(0.5), iszero, !iszero, t -> true)),
+                        (xc, (t -> abs2(t) > 1, t -> abs2(t) < 1, iszero, !iszero)))
+            d = Vector(v)
+            for p in ps, w in (v, view(v, :))
+                @test @inferred(findall(p, w)) == findall(p, d)
+                @test typeof(findall(p, w)) === Vector{Int}
+            end
+            @test @inferred(findall(in(d[2:3]), v)) == findall(in(d[2:3]), d)
+        end
+        b = SparseVector(6, Ti[2, 3, 5], [true, false, true])
+        @test @inferred(findall(b)) == findall(Vector(b)) == [2, 5]
+        @test typeof(findall(b)) === Vector{Int}
+        @test findall(p -> false, x) == Int[]
     end
 end
 ### Array manipulation
