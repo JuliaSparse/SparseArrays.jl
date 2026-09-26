@@ -121,6 +121,15 @@ end
             end
         end
     end
+    # `Rational` is not rerouted: it stays exact, like dense
+    A = sparse(Rational{Int}[2 1; 1 2])
+    b = Rational{Int}[1, 0]
+    for M in (A, A', transpose(A))
+        x = M \ b
+        @test x isa Vector{Rational{Int}}
+        @test M * x == b
+        @test x == Matrix(M) \ b
+    end
 end
 
 @testset "factorization of a fixed-pattern matrix" begin

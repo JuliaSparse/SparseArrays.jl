@@ -1428,14 +1428,13 @@ function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatri
     C
 end
 
-# The Hermitian branches of `\` and `factorize` below lead to the sparse Cholesky/LDLt,
-# which exists only for these floating-point eltypes. Any other eltype, integers in
-# particular, would reach LinearAlgebra's generic `factorize(::HermOrSym)`, a dense
-# Bunch-Kaufman in `Rational{BigInt}`, so it takes the `lu` branch, which converts to
-# floating point like dense `\` does.
+# For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
+# LinearAlgebra's generic `factorize(::HermOrSym)`, a dense Bunch-Kaufman in
+# `Rational{BigInt}`, so they take the `lu` branch instead, which converts to floating
+# point like dense `\` does. Every other eltype keeps its path: floating point goes to
+# the sparse Cholesky/LDLt, and `Rational` stays exact through the generic factorization.
 _hermitian_solve(A::AbstractSparseMatrixCSC) =
-    eltype(A) <: Union{Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64} &&
-    ishermitian(A)
+    !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
 
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
