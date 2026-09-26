@@ -9,6 +9,7 @@ using SparseArrays: nonzeroinds, getcolptr, rowvals, nonzeros
 using LinearAlgebra
 using Random
 include("mulcount.jl")
+include("typedlocals.jl")
 
 @testset "multiplication of sparse matrix and triangular matrix" begin
     _sparse_test_matrix(n, T) =  T == Int ? sparse(rand(0:4, n, n)) : sprandn(T, n, n, 0.6)
@@ -418,6 +419,19 @@ end
             @test ATa \ sparse(B) ≈ ATa \ B
             @test Matrix(ATa) \ B ≈ ATa \ B
             @test ATa * ( ATa \ B ) ≈ B
+        end
+    end
+    # the accumulator of the transposed solves is seeded from the converted destination,
+    # so an Int right-hand side or a real one against a complex matrix does not widen it
+    Ai = sparse(1.0I, n, n) + triu(A, 1); bi = ones(Int, n)
+    Ac = sparse(((1 + im) * Ai)'); bf = ones(Float64, n)
+    for trop in (adjoint, transpose)
+        @test trop(UpperTriangular(Ai)) \ bi ≈ Matrix(trop(UpperTriangular(Ai))) \ bi
+        @test trop(LowerTriangular(Ac)) \ bf ≈ Matrix(trop(LowerTriangular(Ac))) \ bf
+        for (S, rhs, T1, T2) in ((Ai, bi, Float64, Int), (Ac, bf, Float64, ComplexF64))
+            C = similar(rhs, eltype(S))
+            @test !hasunionlocal(LinearAlgebra.generic_trimatdiv!,
+                (typeof(C), Char, Char, typeof(trop), typeof(S), typeof(rhs)), T1, T2)
         end
     end
 end

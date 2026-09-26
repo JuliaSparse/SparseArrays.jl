@@ -139,7 +139,7 @@ function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv
     newrowval = Vector{Ti}(undef, nz)
     newnzval = Vector{Tv}(undef, nz)
     @inbounds for j = 1:n
-        newk = newcolptr[j]
+        newk = Int(newcolptr[j])
         for k = rangefun(A, j)
             i = rowval[k]
             nzv = nzval[k]
