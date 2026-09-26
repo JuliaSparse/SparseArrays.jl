@@ -99,6 +99,39 @@ end
     end
 end
 
+@testset "integer Hermitian solve uses the sparse solvers" begin
+    # `\` and `factorize` used to send a Hermitian integer matrix to LinearAlgebra's
+    # generic `factorize`, a dense Bunch-Kaufman in `Rational{BigInt}`
+    for (A, T) in ((sparse([4 1 0; 1 4 1; 0 1 4]), Float64),
+                   (sparse(Complex{Int}[4 1+im 0; 1-im 4 1+im; 0 1-im 4]), ComplexF64))
+        elty = eltype(A)
+        @test ishermitian(A)
+        @test factorize(A) isa SparseArrays.UMFPACK.UmfpackLU{T}
+        b, B = elty[1, 2, 3], elty[1 2; 3 4; 5 6]
+        for M in (A, A', transpose(A))
+            for rhs in (b, B)
+                x = @inferred M \ rhs
+                @test x isa Array{T}
+                @test x ≈ Matrix(M) \ rhs
+            end
+            for rhs in (sparsevec(b), sparse(B))
+                x = M \ rhs
+                @test x isa Array{T}
+                @test x ≈ Matrix(M) \ rhs
+            end
+        end
+    end
+    # `Rational` is not rerouted: it stays exact, like dense
+    A = sparse(Rational{Int}[2 1; 1 2])
+    b = Rational{Int}[1, 0]
+    for M in (A, A', transpose(A))
+        x = M \ b
+        @test x isa Vector{Rational{Int}}
+        @test M * x == b
+        @test x == Matrix(M) \ b
+    end
+end
+
 @testset "factorization of a fixed-pattern matrix" begin
     b = sprandn(10, 10, 0.99) + I
     a = SparseArrays.fixed(b)

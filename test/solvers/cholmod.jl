@@ -677,7 +677,7 @@ end
         Fs = cholesky(As, perm=[1:3;])
         @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :p, :ptr])
         @test Fs.p == [1:3;]
-        @test sparse(Fs.L) ≈ Lf
+        @test @inferred(sparse(Fs.L))::SparseMatrixCSC{Tv, Ti} ≈ Lf
         @test sparse(Fs) ≈ As
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.U)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.PtL)
@@ -720,7 +720,7 @@ end
         Fs = ldlt(As, perm=[1:3;])
         @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP, :p, :ptr])
         @test Fs.p == [1:3;]
-        @test sparse(Fs.LD) ≈ LDf
+        @test @inferred(sparse(Fs.LD))::SparseMatrixCSC{Tv, Ti} ≈ LDf
         @test sparse(Fs) ≈ As
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.L)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.U)
@@ -771,6 +771,17 @@ end
     @testset "Element promotion and type inference" begin
         @inferred cholesky(As)\fill(1, size(As, 1))
         @inferred ldlt(As)\fill(1, size(As, 1))
+        # the factor components are inferred from the property name, so a solve through
+        # them is inferred too (the `F.UP \ (F.PtL \ b)` idiom of the docs)
+        b = rand(Tv, 3)
+        F = cholesky(As)
+        for (sym, component) in ((:L, F -> F.L), (:PtL, F -> F.PtL), (:UP, F -> F.UP), (:U, F -> F.L'))
+            @test @inferred(component(F)) isa CHOLMOD.FactorComponent{Tv, sym, Ti}
+        end
+        @test @inferred((F -> F.UP \ (F.PtL \ b))(F))::Vector{Tv} ≈ Matrix(As) \ b
+        F = ldlt(As)
+        @test @inferred((F -> F.D)(F)) isa CHOLMOD.FactorComponent{Tv, :D, Ti}
+        @test @inferred((F -> F.DUP \ (F.PtL \ b))(F))::Vector{Tv} ≈ Matrix(As) \ b
     end
 end
 
@@ -866,6 +877,19 @@ end
     @test chI \ sparseb ≈ sparseb
     @test chI \ sparseB ≈ sparseB
     @test chI \ sparseI ≈ sparseI
+    # a sparse right-hand side gives a `SparseMatrixCSC`, never a `Symmetric` or
+    # `Hermitian` wrapper, so the solve is inferred
+    A = sparse(Tv[4 1 0; 1 3 1; 0 1 2])
+    B = sparse(Tv[1 0 0; 0 2 0; 3 0 1])
+    Ad, Bd = Matrix(A), Matrix(B)
+    for F in (cholesky(A), ldlt(A))
+        @test @inferred(F \ B)::SparseMatrixCSC{Tv, Ti} ≈ Ad \ Bd
+        @test @inferred(F' \ B)::SparseMatrixCSC{Tv, Ti} ≈ Ad' \ Bd
+        @test @inferred(F \ B')::SparseMatrixCSC{Tv, Ti} ≈ Ad \ Bd'
+        @test @inferred(F.PtL \ B)::SparseMatrixCSC{Tv, Ti} ≈ F.PtL \ Bd
+    end
+    Ac = sparse(Complex{Tv}[4 1+im 0; 1-im 3 1; 0 1 2])
+    @test @inferred(cholesky(Ac) \ B)::SparseMatrixCSC{Complex{Tv}, Ti} ≈ Matrix(Ac) \ Bd
 end
 
 @testset "Issue 630" begin

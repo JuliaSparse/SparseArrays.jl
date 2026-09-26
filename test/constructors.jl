@@ -33,6 +33,9 @@ end
     @test SparseMatrixCSC{eltype(a)}(a) == a
     @test SparseMatrixCSC{eltype(a), Int}(a) == a
     @test SparseMatrixCSC{eltype(a)}(Array(a)) == a
+    # a different eltype converts, as `SparseMatrixCSC{Tv,Ti}(::AbstractMatrix)` does
+    @test SparseMatrixCSC{Float32}(Array(a))::SparseMatrixCSC{Float32,Int} == SparseMatrixCSC{Float32,Int}(Array(a))
+    @test SparseMatrixCSC{ComplexF64}(Array(a)')::SparseMatrixCSC{ComplexF64,Int} == a'
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
     @test collect(a) == a
     # wrappers and views convert through the sparse kernels, not element by element

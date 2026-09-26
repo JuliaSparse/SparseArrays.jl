@@ -391,7 +391,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                 for j in reverse(axes(B,1))
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
-                    akku = B[j,k]
+                    akku = C[j,k]
                     done = false
 
                     # loop through column j of A - only structural non-zeros
@@ -450,7 +450,7 @@ function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tf
                 for j in axes(B,1)
                     i1 = ia[j]
                     i2 = ia[j + 1] - 1
-                    akku = B[j,k]
+                    akku = C[j,k]
                     done = false
 
                     # loop through column j of A - only structural non-zeros
@@ -716,7 +716,7 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     rowval = Vector{Ti}(undef, nnz)
     nzval = Vector{Tv}(undef, nnz)
     @inbounds for col = max(k+1,1) : n
-        c1 = getcolptr(S)[col]
+        c1 = Int(getcolptr(S)[col])
         for c2 in colptr[col]:colptr[col+1]-1
             rowval[c2] = rowvals(S)[c1]
             nzval[c2] = nonzeros(S)[c1]
@@ -1428,6 +1428,14 @@ function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatri
     C
 end
 
+# For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
+# LinearAlgebra's generic `factorize(::HermOrSym)`, a dense Bunch-Kaufman in
+# `Rational{BigInt}`, so they take the `lu` branch instead, which converts to floating
+# point like dense `\` does. Every other eltype keeps its path: floating point goes to
+# the sparse Cholesky/LDLt, and `Rational` stays exact through the generic factorization.
+_hermitian_solve(A::AbstractSparseMatrixCSC) =
+    !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
+
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
     m, n = size(A)
@@ -1441,7 +1449,7 @@ function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
         elseif istriu(A)
             return \(UpperTriangular(A), B)
         end
-        if ishermitian(A)
+        if _hermitian_solve(A)
             return \(Hermitian(A), B)
         end
         return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
@@ -1468,7 +1476,7 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
                 elseif istriu(A)
                     return \(LowerTriangular($xformop(A)), B)
                 end
-                if ishermitian(A)
+                if _hermitian_solve(A)
                     return \($xformop(Hermitian(A)), B)
                 end
                 return \($xformop(lu(A)), B)
@@ -1496,7 +1504,7 @@ function factorize(A::AbstractSparseMatrixCSC)
         elseif istriu(A)
             return UpperTriangular(A)
         end
-        if ishermitian(A)
+        if _hermitian_solve(A)
             return factorize(Hermitian(A))
         end
         return lu(A)

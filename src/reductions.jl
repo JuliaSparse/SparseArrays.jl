@@ -6,9 +6,36 @@
 # (issue #43) is opt-in with the keyword `sparse = true`, see `_mapreduce_dim_sparse` below.
 # Covers views and adjoints so they reduce like their copy (#377), where Base's `similar`
 # would otherwise give a sparse result.
-function Base.reducedim_initarray(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}},
+function Base.reducedim_initarray(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset},
+                                           AdjOrTransSparseVectorOrView},
                                   region, v0, ::Type{R}) where {R}
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
+end
+
+# Base seeds `maximum`, `minimum` and `extrema` along a dimension from the first slice and,
+# when `A` is empty, takes `map(f, slice)` as the result, which for a sparse `A` is sparse.
+# Only that case needs a dense copy of the (empty) slice; otherwise Base reduces the slice
+# to a scalar seed and fills through `reducedim_initarray`, which is dense above.
+function _reducedim_init_dense(f, op, A, region)
+    ri = Base.reduced_indices(A, region)   # also validates `region`
+    any(i -> isempty(axes(A, i)), region) && Base._empty_reduce_error()
+    A1 = view(A, ri...)
+    isempty(A1) && return map(f, Array(A1))
+    # the assertion hides Base's empty-slice branch, which is sparse here, from inference
+    return invoke(Base.reducedim_init, Tuple{typeof(f), typeof(op), AbstractArray, typeof(region)},
+                  f, op, A, region)::Array
+end
+for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
+          :AdjOrTransSparseVectorOrView)
+    @eval begin
+        Base.reducedim_init(f, op::typeof(max), A::$T, region) = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f, op::typeof(min), A::$T, region) = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), A::$T, region) =
+            _reducedim_init_dense(f, op, A, region)
+        # Base seeds these with zero, from no slice; disambiguates from the `max` method above
+        Base.reducedim_init(f::Union{typeof(abs),typeof(abs2)}, op::typeof(max), A::$T, region) =
+            Base.reducedim_initarray(A, region, zero(f(zero(eltype(A)))), Base._realtype(f, eltype(A)))
+    end
 end
 
 # General mapreduce
@@ -45,11 +72,21 @@ function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::SparseMatrixCSCO
     end
 end
 
-# Specialized mapreduce for +/*/min/max/_extrema_rf
+# Specialized mapreduce for +/*/min/max/_extrema_rf. The entries a sparse array does not
+# store are folded in at once, as `reduce_first` of `f(0)` (an `Int` for `sum` and `prod` of
+# small integers, as for dense input) times or to the power of their count, in the type the
+# accumulator `v0` has reached: `init` or another mapped value may have widened it.
 _mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? op(zero(v0), v0) : op(f(zero(T))*nzeros, v0)
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_addzeros(_unstored(op, f, T, v0), nzeros), v0)
 _mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? op(one(v0), v0) : op(f(zero(T))^nzeros, v0)
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_unstored(op, f, T, v0)^nzeros, v0)
+_unstored(op, f, ::Type{T}, v0) where T = _widen(Base.reduce_first(op, f(zero(T))), v0)
+_widen(z, v0) = _widen(z, typeof(v0))
+_widen(z, ::Type{S}) where S = convert(promote_type(typeof(z), S), z)
+# `nzeros` copies of `z` added up, in the type `+` keeps for them: a small integer wraps
+# rather than widening to the count's `Int`, as when dense input is summed with `+`
+_addzeros(z, nzeros) = z * nzeros
+_addzeros(z::Base.BitInteger, nzeros) = z * (nzeros % typeof(z))
 _mapreducezeros(f::F, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
@@ -68,7 +105,7 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
         # No zeros, so don't compute f(0) since it might throw
         Base._mapreduce(f, op, nzvalview(A))
     else
-        v = f(zero(T))^(nzeros)
+        v = Base.reduce_first(op, f(zero(T)))^nzeros
         # Bail out early if initial reduction value is zero or if there are no stored elements
         (_iszero(v) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
     end
@@ -82,8 +119,9 @@ end
 # nnz(A) + length(result) rather than to length(A). Base's `sum`, `prod`, `maximum` and
 # `minimum` forward unknown keywords to `mapreduce`, so the `mapreduce` method serves them all; `any`,
 # `all` and `count` do not and get their own methods below.
-for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView)
-    @eval function Base.mapreduce(f, op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false)
+for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
+          :AdjOrTransSparseVectorOrView)
+    @eval Base.@constprop :aggressive function Base.mapreduce(f, op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false)
         sparse || return Base._mapreduce_dim(f, op, init, A, dims)
         dims === (:) && throw(ArgumentError("a sparse result needs a reduction along a dimension, pass `dims`"))
         return _mapreduce_dim_sparse(f, op, init, A, dims)
@@ -91,13 +129,13 @@ for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOr
     for (fname, _fname, op) in ((:any, :_any, :(Base.or_any)), (:all, :_all, :(Base.and_all)))
         @eval begin
             Base.$fname(A::$T; dims=:, sparse::Bool=false) = Base.$fname(identity, A; dims, sparse)
-            Base.$fname(f, A::$T; dims=:, sparse::Bool=false) =
+            Base.@constprop :aggressive Base.$fname(f, A::$T; dims=:, sparse::Bool=false) =
                 sparse ? mapreduce(f, $op, A; dims, sparse) : Base.$_fname(f, A, dims)
         end
     end
     @eval begin
         Base.count(A::$T; dims=:, init=0, sparse::Bool=false) = count(identity, A; dims, init, sparse)
-        Base.count(f, A::$T; dims=:, init=0, sparse::Bool=false) =
+        Base.@constprop :aggressive Base.count(f, A::$T; dims=:, init=0, sparse::Bool=false) =
             sparse ? mapreduce(Base._bool(f), Base.add_sum, A; dims, init, sparse) : Base._count(f, A, dims, init)
     end
 end
@@ -137,6 +175,12 @@ function _mapreduce_dim_sparse(f, op, init, A::AdjOrTrans, dims)
     return permutedims(_mapreduce_dim_sparse(f ∘ g, op, init, parent(A), map(_switch_dim12, dims)), (2, 1))
 end
 _switch_dim12(d) = d == 1 ? 2 : d == 2 ? 1 : d
+# the single row is the parent: reduced along the columns it folds the parent, and reduced
+# along the row alone there is an entry per element
+function _mapreduce_dim_sparse(f, op, init, A::AdjOrTransSparseVectorOrView, dims)
+    r = _mapreduce_dim_sparse(f ∘ wrapperop(A), op, init, parent(A), map(_switch_dim12, dims))
+    return _rowmatrix(length(r), nonzeroinds(r), nonzeros(r))
+end
 
 function _mapreduce_dim_sparse(f, op, init, A::SparseVectorOrView{T,Ti}, dims) where {T,Ti}
     Base.reduced_indices(A, dims)   # validates `dims`
@@ -356,6 +400,19 @@ function Base._mapreducedim!(f, op, R::AbstractMatrix, A::AdjOrTrans{<:Any,<:Spa
     return R
 end
 
+# The single row is the parent, folded in its own order when the reduction is along the
+# columns, and mapped entry by entry when it is along the row alone.
+function Base._mapreducedim!(f, op, R::AbstractMatrix, A::AdjOrTransSparseVectorOrView)
+    Base.check_reducedims(R, A)
+    g = f ∘ wrapperop(A)
+    if size(R, 2) == 1
+        isempty(A) || (R[1, 1] = op(R[1, 1], Base._mapreduce(g, op, IndexCartesian(), parent(A))))
+    else
+        Base.mapreducedim!(g, op, vec(R), parent(A))
+    end
+    return R
+end
+
 # Specialized mapreducedim for + cols to avoid allocating a
 # temporary array when f(0) == 0
 function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
@@ -371,7 +428,7 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
             end
         end
     else
-        zeroval = f(zero(Tv))
+        zeroval = _widen(f(zero(Tv)), eltype(R))
         if isequal(zeroval, zero(Tv))
             # Case where f(0) == 0
             @inbounds for col in axes(A,2)
@@ -390,7 +447,7 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
                 end
             end
             for i = 1:m
-                R[i, 1] += rownz[i]*zeroval
+                R[i, 1] += _addzeros(zeroval, rownz[i])
             end
         end
     end

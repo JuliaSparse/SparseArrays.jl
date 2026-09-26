@@ -73,6 +73,7 @@ function nnz(x::SparseColumnView)
 end
 nnz(x::SparseVectorView) = nnz(parent(x))
 nnz(x::SparseVectorPartialView) = length(nonzeroinds(x))
+nnz(x::AdjOrTransSparseVectorOrView) = nnz(parent(x))
 
 """
     nzrange(x::SparseVectorOrView, col)
@@ -133,10 +134,11 @@ function _partialview_end_indices(x::SparseVectorPartialView)
 end
 
 function nonzeroinds(x::SparseVectorPartialView)
-    isempty(parentindices(x)[1]) && return indtype(parent(x))[]
+    Ti = indtype(parent(x))
+    isempty(parentindices(x)[1]) && return Ti[]
     (first_idx, last_idx) = _partialview_end_indices(x)
     nzinds = nonzeroinds(parent(x))
-    return @view(nzinds[first_idx:last_idx]) .- (parentindices(x)[1][begin] - 1)
+    return @view(nzinds[first_idx:last_idx]) .- Ti(parentindices(x)[1][begin] - 1)
 end
 
 getrowval(x::SparseVectorOrView) = nonzeroinds(x)
@@ -694,7 +696,7 @@ function sprand(r::AbstractRNG, n::Integer, p::AbstractFloat, rfn::Function, ::T
     SparseVector(n, I, V)
 end
 
-sprand(n::Integer, p::AbstractFloat, rfn::Function) = sprand(default_rng(), n, p, rfn)
+sprand(n::Integer, p::AbstractFloat, rfn::Function) = sprand(default_rng(), n, p, (r, i) -> rfn(i))
 function sprand(r::AbstractRNG, n::Integer, p::AbstractFloat, rfn::Function)
     I = randsubseq(r, 1:convert(Int, n), p)
     V = rfn(r, length(I))
@@ -724,23 +726,21 @@ function findall(p::F, x::SparseVectorOrView) where {F<:Function}
         return invoke(findall, Tuple{Function, Any}, p, x)
     end
     numnz = nnz(x)
-    I = Vector{indtype(x)}(undef, numnz)
+    # `Int`, not `indtype(x)`, so both branches and dense `findall` agree
+    I = Vector{Int}(undef, numnz)
 
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
 
-    count = 1
+    count = 0
     @inbounds for i = 1 : numnz
         if p(nzval[i])
-            I[count] = nzind[i]
             count += 1
+            I[count] = nzind[i]
         end
     end
 
-    count -= 1
-    if numnz != count
-        deleteat!(I, (count+1):numnz)
-    end
+    resize!(I, count)
 
     return I
 end
@@ -1324,29 +1324,32 @@ function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorOrVie
     map!((x, y) -> op(x, f(y)), R, R, A)
 end
 
-for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum"))
+# The first index of a sparse vector that is not stored; the caller guarantees one exists.
+function _firstimplicitzero(nzinds::AbstractVector)
+    @inbounds for k in eachindex(nzinds)
+        nzinds[k] == k || return k
+    end
+    return length(nzinds) + 1
+end
+
+# `replaces(best, new)` is the test Base's dense `findmin`/`findmax` scan uses to move on
+# to a later element, so the sparse result agrees with dense on ties, NaN and signed zeros.
+for (fun, replaces, word) in ((:findmin, :(Base.isgreater), "minimum"), (:findmax, :isless, "maximum"))
     @eval function $fun(f, x::AbstractSparseVector{T}) where {T}
         n = length(x)
         n > 0 || throw(ArgumentError($word * " over empty array is not allowed"))
         nzvals = nonzeros(x)
         m = length(nzvals)
-        m == 0 && return zero(T), firstindex(x)
+        m == 0 && return f(zero(T)), Int(firstindex(x))
         val, index = $fun(f, nzvals)
         m == n && return val, index
-        nzinds = nonzeroinds(x)
+        index = Int(nonzeroinds(x)[index])
         zeroval = f(zero(T))
-        ($comp(val, zeroval) || isnan(val)) && return val, nzinds[index]
-        # we need to find the first zero, which could be stored or implicit
-        # we try to avoid findfirst(iszero, x)
-        sindex = findfirst(_iszero, nzvals) # first stored zero, if any
-        zindex = findfirst(i -> i < nzinds[i], eachindex(nzinds)) # first non-stored zero
-        index = if isnothing(sindex)
-            # non-stored zero are contiguous and at the end
-            isnothing(zindex) && last(nzinds) < lastindex(x) ? last(nzinds) + 1 : zindex
-        else
-            min(sindex, zindex)
+        zindex = _firstimplicitzero(nonzeroinds(x))
+        if $replaces(val, zeroval) || (zindex < index && !$replaces(zeroval, val))
+            return zeroval, zindex
         end
-        return zeroval, index
+        return val, index
     end
 end
 

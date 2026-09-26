@@ -9,6 +9,7 @@ using LinearAlgebra
 using Random
 include("forbidproperties.jl")
 include("mulcount.jl")
+include("typedlocals.jl")
 
 sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
@@ -82,6 +83,15 @@ end
     @test sparse(UnitUpperTriangular(spzeros(5,5))) == I
     deepwrap(A) = (Adjoint(LowerTriangular(view(Symmetric(A), 5:7, 4:6))))
     @test sparse(deepwrap(A)) == Matrix(deepwrap(B))
+
+    # the counter of the Symmetric/Hermitian copy kernel stays an `Int` over `Int32` indices
+    A32 = SparseMatrixCSC{ComplexF64,Int32}(A)
+    @test SparseMatrixCSC(Symmetric(A32))::SparseMatrixCSC{ComplexF64,Int32} == Matrix(Symmetric(B))
+    @test sparse(Hermitian(A32, :L))::SparseMatrixCSC{ComplexF64,Int32} == Matrix(Hermitian(B, :L))
+    for wr in (Symmetric{ComplexF64,typeof(A32)}, Hermitian{ComplexF64,typeof(A32)}),
+            rangefun in (SparseArrays.nzrangeup, SparseArrays.nzrangelo)
+        @test !hasunionlocal(SparseArrays._sparsem, (typeof(rangefun), wr), Int32, Int)
+    end
 end
 
 @testset "destination array density in solves" begin
@@ -283,6 +293,12 @@ end
     @test triu(A, -n) == A
     @test triu(A, n + 2) == zero(A)
 
+    # the copy pointer of `triu` stays an `Int` over `Int32` indices, like `tril`'s
+    A32 = SparseMatrixCSC{Float64,Int32}(A)
+    @test triu(A32, 1)::SparseMatrixCSC{Float64,Int32} == triu(AF, 1)
+    @test !hasunionlocal(triu, (typeof(A32), Int), Int32, Int)
+    @test !hasunionlocal(tril, (typeof(A32), Int), Int32, Int)
+
     # fkeep trim option
     @test isequal(length(rowvals(tril!(sparse([1,2,3], [1,2,3], [1,2,3], 3, 4), -1))), 0)
 end
@@ -354,6 +370,16 @@ end
     A = sparse([1, 2], [2, 1], [0.0, 0.0], 2, 2)
     @test issymmetric(A) == true
     @test ishermitian(A) == true
+
+    # the partner-column offset stays an `Int` over `Int32` indices
+    A32 = SparseMatrixCSC{ComplexF64,Int32}(sparse([1, 3, 2, 3, 1], [1, 1, 2, 2, 3], [1.0, 0.0, 2.0, 1.0 + im, 0.0], 3, 3))
+    @test issymmetric(A32) == false
+    @test ishermitian(A32) == false
+    @test issymmetric(SparseMatrixCSC{ComplexF64,Int32}(sparse([1, 2, 1], [1, 1, 2], [1.0, 1.0 + im, 1.0 + im], 2, 2))) == true
+    @test ishermitian(SparseMatrixCSC{ComplexF64,Int32}(sparse([1, 2, 1], [1, 1, 2], [1.0, 1.0 + im, 1.0 - im], 2, 2))) == true
+    for check in (transpose, adjoint)
+        @test !hasunionlocal(SparseArrays.is_hermsym, (typeof(A32), typeof(check)), Int32, Int)
+    end
 
     # 16521
     @test issymmetric(sparse([0 0; 1 0])) == false

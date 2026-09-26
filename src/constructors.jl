@@ -141,7 +141,7 @@ function SparseMatrixCSC{Tv,Ti}(D::Diagonal) where {Tv,Ti}
 end
 
 SparseMatrixCSC(M::AbstractMatrix{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
-SparseMatrixCSC{Tv}(M::AbstractMatrix{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
+SparseMatrixCSC{Tv}(M::AbstractMatrix) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
 function SparseMatrixCSC{Tv,Ti}(M::AbstractMatrix) where {Tv,Ti}
     require_one_based_indexing(M)
     I = Ti[]

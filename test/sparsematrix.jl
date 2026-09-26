@@ -714,6 +714,15 @@ end
             @test repeat(A, m, n) == repeat(A_full, m, n)
         end
     end
+    # a non-Int index type is kept, including in the column pointers
+    A32 = SparseMatrixCSC{ComplexF64,Int32}(sprand(ComplexF64, 5, 3, 0.5))
+    A32_full = Matrix(A32)
+    for m = 0:2, n = 0:3
+        R = repeat(A32, m, n)
+        @test R isa SparseMatrixCSC{ComplexF64,Int32}
+        @test R == repeat(A32_full, m, n)
+        @test repeat(A32, m) isa SparseMatrixCSC{ComplexF64,Int32}
+    end
 end
 
 @testset "copyto!" begin
@@ -754,6 +763,23 @@ end
     B = sparse(rand(Float32, 3, 3))
     copyto!(A, B)
     @test A == B
+    # an empty source leaves the destination untouched, as for dense
+    A = sparse([3, 4, 2, 1], [1, 1, 2, 4], [1.0, 2.0, 3.0, 4.0], 4, 4)
+    Aorig = copy(A)
+    for B in (spzeros(0, 0), spzeros(0, 3), spzeros(3, 0))
+        @test copyto!(A, B) === A
+        @test A == Aorig
+    end
+    # indtype(A) != indtype(B), for every size relation
+    A = SparseMatrixCSC{Float64,Int32}(sprand(5, 5, 0.4))
+    Aorig = copy(A)
+    for B in (sprand(5, 5, 0.4), sprand(25, 1, 0.4), sprand(3, 3, 0.4))
+        copyto!(A, B)
+        @test A isa SparseMatrixCSC{Float64,Int32}
+        @test A[1:length(B)] == B[:]
+        @test A[length(B)+1:end] == Aorig[length(B)+1:end]
+        copyto!(A, Aorig)
+    end
     # Test copyto!(dense, sparse)
     B = sprand(5, 5, 1.0)
     A = rand(5,5)
@@ -1077,6 +1103,25 @@ end
     rA = reshape(A, 10, 20)
     crA = copy(rA)
     @test reshape(crA, 20, 10) == A
+    # shapes that gather many source columns into one destination column, split one source
+    # column across many, and leave trailing empty destination columns
+    A32 = SparseMatrixCSC{Float64,Int32}(sparse([1, 2, 4, 3, 4], [1, 1, 2, 3, 3], 1.0:5.0, 4, 3))
+    for (m, n) in ((12, 1), (1, 12), (2, 6), (6, 2), (3, 4))
+        rA = copy(reshape(A32, m, n))
+        @test rA isa SparseMatrixCSC{Float64,Int32}
+        @test rA == reshape(Matrix(A32), m, n)
+    end
+    @test copy(reshape(spzeros(4, 3), 6, 2)) == zeros(6, 2)
+    # column boundaries past half of `typemax(Int)`, and a source whose last linear index
+    # is `typemax(Int)` itself
+    m = typemax(Int) ÷ 2 + 2
+    A = spzeros(m, 5)
+    copyto!(A, SparseMatrixCSC(m + 1, 1, [1, 2], [m + 1], [1.0]))
+    @test getcolptr(A) == [1, 1, 2, 2, 2, 2] && rowvals(A) == [1]
+    m = typemax(Int) ÷ 2 + 1
+    A = spzeros(m ÷ 2, 4)
+    copyto!(A, SparseMatrixCSC(m, 2, [1, 1, 2], [m], [1.0]))
+    @test getcolptr(A) == [1, 1, 1, 1, 2] && rowvals(A) == [m ÷ 2]
 end
 
 @testset "SparseMatrixCSCView" begin
@@ -1096,6 +1141,12 @@ end
     @test sa_filled === sa
     b[1:10, 2:3] .= 0.0
     @test a == b
+    sb = view(a, 1:2, 1:2)
+    @test (@inferred fill!(sb, 1.0)) === sb
+    for empty in (view(a, 1:0, 1:2), view(a, 1:2, 1:0))
+        @test (@inferred fill!(empty, 3.0)) === empty
+    end
+    @test a[1:2, 1:2] == fill(1.0, 2, 2)
     A = sparse([1], [1], [Vector{Float64}(undef, 3)], 3, 3)
     A[1,1] = [1.0, 2.0, 3.0]
     B = deepcopy(A)

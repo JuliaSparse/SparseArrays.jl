@@ -587,32 +587,36 @@ end
 ## Reshape
 
 function sparse_compute_reshaped_colptr_and_rowval!(colptrS::Vector{Ti}, rowvalS::Vector{Ti},
-                                                   mS::Int, nS::Int, colptrA::Vector{Ti},
-                                                   rowvalA::Vector{Ti}, mA::Int, nA::Int) where Ti
+                                                   mS::Int, nS::Int, colptrA::Vector{Ta},
+                                                   rowvalA::Vector{Ta}, mA::Int, nA::Int) where {Ti,Ta}
     lrowvalA = length(rowvalA)
-    maxrowvalA = (lrowvalA > 0) ? maximum(rowvalA) : zero(Ti)
+    maxrowvalA = (lrowvalA > 0) ? maximum(rowvalA) : zero(Ta)
     ((length(colptrA) == (nA+1)) && (maximum(colptrA) <= (lrowvalA+1)) && (maxrowvalA <= mA)) || throw(BoundsError())
 
+    # The linear index of the stored entries increases along the walk, so the destination
+    # column is advanced by comparing against the index where the next column starts,
+    # rather than recomputed with a division per entry. The boundaries are kept in `UInt`,
+    # where a column start plus the row count cannot overflow, since a source with as
+    # many as `typemax(Int) + 1` entries reaches a linear index of `typemax(Int)`.
     colptrS[1] = 1
-    colA = 1
     colS = 1
+    colSstart = UInt(0)     # linear index of the entry before column `colS` of the destination
+    colSend = UInt(mS)      # first linear index past column `colS`
     ptr = 1
-
-    @inbounds while colA <= nA
+    @inbounds for colA in 1:nA
         offsetA = (colA - 1) * mA
-        while ptr <= colptrA[colA+1]-1
-            rowA = rowvalA[ptr]
-            i = offsetA + rowA - 1
-            colSn = div(i, mS) + 1
-            rowS = mod(i, mS) + 1
-            while colS < colSn
-                colptrS[colS+1] = ptr
+        ptrend = Int(colptrA[colA+1]) - 1
+        for p in ptr:ptrend
+            i = (offsetA + Int(rowvalA[p]) - 1) % UInt
+            while i >= colSend
                 colS += 1
+                colSstart = colSend
+                colSend += UInt(mS)
+                colptrS[colS] = p
             end
-            rowvalS[ptr] = rowS
-            ptr += 1
+            rowvalS[p] = (i - colSstart) % Int + 1
         end
-        colA += 1
+        ptr = ptrend + 1
     end
     @inbounds while colS <= nS
         colptrS[colS+1] = ptr
@@ -666,12 +670,13 @@ function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     else
         widelength(A) >= widelength(B) || throw(BoundsError())
         lB = widelength(B)
+        lB == 0 && return A   # nothing to overwrite, as for dense
         nnzA = nnz(A)
         nnzB = nnz(B)
         # Up to which col, row, and ptr in rowval/nzval will A be overwritten?
         lastmodcolA = Int(div(lB - 1, size(A, 1))) + 1
         lastmodrowA = Int(mod(lB - 1, size(A, 1))) + 1
-        lastmodptrA = getcolptr(A)[lastmodcolA]
+        lastmodptrA = Int(getcolptr(A)[lastmodcolA])
         while lastmodptrA < getcolptr(A)[lastmodcolA+1] && rowvals(A)[lastmodptrA] <= lastmodrowA
             lastmodptrA += 1
         end
@@ -1746,7 +1751,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
                 # This means that the matrix is not symmetric
                 isempty(nzrange(A, row)) && return false
 
-                offset = tracker[row]
+                offset = Int(tracker[row])
 
                 # If the matrix is unsymmetric, there might not exist
                 # a rowval[offset]

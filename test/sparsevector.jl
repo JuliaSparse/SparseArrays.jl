@@ -30,12 +30,19 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
 
     @test count(!iszero, x) == 3
     @test nnz(x) == 3
+    @test nnz(x') == nnz(transpose(x)) == nnz(view(x, :)') == 3
     @test SparseArrays.nonzeroinds(x) == [2, 5, 6]
     @test nonzeros(x) == [1.25, -0.75, 3.5]
     @test getrowval(x) === rowvals(x) === nonzeroinds(x)
     @test getnzval(x) === nonzeros(x)
     @test getrowval(view(x, :)) == getrowval(view(sparse(x), :, 1)) == [2, 5, 6]
     @test getnzval(view(x, :)) == getnzval(view(sparse(x), :, 1)) == [1.25, -0.75, 3.5]
+    # a range view keeps the parent's index type, whether or not it holds stored entries
+    x32 = SparseVector{Float64,Int32}(x)
+    @test @inferred(nonzeroinds(view(x32, 2:6)))::Vector{Int32} == [1, 4, 5]
+    @test @inferred(nonzeroinds(view(x32, 3:4)))::Vector{Int32} == Int32[]
+    @test @inferred(nonzeroinds(view(x32, 3:2)))::Vector{Int32} == Int32[]
+    @test @inferred(nnz(view(x32, 2:6))) == 3
     for T in (UpperTriangular(sparse(1.0I, 3, 3)), LowerTriangular(sparse(1.0I, 3, 3)))
         @test getrowval(T) === rowvals(T) && getnzval(T) === nonzeros(T)
     end
@@ -238,6 +245,17 @@ end
             if !isempty(nonzeros(xr))
                 @test all(nonzeros(xr) .> 0.0)
             end
+        end
+        # as documented, `rfn` takes `k` without an rng and `(rng, k)` with one, as for matrices
+        let rfn1 = k -> rand(Int8, k), rfn2 = (r, k) -> rand(r, Int8, k)
+            Random.seed!(1234)
+            xv = sprand(20, 0.5, rfn1)
+            Random.seed!(1234)
+            xr = sprand(Random.default_rng(), 20, 0.5, rfn2)
+            @test xv isa SparseVector{Int8,Int} && xr isa SparseVector{Int8,Int}
+            @test xv == xr
+            @test sprand(20, 1, 0.5, rfn1) isa SparseMatrixCSC{Int8,Int}
+            @test sprand(MersenneTwister(5), 20, 1, 0.5, rfn2) isa SparseMatrixCSC{Int8,Int}
         end
     end
 
@@ -465,6 +483,24 @@ end
     let Xc = spdiagm(spv_x1)
         @test all(isempty, findnz(@view Xc[:,1]))
         @test findnz(@view Xc[:,2]) == ([2], [1.25])
+    end
+    # `Vector{Int}` like dense, whether or not the predicate holds at zero
+    @testset "findall index type, Ti = $Ti" for Ti in (Int, Int32)
+        x = SparseVector(6, Ti[2, 3, 5], [1.5, 0.0, -0.5])
+        xc = SparseVector(6, Ti[2, 3, 5], [1.5 + 1.0im, 0.0im, -0.5im])
+        for (v, ps) in ((x, (>(0.5), <(0.5), iszero, !iszero, t -> true)),
+                        (xc, (t -> abs2(t) > 1, t -> abs2(t) < 1, iszero, !iszero)))
+            d = Vector(v)
+            for p in ps, w in (v, view(v, :))
+                @test @inferred(findall(p, w)) == findall(p, d)
+                @test typeof(findall(p, w)) === Vector{Int}
+            end
+            @test @inferred(findall(in(d[2:3]), v)) == findall(in(d[2:3]), d)
+        end
+        b = SparseVector(6, Ti[2, 3, 5], [true, false, true])
+        @test @inferred(findall(b)) == findall(Vector(b)) == [2, 5]
+        @test typeof(findall(b)) === Vector{Int}
+        @test findall(p -> false, x) == Int[]
     end
 end
 ### Array manipulation
@@ -1106,6 +1142,28 @@ end
     let v = sparse([0, NaN]) #issue #714
         @test findmin(v) === (NaN, 2)
         @test findmax(v) === (NaN, 2)
+    end
+
+    # an `Int` index on every path, agreeing with dense, whatever the index type
+    @testset "findmin/findmax index type" begin
+        xs = (SparseVector(5, Int32[], Float64[]),               # no stored entries
+              SparseVector(5, Int32[2, 4], [2.0, -1.0]),          # implicit zero first
+              SparseVector(5, Int32[1, 2, 4], [2.0, 0.0, -1.0]),  # stored zero before the implicit one
+              SparseVector(3, Int32[1, 2, 3], [-1.0, 2.0, 3.0]),  # all stored
+              SparseVector(3, Int32[3], [-0.0]),
+              SparseVector(3, Int32[2], [NaN]))
+        fs = (t -> t^2 - t, t -> t == 0 ? NaN : t)   # ties with `f(0)`, NaN at the implicit zero
+        for x in xs, (fun, arg) in ((findmin, argmin), (findmax, argmax))
+            d = Vector(x)
+            @test @inferred(fun(x)) === fun(d)
+            @test @inferred(arg(x)) === arg(d)
+            for f in fs
+                @test @inferred(fun(f, x)) === fun(f, d)
+            end
+        end
+        xc = SparseVector(5, Int32[2, 4], [1.0 + 2.0im, 0.0im])
+        @test @inferred(findmax(abs2, xc)) === findmax(abs2, Vector(xc))
+        @test @inferred(findmin(t -> t + 1, SparseVector(3, Int32[], Float64[]))) === (1.0, 1)
     end
 end
 
