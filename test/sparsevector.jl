@@ -1137,6 +1137,28 @@ end
         @test findmin(v) === (NaN, 2)
         @test findmax(v) === (NaN, 2)
     end
+
+    # an `Int` index on every path, agreeing with dense, whatever the index type
+    @testset "findmin/findmax index type" begin
+        xs = (SparseVector(5, Int32[], Float64[]),               # no stored entries
+              SparseVector(5, Int32[2, 4], [2.0, -1.0]),          # implicit zero first
+              SparseVector(5, Int32[1, 2, 4], [2.0, 0.0, -1.0]),  # stored zero before the implicit one
+              SparseVector(3, Int32[1, 2, 3], [-1.0, 2.0, 3.0]),  # all stored
+              SparseVector(3, Int32[3], [-0.0]),
+              SparseVector(3, Int32[2], [NaN]))
+        fs = (t -> t^2 - t, t -> t == 0 ? NaN : t)   # ties with `f(0)`, NaN at the implicit zero
+        for x in xs, (fun, arg) in ((findmin, argmin), (findmax, argmax))
+            d = Vector(x)
+            @test @inferred(fun(x)) === fun(d)
+            @test @inferred(arg(x)) === arg(d)
+            for f in fs
+                @test @inferred(fun(f, x)) === fun(f, d)
+            end
+        end
+        xc = SparseVector(5, Int32[2, 4], [1.0 + 2.0im, 0.0im])
+        @test @inferred(findmax(abs2, xc)) === findmax(abs2, Vector(xc))
+        @test @inferred(findmin(t -> t + 1, SparseVector(3, Int32[], Float64[]))) === (1.0, 1)
+    end
 end
 
 ### linalg
