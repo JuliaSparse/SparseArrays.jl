@@ -394,7 +394,7 @@ function Base._mapreducedim!(f, op, R::AbstractMatrix, A::AdjOrTransSparseVector
     if size(R, 2) == 1
         isempty(A) || (R[1, 1] = op(R[1, 1], Base._mapreduce(g, op, IndexCartesian(), parent(A))))
     else
-        Base.mapreducedim!(g, op, vec(PermutedDimsArray(R, (2, 1))), parent(A))
+        Base.mapreducedim!(g, op, vec(R), parent(A))
     end
     return R
 end
