@@ -594,26 +594,27 @@ function sparse_compute_reshaped_colptr_and_rowval!(colptrS::Vector{Ti}, rowvalS
     ((length(colptrA) == (nA+1)) && (maximum(colptrA) <= (lrowvalA+1)) && (maxrowvalA <= mA)) || throw(BoundsError())
 
     # The linear index of the stored entries increases along the walk, so the destination
-    # column is advanced by comparing the offset into the current column against the row
-    # count, rather than recomputed with a division per entry. The boundary is saturated
-    # because `colSstart + mS` overflows for dimensions above half of `typemax(Int)`.
+    # column is advanced by comparing against the index where the next column starts,
+    # rather than recomputed with a division per entry. The boundaries are kept in `UInt`,
+    # where a column start plus the row count cannot overflow, since a source with as
+    # many as `typemax(Int) + 1` entries reaches a linear index of `typemax(Int)`.
     colptrS[1] = 1
     colS = 1
-    colSstart = 0   # linear index of the entry before column `colS` of the destination
-    colSend = mS    # first linear index past column `colS`, saturated at typemax(Int)
+    colSstart = UInt(0)     # linear index of the entry before column `colS` of the destination
+    colSend = UInt(mS)      # first linear index past column `colS`
     ptr = 1
     @inbounds for colA in 1:nA
         offsetA = (colA - 1) * mA
         ptrend = Int(colptrA[colA+1]) - 1
         for p in ptr:ptrend
-            i = offsetA + Int(rowvalA[p]) - 1
+            i = (offsetA + Int(rowvalA[p]) - 1) % UInt
             while i >= colSend
                 colS += 1
                 colSstart = colSend
-                colSend = colSstart > typemax(Int) - mS ? typemax(Int) : colSstart + mS
+                colSend += UInt(mS)
                 colptrS[colS] = p
             end
-            rowvalS[p] = i - colSstart + 1
+            rowvalS[p] = (i - colSstart) % Int + 1
         end
         ptr = ptrend + 1
     end
