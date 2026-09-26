@@ -2330,6 +2330,15 @@ function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatri
     C
 end
 
+# For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
+# LinearAlgebra's generic `factorize(::HermOrSym)`, a dense Bunch-Kaufman in
+# `Rational{BigInt}`, so they take the `lu` branch instead, which converts to floating
+# point like dense `\` does. Every other eltype keeps its path: floating point goes to
+# the sparse Cholesky/LDLt, and `Rational` stays exact through the generic factorization.
+# A sparse right-hand side keeps the generic path, since UMFPACK does not solve with one.
+_hermitian_solve(A::AbstractSparseMatrixCSC, B=nothing) =
+    (B isa AbstractSparseArray || !(eltype(A) <: Union{Integer, Complex{<:Integer}})) && ishermitian(A)
+
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
     m, n = size(A)
@@ -2343,7 +2352,7 @@ function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
         elseif istriu(A)
             return \(UpperTriangular(A), B)
         end
-        if ishermitian(A)
+        if _hermitian_solve(A, B)
             return \(Hermitian(A), B)
         end
         return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
@@ -2367,7 +2376,7 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
                 elseif istriu(A)
                     return \(LowerTriangular($xformop(A)), B)
                 end
-                if ishermitian(A)
+                if _hermitian_solve(A, B)
                     return \($xformop(Hermitian(A)), B)
                 end
                 return \($xformop(lu(A)), B)
@@ -2390,7 +2399,7 @@ function factorize(A::AbstractSparseMatrixCSC)
         elseif istriu(A)
             return UpperTriangular(A)
         end
-        if ishermitian(A)
+        if _hermitian_solve(A)
             return factorize(Hermitian(A))
         end
         return lu(A)

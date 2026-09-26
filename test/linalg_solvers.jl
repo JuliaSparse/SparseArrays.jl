@@ -192,6 +192,41 @@ end
     @test_throws ErrorException inv(A)
 end
 
+@testset "integer Hermitian solve uses the sparse solvers" begin
+    # `\` and `factorize` used to send a Hermitian integer matrix to LinearAlgebra's
+    # generic `factorize`, a dense Bunch-Kaufman in `Rational{BigInt}`
+    for (A, T) in ((sparse([4 1 0; 1 4 1; 0 1 4]), Float64),
+                   (sparse(Complex{Int}[4 1+im 0; 1-im 4 1+im; 0 1-im 4]), ComplexF64))
+        elty = eltype(A)
+        @test ishermitian(A)
+        @test factorize(A) isa SparseArrays.UMFPACK.UmfpackLU{T}
+        b, B = elty[1, 2, 3], elty[1 2; 3 4; 5 6]
+        for M in (A, A', transpose(A))
+            for rhs in (b, B)
+                x = M \ rhs   # `\` is not inferred for all of these on release-1.13
+                @test x isa Array{T}
+                @test x ≈ Matrix(M) \ rhs
+            end
+            # a sparse rhs is not rerouted, as UMFPACK takes none on release-1.13, where the
+            # transpose of a complex Hermitian matrix cannot solve with one either
+            T <: Complex && M isa Transpose && continue
+            for rhs in (sparsevec(b), sparse(B))
+                x = M \ rhs
+                @test x ≈ Matrix(M) \ Array(rhs)
+            end
+        end
+    end
+    # `Rational` is not rerouted: it stays exact, like dense
+    A = sparse(Rational{Int}[2 1; 1 2])
+    b = Rational{Int}[1, 0]
+    for M in (A, A', transpose(A))
+        x = M \ b
+        @test x isa Vector{Rational{Int}}
+        @test M * x == b
+        @test x == Matrix(M) \ b
+    end
+end
+
 end # Base.USE_GPL_LIBS
 
 end # module
