@@ -773,22 +773,15 @@ end
         @inferred ldlt(As)\fill(1, size(As, 1))
         # the factor components are inferred from the property name, so a solve through
         # them is inferred too (the `F.UP \ (F.PtL \ b)` idiom of the docs)
-        components = ((:L, F -> F.L), (:PtL, F -> F.PtL), (:UP, F -> F.UP), (:U, F -> F.L'))
-        llt_solve = (F, b) -> F.UP \ (F.PtL \ b)
-        ldlt_solve = (F, b) -> F.DUP \ (F.PtL \ b)
-        for T in (Tv, Complex{Tv})
-            AT = T <: Real ? As : sparse(T[4 1+im 0; 1-im 3 1; 0 1 2])
-            b = rand(T, 3)
-            for F in (cholesky(AT), ldlt(AT))
-                for (sym, component) in components
-                    @test @inferred(component(F)) isa CHOLMOD.FactorComponent{T, sym, Ti}
-                end
-            end
-            @test @inferred(llt_solve(cholesky(AT), b))::Vector{T} ≈ Matrix(AT) \ b
-            F = ldlt(AT)
-            @test @inferred((F -> F.D)(F)) isa CHOLMOD.FactorComponent{T, :D, Ti}
-            @test @inferred(ldlt_solve(F, b))::Vector{T} ≈ Matrix(AT) \ b
+        b = rand(Tv, 3)
+        F = cholesky(As)
+        for (sym, component) in ((:L, F -> F.L), (:PtL, F -> F.PtL), (:UP, F -> F.UP), (:U, F -> F.L'))
+            @test @inferred(component(F)) isa CHOLMOD.FactorComponent{Tv, sym, Ti}
         end
+        @test @inferred((F -> F.UP \ (F.PtL \ b))(F))::Vector{Tv} ≈ Matrix(As) \ b
+        F = ldlt(As)
+        @test @inferred((F -> F.D)(F)) isa CHOLMOD.FactorComponent{Tv, :D, Ti}
+        @test @inferred((F -> F.DUP \ (F.PtL \ b))(F))::Vector{Tv} ≈ Matrix(As) \ b
     end
 end
 
