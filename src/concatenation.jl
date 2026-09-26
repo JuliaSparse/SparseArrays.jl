@@ -8,7 +8,8 @@ promote_idxtype(::AbstractSparseMatrixCSC{<:Any, Ti}) where {Ti} = Ti
 promote_idxtype(::AbstractSparseMatrixCSC{<:Any, Ti}, X::AbstractSparseMatrixCSC...) where {Ti} =
     promote_type(Ti, promote_idxtype(X...))
 
-function vcat(X::AbstractSparseMatrixCSC...)
+vcat(X::AbstractSparseMatrixCSC...) = _vcat_csc(promote_eltype(X...), promote_idxtype(X...), X...)
+function _vcat_csc(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where {Tv,Ti}
     num = length(X)
     mX = Int[ size(x, 1) for x in X ]
     nX = Int[ size(x, 2) for x in X ]
@@ -20,9 +21,6 @@ function vcat(X::AbstractSparseMatrixCSC...)
             throw(DimensionMismatch("All inputs to vcat should have the same number of columns"))
         end
     end
-
-    Tv = promote_eltype(X...)
-    Ti = promote_idxtype(X...)
 
     nnzX = Int[ nnz(x) for x in X ]
     nnz_res = sum(nnzX)
@@ -380,13 +378,23 @@ function vcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     end
     return Base.typed_vcat(T, X1, X...)
 end
-function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+# `@constprop :aggressive` propagates the `rows` of a block literal into `_hvcat_rows`, so
+# that the block rows have known lengths and the row `hcat`s infer.
+Base.@constprop :aggressive function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if _concatsparse(X1, X...)
-        vcat(_hvcat_rows(rows, X1, X...)...)
-    else
-        Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
+        return _sparse_hvcat(rows, _makesparse(X1), map(_makesparse, X)...)
     end
+    return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
 end
+# Without a constant `rows` the block rows have unknown length and their types cannot be
+# inferred, which is the case when LinearAlgebra's `hvcat` calls back here after replacing
+# `UniformScaling` blocks with sparse identities. With only sparse matrices, the promoted
+# element and index types are known from the blocks alone, so the final `vcat` takes them
+# explicitly and the result type does not depend on `rows`.
+function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::AbstractSparseMatrixCSC...)
+    return _vcat_csc(promote_eltype(X...), promote_idxtype(X...), _hvcat_rows(rows, X...)...)
+end
+Base.@constprop :aggressive _sparse_hvcat(rows::Tuple{Vararg{Int}}, X...) = vcat(_hvcat_rows(rows, X...)...)
 function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
     if row1 ≤ 0
         throw(ArgumentError("length of block row must be positive, got $row1"))
