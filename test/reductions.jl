@@ -140,10 +140,11 @@ dA = Array(sA)
         # the result along a dimension of an empty array is dense, as for dense input, and is
         # inferred as such: Base takes `map` of the empty first slice, which would be sparse
         E = spzeros(3, 0)
-        for (X, dims) in ((E, 1), (E, 3), (E', 2), (view(E, :, 1:0), 1), (spzeros(0), 2)), f in (minimum, maximum, extrema)
+        for (X, dims) in ((E, 1), (E, 3), (E', 2), (view(E, :, 1:0), 1), (spzeros(0), 2), (spzeros(0)', 1), (transpose(spzeros(0)), 3)),
+            f in (minimum, maximum, extrema)
             r, rd = f(X; dims), f(Array(X); dims)
             @test typeof(r) == typeof(rd) && size(r) == size(rd)
-            X isa Adjoint || @test typeof(@inferred f(X; dims)) == typeof(rd)
+            @test typeof(@inferred f(X; dims)) == typeof(rd)
         end
     end
     @testset "seeds of minimum, maximum and extrema along a dimension" begin
@@ -151,11 +152,12 @@ dA = Array(sA)
         N = sparse([NaN 1.0; 2.0 3.0])
         M = sparse(Union{Missing,Float64}[missing 1.0; 2.0 3.0])
         C = sparse(ComplexF64[1+im 0; 0 -2])
-        for X in (N, M, N', view(M, :, 1:2), sparsevec([NaN, 1.0])), dims in (1, 2), f in (minimum, maximum, extrema)
+        for X in (N, M, N', view(M, :, 1:2), sparsevec([NaN, 1.0]), sparsevec([NaN, 1.0])', transpose(sparsevec(Union{Missing,Float64}[missing, 1.0]))),
+            dims in (1, 2), f in (minimum, maximum, extrema)
             r, rd = f(X; dims), f(Array(X); dims)
             @test typeof(r) == typeof(rd) && isequal(r, rd)
         end
-        for X in (N, C, N', view(C, :, 1:2), spzeros(0, 3)), dims in (1, 2), g in (abs, abs2)
+        for X in (N, C, N', view(C, :, 1:2), spzeros(0, 3), sparsevec(ComplexF64[1 + im, 0, -2])'), dims in (1, 2), g in (abs, abs2)
             r, rd = maximum(g, X; dims), maximum(g, Array(X); dims)   # no throw for the empty axis
             @test typeof(r) == typeof(rd) && isequal(r, rd)
         end
@@ -437,6 +439,27 @@ end
         end
     end
     @test_throws ArgumentError sum(spzeros(3, 3); dims = 0, sparse = true)
+    # the `sparse` keyword is folded away, so the result type is inferred for every argument
+    # type that has the keyword, adjoints and transposes included (`@inferred` cannot pass
+    # the keyword as a constant, so the opt-in goes through a function)
+    A, v = sprand(4, 3, 0.5), sprand(4, 0.5)
+    B = sparse(A .> 0)
+    sparsesum(X, dims) = sum(X; dims, sparse = true)
+    sparsecount(X, dims) = count(iszero, X; dims, sparse = true)
+    sparseany(X, dims) = any(X; dims, sparse = true)
+    b = sparse(v .> 0)
+    for (X, P) in ((A, B), (A', B'), (transpose(A), transpose(B)), (view(A, :, 1:2), view(B, :, 1:2)), (v, b), (v', b'), (transpose(v), transpose(b))),
+        dims in (1, 2)
+        @test @inferred(sum(X; dims)) isa Array{Float64}
+        @test @inferred(maximum(abs, X; dims)) isa Array{Float64}
+        @test @inferred(count(iszero, X; dims)) isa Array{Int}
+        @test @inferred(count(P; dims)) isa Array{Int}
+        @test @inferred(any(iszero, X; dims)) isa Array{Bool}
+        @test @inferred(all(P; dims)) isa Array{Bool}
+        @test @inferred(sparsesum(X, dims)) isa AbstractSparseArray{Float64}
+        @test @inferred(sparsecount(X, dims)) isa AbstractSparseArray{Int}
+        @test @inferred(sparseany(P, dims)) isa AbstractSparseArray{Bool}
+    end
     # hypersparse: only the rows that store something are visited
     A = sparse([5, 10^6, 5], [1, 2, 3], [1.0, 2.0, 3.0], 10^6, 3)
     r = sum(A; dims = 2, sparse = true)
@@ -450,11 +473,17 @@ end
     @test which(Base._mapreducedim!, Base.typesof(identity, +, zeros(1, 1), V)).module == SparseArrays
     @test which(Base._mapreduce, Base.typesof(identity, +, IndexCartesian(), V)).module == SparseArrays
     @test nnz(sum(V; dims = 2, sparse = true)) == 2
+    # the adjoint of a sparse vector is a row that reduces through its parent
+    w = sparsevec([2, 4], [1.5, -2.0], 6)
+    @test which(Base._mapreducedim!, Base.typesof(identity, +, zeros(1, 1), w')).module == SparseArrays
+    @test which(Base._mapreducedim!, Base.typesof(identity, +, zeros(1, 6), transpose(w))).module == SparseArrays
+    @test nnz(sum(w'; dims = 1, sparse = true)) == 2 && nnz(sum(w'; dims = 2, sparse = true)) == 1
+    @test nnz(sum(x -> x + 1, w'; dims = 1, sparse = true)) == 6 && nnz(sum(spzeros(5)'; dims = 2, sparse = true)) == 0
     # adjoints, views of a column subset and sparse vectors reduce like their copy, calling `f`
     # for the stored entries and once per slice rather than per element
-    A, C, v = sprand(60, 50, 0.05), sprand(ComplexF64, 60, 50, 0.05), sprand(60, 0.1)
+    A, C, v, c = sprand(60, 50, 0.05), sprand(ComplexF64, 60, 50, 0.05), sprand(60, 0.1), sprand(ComplexF64, 60, 0.1)
     S = view(A, :, [7, 2, 2, 15])
-    for X in (A', transpose(C), C', S, v), dims in (1, 2, (1, 2)),
+    for X in (A', transpose(C), C', S, v, v', transpose(c), c'), dims in (1, 2, (1, 2)),
         (f, op) in ((abs2, +), (abs, max), (x -> abs(x) + 1, (x, y) -> x + y))   # LinearAlgebra does not forward the last
         calls = Ref(0)
         rd = mapreduce(f, op, Array(X); dims, init = 0.0)
@@ -464,7 +493,7 @@ end
         rs = mapreduce(f, op, X; dims, init = 0.0, sparse = true)
         @test rs isa (X isa AbstractVector ? SparseVector{Float64} : SparseMatrixCSC{Float64}) && rs ≈ rd
     end
-    for X in (A', S, v), dims in (1, 2)
+    for X in (A', S, v, v', transpose(c)), dims in (1, 2)
         M = Array(X)
         @test sum(X; dims) isa Array && sum(X; dims) ≈ sum(M; dims)
         @test prod(X; dims, sparse = true) ≈ prod(M; dims)
@@ -478,6 +507,9 @@ end
     firstnz(x, y) = iszero(x) ? y : x
     B = sparse([0 1; 2 0])
     @test mapreduce(identity, firstnz, B'; dims = (1, 2), init = 0) == [1;;] == mapreduce(identity, firstnz, B'; dims = (1, 2), init = 0, sparse = true)
+    u = sparsevec([0, 2, 1])'
+    @test mapreduce(identity, firstnz, u; dims = (1, 2), init = 0) == [2;;] == mapreduce(identity, firstnz, u; dims = (1, 2), init = 0, sparse = true)
+    @test mapreduce(identity, firstnz, u; dims = 2, init = 0) == [2;;] == mapreduce(identity, firstnz, u; dims = 2, init = 0, sparse = true)
     # the element type of the dense result for a `Union`, and no f(0) for a full matrix
     @test sum(sparse(Union{Int,Float64}[1.5 2; 3 4]); dims = 1, sparse = true) == [4.5 6.0]
     @test maximum(x -> 1 ÷ x, sparse([1 2; 3 4]); dims = 1, sparse = true) == [1 0]
