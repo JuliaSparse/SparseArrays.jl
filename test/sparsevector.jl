@@ -37,6 +37,12 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
     @test getnzval(x) === nonzeros(x)
     @test getrowval(view(x, :)) == getrowval(view(sparse(x), :, 1)) == [2, 5, 6]
     @test getnzval(view(x, :)) == getnzval(view(sparse(x), :, 1)) == [1.25, -0.75, 3.5]
+    # a range view keeps the parent's index type, whether or not it holds stored entries
+    x32 = SparseVector{Float64,Int32}(x)
+    @test @inferred(nonzeroinds(view(x32, 2:6)))::Vector{Int32} == [1, 4, 5]
+    @test @inferred(nonzeroinds(view(x32, 3:4)))::Vector{Int32} == Int32[]
+    @test @inferred(nonzeroinds(view(x32, 3:2)))::Vector{Int32} == Int32[]
+    @test @inferred(nnz(view(x32, 2:6))) == 3
     for T in (UpperTriangular(sparse(1.0I, 3, 3)), LowerTriangular(sparse(1.0I, 3, 3)))
         @test getrowval(T) === rowvals(T) && getnzval(T) === nonzeros(T)
     end

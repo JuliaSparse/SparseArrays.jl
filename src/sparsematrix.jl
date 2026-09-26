@@ -1746,7 +1746,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
                 # This means that the matrix is not symmetric
                 isempty(nzrange(A, row)) && return false
 
-                offset = tracker[row]
+                offset = Int(tracker[row])
 
                 # If the matrix is unsymmetric, there might not exist
                 # a rowval[offset]

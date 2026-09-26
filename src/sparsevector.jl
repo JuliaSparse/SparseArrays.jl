@@ -134,10 +134,11 @@ function _partialview_end_indices(x::SparseVectorPartialView)
 end
 
 function nonzeroinds(x::SparseVectorPartialView)
-    isempty(parentindices(x)[1]) && return indtype(parent(x))[]
+    Ti = indtype(parent(x))
+    isempty(parentindices(x)[1]) && return Ti[]
     (first_idx, last_idx) = _partialview_end_indices(x)
     nzinds = nonzeroinds(parent(x))
-    return @view(nzinds[first_idx:last_idx]) .- (parentindices(x)[1][begin] - 1)
+    return @view(nzinds[first_idx:last_idx]) .- Ti(parentindices(x)[1][begin] - 1)
 end
 
 getrowval(x::SparseVectorOrView) = nonzeroinds(x)
