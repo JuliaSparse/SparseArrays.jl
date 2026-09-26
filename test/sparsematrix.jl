@@ -1112,6 +1112,11 @@ end
         @test rA == reshape(Matrix(A32), m, n)
     end
     @test copy(reshape(spzeros(4, 3), 6, 2)) == zeros(6, 2)
+    # the column boundary is not formed by addition, which overflows for huge dimensions
+    m = typemax(Int) ÷ 2 + 2
+    A = spzeros(m, 5)
+    copyto!(A, SparseMatrixCSC(m + 1, 1, [1, 2], [m + 1], [1.0]))
+    @test getcolptr(A) == [1, 1, 2, 2, 2, 2] && rowvals(A) == [1]
 end
 
 @testset "SparseMatrixCSCView" begin
