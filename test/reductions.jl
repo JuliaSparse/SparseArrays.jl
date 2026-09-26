@@ -115,6 +115,17 @@ dA = Array(sA)
         @test !any(iszero, spzeros(0, 0))
     end
 
+    @testset "seed without copying the first slice" begin
+        # the `Array` seed is built only for an empty slice; a non-empty reduction
+        # allocates the result and Base's own temporary, not a dense copy of the slice
+        A = sprand(10^5, 4, 0.01)
+        for g in (A -> maximum(A; dims=2), A -> minimum(A'; dims=1), A -> extrema(A; dims=2),
+                  A -> maximum(view(A, :, 1:2); dims=2))
+            r = g(A)
+            @test r isa Array
+            @test (@allocated g(A)) < 2.5 * sizeof(r)
+        end
+    end
     @testset "empty cases" begin
         errchecker(str) = occursin(": reducing over an empty collection is not allowed", str) ||
                           occursin(": reducing with ", str) ||
