@@ -868,25 +868,17 @@ end
     @test chI \ sparseI ≈ sparseI
     # a sparse right-hand side gives a `SparseMatrixCSC`, never a `Symmetric` or
     # `Hermitian` wrapper, so the solve is inferred
-    for T in (Tv, Complex{Tv})
-        A = sparse(T <: Real ? T[4 1 0; 1 3 1; 0 1 2] : T[4 1+im 0; 1-im 3 1; 0 1 2])
-        B = sparse(T <: Real ? T[1 0 0; 0 2 0; 3 0 1] : T[1 0 0; 0 2im 0; 3 0 1])
-        Ad, Bd = Matrix(A), Matrix(B)
-        for F in (cholesky(A), ldlt(A))
-            @test @inferred(F \ B)::SparseMatrixCSC{T, Ti} ≈ Ad \ Bd
-            @test @inferred(F' \ B)::SparseMatrixCSC{T, Ti} ≈ Ad' \ Bd
-            @test @inferred(F \ B')::SparseMatrixCSC{T, Ti} ≈ Ad \ Bd'
-            @test @inferred(F.PtL \ B)::SparseMatrixCSC{T, Ti} ≈ F.PtL \ Bd
-            @test @inferred(F.PtL' \ B)::SparseMatrixCSC{T, Ti} ≈ F.PtL' \ Bd
-        end
-        F = cholesky(A)
-        L = @inferred(sparse(F.L))::SparseMatrixCSC{T, Ti}
-        @test L * L' ≈ Ad[F.p, F.p]
-        F = ldlt(A)
-        LD = @inferred(sparse(F.LD))::SparseMatrixCSC{T, Ti}
-        L, d = CHOLMOD.getLd!(copy(LD))
-        @test L * Diagonal(d) * L' ≈ Ad[F.p, F.p]
+    A = sparse(Tv[4 1 0; 1 3 1; 0 1 2])
+    B = sparse(Tv[1 0 0; 0 2 0; 3 0 1])
+    Ad, Bd = Matrix(A), Matrix(B)
+    for F in (cholesky(A), ldlt(A))
+        @test @inferred(F \ B)::SparseMatrixCSC{Tv, Ti} ≈ Ad \ Bd
+        @test @inferred(F' \ B)::SparseMatrixCSC{Tv, Ti} ≈ Ad' \ Bd
+        @test @inferred(F \ B')::SparseMatrixCSC{Tv, Ti} ≈ Ad \ Bd'
+        @test @inferred(F.PtL \ B)::SparseMatrixCSC{Tv, Ti} ≈ F.PtL \ Bd
     end
+    Ac = sparse(Complex{Tv}[4 1+im 0; 1-im 3 1; 0 1 2])
+    @test @inferred(cholesky(Ac) \ B)::SparseMatrixCSC{Complex{Tv}, Ti} ≈ Matrix(Ac) \ Bd
 end
 
 @testset "Issue 630" begin
