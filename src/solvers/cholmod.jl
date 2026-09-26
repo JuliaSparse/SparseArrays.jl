@@ -493,7 +493,10 @@ end
 function FactorComponent{Tv, S}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
     return FactorComponent{Tv, S, Ti}(F)
 end
-function FactorComponent(F::Factor{Tv, Ti}, sym::Symbol) where {Tv, Ti}
+# Constant propagation of `sym` from `getproperty(F, :L)` and friends is what lets `F.L \ b`
+# infer; without it the component's `S` parameter is unknown and every solve through
+# a component dispatches dynamically.
+Base.@constprop :aggressive function FactorComponent(F::Factor{Tv, Ti}, sym::Symbol) where {Tv, Ti}
     FactorComponent{Tv, sym, Ti}(F)
 end
 

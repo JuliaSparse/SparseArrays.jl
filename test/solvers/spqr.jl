@@ -45,6 +45,8 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test istriu(F.R)
         @test isperm(F.pcol)
         @test isperm(F.prow)
+        @test @inferred((F -> F.pcol)(F)) isa Vector{iltyA}
+        @test @inferred((F -> F.prow)(F)) isa Vector{iltyA}
         @test_throws isdefined(Base, :FieldError) ? FieldError : ErrorException F.T
     end
 
@@ -131,6 +133,8 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test F isa SPQR.AdjointQRSparse{eltyA} && size(F) == size(W)
         @test F.L isa SparseMatrixCSC{eltyA, iltyA} && istril(F.L)
         @test F.L * F.Q ≈ Matrix(W)[F.prow, F.pcol]
+        @test @inferred((F -> F.pcol)(F)) isa Vector{iltyA}
+        @test @inferred((F -> F.prow)(F)) isa Vector{iltyA}
         @test rank(F) == 9 && propertynames(F) == (:L, :Q, :prow, :pcol)
         @test F' isa SPQR.QRSparse{eltyA, iltyA}
         @test occursin("L factor", sprint(show, MIME"text/plain"(), F))
