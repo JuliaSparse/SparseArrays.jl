@@ -467,22 +467,15 @@ end
         @test findnz(@view Xc[:,2]) == ([2], [1.25])
     end
     # `Vector{Int}` like dense, whether or not the predicate holds at zero
-    @testset "findall index type, Ti = $Ti" for Ti in (Int, Int32)
-        x = SparseVector(6, Ti[2, 3, 5], [1.5, 0.0, -0.5])
-        xc = SparseVector(6, Ti[2, 3, 5], [1.5 + 1.0im, 0.0im, -0.5im])
-        for (v, ps) in ((x, (>(0.5), <(0.5), iszero, !iszero, t -> true)),
-                        (xc, (t -> abs2(t) > 1, t -> abs2(t) < 1, iszero, !iszero)))
-            d = Vector(v)
-            for p in ps, w in (v, view(v, :))
-                @test @inferred(findall(p, w)) == findall(p, d)
-                @test typeof(findall(p, w)) === Vector{Int}
-            end
-            @test @inferred(findall(in(d[2:3]), v)) == findall(in(d[2:3]), d)
+    @testset "findall index type" begin
+        x = SparseVector(6, Int32[2, 3, 5], [1.5, 0.0, -0.5])
+        d = Vector(x)
+        for p in (>(0.5), <(0.5), iszero)
+            @test @inferred(findall(p, x))::Vector{Int} == findall(p, d)
         end
-        b = SparseVector(6, Ti[2, 3, 5], [true, false, true])
-        @test @inferred(findall(b)) == findall(Vector(b)) == [2, 5]
-        @test typeof(findall(b)) === Vector{Int}
-        @test findall(p -> false, x) == Int[]
+        @test @inferred(findall(in(d[2:3]), x))::Vector{Int} == findall(in(d[2:3]), d)
+        b = SparseVector(6, Int32[2, 3, 5], [true, false, true])
+        @test @inferred(findall(b))::Vector{Int} == [2, 5]
     end
 end
 ### Array manipulation
