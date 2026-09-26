@@ -260,6 +260,33 @@ end
     end
 end
 
+@testset "block literals mixing sparse and dense blocks infer" begin
+    S = sprand(4, 4, 0.5)
+    C = sprand(ComplexF64, 4, 4, 0.5)
+    A = rand(4, 4)
+    v = sprand(4, 0.5)
+    w = rand(4)
+    dS, dC, dv = Array(S), Array(C), Array(v)
+    # the literals are wrapped so that `@inferred` sees the constant `rows` of the syntax
+    lit22 = (X, Y) -> [X Y; Y Y]
+    border = (X, y, z) -> [X y; z' 1]
+    litI = (X, Y) -> [X I; Y X]
+    @test @inferred(lit22(S, A))::SparseMatrixCSC{Float64,Int} == [dS A; A A]
+    @test @inferred(lit22(A, C))::SparseMatrixCSC{ComplexF64,Int} == [A dC; dC dC]
+    @test @inferred(lit22(v, w))::SparseMatrixCSC{Float64,Int} == [dv w; w w]
+    @test @inferred(border(S, v, w))::SparseMatrixCSC{Float64,Int} == [dS dv; w' 1]
+    @test @inferred(litI(C, A))::SparseMatrixCSC{ComplexF64,Int} == [dC I; A dC]
+    # LinearAlgebra replaces `UniformScaling` blocks by sparse identities and calls `hvcat`
+    # back with `rows` no longer a constant; `@inferred` here sees only the type of `rows`
+    B = sparse(I, 4, 4)
+    rows = (2, 2)
+    @test @inferred(hvcat(rows, S, B, B, S))::SparseMatrixCSC{Float64,Int} == [dS I; I dS]
+    @test @inferred(hvcat(rows, C, A, A, S))::SparseMatrixCSC{ComplexF64,Int} == [dC A; A dS]
+    # a dense block converts to `Int` indices, and the index types of the blocks promote
+    S32 = SparseMatrixCSC{Float64,Int32}(S)
+    @test @inferred(lit22(S32, A))::SparseMatrixCSC{Float64,Int} == [dS A; A A]
+    @test @inferred(lit22(S32, S32))::SparseMatrixCSC{Float64,Int32} == [dS dS; dS dS]
+end
 
 @testset "issue #19304" begin
     @inferred hcat(sparse(rand(2,1)), I)
