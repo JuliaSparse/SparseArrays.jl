@@ -763,6 +763,23 @@ end
     B = sparse(rand(Float32, 3, 3))
     copyto!(A, B)
     @test A == B
+    # an empty source leaves the destination untouched, as for dense
+    A = sparse([3, 4, 2, 1], [1, 1, 2, 4], [1.0, 2.0, 3.0, 4.0], 4, 4)
+    Aorig = copy(A)
+    for B in (spzeros(0, 0), spzeros(0, 3), spzeros(3, 0))
+        @test copyto!(A, B) === A
+        @test A == Aorig
+    end
+    # indtype(A) != indtype(B), for every size relation
+    A = SparseMatrixCSC{Float64,Int32}(sprand(5, 5, 0.4))
+    Aorig = copy(A)
+    for B in (sprand(5, 5, 0.4), sprand(25, 1, 0.4), sprand(3, 3, 0.4))
+        copyto!(A, B)
+        @test A isa SparseMatrixCSC{Float64,Int32}
+        @test A[1:length(B)] == B[:]
+        @test A[length(B)+1:end] == Aorig[length(B)+1:end]
+        copyto!(A, Aorig)
+    end
     # Test copyto!(dense, sparse)
     B = sprand(5, 5, 1.0)
     A = rand(5,5)
@@ -1086,6 +1103,15 @@ end
     rA = reshape(A, 10, 20)
     crA = copy(rA)
     @test reshape(crA, 20, 10) == A
+    # shapes that gather many source columns into one destination column, split one source
+    # column across many, and leave trailing empty destination columns
+    A32 = SparseMatrixCSC{Float64,Int32}(sparse([1, 2, 4, 3, 4], [1, 1, 2, 3, 3], 1.0:5.0, 4, 3))
+    for (m, n) in ((12, 1), (1, 12), (2, 6), (6, 2), (3, 4))
+        rA = copy(reshape(A32, m, n))
+        @test rA isa SparseMatrixCSC{Float64,Int32}
+        @test rA == reshape(Matrix(A32), m, n)
+    end
+    @test copy(reshape(spzeros(4, 3), 6, 2)) == zeros(6, 2)
 end
 
 @testset "SparseMatrixCSCView" begin
