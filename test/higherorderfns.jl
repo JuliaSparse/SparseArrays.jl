@@ -518,6 +518,16 @@ end
         @test (X .+ copy(X))::T == 2 .* fX
         @test isequal((X ./ fX)::T, sparse(fX ./ fX))
     end
+    # adjoints and transposes of sparse vector views convert through a sparse vector
+    for v in (view(x, :), view(x, 2:5), view(S, :, 2)), f in (adjoint, transpose)
+        fv = Array(v)
+        @test (v .+ f(v))::SparseMatrixCSC == fv .+ f(fv)
+        @test (f(v) .+ v)::SparseMatrixCSC == f(fv) .+ fv
+        @test (v .* f(v))::SparseMatrixCSC == fv .* f(fv)
+        @test (f(v) .* v)::SparseMatrixCSC == f(fv) .* fv
+        @test (f(v) .+ sparse(fv))::SparseMatrixCSC == f(fv) .+ fv
+        @test SparseMatrixCSC(f(v))::SparseMatrixCSC == f(fv)
+    end
     # sparse views are converted with `copy`, which keeps their stored entries in O(nnz)
     @test nnz(SparseArrays.HigherOrderFns._sparsifystructured(view(x, :))) == 3
     @test nnz(SparseArrays.HigherOrderFns._sparsifystructured(view(sparse([1, 1], [1, 2], [0.0, 1.0]), :, 1:2))) == 2

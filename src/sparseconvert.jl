@@ -110,6 +110,8 @@ _sparsem(A::UpperTriangular{T,<:AbstractSparseMatrix}) where T = triu(A.data)
 _sparsem(A::LowerTriangular{T,<:AbstractSparseMatrix}) where T = tril(A.data)
 # view of sparse matrix
 _sparsem(S::SubArray{<:Any,2,<:AbstractSparseMatrixCSC}) = getindex(parent(S),S.indices...)
+# view of a sparse vector or of a column of a sparse matrix, which re-wrapping would recurse on
+_sparsem(S::SubArray{<:Any,1,<:Union{AbstractSparseVector,AbstractSparseMatrixCSC}}) = getindex(parent(S),S.indices...)
 
 # 4 cases: (Symmetric|Hermitian) variants (:U|:L)
 function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv}
