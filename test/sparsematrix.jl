@@ -714,6 +714,15 @@ end
             @test repeat(A, m, n) == repeat(A_full, m, n)
         end
     end
+    # a non-Int index type is kept, including in the column pointers
+    A32 = SparseMatrixCSC{ComplexF64,Int32}(sprand(ComplexF64, 5, 3, 0.5))
+    A32_full = Matrix(A32)
+    for m = 0:2, n = 0:3
+        R = repeat(A32, m, n)
+        @test R isa SparseMatrixCSC{ComplexF64,Int32}
+        @test R == repeat(A32_full, m, n)
+        @test repeat(A32, m) isa SparseMatrixCSC{ComplexF64,Int32}
+    end
 end
 
 @testset "copyto!" begin
@@ -1096,6 +1105,12 @@ end
     @test sa_filled === sa
     b[1:10, 2:3] .= 0.0
     @test a == b
+    sb = view(a, 1:2, 1:2)
+    @test (@inferred fill!(sb, 1.0)) === sb
+    for empty in (view(a, 1:0, 1:2), view(a, 1:2, 1:0))
+        @test (@inferred fill!(empty, 3.0)) === empty
+    end
+    @test a[1:2, 1:2] == fill(1.0, 2, 2)
     A = sparse([1], [1], [Vector{Float64}(undef, 3)], 3, 3)
     A[1,1] = [1.0, 2.0, 3.0]
     B = deepcopy(A)

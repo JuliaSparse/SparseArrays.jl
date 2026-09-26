@@ -107,6 +107,29 @@ dA = Array(sA)
             @test_throws errchecker f(spzeros(0, 1), dims=(1, 2))
             @test isequal(f(spzeros(0, 1), dims=3), f(Matrix{Int}(I, 0, 1), dims=3))
         end
+        # the result along a dimension of an empty array is dense, as for dense input, and is
+        # inferred as such: Base takes `map` of the empty first slice, which would be sparse
+        E = spzeros(3, 0)
+        for (X, dims) in ((E, 1), (E, 3), (E', 2), (view(E, :, 1:0), 1), (spzeros(0), 2)), f in (minimum, maximum, extrema)
+            r, rd = f(X; dims), f(Array(X); dims)
+            @test typeof(r) == typeof(rd) && size(r) == size(rd)
+            X isa Adjoint || @test typeof(@inferred f(X; dims)) == typeof(rd)
+        end
+    end
+    @testset "seeds of minimum, maximum and extrema along a dimension" begin
+        # NaN, missing and the `abs`/`abs2` zero seed are handled as for dense input
+        N = sparse([NaN 1.0; 2.0 3.0])
+        M = sparse(Union{Missing,Float64}[missing 1.0; 2.0 3.0])
+        C = sparse(ComplexF64[1+im 0; 0 -2])
+        for X in (N, M, N', view(M, :, 1:2), sparsevec([NaN, 1.0])), dims in (1, 2), f in (minimum, maximum, extrema)
+            r, rd = f(X; dims), f(Array(X); dims)
+            @test typeof(r) == typeof(rd) && isequal(r, rd)
+        end
+        for X in (N, C, N', view(C, :, 1:2), spzeros(0, 3)), dims in (1, 2), g in (abs, abs2)
+            r, rd = maximum(g, X; dims), maximum(g, Array(X); dims)   # no throw for the empty axis
+            @test typeof(r) == typeof(rd) && isequal(r, rd)
+        end
+        @test maximum(N; dims = 1, sparse = true) isa SparseMatrixCSC && isequal(maximum(N; dims = 1, sparse = true), maximum(Array(N); dims = 1))
     end
 end
 
