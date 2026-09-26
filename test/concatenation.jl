@@ -216,6 +216,21 @@ using LinearAlgebra
         @test (hvcat((1,2), A, E, α))::SparseMatrixCSC == hvcat((1,2), A, E, [α]) == hvcat((1,2), A, E, α*I)
         @test (hvcat((2,2), α, E, F, 3I))::SparseMatrixCSC == hvcat((2,2), [α], E, F, Matrix(3I, 3, 3))
         @test (hvcat((2,2), 3I, F, E, α))::SparseMatrixCSC == hvcat((2,2), Matrix(3I, 3, 3), F, E, [α])
+        # the `sparse_*` entry points size a `UniformScaling` from its neighbours like the plain ones
+        dA, dB = Array(A), Array(B)
+        @test sparse_hcat(A, I)::SparseMatrixCSC == sparse_hcat(dA, I)::SparseMatrixCSC == hcat(A, I)
+        @test sparse_hcat(I, A, 2I)::SparseMatrixCSC == sparse_hcat(I, dA, 2I)::SparseMatrixCSC == hcat(I, A, 2I)
+        @test sparse_vcat(A, I)::SparseMatrixCSC == sparse_vcat(dA, I)::SparseMatrixCSC == vcat(A, I)
+        @test sparse_vcat(3I, A)::SparseMatrixCSC == sparse_vcat(3I, dA)::SparseMatrixCSC == vcat(3I, A)
+        @test sparse_hvcat((2,2), B, I, I, B)::SparseMatrixCSC == sparse_hvcat((2,2), dB, I, I, dB)::SparseMatrixCSC ==
+            hvcat((2,2), B, I, I, B)
+        @test sparse_hvcat((2,2), I, B, B, 2I)::SparseMatrixCSC == sparse_hvcat((2,2), I, dB, dB, 2I)::SparseMatrixCSC ==
+            hvcat((2,2), I, B, B, 2I)
+        @test sparse_hvcat((3,1), C, C, I, 3I)::SparseMatrixCSC == hvcat((3,1), C, C, I, 3I)
+        @test_throws ArgumentError sparse_hcat(I)
+        @test_throws ArgumentError sparse_vcat(I, 2I)
+        @test_throws ArgumentError sparse_hvcat((1,1), I, I)
+        @test_throws DimensionMismatch sparse_hcat(A, I, E)
     end
 end
 
