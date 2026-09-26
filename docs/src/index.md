@@ -299,10 +299,13 @@ julia> v .* v'
 Scalars (and `Ref`s) are folded into the function before the rules above are applied. Broadcasting
 a sparse array with a `Vector`, a `Matrix`, the adjoint or transpose of any of these, or a
 `Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix first converts those arguments to
-sparse, so the result is sparse as well, even when it is full, as in `A .+ ones(3, 3)`. Any other
-argument, such as a tuple, a range, a triangular or `Symmetric` wrapper, a view of a sparse matrix
-or an array with more than two dimensions, makes the broadcast fall back to the generic
-implementation, which visits every element and returns an `Array`. `map` accepts the same
+sparse, so the result is sparse as well, even when it is full, as in `A .+ ones(3, 3)`. A view of
+whole columns of a sparse matrix, such as `@view A[:, 2:3]` or `@view A[:, j]`, or of a range of a
+sparse vector is copied to a sparse array in time proportional to its stored entries, so
+broadcasting over it is sparse too, even with no other sparse argument. Any other argument, such as
+a tuple, a range, a triangular or `Symmetric` wrapper, a view that selects some of the rows of a
+sparse matrix or an array with more than two dimensions, makes the broadcast fall back to the
+generic implementation, which visits every element and returns an `Array`. `map` accepts the same
 structured matrices alongside sparse matrices, and falls back to a dense result otherwise.
 
 ```jldoctest sparsebroadcast
