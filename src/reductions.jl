@@ -14,12 +14,16 @@ end
 
 # Base seeds `maximum`, `minimum` and `extrema` along a dimension from the first slice and,
 # when `A` is empty, takes `map(f, slice)` as the result, which for a sparse `A` is sparse.
-# Seeding from a dense copy of the slice (one row, column or element) keeps the result an
-# `Array` either way.
+# Only that case needs a dense copy of the (empty) slice; otherwise Base reduces the slice
+# to a scalar seed and fills through `reducedim_initarray`, which is dense above.
 function _reducedim_init_dense(f, op, A, region)
     ri = Base.reduced_indices(A, region)   # also validates `region`
     any(i -> isempty(axes(A, i)), region) && Base._empty_reduce_error()
-    return Base.reducedim_init(f, op, Array(view(A, ri...)), region)
+    A1 = view(A, ri...)
+    isempty(A1) && return map(f, Array(A1))
+    # the assertion hides Base's empty-slice branch, which is sparse here, from inference
+    return invoke(Base.reducedim_init, Tuple{typeof(f), typeof(op), AbstractArray, typeof(region)},
+                  f, op, A, region)::Array
 end
 for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
           :AdjOrTransSparseVectorOrView)
