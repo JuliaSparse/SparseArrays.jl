@@ -435,6 +435,34 @@ end
     end
 end
 
+@testset "diff" begin
+    @testset "$T" for T in (Float64, ComplexF64)
+        A = sprand(T, 7, 5, 0.5)
+        A[2, 2] = zero(T); A[3, 2] = one(T); A[4, 2] = one(T) # stored zero and a cancelling pair
+        A[:, 4] .= zero(T)                                     # a column of stored zeros
+        M = Array(A)
+        for dims in (1, 2)
+            D = diff(A; dims)
+            @test D isa SparseMatrixCSC{T,Int}
+            @test D == diff(M; dims)
+            @test diff(sparse(Int32.(1:7), Int32.(1:7), one(T)); dims) isa SparseMatrixCSC{T,Int32}
+        end
+        for dims in (0, 3, 7)
+            @test_throws ArgumentError diff(M; dims)
+            @test_throws ArgumentError diff(A; dims)
+        end
+    end
+    @testset "empty and unit sizes" begin
+        for (m, n) in ((0, 0), (0, 3), (3, 0), (1, 3), (3, 1), (1, 1)), dims in (1, 2)
+            A = spzeros(m, n)
+            D = diff(A; dims)
+            @test D isa SparseMatrixCSC{Float64,Int}
+            @test size(D) == size(diff(Array(A); dims))
+            @test D == diff(Array(A); dims)
+        end
+    end
+end
+
 @testset "rotations" begin
     a = sparse( [1,1,2,3], [1,3,4,1], [1,2,3,4] )
 

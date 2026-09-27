@@ -1755,6 +1755,47 @@ end
     end
 end
 
+@testset "diff" begin
+    @testset "$T" for T in (Float64, ComplexF64)
+        # stored zero at 5, consecutive entries at 3 and 4 that partly cancel, entries at both ends
+        x = SparseVector(8, [1, 3, 4, 5, 8], T[1, 2, 2, 0, 3])
+        v = Array(x)
+        d = diff(x)
+        @test which(diff, (typeof(x),)).module === SparseArrays
+        @test d isa SparseVector{T,Int}
+        @test d == diff(v)
+        @test diff(x; dims=1) == diff(v; dims=1)
+        @test diff(SparseVector(8, Int32[1, 3], T[1, 2])) isa SparseVector{T,Int32}
+        for dims in (0, 2)
+            @test_throws ArgumentError diff(v; dims)
+            @test_throws ArgumentError diff(x; dims)
+        end
+        A = sparse([1, 2, 3], [2, 2, 2], T[1, 1, 2], 4, 3)
+        for w in (view(A, :, 2), view(x, :))
+            dw = diff(w)
+            @test which(diff, (typeof(w),)).module === SparseArrays
+            @test dw isa SparseVector{T,Int}
+            @test dw == diff(Array(w))
+        end
+    end
+    @testset "empty and length-1 inputs" begin
+        for n in (0, 1, 2)
+            x = spzeros(n)
+            d = diff(x)
+            @test d isa SparseVector{Float64,Int}
+            @test d == diff(Array(x))
+        end
+        @test diff(SparseVector(1, [1], [2.0])) == diff([2.0])
+        @test diff(SparseVector(2, [2], [2.0])) == diff([0.0, 2.0])
+    end
+    @testset "O(nnz)" begin
+        x = SparseVector(10^3, [1, 500, 10^3], [1.0, 2.0, 3.0])
+        y = SparseVector(10^6, [1, 500, 10^6], [1.0, 2.0, 3.0])
+        diff(x); diff(y)
+        @test @allocated(diff(y)) == @allocated(diff(x))
+    end
+end
+
 @testset "SparseVector circshift" begin
     n = 100
     v = sprand(n, 0.5)
