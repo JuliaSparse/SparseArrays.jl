@@ -1568,53 +1568,13 @@ imag(A::SparseMatrixCSCOrView{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size
 (+)(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = map(+, A, B)
 (-)(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = map(-, A, B)
 
-function (+)(A::SparseMatrixCSCOrView, B::Array)
-    Base.promote_shape(axes(A), axes(B))
-    C = Ref(zero(eltype(A))) .+ B
-    rowinds, nzvals = rowvals(A), nonzeros(A)
-    for j in axes(A,2)
-        @inbounds for i in nzrange(A, j)
-            rowidx = rowinds[i]
-            C[rowidx,j] = nzvals[i] + B[rowidx,j]
-        end
-    end
-    return C
-end
-function (+)(A::Array, B::SparseMatrixCSCOrView)
-    Base.promote_shape(axes(A), axes(B))
-    C = A .+ Ref(zero(eltype(B)))
-    rowinds, nzvals = rowvals(B), nonzeros(B)
-    for j in axes(B,2)
-        @inbounds for i in nzrange(B, j)
-            rowidx = rowinds[i]
-            C[rowidx,j] = A[rowidx,j] + nzvals[i]
-        end
-    end
-    return C
-end
-function (-)(A::SparseMatrixCSCOrView, B::Array)
-    Base.promote_shape(axes(A), axes(B))
-    C = Ref(zero(eltype(A))) .- B
-    rowinds, nzvals = rowvals(A), nonzeros(A)
-    for j in axes(A,2)
-        @inbounds for i in nzrange(A, j)
-            rowidx = rowinds[i]
-            C[rowidx,j] = nzvals[i] - B[rowidx,j]
-        end
-    end
-    return C
-end
-function (-)(A::Array, B::SparseMatrixCSCOrView)
-    Base.promote_shape(axes(A), axes(B))
-    C = A .- Ref(zero(eltype(B)))
-    rowinds, nzvals = rowvals(B), nonzeros(B)
-    for j in axes(B,2)
-        @inbounds for i in nzrange(B, j)
-            rowidx = rowinds[i]
-            C[rowidx,j] = A[rowidx,j] - nzvals[i]
-        end
-    end
-    return C
+# A sum with a strided dense matrix, or an adjoint or transpose of one, is dense, as for a
+# sparse and a dense vector. Densifying the sparse side leaves the shape and element type of
+# the result to the dense method. Symmetric, triangular and banded wrappers of a dense matrix
+# keep their own methods.
+for op in (:+, :-)
+    @eval $(op)(A::SparseMatrixCSCOrView, B::StridedMaybeAdjOrTransMat) = $(op)(Array(A), B)
+    @eval $(op)(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCOrView) = $(op)(A, Array(B))
 end
 
 ## full equality

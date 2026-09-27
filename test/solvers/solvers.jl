@@ -133,6 +133,15 @@ end
     end
 end
 
+@testset "LibSuiteSparse names are not imported into SparseArrays" begin
+    @test isdefined(SparseArrays.LibSuiteSparse, :cholmod_l_start)
+    @test isdefined(SparseArrays.LibSuiteSparse, :umfpack_dl_symbolic)
+    @test isdefined(SparseArrays.LibSuiteSparse, :CHOLMOD_OK)
+    @test !isdefined(SparseArrays, :cholmod_l_start)
+    @test !isdefined(SparseArrays, :umfpack_dl_symbolic)
+    @test !isdefined(SparseArrays, :CHOLMOD_OK)
+end
+
 @testset "factorization of a fixed-pattern matrix" begin
     b = sprandn(10, 10, 0.99) + I
     a = SparseArrays.fixed(b)
