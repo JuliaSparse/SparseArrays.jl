@@ -1553,6 +1553,7 @@ end
 function (-)(A::AbstractSparseMatrixCSC)
     nzval = similar(nonzeros(A), typeof(-zero(eltype(A))))
     map!(-, view(nzval, 1:nnz(A)), nzvalview(A))
+    _is_fixed(A) && return FixedSparseCSC(size(A, 1), size(A, 2), getcolptr(A), rowvals(A), nzval)
     return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
 end
 
@@ -1678,7 +1679,9 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
     colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval = nonzeros(A)
-    tracker = copy(getcolptr(A))
+    # `Vector`, not `copy`: a fixed matrix's column pointers are `ReadOnly` and `copy`
+    # keeps that wrapper, but the tracker is advanced below
+    tracker = Vector(getcolptr(A))
     @inbounds for col in axes(A,2)
         # `tracker` is updated such that, for symmetric matrices,
         # the loop below starts from an element at or below the
