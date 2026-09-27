@@ -3143,7 +3143,9 @@ function getindex_general(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Abst
     require_one_based_indexing(A, I, J)
     pI = sortperm(I)
     @inbounds Is = I[pI]
-    return permute_rows!(getindex_I_sorted(A, Is, J), pI)
+    # the rows of each column are reordered in place, so fix the pattern only afterwards
+    S = permute_rows!(getindex_I_sorted(_unsafe_unfix(A), Is, J), pI)
+    return @if_move_fixed A S
 end
 
 # the general case:

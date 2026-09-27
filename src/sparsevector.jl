@@ -211,6 +211,14 @@ end
 
 _sparsesimilar(S::FixedSparseVector, x...) = move_fixed(_sparsesimilar(_unsafe_unfix(S), x...))
 
+# Base's `cumsum`, `cumprod` and `accumulate` allocate their result with `similar(A, T)`,
+# which keeps a fixed pattern, so compute them on the plain array and return that.
+for f in (:cumsum, :cumprod)
+    @eval Base.$f(A::FixedSparseCSC; dims::Integer) = $f(_unsafe_unfix(A); dims)
+    @eval Base.$f(x::FixedSparseVector; dims::Integer=1) = $f(_unsafe_unfix(x); dims)
+end
+Base.accumulate(op, A::Union{FixedSparseCSC,FixedSparseVector}; kw...) = accumulate(op, _unsafe_unfix(A); kw...)
+
 # The following methods hook into the AbstractArray similar hierarchy. The first method
 # covers similar(A[, Tv]) calls, which preserve stored-entry structure, and the latter
 # methods cover similar(A[, Tv], shape...) calls, which preserve nothing if the dims
@@ -685,7 +693,7 @@ end
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
-    let M = A[I, [J]]
+    let M = _unsafe_unfix(A)[I, [J]]
         @if_move_fixed A SparseVector(size(M, 1), rowvals(M), nonzeros(M))
     end
 
