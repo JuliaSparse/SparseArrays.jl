@@ -1027,26 +1027,13 @@ function lmul!(b::Number, A::AbstractSparseMatrixCSC)
 end
 
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
-    m, n = size(A)
-    szD = size(D, 1)
-    (n == szD) || throw(DimensionMismatch("A has size ($m, $n) but D has size ($szD, $szD)"))
-    Anzval = nonzeros(A)
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-         Anzval[p] = Anzval[p] * D.diag[col]
-    end
-    return A
+    _checkscaledims(A, A, D, 2)
+    return _scalecols!(A, A, D.diag, *)
 end
 
 function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
-    m, n = size(A)
-    ds2 = size(D, 2)
-    (m == ds2) || throw(DimensionMismatch("D has size ($ds2, $ds2) but A has size ($m, $n)"))
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-        Anzval[p] = D.diag[Arowval[p]] * Anzval[p]
-    end
-    return A
+    _checkscaledims(A, A, D, 1)
+    return _scalerows!(A, A, D.diag, *)
 end
 
 ## sparse vectors
