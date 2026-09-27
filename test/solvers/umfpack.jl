@@ -322,11 +322,15 @@ end
         umfpack_report(F)
     end
 
-    @testset "Test aliasing" begin
-        a = rand(5)
-        @test_throws ArgumentError UMFPACK.solve!(a, lu(sparse(1.0I, 5, 5)), a, UMFPACK.UMFPACK_A)
-        aa = complex(a)
-        @test_throws ArgumentError UMFPACK.solve!(aa, lu(sparse((1.0im)I, 5, 5)), aa, UMFPACK.UMFPACK_A)
+    @testset "aliased solution and right-hand side" begin
+        A = sparse([2.0 1 0; 1 3 1; 0 1 4])
+        F = lu(A)
+        # iterative refinement reads the right-hand side again after writing the solution
+        F.control[UMFPACK.JL_UMFPACK_IRSTEP] = 2
+        B = A * [1.0 2; 3 4; 5 6]
+        @test ldiv!(view(B, :, 1), F, view(vec(B), 1:3)) ≈ [1, 3, 5]
+        B = A * [1.0 2 3; 4 5 6; 7 8 9]
+        @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2)) ≈ [1.0 2; 4 5; 7 8]
     end
 
     @testset "Issues #18246,18244 - lu sparse pivot" begin

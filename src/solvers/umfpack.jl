@@ -721,9 +721,7 @@ for itype in UmfpackIndexTypes
         function solve!(x::StridedVector{Float64},
             lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64},
             typ::Integer; workspace::Union{Nothing,UmfpackWS{$itype}} = nothing)
-            if x === b
-                throw(ArgumentError("output array must not be aliased with input array"))
-            end
+            Base.mightalias(x, b) && (b = copy(b))
             workspace === nothing && (workspace = UmfpackWS(lu))
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 return _unit_stride_solve!(x, lu, b, typ, workspace)
@@ -742,9 +740,7 @@ for itype in UmfpackIndexTypes
         function solve!(x::StridedVector{ComplexF64},
             lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64},
             typ::Integer; workspace::Union{Nothing,UmfpackWS{$itype}} = nothing)
-            if x === b
-                throw(ArgumentError("output array must not be aliased with input array"))
-            end
+            Base.mightalias(x, b) && (b = copy(b))
             workspace === nothing && (workspace = UmfpackWS(lu))
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 return _unit_stride_solve!(x, lu, b, typ, workspace)
@@ -1091,6 +1087,8 @@ function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, tran
     if size(X, 2) != size(B, 2)
         throw(DimensionMismatch("input and output arrays must have same number of columns"))
     end
+    # copy rather than unalias: unaliasing a view copies its whole parent
+    Base.mightalias(X, B) && (B = copy(B))
     _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace)
     return X
 end
