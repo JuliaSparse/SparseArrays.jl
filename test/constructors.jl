@@ -8,11 +8,7 @@ using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns
 using LinearAlgebra
 using Random
 using Test: guardseed
-include("forbidproperties.jl")
-
-function same_structure(A, B)
-    return all(getfield(A, f) == getfield(B, f) for f in (:m, :n, :colptr, :rowval))
-end
+include("testhelpers.jl")
 
 @testset "uniform scaling should not change type #103" begin
     A = spzeros(Float32, Int8, 5, 5)
@@ -88,20 +84,20 @@ end
     S = spzeros(I, J)
     S′ = sparse(I, J, V)
     @test S == S′
-    @test same_structure(S, S′)
+    @test same_pattern(S, S′)
     @test eltype(S) == Float64
     S = spzeros(Float32, I, J)
     @test S == S′
-    @test same_structure(S, S′)
+    @test same_pattern(S, S′)
     @test eltype(S) == Float32
     S = spzeros(I, J, 4, 5)
     S′ = sparse(I, J, V, 4, 5)
     @test S == S′
-    @test same_structure(S, S′)
+    @test same_pattern(S, S′)
     @test eltype(S) == Float64
     S = spzeros(Float32, I, J, 4, 5)
     @test S == S′
-    @test same_structure(S, S′)
+    @test same_pattern(S, S′)
     @test eltype(S) == Float32
 end
 
@@ -272,21 +268,21 @@ end
         S  = sparse(I, J, V, m, n)
         S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval)
         @test S == S!
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
 
         I, J, _, klasttouch, csrrowptr, csrcolval = allocate_arrays(m, n)
         S  = spzeros(I, J, m, n)
         S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval)
         @test S == S!
         @test iszero(S!)
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
 
         # Passing csr vectors + csccolptr
         I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr = allocate_arrays(m, n)
         S  = sparse(I, J, V, m, n)
         S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr)
         @test S == S!
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === csccolptr
 
         I, J, _, klasttouch, csrrowptr, csrcolval, _, csccolptr = allocate_arrays(m, n)
@@ -294,7 +290,7 @@ end
         S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval, csccolptr)
         @test S == S!
         @test iszero(S!)
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === csccolptr
 
         # Passing csr vectors, and csc vectors
@@ -304,7 +300,7 @@ end
         S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval,
                      csccolptr, cscrowval, cscnzval)
         @test S == S!
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === csccolptr
         @test getrowval(S!) === cscrowval
         @test nonzeros(S!) === cscnzval
@@ -316,7 +312,7 @@ end
                       csccolptr, cscrowval, cscnzval)
         @test S == S!
         @test iszero(S!)
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === csccolptr
         @test getrowval(S!) === cscrowval
         @test nonzeros(S!) === cscnzval
@@ -328,7 +324,7 @@ end
         S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval,
                      resize!(csccolptr, 0), resize!(cscrowval, 0), resize!(cscnzval, 0))
         @test S == S!
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === csccolptr
         @test getrowval(S!) === cscrowval
         @test nonzeros(S!) === cscnzval
@@ -340,7 +336,7 @@ end
                       resize!(csccolptr, 0), resize!(cscrowval, 0), resize!(cscnzval, 0))
         @test S == S!
         @test iszero(S!)
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === csccolptr
         @test getrowval(S!) === cscrowval
         @test nonzeros(S!) === cscnzval
@@ -350,7 +346,7 @@ end
         S  = sparse(I, J, V, m, n)
         S! = sparse!(I, J, V, m, n, +, klasttouch, csrrowptr, csrcolval, csrnzval, I, J, V)
         @test S == S!
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === I
         @test getrowval(S!) === J
         @test nonzeros(S!) === V
@@ -360,7 +356,7 @@ end
         S! = spzeros!(Float64, I, J, m, n, klasttouch, csrrowptr, csrcolval, I, J, V)
         @test S == S!
         @test iszero(S!)
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === I
         @test getrowval(S!) === J
         @test nonzeros(S!) === V
@@ -372,7 +368,7 @@ end
         S = sparse(I, J, V)
         S! = sparse!(I, J, V)
         @test S == S!
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === I
         @test getrowval(S!) === J
         @test nonzeros(S!) === V
@@ -380,7 +376,7 @@ end
         S = sparse(I, J, V, 2m, 2n)
         S! = sparse!(I, J, V, 2m, 2n)
         @test S == S!
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === I
         @test getrowval(S!) === J
         @test nonzeros(S!) === V
@@ -388,7 +384,7 @@ end
         S = sparse(I, J, V, 2m, 2n, *)
         S! = sparse!(I, J, V, 2m, 2n, *)
         @test S == S!
-        @test same_structure(S, S!)
+        @test same_pattern(S, S!)
         @test getcolptr(S!) === I
         @test getrowval(S!) === J
         @test nonzeros(S!) === V
@@ -397,7 +393,7 @@ end
             S = spzeros(T, I, J)
             S! = spzeros!(T, I, J)
             @test S == S!
-            @test same_structure(S, S!)
+            @test same_pattern(S, S!)
             @test eltype(S) == eltype(S!) == T
             @test getcolptr(S!) === I
             @test getrowval(S!) === J
@@ -405,7 +401,7 @@ end
             S = spzeros(T, I, J, 2m, 2n)
             S! = spzeros!(T, I, J, 2m, 2n)
             @test S == S!
-            @test same_structure(S, S!)
+            @test same_pattern(S, S!)
             @test eltype(S) == eltype(S!) == T
             @test getcolptr(S!) === I
             @test getrowval(S!) === J

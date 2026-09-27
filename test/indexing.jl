@@ -8,7 +8,7 @@ using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns
 using LinearAlgebra
 using Random
 using Test: guardseed
-include("forbidproperties.jl")
+include("testhelpers.jl")
 
 # an index type lowered by `to_indices`, like `InvertedIndices.Not`
 struct AllBut; i::Int; end
@@ -501,14 +501,6 @@ end
     @test nnz(A) == 0
 end
 
-struct CountedReads <: AbstractVector{Int}
-    v::Vector{Int}
-    reads::Base.RefValue{Int}
-end
-Base.size(c::CountedReads) = size(c.v)
-Base.IndexStyle(::Type{CountedReads}) = IndexLinear()
-Base.getindex(c::CountedReads, i::Int) = (c.reads[] += 1; c.v[i])
-
 @testset "test_getindex_algs" begin
     function test_getindex_algs(S, I, J)
         D = Matrix(S)
@@ -570,10 +562,10 @@ Base.getindex(c::CountedReads, i::Int) = (c.reads[] += 1; c.v[i])
         S = sparse(collect(1:50:m), collect(1:n), 1.0, m, n)
         S[m, n] = 0
         @test m > nnz(S)
-        I = CountedReads(collect(2:2:m-2), Ref(0))
+        I = CountedReads(2:2:m-2)
         R = S[I, 1:n]
         @test I.reads[] < 20 * length(I)
-        @test R == Matrix(S)[I.v, 1:n]
+        @test R == Matrix(S)[I.parent, 1:n]
         # a short I still binary-searches the columns
         T = sparse(repeat(1:4:m, 2), repeat(1:2; inner=m÷4), 1.0, m, 2)
         @test T[[5, 5, 6, m-3], [2, 1]] == Matrix(T)[[5, 5, 6, m-3], [2, 1]]

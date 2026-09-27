@@ -8,7 +8,7 @@ using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotz
 using LinearAlgebra
 using Random
 using Test: guardseed
-include("forbidproperties.jl")
+include("testhelpers.jl")
 
 @testset "_isnotzero" begin
     @test !_isnotzero(0::Int)
@@ -347,40 +347,22 @@ end
     @test f() == 0
 end
 
-struct Counting{T} <: Number
-    elt::T
-end
-counter::Int = 0
-resetcounter() = (global counter; counter=0)
-stepcounter() = (global counter; counter+=1)
-getcounter() = (global counter; counter)
-Base.:(==)(x::Counting, y::Counting) = (stepcounter(); x.elt==y.elt)
-Base.promote_rule(::Type{Counting{T}}, ::Type{Counting{U}}) where {T,U} = Counting{promote_rule(T, U)}
-Base.iszero(x::Counting) = iszero(x.elt)
-Base.zero(::Type{Counting{T}}) where {T} = Counting(zero(T))
-Base.zero(x::Counting) = Counting(zero(x.elt))
-Base.adjoint(x::Counting) = Counting(adjoint(x.elt))
-Base.transpose(x::Counting) = Counting(transpose(x.elt))
-Base.isequal(x::Counting, y::Counting) = (stepcounter(); isequal(x.elt, y.elt))
-
 # Deterministic replacement for wall-clock guards: with a counting eltype, a comparison
 # that walks only stored entries performs at most nnz(A) + nnz(B) element comparisons,
 # whereas the generic AbstractArray fallback performs length(A) of them.
 @testset "== and isequal walk stored entries only (issues #561, #766, #768)" begin
     n = 1000
-    v = sparsevec([1, n ÷ 2], Counting.([1.0, 2.0]), n)
-    w = sparsevec([1, n ÷ 2, n], Counting.([1.0, 0.0, 3.0]), n)
-    A = sparse([1, n ÷ 2], [1, n], Counting.([1.0, 2.0]), n, n)
-    B = sparse([1, n ÷ 2, 7], [1, n, 7], Counting.([1.0, 2.0, 0.0]), n, n)
+    v = sparsevec([1, n ÷ 2], OpCount.([1.0, 2.0]), n)
+    w = sparsevec([1, n ÷ 2, n], OpCount.([1.0, 0.0, 3.0]), n)
+    A = sparse([1, n ÷ 2], [1, n], OpCount.([1.0, 2.0]), n, n)
+    B = sparse([1, n ÷ 2, 7], [1, n, 7], OpCount.([1.0, 2.0, 0.0]), n, n)
     for (x, y) in ((v, v), (v, w), (w, v), (v', w'), (transpose(v), transpose(w)),
                    (A, A), (A, B), (B, A), (A', B'), (transpose(A), transpose(B)),
                    (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
         budget = nnz(parent(x isa Union{Adjoint,Transpose} ? x : x') ) +
                  nnz(parent(y isa Union{Adjoint,Transpose} ? y : y'))
         for eq in (==, isequal)
-            resetcounter()
-            eq(x, y)
-            @test getcounter() <= budget
+            @test eqcount(() -> eq(x, y)) <= budget
         end
     end
 end
@@ -390,14 +372,12 @@ end
 # makes only a handful of them, whereas the generic `findprev` performs up to length(A).
 @testset "hash walks stored entries only (issue #570)" begin
     n = 10^5
-    v = sparsevec([1, n ÷ 2], Counting.([1.0, 2.0]), n)
-    w = sparsevec([1, n ÷ 2, n], Counting.([1.0, 0.0, 3.0]), n)
-    A = sparse([1, n ÷ 2], [1, n], Counting.([1.0, 2.0]), n, n)
-    B = sparse([1, n ÷ 2, 7], [1, n, 7], Counting.([1.0, 2.0, 0.0]), n, n)
+    v = sparsevec([1, n ÷ 2], OpCount.([1.0, 2.0]), n)
+    w = sparsevec([1, n ÷ 2, n], OpCount.([1.0, 0.0, 3.0]), n)
+    A = sparse([1, n ÷ 2], [1, n], OpCount.([1.0, 2.0]), n, n)
+    B = sparse([1, n ÷ 2, 7], [1, n, 7], OpCount.([1.0, 2.0, 0.0]), n, n)
     for x in (v, w, A, B)
-        resetcounter()
-        hash(x)
-        @test getcounter() <= 8 * (nnz(x) + 1)
+        @test eqcount(() -> hash(x)) <= 8 * (nnz(x) + 1)
     end
     @test hash(v) == hash(Vector(v)) && hash(w) == hash(Vector(w))
 end
@@ -408,23 +388,22 @@ end
     A in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)],
     B in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)]
     if size(A) == size(B)
-        A = Counting.(A)
-        B = Counting.(B)
+        A = OpCount.(A)
+        B = OpCount.(B)
         As = Any[A, A', transpose(A)]
         Bs = Any[B, B', transpose(B)]
         for A′ in As, B′ in Bs
             # skip adjoints of transposes; these are not really supported
             ((A′ isa Adjoint && B′ isa Transpose) || (A′ isa Transpose && B′ isa Adjoint)) && continue
-            c = (resetcounter(); A′ == B′; getcounter())
-            @test c ≤ 1 + (nnz(A′) + nnz(B′))
+            @test eqcount(() -> A′ == B′) ≤ 1 + (nnz(A′) + nnz(B′))
         end
     end
 end
 
 @testset "Issue #246" begin
     for t in [Int, UInt8, Float64]
-        a = Counting.(sprand(t, 100, 0.5))
-        b = Counting.(sprand(t, 100, 0.5))
+        a = OpCount.(sprand(t, 100, 0.5))
+        b = OpCount.(sprand(t, 100, 0.5))
 
         c = if nnz(a) != 0
             c = copy(a)
@@ -441,9 +420,7 @@ end
         for m in [identity, transpose, adjoint]
             ma, mb, mc, md = m.([a, b, c, d])
 
-            resetcounter()
-            ma == mb
-            @test getcounter() <= nnz(a) + nnz(b)
+            @test eqcount(() -> ma == mb) <= nnz(a) + nnz(b)
 
             @test (mc == md) == (Array(mc) == Array(md))
         end

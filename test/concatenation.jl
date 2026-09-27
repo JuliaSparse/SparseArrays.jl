@@ -6,6 +6,7 @@ module SparseConcatenationTests
 using Test
 using SparseArrays
 using LinearAlgebra
+include("testhelpers.jl")
 
 @testset "concatenation tests" begin
     sp33 = sparse(1.0I, 3, 3)

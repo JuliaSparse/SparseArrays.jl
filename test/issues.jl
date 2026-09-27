@@ -7,8 +7,7 @@ using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
 using Test: guardseed
-include("forbidproperties.jl")
-include("simplesmatrix.jl")
+include("testhelpers.jl")
 
 
 @testset "Issue #15" begin

@@ -9,16 +9,11 @@ using SparseArrays
 using SparseArrays: AbstractSparseMatrixCSC, nonzeroinds, getcolptr, rowvals, nonzeros, fixed, _is_fixed
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
-include("mulcount.jl")
+include("testhelpers.jl")
 
 sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
 dA = Array(sA)
-
-const BASE_TEST_PATH = joinpath(Sys.BINDIR, "..", "share", "julia", "test")
-isdefined(Main, :Quaternions) || @eval Main include(joinpath($(BASE_TEST_PATH), "testhelpers", "Quaternions.jl"))
-using .Main.Quaternions
 
 @testset "matrix-vector multiplication (non-square)" begin
     for i = 1:5
@@ -103,12 +98,12 @@ end
         end
     end
     # one multiplication per pair of matching stored entries, not per element
-    P = mulcount_sparse(sparse(1.0I, n, n))
+    P = opcount_sparse(sparse(1.0I, n, n))
     for f in (() -> Symmetric(P) * P, () -> P * Symmetric(P), () -> P' * Symmetric(P),
               () -> UpperTriangular(P) * Symmetric(P), () -> Symmetric(P) * Symmetric(P, :L))
         @test mulcount(f) == n
     end
-    x = sparsevec(fill(MulCount(1.0), n))
+    x = sparsevec(fill(OpCount(1.0), n))
     @test mulcount(() -> Symmetric(P) * x) == mulcount(() -> P * x)
 end
 
@@ -376,8 +371,8 @@ end
     end
     # the kernels touch only the stored entries: exactly nnz(S) scalar multiplications,
     # whereas the generic Diagonal kernel visits every element of the result
-    S = mulcount_sparse(sprand(20, 30, 0.2))
-    Dl = Diagonal(MulCount.(rand(30))); Dr = Diagonal(MulCount.(rand(20)))
+    S = opcount_sparse(sprand(20, 30, 0.2))
+    Dl = Diagonal(OpCount.(rand(30))); Dr = Diagonal(OpCount.(rand(20)))
     for W in (adjoint, transpose)
         @test mulcount(() -> W(S) * Dr) == nnz(S)
         @test mulcount(() -> Dl * W(S)) == nnz(S)
@@ -450,7 +445,7 @@ end
     end
 
     @testset "non-commutative multiplication" begin
-        # non-commutative multiplication
+        Quaternion = quaternion_type()
         Avals = Quaternion.(randn(10), randn(10), randn(10), randn(10))
         sA = sparse(rand(1:3, 10), rand(1:7, 10), Avals, 3, 7)
         sC = copy(sA)
@@ -566,25 +561,16 @@ end
     end
 end
 
-# reads of the wrapped matrix are counted, to tell a kernel that copies each strided row
-# once from one that rereads it for every stored entry
-struct CountedReadsMatrix{T} <: AbstractMatrix{T}
-    parent::Matrix{T}
-    reads::Base.RefValue{Int}
-end
-Base.size(X::CountedReadsMatrix) = size(X.parent)
-Base.getindex(X::CountedReadsMatrix, i::Int, j::Int) = (X.reads[] += 1; X.parent[i, j])
-
 @testset "product kernels touch stored entries only" begin
     n = 8
     # adjoint dense times adjoint sparse reads each entry of the dense factor at most once
     A = sprandn(ComplexF64, 6, n, 0.5); X = randn(ComplexF64, n, 5); C0 = randn(ComplexF64, 5, 6)
-    Xc = CountedReadsMatrix(X, Ref(0))
+    Xc = CountedReads(X)
     @test mul!(copy(C0), Xc', A', 2, 3) ≈ 2 * X' * Matrix(A)' + 3 * C0
     @test Xc.reads[] <= length(X)
     @test mul!(copy(C0), transpose(X), transpose(A), 2, 3) ≈ 2 * transpose(X) * transpose(Matrix(A)) + 3 * C0
-    P = mulcount_sparse(sparse(1.0I, n, n))
-    one_, two = MulCount(1.0), MulCount(2.0)
+    P = opcount_sparse(sparse(1.0I, n, n))
+    one_, two = OpCount(1.0), OpCount(2.0)
     # sparse times sparse into a dense destination: one multiplication per pair of stored entries
     @test mulcount(() -> mul!(fill(one_, n, n), P, P, true, false)) == n
     @test mulcount(() -> mul!(fill(one_, n, n), Symmetric(P), P', true, false)) == n
@@ -592,7 +578,7 @@ Base.getindex(X::CountedReadsMatrix, i::Int, j::Int) = (X.reads[] += 1; X.parent
     x = sparsevec(fill(one_, n)); y = fill(one_, n)
     @test mulcount(() -> mul!(copy(y), Symmetric(P), x, true, false)) == mulcount(() -> mul!(copy(y), P, x, true, false))
     # scaling a column-view destination by `β` stays sparse
-    Q = mulcount_sparse(sparse(1.0I, n, n + 1))
+    Q = opcount_sparse(sparse(1.0I, n, n + 1))
     @test mulcount(() -> mul!(view(Q, :, 1:n), P, P, two, two)) <= 4n
     # the adjoint kernel for a sparse vector does not allocate per column
     A = sprandn(400, 400, 0.01); xs = sprandn(400, 0.1); ys = zeros(400)

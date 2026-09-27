@@ -7,17 +7,7 @@ using SparseArrays
 using SparseArrays: AbstractSparseMatrixCSC, nonzeroinds, getcolptr, rowvals, nonzeros, fixed, _is_fixed
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
-include("mulcount.jl")
-include("typedlocals.jl")
-
-sA = sprandn(3, 7, 0.5)
-sC = similar(sA)
-dA = Array(sA)
-
-const BASE_TEST_PATH = joinpath(Sys.BINDIR, "..", "share", "julia", "test")
-isdefined(Main, :Quaternions) || @eval Main include(joinpath($(BASE_TEST_PATH), "testhelpers", "Quaternions.jl"))
-using .Main.Quaternions
+include("testhelpers.jl")
 
 @testset "circshift" begin
     m,n = 17,15
@@ -767,17 +757,17 @@ end
     # the kernel walks the sparser operand and multiplies only where both operands store
     # an entry, whereas the generic fallback multiplies every stored entry of the sparse
     # operand
-    P = mulcount_sparse(sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0], 6, 4))
+    P = opcount_sparse(sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0], 6, 4))
     for W in (adjoint, transpose)
         # disjoint patterns: `B[i, j]` is stored only where `P[j, i]` is not
-        B = mulcount_sparse(sparse([1, 2, 4, 4], [2, 3, 1, 6], [1.0, 2.0, 3.0, 4.0], 4, 6))
+        B = opcount_sparse(sparse([1, 2, 4, 4], [2, 3, 1, 6], [1.0, 2.0, 3.0, 4.0], 4, 6))
         @test mulcount(() -> dot(W(P), B)) == 0
         @test mulcount(() -> dot(B, W(P))) == 0
         # two matching pairs, found from either side of the walk
-        B = mulcount_sparse(sparse([1, 1, 2, 3, 4, 4], [1, 2, 3, 3, 1, 6], 1.0:6.0, 4, 6))
+        B = opcount_sparse(sparse([1, 1, 2, 3, 4, 4], [1, 2, 3, 3, 1, 6], 1.0:6.0, 4, 6))
         @test nnz(B) + size(B, 2) > nnz(P) + size(P, 2)     # walks P
         @test mulcount(() -> dot(W(P), B)) == 2
-        Pw = mulcount_sparse(sparse([1, 2, 3, 4, 5, 5, 5, 6, 6], [1, 2, 3, 4, 1, 2, 4, 1, 2], 1.0:9.0, 6, 4))
+        Pw = opcount_sparse(sparse([1, 2, 3, 4, 5, 5, 5, 6, 6], [1, 2, 3, 4, 1, 2, 4, 1, 2], 1.0:9.0, 6, 4))
         @test nnz(Pw) + size(Pw, 2) > nnz(B) + size(B, 2)   # walks B
         @test mulcount(() -> dot(W(Pw), B)) == 2
     end
@@ -787,7 +777,7 @@ end
         @test dot(A', transpose(B)) ≈ dot(Matrix(A)', transpose(Matrix(B)))
         @test dot(transpose(A), B') ≈ dot(transpose(Matrix(A)), Matrix(B)')
         @test_throws DimensionMismatch dot(A', transpose(sparse(B')))
-        Ac, Bc = mulcount_sparse.(SparseMatrixCSC.(6, 4, getcolptr.((A, B)), rowvals.((A, B)), Ref(ones(4))))
+        Ac, Bc = opcount_sparse.(SparseMatrixCSC.(6, 4, getcolptr.((A, B)), rowvals.((A, B)), Ref(ones(4))))
         @test mulcount(() -> dot(Ac', transpose(Bc))) == 3
         @test mulcount(() -> dot(transpose(Ac), Bc')) == 3
     end
@@ -813,8 +803,8 @@ end
             @test dot(sx, H(V, uplo), sy) ≈ dot(Vector(sx), H(M, uplo), Vector(sy))
         end
         @test_throws DimensionMismatch dot(V, Q)
-        A = mulcount_sparse(sparse(1.0I, 8, 10)); P = A[:, 1:8]; V = view(A, :, 1:8)
-        u = fill(MulCount(1.0), 8); su = sparse(u); D = fill(MulCount(1.0), 8, 8)
+        A = opcount_sparse(sparse(1.0I, 8, 10)); P = A[:, 1:8]; V = view(A, :, 1:8)
+        u = fill(OpCount(1.0), 8); su = sparse(u); D = fill(OpCount(1.0), 8, 8)
         for f in (() -> dot(V, P), () -> dot(P, V), () -> dot(V, V), () -> dot(V', P), () -> dot(P', V),
                   () -> dot(V', V), () -> dot(V, V'), () -> dot(V', transpose(V)), () -> dot(D, V), () -> dot(V, D))
             @test mulcount(f) == 8
@@ -873,6 +863,7 @@ end
     r = sum(dot(xm[i], Bm[i, j], ym[j]) for (i, j) in zip(findnz(Bm)[1:2]...))
     @test dot(xm, Bm, ym) ≈ dot(sparsevec(xm), Bm, sparsevec(ym)) ≈ r
 
+    Quaternion = quaternion_type()
     for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)

@@ -7,7 +7,7 @@ using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
+include("testhelpers.jl")
 
 ### Data
 
@@ -86,24 +86,6 @@ end
         @test eltype([x, y]) === SparseVector{ComplexF64,Int}
     end
 end
-@testset "show" begin
-    @test occursin("1.25", string(spv_x1))
-    @test occursin("-0.75", string(spv_x1))
-    @test occursin("3.5", string(spv_x1))
-
-    # issue #30589
-    @test repr("text/plain", sparse([true])) == "1-element $(SparseArrays.SparseVector){Bool, $Int} with 1 stored entry:\n  [1]  =  1"
-end
-
-### Comparison helper to ensure exact equality with internal structure
-function exact_equal(x::AbstractSparseVector, y::AbstractSparseVector)
-    eltype(x) == eltype(y) &&
-    eltype(SparseArrays.nonzeroinds(x)) == eltype(SparseArrays.nonzeroinds(y)) &&
-    length(x) == length(y) &&
-    SparseArrays.nonzeroinds(x) == SparseArrays.nonzeroinds(y) &&
-    nonzeros(x) == nonzeros(y)
-end
-
 @testset "other constructors" begin
     # construct empty sparse vector
 
@@ -1603,6 +1585,12 @@ end
 mutable struct t20488 end
 
 @testset "show" begin
+    @test occursin("1.25", string(spv_x1))
+    @test occursin("-0.75", string(spv_x1))
+    @test occursin("3.5", string(spv_x1))
+    # issue #30589
+    @test repr("text/plain", sparse([true])) == "1-element $(SparseArrays.SparseVector){Bool, $Int} with 1 stored entry:\n  [1]  =  1"
+
     io = IOBuffer()
     show(io, MIME"text/plain"(), sparsevec(Int64[1], [1.0]))
     @test String(take!(io)) == "1-element $SparseVector{Float64, Int64} with 1 stored entry:\n  [1]  =  1.0"
