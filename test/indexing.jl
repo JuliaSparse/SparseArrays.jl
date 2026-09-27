@@ -585,6 +585,18 @@ end
     @test A[1,1:3] == A[1,:] == [1,0,0]
 end
 
+@testset "column slices keep the index type, Ti = $Ti" for Ti in (Int32, Int64)
+    A = SparseMatrixCSC{Float64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0, 0.0, 2.0, 3.0], 5, 3))
+    M = Matrix(A)
+    for j in 1:3, I in (1:5, 2:4, 3:3, 4:5, 2:1)
+        @test A[I, j]::SparseVector{Float64,Ti} == M[I, j]
+    end
+    @test A[1:5, 1]::SparseVector{Float64,Ti} == M[1:5, 1]
+    @test nnz(A[1:5, 1]) == 2 # stored zeros stay stored
+    @test copy(view(A, :, 1))::SparseVector{Float64,Ti} == M[:, 1]
+    @test copy(view(A, 2:4, 1))::SparseVector{Float64,Ti} == M[2:4, 1]
+end
+
 @testset "isstored" begin
     m = 5
     n = 4

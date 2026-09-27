@@ -1331,13 +1331,14 @@ end
 
 function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     checkbounds(x, I, j)
+    Ti = indtype(x)
     # Get the selected column
     c1 = Int(first(nzrange(x, j)))
     c2 = Int(last(nzrange(x, j)))
     # Restrict to the selected rows
     r1 = searchsortedfirst(view(rowvals(x), c1:c2), first(I)) + c1 - 1
     r2 = searchsortedlast(view(rowvals(x), c1:c2), last(I)) + c1 - 1
-    return @if_move_fixed x SparseVector(length(I), [rowvals(x)[i] - first(I) + 1 for i = r1:r2], nonzeros(x)[r1:r2])
+    return @if_move_fixed x SparseVector(length(I), Ti[rowvals(x)[i] - first(I) + 1 for i = r1:r2], nonzeros(x)[r1:r2])
 end
 
 # Nonscalar indexing of an adjoint or transpose indexes the parent with the indices swapped
