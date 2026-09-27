@@ -540,10 +540,12 @@ DocTestSetup = nothing
 # [SparseArrays API](@id stdlib-sparse-arrays)
 
 ```@docs
+SparseArrays
 SparseArrays.AbstractSparseArray
 SparseArrays.AbstractSparseVector
 SparseArrays.AbstractSparseMatrix
 SparseArrays.AbstractSparseMatrixCSC
+SparseArrays.AbstractCompressedVector
 SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
@@ -575,12 +577,55 @@ SparseArrays.dropzeros
 SparseArrays.dropstored!
 SparseArrays.fkeep!
 SparseArrays.permute
-permute!{Tv, Ti, Tp <: Integer, Tq <: Integer}(::SparseMatrixCSC{Tv,Ti}, ::SparseMatrixCSC{Tv,Ti}, ::AbstractArray{Tp,1}, ::AbstractArray{Tq,1})
+Base.permute!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::AbstractVector{<:Integer}, ::AbstractVector{<:Integer}) where {Tv,Ti}
 SparseArrays.halfperm!
 SparseArrays.ftranspose!
+SparseArrays.transpose!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+SparseArrays.adjoint!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+Base.sort!(::SparseArrays.AbstractSparseMatrixCSC)
+Base.sort(::SparseArrays.AbstractSparseMatrixCSC)
+Base.sort!(::Union{SparseArrays.AbstractCompressedVector, SparseArrays.SparseColumnView})
+SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
 SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
+SparseArrays.allowscalar
+```
+
+## Internals
+
+The helpers below are not part of the API: they are unexported, may change or disappear
+in any release, and are listed here only so that their docstrings are checked with the
+rest of the manual.
+
+```@docs
+SparseArrays.ReadOnly
+SparseArrays.ColumnIndices
+SparseArrays.iswrsparse
+SparseArrays.depth
+SparseArrays.unwrap
+SparseArrays.sparse_with_lmul
+SparseArrays.rowcheck_index
+SparseArrays.mergeinds!
+SparseArrays.move_fixed
+SparseArrays._unsafe_unfix
+SparseArrays.@RCI
+SparseArrays._densifyfirstnztoend!
+SparseArrays._densifystarttolastnz!
+SparseArrays.HigherOrderFns._map_zeropres!
+SparseArrays.HigherOrderFns._map_notzeropres!
+SparseArrays._spsetz_setindex!
+SparseArrays._spsetnz_setindex!
+SparseArrays.unchecked_noalias_permute!
+SparseArrays.unchecked_aliasing_permute!
+SparseArrays._computecolptrs_permute!
+SparseArrays._checkargs_sourcecompatperms_permute!
+SparseArrays._checkargs_permutationsvalid_permute!
+SparseArrays._checkargs_sourcecompatdest_permute!
+SparseArrays._checkargs_sourcecompatworkmat_permute!
+SparseArrays._checkargs_sourcecompatworkcolptr_permute!
+SparseArrays._computecolptrs_halfperm!
+SparseArrays._distributevals_halfperm!
 ```
 
 ```@meta
