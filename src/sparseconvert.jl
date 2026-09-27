@@ -54,16 +54,6 @@ function _sparsewrap(A::Union{Diagonal,Bidiagonal,Tridiagonal,SymTridiagonal})
     dropzeros!(sparse(A))
 end
 
-"""
-    unwrap(A::AbstractMatrix)
-
-In case A is a wrapper type (`SubArray, Symmetric, Adjoint, SubArray, Triangular, Tridiagonal`, etc.)
-convert to `Matrix` or `SparseMatrixCSC`, depending on final storage type of A.
-For other types return A itself.
-"""
-unwrap(A::Any) = A
-unwrap(A::AbstractMatrix) = iswrsparse(A) ? convert(SparseMatrixCSC, A) : convert(Array, A)
-
 # For pure sparse matrices and vectors return A.
 # For wrapped sparse matrices or vectors convert to SparseMatrixCSC.
 # Handle nested wrappers properly.

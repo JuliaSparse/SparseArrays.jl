@@ -81,6 +81,13 @@ end
         @test isequal(Y, X) == isequal(Matrix(Y), Matrix(X))
         @test (X == Y) == (Matrix(X) == Matrix(Y))
     end
+    # column-range and column-subset views compare through the stored-entry merge on
+    # either side instead of the elementwise AbstractArray fallback
+    P = sparse([1, 2, 3, 1], [1, 2, 3, 4], [1.0, 0.0, 2.0, 5.0], 3, 4)
+    Q = sparse([1, 3], [1, 3], [1.0, 2.0], 3, 3)    # P's stored zero is implicit here
+    @test view(P, :, 1:3) == Q && isequal(Q, view(P, :, [1, 2, 3]))
+    @test view(P, :, 1:3) != sparse([1, 2, 3], [1, 2, 3], [1.0, 1.0, 2.0], 3, 3) &&
+          !isequal(view(P, :, [3, 2, 1]), view(P, :, 1:3))
 end
 
 @testset "hash matches dense" begin
@@ -474,8 +481,10 @@ end
     A = sparse([1, n ÷ 2], [1, n], OpCount.([1.0, 2.0]), n, n)
     B = sparse([1, n ÷ 2, 7], [1, n, 7], OpCount.([1.0, 2.0, 0.0]), n, n)
     for (x, y) in ((v, v), (v, w), (w, v), (v', w'), (transpose(v), transpose(w)),
+                   (view(v, 1:n), w),
                    (A, A), (A, B), (B, A), (A', B'), (transpose(A), transpose(B)),
-                   (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
+                   (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)),
+                   (A, view(B, :, [1:n;])))
         budget = nnz(parent(x isa Union{Adjoint,Transpose} ? x : x') ) +
                  nnz(parent(y isa Union{Adjoint,Transpose} ? y : y'))
         for eq in (==, isequal)
@@ -1526,14 +1535,6 @@ end
     nonzeros(A1)[2:5].=0
     @test A1==A2
     @test sparse([1,1,0])!=sparse([0,1,1])
-end
-
-@testset "expandptr" begin
-    local A = sparse(1.0I, 5, 5)
-    @test SparseArrays.expandptr(getcolptr(A)) == 1:5
-    A[1,2] = 1
-    @test SparseArrays.expandptr(getcolptr(A)) == [1; 2; 2; 3; 4; 5]
-    @test_throws ArgumentError SparseArrays.expandptr([2; 3])
 end
 
 @testset "reverse" begin

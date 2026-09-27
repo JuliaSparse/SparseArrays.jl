@@ -1566,43 +1566,19 @@ for op in (:+, :-)
 end
 
 ## full equality
-# Compare two CSC matrices by walking their stored entries only. `eq` is the elementwise
-# predicate (`==` or `isequal`); stored entries without a counterpart are compared against
-# the implicit zero of the other matrix so that e.g. `isequal(-0.0, 0.0)` and
-# `isequal(NaN, NaN)` behave as they do for dense arrays.
-function _iseq(eq::F, A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) where {F}
-    size(A1) != size(A2) && return false
-    @inbounds for i in axes(A1, 2)
-        nz1, nz2 = nzrange(A1,i), nzrange(A2,i)
-        j1, j2 = first(nz1), first(nz2)
-        # step through the rows of both matrices at once:
-        while j1 <= last(nz1) && j2 <= last(nz2)
-            r1, r2 = rowvals(A1)[j1], rowvals(A2)[j2]
-            if r1 == r2
-                eq(nonzeros(A1)[j1], nonzeros(A2)[j2]) || return false
-                j1 += 1
-                j2 += 1
-            elseif r1 < r2
-                _iszero_under(eq, nonzeros(A1)[j1]) || return false
-                j1 += 1
-            else # r1 > r2
-                _iszero_under(eq, nonzeros(A2)[j2]) || return false
-                j2 += 1
-            end
-        end
-        # finish off any left-overs:
-        for j = j1:last(nz1)
-            _iszero_under(eq, nonzeros(A1)[j]) || return false
-        end
-        for j = j2:last(nz2)
-            _iszero_under(eq, nonzeros(A2)[j]) || return false
-        end
+# Compare two CSC matrices, or column-subset views of them, by walking their stored
+# entries only, one column at a time through the merge shared with sparse vectors.
+function _iseq(eq::F, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) where {F}
+    size(A) == size(B) || return false
+    ia, va, ib, vb = rowvals(A), nonzeros(A), rowvals(B), nonzeros(B)
+    @inbounds for j in axes(A, 2)
+        _merge_eq(eq, ia, va, ib, vb, nzrange(A, j), nzrange(B, j)) || return false
     end
     return true
 end
 
-==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(==, A1, A2)
-Base.isequal(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(isequal, A1, A2)
+==(A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) = _iseq(==, A, B)
+Base.isequal(A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) = _iseq(isequal, A, B)
 
 ## Explicit efficient comparisons with transposed arrays
 
@@ -1805,15 +1781,6 @@ function isdiag(A::AbstractSparseMatrixCSC)
     end
     return true
 end
-
-## expand a colptr or rowptr into a dense index vector
-function expandptr(V::Vector{<:Integer})
-    if V[1] != 1 throw(ArgumentError("first index must be one")) end
-    res = similar(V, (Int64(V[end]-1),))
-    for i in 1:(length(V)-1), j in V[i]:(V[i+1] - 1); res[j] = i end
-    res
-end
-
 
 function diag(A::AbstractSparseMatrixCSC{Tv,Ti}, d::Integer=0) where {Tv,Ti}
     m, n = size(A)

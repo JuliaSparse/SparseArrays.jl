@@ -437,6 +437,14 @@ end
         @test (x == y) == (Vector(x) == Vector(y))
     end
     @test !isequal(spzeros(3), spzeros(4))
+    # unit-range views of sparse vectors compare through the same stored-entry merge as
+    # sparse vectors, on either side, instead of the elementwise AbstractArray fallback
+    p = sparsevec([1, 3, 5, 7], [1.0, 2.0, 0.0, 3.0], 9)
+    q = sparsevec([2, 6], [2.0, 3.0], 6)        # the view's stored zero is implicit here
+    @test view(p, 2:7) == q && isequal(q, view(p, 2:7))
+    @test view(p, 2:7) != sparsevec([2, 4, 6], [2.0, 1.0, 3.0], 6) &&
+          !isequal(view(p, 1:6), view(p, 2:7))
+    @test nonzeros(view(p, 3:2)) == Float64[]   # empty view of a vector with stored entries
 end
 
 @testset "hash matches dense" begin
