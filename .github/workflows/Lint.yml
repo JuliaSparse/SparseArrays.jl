@@ -19,10 +19,10 @@ jobs:
     timeout-minutes: 2
     steps:
       - name: Checkout the JuliaSparse/SparseArrays.jl repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: julia-actions/setup-julia@f6f565d9f7cf12f53dc8045742460d6260ad3b39 # v3.0.1
+      - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
       - name: Check whitespace
