@@ -376,7 +376,6 @@ end
 increment(A::AbstractArray{<:Integer}) = increment!(copy(A))
 
 include("solvers/LibSuiteSparse.jl")
-using .LibSuiteSparse
 
 @static if Base.USE_GPL_LIBS
     include("solvers/umfpack.jl")
