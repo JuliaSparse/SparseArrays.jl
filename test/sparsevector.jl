@@ -1349,6 +1349,8 @@ end
             end
         end
     end
+    A = spzeros(0, 3)
+    @test fill!(A, 1.0) === A && nnz(A) == 0
 end
 
 @testset "13130 and 16661" begin

@@ -196,6 +196,16 @@ end
     @test (fill!(x, false); true)
 end
 
+@testset "fill! keeps a fixed pattern" begin
+    P = sparse([1, 3], [1, 2], [1.0, 2.0], 3, 3)
+    A = fixed(copy(P))
+    @test_throws ArgumentError fill!(A, 2.0)
+    @test same_pattern(A, P) && nonzeros(A) == [1.0, 2.0] && _is_fixed(A)
+    @test fill!(A, 0.0) === A && same_pattern(A, P) && iszero(nonzeros(A)) && _is_fixed(A)
+    F = fixed(sparse(ones(2, 3)))
+    @test fill!(F, 2.5) === F && F == fill(2.5, 2, 3) && nnz(F) == 6 && _is_fixed(F)
+end
+
 @testset "`getindex`` should return type with same `_is_fixed`" begin
     for A in [sprandn(10, 10, 0.1), fixed(sprandn(10, 10, 0.1))]
         @test _is_fixed(A) == _is_fixed(A[:, :])
