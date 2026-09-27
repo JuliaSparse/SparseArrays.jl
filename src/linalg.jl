@@ -1464,85 +1464,61 @@ end
 _hermitian_solve(A::AbstractSparseMatrixCSC) =
     !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
 
-function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
-    require_one_based_indexing(A, B)
+# `\` and `factorize` choose the same method from the structure of `A`, and `f` is what
+# the caller does with the choice, applied inside every branch so that the result stays
+# inferrable. A diagonal or triangular matrix is wrapped for substitution, the diagonal
+# kept sparse so that `factorize` stays O(nnz). A Hermitian
+# matrix is only wrapped, because the callers finish it differently: when its Cholesky
+# factorization fails, `\` falls back to `lu` and `factorize` to `ldlt`.
+function _sparse_factorize(f, A::AbstractSparseMatrixCSC)
     m, n = size(A)
     if m == n
         if istril(A)
-            if istriu(A)
-                return \(Diagonal(Vector(diag(A))), B)
-            else
-                return \(LowerTriangular(A), B)
-            end
+            return istriu(A) ? f(Diagonal(diag(A))) : f(LowerTriangular(A))
         elseif istriu(A)
-            return \(UpperTriangular(A), B)
+            return f(UpperTriangular(A))
+        elseif _hermitian_solve(A)
+            return f(Hermitian(A))
         end
-        if _hermitian_solve(A)
-            return \(Hermitian(A), B)
-        end
-        return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
+        return f(lu(A))
     elseif m > n
-        return \(qr(A), B)
+        return f(qr(A))
     else
         # A is wide, so the LQ factorization gives the minimum-norm solution
-        return \(lq(A), B)
-    end
-end
-for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
-    @eval begin
-        function \(xformA::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::AbstractVecOrMat)
-            A = parent(xformA)
-            require_one_based_indexing(A, B)
-            m, n = size(A)
-            if m == n
-                if istril(A)
-                    if istriu(A)
-                        return \(Diagonal(($xformop.(diag(A)))), B)
-                    else
-                        return \(UpperTriangular($xformop(A)), B)
-                    end
-                elseif istriu(A)
-                    return \(LowerTriangular($xformop(A)), B)
-                end
-                if _hermitian_solve(A)
-                    return \($xformop(Hermitian(A)), B)
-                end
-                return \($xformop(lu(A)), B)
-            elseif m > n
-                # A' is wide, so solve the underdetermined system with the
-                # factorization of A itself, which gives the minimum-norm solution
-                return \($xformop(qr(A)), B)
-            else
-                # A' is tall, so the least squares solve needs a factorization of A'
-                return \(qr($xformop(A)), B)
-            end
-        end
+        return f(lq(A))
     end
 end
 
-function factorize(A::AbstractSparseMatrixCSC)
-    m, n = size(A)
-    if m == n
-        if istril(A)
-            if istriu(A)
-                return Diagonal(A)
-            else
-                return LowerTriangular(A)
-            end
-        elseif istriu(A)
-            return UpperTriangular(A)
+# The solvers work in double precision, so the solution is converted back to the eltype
+# dense `\` would give. The solve produces a dense result anyway, so a diagonal is
+# densified for it.
+_solve_factor(F) = F
+_solve_factor(D::Diagonal) = Diagonal(Vector(diag(D)))
+_sparse_solve(op, F, A, B) =
+    convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(op(_solve_factor(F)), B))
+
+function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
+    require_one_based_indexing(A, B)
+    return _sparse_factorize(F -> _sparse_solve(identity, F, A, B), A)
+end
+for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
+    @eval function \(xformA::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::AbstractVecOrMat)
+        A = parent(xformA)
+        require_one_based_indexing(A, B)
+        m, n = size(A)
+        if m < n
+            # A' is tall, so the least squares solve needs a factorization of A' itself
+            return _sparse_solve(identity, qr($xformop(A)), A, B)
         end
-        if _hermitian_solve(A)
-            return factorize(Hermitian(A))
-        end
-        return lu(A)
-    elseif m > n
-        return qr(A)
-    else
-        # A is wide, so solving with the LQ factorization gives the minimum-norm solution
-        return lq(A)
+        # Otherwise the transformed choice for A serves. For a wide A' that is the
+        # factorization of A, which gives the minimum-norm solution.
+        return _sparse_factorize(F -> _sparse_solve($xformop, F, A, B), A)
     end
 end
+
+_factorize_choice(F) = F
+_factorize_choice(H::Hermitian) = factorize(H)
+factorize(A::AbstractSparseMatrixCSC) = _sparse_factorize(_factorize_choice, A)
 
 function factorize(A::RealHermSymComplexHerm{<:Union{Float32,Float64},<:AbstractSparseMatrixCSC})
     F = cholesky(A; check = false)
