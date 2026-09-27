@@ -9,6 +9,7 @@ using Serialization
 using LinearAlgebra:
     LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet, Symmetric, Hermitian
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
+include("../testhelpers.jl")
 
 function umfpack_report(l::UMFPACK.UmfpackLU)
     UMFPACK.umfpack_report_numeric(l, 0)

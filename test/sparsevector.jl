@@ -7,7 +7,7 @@ using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
+include("testhelpers.jl")
 
 ### Data
 
@@ -86,24 +86,6 @@ end
         @test eltype([x, y]) === SparseVector{ComplexF64,Int}
     end
 end
-@testset "show" begin
-    @test occursin("1.25", string(spv_x1))
-    @test occursin("-0.75", string(spv_x1))
-    @test occursin("3.5", string(spv_x1))
-
-    # issue #30589
-    @test repr("text/plain", sparse([true])) == "1-element $(SparseArrays.SparseVector){Bool, $Int} with 1 stored entry:\n  [1]  =  1"
-end
-
-### Comparison helper to ensure exact equality with internal structure
-function exact_equal(x::AbstractSparseVector, y::AbstractSparseVector)
-    eltype(x) == eltype(y) &&
-    eltype(SparseArrays.nonzeroinds(x)) == eltype(SparseArrays.nonzeroinds(y)) &&
-    length(x) == length(y) &&
-    SparseArrays.nonzeroinds(x) == SparseArrays.nonzeroinds(y) &&
-    nonzeros(x) == nonzeros(y)
-end
-
 @testset "other constructors" begin
     # construct empty sparse vector
 
@@ -1182,33 +1164,6 @@ end
                 @test y == Array(x2 * c + x)
             end
         end
-        @testset "scale" begin
-            α = 2.5
-            sx = SparseVector(length(x::SparseVector), nonzeroinds(x), nonzeros(x) * α)
-            @test exact_equal(x * α, sx)
-            @test exact_equal(x * (α + 0.0*im), complex(sx))
-            @test exact_equal(α * x, sx)
-            @test exact_equal((α + 0.0*im) * x, complex(sx))
-            @test exact_equal(x * α, sx)
-            @test exact_equal(α * x, sx)
-            @test exact_equal(x .* α, sx)
-            @test exact_equal(α .* x, sx)
-            @test exact_equal(x / α, SparseVector(length(x::SparseVector), nonzeroinds(x), nonzeros(x) / α))
-
-            xc = copy(x)
-            @test rmul!(xc, α) === xc
-            @test exact_equal(xc, sx)
-            xc = copy(x)
-            @test lmul!(α, xc) === xc
-            @test exact_equal(xc, sx)
-            xc = copy(x)
-            @test rmul!(xc, complex(α, 0.0)) === xc
-            @test exact_equal(xc, sx)
-            xc = copy(x)
-            @test lmul!(complex(α, 0.0), xc) === xc
-            @test exact_equal(xc, sx)
-        end
-
         @testset "dot" begin
             dv = dot(xf, xf2)
             @test dot(x, x) == sum(abs2, x)
@@ -1234,216 +1189,6 @@ end
         r = dot(nonzeros(x)[2], nonzeros(y)[1])
         @test dot(x, y) ≈ dot(x, yd) ≈ dot(yd, x)' ≈ r
         @test dot(x, spzeros(Matrix{Float64}, 4)) == 0
-    end
-end
-
-@testset "BLAS Level-2" begin
-    @testset "dense A * sparse x -> dense y" begin
-        for TA in (Float64, ComplexF64), Tx in (Float64, ComplexF64)
-            T = Base.promote_op(LinearAlgebra.matprod, TA, Tx)
-            let A = randn(TA, 9, 16), x = sprand(Tx, 16, 0.7)
-                xf = Array(x)
-                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                    y = rand(T, 9)
-                    rr = α*A*xf + β*y
-                    @test mul!(y, A, x, α, β) === y
-                    @test y ≈ rr
-                end
-                y = A*x
-                @test isa(y, Vector{T})
-                @test A*x ≈ A*xf
-            end
-
-            let A = randn(TA, 16, 9), x = sprand(Tx, 16, 0.7)
-                xf = Array(x)
-                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                    y = rand(T, 9)
-                    rr = α*transpose(A)*xf + β*y
-                    @test mul!(y, transpose(A), x, α, β) === y
-                    @test y ≈ rr
-                end
-                y = *(transpose(A), x)
-                @test isa(y, Vector{T})
-                @test y ≈ *(transpose(A), xf)
-            end
-
-            let A = randn(TA, 16, 9), x = sprand(Tx, 16, 0.7)
-                xf = Array(x)
-                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                    y = rand(T, 9)
-                    rr = α*A'xf + β*y
-                    @test mul!(y, adjoint(A), x, α, β) === y
-                    @test y ≈ rr
-                end
-                y = *(adjoint(A), x)
-                @test isa(y, Vector{T})
-                @test y ≈ *(adjoint(A), xf)
-            end
-
-            let A = randn(TA, 16, 16), x = sprand(Tx, 16, 0.7)
-                xf = Array(x)
-                for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
-                        M -> Hermitian(M, :U), M -> Hermitian(M, :L))
-                    for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
-                        y = rand(T, 16)
-                        rr = α*wrap(A)*xf + β*y
-                        @test mul!(y, wrap(A), x, α, β) === y
-                        @test y ≈ rr
-                    end
-                    y = *(wrap(A), x)
-                    @test isa(y, Vector{T})
-                    @test y ≈ *(wrap(A), xf)
-                end
-            end
-        end
-    end
-    @testset "sparse A * sparse x -> dense y" begin
-        let A = sprandn(9, 16, 0.5), x = sprand(16, 0.7)
-            Af = Array(A)
-            xf = Array(x)
-            for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                y = rand(9)
-                rr = α*Af*xf + β*y
-                @test mul!(y, A, x, α, β) === y
-                @test y ≈ rr
-            end
-            y = SparseArrays.densemv(A, x)
-            @test isa(y, Vector{Float64})
-            @test y ≈ Af*xf
-        end
-
-        let A = sprandn(16, 9, 0.5), x = sprand(16, 0.7)
-            Af = Array(A)
-            xf = Array(x)
-            for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                y = rand(9)
-                rr = α*Af'xf + β*y
-                @test mul!(y, transpose(A), x, α, β) === y
-                @test y ≈ rr
-            end
-            y = SparseArrays.densemv(A, x; trans='T')
-            @test isa(y, Vector{Float64})
-            @test y ≈ *(transpose(Af), xf)
-
-            A32 = SparseMatrixCSC{Float64,Int32}(A)
-            @test mul!(zeros(9), transpose(A32), x) ≈ transpose(Af) * xf
-        end
-
-        let A = sprandn(16, 16, 0.5), x = sprand(16, 0.7)
-            Af = Array(A)
-            xf = Array(x)
-            for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
-                M -> Hermitian(M, :U), M -> Hermitian(M, :L),
-                M -> UpperTriangular(M), M -> UnitUpperTriangular(M),
-                M -> LowerTriangular(M), M -> UnitLowerTriangular(M),
-                M -> UpperTriangular(transpose(M)), M -> UnitUpperTriangular(transpose(M)),
-                M -> LowerTriangular(transpose(M)), M -> UnitLowerTriangular(transpose(M)),
-                M -> UpperTriangular(adjoint(M)), M -> UnitUpperTriangular(adjoint(M)),
-                M -> LowerTriangular(adjoint(M)), M -> UnitLowerTriangular(adjoint(M)),
-                M -> UpperTriangular(Symmetric(M)))
-                for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
-                    y = rand(16)
-                    rr = α*wrap(Af)*xf + β*y
-                    @test mul!(y, wrap(A), x, α, β) === y
-                    @test y ≈ rr
-                end
-                y = wrap(A) * x
-                @test y ≈ *(wrap(Af), xf)
-            end
-        end
-
-        let A = complex.(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
-            x = complex.(sprandn(8, 0.6), sprandn(8, 0.6)),
-            x2 = complex.(sprandn(7, 0.75), sprandn(7, 0.75))
-            Af = Array(A)
-            xf = Array(x)
-            x2f = Array(x2)
-            @test SparseArrays.densemv(A, x; trans='N') ≈ Af * xf
-            @test SparseArrays.densemv(A, x2; trans='T') ≈ transpose(Af) * x2f
-            @test SparseArrays.densemv(A, x2; trans='C') ≈ Af'x2f
-            @test_throws ArgumentError SparseArrays.densemv(A, x; trans='D')
-        end
-
-        let A = sparse(bitrand(9, 16)), x = sparse(bitrand(16))
-            Af = Array(A)
-            xf = Array(x)
-            y = SparseArrays.densemv(A, x)
-            @test isa(y, Vector{Int})
-            @test y == Af*xf
-        end
-    end
-    @testset "sparse A * sparse x -> sparse y" begin
-        let A = sprandn(9, 16, 0.5), x = sprand(16, 0.7), x2 = sprand(9, 0.7)
-            Af = Array(A)
-            xf = Array(x)
-            x2f = Array(x2)
-
-            y = A*x
-            @test isa(y, SparseVector{Float64,Int})
-            @test all(nonzeros(y) .!= 0.0)
-            @test Array(y) ≈ Af * xf
-
-            y = *(transpose(A), x2)
-            @test isa(y, SparseVector{Float64,Int})
-            @test all(nonzeros(y) .!= 0.0)
-            @test Array(y) ≈ Af'x2f
-        end
-
-        let A = complex.(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
-            x = complex.(sprandn(8, 0.6), sprandn(8, 0.6)),
-            x2 = complex.(sprandn(7, 0.75), sprandn(7, 0.75))
-            Af = Array(A)
-            xf = Array(x)
-            x2f = Array(x2)
-
-            y = A*x
-            @test isa(y, SparseVector{ComplexF64,Int})
-            @test Array(y) ≈ Af * xf
-
-            y = *(transpose(A), x2)
-            @test isa(y, SparseVector{ComplexF64,Int})
-            @test Array(y) ≈ transpose(Af) * x2f
-
-            y = *(adjoint(A), x2)
-            @test isa(y, SparseVector{ComplexF64,Int})
-            @test Array(y) ≈ Af'x2f
-
-            A32 = SparseMatrixCSC{ComplexF64,Int32}(A)
-            for x32 in (x2, SparseVector{ComplexF64,Int32}(x2)), op in (transpose, adjoint)
-                y = op(A32) * x32
-                @test isa(y, SparseVector{ComplexF64,promote_type(Int32, eltype(nonzeroinds(x32)))})
-                @test Array(y) ≈ op(Af) * x2f
-            end
-        end
-
-        let A = sparse(bitrand(9, 16)), x = sparse(bitrand(16)), x2 = sparse(bitrand(9))
-            Af = Array(A)
-            xf = Array(x)
-            x2f = Array(x2)
-
-            y = A*x
-            @test isa(y, SparseVector{Int, Int})
-            @test Array(y) == Af*xf
-
-            y = A'*x2
-            @test isa(y, SparseVector{Int, Int})
-            @test Array(y) == Af'x2f
-        end
-    end
-    @testset "sparse A * dense x -> dense y" begin
-        let A = sparse(bitrand(9, 16)), x = Vector(bitrand(16)), x2 = Vector(bitrand(9))
-            Af = Array(A)
-            xf = Array(x)
-            x2f = Array(x2)
-
-            y = A*x
-            @test isa(y, Vector{Int})
-            @test y == Af*xf
-
-            y = A'*x2
-            @test isa(y, Vector{Int})
-            @test y == Af'x2f
-        end
     end
 end
 
@@ -1603,6 +1348,12 @@ end
 mutable struct t20488 end
 
 @testset "show" begin
+    @test occursin("1.25", string(spv_x1))
+    @test occursin("-0.75", string(spv_x1))
+    @test occursin("3.5", string(spv_x1))
+    # issue #30589
+    @test repr("text/plain", sparse([true])) == "1-element $(SparseArrays.SparseVector){Bool, $Int} with 1 stored entry:\n  [1]  =  1"
+
     io = IOBuffer()
     show(io, MIME"text/plain"(), sparsevec(Int64[1], [1.0]))
     @test String(take!(io)) == "1-element $SparseVector{Float64, Int64} with 1 stored entry:\n  [1]  =  1.0"

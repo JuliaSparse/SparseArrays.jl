@@ -2,6 +2,7 @@
 
 module SparseProcessTests
 using Test, SparseArrays
+include("../testhelpers.jl")
 
 # This file has two roles. Included by the test runner, it starts fresh Julia processes.
 # The ones for the threaded tests include this file again with `CHILD_ENV` set, which

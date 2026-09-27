@@ -8,13 +8,11 @@ using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotz
 using LinearAlgebra
 using Random
 using Test: guardseed
-include("forbidproperties.jl")
+include("testhelpers.jl")
 
 se33 = SparseMatrixCSC{Float64}(I, 3, 3)
 
 sA = sprandn(3, 7, 0.5)
-sC = similar(sA)
-dA = Array(sA)
 
 @testset "reductions" begin
     pA = sparse(rand(3, 7))

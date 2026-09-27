@@ -11,6 +11,7 @@ using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_s
     cholmod_l_allocate_dense, cholmod_allocate_dense
 using LinearAlgebra: I, cholesky, diag, ldiv!, ldlt, qr, Symmetric
 using Random
+include("../testhelpers.jl")
 
 # Run in a fresh process: intentional collections exercise finalization and rooting.
 # The constructors must free the pointer before throwing, so the Common's
