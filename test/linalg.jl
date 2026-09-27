@@ -197,6 +197,12 @@ end
     setindex!(nonzeros(foo), NaN, 5)
     @test norm(foo) == 2.0
 
+    # a view of a column range sees the stored entries of those columns only, so
+    # neither the other columns nor the entries beyond nnz contribute
+    @test norm(view(foo, :, 2:3)) == sqrt(2.0)
+    Az = sparse([1, 2, 3], [1, 2, 3], [1.0, 0.0, 3.0])   # stored zero at (2, 2)
+    @test norm(view(Az, :, 2:3), 0) == norm(Matrix(Az)[:, 2:3], 0) == 1.0
+
     # Test (m x 1) sparse matrix
     colM = sprandn(10, 1, 0.6)
     McolM = Array(colM)
@@ -301,6 +307,7 @@ end
     @test norm(A) == zero(eltype(A))
     A = sparse([1.0])
     @test norm(A) == 1.0
+    @test norm(sparse([1.0 0; 0 2]), -1) == norm(view(sparse([1.0 0; 0 2]), :, 1:2), -Inf) == 0.0
     @test_throws ArgumentError opnorm(sprand(5,5,0.2),3)
 end
 
@@ -335,6 +342,13 @@ end
 
     A = sparse(zeros(5,5))
     @test ishermitian(A) == true
+
+    # a view of a column range is checked through the stored entries of those columns;
+    # a stored zero without a stored counterpart does not break symmetry
+    Cv = sparse([1, 2, 3, 1, 2, 1], [2, 4, 3, 5, 1, 6], [2.0, 2.0 + im, 2.0 - im, 0.0, 7.0, 8.0], 4, 6)
+    V = view(Cv, :, 2:5)   # V[1, 4] is the stored zero
+    @test ishermitian(V) == ishermitian(Matrix(V)) == true
+    @test issymmetric(V) == issymmetric(Matrix(V)) == false
     @test issymmetric(A) == true
 
     # explicit zeros
@@ -583,14 +597,22 @@ end
             for k in -size(S,1):size(S,2)
                 @test diag(S, k)::SparseVector{T,Int} == diag(A, k)
             end
-            @test_throws ArgumentError diag(S, -size(S,1)-1)
-            @test_throws ArgumentError diag(S,  size(S,2)+1)
+            @test diag(S, -size(S,1)-1) == diag(A, -size(S,1)-1) == T[]
+            @test diag(S,  size(S,2)+1) == diag(A,  size(S,2)+1) == T[]
         end
     end
     # test that stored zeros are still stored zeros in the diagonal
     S = sparse([1,3],[1,3],[0.0,0.0]); V = diag(S)
     @test nonzeroinds(V) == [1,3]
     @test nonzeros(V) == [0.0,0.0]
+
+    # a view of a column range walks the stored entries of those columns and keeps its
+    # stored zeros, like the parent
+    S = sparse([1, 3, 2, 4], [2, 4, 4, 5], [1.0, 0.0, 2.0, 3.0], 4, 6)
+    V = view(S, :, 2:5)
+    @test diag(V)::SparseVector{Float64,Int} == diag(Matrix(V))
+    @test nonzeros(diag(V)) == [1.0, 0.0, 3.0]
+    @test isempty(diag(view(spzeros(2, 3), :, 1:2), 3))
 end
 
 @testset "conj" begin

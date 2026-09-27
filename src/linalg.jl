@@ -920,7 +920,12 @@ diff(x::AbstractSparseVector; dims::Integer=1) = _sparse_diff(x, dims)
 diff(x::Union{SparseColumnView, SparseVectorView}; dims::Integer=1) = _sparse_diff(x, dims)
 
 ## norm and rank
-norm(A::AbstractSparseMatrixCSC, p::Real=2) = norm(view(nonzeros(A), 1:nnz(A)), p)
+function norm(A::SparseMatrixCSCOrView, p::Real=2)
+    v = nzvalview(A)
+    # a single zero, stored or not, makes a norm with p < 0 zero
+    p < 0 && length(v) < length(A) && return float(norm(zero(eltype(A))))
+    return norm(v, p)
+end
 
 """
     opnorm(A::AbstractSparseMatrixCSC, p::Real=2)

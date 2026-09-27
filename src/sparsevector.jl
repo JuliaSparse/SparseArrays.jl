@@ -808,7 +808,7 @@ function findnz(x::AdjOrTransSparseVectorOrView)
     return (I, J, V)
 end
 
-function _sparse_findnextnz(v::AbstractCompressedVector, i::Integer)
+function _sparse_findnextnz(v::SparseVectorOrView, i::Integer)
     n = searchsortedfirst(nonzeroinds(v), i)
     if n > length(nonzeroinds(v))
         return nothing
@@ -817,7 +817,7 @@ function _sparse_findnextnz(v::AbstractCompressedVector, i::Integer)
     end
 end
 
-function _sparse_findprevnz(v::AbstractCompressedVector, i::Integer)
+function _sparse_findprevnz(v::SparseVectorOrView, i::Integer)
     n = searchsortedlast(nonzeroinds(v), i)
     if iszero(n)
         return nothing
