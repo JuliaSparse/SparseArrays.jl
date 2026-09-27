@@ -7,7 +7,6 @@ using SparseArrays
 using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, fixed, _is_fixed
 using LinearAlgebra
 using Random
-using Test: guardseed
 include("testhelpers.jl")
 
 se33 = SparseMatrixCSC{Float64}(I, 3, 3)
@@ -490,7 +489,9 @@ end
     @test nnz(sum(x -> x + 1, w'; dims = 1, sparse = true)) == 6 && nnz(sum(spzeros(5)'; dims = 2, sparse = true)) == 0
     # adjoints, views of a column subset and sparse vectors reduce like their copy, calling `f`
     # for the stored entries and once per slice rather than per element
-    A, C, v, c = sprand(60, 50, 0.05), sprand(ComplexF64, 60, 50, 0.05), sprand(60, 0.1), sprand(ComplexF64, 60, 0.1)
+    A, C = sprand(60, 50, 0.05), sprand(ComplexF64, 60, 50, 0.05)
+    v = sparsevec([2, 17, 43, 60], [1.0, -2.0, 0.5, 3.0], 60)
+    c = sparsevec([2, 17, 43, 60], [1.0+2im, -2.0+im, 0.5-im, 3.0-2im], 60)
     S = view(A, :, [7, 2, 2, 15])
     for X in (A', transpose(C), C', S, v, v', transpose(c), c'), dims in (1, 2, (1, 2)),
         (f, op) in ((abs2, +), (abs, max), (x -> abs(x) + 1, (x, y) -> x + y))   # LinearAlgebra does not forward the last
