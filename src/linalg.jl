@@ -340,219 +340,82 @@ end
 _uconvert_copyto!(c, b, oA) = (c .= Ref(oA) .\ b)
 _uconvert_copyto!(c::AbstractArray{T}, b::AbstractArray{T}, _) where {T} = copyto!(c, b)
 
-function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat)
-    mA, nA = size(A)
-    nrowB, ncolB = size(B, 1), size(B, 2)
-    if nA != nrowB
-        throw(DimensionMismatch("second dimension of left hand side A, $nA, and first dimension of right hand side B, $nrowB, must be equal"))
-    end
-    if size(C) != size(B)
-        throw(DimensionMismatch("size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
-    end
+LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat) =
+    _trimatdiv!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
+LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
+    _trimatdiv!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
+
+# C = M \ B, where M is the `upper` or lower triangle of A, elementwise `f` of it for
+# `identity` and `conj`, or the `transpose`/`adjoint` `f` of it. The first kind divides
+# row `j` by the pivot and scatters column `j` of A into the rows not yet solved, the
+# second gathers row `j` from column `j` of A and the rows already solved; either way the
+# columns are visited so that none is read before it is final, and C may be B. The type
+# parameter keeps the method specialized on the forwarded `f`, as in `_trimatmul!`.
+function _trimatdiv!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
+    n = size(A, 2)
+    size(B, 1) == n ||
+        throw(DimensionMismatch(lazy"second dimension of left hand side A, $n, and first dimension of right hand side B, $(size(B, 1)), must be equal"))
+    size(C) == size(B) ||
+        throw(DimensionMismatch(lazy"size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
     C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
-    aa = getnzval(A)
-    ja = getrowval(A)
-    ia = getcolptr(A)
-    unit = isunitc == 'U'
-
-    if uploc == 'L'
-        if tfun === identity
-            # forward substitution for LowerTriangular CSC matrices
-            for k in axes(B,2)
-                for j in axes(B,1)
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - one(eltype(ia))
-
-                    # find diagonal element
-                    ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
-                    jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
-
-                    cj = C[j,k]
-                    # check for zero pivot and divide with pivot
-                    if jai == j
-                        if !unit
-                            cj /= LinearAlgebra._ustrip(aa[ii])
-                            C[j,k] = cj
-                        end
-                        ii += 1
-                    elseif !unit
-                        throw(LinearAlgebra.SingularException(j))
-                    end
-
-                    # update remaining part
-                    for i = ii:i2
-                        C[ja[i],k] -= cj * LinearAlgebra._ustrip(aa[i])
-                    end
-                end
-            end
-        else # tfun in (adjoint, transpose)
-            # backward substitution for adjoint and transpose of LowerTriangular CSC matrices
-            for k in axes(B,2)
-                for j in reverse(axes(B,1))
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    akku = C[j,k]
-                    done = false
-
-                    # loop through column j of A - only structural non-zeros
-                    for ii = i2:-1:i1
-                        jai = ja[ii]
-                        if jai > j
-                            akku -= C[jai,k] * tfun(aa[ii])
-                        elseif jai == j
-                            akku /= unit ? oneunit(eltype(A)) : tfun(aa[ii])
-                            done = true
-                            break
-                        else
-                            break
-                        end
-                    end
-                    if !done && !unit
-                        throw(LinearAlgebra.SingularException(j))
-                    end
-                    C[j,k] = akku
-                end
-            end
-        end
-    else # uploc == 'U'
-        if tfun === identity
-            # backward substitution for UpperTriangular CSC matrices
-            for k in axes(B,2)
-                for j in reverse(axes(B,1))
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - one(eltype(ia))
-
-                    # find diagonal element
-                    ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
-                    jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
-
-                    cj = C[j,k]
-                    # check for zero pivot and divide with pivot
-                    if jai == j
-                        if !unit
-                            cj /= LinearAlgebra._ustrip(aa[ii])
-                            C[j,k] = cj
-                        end
-                        ii -= 1
-                    elseif !unit
-                        throw(LinearAlgebra.SingularException(j))
-                    end
-
-                    # update remaining part
-                    for i = ii:-1:i1
-                        C[ja[i],k] -= cj * LinearAlgebra._ustrip(aa[i])
-                    end
-                end
-            end
-        else # tfun in  (adjoint, transpose)
-            # forward substitution for adjoint and transpose of UpperTriangular CSC matrices
-            for k in axes(B,2)
-                for j in axes(B,1)
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    akku = C[j,k]
-                    done = false
-
-                    # loop through column j of A - only structural non-zeros
-                    for ii = i1:i2
-                        jai = ja[ii]
-                        if jai < j
-                            akku -= C[jai,k] * tfun(aa[ii])
-                        elseif jai == j
-                            akku /= unit ? oneunit(eltype(A)) : tfun(aa[ii])
-                            done = true
-                            break
-                        else
-                            break
-                        end
-                    end
-                    if !done && !unit
-                        throw(LinearAlgebra.SingularException(j))
-                    end
-                    C[j,k] = akku
-                end
-            end
-        end
-    end
-    C
+    return upper ? _trimatdiv!(C, Val(true), unit, f, A, B) : _trimatdiv!(C, Val(false), unit, f, A, B)
 end
-function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
-    A = parent(xA)
-    mA, nA = size(A)
-    nrowB, ncolB = size(B, 1), size(B, 2)
-    if nA != nrowB
-        throw(DimensionMismatch("second dimension of left hand side A, $nA, and first dimension of right hand side B, $nrowB, must be equal"))
-    end
-    if size(C) != size(B)
-        throw(DimensionMismatch("size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
-    end
-    C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
-
+# The triangle is a type parameter for the same reason as in `_trimatmul!`.
+function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
+    n = size(A, 2)
     aa = getnzval(A)
     ja = getrowval(A)
     ia = getcolptr(A)
-    unit = isunitc == 'U'
-
-    if uploc == 'L'
-        # forward substitution for LowerTriangular CSC matrices
-        for k in axes(B,2)
-            for j in axes(B,1)
-                i1 = ia[j]
-                i2 = ia[j + 1] - one(eltype(ia))
-
-                # find diagonal element
-                ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
-                jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
-
-                cj = C[j,k]
-                # check for zero pivot and divide with pivot
-                if jai == j
-                    if !unit
-                        cj /= LinearAlgebra._ustrip(conj(aa[ii]))
-                        C[j,k] = cj
-                    end
-                    ii += 1
-                elseif !unit
-                    throw(LinearAlgebra.SingularException(j))
-                end
-
-                # update remaining part
-                for i = ii:i2
-                    C[ja[i],k] -= cj * LinearAlgebra._ustrip(conj(aa[i]))
-                end
-            end
-        end
-    else # uploc == 'U'
-        # backward substitution for UpperTriangular CSC matrices
-        for k in axes(B,2)
-            for j in reverse(axes(B,1))
-                i1 = ia[j]
-                i2 = ia[j + 1] - one(eltype(ia))
-
-                # find diagonal element
+    direct = f === identity || f === conj
+    for k in axes(B, 2), j in (upper == direct ? (n:-1:1) : (1:n))
+        i1 = Int(ia[j])
+        i2 = Int(ia[j + 1]) - 1
+        if direct
+            # the pivot is the last stored entry of the column at or above the diagonal,
+            # or the first at or below it
+            if upper
                 ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
-                jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
-
-                cj = C[j,k]
-                # check for zero pivot and divide with pivot
-                if jai == j
-                    if !unit
-                        cj /= LinearAlgebra._ustrip(conj(aa[ii]))
-                        C[j,k] = cj
-                    end
-                    ii -= 1
-                elseif !unit
-                    throw(LinearAlgebra.SingularException(j))
+                hasdiag = ii >= i1 && ja[ii] == j
+            else
+                ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
+                hasdiag = ii <= i2 && ja[ii] == j
+            end
+            cj = C[j,k]
+            if hasdiag
+                if !unit
+                    cj /= LinearAlgebra._ustrip(f(aa[ii]))
+                    C[j,k] = cj
                 end
-
-                # update remaining part
-                for i = ii:-1:i1
-                    C[ja[i],k] -= cj * LinearAlgebra._ustrip(conj(aa[i]))
+                ii += upper ? -1 : 1
+            elseif !unit
+                throw(LinearAlgebra.SingularException(j))
+            end
+            for i in (upper ? (ii:-1:i1) : (ii:i2))
+                C[ja[i],k] -= cj * LinearAlgebra._ustrip(f(aa[i]))
+            end
+        else
+            akku = C[j,k]
+            done = false
+            for ii in (upper ? (i1:i2) : (i2:-1:i1))
+                jai = Int(ja[ii])
+                d = upper ? j - jai : jai - j
+                if d > 0
+                    akku -= C[jai,k] * f(aa[ii])
+                elseif d == 0
+                    akku /= unit ? oneunit(eltype(A)) : f(aa[ii])
+                    done = true
+                    break
+                else
+                    break
                 end
             end
+            if !done && !unit
+                throw(LinearAlgebra.SingularException(j))
+            end
+            C[j,k] = akku
         end
     end
-    C
+    return C
 end
 
 matop_dest(::typeof(\), A, b::AbstractSparseVector) =

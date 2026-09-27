@@ -523,169 +523,52 @@ prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < 
 
 
 ## triangular multiplication
-function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat)
-    require_one_based_indexing(A, C)
-    nrowC = size(C, 1)
-    ncol = checksquare(A)
-    if nrowC != ncol
-        throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
-    end
-    nrowB, ncolB  = size(B, 1), size(B, 2)
+LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat) =
+    _trimatmul!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
+LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
+    _trimatmul!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
+
+# C = M * B, where M is the `upper` or lower triangle of A, elementwise `f` of it for
+# `identity` and `conj`, or the `transpose`/`adjoint` `f` of it. The first kind scatters
+# column `j` of A scaled by row `j` of B, the second gathers row `j` of C from column `j`
+# of A; either way the columns are visited so that none is written before its last read,
+# and C may be B. `f` is only forwarded here, so the type parameter keeps the method
+# specialized on it; without it the call into the kernel dispatches at run time.
+function _trimatmul!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
+    require_one_based_indexing(C, A, B)
+    n = checksquare(A)
+    size(B, 1) == n ||
+        throw(DimensionMismatch(lazy"A has $n columns and B has $(size(B, 1)) rows"))
+    size(C) == size(B) ||
+        throw(DimensionMismatch(lazy"C has size $(size(C)), A * B has size $(size(B))"))
     C !== B && copyto!(C, B)
-    aa = getnzval(A)
-    ja = getrowval(A)
-    ia = getcolptr(A)
-    joff = 0
-    unit = isunitc == 'U'
-    Z = zero(eltype(C))
-
-    if uploc == 'U'
-        if tfun === identity
-            # forward multiplication for UpperTriangular SparseCSC matrices
-            for k in axes(B,2)
-                for j in axes(B,1)
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    done = unit
-
-                    bj = B[joff + j]
-                    for ii = i1:i2
-                        jai = ja[ii]
-                        aii = aa[ii]
-                        if jai < j
-                            C[joff + jai] += aii * bj
-                        elseif jai == j
-                            if !unit
-                                C[joff + j] = aii * bj
-                                done = true
-                            end
-                        else
-                            break
-                        end
-                    end
-                    if !done
-                        C[joff + j] = Z
-                    end
-                end
-                joff += nrowB
-            end
-        else # tfun in (adjoint, transpose)
-            # backward multiplication with adjoint and transpose of LowerTriangular CSC matrices
-            for k in axes(B,2)
-                for j in reverse(axes(B,1))
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    akku = Z
-                    j0 = !unit ? j : j - 1
-
-                    # loop through column j of A - only structural non-zeros
-                    for ii = i1:i2
-                        jai = ja[ii]
-                        if jai <= j0
-                            akku += tfun(aa[ii]) * B[joff + jai]
-                        else
-                            break
-                        end
-                    end
-                    if unit
-                        akku += oneunit(eltype(A)) * B[joff + j]
-                    end
-                    C[joff + j] = akku
-                end
-                joff += nrowB
-            end
-        end
-    else # uploc == 'L'
-        if tfun === identity
-            # backward multiplication for LowerTriangular SparseCSC matrices
-            for k in axes(B,2)
-                for j in reverse(axes(B,1))
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    done = unit
-
-                    bj = B[joff + j]
-                    for ii = i2:-1:i1
-                        jai = ja[ii]
-                        aii = aa[ii]
-                        if jai > j
-                            C[joff + jai] += aii * bj
-                        elseif jai == j
-                            if !unit
-                                C[joff + j] = aii * bj
-                                done = true
-                            end
-                        else
-                            break
-                        end
-                    end
-                    if !done
-                        C[joff + j] = Z
-                    end
-                end
-                joff += nrowB
-            end
-        else # tfun in (adjoint, transpose)
-            # forward multiplication for adjoint and transpose of LowerTriangular CSC matrices
-            for k in axes(B,2)
-                for j in axes(B,1)
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    akku = Z
-                    j0 = !unit ? j : j + 1
-
-                    # loop through column j of A - only structural non-zeros
-                    for ii = i2:-1:i1
-                        jai = ja[ii]
-                        if jai >= j0
-                            akku += tfun(aa[ii]) * B[joff + jai]
-                        else
-                            break
-                        end
-                    end
-                    if unit
-                        akku += oneunit(eltype(A)) * B[joff + j]
-                    end
-                    C[joff + j] = akku
-                end
-                joff += nrowB
-            end
-        end
-    end
-    return C
+    return upper ? _trimatmul!(C, Val(true), unit, f, A, B) : _trimatmul!(C, Val(false), unit, f, A, B)
 end
-function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
-    A = parent(xA)
-    nrowC = size(C, 1)
-    ncol = checksquare(A)
-    if nrowC != ncol
-        throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
-    end
-    C !== B && copyto!(C, B)
-    nrowB, ncolB  = size(B, 1), size(B, 2)
+# The triangle is a type parameter so that each walk of a column compiles to a loop of
+# unit stride; a runtime direction costs about a third on multi-column right-hand sides.
+function _trimatmul!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
+    n = size(A, 2)
     aa = getnzval(A)
     ja = getrowval(A)
     ia = getcolptr(A)
-    joff = 0
-    unit = isunitc == 'U'
+    direct = f === identity || f === conj
     Z = zero(eltype(C))
-
-    if uploc == 'U'
-        for k in axes(B,2)
-            for j in axes(B,1)
-                i1 = ia[j]
-                i2 = ia[j + 1] - 1
-                done = unit
-
+    joff = 0
+    for k in axes(B, 2)
+        for j in (upper == direct ? (1:n) : (n:-1:1))
+            i1 = Int(ia[j])
+            i2 = Int(ia[j + 1]) - 1
+            if direct
                 bj = B[joff + j]
-                for ii = i1:i2
-                    jai = ja[ii]
-                    aii = conj(aa[ii])
-                    if jai < j
-                        C[joff + jai] += aii * bj
-                    elseif jai == j
+                done = unit
+                for ii in (upper ? (i1:i2) : (i2:-1:i1))
+                    jai = Int(ja[ii])
+                    d = upper ? j - jai : jai - j
+                    if d > 0
+                        C[joff + jai] += f(aa[ii]) * bj
+                    elseif d == 0
                         if !unit
-                            C[joff + j] = aii * bj
+                            C[joff + j] = f(aa[ii]) * bj
                             done = true
                         end
                     else
@@ -695,37 +578,26 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
                 if !done
                     C[joff + j] = Z
                 end
-            end
-            joff += nrowB
-        end
-    else # uploc == 'L'
-        for k in axes(B,2)
-            for j in reverse(axes(B,1))
-                i1 = ia[j]
-                i2 = ia[j + 1] - 1
-                done = unit
-
-                bj = B[joff + j]
-                for ii = i2:-1:i1
-                    jai = ja[ii]
-                    aii = conj(aa[ii])
-                    if jai > j
-                        C[joff + jai] += aii * bj
-                    elseif jai == j
-                        if !unit
-                            C[joff + j] = aii * bj
-                            done = true
-                        end
+            else
+                akku = Z
+                for ii in (upper ? (i1:i2) : (i2:-1:i1))
+                    jai = Int(ja[ii])
+                    d = upper ? j - jai : jai - j
+                    if d > 0
+                        akku += f(aa[ii]) * B[joff + jai]
+                    elseif d == 0 && !unit
+                        akku += f(aa[ii]) * B[joff + j]
                     else
                         break
                     end
                 end
-                if !done
-                    C[joff + j] = Z
+                if unit
+                    akku += oneunit(eltype(A)) * B[joff + j]
                 end
+                C[joff + j] = akku
             end
-            joff += nrowB
         end
+        joff += n
     end
     return C
 end
