@@ -49,7 +49,8 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
   generic LinearAlgebra functions (`lu`, `qr`, `cholesky`, `\`), never by naming a
   solver module. A test that factorizes or solves with a sparse matrix goes in
   `test/solvers/`, whatever feature it is about; the other suites must pass on a build
-  without GPL libraries.
+  without GPL libraries. `.ci/check-gpl-usage.jl`, run by the Whitespace workflow, fails
+  on solver names outside those directories.
 
 ## Running tests
 
@@ -58,14 +59,13 @@ julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one f
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
 julia .ci/check-whitespace.jl
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'   # Aqua and ambiguity checks
-julia +nightly --project=docs -e 'using Pkg; Pkg.develop(path="."); include("docs/make.jl")'  # doctests
+julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'  # doctests
+julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/solvers/
 ```
 
-The doctest command edits `docs/Project.toml`; discard that change before committing.
-
 The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
-as a separate CI job.
-One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
+as a separate CI job. Another CI job runs `test/runtests.jl` on the serial fallback path,
+as Julia Base CI does, and one runs `--check-bounds=yes` to catch bad `@inbounds`.
 
 ## Style
 
