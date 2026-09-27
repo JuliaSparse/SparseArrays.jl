@@ -6,16 +6,21 @@ on:
       - 'main'
       - 'release-*'
     tags: '*'
+permissions:
+  contents: read
 concurrency:
   # Skip intermediate builds: all builds except for builds on the `main` or `release-*` branches
   # Cancel intermediate builds: only pull request builds
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref != 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-') || github.run_number }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ (github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release-')) || github.run_number }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
     name: test (${{ matrix.os }}, ${{ matrix.julia-arch }}, ${{ matrix.julia-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
+      actions: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +52,8 @@ jobs:
             coverage: true
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.julia-version }}
@@ -62,44 +69,44 @@ jobs:
       - uses: codecov/codecov-action@v7
         if: matrix.coverage == true
         with:
-          file: lcov.info
+          files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
   aqua-test:
-    name: aqua-test (${{ matrix.os }}, ${{ matrix.julia-arch }}, ${{ matrix.julia-version }})
-    runs-on: ${{ matrix.os }}
+    name: aqua-test (ubuntu-latest, x64, nightly)
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
       actions: write
       contents: read
-    strategy:
-      matrix:
-        os:
-          - ubuntu-latest
-        julia-arch:
-          - x64
-        julia-version:
-          - 'nightly'
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
-          version: ${{ matrix.julia-version }}
-          arch: ${{ matrix.julia-arch }}
+          version: 'nightly'
+          arch: x64
       - uses: julia-actions/cache@v3
       - name: Run Aqua and ambiguity tests
         run: |
           julia --color=yes --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'
   docs:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
+      actions: write
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
           version: 'nightly'
       - uses: julia-actions/cache@v3
       - name: Generate docs
         run: |
-          julia --project --color=yes -e 'using Pkg; Pkg.activate("docs"); Pkg.develop(PackageSpec(path = pwd()))'
+          julia --project=docs --color=yes -e 'using Pkg; Pkg.instantiate()'
           julia --project=docs --color=yes docs/make.jl
         env:
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
