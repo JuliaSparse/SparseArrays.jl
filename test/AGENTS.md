@@ -25,7 +25,10 @@ measure test time, in addition to the top-level `AGENTS.md`.
   top-level `AGENTS.md` has the rule for what belongs there.
 - `triangular.jl` holds the triangular product and solve tests as one scheduling unit,
   and the two grids share their fixtures. `concatenation.jl` likewise holds all
-  concatenation tests.
+  concatenation tests, and `matmul.jl` every other product test, for vectors as well as
+  matrices: scaling, the BLAS-2 grid and products with LinearAlgebra's Q types, while
+  `sparsevector.jl` keeps the vector `axpy!` and `dot` tests. The `transpose`, `adjoint`
+  and `permute` tests, including the in-place forms, live in `sparsematrix.jl`.
 - Preserve issue references on regression tests.
 - `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI gives it
   its own job. It restores the depot, load path, environment and active project in a
