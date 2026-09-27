@@ -1,9 +1,9 @@
 #!/usr/bin/env julia
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# Everything that needs the GPL SuiteSparse libraries lives in `src/solvers/` and
-# `test/solvers/`, so the other suites pass on a build without GPL libraries (see
-# AGENTS.md). This lint fails when any other Julia file under `src/` or `test/`
+# Everything that needs the GPL SuiteSparse libraries lives in `src/solvers/`,
+# `test/solvers/` and `test/torture/solvers/`, so the other suites pass on a build
+# without GPL libraries (see AGENTS.md). This lint fails when any other Julia file under `src/` or `test/`
 # names a solver module, a solver factorization type or a SuiteSparse library, or
 # factorizes a sparse literal. It cannot see a factorization of a sparse variable,
 # so it is a backstop for review, not a replacement.
@@ -21,7 +21,7 @@ function files_to_check(repo)
     paths = String[]
     for root in roots, (dir, _, names) in walkdir(joinpath(repo, root))
         rel = relpath(dir, joinpath(repo, root))
-        (rel == solver_dir || startswith(rel, solver_dir * "/")) && continue
+        solver_dir in splitpath(rel) && continue   # src/solvers, test/solvers, test/torture/solvers
         for name in names
             endswith(name, ".jl") && push!(paths, relpath(joinpath(dir, name), repo))
         end
