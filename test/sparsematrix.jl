@@ -208,6 +208,32 @@ do33 = fill(1.,3)
             end
         end
     end
+    @testset "sparse with strided dense is dense" begin
+        # The result type proves the strided methods are dispatched to: the AbstractArray
+        # fallback broadcasts, which makes a sparse result out of a dense operand.
+        for T in (Float64, ComplexF64)
+            S = sprandn(T, 5, 4, 0.5)
+            S[2, 3] = 0   # stored zero
+            SV = view(S, :, 2:4)
+            M = randn(T, 5, 4)
+            for (X, Y) in ((S, M), (SV, view(M, :, 2:4)), (SV, M[:, 2:4]),
+                           (S, view(M, 1:5, :)), (S, view(randn(T, 5, 8), :, 1:2:7)),
+                           (S, Matrix(M')'), (S, transpose(Matrix(transpose(M)))),
+                           (S, view(Matrix(M'), 1:4, :)')),
+                    fun in (+, -)
+                A, B = Array(X), Array(Y)
+                @test @inferred(fun(X, Y))::Matrix{T} == fun(A, B)
+                @test @inferred(fun(Y, X))::Matrix{T} == fun(B, A)
+            end
+            @test S[1:4, :] + Symmetric(M[1:4, :]) isa Matrix{T}
+            @test UpperTriangular(M[1:4, :]) - S[1:4, :] isa Matrix{T}
+            @test_throws DimensionMismatch S + M[:, 1:3]
+            @test_throws DimensionMismatch M[:, 1:3]' - S
+        end
+        # promotion follows the dense method
+        @test sparse([1, 2], [1, 2], [1, 2]) + [1.5 0; 0 1.5] isa Matrix{Float64}
+        @test sparse([1], [1], Real[1.5], 2, 2) + [1 2; 3 4]' == [2.5 3; 2 4]
+    end
     @testset "binary operations on sparse matrices with union eltype" begin
         A = sparse([1,2,1], [1,1,2], Union{Int, Missing}[1, missing, 0])
         MA = Array(A)
