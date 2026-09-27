@@ -864,6 +864,25 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test SparseVector(2, [1], Real[1.5]) + [1, 2] == [2.5, 2]
         @test sparse([2]) + fill(1) == [3]
 
+        # `+` and `-` are the `map` kernels: `x + y`, `map(+, x, y)` and `x .+ y` agree and store
+        # an entry only where the computed value is nonzero; a length mismatch throws even
+        # under `@inbounds`; other `AbstractSparseVector` subtypes keep the sparse merge
+        z = SparseVector(5, [1, 2, 3], [1.0, 0.0, 2.0]); w = SparseVector(5, [1, 4], [-1.0, 3.0])
+        r = SparseVector(5, [3, 4], [2.0, 3.0])
+        @test exact_equal(z + w, r) && exact_equal(map(+, z, w), r) && exact_equal(z .+ w, r)
+        inbounds_plus(a, b) = @inbounds a + b
+        @test_throws DimensionMismatch inbounds_plus(view(z, 1:4), view(w, 1:3))
+        a = WrappedSparseVector(sparsevec([1, 3], [1.0, 2.0], 5))
+        @test a + a isa SparseVector && a + a == [2, 0, 4, 0, 0]
+        @test_throws DimensionMismatch a + WrappedSparseVector(sparsevec([1], [1.0], 4))
+        # a view reads as the vector it stores with the parent's index type; a fixed input
+        # gives a fixed result over the union of the patterns, as for matrices
+        A32 = SparseMatrixCSC{Float64,Int32}(sparse([1, 4], [2, 2], [-1.0, 3.0], 5, 2))
+        @test exact_equal(view(A32, :, 2) - SparseVector{Float64,Int32}(z),
+                          SparseVector{Float64,Int32}(SparseVector(5, [1, 3, 4], [-2.0, -2.0, 3.0])))
+        fr = SparseArrays.fixed(copy(z)) + w
+        @test fr isa SparseArrays.FixedSparseVector && nonzeroinds(fr) == [1, 2, 3, 4] && fr == r
+
         # multiplies
         xm = SparseVector(8, [2, 6], [5.0, -19.25])
         @test exact_equal(x .* x, abs2.(x))
