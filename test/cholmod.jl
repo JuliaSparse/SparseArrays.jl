@@ -315,6 +315,16 @@ end
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
+
+@testset "ldiv! with aliased solution and right-hand side $Ti" begin
+    local A, F, B
+    A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    F = cholesky(A)
+    B = A * Tv[1 2; 3 4; 5 6]
+    @test ldiv!(view(B, :, 1), F, view(vec(B), 1:3)) ≈ [1, 3, 5]
+    B = A * Tv[1 2 3; 4 5 6; 7 8 9]
+    @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2)) ≈ [1 2; 4 5; 7 8]
+end
 end #end for Ti ∈ itypes
 
 for Tv ∈ (Float32, Float64)

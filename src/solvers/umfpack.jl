@@ -646,9 +646,8 @@ for itype in UmfpackIndexTypes
         function solve!(x::StridedVector{Float64},
             lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64},
             typ::Integer; workspace = getworkspace(lu))
-            if x === b
-                throw(ArgumentError("output array must not be aliased with input array"))
-            end
+            # a call with the copy rather than rebinding `b`, which would make it type-unstable
+            Base.mightalias(x, b) && return solve!(x, lu, copy(b), typ; workspace)
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 throw(ArgumentError("in and output vectors must have unit strides"))
             end
@@ -671,9 +670,8 @@ for itype in UmfpackIndexTypes
         function solve!(x::StridedVector{ComplexF64},
             lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64},
             typ::Integer; workspace = getworkspace(lu))
-            if x === b
-                throw(ArgumentError("output array must not be aliased with input array"))
-            end
+            # a call with the copy rather than rebinding `b`, which would make it type-unstable
+            Base.mightalias(x, b) && return solve!(x, lu, copy(b), typ; workspace)
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 throw(ArgumentError("in and output vectors must have unit strides"))
             end
@@ -960,6 +958,8 @@ function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, tran
     if size(X, 2) != size(B, 2)
         throw(DimensionMismatch("input and output arrays must have same number of columns"))
     end
+    # copy rather than unalias: unaliasing a view copies its whole parent
+    Base.mightalias(X, B) && (B = copy(B))
     _AqldivB_kernel!(X, lu, B, transposeoptype)
     return X
 end

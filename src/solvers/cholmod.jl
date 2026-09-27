@@ -1939,9 +1939,8 @@ for TI in IndexTypes
     @eval function ldiv!(x::StridedVecOrMat{T},
                          L::Factor{T, $TI},
                          b::StridedVecOrMat{T}) where {T<:VTypes}
-        if x === b
-            throw(ArgumentError("output array must not be aliased with input array"))
-        end
+        # a call with the copy rather than rebinding `b`, which would make it type-unstable
+        Base.mightalias(x, b) && return ldiv!(x, L, copy(b))
         if size(L, 1) != size(b, 1)
             throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
                 "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
