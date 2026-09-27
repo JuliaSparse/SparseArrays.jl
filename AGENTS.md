@@ -41,7 +41,16 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
   concatenation (`concatenation.jl`), which cover matrices and vectors together.
 - `linalg.jl` holds `dot`, `kron`, solves, norms and the LinearAlgebra wrappers.
 - The shared dispatch aliases live in `SparseArrays.jl`.
-- Test files are listed explicitly in `test/runtests.jl`.
+- Test files are listed explicitly in `test/runtests.jl`. The suite has two tiers. The
+  core suite is what `Pkg.test()`, PR CI and Base CI run: the feature files, kept short.
+  The `torture` suite under `test/torture/` holds the long-tail issue regressions, full
+  Cartesian grids and seeded sparse-versus-dense sweeps; it is listed in `runtests.jl`
+  but runs only when a selector names it (`torture`, or one file such as
+  `torture/indexing`), and on GitHub only by manual dispatch of the Torture workflow.
+  A regression test for a path the core suite should keep covering goes in the feature
+  file's existing testset; a narrow reproducer for a fixed issue goes in
+  `test/torture/<area>.jl`, keeping its issue number. Every torture file is a
+  self-contained module that includes only `../testhelpers.jl`, never a core suite file.
 - Everything that depends on the GPL SuiteSparse libraries lives in `src/solvers/` and
   `test/solvers/`, and nowhere else. `Base.USE_GPL_LIBS` is checked once per tree, with
   `@static`: where `SparseArrays.jl` includes the solvers and where `test/runtests.jl`
@@ -59,12 +68,15 @@ julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one f
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
 julia .ci/check-whitespace.jl
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'   # Aqua and ambiguity checks
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["torture"])'     # the torture suite, or one file: "torture/indexing"
 julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'  # doctests
 julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/solvers/
 ```
 
-The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
-as a separate CI job.
+The Aqua and ambiguity checks in `test/ambiguous.jl` and the torture suite run only when
+selected by name. The former is a separate CI job; the latter is the manual Torture
+workflow (`gh workflow run Torture`, with the Julia version, selectors and
+`--check-bounds` as inputs).
 One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
 
 ## Style

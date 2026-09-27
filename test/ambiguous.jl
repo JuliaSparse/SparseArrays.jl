@@ -33,6 +33,9 @@ try
 
     @testset "code quality" begin
         Aqua.test_all(SparseArrays; piracies=(; broken=true))
+        @testset "docstrings (issue julia#52725)" begin
+            @test isempty(Docs.undocumented_names(SparseArrays))
+        end
     end
 finally
     if installed_aqua

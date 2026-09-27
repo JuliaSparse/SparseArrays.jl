@@ -15,7 +15,8 @@ measure test time, in addition to the top-level `AGENTS.md`.
   makes field access on the sparse types an error, `same_pattern` and `exact_equal`,
   the `OpCount` eltype with `mulcount`/`eqcount`/`opcount_sparse`, `CountedReads`,
   `hasunionlocal`, `quaternion_type` and `SimpleSMatrix`. It is a plain definition file:
-  every suite is a module that `include`s it first (`../testhelpers.jl` from `solvers/`),
+  every suite is a module that `include`s it first (`../testhelpers.jl` from `solvers/`
+  and `torture/`),
   so the guard applies whatever the worker order. `ambiguous.jl` alone does not include
   it. Put a helper that a second suite needs there rather than duplicating it.
 - Test files are named after the source area they cover. `solvers/` mirrors
@@ -30,6 +31,14 @@ measure test time, in addition to the top-level `AGENTS.md`.
   `sparsevector.jl` keeps the vector `axpy!` and `dot` tests. The `transpose`, `adjoint`
   and `permute` tests, including the in-place forms, live in `sparsematrix.jl`.
 - Preserve issue references on regression tests.
+- `torture/` is the second tier of the suite, selected by the `torture` prefix and
+  otherwise skipped on both paths; the top-level `AGENTS.md` has the policy. Its files
+  mirror the core files by area (`torture/indexing.jl` for `indexing.jl`, and so on),
+  and each is a self-contained module that includes only `../testhelpers.jl`: it never
+  includes a core suite file, and duplicates the fixtures it needs. A testset moved
+  there keeps its issue number. The core suite must stay complete without it, so a
+  torture test is a regression guard or an exhaustive grid, never the only test of a
+  feature.
 - `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI gives it
   its own job. It restores the depot, load path, environment and active project in a
   `finally`, so an Aqua failure on Base CI leaves the worker usable.
@@ -70,7 +79,9 @@ and to measure one suite:
 
 ```sh
 JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl
+JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl torture
 julia +nightly --project --startup-file=no --threads=1 --check-bounds=auto .ci/measure-tests.jl higherorderfns
+julia +nightly --project --startup-file=no --threads=1 --check-bounds=auto .ci/measure-tests.jl torture/indexing
 julia +nightly --project --startup-file=no --threads=1 --check-bounds=yes .ci/measure-tests.jl higherorderfns --verbose
 ```
 

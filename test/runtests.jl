@@ -7,18 +7,26 @@ using Test, LinearAlgebra, SparseArrays
 # those names by prefix, and a `!prefix` selector excludes instead.
 testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsematrix.jl", "constructors.jl", "indexing.jl", "reductions.jl",
-             "sparsevector.jl", "issues.jl", "linalg.jl", "matmul.jl",
+             "sparsevector.jl", "linalg.jl", "matmul.jl",
              "triangular.jl", "concatenation.jl", "ambiguous.jl"]
 
 @static if Base.USE_GPL_LIBS
     append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl"])
 end
 
+# The torture suite: long-tail regression tests and exhaustive grids that the core suite
+# above does not need. It is listed here so that the `torture` selector reaches it on
+# both paths, and skipped otherwise.
+torturefiles = "torture/" .* ["constructors.jl", "indexing.jl", "sparsematrix.jl",
+                              "higherorderfns.jl", "sparsevector.jl", "reductions.jl",
+                              "linalg.jl", "matmul.jl", "concatenation.jl"]
+append!(testfiles, torturefiles)
+
 suitename(f) = splitext(f)[1]
 
 # Suites that run only when a selector names them. The Aqua and ambiguity checks in
-# `ambiguous.jl` get their own CI job.
-skipped_by_default(name) = name == "ambiguous"
+# `ambiguous.jl` get their own CI job; the torture suite runs on manual dispatch.
+skipped_by_default(name) = name == "ambiguous" || startswith(name, "torture/")
 
 matches(name, selectors) = any(sel -> startswith(name, sel), selectors)
 

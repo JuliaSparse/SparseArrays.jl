@@ -1,0 +1,49 @@
+name: Torture
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      julia-version:
+        description: 'Julia version to test with'
+        required: true
+        default: 'nightly'
+      selector:
+        description: 'Test selectors passed to runtests.jl, separated by spaces'
+        required: true
+        default: 'torture'
+      check-bounds:
+        description: 'Value of --check-bounds'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - 'yes'
+
+jobs:
+  torture:
+    name: torture (${{ inputs.julia-version }}, ${{ inputs.selector }}, check-bounds=${{ inputs.check-bounds }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ inputs.julia-version }}
+      - uses: julia-actions/cache@v3
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Run the selected suites
+        env:
+          SELECTOR: ${{ inputs.selector }}
+          CHECK_BOUNDS: ${{ inputs.check-bounds }}
+        run: |
+          julia --color=yes --project -e '
+            using Pkg
+            Pkg.test(julia_args=["--check-bounds=" * ENV["CHECK_BOUNDS"]],
+                     test_args=split(ENV["SELECTOR"]))'
