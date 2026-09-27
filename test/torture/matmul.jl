@@ -39,4 +39,32 @@ end
     @test m2.module == SparseArrays
 end
 
+# The full grid behind the factored dense/sparse `mul!` tests of `matmul.jl`: every
+# transform pair in both operand orders, with every Boolean and numeric coefficient pair.
+@testset "dense/sparse mul! over every transform pair and coefficient pair" begin
+    function test_mul_coefficients(A, B)
+        expected = Matrix(A) * Matrix(B)
+        @test A * B ≈ expected
+        C = similar(expected)
+        ElType = eltype(C)
+        general = ElType <: Complex ? ElType(2 + im) : ElType(2)
+        vs = (false, true, zero(ElType), one(ElType), general)
+        for α in vs, β in vs
+            C .= rand.(ElType)
+            expected′ = expected .* α .+ C .* β
+            @test mul!(C, A, B, α, β) === C
+            @test C ≈ expected′
+        end
+    end
+
+    fs = (identity, adjoint, transpose)
+    @testset "$ElType, $f1, $f2" for ElType in (Int, Float32, Float64, ComplexF32, ComplexF64, BigFloat),
+                                     f1 in fs, f2 in fs
+        SP = sprand(ElType, 10, 10, 0.3)
+        D = rand(ElType, 10, 10)
+        test_mul_coefficients(f1(SP), f2(D))
+        test_mul_coefficients(f1(D), f2(SP))
+    end
+end
+
 end # module

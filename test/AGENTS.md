@@ -33,8 +33,10 @@ measure test time, in addition to the top-level `AGENTS.md`.
 - Preserve issue references on regression tests.
 - `torture/` is the second tier of the suite, selected by the `torture` prefix and
   otherwise skipped on both paths; the top-level `AGENTS.md` has the policy. Its files
-  mirror the core files by area (`torture/indexing.jl` for `indexing.jl`, and so on),
-  and each is a self-contained module that includes only `../testhelpers.jl`: it never
+  mirror the core files by area (`torture/indexing.jl` for `indexing.jl`, and so on,
+  with `torture/solvers/` listed under the same `Base.USE_GPL_LIBS` guard as `solvers/`),
+  and each is a self-contained module that includes only `../testhelpers.jl`
+  (`../../testhelpers.jl` from `torture/solvers/`): it never
   includes a core suite file, and duplicates the fixtures it needs. A testset moved
   there keeps its issue number. The core suite must stay complete without it, so a
   torture test is a regression guard or an exhaustive grid, never the only test of a
@@ -56,7 +58,12 @@ measure test time, in addition to the top-level `AGENTS.md`.
 
 Factored grids separate independent dimensions instead of compiling their full
 Cartesian product. Each reduction must identify the replacement for every removed
-dimension; equal assertion counts or line coverage alone are insufficient.
+dimension; equal assertion counts or line coverage alone are insufficient. The full
+products live in the torture suite: `torture/triangular.jl` (sparse-vector solves,
+sparse/triangular products, and the triangular scale and structure fixtures over
+sizes and index types), `torture/higherorderfns.jl` (scalar/sparse broadcast),
+`torture/matmul.jl` (dense/sparse `mul!`) and `torture/solvers/cholmod.jl` (CHOLMOD).
+A dimension removed from a core grid below must be added to its torture grid.
 
 | Family | Retained coverage |
 | --- | --- |

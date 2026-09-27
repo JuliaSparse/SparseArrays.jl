@@ -72,4 +72,48 @@ end
     @test eltype(sin.(S)) == Float64
 end
 
+# The full grid behind the factored scalar/sparse broadcast tests of `higherorderfns.jl`:
+# every array form leading the argument list, one to five arrays, every placement of
+# one to three scalars among them, and both a zero-preserving and an order-sensitive
+# function.
+@testset "broadcast[!] over every combination of scalars and sparse vectors/matrices" begin
+    N, M, p = 10, 12, 0.5
+    elT = Float64
+    s, t, u = Float32(2), Float32(3), Float32(5)
+    V = sprand(elT, N, p)
+    Vᵀ = transpose(sprand(elT, 1, N, p))
+    A = sprand(elT, N, M, p)
+    Aᵀ = transpose(sprand(elT, M, N, p))
+    forms = (A, V, Aᵀ, Vᵀ)
+    ordered(xs...) = foldl((x, y) -> 2x + y, xs)
+    function check_scalar_broadcast(f, sparseargs, alloc_limit=1028)
+        denseargs = map(x -> x isa AbstractArray ? Array(x) : x, sparseargs)
+        fX = broadcast(f, denseargs...)
+        X = @inferred broadcast(f, sparseargs...)
+        @test X == sparse(fX)
+        @test typeof(X) === typeof(sparse(fX))
+        @test (@inferred broadcast!(f, X, sparseargs...)) === X
+        @test X == sparse(broadcast!(f, fX, denseargs...))
+        X = sparse(fX)
+        # Transposed sparse inputs require materializing CSC copies.
+        extra = sum(x -> x isa Transpose ? @allocated(SparseMatrixCSC(x)) + 128 : 0, sparseargs)
+        @test (@allocated broadcast!(f, X, sparseargs...)) <= extra + alloc_limit
+    end
+
+    @testset "leading form $lead, $nargs arrays" for lead in 1:4, nargs in 1:5
+        arrays = ntuple(i -> forms[mod1(lead + i - 1, 4)], nargs)
+        l = arrays[1:cld(nargs, 2)]
+        r = arrays[cld(nargs, 2)+1:end]
+        for args in ((s, l..., r...), (l..., s, r...), (l..., r..., s),
+                     (s, l..., t, r...), (s, l..., r..., t), (l..., s, r..., t),
+                     (s, t, l..., r...), (l..., s, t, r...), (l..., r..., s, t),
+                     (s, l..., t, r..., u), (s, l..., t, u, r...),
+                     (l..., s, t, r..., u), (l..., s, t, u, r...))
+            for f in (*, ordered)
+                check_scalar_broadcast(f, args)
+            end
+        end
+    end
+end
+
 end # module
