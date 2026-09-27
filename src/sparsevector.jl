@@ -921,16 +921,19 @@ end
 
 getindex(x::AbstractSparseVector, I::AbstractVector{Bool}) = (checkbounds(x, I); x[findall(I)])
 getindex(x::AbstractSparseVector, I::AbstractArray{Bool}) = (checkbounds(x, I); x[LinearIndices(I)[findall(I)]])
+# SparseMatrixCSC has a nicely optimized routine for this; punt. The scratch matrix
+# shares the buffers of the unfixed vector, since a ReadOnly index vector is not a
+# valid SparseMatrixCSC field, and the result is refixed to match the input.
 @inline function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
-    # SparseMatrixCSC has a nicely optimized routine for this; punt
-    S = SparseMatrixCSC(length(x), 1, Ti[1,length(nonzeroinds(x))+1], nonzeroinds(x), nonzeros(x))
-    return S[I, 1]
+    y = _unsafe_unfix(x)
+    S = SparseMatrixCSC(length(y), 1, Ti[1,length(nonzeroinds(y))+1], nonzeroinds(y), nonzeros(y))
+    return @if_move_fixed x S[I, 1]
 end
 
 function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
-    # punt to SparseMatrixCSC
-    S = SparseMatrixCSC(length(x), 1, Ti[1,length(nonzeroinds(x))+1], nonzeroinds(x), nonzeros(x))
-    return S[I]
+    y = _unsafe_unfix(x)
+    S = SparseMatrixCSC(length(y), 1, Ti[1,length(nonzeroinds(y))+1], nonzeroinds(y), nonzeros(y))
+    return @if_move_fixed x S[I]
 end
 
 getindex(x::AbstractSparseVector, ::Colon) = copy(x)

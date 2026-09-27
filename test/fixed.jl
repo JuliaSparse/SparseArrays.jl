@@ -243,6 +243,16 @@ end
     end
 end
 
+@testset "FixedSparseVector getindex with index vectors" begin
+    x = sparsevec([1, 3, 6], [1.0, 2.0, 3.0], 8)
+    v = fixed(x)
+    for I in ([3, 1], Int[], [true, false, true, false, false, true, false, true])
+        r = v[I]
+        @test r isa FixedSparseVector{Float64,Int} && r == x[I]
+    end
+    @test nonzeroinds(v) == [1, 3, 6] && nonzeros(v) == [1.0, 2.0, 3.0]
+end
+
 always_false(x...) = false
 @testset "Test fkeep!" begin
     for a in [sprandn(10, 10, 0.99) + I, sprandn(10, 0.1) .+ 1]
