@@ -2212,6 +2212,12 @@ end
 CholmodWS(::Factor{<:Any, Ti}) where {Ti} = CholmodWS{Ti}()
 CholmodWS(F::Union{AdjointFactorization{<:Any,<:Factor},
                         TransposeFactorization{<:Any,<:Factor}}) = CholmodWS(parent(F))
+# A field-wise copy would share the Y/E handles and free them twice; the fresh workspace is
+# memoized so repeated references in the copied object graph resolve to one copy.
+function Base.deepcopy_internal(ws::CholmodWS{Ti}, dict::IdDict) where {Ti}
+    haskey(dict, ws) && return dict[ws]::CholmodWS{Ti}
+    return dict[ws] = CholmodWS{Ti}()
+end
 
 # cholmod(_l)_solve2 allocates Y and E through getcommon(Ti), so they are released through
 # the Common of the same index type. Nulling the handles makes a later solve allocate
@@ -2277,9 +2283,7 @@ for TI in IndexTypes
                          L::Factor{T, $TI},
                          b::StridedVecOrMat{T};
                          workspace::Union{Nothing, CholmodWS{$TI}} = nothing) where {T<:VTypes}
-        if x === b
-            throw(ArgumentError("output array must not be aliased with input array"))
-        end
+        Base.mightalias(x, b) && (b = copy(b))
         if size(L, 1) != size(b, 1)
             throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
                 "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
