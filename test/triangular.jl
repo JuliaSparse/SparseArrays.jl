@@ -5,7 +5,7 @@ module SparseTriangularTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr, rowvals, nonzeros
+using SparseArrays: nonzeroinds, getcolptr, rowvals, nonzeros, fixed, FixedSparseVector
 using LinearAlgebra
 using Random
 include("testhelpers.jl")
@@ -489,6 +489,20 @@ end
                 @test which(ldiv!, Tuple{typeof(mat), typeof(first(spvecs))}).module === SparseArrays
             end
         end
+    end
+
+    @testset "fixed right-hand side" begin
+        mat = LowerTriangular(densefloatmat)
+        # a pattern covering the active range 4:m is kept as it is, stored zero included
+        b = fixed(SparseVector(m, collect(4:m), [4.0, 0.0, 6.0, 7.0, 8.0, 9.0, 10.0]))
+        x = ldiv!(mat, copy(b))
+        @test x isa FixedSparseVector && nonzeroinds(x) == 4:m && x ≈ mat \ Array(b)
+        @test (mat \ b)::Vector{Float64} ≈ mat \ Array(b)
+        # a gap in the active range is rejected before anything is written
+        g = fixed(SparseVector(m, [3, 7], [2.0, -2.0]))
+        @test_throws ArgumentError ldiv!(mat, g)
+        @test nonzeroinds(g) == [3, 7] && nonzeros(g) == [2.0, -2.0]
+        @test (mat \ g)::Vector{Float64} ≈ mat \ Array(g)
     end
 
     @testset "scalar promotion" for eltypemat in eltypes
