@@ -64,8 +64,8 @@ julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/s
 ```
 
 The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
-as a separate CI job. Another CI job runs `test/runtests.jl` on the serial fallback path,
-as Julia Base CI does, and one runs `--check-bounds=yes` to catch bad `@inbounds`.
+as a separate CI job.
+One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
 
 ## Style
 

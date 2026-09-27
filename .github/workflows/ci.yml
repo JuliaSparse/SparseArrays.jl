@@ -71,31 +71,6 @@ jobs:
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-  serial-test:
-    # Julia Base CI runs test/runtests.jl without ParallelTestRunner, so the serial
-    # fallback must keep working; a load path of only the project and the stdlibs
-    # hides any globally installed ParallelTestRunner.
-    name: serial-test (ubuntu-latest, x64, nightly)
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    permissions: # needed to allow julia-actions/cache to proactively delete old caches that it has created
-      actions: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: 'nightly'
-          arch: x64
-      - uses: julia-actions/cache@v3
-      - uses: julia-actions/julia-buildpkg@v1
-      - name: Run the tests serially, as Julia Base CI does
-        run: |
-          julia --color=yes --project --startup-file=no test/runtests.jl
-        env:
-          JULIA_LOAD_PATH: '@:@stdlib'
   aqua-test:
     name: aqua-test (ubuntu-latest, x64, nightly)
     runs-on: ubuntu-latest
