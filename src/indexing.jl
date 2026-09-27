@@ -476,7 +476,9 @@ function getindex_general(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Abst
     require_one_based_indexing(A, I, J)
     pI = sortperm(I)
     @inbounds Is = I[pI]
-    return permute_rows!(getindex_I_sorted(A, Is, J), pI)
+    # the rows of each column are reordered in place, so fix the pattern only afterwards
+    S = permute_rows!(getindex_I_sorted(_unsafe_unfix(A), Is, J), pI)
+    return @if_move_fixed A S
 end
 
 # the general case:
@@ -1352,7 +1354,7 @@ _getindex_adjtrans(M, _, i::AbstractVector, j::Integer) = map!(wrapperop(M), par
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
-    let M = A[I, [J]]
+    let M = _unsafe_unfix(A)[I, [J]]
         @if_move_fixed A SparseVector(size(M, 1), rowvals(M), nonzeros(M))
     end
 

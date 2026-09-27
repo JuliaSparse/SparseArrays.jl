@@ -194,6 +194,58 @@ end
     end
 end
 
+@testset "getindex with unsorted indices keeps the pattern read-only" begin
+    S = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 4.0])
+    F = fixed(S)
+    pattern = (copy(parent(getcolptr(F))), copy(parent(rowvals(F))), copy(nonzeros(F)))
+    mask = [true, false, true]
+    for (I, J) in (([2, 1], [1, 2]), ([3, 1, 2], :), (:, [3, 1]), ([2, 1], mask), (mask, [3, 1]),
+                   ([3, 1, 2], 3))
+        R = F[I, J]
+        @test R == S[I, J]
+        @test _is_fixed(R)
+        @test size(R) == size(S[I, J])
+    end
+    @test (parent(getcolptr(F)), parent(rowvals(F)), nonzeros(F)) == pattern
+end
+
+@testset "cumsum, cumprod and accumulate return a writable copy" begin
+    for T in (Float64, ComplexF64)
+        S = sparse([1, 2, 3, 1], [1, 2, 3, 3], T[1, 2, 3, 4])
+        F = fixed(S)
+        pattern = (copy(parent(getcolptr(F))), copy(parent(rowvals(F))), copy(nonzeros(F)))
+        @test which(cumsum, (typeof(F),)).module === SparseArrays
+        @test which(cumprod, (typeof(F),)).module === SparseArrays
+        @test which(accumulate, (typeof(+), typeof(F))).module === SparseArrays
+        for d in (1, 2)
+            for f in (cumsum, cumprod)
+                R = f(F, dims=d)
+                @test R == f(S, dims=d) == f(Array(S), dims=d)
+                @test R isa SparseMatrixCSC{T} && !_is_fixed(R)
+            end
+            R = accumulate(+, F, dims=d, init=one(T))
+            @test R == accumulate(+, S, dims=d, init=one(T)) == accumulate(+, Array(S), dims=d, init=one(T))
+            @test R isa SparseMatrixCSC{T} && !_is_fixed(R)
+        end
+        @test accumulate(-, F) == accumulate(-, S)
+        @test (parent(getcolptr(F)), parent(rowvals(F)), nonzeros(F)) == pattern
+
+        s = sparsevec([1, 3], T[1, 2], 4)
+        v = fixed(s)
+        vpattern = (copy(parent(nonzeroinds(v))), copy(nonzeros(v)))
+        @test which(cumsum, (typeof(v),)).module === SparseArrays
+        for f in (cumsum, cumprod)
+            r = f(v)
+            @test r == f(s) == f(Array(s)) == f(v, dims=1)
+            @test r isa SparseVector{T} && !_is_fixed(r)
+        end
+        r = accumulate(+, v, init=one(T))
+        @test r == accumulate(+, s, init=one(T)) == accumulate(+, Array(s), init=one(T))
+        @test r isa SparseVector{T} && !_is_fixed(r)
+        @test (parent(nonzeroinds(v)), nonzeros(v)) == vpattern
+    end
+end
+
 always_false(x...) = false
 @testset "Test fkeep!" begin
     for a in [sprandn(10, 10, 0.99) + I, sprandn(10, 0.1) .+ 1]
