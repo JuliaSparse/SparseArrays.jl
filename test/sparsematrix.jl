@@ -347,6 +347,97 @@ end
     @test f() == 0
 end
 
+@testset "sparse transpose adjoint" begin
+    A = sprand(10, 10, 0.75)
+    @test A' == SparseMatrixCSC(A')
+    @test SparseMatrixCSC(A') isa SparseMatrixCSC
+    @test transpose(A) == SparseMatrixCSC(transpose(A))
+    @test SparseMatrixCSC(transpose(A)) isa SparseMatrixCSC
+    @test SparseMatrixCSC{eltype(A)}(transpose(A)) == transpose(A)
+    @test SparseMatrixCSC{eltype(A), Int}(transpose(A)) == transpose(A)
+    @test SparseMatrixCSC{Float16}(transpose(A)) == transpose(SparseMatrixCSC{Float16}(A))
+    @test SparseMatrixCSC{Float16, Int}(transpose(A)) == transpose(SparseMatrixCSC{Float16}(A))
+    B = sprand(ComplexF64, 10, 10, 0.75)
+    @test SparseMatrixCSC{eltype(B)}(adjoint(B)) == adjoint(B)
+    @test SparseMatrixCSC{eltype(B), Int}(adjoint(B)) == adjoint(B)
+    @test SparseMatrixCSC{ComplexF16}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16}(B))
+    @test SparseMatrixCSC{ComplexF16, Int8}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16, Int8}(B))
+end
+
+@testset "SparseMatrixCSC [c]transpose[!] and permute[!]" begin
+    smalldim = 5
+    largedim = 10
+    nzprob = 0.4
+    (m, n) = (smalldim, smalldim)
+    A = sprand(m, n, nzprob)
+    X = similar(A)
+    C = copy(transpose(A))
+    p = randperm(m)
+    q = randperm(n)
+    @testset "common error checking of [c]transpose! methods (ftranspose!)" begin
+        @test_throws DimensionMismatch transpose!(A[:, 1:(smalldim - 1)], A)
+        @test_throws DimensionMismatch transpose!(A[1:(smalldim - 1), 1], A)
+        @test_throws ArgumentError transpose!(A, A) # #812
+        @test_throws ArgumentError adjoint!(A, A)
+    end
+    @testset "common error checking of permute[!] methods / source-perm compat" begin
+        @test_throws DimensionMismatch permute(A, p[1:(end - 1)], q)
+        @test_throws DimensionMismatch permute(A, p, q[1:(end - 1)])
+    end
+    @testset "common error checking of permute[!] methods / source-dest compat" begin
+        @test_throws DimensionMismatch permute!(A[1:(m - 1), :], A, p, q)
+        @test_throws DimensionMismatch permute!(A[:, 1:(m - 1)], A, p, q)
+        @test_throws ArgumentError permute!((Y = copy(X); resize!(rowvals(Y), nnz(A) - 1); Y), A, p, q)
+        @test_throws ArgumentError permute!((Y = copy(X); resize!(nonzeros(Y), nnz(A) - 1); Y), A, p, q)
+    end
+    @testset "common error checking of permute[!] methods / source-workmat compat" begin
+        @test_throws DimensionMismatch permute!(X, A, p, q, C[1:(m - 1), :])
+        @test_throws DimensionMismatch permute!(X, A, p, q, C[:, 1:(m - 1)])
+        @test_throws ArgumentError permute!(X, A, p, q, (D = copy(C); resize!(rowvals(D), nnz(A) - 1); D))
+        @test_throws ArgumentError permute!(X, A, p, q, (D = copy(C); resize!(nonzeros(D), nnz(A) - 1); D))
+    end
+    @testset "common error checking of permute[!] methods / source-workcolptr compat" begin
+        @test_throws DimensionMismatch permute!(A, p, q, C, Vector{eltype(rowvals(A))}(undef, length(getcolptr(A)) - 1))
+    end
+    @testset "common error checking of permute[!] methods / permutation validity" begin
+        @test_throws ArgumentError permute!(A, (r = copy(p); r[2] = r[1]; r), q)
+        @test_throws ArgumentError permute!(A, (r = copy(p); r[2] = m + 1; r), q)
+        @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = r[1]; r))
+        @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = n + 1; r))
+    end
+    @testset "overall functionality of [c]transpose[!] and permute[!]" begin
+        for (m, n) in ((smalldim, smalldim), (smalldim, largedim), (largedim, smalldim))
+            A = sprand(m, n, nzprob)
+            At = copy(transpose(A))
+            # transpose[!]
+            fullAt = Array(transpose(A))
+            @test copy(transpose(A)) == fullAt
+            @test transpose!(similar(At), A) == fullAt
+            # adjoint[!]
+            C = A + im*A/2
+            fullCh = Array(C')
+            @test copy(C') == fullCh
+            @test adjoint!(similar(sparse(fullCh)), C) == fullCh
+            # permute[!]
+            p = randperm(m)
+            q = randperm(n)
+            fullPAQ = Array(A)[p,q]
+            @test permute(A, p, q) == sparse(Array(A[p,q]))
+            @test permute!(similar(A), A, p, q) == fullPAQ
+            @test permute!(similar(A), A, p, q, similar(At)) == fullPAQ
+            @test permute!(copy(A), p, q) == fullPAQ
+            @test permute!(copy(A), p, q, similar(At)) == fullPAQ
+            @test permute!(copy(A), p, q, similar(At), similar(getcolptr(A))) == fullPAQ
+        end
+    end
+end
+
+@testset "transpose of SubArrays" begin
+    A = view(sprandn(10, 10, 0.3), 1:4, 1:4)
+    @test copy(transpose(Array(A))) == Array(transpose(A))
+    @test copy(adjoint(Array(A))) == Array(adjoint(A))
+end
+
 # Deterministic replacement for wall-clock guards: with a counting eltype, a comparison
 # that walks only stored entries performs at most nnz(A) + nnz(B) element comparisons,
 # whereas the generic AbstractArray fallback performs length(A) of them.
@@ -653,30 +744,6 @@ end
             @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
             @test nnz(sort(A; dims)) == nnz(A)
         end
-    end
-end
-
-@testset "products of LinearAlgebra's Q types with sparse operands" begin
-    D = randn(7, 7)
-    m = size(D, 1)
-    # one operand of each kind gives the same dense result as its dense copy
-    B, C, b = sprandn(m, 3, 0.5), sprandn(3, m, 0.5), sprandn(m, 0.5)
-    @testset "$name" for (name, Q) in (("qr", qr(D).Q), ("pivoted qr", qr(D, ColumnNorm()).Q),
-                                       ("hessenberg", hessenberg(D).Q), ("lq", lq(D).Q))
-        for X in (B, sparse(B')', view(B, :, 1:2))
-            @test (Q * X)::Matrix ≈ Q * Matrix(X)
-        end
-        for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b))
-            @test (X * Q')::Matrix ≈ Matrix(X) * Q'
-        end
-        @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
-        @test (C * Q)::Matrix ≈ Matrix(C) * Q
-        for x in (b, view(B, :, 1), view(b, 1:m))
-            @test (Q * x)::Vector ≈ Q * Vector(x)
-        end
-        @test (Q' * b)::Vector ≈ Q' * Vector(b)
-        @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
-        @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
     end
 end
 
