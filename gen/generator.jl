@@ -5,21 +5,16 @@ using Pkg
 using Pkg.Artifacts
 using Clang.Generators
 using Clang.Generators.JLLEnvs
-using SuiteSparse_jll
 using JuliaFormatter
 
 cd(@__DIR__)
 
-# headers
-if length(ARGS) == 0
-    artifact_dir = SuiteSparse_jll.artifact_dir
-else
-    if isdir(ARGS[1])
-        artifact_dir = ARGS[1]
-    else
-        error("Usage: $PROGRAM_FILE <SuiteSparse artifact directory>")
-    end
+# headers: always the unpacked SuiteSparse_jll tarball that `Makefile` downloads, never the
+# SuiteSparse_jll of the running Julia, which is a fixed stdlib and may be an older release
+if length(ARGS) != 1 || !isdir(ARGS[1])
+    error("Usage: $PROGRAM_FILE <SuiteSparse artifact directory>")
 end
+artifact_dir = ARGS[1]
 include_dir = joinpath(artifact_dir, "include", "suitesparse") |> normpath
 
 config_h = joinpath(include_dir, "SuiteSparse_config.h")
