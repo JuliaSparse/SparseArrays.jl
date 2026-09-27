@@ -239,6 +239,7 @@ if Ti == Int32 && Int64 in itypes && Tv == Float64
     n32, n64 = getcommon(Int32)[].memory_inuse, getcommon(Int64)[].memory_inuse
     for _ in 1:10
         qr(A)
+        @test_throws ArgumentError qr(A; ordering=Int32(10))
     end
     GC.gc()
     @test getcommon(Int32)[].memory_inuse == n32

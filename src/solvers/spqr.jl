@@ -48,7 +48,8 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         HPinv::Union{Ref{Ptr{Ti}}, Ptr{Cvoid}} = C_NULL,
         HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
 
-    ordering ∈ ORDERINGS || error("unknown ordering $ordering")
+    ordering ∈ ORDERINGS || throw(ArgumentError(
+        "unknown SPQR ordering $ordering; use one of the SPQR.ORDERING_* constants"))
 
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
@@ -72,7 +73,10 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
 
     if rnk < 0
-        error("Sparse QR factorization failed")
+        # A negative status has already been raised by `@checked`, so what is
+        # left is a failure SPQR reports through its return value only.
+        throw(CHOLMOD.CHOLMODException(string("SuiteSparseQR failed on a ", m, "×", n,
+            " matrix: rank ", rnk, ", status ", CHOLMOD.getcommon(Ti)[].status)))
     end
 
     e = E[]
@@ -311,18 +315,18 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
     HPinv = Ref{Ptr{Ti}}(C_NULL)
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
-    # SPQR doesn't accept symmetric matrices so we explicitly set the stype
-    r, p, hpinv = _qr!(ordering, tol, 0, 0, Sparse(A, 0),
-        C_NULL, C_NULL, C_NULL, C_NULL,
-        R, E, H, HPinv, HTau)
-
-    # Wrap the C-allocated outputs. Each wrapper constructor frees its own
-    # pointer if it throws (or owns it via a finalizer once constructed), but
-    # the siblings that have not been wrapped yet would leak, so hand each
-    # pointer over by clearing its Ref first and free whatever is still held
-    # in a Ref before rethrowing.
-    local R_, factors, τ
+    # Factorize and wrap the C-allocated outputs in one `try` so that anything
+    # SPQR has written is freed whether the factorization or the wrapping
+    # throws. Each wrapper constructor frees its own pointer if it throws (or
+    # owns it via a finalizer once constructed), but the siblings that have not
+    # been wrapped yet would leak, so hand each pointer over by clearing its Ref
+    # first and free whatever is still held in a Ref before rethrowing.
+    local p, hpinv, R_, factors, τ
     try
+        # SPQR doesn't accept symmetric matrices so we explicitly set the stype
+        _, p, hpinv = _qr!(ordering, tol, 0, 0, Sparse(A, 0),
+            C_NULL, C_NULL, C_NULL, C_NULL,
+            R, E, H, HPinv, HTau)
         R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(R)))
         factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(H)))
         τ = _take_dense_vec!(_take!(HTau), Tv, Ti)
