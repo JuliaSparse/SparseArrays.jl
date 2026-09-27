@@ -481,6 +481,22 @@ end
     @test istril(sparse(tril(A)))
     @test !istril(sparse(A))
 
+    @testset "extreme band offsets" begin
+        S = sparse([1], [1], [1.0], 3, 3)
+        for k in (typemax(Int)-1, typemax(Int))
+            @test !istriu(S, k)
+            @test istril(S, k)
+        end
+        @test istriu(S, typemin(Int))
+        @test !istril(S, typemin(Int))
+        nonzeros(S)[1] = 0
+        for k in (typemin(Int), typemax(Int))
+            @test istriu(S, k) && istril(S, k)
+        end
+        S = SparseMatrixCSC(typemax(Int), 3, [1, 2, 2, 2], [1], [1.0])
+        @test !istriu(S, 2)
+    end
+
     @testset "band offset k, $T $(m)x$(n)" for T in (Float64, ComplexF64), (m, n) in ((1, 2), (2, 1), (3, 5), (5, 3), (0, 3), (3, 0))
         @test which(istriu, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
         @test which(istril, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
