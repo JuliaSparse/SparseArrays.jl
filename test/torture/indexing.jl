@@ -9,6 +9,12 @@ using SparseArrays
 using LinearAlgebra
 using Test: guardseed
 include("../testhelpers.jl")
+using Random
+
+# an index type lowered by `to_indices`, like `InvertedIndices.Not`
+struct AllBut; i::Int; end
+Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
+    (setdiff(inds[1], I[1].i), to_indices(A, Base.tail(inds), Base.tail(I))...)
 
 @testset "Issue #30006" begin
     A = SparseMatrixCSC{Float64,Int32}(spzeros(3,3))
@@ -143,6 +149,104 @@ end
     val, state = y
     @test r[val] == 8
     @test iterate(itr, state) == nothing
+end
+
+# The real eltype of the `to_indices` grid; the core suite keeps ComplexF64.
+@testset "indices lowered by to_indices (issue #42), $T" for T in (Float64,)
+    A = sprand(T, 6, 6, 0.4); c = isodd.(1:6); x = A[:, 1]; m = A .!= 0
+    for B in (A, A', transpose(A))
+        for I in ((1, c), (c, 2), (c, c), (:, c), (c, :), (2:5, c), ([3, 1], c), (:, :),
+                  (AllBut(2), AllBut(3)), (1, AllBut(3)), (AllBut(2), c), (Int32(2), Int32(3)))
+            @test which(getindex, typeof.((B, I...))).module === SparseArrays
+            @test B[I...] == B[to_indices(B, I)...] == Array(B)[I...]
+            @test B[I...] isa Union{T,SparseVector{T,Int},SparseMatrixCSC{T,Int}}
+        end
+        @test B[5] == B[CartesianIndex(5, 1)] == B[5, 1, 1] == Array(B)[5]
+        # masks of the wrong length throw as they do for dense arrays
+        @test_throws BoundsError B[trues(7), 1]
+        @test_throws BoundsError B[1, trues(7)]
+    end
+    @test A[to_indices(A, (m,))...] == A[to_indices(A, (vec(m),))...] == Array(A)[m]
+    @test A[1:2, :][false:true, c] == Array(A)[1:2, :][false:true, c]
+    @test which(getindex, typeof.((x, AllBut(2)))).module === SparseArrays
+    @test x[AllBut(2)] == Array(x)[AllBut(2)]
+    @test x[to_indices(x, (c,))...] == Array(x)[c]
+    @test_throws BoundsError x[trues(7)]
+end
+
+# Ranged assignment into a large sparse matrix; the core "setindex" testset covers the
+# same operations at 10 x 20.
+@testset "setindex, large ranged assignment" begin
+    ASZ = 1000
+    TSZ = 800
+    A = sprand(ASZ, 2*ASZ, 0.0001)
+    B = copy(A)
+    nA = count(!iszero, A)
+    x = A[1:TSZ, 1:(2*TSZ)]
+    nx = count(!iszero, x)
+    A[1:TSZ, 1:(2*TSZ)] .= 0
+    nB = count(!iszero, A)
+    @test nB == (nA - nx)
+    A[1:TSZ, 1:(2*TSZ)] = x
+    @test count(!iszero, A) == nA
+    @test A == B
+    A[1:TSZ, 1:(2*TSZ)] .= 10
+    @test count(!iszero, A) == nB + 2*TSZ*TSZ
+    A[1:TSZ, 1:(2*TSZ)] = x
+    @test count(!iszero, A) == nA
+    @test A == B
+end
+
+# The densities of the getindex-algorithm grid that the core suite does not run.
+@testset "test_getindex_algs" begin
+    function test_getindex_algs(S, I, J)
+        D = Matrix(S)
+        @test S[I, J] == D[I, J]
+        sortedI = sort(I)
+        expected = D[sortedI, J]
+        @test S[sortedI, J] == expected
+        for alg in (SparseArrays.getindex_I_sorted_bsearch_A,
+                    SparseArrays.getindex_I_sorted_bsearch_I,
+                    SparseArrays.getindex_I_sorted_linear,
+                    SparseArrays.getindex_I_sorted_nocache)
+            @test alg(S, sortedI, J) == expected
+        end
+    end
+
+    rng = MersenneTwister(12860)
+    m, n = 128, 8
+    indices = (Int[], [1], [m], [m, 1, m ÷ 2, 1],
+               randperm(rng, m)[1:13], repeat(collect(1:m), 3))
+    for density in (0.0001, 0.001, 0.1)
+        S = sprand(rng, m, n, density)
+        isempty(nonzeros(S)) || (nonzeros(S)[1] = 0)
+        for I in indices, J in (Int[], [n, 1, n], randperm(rng, n))
+            test_getindex_algs(S, I, J)
+        end
+    end
+end
+
+_length_or_count_or_five(::Colon) = 5
+_length_or_count_or_five(x::AbstractVector{Bool}) = count(x)
+_length_or_count_or_five(x) = length(x)
+
+# The full product of index kinds; the core suite pairs every row index with two column
+# indices and every column index with two row indices.
+@testset "nonscalar setindex!, all index-kind pairs" begin
+    for I in (1:4, :, 5:-1:2, [], trues(5), setindex!(falses(5), true, 2), 3),
+        J in (2:4, :, 4:-1:1, [], setindex!(trues(5), false, 3), falses(5), 4)
+        V = sparse(1 .+ zeros(_length_or_count_or_five(I)*_length_or_count_or_five(J)))
+        M = sparse(1 .+ zeros(_length_or_count_or_five(I), _length_or_count_or_five(J)))
+        if I isa Integer && J isa Integer
+            @test_throws MethodError spzeros(5,5)[I, J] = V
+            @test_throws MethodError spzeros(5,5)[I, J] = M
+            continue
+        end
+        @test setindex!(spzeros(5, 5), V, I, J) == setindex!(zeros(5,5), V, I, J)
+        @test setindex!(spzeros(5, 5), M, I, J) == setindex!(zeros(5,5), M, I, J)
+        @test setindex!(spzeros(5, 5), Array(M), I, J) == setindex!(zeros(5,5), M, I, J)
+        @test setindex!(spzeros(5, 5), Array(V), I, J) == setindex!(zeros(5,5), V, I, J)
+    end
 end
 
 end # module

@@ -8,6 +8,7 @@ using Test
 using SparseArrays
 using LinearAlgebra
 include("../testhelpers.jl")
+using Random
 
 @testset "Issue #15" begin
     s = sparse([1, 2], [1, 2], [10, missing])
@@ -195,6 +196,22 @@ end
     v = spzeros(Float32, Int16, 2)
     @test eltype(rowvals(zero(a))) <: Int16
     @test eltype(rowvals(zero(v))) <: Int16
+end
+
+# Ten seeds of the `sprand` against `randsubseq` comparison; the core suite runs one.
+@testset "sprand" begin
+    p=0.3; m=1000; n=2000;
+    for s in 1:10
+        # build a (dense) random matrix with randsubset + rand
+        Random.seed!(s);
+        v = randsubseq(1:m*n,p);
+        x = zeros(m,n);
+        x[v] .= rand(length(v));
+        # redo the same with sprand
+        Random.seed!(s);
+        a = sprand(m,n,p);
+        @test x == a
+    end
 end
 
 end # module

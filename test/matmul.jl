@@ -16,7 +16,7 @@ sC = similar(sA)
 dA = Array(sA)
 
 @testset "matrix-vector multiplication (non-square)" begin
-    for i = 1:5
+    for i = 1:1   # five draws are in the torture suite
         a = sprand(10, 5, 0.5)
         b = rand(5)
         @test maximum(abs.(a*b - Array(a)*b)) < 100*eps()
@@ -24,7 +24,7 @@ dA = Array(sA)
 end
 
 @testset "diagonal - sparse vector mutliplication" begin
-    for _ in 1:10
+    for _ in 1:1   # ten draws are in the torture suite
         b = spzeros(10)
         b[1:3] .= 1:3
         A = Diagonal(randn(10))
@@ -85,7 +85,7 @@ end
 
 @testset "symmetric/Hermitian sparse times sparse" begin
     n = 10
-    @testset "$T" for T in (Float64, ComplexF64)
+    @testset "$T" for T in (ComplexF64,)   # Float64 is in the torture suite
         A = sprandn(T, n, n, 0.3); B = sprandn(T, n, n, 0.3)
         for S in (Symmetric(A), Hermitian(A, :L), Symmetric(view(A, :, 1:n)))
             for X in (B, B', transpose(B), UpperTriangular(B), view(B, :, 1:n), Hermitian(B), Symmetric(B, :L))
@@ -127,7 +127,7 @@ end
         At = tA(A)
         S = sprandn(5,5,0.3)
         St = tA(S)
-        for tB in wrappers
+        for tB in (adjoint, Symmetric, LowerTriangular)   # all nine are in the torture suite
             B = sprandn(5,5, 0.3)
             Bt = tB(B)
             C = At*Bt
@@ -208,7 +208,7 @@ end
 
     rng = Random.MersenneTwister(1)
     n = 20
-    @testset "$T, $S($U)" for T in (Float64, ComplexF64), S in (Symmetric, Hermitian), U in (:U, :L)
+    @testset "$T, $S($U)" for T in (ComplexF64,), S in (Symmetric, Hermitian), U in (:U, :L)   # Float64 is in the torture suite
         P = sprandn(rng, T, n, n + 2, 0.2)
         nonzeros(P)[1] = 0
         C = randn(rng, T, 3, n)
@@ -266,7 +266,7 @@ end
 end
 
 @testset "in-place sparse-sparse mul!" begin
-    for n in (20, 30)
+    for n in (20,)   # the full grid is in the torture suite
         sA = sprandn(ComplexF64, n, n, 0.1); A = Array(sA)
         sB = sprandn(ComplexF64, n, n, 0.1); B = Array(sB)
         sC = sprandn(ComplexF64, n, n, 0.1); C = Array(sC)
@@ -274,7 +274,7 @@ end
         for (sA, A) in ((sA, A), (view(sA, :, 1:1:n), A[:,1:1:n]))
             for trA in (identity, adjoint, transpose), trB in (identity, adjoint, transpose)
                 @test mul!(copy(sC), trA(sA), trB(sB)) ≈ trA(A) * trB(B)
-                for α in (true, false, a), β in (true, false, b)
+                for (α, β) in ((true, false), (false, true), (a, b))
                     @test mul!(copy(sC), trA(sA), trB(sB), α, β) ≈ C*β + trA(A) * trB(B) * α
                 end
             end
@@ -317,7 +317,7 @@ end
     @test Diagonal(b) * dA == lmul!(Diagonal(b), copy(sA))
 
     # adjoint/transpose of a sparse matrix with a Diagonal (issue #619)
-    for T in (Float64, ComplexF64), W in (adjoint, transpose)
+    for T in (ComplexF64,), W in (adjoint, transpose)   # Float64 is in the torture suite
         S = sprand(T, 7, 3, 0.5); M = Matrix(S)
         Dl = Diagonal(randn(T, 3)); Dr = Diagonal(randn(T, 7))
         @test W(S) * Dr isa SparseMatrixCSC
@@ -595,7 +595,7 @@ end
             T = Base.promote_op(LinearAlgebra.matprod, TA, Tx)
             let A = randn(TA, 9, 16), x = sprand(Tx, 16, 0.7)
                 xf = Array(x)
-                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+                for (α, β) in ((0.0, 0.0), (1.0, 0.5), (2.0, 1.0))
                     y = rand(T, 9)
                     rr = α*A*xf + β*y
                     @test mul!(y, A, x, α, β) === y
@@ -608,7 +608,7 @@ end
 
             let A = randn(TA, 16, 9), x = sprand(Tx, 16, 0.7)
                 xf = Array(x)
-                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+                for (α, β) in ((0.0, 0.0), (1.0, 0.5), (2.0, 1.0))
                     y = rand(T, 9)
                     rr = α*transpose(A)*xf + β*y
                     @test mul!(y, transpose(A), x, α, β) === y
@@ -621,7 +621,7 @@ end
 
             let A = randn(TA, 16, 9), x = sprand(Tx, 16, 0.7)
                 xf = Array(x)
-                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+                for (α, β) in ((0.0, 0.0), (1.0, 0.5), (2.0, 1.0))
                     y = rand(T, 9)
                     rr = α*A'xf + β*y
                     @test mul!(y, adjoint(A), x, α, β) === y
@@ -634,9 +634,8 @@ end
 
             let A = randn(TA, 16, 16), x = sprand(Tx, 16, 0.7)
                 xf = Array(x)
-                for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
-                        M -> Hermitian(M, :U), M -> Hermitian(M, :L))
-                    for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
+                for wrap in (M -> Symmetric(M, :U), M -> Hermitian(M, :L))
+                    for (α, β) in ((0.0, 0.0), (1.0, 0.5), (2.0, 1.0))
                         y = rand(T, 16)
                         rr = α*wrap(A)*xf + β*y
                         @test mul!(y, wrap(A), x, α, β) === y
@@ -653,7 +652,7 @@ end
         let A = sprandn(9, 16, 0.5), x = sprand(16, 0.7)
             Af = Array(A)
             xf = Array(x)
-            for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+            for (α, β) in ((0.0, 0.0), (1.0, 0.5), (2.0, 1.0))
                 y = rand(9)
                 rr = α*Af*xf + β*y
                 @test mul!(y, A, x, α, β) === y
@@ -667,7 +666,7 @@ end
         let A = sprandn(16, 9, 0.5), x = sprand(16, 0.7)
             Af = Array(A)
             xf = Array(x)
-            for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+            for (α, β) in ((0.0, 0.0), (1.0, 0.5), (2.0, 1.0))
                 y = rand(9)
                 rr = α*Af'xf + β*y
                 @test mul!(y, transpose(A), x, α, β) === y
@@ -684,16 +683,12 @@ end
         let A = sprandn(16, 16, 0.5), x = sprand(16, 0.7)
             Af = Array(A)
             xf = Array(x)
-            for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
-                M -> Hermitian(M, :U), M -> Hermitian(M, :L),
-                M -> UpperTriangular(M), M -> UnitUpperTriangular(M),
-                M -> LowerTriangular(M), M -> UnitLowerTriangular(M),
-                M -> UpperTriangular(transpose(M)), M -> UnitUpperTriangular(transpose(M)),
-                M -> LowerTriangular(transpose(M)), M -> UnitLowerTriangular(transpose(M)),
-                M -> UpperTriangular(adjoint(M)), M -> UnitUpperTriangular(adjoint(M)),
-                M -> LowerTriangular(adjoint(M)), M -> UnitLowerTriangular(adjoint(M)),
+            # one wrapper per kind; the full list is in the torture suite
+            for wrap in (M -> Symmetric(M, :U), M -> Hermitian(M, :L),
+                M -> UpperTriangular(M), M -> UnitLowerTriangular(M),
+                M -> LowerTriangular(transpose(M)), M -> UnitUpperTriangular(adjoint(M)),
                 M -> UpperTriangular(Symmetric(M)))
-                for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
+                for (α, β) in ((0.0, 0.0), (1.0, 0.5), (2.0, 1.0))
                     y = rand(16)
                     rr = α*wrap(Af)*xf + β*y
                     @test mul!(y, wrap(A), x, α, β) === y

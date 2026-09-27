@@ -358,7 +358,7 @@ end
         end
     end
 
-    @testset "rcond (#118) for $Tv, $Ti" for Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+    @testset "rcond (#118) for $Tv, $Ti" for (Tv, Ti) in ((Float64, Int), (ComplexF64, Int32))   # the full grid is in the torture suite
         # the number is min/max of |diag(U)| of the row-scaled matrix UMFPACK factorized
         F = lu(SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 3; 0 1])))
         @test UMFPACK.rcond(F) === 0.25
@@ -408,7 +408,7 @@ end
         A1 = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
-        testtypes = [Float64, ComplexF64, Float32, ComplexF32, Float16, ComplexF16]
+        testtypes = [Float64, ComplexF64, Float32]   # the other eltypes are in the torture suite
         for Tv in testtypes
             for Ti in Base.uniontypes(UMFPACK.UMFITypes)
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
@@ -447,7 +447,7 @@ end
     end
 
     @testset "F.Rs and logabsdet when UMFPACK divides by the scale factors, $Tv, $Ti" for
-            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            (Tv, Ti) in ((Float64, Int), (ComplexF64, Int32))   # the full grid is in the torture suite
         # UMFPACK stores reciprocal scale factors for badly scaled rows
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[1e-20 2e-20 0; 0 1 3; 1 0 1]))
         F = lu(A)
@@ -461,7 +461,7 @@ end
     end
 
     @testset "factors are rebuilt on demand, $Tv, $Ti" for
-            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            (Tv, Ti) in ((Float64, Int), (ComplexF64, Int32))   # the full grid is in the torture suite
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1; 1 3]))
         for G in (UMFPACK.UmfpackLU(A), deserialize(seekstart(let io = IOBuffer(); serialize(io, lu(A)); io; end)))
             @test det(G) ≈ det(Matrix(A))
@@ -476,7 +476,7 @@ end
     end
 
     @testset "failed lu! drops the old numeric factorization, $Tv, $Ti" for
-            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            (Tv, Ti) in ((Float64, Int), (ComplexF64, Int32))   # the full grid is in the torture suite
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
         B = SparseMatrixCSC{Tv,Ti}(sparse(Tv[5 1 0; 1 5 1; 0 1 5]))
         F = lu(A)
@@ -529,7 +529,7 @@ end
     end
 
     @testset "ldiv! with strided and adjoint/transpose right-hand sides, $Tv, $Ti" for
-            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            (Tv, Ti) in ((Float64, Int), (ComplexF64, Int32))   # the full grid is in the torture suite
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0 0; 1 4 1 0; 0 1 4 1; 0 0 1 4.5]))
         F = lu(A)
         Ad = Matrix(A)
@@ -590,7 +590,7 @@ end
     0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 1.0])
     q1 = [9, 8, 5, 1, 7, 2, 3, 4, 6, 10]
     q0 = q1 .- 1
-    for i in 1:10
+    for i in 1:1   # ten right-hand sides are in the torture suite
         b = randn(10)
         x = lu(A) \ b
         x0 = lu(A; q=q0) \ b

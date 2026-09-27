@@ -33,12 +33,14 @@ measure test time, in addition to the top-level `AGENTS.md`.
 - Preserve issue references on regression tests.
 - `torture/` is the second tier of the suite, selected by the `torture` prefix and
   otherwise skipped on both paths; the top-level `AGENTS.md` has the policy. Its files
-  mirror the core files by area (`torture/indexing.jl` for `indexing.jl`, and so on),
-  and each is a self-contained module that includes only `../testhelpers.jl`: it never
-  includes a core suite file, and duplicates the fixtures it needs. A testset moved
-  there keeps its issue number. The core suite must stay complete without it, so a
-  torture test is a regression guard or an exhaustive grid, never the only test of a
-  feature.
+  mirror the core files by area (`torture/indexing.jl` for `indexing.jl`, and so on;
+  `torture/solvers/` for `solvers/`, listed under the same GPL guard), and each is a
+  self-contained module that includes only `../testhelpers.jl`: it never includes a
+  core suite file, and duplicates the fixtures it needs. A testset moved there keeps
+  its issue number. The core suite must stay complete without it, so a torture test is
+  a regression guard or an exhaustive grid, never the only test of a feature. When a
+  core testset keeps one representative of a loop (an eltype, a size, a random draw),
+  the removed cases go to the torture file with a comment on both sides saying so.
 - `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI gives it
   its own job. It restores the depot, load path, environment and active project in a
   `finally`, so an Aqua failure on Base CI leaves the worker usable.
@@ -62,9 +64,10 @@ dimension; equal assertion counts or line coverage alone are insufficient.
 | --- | --- |
 | Sparse-vector triangular solves | Four triangular wrappers × identity/transpose/adjoint × dense/sparse backing with Float64 and ComplexF64. RHS patterns are empty, first-only, last-only, interior gaps, and stored-zero endpoints. All 19 existing promotion pairs remain: the Int64/Float64/ComplexF64 cross product, plus Int32/BigInt/Float32/BigFloat/ComplexF32 paired with Float64 in both directions. Promotion uses lower/unit-lower representatives for each backing and checks valid in-place cases. Dense-backed speed specializations have dispatch assertions. |
 | Scalar/sparse broadcast | All four array forms, including the transposed column matrix, and one/two/more-than-two-array kernels. Scalar placement uses distinct values and an order-sensitive function; arity cases cover zero-preserving and non-zero-preserving functions. All seven eight-argument inference cases and their allocation bound remain. In-place references use dense destinations. |
-| Sparse/triangular products | All four wrappers and both operands' three transforms, in both multiplication orders, with Float64 and ComplexF32. All nine Int/Float64/ComplexF32 promotion pairs use upper/lower representatives. Dense result types are checked. |
-| Dense/sparse `mul!` | Both operand orders and every transform pair for Int, Float64, ComplexF64, and BigFloat. Boolean and numeric zero/one/general coefficient pairs cover sparse identity/transpose/adjoint kernels and plain/wrapped dense-left kernels separately. Existing noncommutative regressions remain. |
-| CHOLMOD operations | Single-input tests cover both precisions, real/complex values, and both supported C index types. Mixed-input operations retain all precision/type pairs. Ownership, invalid-wrapper cleanup, repeated `free!`, buffer isolation, Common accounting, and rooting tests remain in the lifetime process. |
+| Sparse/triangular products | All four wrappers and both operands' three transforms, in both multiplication orders, with Float64 and ComplexF32. All nine Int/Float64/ComplexF32 promotion pairs use upper/lower representatives. Dense result types are checked. Triangular sparse times dense keeps Int, Float64 and ComplexF32; triangular times sparse vector keeps the matching Int/Float64/ComplexF64 pairs and one promoting pair. The other eltypes and pairs are in `torture/triangular.jl`. |
+| Dense/sparse `mul!` | Both operand orders and every transform pair for Int, Float64, ComplexF64, and BigFloat. Boolean and numeric zero/one/general coefficient pairs cover sparse identity/transpose/adjoint kernels and plain/wrapped dense-left kernels separately. Existing noncommutative regressions remain. The matrix-vector (BLAS-2) products zip the three alpha/beta pairs and keep one wrapper per kind; the in-place sparse-sparse product keeps one size with zipped coefficients. The full grids are in `torture/sparsevector.jl` and `torture/matmul.jl`. |
+| CHOLMOD operations | Single-input tests cover both precisions, real/complex values, and both supported C index types. Mixed-input operations retain all precision/type pairs; the real/complex mix of matrix and right-hand side in `\` (#27860) is in `torture/solvers/cholmod.jl`. Ownership, invalid-wrapper cleanup, repeated `free!`, buffer isolation, Common accounting, and rooting tests remain in the lifetime process. |
+| UMFPACK and SPQR grids | The eltype and index-type grids are zipped to (Float64, Int) and (ComplexF64, Int32); the symbolic-reuse test keeps Float64, ComplexF64 and Float32. The full grids, the half-precision eltypes and the shared-factor thread grid are in `torture/solvers/`. |
 | Triangular scale and structure | The broad correctness grid uses size 100. Explicit empty-column, stored-zero, missing-diagonal, conjugated-diagonal, vector/matrix, and view cases cover structure. Size 127 retains Int8 diagonal-capacity coverage; operation-count checks retain a size-1,000 specialized-path case and mark the known transformed-product generic fallback broken. |
 
 Other inference, aliasing, fixed-pattern, shape, empty-input, validation, and

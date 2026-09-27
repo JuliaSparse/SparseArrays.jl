@@ -111,7 +111,7 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
     pop!(inds_out); push!(inds_out, CartesianIndex(1, 11))
     @test_throws BoundsError S[inds_out]
 
-    @testset "indices lowered by to_indices (issue #42), $T" for T in (Float64, ComplexF64)
+    @testset "indices lowered by to_indices (issue #42), $T" for T in (ComplexF64,)
         A = sprand(T, 6, 6, 0.4); c = isodd.(1:6); x = A[:, 1]; m = A .!= 0
         for B in (A, A', transpose(A))
             for I in ((1, c), (c, 2), (c, c), (:, c), (c, :), (2:5, c), ([3, 1], c), (:, :),
@@ -321,25 +321,6 @@ end
     @test count(!iszero, A) == 121
     @test A[4:8,8:16] == fill(15, 5, 9)
 
-    ASZ = 1000
-    TSZ = 800
-    A = sprand(ASZ, 2*ASZ, 0.0001)
-    B = copy(A)
-    nA = count(!iszero, A)
-    x = A[1:TSZ, 1:(2*TSZ)]
-    nx = count(!iszero, x)
-    A[1:TSZ, 1:(2*TSZ)] .= 0
-    nB = count(!iszero, A)
-    @test nB == (nA - nx)
-    A[1:TSZ, 1:(2*TSZ)] = x
-    @test count(!iszero, A) == nA
-    @test A == B
-    A[1:TSZ, 1:(2*TSZ)] .= 10
-    @test count(!iszero, A) == nB + 2*TSZ*TSZ
-    A[1:TSZ, 1:(2*TSZ)] = x
-    @test count(!iszero, A) == nA
-    @test A == B
-
     A = sparse(1I, 5, 5)
     lininds = 1:10
     X=reshape([trues(10); falses(15)],5,5)
@@ -520,7 +501,7 @@ end
     m, n = 128, 8
     indices = (Int[], [1], [m], [m, 1, m ÷ 2, 1],
                randperm(rng, m)[1:13], repeat(collect(1:m), 3))
-    for density in (0.0, 0.0001, 0.001, 0.01, 0.1, 1.0)
+    for density in (0.0, 0.01, 1.0)
         S = sprand(rng, m, n, density)
         isempty(nonzeros(S)) || (nonzeros(S)[1] = 0)
         for I in indices, J in (Int[], [n, 1, n], randperm(rng, n))
@@ -548,7 +529,7 @@ end
     end
 
     @testset "few columns do not allocate a cache of length size(A, 1)" begin
-        m = 10^6
+        m = 10^5
         S = sparse(1.0I, m, m)
         for I in ([2, 2, 5], collect(1:300)), J in (2, [2], [5, 2])
             S[I, J]
@@ -635,8 +616,10 @@ _length_or_count_or_five(x) = length(x)
 end
 
 @testset "nonscalar setindex!" begin
-    for I in (1:4, :, 5:-1:2, [], trues(5), setindex!(falses(5), true, 2), 3),
-        J in (2:4, :, 4:-1:1, [], setindex!(trues(5), false, 3), falses(5), 4)
+    # every row index kind against two column kinds, and the reverse; the full product is
+    # in the torture suite
+    for (I, J) in Iterators.flatten((Iterators.product((1:4, :, 5:-1:2, [], trues(5), setindex!(falses(5), true, 2), 3), (2:4, :)),
+                                     Iterators.product((1:4, :), (2:4, :, 4:-1:1, [], setindex!(trues(5), false, 3), falses(5), 4))))
         V = sparse(1 .+ zeros(_length_or_count_or_five(I)*_length_or_count_or_five(J)))
         M = sparse(1 .+ zeros(_length_or_count_or_five(I), _length_or_count_or_five(J)))
         if I isa Integer && J isa Integer

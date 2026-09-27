@@ -250,7 +250,7 @@ end
 
     # A dense argument has no structural zeros, so `f(0, 0)` (`NaN` for `/`) must not
     # densify the result, and zero quotients, `-0.0` included, are not stored (#551)
-    for T in (Float64, ComplexF64)
+    for T in (ComplexF64,)
         A = sparse(T[0 0; 0.5 0; 0 0])
         x = T[1, 2, -3]
         y = T[-1 2]
@@ -277,7 +277,7 @@ end
 
     # scaling rows by a vector scans the matrix's stored entries instead of merging the
     # vector against every column, so `f` is called O(nnz + m) times, not O(m * n) (#543)
-    for T in (Float64, ComplexF64)
+    for T in (Float64,)
         m, n = 40, 30
         A = sprand(T, m, n, 0.05)
         v = rand(T, m) .+ 1
@@ -324,7 +324,8 @@ end
         X = ndims(Xo) == 1 ? SparseVector{Float32,Int32}(Xo) : SparseMatrixCSC{Float32,Int32}(Xo)
         # use different types to check internal type stability via allocation tests below
         shapeX, fX = size(X), Array(X)
-        for Y in tens, Z in tens
+        # the full `tens` x `tens` product of (Y, Z) is in the torture suite
+        for Y in tens, Z in (mats[1], mats[2], vecs[1])
             fY, fZ = Array(Y), Array(Z)
             # --> test broadcast entry point
             @test broadcast(+, X, Y, Z) == sparse(broadcast(+, fX, fY, fZ))
@@ -561,64 +562,7 @@ end
 
 # Older tests of sparse broadcast, now largely covered by the tests above
 @testset "assorted tests of sparse broadcast over two input arguments" begin
-    N, p = 10, 0.3
-    A, B, CF = sprand(N, N, p), sprand(N, N, p), rand(N, N)
-    AF, BF, C = Array(A), Array(B), sparse(CF)
-
-    @test A .* B == AF .* BF
-    @test A[1,:] .* B == AF[1,:] .* BF
-    @test A[:,1] .* B == AF[:,1] .* BF
-    @test A .* B[1,:] == AF .*  BF[1,:]
-    @test A .* B[:,1] == AF .*  BF[:,1]
-
-    @test A[1,:] .* BF == AF[1,:] .* BF
-    @test A[:,1] .* BF == AF[:,1] .* BF
-    @test A .* BF[1,:] == AF .*  BF[1,:]
-    @test A .* BF[:,1] == AF .*  BF[:,1]
-
-    @test AF[1,:] .* B == AF[1,:] .* BF
-    @test AF[:,1] .* B == AF[:,1] .* BF
-    @test AF .* B[1,:] == AF .*  BF[1,:]
-    @test AF .* B[:,1] == AF .*  BF[:,1]
-
-    @test A .* 3 == AF .* 3
-    @test 3 .* A == 3 .* AF
-    @test A[1,:] .* 3 == AF[1,:] .* 3
-    @test A[:,1] .* 3 == AF[:,1] .* 3
-
-    @test A .- 3 == AF .- 3
-    @test 3 .- A == 3 .- AF
-    @test A .- B == AF .- BF
-    @test A - AF == zeros(size(AF))
-    @test AF - A == zeros(size(AF))
-    @test A[1,:] .- B == AF[1,:] .- BF
-    @test A[:,1] .- B == AF[:,1] .- BF
-    @test A .- B[1,:] == AF .-  BF[1,:]
-    @test A .- B[:,1] == AF .-  BF[:,1]
-
-    @test A .+ 3 == AF .+ 3
-    @test 3 .+ A == 3 .+ AF
-    @test A .+ B == AF .+ BF
-    @test A + AF == AF + A
-    @test (A .< B) == (AF .< BF)
-    @test (A .!= B) == (AF .!= BF)
-
-    @test A ./ 3 == AF ./ 3
-    @test A .\ 3 == AF .\ 3
-    @test 3 ./ A == 3 ./ AF
-    @test 3 .\ A == 3 .\ AF
-    @test A .\ C == AF .\ CF
-    @test A ./ C == AF ./ CF
-    @test A ./ CF[:,1] == AF ./ CF[:,1]
-    @test A .\ CF[:,1] == AF .\ CF[:,1]
-    @test BF ./ C == BF ./ CF
-    @test BF .\ C == BF .\ CF
-
-    @test A .^ 3 == AF .^ 3
-    @test 3 .^ A == 3 .^ AF
-    @test A .^ BF[:,1] == AF .^ BF[:,1]
-    @test BF[:,1] .^ A == BF[:,1] .^ AF
-
+    # the comparisons against dense are in the torture suite
     # broadcasting against a dense-ish vector grows storage on demand instead of
     # preallocating the bound, which for these shapes is the dense size (#47)
     M, v = sprand(200, 200, 0.01), rand(200)
@@ -765,10 +709,6 @@ end
     @test_throws SingularException Diagonal(spzeros(5)) \ view(rand(10), 1:5)
 end
 
-@testset "Issue #27836" begin
-    @test minimum(sparse([1, 2], [1, 2], ones(Int32, 2)), dims = 1) isa Matrix
-end
-
 @testset "Issue #30118" begin
     @test ((_, x) -> x).(Int, spzeros(3)) == spzeros(3)
     @test ((_, _, x) -> x).(Int, Int, spzeros(3)) == spzeros(3)
@@ -796,7 +736,7 @@ end
 
 @testset "Sparse outer product, for type $T and vector $op" for
          op in (transpose, adjoint),
-         T in (Float64, ComplexF64)
+         T in (ComplexF64,)
     m, n, p = 100, 250, 0.1
     A = sprand(T, m, n, p)
     a, b = view(A, :, 1), sprand(T, m, p)

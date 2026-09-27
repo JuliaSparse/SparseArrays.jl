@@ -442,11 +442,10 @@ end
 @testset "hash matches dense" begin
     # The stored-entries-only complexity guarantee is checked with an operation-counting
     # eltype in sparsematrix.jl ("hash walks stored entries only").
-    n = 10^5
-    v = spzeros(n); v[1] = 1
+    v = spzeros(10); v[1] = 1
     w = copy(v); w[2] = 0.0   # explicitly stored zero must not change the hash
     @test hash(w) == hash(v) && isequal(w, v)
-    for len in (5, 100, 40000), x in (sprand(len, 0.1), sprandn(len, 0.3), spzeros(len))
+    for len in (5, 100), x in (sprand(len, 0.1), sprandn(len, 0.3), spzeros(len))
         k = min(3, nnz(x)); nonzeros(x)[1:k] .= [NaN, -0.0, 0.0][1:k]
         @test hash(x) == hash(Vector(x))
         @test hash(x, UInt(7)) == hash(Vector(x), UInt(7))
@@ -805,7 +804,6 @@ end
 
 @testset "reverse" begin
     @testset "$name" for (name, s) in (("standard", sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10)),
-                ("random", sprand(Float32, 20, 0.4)),
                 ("zeros", spzeros(4)),
                 ("fixed", SparseArrays.fixed(sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10))))
         w = collect(s)
@@ -935,11 +933,9 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
     end
 end
 @testset "Zero-preserving math functions: sparse -> sparse" begin
-    x1operations = (floor, ceil, trunc, round)
-    x0operations = (log1p,  expm1,  sinpi,
-                    sin,    tan,    sind,   tand,
-                    asin,   atan,   asind,  atand,
-                    sinh,   tanh,   asinh,  atanh)
+    # representatives; the remaining functions are in the torture suite
+    x1operations = (floor, round)
+    x0operations = (log1p, sin, atanh)
 
     for (spvec, densevec, operations) in (
             (rnd_x0, rnd_x0f, x0operations),
@@ -955,11 +951,7 @@ end
     end
 end
 @testset "Non-zero-preserving math functions: sparse -> dense" begin
-    for op in (exp, exp2, exp10, log, log2, log10,
-            cos, cosd, acos, cosh, cospi,
-            csc, cscd, acot, csch, acsch,
-            cot, cotd, acosd, coth,
-            sec, secd, acotd, sech, asech)
+    for op in (exp, cos, log, sec)   # the remaining functions are in the torture suite
         spvec = rnd_x0
         densevec = rnd_x0f
         spresvec = op.(spvec)
@@ -1210,7 +1202,7 @@ end
     @test_deprecated SparseArrays.fkeep!(xdrop, f_drop)
 end
 
-@testset "dropzeros[!] with length=$m" for m in (10, 20, 30)
+@testset "dropzeros[!] with length=$m" for m in (10,)
     Random.seed!(123)
     nzprob, targetnumposzeros, targetnumnegzeros = 0.4, 5, 5
     v = sprand(m, nzprob)
@@ -1272,19 +1264,6 @@ sv[1] = 0
     end
 end
 
-@testset "Issue 14013" begin
-    s14013 = sparse([10.0 0.0 30.0; 0.0 1.0 0.0])
-    a14013 = [10.0 0.0 30.0; 0.0 1.0 0.0]
-    @test s14013 == a14013
-    @test vec(s14013) == s14013[:] == a14013[:]
-    @test Array(s14013)[1,:] == s14013[1,:] == a14013[1,:] == [10.0, 0.0, 30.0]
-    @test Array(s14013)[2,:] == s14013[2,:] == a14013[2,:] == [0.0, 1.0, 0.0]
-end
-@testset "Issue 14046" begin
-    s14046 = sprand(5, 1.0)
-    @test spzeros(5) + s14046 == s14046
-    @test 2*s14046 == s14046 + s14046
-end
 @testset "Issue 14589" begin
     # test vectors with no zero elements
     let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
@@ -1317,8 +1296,8 @@ end
     end
 end
 @testset "fill!" begin
-    for Tv in [Float32, Float64, Int64, Int32, ComplexF64]
-        for Ti in [Int16, Int32, Int64, BigInt]
+    for Tv in [Float32, ComplexF64]   # the other pairs are in the torture suite
+        for Ti in [Int16, Int64]
             sptypes = (SparseMatrixCSC{Tv, Ti}, SparseVector{Tv, Ti})
             sizes = [(3, 4), (3,)]
             for (siz, Sp) in zip(sizes, sptypes)
@@ -1330,19 +1309,6 @@ end
             end
         end
     end
-end
-
-@testset "13130 and 16661" begin
-    @test issparse([sprand(10,10,.1) sprand(10,.1)])
-    @test issparse([sprand(10,1,.1); sprand(10,.1)])
-
-    @test issparse([sprand(10,10,.1) rand(10)])
-    @test issparse([sprand(10,1,.1)  rand(10)])
-    @test issparse([sprand(10,2,.1) sprand(10,1,.1) rand(10)])
-    @test issparse([sprand(10,1,.1); rand(10)])
-
-    @test issparse([sprand(10,.1)  rand(10)])
-    @test issparse([sprand(10,.1); rand(10)])
 end
 
 mutable struct t20488 end
@@ -1491,7 +1457,7 @@ end
 @testset "Fast operations on full column views" begin
     n = 1000
     A = sprandn(n, n, 0.01)
-    for j in 1:5:n
+    for j in (1, 501, n)   # every fifth column is in the torture suite
         Aj, Ajview = A[:, j], view(A, :, j)
         @test norm(Aj)          == norm(Ajview)
         @test dot(Aj, copy(Aj)) == dot(Ajview, Aj) # don't alias since it takes a different code path

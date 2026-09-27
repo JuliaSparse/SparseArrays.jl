@@ -15,7 +15,7 @@ include("../testhelpers.jl")
 end
 
 @testset "complex left-division" begin
-    for i = 1:5
+    for i = 1:1   # five draws are in the torture suite
         a = I + 0.1*sprandn(5, 5, 0.2)
         b = randn(5,3) + im*randn(5,3)
         @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())

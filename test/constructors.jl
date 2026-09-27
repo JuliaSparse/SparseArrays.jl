@@ -222,7 +222,7 @@ end
 
 @testset "sprand" begin
     p=0.3; m=1000; n=2000;
-    for s in 1:10
+    for s in 1:1   # the ten-seed sweep is in the torture suite
         # build a (dense) random matrix with randsubset + rand
         Random.seed!(s);
         v = randsubseq(1:m*n,p);

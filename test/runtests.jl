@@ -10,16 +10,18 @@ testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsevector.jl", "linalg.jl", "matmul.jl",
              "triangular.jl", "concatenation.jl", "ambiguous.jl"]
 
-@static if Base.USE_GPL_LIBS
-    append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl"])
-end
-
 # The torture suite: long-tail regression tests and exhaustive grids that the core suite
 # above does not need. It is listed here so that the `torture` selector reaches it on
 # both paths, and skipped otherwise.
 torturefiles = "torture/" .* ["constructors.jl", "indexing.jl", "sparsematrix.jl",
                               "higherorderfns.jl", "sparsevector.jl", "reductions.jl",
-                              "linalg.jl", "matmul.jl", "concatenation.jl"]
+                              "linalg.jl", "matmul.jl", "triangular.jl", "concatenation.jl"]
+
+@static if Base.USE_GPL_LIBS
+    solverfiles = ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl"]
+    append!(testfiles, "solvers/" .* solverfiles)
+    append!(torturefiles, "torture/solvers/" .* solverfiles)
+end
 append!(testfiles, torturefiles)
 
 suitename(f) = splitext(f)[1]

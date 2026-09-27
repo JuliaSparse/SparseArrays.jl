@@ -266,16 +266,14 @@ do33 = fill(1.,3)
 end
 
 @testset "dropdims" begin
-    for i = 1:5
-        am = sprand(20, 1, 0.2)
-        av = dropdims(am, dims=2)
-        @test ndims(av) == 1
-        @test all(av.==am)
-        am = sprand(1, 20, 0.2)
-        av = dropdims(am, dims=1)
-        @test ndims(av) == 1
-        @test all(av' .== am)
-    end
+    am = sprand(20, 1, 0.2)
+    av = dropdims(am, dims=2)
+    @test ndims(av) == 1
+    @test all(av.==am)
+    am = sprand(1, 20, 0.2)
+    av = dropdims(am, dims=1)
+    @test ndims(av) == 1
+    @test all(av' .== am)
 end
 
 @testset "findall" begin
@@ -323,7 +321,7 @@ end
     @test ceil.(Int, Afull) == Array(ceil.(Int, A))
     @test floor.(Int, Afull) == Array(floor.(Int, A))
     # Tests of real, imag, abs, and abs2 for SparseMatrixCSC{Int,X}s previously elsewhere
-    for T in (Int, Float16, Float32, Float64, BigInt, BigFloat)
+    for T in (Int, Float64)
         R = rand(T[1:100;], 2, 2)
         I = rand(T[1:100;], 2, 2)
         D = R + I*im
@@ -502,8 +500,8 @@ end
 @testset "Comparisons to adjoints are efficient" for
     # The counting guard below distinguishes stored-entry traversal from the generic
     # length(A) fallback, so these do not need to be large matrices.
-    A in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)],
-    B in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)]
+    A in Any[sprandn(ComplexF64, 100, 100, 0.9)],
+    B in Any[sprandn(ComplexF64, 100, 100, 0.9)]
     if size(A) == size(B)
         A = OpCount.(A)
         B = OpCount.(B)
@@ -518,7 +516,7 @@ end
 end
 
 @testset "Issue #246" begin
-    for t in [Int, UInt8, Float64]
+    for t in [Float64]
         a = OpCount.(sprand(t, 100, 0.5))
         b = OpCount.(sprand(t, 100, 0.5))
 
@@ -621,8 +619,7 @@ end
     # compared against the input itself rather than against a dense reference
     # `dims = 2` covers the transposed shapes, so only one orientation of each is listed;
     # fully structural matrices are covered by the "empty and zero-size matrices" testset
-    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (0, 3), (1, 9),
-                                                            (20, 13)),
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (0, 3), (1, 9)),
                                                  d in (0.3, 1.0)
         A = sprand(m, n, d)
         M = Matrix(A)
@@ -808,19 +805,17 @@ end
     B = sprand(25, 1, 0.2)
     copyto!(A, B)
     @test A[:] == B[:]
-    # Test various size(A) / size(B) combinations
-    for mA in [5, 10, 20], nA in [5, 10, 20], mB in [5, 10, 20], nB in [5, 10, 20]
-        A = sprand(mA,nA,0.4)
-        Aorig = copy(A)
-        B = sprand(mB,nB,0.4)
-        if mA*nA >= mB*nB
-            copyto!(A,B)
-            @assert(A[1:length(B)] == B[:])
-            @assert(A[length(B)+1:end] == Aorig[length(B)+1:end])
-        else
-            @test_throws BoundsError copyto!(A,B)
-        end
-    end
+    # a fitting and a too-small source (the full size grid is in the torture suite)
+    A = sprand(10, 20, 0.4)
+    Aorig = copy(A)
+    B = sprand(5, 10, 0.4)
+    copyto!(A, B)
+    @test A[1:length(B)] == B[:]
+    @test A[length(B)+1:end] == Aorig[length(B)+1:end]
+    A = sprand(5, 5, 0.4)
+    Aorig = copy(A)
+    @test_throws BoundsError copyto!(A, sprand(10, 5, 0.4))
+    @test A == Aorig
     # Test eltype(A) != eltype(B), size(A) != size(B)
     A = sprand(5, 5, 0.2)
     Aorig = copy(A)

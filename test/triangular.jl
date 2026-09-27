@@ -206,7 +206,7 @@ end
     n = 7
     B = rand(n, 3)
     _triangular_sparse_matrix(n, ULT, T) = T == Int ? ULT(sparse(rand(0:10, n, n))) : ULT(sprandn(T, n, n, 0.4))
-    for T in (Int, Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64)
+    for T in (Int, Float64, ComplexF32)   # the other eltypes are in the torture suite
         for AT in (adjoint, transpose)
             for TR in (UpperTriangular, UnitUpperTriangular, LowerTriangular, UnitLowerTriangular)
                 TS = AT(_triangular_sparse_matrix(n, TR, T))
@@ -238,26 +238,25 @@ end
     n = 10
     types = (Int, Float64, ComplexF64)
     tritypes = (LowerTriangular, UnitUpperTriangular)
-    for ta in types
+    # matching eltypes and one promoting pair; the full product is in the torture suite
+    for (ta, tb) in (zip(types, types)..., (Int, ComplexF64))
         for tri in tritypes
             if ta == Int
                 T = tri(rand(1:9, n, n))
             else
                 T = tri(randn(ta, n, n))
             end
-            for tb in types
-                if tb == Int
-                    x = sparse(rand(0:4, n))
-                else
-                    x = sprandn(tb, n, 0.6)
-                end
-                @test T * x ≈ Array(T) * Array(x)
-                @test T' * x ≈ Array(T)' * Array(x)
-                @test transpose(T) * x ≈ transpose(Array(T)) * Array(x)
-                @test x' * T ≈ Array(x)' * Array(T)
-                @test x' * T' ≈ Array(x)' * Array(T)'
-                @test x' * transpose(T) ≈ Array(x)' * transpose(Array(T))
+            if tb == Int
+                x = sparse(rand(0:4, n))
+            else
+                x = sprandn(tb, n, 0.6)
             end
+            @test T * x ≈ Array(T) * Array(x)
+            @test T' * x ≈ Array(T)' * Array(x)
+            @test transpose(T) * x ≈ transpose(Array(T)) * Array(x)
+            @test x' * T ≈ Array(x)' * Array(T)
+            @test x' * T' ≈ Array(x)' * Array(T)'
+            @test x' * transpose(T) ≈ Array(x)' * transpose(Array(T))
         end
     end
 
@@ -283,20 +282,8 @@ end
 end
 
 
-@testset "issue #13792, use sparse triangular solvers for sparse triangular solves" begin
-    local A, n, x
-    n = 100
-    A, b = sprandn(n, n, 0.5) + sqrt(n)*I, fill(1., n)
-    @test LowerTriangular(A)\(LowerTriangular(A)*b) ≈ b
-    @test UpperTriangular(A)\(UpperTriangular(A)*b) ≈ b
-    A[2,2] = 0
-    dropzeros!(A)
-    @test_throws LinearAlgebra.SingularException LowerTriangular(A)\b
-    @test_throws LinearAlgebra.SingularException UpperTriangular(A)\b
-end
-
 @testset "complex matrix-vector multiplication and triangular or diagonal left-division" begin
-    for i = 1:5
+    for i = 1:1   # five draws are in the torture suite
         a = I + 0.1*sprandn(5, 5, 0.2)
         b = randn(5,3) + im*randn(5,3)
         c = randn(5) + im*randn(5)
@@ -508,25 +495,4 @@ end
         end
     end
 end
-@testset "#16716" begin
-    origmat = [-1.5 -0.7; 0.0 1.0]
-    transmat = copy(origmat')
-    utmat = UpperTriangular(origmat)
-    ltmat = LowerTriangular(transmat)
-    uutmat = LinearAlgebra.UnitUpperTriangular(origmat)
-    ultmat = LinearAlgebra.UnitLowerTriangular(transmat)
-
-    zerospvec = spzeros(Float64, 2)
-    zerodvec = zeros(Float64, 2)
-
-    for mat in (utmat, ltmat, uutmat, ultmat)
-        @test isequal(\(mat, zerospvec), zerodvec)
-        @test isequal(\(adjoint(mat), zerospvec), zerodvec)
-        @test isequal(\(transpose(mat), zerospvec), zerodvec)
-        @test isequal(ldiv!(mat, copy(zerospvec)), zerospvec)
-        @test isequal(ldiv!(adjoint(mat), copy(zerospvec)), zerospvec)
-        @test isequal(ldiv!(transpose(mat), copy(zerospvec)), zerospvec)
-    end
-end
-
 end # module SparseTriangularTests

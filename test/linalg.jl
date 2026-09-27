@@ -68,10 +68,8 @@ Base.getindex(S::NonCSCSparse, i::Int, j::Int) = S.A[i, j]
         @test SparseMatrixCSC(dowrap(wr, A)) == Matrix(dowrap(wr, B))
     end
 
-    @testset "sparse($at($wr))" for at = (Transpose, Adjoint), wr =
-        (UpperTriangular, LowerTriangular,
-         UnitUpperTriangular, UnitLowerTriangular)
-
+    # one pair per transform; the other pairs are in the torture suite
+    @testset "sparse($at($wr))" for (at, wr) in ((Transpose, UpperTriangular), (Adjoint, UnitLowerTriangular))
         @test SparseMatrixCSC(at(wr(A))) == Matrix(at(wr(B)))
     end
 
@@ -245,7 +243,7 @@ end
 
 @testset "Diagonal linear solve" begin
     n = 12
-    for relty in (Float32, Float64), elty in (relty, Complex{relty})
+    for relty in (Float64,), elty in (relty, Complex{relty})   # Float32 is in the torture suite
         dd=convert(Vector{elty}, randn(n))
         if elty <: Complex
             dd+=im*convert(Vector{elty}, randn(n))
@@ -643,7 +641,7 @@ end
 
 @testset "sparse Frobenius dot/inner product" begin
     full_view = M -> view(M, :, :)
-    for i = 1:5
+    for i = 1:1   # five draws are in the torture suite
         A = sprand(ComplexF64,10,15,0.4); MA = Matrix(A)
         B = sprand(ComplexF64,10,15,0.5); MB = Matrix(B)
         C = rand(10,15) .> 0.3; MC = Matrix(C)
@@ -820,7 +818,7 @@ end
     @test dot(xm, Bm, ym) ≈ dot(sparsevec(xm), Bm, sparsevec(ym)) ≈ r
 
     Quaternion = quaternion_type()
-    for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
+    for T in (ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)   # Float64 is in the torture suite
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)
         xd = Vector(x)

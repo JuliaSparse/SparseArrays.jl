@@ -139,4 +139,128 @@ end
                        7 16 4])
 end
 
+# Repeats the core `dropdims` check on five random draws.
+@testset "dropdims" begin
+    for i = 1:5
+        am = sprand(20, 1, 0.2)
+        av = dropdims(am, dims=2)
+        @test ndims(av) == 1
+        @test all(av.==am)
+        am = sprand(1, 20, 0.2)
+        av = dropdims(am, dims=1)
+        @test ndims(av) == 1
+        @test all(av' .== am)
+    end
+end
+
+# The eltypes of the real/imag/abs/abs2 loop that the core "unary functions" testset
+# does not run.
+@testset "unary functions, remaining eltypes" begin
+    for T in (Float16, Float32, BigInt, BigFloat)
+        R = rand(T[1:100;], 2, 2)
+        I = rand(T[1:100;], 2, 2)
+        D = R + I*im
+        S = sparse(D)
+        spR = sparse(R)
+
+        @test R == real.(S) == real(S)
+        @test I == imag.(S) == imag(S)
+        @test conj(Array(S)) == conj.(S) == conj(S)
+        @test real.(spR) == R
+        @test nnz(imag.(spR)) == nnz(imag(spR)) == 0
+        @test abs.(S) == abs.(D)
+        @test abs2.(S) == abs2.(D)
+
+        # test aliasing of real and conj of real valued matrix
+        @test real(spR) === spR
+        @test conj(spR) === spR
+    end
+end
+
+# The full 3 x 3 grid of matrix pairs; the core suite keeps the complex pair.
+@testset "Comparisons to adjoints are efficient" for
+    # The counting guard below distinguishes stored-entry traversal from the generic
+    # length(A) fallback, so these do not need to be large matrices.
+    A in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)],
+    B in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)]
+    if size(A) == size(B)
+        A = OpCount.(A)
+        B = OpCount.(B)
+        As = Any[A, A', transpose(A)]
+        Bs = Any[B, B', transpose(B)]
+        for A′ in As, B′ in Bs
+            # skip adjoints of transposes; these are not really supported
+            ((A′ isa Adjoint && B′ isa Transpose) || (A′ isa Transpose && B′ isa Adjoint)) && continue
+            @test eqcount(() -> A′ == B′) ≤ 1 + (nnz(A′) + nnz(B′))
+        end
+    end
+end
+
+@testset "Issue #246" begin
+    for t in [Int, UInt8]
+        a = OpCount.(sprand(t, 100, 0.5))
+        b = OpCount.(sprand(t, 100, 0.5))
+
+        c = if nnz(a) != 0
+            c = copy(a)
+            nonzeros(c)[1] = 0
+            c
+        else
+            c = copy(a)
+            push!(nonzeros(c), zero(t))
+            push!(nonzerosinds(c), 1)
+            c
+        end
+        d = dropzeros(c)
+
+        for m in [identity, transpose, adjoint]
+            ma, mb, mc, md = m.([a, b, c, d])
+
+            @test eqcount(() -> ma == mb) <= nnz(a) + nnz(b)
+
+            @test (mc == md) == (Array(mc) == Array(md))
+        end
+    end
+end
+
+# The sizes of the sort grid that the core "sort/sort! of a sparse matrix" testset
+# does not run.
+@testset "sort/sort! of a sparse matrix, remaining sizes" begin
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((1, 1), (20, 13)), d in (0.3, 1.0)
+        A = sprand(m, n, d)
+        M = Matrix(A)
+        for dims in (1, 2), kws in ((;), (; rev=true), (; by=abs), (; alg=Base.DEFAULT_STABLE))
+            expected = size(M, dims) == 0 ? M : sort(M; dims, kws...)
+            B = copy(A)
+            @test sort!(B; dims, kws...) === B
+            @test B isa SparseMatrixCSC
+            @test Matrix(B) == expected
+            # sorting only moves the stored entries around
+            @test nnz(B) == nnz(A)
+            S = sort(A; dims, kws...)
+            @test S isa SparseMatrixCSC
+            @test Matrix(S) == expected
+            @test A == sparse(M) # `sort` leaves its argument alone
+        end
+    end
+end
+
+# Every size relation of destination and source in `copyto!`; the core suite keeps one
+# fitting and one too-small pair.
+@testset "copyto! size combinations" begin
+    # Test various size(A) / size(B) combinations
+    for mA in [5, 10, 20], nA in [5, 10, 20], mB in [5, 10, 20], nB in [5, 10, 20]
+        A = sprand(mA,nA,0.4)
+        Aorig = copy(A)
+        B = sprand(mB,nB,0.4)
+        if mA*nA >= mB*nB
+            copyto!(A,B)
+            @assert(A[1:length(B)] == B[:])
+            @assert(A[length(B)+1:end] == Aorig[length(B)+1:end])
+        else
+            @test_throws BoundsError copyto!(A,B)
+        end
+    end
+end
+
 end # module

@@ -62,7 +62,7 @@ include("testhelpers.jl")
 
     # check splicing + concatenation on random instances, with nested vcat and also side-checks sparse ref
     @testset "splicing + concatenation on random instances" begin
-        for i = 1 : 10
+        for i = 1 : 1   # ten draws are in the torture suite
             a = sprand(5, 4, 0.5)
             @test [a[1:2,1:2] a[1:2,3:4]; a[3:5,1] [a[3:4,2:4]; a[5:5,2:4]]] == a
         end

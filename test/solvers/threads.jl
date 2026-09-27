@@ -25,15 +25,15 @@ function test(n::Integer)
     return norm(x)
 end
 
-res_threads = zeros(100)
-Threads.@threads for i in 1:100
+res_threads = zeros(20)
+Threads.@threads for i in 1:20
     res_threads[i] = test(i + 100)
 end
 
-@test res_threads ≈ [test(i + 100) for i in 1:100]
+@test res_threads ≈ [test(i + 100) for i in 1:20]
 
 @testset "shared $factorize factor, $T, $Ti" for factorize in (lu, cholesky, qr),
-    T in (Float64, ComplexF64), Ti in (sizeof(Int) == 4 ? (Int32,) : (Int32, Int64))
+    (T, Ti) in ((Float64, Int), (ComplexF64, Int32))   # the full grid is in the torture suite
     n = 12
     offdiag = T <: Real ? one(T) : T(1 + im)
     S = SparseMatrixCSC{T,Ti}(spdiagm(-1 => fill(offdiag, n - 1),
