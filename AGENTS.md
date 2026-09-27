@@ -49,7 +49,7 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
   generic LinearAlgebra functions (`lu`, `qr`, `cholesky`, `\`), never by naming a
   solver module. A test that factorizes or solves with a sparse matrix goes in
   `test/solvers/`, whatever feature it is about; the other suites must pass on a build
-  without GPL libraries. `.ci/check-gpl-usage.jl`, run by the Whitespace workflow, fails
+  without GPL libraries. `.ci/check-gpl-usage.jl`, run by the Lint workflow, fails
   on solver names outside those directories.
 
 ## Running tests

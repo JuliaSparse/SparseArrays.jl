@@ -1,4 +1,4 @@
-name: Whitespace
+name: Lint
 
 permissions: {}
 
@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
-  whitespace:
-    name: Check whitespace
+  lint:
+    name: Lint whitespace and GPL usage
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
