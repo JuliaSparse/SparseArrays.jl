@@ -480,6 +480,28 @@ end
     @test !istriu(sparse(A))
     @test istril(sparse(tril(A)))
     @test !istril(sparse(A))
+
+    @testset "band offset k, $T $(m)x$(n)" for T in (Float64, ComplexF64), (m, n) in ((1, 2), (2, 1), (3, 5), (5, 3), (0, 3), (3, 0))
+        @test which(istriu, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
+        @test which(istril, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
+        v = T <: Complex ? T(2 + im) : T(2)
+        full = sparse(fill(v, m, n))
+        for k in -3:3
+            @test istriu(full, k) == istriu(Matrix(full), k)
+            @test istril(full, k) == istril(Matrix(full), k)
+            for i in 1:m, j in 1:n
+                S = sparse([i], [j], [v], m, n)
+                for X in (S, adjoint(S), transpose(S))
+                    @test istriu(X, k) == istriu(Matrix(X), k)
+                    @test istril(X, k) == istril(Matrix(X), k)
+                end
+                # a stored zero is not a nonzero
+                nonzeros(S)[1] = zero(T)
+                @test istriu(S, k) && istril(S, k)
+                @test istriu(adjoint(S), k) && istril(transpose(S), k)
+            end
+        end
+    end
 end
 
 @testset "trace" begin

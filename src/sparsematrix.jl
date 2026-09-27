@@ -1762,7 +1762,8 @@ function istriu(A::AbstractSparseMatrixCSC, k::Integer=0)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
-    @inbounds for col = 1:min(n, m-1)
+    # column j has entries below the band only when m > j - k
+    @inbounds for col = 1:min(n, m+k-1)
         for i in reverse(nzrange(A, col))
             if rowval[i] <= col - k
                 # rows preceeding the index would also lie above the band
@@ -1781,7 +1782,8 @@ function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
-    @inbounds for col = 2:n
+    # column j has entries above the band only when j - k > 1
+    @inbounds for col = max(1, k+2):n
         for i = nzrange(A, col)
             if rowval[i] >= col - k
                 # subsequent rows would also lie below the band
