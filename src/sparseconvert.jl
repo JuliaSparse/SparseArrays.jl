@@ -81,7 +81,10 @@ function _sparsem(@nospecialize A::AbstractArray{Tv}) where Tv
     end
 end
 
-_sparsem(A::AbstractSparseMatrix) = A
+_sparsem(A::AbstractSparseMatrixCSC) = A
+# a wrapper of another sparse matrix type is re-wrapped around its CSC conversion, so the
+# kernels below take it from there
+_sparsem(A::AbstractSparseMatrix) = SparseMatrixCSC(A)
 _sparsem(A::AbstractSparseVector) = A
 
 # Transpose/Adjoint of sparse vector (returning sparse matrix)
@@ -105,9 +108,6 @@ end
 
 # Symmetric/Hermitian of sparse matrix
 _sparsem(A::SparseMatrixCSCSymmHerm) = _sparsem(A.uplo == 'U' ? nzrangeup : nzrangelo, A)
-# Triangular of sparse matrix
-_sparsem(A::UpperTriangular{T,<:AbstractSparseMatrix}) where T = triu(A.data)
-_sparsem(A::LowerTriangular{T,<:AbstractSparseMatrix}) where T = tril(A.data)
 # view of sparse matrix
 _sparsem(S::SubArray{<:Any,2,<:AbstractSparseMatrixCSC}) = getindex(parent(S),S.indices...)
 # view of a sparse vector or of a column of a sparse matrix, which re-wrapping would recurse on
@@ -115,7 +115,7 @@ _sparsem(S::SubArray{<:Any,1,<:Union{AbstractSparseVector,AbstractSparseMatrixCS
 
 # 4 cases: (Symmetric|Hermitian) variants (:U|:L)
 function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv}
-    A = sA.data
+    A = parent(sA)
     rowval = rowvals(A)
     nzval = nonzeros(A)
     m, n = size(A)
@@ -164,9 +164,9 @@ function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv
     _sparse_gen(m, n, newcolptr, newrowval, newnzval)
 end
 
-# 2 cases: Unit(Upper|Lower)Triangular{Tv,AbstractSparseMatrixCSC}
+# 4 cases: [Unit](Upper|Lower)Triangular of a sparse matrix or a view of its columns
 function _sparsem(A::SparseTriangular{Tv}) where Tv
-    S = A.data
+    S = parent(A)
     rowval = rowvals(S)
     nzval = nonzeros(S)
     m, n = size(S)
@@ -212,7 +212,7 @@ end
 function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
 
     sA = parent(taA)
-    A = sA.data
+    A = parent(sA)
     rowval = rowvals(A)
     nzval = nonzeros(A)
     m, n = size(A)

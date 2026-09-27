@@ -46,6 +46,14 @@ using .Main.Quaternions
     end
 end
 
+# a sparse matrix type that is not CSC: the wrapper conversions go through the CSC
+# conversion of the parent instead of densifying it or recursing on the wrapper
+struct NonCSCSparse{Tv,Ti} <: AbstractSparseMatrix{Tv,Ti}
+    A::SparseMatrixCSC{Tv,Ti}
+end
+Base.size(S::NonCSCSparse) = size(S.A)
+Base.getindex(S::NonCSCSparse, i::Int, j::Int) = S.A[i, j]
+
 @testset "wrappers of sparse" begin
     m = n = 10
     A = spzeros(ComplexF64, m, n)
@@ -83,6 +91,17 @@ end
     @test sparse(UnitUpperTriangular(spzeros(5,5))) == I
     deepwrap(A) = (Adjoint(LowerTriangular(view(Symmetric(A), 5:7, 4:6))))
     @test sparse(deepwrap(A)) == Matrix(deepwrap(B))
+
+    @testset "$wr of a non-CSC sparse matrix" for wr in (
+                        Symmetric, (Hermitian, :L), Transpose, Adjoint,
+                        UpperTriangular, LowerTriangular,
+                        UnitUpperTriangular, UnitLowerTriangular,
+                        (view, 3:6, 2:5))
+        X = NonCSCSparse(A)
+        @test SparseMatrixCSC(dowrap(wr, X))::SparseMatrixCSC{ComplexF64,Int} == Matrix(dowrap(wr, B))
+        @test sparse(dowrap(wr, X))::SparseMatrixCSC{ComplexF64,Int} == Matrix(dowrap(wr, B))
+    end
+    @test sparse(Adjoint(UnitUpperTriangular(NonCSCSparse(A))))::SparseMatrixCSC == Matrix(Adjoint(UnitUpperTriangular(B)))
 
     # the counter of the Symmetric/Hermitian copy kernel stays an `Int` over `Int32` indices
     A32 = SparseMatrixCSC{ComplexF64,Int32}(A)
