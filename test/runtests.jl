@@ -19,7 +19,7 @@ end
 # both paths, and skipped otherwise.
 torturefiles = "torture/" .* ["constructors.jl", "indexing.jl", "sparsematrix.jl",
                               "higherorderfns.jl", "sparsevector.jl", "reductions.jl",
-                              "linalg.jl", "matmul.jl", "concatenation.jl"]
+                              "linalg.jl", "matmul.jl", "concatenation.jl", "sweeps.jl"]
 append!(testfiles, torturefiles)
 
 suitename(f) = splitext(f)[1]

@@ -39,6 +39,15 @@ measure test time, in addition to the top-level `AGENTS.md`.
   there keeps its issue number. The core suite must stay complete without it, so a
   torture test is a regression guard or an exhaustive grid, never the only test of a
   feature.
+- `torture/sweeps.jl` compares every kernel against dense on seeded random operands:
+  `torture/sweephelpers.jl` draws each case (shape, density, eltype, stored zeros, form
+  and index type) from `caserng(seed, i)`, builds the sparse operand and its dense twin in
+  the same form, and `sweep`/`sweep!` run one kernel on both. `SPARSEARRAYS_SWEEP_SEED`
+  and `SPARSEARRAYS_SWEEP_CASES` set the seed and case count; a failing testset's name
+  carries both and the case, and `reproduce(name, seed, i)` rebuilds it. Its time is
+  compilation, one specialization per kernel and operand type, so more cases are nearly
+  free. A real bug a sweep finds becomes a `@test_broken` behind a predicate that names
+  the mechanism, never a narrower generator.
 - `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI gives it
   its own job. It restores the depot, load path, environment and active project in a
   `finally`, so an Aqua failure on Base CI leaves the worker usable.
