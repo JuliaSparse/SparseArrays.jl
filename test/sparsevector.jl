@@ -1496,6 +1496,7 @@ end
         @test norm(Aj)          == norm(Ajview)
         @test dot(Aj, copy(Aj)) == dot(Ajview, Aj) # don't alias since it takes a different code path
         @test rmul!(Aj, 0.1)    == rmul!(Ajview, 0.1)
+        @test lmul!(0.1, Aj)    == lmul!(0.1, Ajview)
         @test Aj*0.1            == Ajview*0.1
         @test 0.1*Aj            == 0.1*Ajview
         @test Aj/0.1            == Ajview/0.1
@@ -1544,6 +1545,49 @@ end
         y = SparseVector(10^6, [1, 500, 10^6], [1.0, 2.0, 3.0])
         diff(x); diff(y)
         @test @allocated(diff(y)) == @allocated(diff(x))
+    end
+end
+
+@testset "unary and scalar operations on sparse vector views, Ti = $Ti" for Ti in (Int, Int32)
+    A = SparseMatrixCSC{ComplexF64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0 + im, 0.0im, 2.0, 3.0im], 5, 3))
+    x = SparseVector{ComplexF64,Ti}(sparsevec([2, 4, 5], [1.0 + im, 0.0im, 2.0], 7))
+    for v in (view(A, :, 1), view(A, :, 3), view(x, :), view(x, 2:6), view(x, 5:4))
+        d = Array(v)
+        T = SparseVector{ComplexF64,Ti}
+        @test (-v)::T == -d
+        @test conj(v)::T == conj(d)
+        @test (2.0 * v)::T == 2.0 * d
+        @test (v * 2.0)::T == d * 2.0
+        @test (v / 2.0)::T == d / 2.0
+        @test (2.0 \ v)::T == 2.0 \ d
+        @test ((1 + im) * v)::T == (1 + im) * d
+        @test (v * (1 + im))::T == d * (1 + im)
+        @test copy(v)::T == d
+    end
+    # the full-column and full-vector views scale in place through the parent's storage
+    # (`view(x, :)` is a `SparseVectorView` only when the parent's axes are `Int`-sized)
+    for v in (view(A, :, 1), view(SparseVector{ComplexF64,Int}(x), :)), a in (0.5, 1.0 + im)
+        @test which(*, (typeof(v), typeof(a))).module === SparseArrays
+        @test which(*, (typeof(a), typeof(v))).module === SparseArrays
+        @test which(/, (typeof(v), typeof(a))).module === SparseArrays
+        @test which(rmul!, (typeof(v), typeof(a))).module === SparseArrays
+        @test which(lmul!, (typeof(a), typeof(v))).module === SparseArrays
+        p = copy(parent(v))
+        w = view(p, parentindices(v)...)
+        @test rmul!(w, a) === w && w == Array(v) * a
+        p = copy(parent(v))
+        w = view(p, parentindices(v)...)
+        @test lmul!(a, w) === w && w == a * Array(v)
+        @test nnz(p) == nnz(parent(v))
+    end
+    # the results are built from the stored entries, not from every element
+    B = SparseMatrixCSC{Float64,Ti}(sparse([2, 5], [1, 1], [1.0, 2.0], 10^5, 2))
+    y = SparseVector{Float64,Ti}(sparsevec([3, 7], [1.0, 2.0], 10^5))
+    for v in (view(B, :, 1), view(y, :), view(y, 2:10^5 - 1))
+        for f in (-, conj, w -> 2.0 * w, w -> w / 2.0)
+            f(v)
+            @test @allocated(f(v)) < 10^4
+        end
     end
 end
 
