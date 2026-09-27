@@ -1754,30 +1754,47 @@ function subvector_shifter!(R::AbstractVector, V::AbstractVector, start::Integer
     circshift!(@view(V[start:fin]), -split+start-1)
 end
 
-function circshift!(O::SparseVector, X::SparseVector, (r,)::Base.DimsInteger{1})
+function circshift!(O::AbstractCompressedVector, X::AbstractCompressedVector, (r,)::Base.DimsInteger{1})
+    # a fixed destination keeps its pattern, which `_copyto_fixed!` checks before writing
+    _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r,)))
     copy!(O, X)
+    iszero(length(X)) && return O
     subvector_shifter!(nonzeroinds(O), nonzeros(O), 1, length(nonzeroinds(O)), length(O), mod(r, length(X)))
     return O
 end
 
-circshift!(O::SparseVector, X::SparseVector, r::Real,) = circshift!(O, X, (Integer(r),))
+circshift!(O::AbstractCompressedVector, X::AbstractCompressedVector, r::Real) = circshift!(O, X, (Integer(r),))
+# a fixed X keeps its pattern under `similar`, so shift into a plain copy instead
+circshift(X::AbstractCompressedVector, s::Base.DimsInteger{1}) = circshift!(similar(_unsafe_unfix(X)), X, s)
+circshift(X::AbstractCompressedVector, s::Real) = circshift!(similar(_unsafe_unfix(X)), X, (Integer(s),))
 
-function reverse(S::AbstractSparseVector, start::Integer=firstindex(S), stop::Integer=lastindex(S))
-    Scopy = SparseVector(length(S), findnz(S)...)
-    reverse!(Scopy, start, stop)
-    return Scopy
-end
+reverse(x::Union{AbstractSparseVector, SparseColumnView, SparseVectorView, SparseVectorPartialView},
+        start::Integer=firstindex(x), stop::Integer=lastindex(x)) =
+    reverse!(_reversecopy(x), start, stop)
 
-function reverse!(S::AbstractSparseVector, start::Integer=firstindex(S), stop::Integer=lastindex(S))
-    checkbounds(S, start:stop)
-    nzinds = rowvals(S)
-    nzinds_revstart = searchsortedfirst(nzinds, start)
-    nzinds_revstop = searchsortedlast(nzinds, stop)
-    fi, li = firstindex(nzinds), lastindex(nzinds)
-    nzinds_revrange = max(fi, nzinds_revstart):min(li, nzinds_revstop)
-    iv = @view nzinds[nzinds_revrange]
-    iv .= (stop + start) .- iv
-    reverse!(iv)
-    reverse!(@view(nonzeros(S)[nzinds_revrange]))
-    return S
+# a writable `SparseVector` with the same index type that shares no buffer with `x`
+_reversecopy(x::AbstractSparseVector) = copy(_unsafe_unfix(x))
+_reversecopy(x::Union{SparseColumnView, SparseVectorView, SparseVectorPartialView}) =
+    SparseVector(length(x), Vector{indtype(x)}(nonzeroinds(x)), Vector{eltype(x)}(nonzeros(x)))
+
+function reverse!(x::AbstractSparseVector, start::Integer=firstindex(x), stop::Integer=lastindex(x))
+    checkbounds(x, start:stop)
+    nzinds = nonzeroinds(x)
+    lo, hi = searchsortedfirst(nzinds, start), searchsortedlast(nzinds, stop)
+    s = Int(start) + Int(stop)
+    if _is_fixed(x)
+        # the pattern is read-only: the reversal must map the stored indices in
+        # `start:stop` onto themselves, and then only the values move
+        for t in 0:(hi - lo)
+            Int(nzinds[lo + t]) + Int(nzinds[hi - t]) == s ||
+                throw(ArgumentError(lazy"cannot reverse a $(nameof(typeof(x))) in place over $start:$stop: its sparsity pattern is read-only and the reversal would change it; use reverse(x, start, stop) for a new array"))
+        end
+    else
+        for k in lo:hi
+            nzinds[k] = s - nzinds[k]
+        end
+        reverse!(nzinds, lo, hi)
+    end
+    reverse!(nonzeros(x), lo, hi)
+    return x
 end

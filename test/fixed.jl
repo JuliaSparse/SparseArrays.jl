@@ -119,6 +119,11 @@ end
     G .= sparse([2], [2], [6.0], 2, 2)   # a subset pattern zero-fills the rest
     @test G == [0 0; 0 6] && nnz(G) == 2
     @test circshift(G, (1, 0)) == circshift(Matrix(G), (1, 0))
+    # a fixed destination of circshift! must already hold the shifted pattern
+    @test_throws ArgumentError circshift!(G, G, (1, 0))
+    @test G == [0 0; 0 6] && nnz(G) == 2
+    H = fixed(circshift(G, (1, 1)))
+    @test circshift!(H, G, (1, 1)) === H && H == circshift(Matrix(G), (1, 1)) && nnz(H) == 2
     @test Diagonal([2.0, 3.0]) * G == [0 0; 0 18] && Symmetric(G) * G == [0 0; 0 36]
 end
 @testset "SparseMatrixCSC conversions" begin

@@ -4,7 +4,7 @@ module SparseVectorTests
 
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr
+using SparseArrays: nonzeroinds, getcolptr, fixed
 using LinearAlgebra
 using Random
 include("testhelpers.jl")
@@ -814,6 +814,27 @@ end
             @test nnz(srev) == nnz(s)
             @test srev == reverse(w, start, stop)
         end
+    end
+    @testset "views" begin
+        A = SparseMatrixCSC{ComplexF64,Int32}(sparse([1,3,4,4,6], [2,2,2,3,2], [1.0,2,3,4,5], 8, 3))
+        A[4,2] = 0
+        x = view(A, :, 2)
+        xc = collect(x)
+        @test which(reverse, (typeof(x),)).module === SparseArrays
+        r = reverse(x)
+        @test r == reverse(xc) && r isa SparseVector{ComplexF64,Int32} && nnz(r) == 4
+        r = reverse(x, 2, 5)
+        @test r == reverse(xc, 2, 5) && r isa SparseVector{ComplexF64,Int32} && nnz(r) == 4
+        @test x == xc   # the parent is untouched
+    end
+    @testset "reverse! of a fixed pattern" begin
+        # 2:9 is its own mirror under a full reversal, so only the values move
+        s = fixed(sparsevec([2, 5, 6, 9], [1.0, 2, 3, 4], 10))
+        f = copy(s)
+        @test reverse!(f) === f && f == reverse(collect(s)) && same_pattern(f, s)
+        f = copy(s)
+        @test_throws ArgumentError reverse!(f, 1, 9)
+        @test f == s && nonzeroinds(f) == [2, 5, 6, 9]
     end
 end
 
@@ -1629,6 +1650,18 @@ end
         circshift!(y1, v2, shift)
         circshift!(y2, Vector(v2), shift)
         @test y1 == y2
+    end
+    @testset "fixed" begin
+        v = SparseVector{Float64,Int32}(sparsevec([2, 4, 5, 8], [0.1, 0.2, 0.3, 0.4], 10))
+        v[5] = 0
+        x = circshift(collect(v), 3)
+        c = circshift(fixed(v), 3)   # a fixed source shifts into a plain copy
+        @test c == x && c isa SparseVector{Float64,Int32} && nnz(c) == 4
+        g = fixed(c)   # a fixed destination must already hold the shifted pattern
+        @test circshift!(g, v, 3) === g && g == x
+        @test_throws ArgumentError circshift!(g, v, 2)
+        @test g == x && nonzeroinds(g) == [1, 5, 7, 8]
+        @test isempty(circshift(fixed(spzeros(0)), 1))
     end
 end
 

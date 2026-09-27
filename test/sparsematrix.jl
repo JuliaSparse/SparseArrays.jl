@@ -1524,6 +1524,31 @@ end
             @test nnz(S2) == nnz(S)
         end
     end
+    @testset "stored zero, index type and dims validation" begin
+        S = SparseMatrixCSC{ComplexF64,Int32}(sparse([2,2,4], [1,2,5], [-19, 73, -7]))
+        S[2,2] = 0
+        w = collect(S)
+        for dims in (:, 1, 2)
+            R = reverse(S; dims)
+            @test R == reverse(w; dims) && R isa SparseMatrixCSC{ComplexF64,Int32} && nnz(R) == 3
+        end
+        @test reverse(S, dims=(1,)) == reverse(w, dims=1)
+        @test_throws ArgumentError reverse(S, dims=3)
+        @test_throws ArgumentError reverse(S, dims=(1,1))
+    end
+    @testset "reverse! of a fixed pattern" begin
+        # a pattern that is its own mirror along both axes: only the values move
+        S = fixed(SparseMatrixCSC{Float64,Int32}(sparse([1,3,2,1,3], [1,1,2,3,3], [1.0,2,3,0,5])))
+        for dims in (:, 1, 2)
+            F = copy(S)
+            @test reverse!(F; dims) === F && F == reverse(collect(S); dims) && same_pattern(F, S)
+        end
+        # mirrored along rows only, so reversing the columns would move the pattern
+        F = fixed(sparse([1,3], [1,1], [1.0,2], 3, 3))
+        @test_throws ArgumentError reverse!(F; dims=2)
+        @test_throws ArgumentError reverse!(F)
+        @test F == [1 0 0; 0 0 0; 2 0 0] && rowvals(F) == [1,3]
+    end
 end
 
 end # module
