@@ -56,7 +56,7 @@ indtype(x::ReadOnly) = indtype(parent(x))
 
 @inline _is_fixed(::AbstractArray) = false
 @inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
-@noinline _throwfixedinsert(A, I...) =
+@noinline _throwfixedinsert(A, I::Vararg{Integer,N}) where {N} =
     throw(ArgumentError("cannot store a new entry at ($(join(I, ", "))) in a $(nameof(typeof(A))), its sparsity pattern is read-only"))
 macro if_move_fixed(a...)
     length(a) <= 1 && error("@if_move_fixed needs at least two arguments")

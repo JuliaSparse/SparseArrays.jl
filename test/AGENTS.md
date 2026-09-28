@@ -24,11 +24,14 @@ measure test time, in addition to the top-level `AGENTS.md`.
 - `trim/` is not a suite: it is a small app that the `trim` CI job builds with
   `juliac --trim=safe` and runs. It covers the concatenation hooks SparseArrays adds to
   Base for dense arrays, which Julia's own trim test reaches, and the main sparse
-  operations: construction, indexing, broadcast and `map`, reductions and norms,
-  products, structural functions, `SparseVector`, and the solvers through the generic
-  LinearAlgebra functions. A trimmed binary cannot yet load a `LazyLibrary`, so it
-  cannot call BLAS and writes expected values out, and it runs the solvers only when
-  given the `solvers` argument; CI builds them, which verifies that they trim.
+  operations: construction, indexing, broadcast and `map`, reductions, search, norms,
+  products and `mul!`, triangular solves, structural functions, `SparseVector`, views,
+  the LinearAlgebra wrappers, `FixedSparseCSC`, and the solvers through the generic
+  LinearAlgebra functions, over Int, Bool, Float32, Float64 and complex eltypes and
+  Int32 indices. `show` is left out, because Base's array printing does not trim. A
+  trimmed binary cannot yet load a `LazyLibrary`, so it cannot call BLAS and writes
+  expected values out, and it runs the solvers only when given the `solvers` argument;
+  CI builds them, which verifies that they trim.
 - The files in `solvers/` carry no `Base.USE_GPL_LIBS` guards of their own; the
   top-level `AGENTS.md` has the rule for what belongs there.
 - `triangular.jl` holds the triangular product and solve tests as one scheduling unit,

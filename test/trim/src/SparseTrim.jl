@@ -163,6 +163,199 @@ function vectors()
     return bad
 end
 
+function eltypes()
+    bad = 0
+    Ai = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2, 3, 4, 5], 3, 3)
+    bad += check(Ai * [1, 1, 1] == [2, 3, 9] && Ai + Ai == 2Ai && Ai - Ai == spzeros(Int, 3, 3))
+    bad += check(sum(Ai) == 14 && sum(Ai; dims = 2) == reshape([2, 3, 9], 3, 1) && maximum(Ai) == 5)
+    bad += check(sum(Ai .* Ai) == 54 && Ai * Ai == sparse([1, 3, 2, 3], [1, 1, 2, 3], [4, 28, 9, 25], 3, 3))
+    M = Ai .> 2
+    bad += check(M isa SparseMatrixCSC{Bool,Int} && nnz(M) == 3 && count(M) == 3 && Ai[M] == [4, 3, 5])
+    Bi = copy(Ai)
+    Bi[M] .= 1
+    bad += check(sum(Bi) == 5 && Bi[3, 3] == 1)
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    A32 = SparseMatrixCSC{Float64,Int32}(A)
+    AA = sparse([1, 3, 2, 3], [1, 1, 2, 3], [4.0, 28.0, 9.0, 25.0], 3, 3)
+    bad += check(A32 * [1.0, 1.0, 1.0] == [2.0, 3.0, 9.0])
+    bad += check(A32 * A32 isa SparseMatrixCSC{Float64,Int32} && A32 * A32 == AA)
+    bad += check((A32 .+ A32) isa SparseMatrixCSC{Float64,Int32} && A32 .+ A32 == 2A)
+    bad += check(A32[2:3, :] isa SparseMatrixCSC{Float64,Int32} && A32[2:3, :] == A[2:3, :])
+    bad += check(A32[:, 1] isa SparseVector{Float64,Int32} && A32[3, 1] == 4.0)
+    bad += check(hcat(A32, A32) isa SparseMatrixCSC{Float64,Int32} && [A32; A32] == [A; A])
+    v32 = sparsevec(Int32[1, 3], [1.0, 2.0], 3)
+    bad += check(A32 * v32 == sparsevec([1, 3], [2.0, 14.0], 3) && dot(v32, v32) == 5.0)
+    bad += check((v32 .+ v32) isa SparseVector{Float64,Int32} && sum(v32 .* 3) == 9.0)
+    F = SparseMatrixCSC{Float32,Int}(A)
+    bad += check(F * Float32[1, 1, 1] == Float32[2, 3, 9] && F * F == SparseMatrixCSC{Float32,Int}(AA))
+    bad += check(sum(F) == 14.0f0 && eltype(2 .* F) == Float32 && norm(F, 1) == 14.0f0)
+    C = SparseMatrixCSC{ComplexF32,Int}(A) .* im
+    bad += check(C isa SparseMatrixCSC{ComplexF32,Int} && sum(C) == 14.0f0im)
+    bad += check(C * ComplexF32[1, 1, 1] == ComplexF32[2im, 3im, 9im])
+    bad += check(C' * ComplexF32[1, 1, 1] == ComplexF32[-6im, -3im, -5im])
+    bad += check(abs.(C) == F && eltype(abs.(C)) == Float32)
+    return bad
+end
+
+function wrappers()
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    bad = 0
+    U = sparse([1, 1, 2], [1, 2, 2], [2.0, 1.0, 3.0], 2, 2)
+    bad += check(Symmetric(U) * [1.0, 1.0] == [3.0, 4.0] && sparse(Symmetric(U)) == sparse([2.0 1.0; 1.0 3.0]))
+    H = sparse([1, 1, 2], [1, 2, 2], [2.0 + 0im, 1.0im, 3.0 + 0im], 2, 2)
+    bad += check(Hermitian(H) * ComplexF64[1, 1] == [2.0 + 1.0im, 3.0 - 1.0im])
+    bad += check(sparse(Hermitian(H)) == sparse(ComplexF64[2 im; -im 3]))
+    Dg = Diagonal([1.0, 2.0, 3.0])
+    bad += check(Dg * A isa SparseMatrixCSC && Matrix(Dg * A) == [2.0 0 0; 0 6 0; 12 0 15])
+    bad += check(A * Dg isa SparseMatrixCSC && Matrix(A * Dg) == [2.0 0 0; 0 6 0; 4 0 15])
+    Bd = Bidiagonal([1.0, 1.0, 1.0], [1.0, 1.0], :U)
+    bad += check(Matrix(Bd * A) == [2.0 3 0; 4 3 5; 4 0 5] && Matrix(A * Bd) == [2.0 2 0; 0 3 3; 4 4 5])
+    Td = Tridiagonal([1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0])
+    bad += check(Matrix(Td * A) == [2.0 3 0; 6 3 5; 4 3 5] && Matrix(A * Td) == [2.0 2 0; 3 3 3; 4 9 5])
+    V = view(A, :, 2:3)
+    bad += check(V * [1.0, 1.0] == [0.0, 3.0, 5.0] && sum(V) == 8.0 && Matrix(V .* 2) == [0.0 0; 6 0; 0 10])
+    c = view(A, :, 1)
+    bad += check(dot(c, [1.0, 1.0, 1.0]) == 6.0 && sum(c) == 6.0 && maximum(view(A, :, 3)) == 5.0)
+    bad += check(A' * view([1.0, 1.0, 1.0, 1.0], 2:4) == [6.0, 3.0, 5.0])
+    x = sparsevec([1, 3, 5], [1.0, 2.0, 3.0], 6)
+    bad += check(sum(view(x, 2:5)) == 5.0 && Vector(view(x, 3:4) .* 2) == [4.0, 0.0])
+    Fx = SparseArrays.FixedSparseCSC(copy(A))
+    Fx[1, 1] = 10.0
+    bad += check(Fx[1, 1] == 10.0 && Fx * [1.0, 1.0, 1.0] == [10.0, 3.0, 9.0] && sum(Fx) == 22.0)
+    threw = try
+        Fx[1, 2] = 1.0
+        false
+    catch
+        true
+    end
+    bad += check(threw && nnz(Fx) == 4)
+    return bad
+end
+
+function triangular()
+    # lower triangular, with A * [1, 2, 3] == [2, 6, 19] and A' * [1, 2, 3] == [14, 6, 15]
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    b = [2.0, 6.0, 19.0]
+    bt = [14.0, 6.0, 15.0]
+    x = [1.0, 2.0, 3.0]
+    bad = 0
+    bad += check(near(LowerTriangular(A) \ b, x) && near(UpperTriangular(copy(A')) \ bt, x))
+    bad += check(near(LowerTriangular(A)' \ bt, x) && near(transpose(LowerTriangular(A)) \ bt, x))
+    bad += check(near(UpperTriangular(A') \ bt, x))
+    y = zeros(3)
+    ldiv!(y, LowerTriangular(A), b)
+    bad += check(near(y, x))
+    z = copy(b)
+    ldiv!(LowerTriangular(A), z)
+    bad += check(near(z, x))
+    bad += check(near(LowerTriangular(A) \ [2.0 2.0; 6.0 6.0; 19.0 19.0], [1.0 1.0; 2.0 2.0; 3.0 3.0]))
+    bad += check(near(UnitLowerTriangular(A) \ [1.0, 2.0, 7.0], x))
+    bad += check(near(LowerTriangular(A) \ sparsevec([1], [2.0], 3), [1.0, 0.0, -0.8]))
+    return bad
+end
+
+function inplace()
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    x = [1.0, 1.0, 1.0]
+    bad = 0
+    y = zeros(3)
+    mul!(y, A, x)
+    bad += check(y == [2.0, 3.0, 9.0])
+    mul!(y, A, x, 2.0, 1.0)
+    bad += check(y == [6.0, 9.0, 27.0])
+    Y = zeros(3, 2)
+    mul!(Y, A, [1.0 0.0; 0.0 1.0; 1.0 1.0])
+    bad += check(Y == [2.0 0.0; 0.0 3.0; 9.0 5.0])
+    Z = zeros(2, 3)
+    mul!(Z, [1.0 0.0 1.0; 0.0 1.0 1.0], A)
+    bad += check(Z == [6.0 0.0 5.0; 4.0 3.0 5.0])
+    B = copy(A)
+    lmul!(2.0, B)
+    bad += check(B == 2A)
+    rmul!(B, 0.5)
+    bad += check(B == A)
+    lmul!(Diagonal([1.0, 2.0, 3.0]), B)
+    bad += check(Matrix(B) == [2.0 0 0; 0 6 0; 12 0 15])
+    bad += check(copyto!(zeros(3, 3), A) == Matrix(A) && copyto!(B, A) == A)
+    fill!(view(B, :, 3), 1.0)
+    bad += check(B[:, 3] == [1.0, 1.0, 1.0] && B[3, 1] == 4.0)
+    bad += check(droptol!(copy(A), 2.5) == sparse([3, 2, 3], [1, 2, 3], [4.0, 3.0, 5.0], 3, 3))
+    return bad
+end
+
+function colsums(A::SparseMatrixCSC)
+    s = zeros(eltype(A), size(A, 2))
+    w = zero(eltype(A))
+    rows = rowvals(A)
+    vals = nonzeros(A)
+    for j in axes(A, 2), k in nzrange(A, j)
+        s[j] += vals[k]
+        w += rows[k] * vals[k]
+    end
+    return s, w
+end
+
+function kernels()
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    bad = 0
+    s, w = colsums(A)
+    bad += check(s == [6.0, 3.0, 5.0] && w == 35.0)
+    s32, w32 = colsums(SparseMatrixCSC{Float64,Int32}(A))
+    bad += check(s32 == [6.0, 3.0, 5.0] && w32 == 35.0)
+    return bad
+end
+
+function search()
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    x = sparsevec([1, 3, 5], [1.0, 2.0, 3.0], 6)
+    CI = CartesianIndex
+    bad = 0
+    bad += check(findall(!iszero, A) == [CI(1, 1), CI(3, 1), CI(2, 2), CI(3, 3)])
+    bad += check(findall(A .> 2.5) == [CI(3, 1), CI(2, 2), CI(3, 3)])
+    bad += check(findall(v -> v > 2.5, A) == [CI(3, 1), CI(2, 2), CI(3, 3)])
+    bad += check(findmax(A) == (5.0, CI(3, 3)) && findmin(A) == (0.0, CI(2, 1)))
+    bad += check(findmax(A; dims = 1) == ([4.0 3.0 5.0], [CI(3, 1) CI(2, 2) CI(3, 3)]))
+    bad += check(findmin(A; dims = 2) == (reshape([0.0, 0.0, 0.0], 3, 1), reshape([CI(1, 2), CI(2, 1), CI(3, 2)], 3, 1)))
+    bad += check(any(A .> 4.5) && all(A .>= 0) && count(!iszero, A) == 4 && argmax(A) == CI(3, 3))
+    bad += check(findall(!iszero, x) == [1, 3, 5] && findmax(x) == (3.0, 5) && argmin(x) == 2)
+    return bad
+end
+
+function reshaping()
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    x = sparsevec([1, 3, 5], [1.0, 2.0, 3.0], 6)
+    bad = 0
+    bad += check(Vector(vec(A)) == [2.0, 0, 4, 0, 3, 0, 0, 0, 5] && size(reshape(A, 1, 9)) == (1, 9))
+    bad += check(reshape(A, 9, 1)[3, 1] == 4.0 && permutedims(A) == copy(transpose(A)))
+    bad += check(Matrix(reverse(A; dims = 2)) == [0.0 0 2; 0 3 0; 5 0 4] && Vector(reverse(x)) == [0.0, 3, 0, 2, 0, 1])
+    bad += check(Matrix(circshift(A, (1, 0))) == [4.0 0 5; 2 0 0; 0 3 0] && Vector(circshift(x, 1)) == [0.0, 1, 0, 2, 0, 3])
+    bad += check(Matrix(diff(A; dims = 1)) == [-2.0 3 0; 4 -3 5])
+    return bad
+end
+
+function broadcasting()
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    B = sparse([1, 3], [3, 1], [1.0, -1.0], 3, 3)
+    x = sparsevec([1, 3, 5], [1.0, 2.0, 3.0], 6)
+    y = sparsevec([3, 4], [4.0, -1.0], 6)
+    bad = 0
+    bad += check(Matrix(A .* 2 .+ 1) == [5.0 1 1; 1 7 1; 9 1 11])
+    bad += check(Matrix(A .+ [1.0, 2.0, 3.0]) == [3.0 1 1; 2 5 2; 7 3 8])
+    bad += check(Matrix(A .+ ones(3, 3)) == [3.0 1 1; 1 4 1; 5 1 6])
+    bad += check(Matrix(((a, b, c) -> a * b + c).(A, B, A)) == [2.0 0 0; 0 3 0; 0 0 5])
+    bad += check(Vector(x .+ y .* 2) == [1.0, 0, 10, -2, 3, 0] && count(A .== 0) == 5)
+    return bad
+end
+
+function equality()
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    x = sparsevec([1, 3, 5], [1.0, 2.0, 3.0], 6)
+    bad = 0
+    bad += check(A == copy(A) && A == Matrix(A) && isequal(A, copy(A)) && A != 2A)
+    bad += check(hash(A) == hash(Matrix(A)) && hash(x) == hash(Vector(x)) && isequal(x, Vector(x)))
+    return bad
+end
+
 # A trimmed binary cannot yet load a `LazyLibrary`, which is how SuiteSparse is loaded, so
 # `main` runs these checks only when given `solvers`. CI does not pass it: the build still
 # verifies that the solvers trim, but they are not run.
@@ -192,7 +385,8 @@ end
 
 function @main(args::Vector{String})::Cint
     bad = dense_cat() + sparse_cat() + construction() + indexing() + algebra() +
-        structure() + vectors()
+        structure() + vectors() + eltypes() + wrappers() + triangular() + inplace() +
+        kernels() + search() + reshaping() + broadcasting() + equality()
     if "solvers" in args
         bad += solvers()
     end
