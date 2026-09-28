@@ -21,6 +21,10 @@ measure test time, in addition to the top-level `AGENTS.md`.
 - Test files are named after the source area they cover. `solvers/` mirrors
   `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
   `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
+- `trim/` is not a suite: it is a small app that the `trim` CI job builds with
+  `juliac --trim=safe` and runs. It covers the concatenation hooks SparseArrays adds to
+  Base for dense arrays, which Julia's own trim test reaches, and should call only code
+  that trims today; it cannot call BLAS, so it writes expected values out.
 - The files in `solvers/` carry no `Base.USE_GPL_LIBS` guards of their own; the
   top-level `AGENTS.md` has the rule for what belongs there.
 - `triangular.jl` holds the triangular product and solve tests as one scheduling unit,

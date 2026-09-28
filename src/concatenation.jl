@@ -359,8 +359,11 @@ _sparse_typed_hcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(2), T, X...)
 _sparse_typed_vcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_vcat(T, X...)
 _sparse_typed_vcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(1), T, X...)
 
+# `Vararg{_SparseConcatGroup,N}` makes Julia compile `cat_internal` for each argument
+# count. Otherwise, past a few arguments, it is compiled for an unknown count and the splat
+# into `Base._cat_t` is left unresolved, which `juliac --trim` rejects.
 # `@constprop :aggressive` allows `dims` to be propagated as constant improving return type inference
-Base.@constprop :aggressive function cat_internal(dims, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+Base.@constprop :aggressive function cat_internal(dims, X1::_SparseConcatGroup, X::Vararg{_SparseConcatGroup,N}) where {N}
     T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
         return _sparse_cat_t(dims, T, _makesparse(X1), map(_makesparse, X)...)

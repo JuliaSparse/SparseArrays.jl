@@ -82,6 +82,28 @@ jobs:
       - name: Run Aqua and ambiguity tests
         run: |
           julia --color=yes --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'
+  trim:
+    name: trim (ubuntu-latest, x64, nightly)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: 'nightly'
+          arch: x64
+      - uses: julia-actions/cache@v3
+      - name: Build and run a trimmed app
+        run: |
+          julia --color=yes --project=@juliac -e 'using Pkg; Pkg.add("JuliaC")'
+          julia --color=yes --project=test/trim -e 'using Pkg; Pkg.instantiate()'
+          julia --color=yes --project=@juliac -m JuliaC --output-exe sparsetrim --trim=safe --experimental --bundle build test/trim
+          build/bin/sparsetrim
   docs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
