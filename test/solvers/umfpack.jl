@@ -9,6 +9,7 @@ using Serialization
 using LinearAlgebra:
     LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet, Symmetric, Hermitian
 using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
+include("../testhelpers.jl")
 
 function umfpack_report(l::UMFPACK.UmfpackLU)
     UMFPACK.umfpack_report_numeric(l, 0)
@@ -321,11 +322,23 @@ end
         umfpack_report(F)
     end
 
-    @testset "Test aliasing" begin
-        a = rand(5)
-        @test_throws ArgumentError UMFPACK.solve!(a, lu(sparse(1.0I, 5, 5)), a, UMFPACK.UMFPACK_A)
-        aa = complex(a)
-        @test_throws ArgumentError UMFPACK.solve!(aa, lu(sparse((1.0im)I, 5, 5)), aa, UMFPACK.UMFPACK_A)
+    @testset "aliased solution and right-hand side" begin
+        A = sparse([2.0 1 0; 1 3 1; 0 1 4])
+        F = lu(A)
+        # iterative refinement reads the right-hand side again after writing the solution
+        F.control[UMFPACK.JL_UMFPACK_IRSTEP] = 2
+        B = A * [1.0 2; 3 4; 5 6]
+        @test ldiv!(view(B, :, 1), F, view(vec(B), 1:3)) ≈ [1, 3, 5]
+        B = A * [1.0 2 3; 4 5 6; 7 8 9]
+        @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2)) ≈ [1.0 2; 4 5; 7 8]
+    end
+
+    @testset "propertynames(::UmfpackLU)" begin
+        F = lu(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+        @test propertynames(F) == (:L, :U, :p, :q, :Rs, :(:))
+        @test hasproperty(F, :(:))
+        @test :numeric ∉ propertynames(F)
+        @test :numeric ∈ propertynames(F, true)
     end
 
     @testset "Issues #18246,18244 - lu sparse pivot" begin
@@ -525,6 +538,15 @@ end
         F = lu(sparse([1.0 2 0; 0 1 3]))
         @test_throws DimensionMismatch det(F)
         @test_throws DimensionMismatch F \ [1.0, 2.0]
+    end
+
+    @testset "ldiv! DimensionMismatch names the sizes and leaves the output unchanged" begin
+        F = lu(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+        X = fill(7.0, 3)
+        @test_throws DimensionMismatch ldiv!(X, F, [1.0, 2])
+        @test_throws r"3×3.*2 rows" ldiv!(X, F, [1.0, 2])
+        @test_throws r"\(3,\).*\(3, 1\)" ldiv!(X, F, reshape([1.0, 2, 3], 3, 1))
+        @test X == fill(7.0, 3)
     end
 
     @testset "ldiv! with strided and adjoint/transpose right-hand sides, $Tv, $Ti" for

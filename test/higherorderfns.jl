@@ -10,7 +10,7 @@ using Test
 using SparseArrays
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
+include("testhelpers.jl")
 function test_map_and_map!(A, alloc_tests)
     # --> test map entry point
     fA = Array(A)
@@ -895,6 +895,26 @@ end
     @test inv.(x) == [1//1+0im]
     y = spzeros(Int, 1)
     @test y ./ x == y
+end
+
+@testset "map and broadcast kernels with the row count at typemax of the index type" begin
+    A = SparseMatrixCSC(127, 1, Int8[1, 2], Int8[1], [1.0])
+    x = SparseVector(127, Int8[1], [1.0])
+    for S in (A, x), (R, dR) in ((map(+, S, S), 2Array(S)), (S .+ S, 2Array(S)),
+                                 (map(+, S, S, S), 3Array(S)), (broadcast(+, S, S, S), 3Array(S)))
+        @test R == dR && SparseArrays.indtype(R) == Int8
+    end
+    # a dense-structured 127-row Int8 matrix needs a column pointer of 128, so only the vector fits
+    @test map((a, b) -> a + b + 1, x, x) == 2Array(x) .+ 1 && x .+ x .+ 1 == 2Array(x) .+ 1
+    y = SparseVector(127, Int8.(1:127), ones(127))   # nnz + 1 does not fit the index type either
+    @test y .+ y == 2Array(y) && map(+, y, y) == 2Array(y) && SparseArrays.indtype(y .+ y) == Int8
+    n = Int128(typemax(Int)) + 1; w = SparseVector(n, [n], [1.0])   # indices wider than Int stay
+    @test nonzeroinds(map!(+, SparseVector(n, [n], [0.0]), w, w)) == [n]
+    for Ti in (Int8, Int32)
+        M = SparseMatrixCSC{Float64,Ti}
+        @test !hasunionlocal(SparseArrays.HigherOrderFns._map_zeropres!, (typeof(+), M, M, M), Ti, Int)
+        @test !hasunionlocal(SparseArrays.HigherOrderFns._broadcast_zeropres!, (typeof(+), M, M, M), Ti, Int)
+    end
 end
 
 end # module

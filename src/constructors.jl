@@ -251,6 +251,8 @@ convert(T::Type{<:UpperTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
 
 float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
 complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
+float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
+complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
 
 """
     sparse(A::Union{AbstractVector, AbstractMatrix})

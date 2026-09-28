@@ -7,17 +7,7 @@ using SparseArrays
 using SparseArrays: AbstractSparseMatrixCSC, nonzeroinds, getcolptr, rowvals, nonzeros, fixed, _is_fixed
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
-include("mulcount.jl")
-include("typedlocals.jl")
-
-sA = sprandn(3, 7, 0.5)
-sC = similar(sA)
-dA = Array(sA)
-
-const BASE_TEST_PATH = joinpath(Sys.BINDIR, "..", "share", "julia", "test")
-isdefined(Main, :Quaternions) || @eval Main include(joinpath($(BASE_TEST_PATH), "testhelpers", "Quaternions.jl"))
-using .Main.Quaternions
+include("testhelpers.jl")
 
 @testset "circshift" begin
     m,n = 17,15
@@ -45,6 +35,14 @@ using .Main.Quaternions
         @test E1 == E2
     end
 end
+
+# a sparse matrix type that is not CSC: the wrapper conversions go through the CSC
+# conversion of the parent instead of densifying it or recursing on the wrapper
+struct NonCSCSparse{Tv,Ti} <: AbstractSparseMatrix{Tv,Ti}
+    A::SparseMatrixCSC{Tv,Ti}
+end
+Base.size(S::NonCSCSparse) = size(S.A)
+Base.getindex(S::NonCSCSparse, i::Int, j::Int) = S.A[i, j]
 
 @testset "wrappers of sparse" begin
     m = n = 10
@@ -83,6 +81,17 @@ end
     @test sparse(UnitUpperTriangular(spzeros(5,5))) == I
     deepwrap(A) = (Adjoint(LowerTriangular(view(Symmetric(A), 5:7, 4:6))))
     @test sparse(deepwrap(A)) == Matrix(deepwrap(B))
+
+    @testset "$wr of a non-CSC sparse matrix" for wr in (
+                        Symmetric, (Hermitian, :L), Transpose, Adjoint,
+                        UpperTriangular, LowerTriangular,
+                        UnitUpperTriangular, UnitLowerTriangular,
+                        (view, 3:6, 2:5))
+        X = NonCSCSparse(A)
+        @test SparseMatrixCSC(dowrap(wr, X))::SparseMatrixCSC{ComplexF64,Int} == Matrix(dowrap(wr, B))
+        @test sparse(dowrap(wr, X))::SparseMatrixCSC{ComplexF64,Int} == Matrix(dowrap(wr, B))
+    end
+    @test sparse(Adjoint(UnitUpperTriangular(NonCSCSparse(A))))::SparseMatrixCSC == Matrix(Adjoint(UnitUpperTriangular(B)))
 
     # the counter of the Symmetric/Hermitian copy kernel stays an `Int` over `Int32` indices
     A32 = SparseMatrixCSC{ComplexF64,Int32}(A)
@@ -130,23 +139,6 @@ end
         A = T(O)
         @test eltype(A \ b) == eltype(A \ B) == eltype(B / A) == Int
     end
-end
-
-@testset "sparse transpose adjoint" begin
-    A = sprand(10, 10, 0.75)
-    @test A' == SparseMatrixCSC(A')
-    @test SparseMatrixCSC(A') isa SparseMatrixCSC
-    @test transpose(A) == SparseMatrixCSC(transpose(A))
-    @test SparseMatrixCSC(transpose(A)) isa SparseMatrixCSC
-    @test SparseMatrixCSC{eltype(A)}(transpose(A)) == transpose(A)
-    @test SparseMatrixCSC{eltype(A), Int}(transpose(A)) == transpose(A)
-    @test SparseMatrixCSC{Float16}(transpose(A)) == transpose(SparseMatrixCSC{Float16}(A))
-    @test SparseMatrixCSC{Float16, Int}(transpose(A)) == transpose(SparseMatrixCSC{Float16}(A))
-    B = sprand(ComplexF64, 10, 10, 0.75)
-    @test SparseMatrixCSC{eltype(B)}(adjoint(B)) == adjoint(B)
-    @test SparseMatrixCSC{eltype(B), Int}(adjoint(B)) == adjoint(B)
-    @test SparseMatrixCSC{ComplexF16}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16}(B))
-    @test SparseMatrixCSC{ComplexF16, Int8}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16, Int8}(B))
 end
 
 @testset "Column view of sparse matrix " begin
@@ -435,6 +427,34 @@ end
     end
 end
 
+@testset "diff" begin
+    @testset "$T" for T in (Float64, ComplexF64)
+        A = sprand(T, 7, 5, 0.5)
+        A[2, 2] = zero(T); A[3, 2] = one(T); A[4, 2] = one(T) # stored zero and a cancelling pair
+        A[:, 4] .= zero(T)                                     # a column of stored zeros
+        M = Array(A)
+        for dims in (1, 2)
+            D = diff(A; dims)
+            @test D isa SparseMatrixCSC{T,Int}
+            @test D == diff(M; dims)
+            @test diff(sparse(Int32.(1:7), Int32.(1:7), one(T)); dims) isa SparseMatrixCSC{T,Int32}
+        end
+        for dims in (0, 3, 7)
+            @test_throws ArgumentError diff(M; dims)
+            @test_throws ArgumentError diff(A; dims)
+        end
+    end
+    @testset "empty and unit sizes" begin
+        for (m, n) in ((0, 0), (0, 3), (3, 0), (1, 3), (3, 1), (1, 1)), dims in (1, 2)
+            A = spzeros(m, n)
+            D = diff(A; dims)
+            @test D isa SparseMatrixCSC{Float64,Int}
+            @test size(D) == size(diff(Array(A); dims))
+            @test D == diff(Array(A); dims)
+        end
+    end
+end
+
 @testset "rotations" begin
     a = sparse( [1,1,2,3], [1,3,4,1], [1,2,3,4] )
 
@@ -461,6 +481,44 @@ end
     @test !istriu(sparse(A))
     @test istril(sparse(tril(A)))
     @test !istril(sparse(A))
+
+    @testset "extreme band offsets" begin
+        S = sparse([1], [1], [1.0], 3, 3)
+        for k in (typemax(Int)-1, typemax(Int))
+            @test !istriu(S, k)
+            @test istril(S, k)
+        end
+        @test istriu(S, typemin(Int))
+        @test !istril(S, typemin(Int))
+        nonzeros(S)[1] = 0
+        for k in (typemin(Int), typemax(Int))
+            @test istriu(S, k) && istril(S, k)
+        end
+        S = SparseMatrixCSC(typemax(Int), 3, [1, 2, 2, 2], [1], [1.0])
+        @test !istriu(S, 2)
+    end
+
+    @testset "band offset k, $T $(m)x$(n)" for T in (Float64, ComplexF64), (m, n) in ((1, 2), (2, 1), (3, 5), (5, 3), (0, 3), (3, 0))
+        @test which(istriu, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
+        @test which(istril, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
+        v = T <: Complex ? T(2 + im) : T(2)
+        full = sparse(fill(v, m, n))
+        for k in -3:3
+            @test istriu(full, k) == istriu(Matrix(full), k)
+            @test istril(full, k) == istril(Matrix(full), k)
+            for i in 1:m, j in 1:n
+                S = sparse([i], [j], [v], m, n)
+                for X in (S, adjoint(S), transpose(S))
+                    @test istriu(X, k) == istriu(Matrix(X), k)
+                    @test istril(X, k) == istril(Matrix(X), k)
+                end
+                # a stored zero is not a nonzero
+                nonzeros(S)[1] = zero(T)
+                @test istriu(S, k) && istril(S, k)
+                @test istriu(adjoint(S), k) && istril(transpose(S), k)
+            end
+        end
+    end
 end
 
 @testset "trace" begin
@@ -539,80 +597,6 @@ end
     cA = sprandn(5,5,0.2) + im*sprandn(5,5,0.2)
     @test Array(conj.(cA)) == conj(Array(cA))
     @test Array(conj!(copy(cA))) == conj(Array(cA))
-end
-
-@testset "SparseMatrixCSC [c]transpose[!] and permute[!]" begin
-    smalldim = 5
-    largedim = 10
-    nzprob = 0.4
-    (m, n) = (smalldim, smalldim)
-    A = sprand(m, n, nzprob)
-    X = similar(A)
-    C = copy(transpose(A))
-    p = randperm(m)
-    q = randperm(n)
-    @testset "common error checking of [c]transpose! methods (ftranspose!)" begin
-        @test_throws DimensionMismatch transpose!(A[:, 1:(smalldim - 1)], A)
-        @test_throws DimensionMismatch transpose!(A[1:(smalldim - 1), 1], A)
-        @test_throws ArgumentError transpose!(A, A) # #812
-        @test_throws ArgumentError adjoint!(A, A)
-    end
-    @testset "common error checking of permute[!] methods / source-perm compat" begin
-        @test_throws DimensionMismatch permute(A, p[1:(end - 1)], q)
-        @test_throws DimensionMismatch permute(A, p, q[1:(end - 1)])
-    end
-    @testset "common error checking of permute[!] methods / source-dest compat" begin
-        @test_throws DimensionMismatch permute!(A[1:(m - 1), :], A, p, q)
-        @test_throws DimensionMismatch permute!(A[:, 1:(m - 1)], A, p, q)
-        @test_throws ArgumentError permute!((Y = copy(X); resize!(rowvals(Y), nnz(A) - 1); Y), A, p, q)
-        @test_throws ArgumentError permute!((Y = copy(X); resize!(nonzeros(Y), nnz(A) - 1); Y), A, p, q)
-    end
-    @testset "common error checking of permute[!] methods / source-workmat compat" begin
-        @test_throws DimensionMismatch permute!(X, A, p, q, C[1:(m - 1), :])
-        @test_throws DimensionMismatch permute!(X, A, p, q, C[:, 1:(m - 1)])
-        @test_throws ArgumentError permute!(X, A, p, q, (D = copy(C); resize!(rowvals(D), nnz(A) - 1); D))
-        @test_throws ArgumentError permute!(X, A, p, q, (D = copy(C); resize!(nonzeros(D), nnz(A) - 1); D))
-    end
-    @testset "common error checking of permute[!] methods / source-workcolptr compat" begin
-        @test_throws DimensionMismatch permute!(A, p, q, C, Vector{eltype(rowvals(A))}(undef, length(getcolptr(A)) - 1))
-    end
-    @testset "common error checking of permute[!] methods / permutation validity" begin
-        @test_throws ArgumentError permute!(A, (r = copy(p); r[2] = r[1]; r), q)
-        @test_throws ArgumentError permute!(A, (r = copy(p); r[2] = m + 1; r), q)
-        @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = r[1]; r))
-        @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = n + 1; r))
-    end
-    @testset "overall functionality of [c]transpose[!] and permute[!]" begin
-        for (m, n) in ((smalldim, smalldim), (smalldim, largedim), (largedim, smalldim))
-            A = sprand(m, n, nzprob)
-            At = copy(transpose(A))
-            # transpose[!]
-            fullAt = Array(transpose(A))
-            @test copy(transpose(A)) == fullAt
-            @test transpose!(similar(At), A) == fullAt
-            # adjoint[!]
-            C = A + im*A/2
-            fullCh = Array(C')
-            @test copy(C') == fullCh
-            @test adjoint!(similar(sparse(fullCh)), C) == fullCh
-            # permute[!]
-            p = randperm(m)
-            q = randperm(n)
-            fullPAQ = Array(A)[p,q]
-            @test permute(A, p, q) == sparse(Array(A[p,q]))
-            @test permute!(similar(A), A, p, q) == fullPAQ
-            @test permute!(similar(A), A, p, q, similar(At)) == fullPAQ
-            @test permute!(copy(A), p, q) == fullPAQ
-            @test permute!(copy(A), p, q, similar(At)) == fullPAQ
-            @test permute!(copy(A), p, q, similar(At), similar(getcolptr(A))) == fullPAQ
-        end
-    end
-end
-
-@testset "transpose of SubArrays" begin
-    A = view(sprandn(10, 10, 0.3), 1:4, 1:4)
-    @test copy(transpose(Array(A))) == Array(transpose(A))
-    @test copy(adjoint(Array(A))) == Array(adjoint(A))
 end
 
 @testset "exp" begin
@@ -767,17 +751,17 @@ end
     # the kernel walks the sparser operand and multiplies only where both operands store
     # an entry, whereas the generic fallback multiplies every stored entry of the sparse
     # operand
-    P = mulcount_sparse(sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0], 6, 4))
+    P = opcount_sparse(sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0], 6, 4))
     for W in (adjoint, transpose)
         # disjoint patterns: `B[i, j]` is stored only where `P[j, i]` is not
-        B = mulcount_sparse(sparse([1, 2, 4, 4], [2, 3, 1, 6], [1.0, 2.0, 3.0, 4.0], 4, 6))
+        B = opcount_sparse(sparse([1, 2, 4, 4], [2, 3, 1, 6], [1.0, 2.0, 3.0, 4.0], 4, 6))
         @test mulcount(() -> dot(W(P), B)) == 0
         @test mulcount(() -> dot(B, W(P))) == 0
         # two matching pairs, found from either side of the walk
-        B = mulcount_sparse(sparse([1, 1, 2, 3, 4, 4], [1, 2, 3, 3, 1, 6], 1.0:6.0, 4, 6))
+        B = opcount_sparse(sparse([1, 1, 2, 3, 4, 4], [1, 2, 3, 3, 1, 6], 1.0:6.0, 4, 6))
         @test nnz(B) + size(B, 2) > nnz(P) + size(P, 2)     # walks P
         @test mulcount(() -> dot(W(P), B)) == 2
-        Pw = mulcount_sparse(sparse([1, 2, 3, 4, 5, 5, 5, 6, 6], [1, 2, 3, 4, 1, 2, 4, 1, 2], 1.0:9.0, 6, 4))
+        Pw = opcount_sparse(sparse([1, 2, 3, 4, 5, 5, 5, 6, 6], [1, 2, 3, 4, 1, 2, 4, 1, 2], 1.0:9.0, 6, 4))
         @test nnz(Pw) + size(Pw, 2) > nnz(B) + size(B, 2)   # walks B
         @test mulcount(() -> dot(W(Pw), B)) == 2
     end
@@ -787,7 +771,7 @@ end
         @test dot(A', transpose(B)) ≈ dot(Matrix(A)', transpose(Matrix(B)))
         @test dot(transpose(A), B') ≈ dot(transpose(Matrix(A)), Matrix(B)')
         @test_throws DimensionMismatch dot(A', transpose(sparse(B')))
-        Ac, Bc = mulcount_sparse.(SparseMatrixCSC.(6, 4, getcolptr.((A, B)), rowvals.((A, B)), Ref(ones(4))))
+        Ac, Bc = opcount_sparse.(SparseMatrixCSC.(6, 4, getcolptr.((A, B)), rowvals.((A, B)), Ref(ones(4))))
         @test mulcount(() -> dot(Ac', transpose(Bc))) == 3
         @test mulcount(() -> dot(transpose(Ac), Bc')) == 3
     end
@@ -813,8 +797,8 @@ end
             @test dot(sx, H(V, uplo), sy) ≈ dot(Vector(sx), H(M, uplo), Vector(sy))
         end
         @test_throws DimensionMismatch dot(V, Q)
-        A = mulcount_sparse(sparse(1.0I, 8, 10)); P = A[:, 1:8]; V = view(A, :, 1:8)
-        u = fill(MulCount(1.0), 8); su = sparse(u); D = fill(MulCount(1.0), 8, 8)
+        A = opcount_sparse(sparse(1.0I, 8, 10)); P = A[:, 1:8]; V = view(A, :, 1:8)
+        u = fill(OpCount(1.0), 8); su = sparse(u); D = fill(OpCount(1.0), 8, 8)
         for f in (() -> dot(V, P), () -> dot(P, V), () -> dot(V, V), () -> dot(V', P), () -> dot(P', V),
                   () -> dot(V', V), () -> dot(V, V'), () -> dot(V', transpose(V)), () -> dot(D, V), () -> dot(V, D))
             @test mulcount(f) == 8
@@ -873,6 +857,7 @@ end
     r = sum(dot(xm[i], Bm[i, j], ym[j]) for (i, j) in zip(findnz(Bm)[1:2]...))
     @test dot(xm, Bm, ym) ≈ dot(sparsevec(xm), Bm, sparsevec(ym)) ≈ r
 
+    Quaternion = quaternion_type()
     for T in (Float64, ComplexF64, Quaternion{Float64}), trans in (Symmetric,  Hermitian), uplo in (:U, :L)
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)

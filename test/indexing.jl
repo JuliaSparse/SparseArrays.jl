@@ -8,7 +8,7 @@ using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns
 using LinearAlgebra
 using Random
 using Test: guardseed
-include("forbidproperties.jl")
+include("testhelpers.jl")
 
 # an index type lowered by `to_indices`, like `InvertedIndices.Not`
 struct AllBut; i::Int; end
@@ -416,6 +416,46 @@ end
     A[Is] = [0.1, 0.5]
     @test nnz(A) == 2
 
+    @testset "logical mask setindex!" begin
+        # (2, 2) is a stored zero; the mask updates (1, 1) and (2, 2), inserts (2, 1) and
+        # (4, 4), and leaves (3, 3) unstored because its value is zero
+        A0 = sparse([1, 3, 2, 4, 1], [1, 1, 2, 3, 4], [1.0, 2.0, 0.0, 3.0, 4.0], 4, 4)
+        M = BitMatrix([1 0 0 0; 1 1 0 0; 0 0 1 0; 0 0 0 1])
+        Ms = sparse([1, 2, 2, 3, 3, 4], [1, 1, 2, 2, 3, 4], Bool[1, 1, 1, 0, 1, 1], 4, 4)   # a stored false
+        x = [10.0, 20, 30, 0, 50]
+        D = Matrix(A0); D[M] = x
+        for mask in (M, Ms)   # findall(vec(I)), and the column walk of a sparse mask
+            A = copy(A0)
+            A[mask] = x
+            @test A == D && nnz(A) == nnz(A0) + 2
+        end
+        # the value's length and the mask's shape are checked before anything is written
+        A = copy(A0)
+        @test_throws DimensionMismatch A[M] = ones(4)
+        @test_throws DimensionMismatch A[falses(4, 4)] = [1.0]
+        @test_throws BoundsError A[trues(15)] = ones(15)
+        @test A == A0 && nnz(A) == nnz(A0)
+        # a fixed pattern rejects the nonzero at (2, 1) before writing (1, 1), which the mask visits first
+        F = SparseArrays.fixed(copy(A0))
+        @test_throws ArgumentError F[M] = x
+        @test F == A0 && nnz(F) == nnz(A0)
+        # indices or values aliased with the storage are copied before the kernel writes
+        A = sparse(reshape([2, 1], 2, 1)); A[nonzeros(A)] = [20, 10]
+        @test A == [10; 20;;]
+        for A in (sparse(reshape([1, 2], 2, 1)), SparseArrays.fixed(sparse(reshape([1, 2], 2, 1))))
+            A[trues(2, 1)] = view(nonzeros(A), 2:-1:1)
+            @test A == [2; 1;;]
+        end
+        # column views and transposes of a sparse mask are walked by stored entry too
+        M2 = sparse([1, 4, 2], [2, 3, 3], [true, true, false], 4, 4)
+        for mask in (view(M2, :, 2:3), view(M2, :, [3, 1, 2]), transpose(M2), M2', transpose(view(M2, :, 2:3)))
+            @test which(SparseArrays._masklinearindices, (typeof(mask),)) !==
+                  which(SparseArrays._masklinearindices, (Matrix{Bool},))
+            A = spzeros(size(mask)); A[mask] = 1:count(mask)
+            @test A == setindex!(zeros(size(mask)), 1:count(mask), Matrix(mask)) && nnz(A) == count(mask)
+        end
+    end
+
     @testset "heap-allocated zero (#389)" begin
         for T in (BigFloat, Complex{BigFloat})
             A = spzeros(T, 3, 3)
@@ -501,14 +541,6 @@ end
     @test nnz(A) == 0
 end
 
-struct CountedReads <: AbstractVector{Int}
-    v::Vector{Int}
-    reads::Base.RefValue{Int}
-end
-Base.size(c::CountedReads) = size(c.v)
-Base.IndexStyle(::Type{CountedReads}) = IndexLinear()
-Base.getindex(c::CountedReads, i::Int) = (c.reads[] += 1; c.v[i])
-
 @testset "test_getindex_algs" begin
     function test_getindex_algs(S, I, J)
         D = Matrix(S)
@@ -570,10 +602,10 @@ Base.getindex(c::CountedReads, i::Int) = (c.reads[] += 1; c.v[i])
         S = sparse(collect(1:50:m), collect(1:n), 1.0, m, n)
         S[m, n] = 0
         @test m > nnz(S)
-        I = CountedReads(collect(2:2:m-2), Ref(0))
+        I = CountedReads(2:2:m-2)
         R = S[I, 1:n]
         @test I.reads[] < 20 * length(I)
-        @test R == Matrix(S)[I.v, 1:n]
+        @test R == Matrix(S)[I.parent, 1:n]
         # a short I still binary-searches the columns
         T = sparse(repeat(1:4:m, 2), repeat(1:2; inner=m÷4), 1.0, m, 2)
         @test T[[5, 5, 6, m-3], [2, 1]] == Matrix(T)[[5, 5, 6, m-3], [2, 1]]
@@ -591,6 +623,18 @@ end
 @testset "row indexing a SparseMatrixCSC with non-Int integer type" begin
     local A = sparse(UInt32[1,2,3], UInt32[1,2,3], [1.0,2.0,3.0])
     @test A[1,1:3] == A[1,:] == [1,0,0]
+end
+
+@testset "column slices keep the index type, Ti = $Ti" for Ti in (Int32, Int64)
+    A = SparseMatrixCSC{Float64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0, 0.0, 2.0, 3.0], 5, 3))
+    M = Matrix(A)
+    for j in 1:3, I in (1:5, 2:4, 3:3, 4:5, 2:1)
+        @test A[I, j]::SparseVector{Float64,Ti} == M[I, j]
+    end
+    @test A[1:5, 1]::SparseVector{Float64,Ti} == M[1:5, 1]
+    @test nnz(A[1:5, 1]) == 2 # stored zeros stay stored
+    @test copy(view(A, :, 1))::SparseVector{Float64,Ti} == M[:, 1]
+    @test copy(view(A, 2:4, 1))::SparseVector{Float64,Ti} == M[2:4, 1]
 end
 
 @testset "isstored" begin

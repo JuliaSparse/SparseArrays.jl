@@ -8,8 +8,7 @@ using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr, rowvals, nonzeros
 using LinearAlgebra
 using Random
-include("mulcount.jl")
-include("typedlocals.jl")
+include("testhelpers.jl")
 
 @testset "multiplication of sparse matrix and triangular matrix" begin
     _sparse_test_matrix(n, T) =  T == Int ? sparse(rand(0:4, n, n)) : sprandn(T, n, n, 0.6)
@@ -77,15 +76,6 @@ end
     @test typeof(Y) == typeof(A)
 end
 
-
-# an AbstractSparseVector outside the types the sparse product kernel handles
-struct WrappedSparseVector <: AbstractSparseVector{Float64,Int}
-    x::SparseVector{Float64,Int}
-end
-Base.size(v::WrappedSparseVector) = size(v.x)
-Base.getindex(v::WrappedSparseVector, i::Int) = v.x[i]
-SparseArrays.nonzeros(v::WrappedSparseVector) = nonzeros(v.x)
-SparseArrays.nonzeroinds(v::WrappedSparseVector) = nonzeroinds(v.x)
 
 begin
     rng = Random.MersenneTwister(0)
@@ -181,7 +171,7 @@ end
 
 @testset "triangular products visit stored entries" begin
     for n in (8, 16), W in (UpperTriangular, LowerTriangular)
-        A = mulcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
+        A = opcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
         @test mulcount(() -> W(A) * A) == n
         # These wrappers currently select generic triangular multiplication.
         for op in (transpose, adjoint)
@@ -190,11 +180,11 @@ end
         end
     end
     n = 1000
-    A = mulcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
+    A = opcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
     for W in (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
         @test mulcount(() -> W(A) * A) == n
         @test mulcount(() -> W(view(A, :, :)) * A) == n
-        X = MulCount.(ones(2, n))
+        X = OpCount.(ones(2, n))
         for op in (identity, transpose, adjoint)
             @test mulcount(() -> X * op(W(A))) == 2n
         end

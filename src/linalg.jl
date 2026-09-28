@@ -758,6 +758,35 @@ end
 
 ## diff
 
+# Append the first difference along one stored column (rows `rowval_a[rng]`, values
+# `nzval_a[rng]`, length `m`) to `rowval`/`nzval` after entry `numnz`, and return the
+# new count. Each stored entry `(i, v)` contributes `+v` at `i-1` and `-v` at `i`; the
+# two contributions at the same row of consecutive stored entries merge in place.
+function _sparse_diff1_column!(rowval, nzval, numnz, rowval_a, nzval_a, rng, m)
+    last_row = 0
+    @inbounds for k in rng
+        row = rowval_a[k]
+        val = nzval_a[k]
+        if row > 1
+            if row == last_row + 1
+                nzval[numnz] += val
+                iszero(nzval[numnz]) && (numnz -= 1)
+            else
+                numnz += 1
+                rowval[numnz] = row - 1
+                nzval[numnz] = val
+            end
+        end
+        if row < m
+            numnz += 1
+            rowval[numnz] = row
+            nzval[numnz] = -val
+        end
+        last_row = row
+    end
+    return numnz
+end
+
 function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     m,n = size(S)
     m > 1 || return SparseMatrixCSC(0, n, fill(one(Ti),n+1), Ti[], Tv[])
@@ -768,29 +797,7 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     numnz = 0
     @inbounds colptr[1] = 1
     @inbounds for col = 1 : n
-        last_row = 0
-        last_val = 0
-        for k in nzrange(S, col)
-            row = rowvals(S)[k]
-            val = nonzeros(S)[k]
-            if row > 1
-                if row == last_row + 1
-                    nzval[numnz] += val
-                    nzval[numnz]==zero(Tv) && (numnz -= 1)
-                else
-                    numnz += 1
-                    rowval[numnz] = row - 1
-                    nzval[numnz] = val
-                end
-            end
-            if row < m
-                numnz += 1
-                rowval[numnz] = row
-                nzval[numnz] = -val
-            end
-            last_row = row
-            last_val = val
-        end
+        numnz = _sparse_diff1_column!(rowval, nzval, numnz, rowvals(S), nonzeros(S), nzrange(S, col), m)
         colptr[col+1] = numnz+1
     end
     deleteat!(rowval, numnz+1:length(rowval))
@@ -889,7 +896,28 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     return SparseMatrixCSC(m, n-1, colptr, rowval, nzval)
 end
 
-diff(a::AbstractSparseMatrixCSC; dims::Integer) = dims==1 ? sparse_diff1(a) : sparse_diff2(a)
+function diff(a::AbstractSparseMatrixCSC; dims::Integer)
+    1 <= dims <= 2 || throw(ArgumentError("dimension $dims out of range (1:2)"))
+    return dims == 1 ? sparse_diff1(a) : sparse_diff2(a)
+end
+
+function _sparse_diff(x, dims)
+    dims == 1 || throw(ArgumentError("dimension $dims out of range (1:1)"))
+    n = length(x)
+    nzind_x = nonzeroinds(x)
+    nzval_x = nonzeros(x)
+    Ti, Tv = eltype(nzind_x), eltype(nzval_x)
+    n > 1 || return SparseVector(0, Ti[], Tv[])
+    numnz = 2 * length(nzind_x) # upper bound; will shrink later
+    nzind = Vector{Ti}(undef, numnz)
+    nzval = Vector{Tv}(undef, numnz)
+    numnz = _sparse_diff1_column!(nzind, nzval, 0, nzind_x, nzval_x, eachindex(nzind_x), n)
+    deleteat!(nzind, numnz+1:length(nzind))
+    deleteat!(nzval, numnz+1:length(nzval))
+    return SparseVector(n-1, nzind, nzval)
+end
+diff(x::AbstractSparseVector; dims::Integer=1) = _sparse_diff(x, dims)
+diff(x::Union{SparseColumnView, SparseVectorView}; dims::Integer=1) = _sparse_diff(x, dims)
 
 ## norm and rank
 norm(A::AbstractSparseMatrixCSC, p::Real=2) = norm(view(nonzeros(A), 1:nnz(A)), p)

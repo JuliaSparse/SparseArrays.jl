@@ -1053,20 +1053,12 @@ end
 
 # scaling
 
-function rmul!(x::SparseVectorOrView, a::Real)
+function rmul!(x::SparseVectorOrView, a::Number)
     rmul!(nonzeros(x), a)
     return x
 end
-function rmul!(x::SparseVectorOrView, a::Complex)
-    rmul!(nonzeros(x), a)
-    return x
-end
-function lmul!(a::Real, x::SparseVectorOrView)
-    rmul!(nonzeros(x), a)
-    return x
-end
-function lmul!(a::Complex, x::SparseVectorOrView)
-    rmul!(nonzeros(x), a)
+function lmul!(a::Number, x::SparseVectorOrView)
+    lmul!(a, nonzeros(x))
     return x
 end
 

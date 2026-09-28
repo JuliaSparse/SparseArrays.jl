@@ -13,6 +13,7 @@ using LinearAlgebra:
 using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
+include("../testhelpers.jl")
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
@@ -328,6 +329,21 @@ end
     @test ldiv!(zeros(Tv, 6, 3), F, view(R, 1:6, :)) ≈ X
 end
 
+@testset "ldiv! with aliased solution and right-hand side $Ti" begin
+    local A, F, B, ws, ws2
+    A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    F = cholesky(A)
+    B = A * Tv[1 2; 3 4; 5 6]
+    @test ldiv!(view(B, :, 1), F, view(vec(B), 1:3)) ≈ [1, 3, 5]
+    ws = CHOLMOD.CholmodWS(F)
+    B = A * Tv[1 2 3; 4 5 6; 7 8 9]
+    @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2); workspace = ws) ≈ [1 2; 4 5; 7 8]
+    # a deepcopy gets its own Y/E handles instead of sharing the ones a solve allocated,
+    # and repeated references resolve to the same copy
+    ws2, ws3 = deepcopy((ws, ws))
+    @test ws2 === ws3 && ws2.Y[] == ws2.E[] == C_NULL != ws.Y[]
+end
+
 @testset "isposdef(Factor) $elty $Ti" for elty in (Tv, Complex{Tv})
     local A, b, F, x
     o = elty <: Real ? elty(1) : elty(0, 1)
@@ -478,6 +494,7 @@ using SparseArrays
 using SparseArrays: getcolptr
 using SparseArrays.LibSuiteSparse
 using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_sparse
+include("../testhelpers.jl")
 
 # CHOLMOD tests
 itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)

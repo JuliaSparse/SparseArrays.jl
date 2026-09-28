@@ -8,6 +8,7 @@ using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, factorize, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
 using SparseArrays: SparseArrays, sparse, sprandn, spzeros, SparseMatrixCSC
 using Random: seed!
+include("../testhelpers.jl")
 
 
 @testset "Sparse QR" begin
@@ -247,7 +248,7 @@ end
          @test x ≈ xref
          @test QR' \ c ≈ cref
      end
-     @test_throws ErrorException qr(A, ordering=Int32(10))
+     @test_throws ArgumentError qr(A, ordering=Int32(10))
 end
 
 @testset "select ordering underdetermined" begin
@@ -259,7 +260,7 @@ end
          # x ≂̸ Array(A) \ b; LAPACK returns a min-norm x while SPQR returns a basic x
          @test A * x ≈ b
      end
-     @test_throws ErrorException qr(A, ordering=Int32(10))
+     @test_throws ArgumentError qr(A, ordering=Int32(10))
 end
 
 @testset "ORDERING_FIXED with a dependent column, $Tv $Ti" for Tv in (Float64, ComplexF64), Ti in itypes

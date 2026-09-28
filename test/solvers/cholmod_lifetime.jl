@@ -11,6 +11,7 @@ using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_s
     cholmod_l_allocate_dense, cholmod_allocate_dense
 using LinearAlgebra: I, cholesky, diag, ldiv!, ldlt, qr, Symmetric
 using Random
+include("../testhelpers.jl")
 
 # Run in a fresh process: intentional collections exercise finalization and rooting.
 # The constructors must free the pointer before throwing, so the Common's
@@ -239,6 +240,7 @@ if Ti == Int32 && Int64 in itypes && Tv == Float64
     n32, n64 = getcommon(Int32)[].memory_inuse, getcommon(Int64)[].memory_inuse
     for _ in 1:10
         qr(A)
+        @test_throws ArgumentError qr(A; ordering=Int32(10))
     end
     GC.gc()
     @test getcommon(Int32)[].memory_inuse == n32

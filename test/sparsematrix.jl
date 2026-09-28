@@ -8,7 +8,7 @@ using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotz
 using LinearAlgebra
 using Random
 using Test: guardseed
-include("forbidproperties.jl")
+include("testhelpers.jl")
 
 @testset "_isnotzero" begin
     @test !_isnotzero(0::Int)
@@ -208,6 +208,32 @@ do33 = fill(1.,3)
             end
         end
     end
+    @testset "sparse with strided dense is dense" begin
+        # The result type proves the strided methods are dispatched to: the AbstractArray
+        # fallback broadcasts, which makes a sparse result out of a dense operand.
+        for T in (Float64, ComplexF64)
+            S = sprandn(T, 5, 4, 0.5)
+            S[2, 3] = 0   # stored zero
+            SV = view(S, :, 2:4)
+            M = randn(T, 5, 4)
+            for (X, Y) in ((S, M), (SV, view(M, :, 2:4)), (SV, M[:, 2:4]),
+                           (S, view(M, 1:5, :)), (S, view(randn(T, 5, 8), :, 1:2:7)),
+                           (S, Matrix(M')'), (S, transpose(Matrix(transpose(M)))),
+                           (S, view(Matrix(M'), 1:4, :)')),
+                    fun in (+, -)
+                A, B = Array(X), Array(Y)
+                @test @inferred(fun(X, Y))::Matrix{T} == fun(A, B)
+                @test @inferred(fun(Y, X))::Matrix{T} == fun(B, A)
+            end
+            @test S[1:4, :] + Symmetric(M[1:4, :]) isa Matrix{T}
+            @test UpperTriangular(M[1:4, :]) - S[1:4, :] isa Matrix{T}
+            @test_throws DimensionMismatch S + M[:, 1:3]
+            @test_throws DimensionMismatch M[:, 1:3]' - S
+        end
+        # promotion follows the dense method
+        @test sparse([1, 2], [1, 2], [1, 2]) + [1.5 0; 0 1.5] isa Matrix{Float64}
+        @test sparse([1], [1], Real[1.5], 2, 2) + [1 2; 3 4]' == [2.5 3; 2 4]
+    end
     @testset "binary operations on sparse matrices with union eltype" begin
         A = sparse([1,2,1], [1,1,2], Union{Int, Missing}[1, missing, 0])
         MA = Array(A)
@@ -347,40 +373,113 @@ end
     @test f() == 0
 end
 
-struct Counting{T} <: Number
-    elt::T
+@testset "sparse transpose adjoint" begin
+    A = sprand(10, 10, 0.75)
+    @test A' == SparseMatrixCSC(A')
+    @test SparseMatrixCSC(A') isa SparseMatrixCSC
+    @test transpose(A) == SparseMatrixCSC(transpose(A))
+    @test SparseMatrixCSC(transpose(A)) isa SparseMatrixCSC
+    @test SparseMatrixCSC{eltype(A)}(transpose(A)) == transpose(A)
+    @test SparseMatrixCSC{eltype(A), Int}(transpose(A)) == transpose(A)
+    @test SparseMatrixCSC{Float16}(transpose(A)) == transpose(SparseMatrixCSC{Float16}(A))
+    @test SparseMatrixCSC{Float16, Int}(transpose(A)) == transpose(SparseMatrixCSC{Float16}(A))
+    B = sprand(ComplexF64, 10, 10, 0.75)
+    @test SparseMatrixCSC{eltype(B)}(adjoint(B)) == adjoint(B)
+    @test SparseMatrixCSC{eltype(B), Int}(adjoint(B)) == adjoint(B)
+    @test SparseMatrixCSC{ComplexF16}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16}(B))
+    @test SparseMatrixCSC{ComplexF16, Int8}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16, Int8}(B))
 end
-counter::Int = 0
-resetcounter() = (global counter; counter=0)
-stepcounter() = (global counter; counter+=1)
-getcounter() = (global counter; counter)
-Base.:(==)(x::Counting, y::Counting) = (stepcounter(); x.elt==y.elt)
-Base.promote_rule(::Type{Counting{T}}, ::Type{Counting{U}}) where {T,U} = Counting{promote_rule(T, U)}
-Base.iszero(x::Counting) = iszero(x.elt)
-Base.zero(::Type{Counting{T}}) where {T} = Counting(zero(T))
-Base.zero(x::Counting) = Counting(zero(x.elt))
-Base.adjoint(x::Counting) = Counting(adjoint(x.elt))
-Base.transpose(x::Counting) = Counting(transpose(x.elt))
-Base.isequal(x::Counting, y::Counting) = (stepcounter(); isequal(x.elt, y.elt))
+
+@testset "SparseMatrixCSC [c]transpose[!] and permute[!]" begin
+    smalldim = 5
+    largedim = 10
+    nzprob = 0.4
+    (m, n) = (smalldim, smalldim)
+    A = sprand(m, n, nzprob)
+    X = similar(A)
+    C = copy(transpose(A))
+    p = randperm(m)
+    q = randperm(n)
+    @testset "common error checking of [c]transpose! methods (ftranspose!)" begin
+        @test_throws DimensionMismatch transpose!(A[:, 1:(smalldim - 1)], A)
+        @test_throws DimensionMismatch transpose!(A[1:(smalldim - 1), 1], A)
+        @test_throws ArgumentError transpose!(A, A) # #812
+        @test_throws ArgumentError adjoint!(A, A)
+    end
+    @testset "common error checking of permute[!] methods / source-perm compat" begin
+        @test_throws DimensionMismatch permute(A, p[1:(end - 1)], q)
+        @test_throws DimensionMismatch permute(A, p, q[1:(end - 1)])
+    end
+    @testset "common error checking of permute[!] methods / source-dest compat" begin
+        @test_throws DimensionMismatch permute!(A[1:(m - 1), :], A, p, q)
+        @test_throws DimensionMismatch permute!(A[:, 1:(m - 1)], A, p, q)
+        @test_throws ArgumentError permute!((Y = copy(X); resize!(rowvals(Y), nnz(A) - 1); Y), A, p, q)
+        @test_throws ArgumentError permute!((Y = copy(X); resize!(nonzeros(Y), nnz(A) - 1); Y), A, p, q)
+    end
+    @testset "common error checking of permute[!] methods / source-workmat compat" begin
+        @test_throws DimensionMismatch permute!(X, A, p, q, C[1:(m - 1), :])
+        @test_throws DimensionMismatch permute!(X, A, p, q, C[:, 1:(m - 1)])
+        @test_throws ArgumentError permute!(X, A, p, q, (D = copy(C); resize!(rowvals(D), nnz(A) - 1); D))
+        @test_throws ArgumentError permute!(X, A, p, q, (D = copy(C); resize!(nonzeros(D), nnz(A) - 1); D))
+    end
+    @testset "common error checking of permute[!] methods / source-workcolptr compat" begin
+        @test_throws DimensionMismatch permute!(A, p, q, C, Vector{eltype(rowvals(A))}(undef, length(getcolptr(A)) - 1))
+    end
+    @testset "common error checking of permute[!] methods / permutation validity" begin
+        @test_throws ArgumentError permute!(A, (r = copy(p); r[2] = r[1]; r), q)
+        @test_throws ArgumentError permute!(A, (r = copy(p); r[2] = m + 1; r), q)
+        @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = r[1]; r))
+        @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = n + 1; r))
+    end
+    @testset "overall functionality of [c]transpose[!] and permute[!]" begin
+        for (m, n) in ((smalldim, smalldim), (smalldim, largedim), (largedim, smalldim))
+            A = sprand(m, n, nzprob)
+            At = copy(transpose(A))
+            # transpose[!]
+            fullAt = Array(transpose(A))
+            @test copy(transpose(A)) == fullAt
+            @test transpose!(similar(At), A) == fullAt
+            # adjoint[!]
+            C = A + im*A/2
+            fullCh = Array(C')
+            @test copy(C') == fullCh
+            @test adjoint!(similar(sparse(fullCh)), C) == fullCh
+            # permute[!]
+            p = randperm(m)
+            q = randperm(n)
+            fullPAQ = Array(A)[p,q]
+            @test permute(A, p, q) == sparse(Array(A[p,q]))
+            @test permute!(similar(A), A, p, q) == fullPAQ
+            @test permute!(similar(A), A, p, q, similar(At)) == fullPAQ
+            @test permute!(copy(A), p, q) == fullPAQ
+            @test permute!(copy(A), p, q, similar(At)) == fullPAQ
+            @test permute!(copy(A), p, q, similar(At), similar(getcolptr(A))) == fullPAQ
+        end
+    end
+end
+
+@testset "transpose of SubArrays" begin
+    A = view(sprandn(10, 10, 0.3), 1:4, 1:4)
+    @test copy(transpose(Array(A))) == Array(transpose(A))
+    @test copy(adjoint(Array(A))) == Array(adjoint(A))
+end
 
 # Deterministic replacement for wall-clock guards: with a counting eltype, a comparison
 # that walks only stored entries performs at most nnz(A) + nnz(B) element comparisons,
 # whereas the generic AbstractArray fallback performs length(A) of them.
 @testset "== and isequal walk stored entries only (issues #561, #766, #768)" begin
     n = 1000
-    v = sparsevec([1, n ÷ 2], Counting.([1.0, 2.0]), n)
-    w = sparsevec([1, n ÷ 2, n], Counting.([1.0, 0.0, 3.0]), n)
-    A = sparse([1, n ÷ 2], [1, n], Counting.([1.0, 2.0]), n, n)
-    B = sparse([1, n ÷ 2, 7], [1, n, 7], Counting.([1.0, 2.0, 0.0]), n, n)
+    v = sparsevec([1, n ÷ 2], OpCount.([1.0, 2.0]), n)
+    w = sparsevec([1, n ÷ 2, n], OpCount.([1.0, 0.0, 3.0]), n)
+    A = sparse([1, n ÷ 2], [1, n], OpCount.([1.0, 2.0]), n, n)
+    B = sparse([1, n ÷ 2, 7], [1, n, 7], OpCount.([1.0, 2.0, 0.0]), n, n)
     for (x, y) in ((v, v), (v, w), (w, v), (v', w'), (transpose(v), transpose(w)),
                    (A, A), (A, B), (B, A), (A', B'), (transpose(A), transpose(B)),
                    (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
         budget = nnz(parent(x isa Union{Adjoint,Transpose} ? x : x') ) +
                  nnz(parent(y isa Union{Adjoint,Transpose} ? y : y'))
         for eq in (==, isequal)
-            resetcounter()
-            eq(x, y)
-            @test getcounter() <= budget
+            @test eqcount(() -> eq(x, y)) <= budget
         end
     end
 end
@@ -390,14 +489,12 @@ end
 # makes only a handful of them, whereas the generic `findprev` performs up to length(A).
 @testset "hash walks stored entries only (issue #570)" begin
     n = 10^5
-    v = sparsevec([1, n ÷ 2], Counting.([1.0, 2.0]), n)
-    w = sparsevec([1, n ÷ 2, n], Counting.([1.0, 0.0, 3.0]), n)
-    A = sparse([1, n ÷ 2], [1, n], Counting.([1.0, 2.0]), n, n)
-    B = sparse([1, n ÷ 2, 7], [1, n, 7], Counting.([1.0, 2.0, 0.0]), n, n)
+    v = sparsevec([1, n ÷ 2], OpCount.([1.0, 2.0]), n)
+    w = sparsevec([1, n ÷ 2, n], OpCount.([1.0, 0.0, 3.0]), n)
+    A = sparse([1, n ÷ 2], [1, n], OpCount.([1.0, 2.0]), n, n)
+    B = sparse([1, n ÷ 2, 7], [1, n, 7], OpCount.([1.0, 2.0, 0.0]), n, n)
     for x in (v, w, A, B)
-        resetcounter()
-        hash(x)
-        @test getcounter() <= 8 * (nnz(x) + 1)
+        @test eqcount(() -> hash(x)) <= 8 * (nnz(x) + 1)
     end
     @test hash(v) == hash(Vector(v)) && hash(w) == hash(Vector(w))
 end
@@ -408,23 +505,22 @@ end
     A in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)],
     B in Any[sparse(1*I(100)), sprandn(100, 100, 0.1), sprandn(ComplexF64, 100, 100, 0.9)]
     if size(A) == size(B)
-        A = Counting.(A)
-        B = Counting.(B)
+        A = OpCount.(A)
+        B = OpCount.(B)
         As = Any[A, A', transpose(A)]
         Bs = Any[B, B', transpose(B)]
         for A′ in As, B′ in Bs
             # skip adjoints of transposes; these are not really supported
             ((A′ isa Adjoint && B′ isa Transpose) || (A′ isa Transpose && B′ isa Adjoint)) && continue
-            c = (resetcounter(); A′ == B′; getcounter())
-            @test c ≤ 1 + (nnz(A′) + nnz(B′))
+            @test eqcount(() -> A′ == B′) ≤ 1 + (nnz(A′) + nnz(B′))
         end
     end
 end
 
 @testset "Issue #246" begin
     for t in [Int, UInt8, Float64]
-        a = Counting.(sprand(t, 100, 0.5))
-        b = Counting.(sprand(t, 100, 0.5))
+        a = OpCount.(sprand(t, 100, 0.5))
+        b = OpCount.(sprand(t, 100, 0.5))
 
         c = if nnz(a) != 0
             c = copy(a)
@@ -441,9 +537,7 @@ end
         for m in [identity, transpose, adjoint]
             ma, mb, mc, md = m.([a, b, c, d])
 
-            resetcounter()
-            ma == mb
-            @test getcounter() <= nnz(a) + nnz(b)
+            @test eqcount(() -> ma == mb) <= nnz(a) + nnz(b)
 
             @test (mc == md) == (Array(mc) == Array(md))
         end
@@ -676,30 +770,6 @@ end
             @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
             @test nnz(sort(A; dims)) == nnz(A)
         end
-    end
-end
-
-@testset "products of LinearAlgebra's Q types with sparse operands" begin
-    D = randn(7, 7)
-    m = size(D, 1)
-    # one operand of each kind gives the same dense result as its dense copy
-    B, C, b = sprandn(m, 3, 0.5), sprandn(3, m, 0.5), sprandn(m, 0.5)
-    @testset "$name" for (name, Q) in (("qr", qr(D).Q), ("pivoted qr", qr(D, ColumnNorm()).Q),
-                                       ("hessenberg", hessenberg(D).Q), ("lq", lq(D).Q))
-        for X in (B, sparse(B')', view(B, :, 1:2))
-            @test (Q * X)::Matrix ≈ Q * Matrix(X)
-        end
-        for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b))
-            @test (X * Q')::Matrix ≈ Matrix(X) * Q'
-        end
-        @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
-        @test (C * Q)::Matrix ≈ Matrix(C) * Q
-        for x in (b, view(B, :, 1), view(b, 1:m))
-            @test (Q * x)::Vector ≈ Q * Vector(x)
-        end
-        @test (Q' * b)::Vector ≈ Q' * Vector(b)
-        @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
-        @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
     end
 end
 

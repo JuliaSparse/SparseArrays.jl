@@ -214,3 +214,11 @@ function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector
     end
     return A
 end
+
+# Base's `cumsum`, `cumprod` and `accumulate` allocate their result with `similar(A, T)`,
+# which keeps a fixed pattern, so compute them on the plain array and return that.
+for f in (:cumsum, :cumprod)
+    @eval Base.$f(A::FixedSparseCSC; dims::Integer) = $f(_unsafe_unfix(A); dims)
+    @eval Base.$f(x::FixedSparseVector; dims::Integer=1) = $f(_unsafe_unfix(x); dims)
+end
+Base.accumulate(op, A::Union{FixedSparseCSC,FixedSparseVector}; kw...) = accumulate(op, _unsafe_unfix(A); kw...)

@@ -6,8 +6,18 @@ measure test time, in addition to the top-level `AGENTS.md`.
 ## Layout
 
 - `runtests.jl` owns the suite inventory, used by both ParallelTestRunner and the serial
-  fallback for Julia Base CI. Selectors match by prefix. Adding a feature file does not
-  require adding a worker task.
+  fallback for Julia Base CI. On both paths selectors match suite names by prefix and a
+  `!prefix` selector excludes; the serial path takes selectors only, and errors when
+  nothing matches. `--jobs=N` and `PTR_NUM_JOBS` are honoured; without either, the
+  runner uses `Sys.CPU_THREADS` workers. Adding a feature file does not require adding a
+  worker task.
+- `testhelpers.jl` holds the helpers every suite shares: the `getproperty` guard that
+  makes field access on the sparse types an error, `same_pattern` and `exact_equal`,
+  the `OpCount` eltype with `mulcount`/`eqcount`/`opcount_sparse`, `CountedReads`,
+  `hasunionlocal`, `quaternion_type` and `SimpleSMatrix`. It is a plain definition file:
+  every suite is a module that `include`s it first (`../testhelpers.jl` from `solvers/`),
+  so the guard applies whatever the worker order. `ambiguous.jl` alone does not include
+  it. Put a helper that a second suite needs there rather than duplicating it.
 - Test files are named after the source area they cover. `solvers/` mirrors
   `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
   `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
@@ -15,9 +25,14 @@ measure test time, in addition to the top-level `AGENTS.md`.
   top-level `AGENTS.md` has the rule for what belongs there.
 - `triangular.jl` holds the triangular product and solve tests as one scheduling unit,
   and the two grids share their fixtures. `concatenation.jl` likewise holds all
-  concatenation tests.
+  concatenation tests, and `matmul.jl` every other product test, for vectors as well as
+  matrices: scaling, the BLAS-2 grid and products with LinearAlgebra's Q types, while
+  `sparsevector.jl` keeps the vector `axpy!` and `dot` tests. The `transpose`, `adjoint`
+  and `permute` tests, including the in-place forms, live in `sparsematrix.jl`.
 - Preserve issue references on regression tests.
-- `ambiguous.jl` is not part of the default run; CI gives it its own job.
+- `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI gives it
+  its own job. It restores the depot, load path, environment and active project in a
+  `finally`, so an Aqua failure on Base CI leaves the worker usable.
 - `solvers/threads.jl` owns tests requiring fresh process state. Its `testprocess.jl`
   helper preserves the active project and resolved load path, verifies the checkout
   loaded by the child, and explicitly selects default-pool thread counts. The file has

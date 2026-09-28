@@ -12,7 +12,8 @@ using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
     AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ,
     UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, UpperOrUnitUpperTriangular,
-    LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, isbanded
+    LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, isbanded,
+    StridedMaybeAdjOrTransMat
 
 
 import Base: +, -, *, \, /, ==, zero
@@ -376,7 +377,6 @@ end
 increment(A::AbstractArray{<:Integer}) = increment!(copy(A))
 
 include("solvers/LibSuiteSparse.jl")
-using .LibSuiteSparse
 
 @static if Base.USE_GPL_LIBS
     include("solvers/umfpack.jl")

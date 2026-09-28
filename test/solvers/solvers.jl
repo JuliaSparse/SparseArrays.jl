@@ -6,6 +6,7 @@ using Test
 using SparseArrays
 using Random
 using LinearAlgebra
+include("../testhelpers.jl")
 
 @testset "explicit zeros" begin
     a = SparseMatrixCSC(2, 2, [1, 3, 5], [1, 2, 1, 2], [1.0, 0.0, 0.0, 1.0])
@@ -132,6 +133,15 @@ end
     end
 end
 
+@testset "LibSuiteSparse names are not imported into SparseArrays" begin
+    @test isdefined(SparseArrays.LibSuiteSparse, :cholmod_l_start)
+    @test isdefined(SparseArrays.LibSuiteSparse, :umfpack_dl_symbolic)
+    @test isdefined(SparseArrays.LibSuiteSparse, :CHOLMOD_OK)
+    @test !isdefined(SparseArrays, :cholmod_l_start)
+    @test !isdefined(SparseArrays, :umfpack_dl_symbolic)
+    @test !isdefined(SparseArrays, :CHOLMOD_OK)
+end
+
 @testset "factorization of a fixed-pattern matrix" begin
     b = sprandn(10, 10, 0.99) + I
     a = SparseArrays.fixed(b)
@@ -140,6 +150,13 @@ end
     @test b == a
     @test (qr(a + a') \ randn(10); true)
     @test b == a
+
+    # `factorize` and `\` query `ishermitian`, which used to throw on a fixed matrix
+    F = SparseArrays.fixed(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+    @test factorize(F) isa SparseArrays.CHOLMOD.Factor{Float64}
+    @test F \ [1.0, 2, 3] ≈ Matrix(F) \ [1.0, 2, 3]
+    # an indefinite Hermitian fixed matrix reaches `ldlt!`, which takes a `SparseMatrixCSC` only
+    @test_broken factorize(SparseArrays.fixed(sparse([1.0 2 0; 2 1 2; 0 2 1]))) isa SparseArrays.CHOLMOD.Factor
 end
 
 

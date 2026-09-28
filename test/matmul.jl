@@ -9,16 +9,11 @@ using SparseArrays
 using SparseArrays: AbstractSparseMatrixCSC, nonzeroinds, getcolptr, rowvals, nonzeros, fixed, _is_fixed
 using LinearAlgebra
 using Random
-include("forbidproperties.jl")
-include("mulcount.jl")
+include("testhelpers.jl")
 
 sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
 dA = Array(sA)
-
-const BASE_TEST_PATH = joinpath(Sys.BINDIR, "..", "share", "julia", "test")
-isdefined(Main, :Quaternions) || @eval Main include(joinpath($(BASE_TEST_PATH), "testhelpers", "Quaternions.jl"))
-using .Main.Quaternions
 
 @testset "matrix-vector multiplication (non-square)" begin
     for i = 1:5
@@ -103,12 +98,12 @@ end
         end
     end
     # one multiplication per pair of matching stored entries, not per element
-    P = mulcount_sparse(sparse(1.0I, n, n))
+    P = opcount_sparse(sparse(1.0I, n, n))
     for f in (() -> Symmetric(P) * P, () -> P * Symmetric(P), () -> P' * Symmetric(P),
               () -> UpperTriangular(P) * Symmetric(P), () -> Symmetric(P) * Symmetric(P, :L))
         @test mulcount(f) == n
     end
-    x = sparsevec(fill(MulCount(1.0), n))
+    x = sparsevec(fill(OpCount(1.0), n))
     @test mulcount(() -> Symmetric(P) * x) == mulcount(() -> P * x)
 end
 
@@ -376,8 +371,8 @@ end
     end
     # the kernels touch only the stored entries: exactly nnz(S) scalar multiplications,
     # whereas the generic Diagonal kernel visits every element of the result
-    S = mulcount_sparse(sprand(20, 30, 0.2))
-    Dl = Diagonal(MulCount.(rand(30))); Dr = Diagonal(MulCount.(rand(20)))
+    S = opcount_sparse(sprand(20, 30, 0.2))
+    Dl = Diagonal(OpCount.(rand(30))); Dr = Diagonal(OpCount.(rand(20)))
     for W in (adjoint, transpose)
         @test mulcount(() -> W(S) * Dr) == nnz(S)
         @test mulcount(() -> Dl * W(S)) == nnz(S)
@@ -450,7 +445,7 @@ end
     end
 
     @testset "non-commutative multiplication" begin
-        # non-commutative multiplication
+        Quaternion = quaternion_type()
         Avals = Quaternion.(randn(10), randn(10), randn(10), randn(10))
         sA = sparse(rand(1:3, 10), rand(1:7, 10), Avals, 3, 7)
         sC = copy(sA)
@@ -502,6 +497,34 @@ end
                 @test mul!(copy(sA2), D, sA, alpha, beta) ≈ D * dA * alpha + sA2 * beta
             end
         end
+    end
+
+    @testset "scale" begin
+        x = sprand(16, 0.5)
+        α = 2.5
+        sx = SparseVector(length(x::SparseVector), nonzeroinds(x), nonzeros(x) * α)
+        @test exact_equal(x * α, sx)
+        @test exact_equal(x * (α + 0.0*im), complex(sx))
+        @test exact_equal(α * x, sx)
+        @test exact_equal((α + 0.0*im) * x, complex(sx))
+        @test exact_equal(x * α, sx)
+        @test exact_equal(α * x, sx)
+        @test exact_equal(x .* α, sx)
+        @test exact_equal(α .* x, sx)
+        @test exact_equal(x / α, SparseVector(length(x::SparseVector), nonzeroinds(x), nonzeros(x) / α))
+
+        xc = copy(x)
+        @test rmul!(xc, α) === xc
+        @test exact_equal(xc, sx)
+        xc = copy(x)
+        @test lmul!(α, xc) === xc
+        @test exact_equal(xc, sx)
+        xc = copy(x)
+        @test rmul!(xc, complex(α, 0.0)) === xc
+        @test exact_equal(xc, sx)
+        xc = copy(x)
+        @test lmul!(complex(α, 0.0), xc) === xc
+        @test exact_equal(xc, sx)
     end
 end
 
@@ -566,25 +589,250 @@ end
     end
 end
 
-# reads of the wrapped matrix are counted, to tell a kernel that copies each strided row
-# once from one that rereads it for every stored entry
-struct CountedReadsMatrix{T} <: AbstractMatrix{T}
-    parent::Matrix{T}
-    reads::Base.RefValue{Int}
+@testset "BLAS Level-2" begin
+    @testset "dense A * sparse x -> dense y" begin
+        for TA in (Float64, ComplexF64), Tx in (Float64, ComplexF64)
+            T = Base.promote_op(LinearAlgebra.matprod, TA, Tx)
+            let A = randn(TA, 9, 16), x = sprand(Tx, 16, 0.7)
+                xf = Array(x)
+                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+                    y = rand(T, 9)
+                    rr = α*A*xf + β*y
+                    @test mul!(y, A, x, α, β) === y
+                    @test y ≈ rr
+                end
+                y = A*x
+                @test isa(y, Vector{T})
+                @test A*x ≈ A*xf
+            end
+
+            let A = randn(TA, 16, 9), x = sprand(Tx, 16, 0.7)
+                xf = Array(x)
+                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+                    y = rand(T, 9)
+                    rr = α*transpose(A)*xf + β*y
+                    @test mul!(y, transpose(A), x, α, β) === y
+                    @test y ≈ rr
+                end
+                y = *(transpose(A), x)
+                @test isa(y, Vector{T})
+                @test y ≈ *(transpose(A), xf)
+            end
+
+            let A = randn(TA, 16, 9), x = sprand(Tx, 16, 0.7)
+                xf = Array(x)
+                for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+                    y = rand(T, 9)
+                    rr = α*A'xf + β*y
+                    @test mul!(y, adjoint(A), x, α, β) === y
+                    @test y ≈ rr
+                end
+                y = *(adjoint(A), x)
+                @test isa(y, Vector{T})
+                @test y ≈ *(adjoint(A), xf)
+            end
+
+            let A = randn(TA, 16, 16), x = sprand(Tx, 16, 0.7)
+                xf = Array(x)
+                for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
+                        M -> Hermitian(M, :U), M -> Hermitian(M, :L))
+                    for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
+                        y = rand(T, 16)
+                        rr = α*wrap(A)*xf + β*y
+                        @test mul!(y, wrap(A), x, α, β) === y
+                        @test y ≈ rr
+                    end
+                    y = *(wrap(A), x)
+                    @test isa(y, Vector{T})
+                    @test y ≈ *(wrap(A), xf)
+                end
+            end
+        end
+    end
+    @testset "sparse A * sparse x -> dense y" begin
+        let A = sprandn(9, 16, 0.5), x = sprand(16, 0.7)
+            Af = Array(A)
+            xf = Array(x)
+            for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+                y = rand(9)
+                rr = α*Af*xf + β*y
+                @test mul!(y, A, x, α, β) === y
+                @test y ≈ rr
+            end
+            y = SparseArrays.densemv(A, x)
+            @test isa(y, Vector{Float64})
+            @test y ≈ Af*xf
+        end
+
+        let A = sprandn(16, 9, 0.5), x = sprand(16, 0.7)
+            Af = Array(A)
+            xf = Array(x)
+            for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
+                y = rand(9)
+                rr = α*Af'xf + β*y
+                @test mul!(y, transpose(A), x, α, β) === y
+                @test y ≈ rr
+            end
+            y = SparseArrays.densemv(A, x; trans='T')
+            @test isa(y, Vector{Float64})
+            @test y ≈ *(transpose(Af), xf)
+
+            A32 = SparseMatrixCSC{Float64,Int32}(A)
+            @test mul!(zeros(9), transpose(A32), x) ≈ transpose(Af) * xf
+        end
+
+        let A = sprandn(16, 16, 0.5), x = sprand(16, 0.7)
+            Af = Array(A)
+            xf = Array(x)
+            for wrap in (M -> Symmetric(M, :U), M -> Symmetric(M, :L),
+                M -> Hermitian(M, :U), M -> Hermitian(M, :L),
+                M -> UpperTriangular(M), M -> UnitUpperTriangular(M),
+                M -> LowerTriangular(M), M -> UnitLowerTriangular(M),
+                M -> UpperTriangular(transpose(M)), M -> UnitUpperTriangular(transpose(M)),
+                M -> LowerTriangular(transpose(M)), M -> UnitLowerTriangular(transpose(M)),
+                M -> UpperTriangular(adjoint(M)), M -> UnitUpperTriangular(adjoint(M)),
+                M -> LowerTriangular(adjoint(M)), M -> UnitLowerTriangular(adjoint(M)),
+                M -> UpperTriangular(Symmetric(M)))
+                for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
+                    y = rand(16)
+                    rr = α*wrap(Af)*xf + β*y
+                    @test mul!(y, wrap(A), x, α, β) === y
+                    @test y ≈ rr
+                end
+                y = wrap(A) * x
+                @test y ≈ *(wrap(Af), xf)
+            end
+        end
+
+        let A = complex.(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
+            x = complex.(sprandn(8, 0.6), sprandn(8, 0.6)),
+            x2 = complex.(sprandn(7, 0.75), sprandn(7, 0.75))
+            Af = Array(A)
+            xf = Array(x)
+            x2f = Array(x2)
+            @test SparseArrays.densemv(A, x; trans='N') ≈ Af * xf
+            @test SparseArrays.densemv(A, x2; trans='T') ≈ transpose(Af) * x2f
+            @test SparseArrays.densemv(A, x2; trans='C') ≈ Af'x2f
+            @test_throws ArgumentError SparseArrays.densemv(A, x; trans='D')
+        end
+
+        let A = sparse(bitrand(9, 16)), x = sparse(bitrand(16))
+            Af = Array(A)
+            xf = Array(x)
+            y = SparseArrays.densemv(A, x)
+            @test isa(y, Vector{Int})
+            @test y == Af*xf
+        end
+    end
+    @testset "sparse A * sparse x -> sparse y" begin
+        let A = sprandn(9, 16, 0.5), x = sprand(16, 0.7), x2 = sprand(9, 0.7)
+            Af = Array(A)
+            xf = Array(x)
+            x2f = Array(x2)
+
+            y = A*x
+            @test isa(y, SparseVector{Float64,Int})
+            @test all(nonzeros(y) .!= 0.0)
+            @test Array(y) ≈ Af * xf
+
+            y = *(transpose(A), x2)
+            @test isa(y, SparseVector{Float64,Int})
+            @test all(nonzeros(y) .!= 0.0)
+            @test Array(y) ≈ Af'x2f
+        end
+
+        let A = complex.(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
+            x = complex.(sprandn(8, 0.6), sprandn(8, 0.6)),
+            x2 = complex.(sprandn(7, 0.75), sprandn(7, 0.75))
+            Af = Array(A)
+            xf = Array(x)
+            x2f = Array(x2)
+
+            y = A*x
+            @test isa(y, SparseVector{ComplexF64,Int})
+            @test Array(y) ≈ Af * xf
+
+            y = *(transpose(A), x2)
+            @test isa(y, SparseVector{ComplexF64,Int})
+            @test Array(y) ≈ transpose(Af) * x2f
+
+            y = *(adjoint(A), x2)
+            @test isa(y, SparseVector{ComplexF64,Int})
+            @test Array(y) ≈ Af'x2f
+
+            A32 = SparseMatrixCSC{ComplexF64,Int32}(A)
+            for x32 in (x2, SparseVector{ComplexF64,Int32}(x2)), op in (transpose, adjoint)
+                y = op(A32) * x32
+                @test isa(y, SparseVector{ComplexF64,promote_type(Int32, eltype(nonzeroinds(x32)))})
+                @test Array(y) ≈ op(Af) * x2f
+            end
+        end
+
+        let A = sparse(bitrand(9, 16)), x = sparse(bitrand(16)), x2 = sparse(bitrand(9))
+            Af = Array(A)
+            xf = Array(x)
+            x2f = Array(x2)
+
+            y = A*x
+            @test isa(y, SparseVector{Int, Int})
+            @test Array(y) == Af*xf
+
+            y = A'*x2
+            @test isa(y, SparseVector{Int, Int})
+            @test Array(y) == Af'x2f
+        end
+    end
+    @testset "sparse A * dense x -> dense y" begin
+        let A = sparse(bitrand(9, 16)), x = Vector(bitrand(16)), x2 = Vector(bitrand(9))
+            Af = Array(A)
+            xf = Array(x)
+            x2f = Array(x2)
+
+            y = A*x
+            @test isa(y, Vector{Int})
+            @test y == Af*xf
+
+            y = A'*x2
+            @test isa(y, Vector{Int})
+            @test y == Af'x2f
+        end
+    end
 end
-Base.size(X::CountedReadsMatrix) = size(X.parent)
-Base.getindex(X::CountedReadsMatrix, i::Int, j::Int) = (X.reads[] += 1; X.parent[i, j])
+
+@testset "products of LinearAlgebra's Q types with sparse operands" begin
+    D = randn(7, 7)
+    m = size(D, 1)
+    # one operand of each kind gives the same dense result as its dense copy
+    B, C, b = sprandn(m, 3, 0.5), sprandn(3, m, 0.5), sprandn(m, 0.5)
+    @testset "$name" for (name, Q) in (("qr", qr(D).Q), ("pivoted qr", qr(D, ColumnNorm()).Q),
+                                       ("hessenberg", hessenberg(D).Q), ("lq", lq(D).Q))
+        for X in (B, sparse(B')', view(B, :, 1:2))
+            @test (Q * X)::Matrix ≈ Q * Matrix(X)
+        end
+        for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b))
+            @test (X * Q')::Matrix ≈ Matrix(X) * Q'
+        end
+        @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
+        @test (C * Q)::Matrix ≈ Matrix(C) * Q
+        for x in (b, view(B, :, 1), view(b, 1:m))
+            @test (Q * x)::Vector ≈ Q * Vector(x)
+        end
+        @test (Q' * b)::Vector ≈ Q' * Vector(b)
+        @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
+        @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
+    end
+end
 
 @testset "product kernels touch stored entries only" begin
     n = 8
     # adjoint dense times adjoint sparse reads each entry of the dense factor at most once
     A = sprandn(ComplexF64, 6, n, 0.5); X = randn(ComplexF64, n, 5); C0 = randn(ComplexF64, 5, 6)
-    Xc = CountedReadsMatrix(X, Ref(0))
+    Xc = CountedReads(X)
     @test mul!(copy(C0), Xc', A', 2, 3) ≈ 2 * X' * Matrix(A)' + 3 * C0
     @test Xc.reads[] <= length(X)
     @test mul!(copy(C0), transpose(X), transpose(A), 2, 3) ≈ 2 * transpose(X) * transpose(Matrix(A)) + 3 * C0
-    P = mulcount_sparse(sparse(1.0I, n, n))
-    one_, two = MulCount(1.0), MulCount(2.0)
+    P = opcount_sparse(sparse(1.0I, n, n))
+    one_, two = OpCount(1.0), OpCount(2.0)
     # sparse times sparse into a dense destination: one multiplication per pair of stored entries
     @test mulcount(() -> mul!(fill(one_, n, n), P, P, true, false)) == n
     @test mulcount(() -> mul!(fill(one_, n, n), Symmetric(P), P', true, false)) == n
@@ -592,7 +840,7 @@ Base.getindex(X::CountedReadsMatrix, i::Int, j::Int) = (X.reads[] += 1; X.parent
     x = sparsevec(fill(one_, n)); y = fill(one_, n)
     @test mulcount(() -> mul!(copy(y), Symmetric(P), x, true, false)) == mulcount(() -> mul!(copy(y), P, x, true, false))
     # scaling a column-view destination by `β` stays sparse
-    Q = mulcount_sparse(sparse(1.0I, n, n + 1))
+    Q = opcount_sparse(sparse(1.0I, n, n + 1))
     @test mulcount(() -> mul!(view(Q, :, 1:n), P, P, two, two)) <= 4n
     # the adjoint kernel for a sparse vector does not allocate per column
     A = sprandn(400, 400, 0.01); xs = sprandn(400, 0.1); ys = zeros(400)

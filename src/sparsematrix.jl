@@ -1567,6 +1567,7 @@ end
 function (-)(A::AbstractSparseMatrixCSC)
     nzval = similar(nonzeros(A), typeof(-zero(eltype(A))))
     map!(-, view(nzval, 1:nnz(A)), nzvalview(A))
+    _is_fixed(A) && return FixedSparseCSC(size(A, 1), size(A, 2), getcolptr(A), rowvals(A), nzval)
     return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
 end
 
@@ -1582,53 +1583,13 @@ imag(A::SparseMatrixCSCOrView{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size
 (+)(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = map(+, A, B)
 (-)(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = map(-, A, B)
 
-function (+)(A::SparseMatrixCSCOrView, B::Array)
-    Base.promote_shape(axes(A), axes(B))
-    C = Ref(zero(eltype(A))) .+ B
-    rowinds, nzvals = rowvals(A), nonzeros(A)
-    for j in axes(A,2)
-        @inbounds for i in nzrange(A, j)
-            rowidx = rowinds[i]
-            C[rowidx,j] = nzvals[i] + B[rowidx,j]
-        end
-    end
-    return C
-end
-function (+)(A::Array, B::SparseMatrixCSCOrView)
-    Base.promote_shape(axes(A), axes(B))
-    C = A .+ Ref(zero(eltype(B)))
-    rowinds, nzvals = rowvals(B), nonzeros(B)
-    for j in axes(B,2)
-        @inbounds for i in nzrange(B, j)
-            rowidx = rowinds[i]
-            C[rowidx,j] = A[rowidx,j] + nzvals[i]
-        end
-    end
-    return C
-end
-function (-)(A::SparseMatrixCSCOrView, B::Array)
-    Base.promote_shape(axes(A), axes(B))
-    C = Ref(zero(eltype(A))) .- B
-    rowinds, nzvals = rowvals(A), nonzeros(A)
-    for j in axes(A,2)
-        @inbounds for i in nzrange(A, j)
-            rowidx = rowinds[i]
-            C[rowidx,j] = nzvals[i] - B[rowidx,j]
-        end
-    end
-    return C
-end
-function (-)(A::Array, B::SparseMatrixCSCOrView)
-    Base.promote_shape(axes(A), axes(B))
-    C = A .- Ref(zero(eltype(B)))
-    rowinds, nzvals = rowvals(B), nonzeros(B)
-    for j in axes(B,2)
-        @inbounds for i in nzrange(B, j)
-            rowidx = rowinds[i]
-            C[rowidx,j] = A[rowidx,j] - nzvals[i]
-        end
-    end
-    return C
+# A sum with a strided dense matrix, or an adjoint or transpose of one, is dense, as for a
+# sparse and a dense vector. Densifying the sparse side leaves the shape and element type of
+# the result to the dense method. Symmetric, triangular and banded wrappers of a dense matrix
+# keep their own methods.
+for op in (:+, :-)
+    @eval $(op)(A::SparseMatrixCSCOrView, B::StridedMaybeAdjOrTransMat) = $(op)(Array(A), B)
+    @eval $(op)(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCOrView) = $(op)(A, Array(B))
 end
 
 ## full equality
@@ -1732,7 +1693,9 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
     colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval = nonzeros(A)
-    tracker = copy(getcolptr(A))
+    # `Vector`, not `copy`: a fixed matrix's column pointers are `ReadOnly` and `copy`
+    # keeps that wrapper, but the tracker is advanced below
+    tracker = Vector(getcolptr(A))
     @inbounds for col in axes(A,2)
         # `tracker` is updated such that, for symmetric matrices,
         # the loop below starts from an element at or below the
@@ -1813,10 +1776,14 @@ end
 
 function istriu(A::AbstractSparseMatrixCSC, k::Integer=0)
     m, n = size(A)
+    k <= 1-m && return true
+    k >= n && return iszero(A)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
-    @inbounds for col = 1:min(n, m-1)
+    # Compare before adding k to avoid overflowing the last column of the band.
+    lastcol = k >= n-m+1 ? n : m-1+k
+    for col = 1:lastcol
         for i in reverse(nzrange(A, col))
             if rowval[i] <= col - k
                 # rows preceeding the index would also lie above the band
@@ -1832,10 +1799,13 @@ end
 
 function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     m, n = size(A)
+    k >= n-1 && return true
+    k <= -m && return iszero(A)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
-    @inbounds for col = 2:n
+    # column j has entries above the band only when j - k > 1
+    for col = max(1, k+2):n
         for i = nzrange(A, col)
             if rowval[i] >= col - k
                 # subsequent rows would also lie below the band
