@@ -40,6 +40,16 @@ function sparse_ops()
     bad += check(nnz(A) == 4)
     bad += check(hcat(A, D) isa SparseMatrixCSC{Float64,Int})
     bad += check(Matrix(vcat(A, A)) == vcat(D, D))
+    B = [A D; D A]
+    bad += check(B isa SparseMatrixCSC{Float64,Int} && B[4, 1] == 2.0 && B[6, 4] == 4.0 && nnz(B) == 16)
+    bad += check(hvcat((2, 2), A, A, A, A) isa SparseMatrixCSC{Float64,Int})
+    bad += check(size([A D A; D A D]) == (6, 9))
+    A32 = SparseMatrixCSC{Float32,Int32}(A)
+    bad += check([A A32; A32 A] isa SparseMatrixCSC{Float64,Int})
+    C = cat(A, D; dims = (1, 2))
+    bad += check(C isa SparseMatrixCSC{Float64,Int} && size(C) == (6, 6) && C[4, 4] == 2.0 && C[1, 4] == 0.0)
+    bad += check(size(cat(A, D, A, D, A, D; dims = (1, 2))) == (18, 18))
+    bad += check(cat(A, A; dims = 1) isa SparseMatrixCSC{Float64,Int})
     bad += check(Vector(sparsevec([1, 3], [1.0, 2.0], 3)) == [1.0, 0.0, 2.0])
     return bad
 end

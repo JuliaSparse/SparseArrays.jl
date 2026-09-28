@@ -34,6 +34,39 @@ include("testhelpers.jl")
         @test length(nonzeros([sp33 0I; 1I 0I])) == 6
     end
 
+    @testset "h+v concatenation with block rows unknown to inference" begin
+        A = sparse([1, 3, 2], [1, 1, 3], [1.0, 2.0, 0.0], 3, 3)  # a stored zero
+        B = SparseMatrixCSC{Float32,Int32}(sprand(3, 2, 0.5))
+        C = sprand(3, 8, 0.5)
+        rows = Base.inferencebarrier((3, 1))
+        H = hvcat(rows, A, B, A, C)
+        @test H isa SparseMatrixCSC{Float64,Int}
+        @test H == hvcat((3, 1), Matrix(A), Matrix(B), Matrix(A), Matrix(C))
+        @test nnz(H) == 2nnz(A) + nnz(B) + nnz(C)
+        @test hvcat(rows, A, Matrix(B), A, C) == H
+        @test hvcat(Base.inferencebarrier((2, 2)), spzeros(0, 2), spzeros(0, 1), A[:, 1:2], A[:, 3:3]) == A
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2,)), A, spzeros(4, 2))
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2, 1)), A, A, C[:, 1:5])
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2, 2)), A, A, A)
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((1, 1)), A, A, A)
+        @test_throws ArgumentError hvcat(Base.inferencebarrier((0, 2)), A, A)
+    end
+
+    @testset "cat with dims unknown to inference" begin
+        A = sprand(3, 3, 0.5)
+        D = rand(3, 3)
+        v = sprand(3, 0.5)
+        for dims in (1, 2, (1, 2), Val(2))
+            C = cat(A, D; dims = Base.inferencebarrier(dims))
+            @test C isa SparseMatrixCSC{Float64,Int}
+            @test C == cat(Matrix(A), D; dims)
+        end
+        @test cat(v, v; dims = Base.inferencebarrier(1)) isa SparseVector{Float64,Int}
+        C3 = cat(A, Matrix(A); dims = Base.inferencebarrier((1, 3)))
+        @test C3 isa Array{Float64,3}
+        @test C3 == cat(Matrix(A), Matrix(A); dims = (1, 3))
+    end
+
     @testset "blockdiag concatenation" begin
         @test blockdiag(se33, se33) == sparse(1:6,1:6,fill(1.,6))
         @test blockdiag() == spzeros(0, 0)

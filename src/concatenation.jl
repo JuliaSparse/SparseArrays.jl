@@ -343,15 +343,30 @@ function _catdest(::Type{T}, shape, X1::Number, X...) where {T}
     A = _catleader(X1, X...)
     return similar(A, T, promote_type(Int, indtype(A)), shape)
 end
+# `cat` passes `dims` as a keyword, so it is not a constant here even when the call site
+# writes one, and `dims2cat` returns a tuple of unknown length. A sparse result has one or
+# two dimensions, so branching on the length gives each sparse branch a concrete `catdims`,
+# which keeps the calls below statically resolved, as `juliac --trim` requires. More
+# dimensions give a dense result, which Base's dense `cat` builds.
 Base.@constprop :aggressive function _sparse_cat_t(dims, ::Type{T}, X...) where {T}
     catdims = Base.dims2cat(dims)
+    if length(catdims) == 1
+        return _sparse_cat_t_shaped((catdims[1],), T, X...)
+    elseif length(catdims) == 2
+        return _sparse_cat_t_shaped((catdims[1], catdims[2]), T, X...)
+    end
+    return Base._cat_t(dims, T, map(_catdense, X)...)
+end
+function _sparse_cat_t_shaped(catdims::Tuple{Vararg{Bool}}, ::Type{T}, X...) where {T}
     shape = Base.cat_size_shape(catdims, X...)
     A = _catdest(T, shape, X...)
-    if count(!iszero, catdims)::Int > 1
+    if count(catdims) > 1
         fill!(A, zero(T))
     end
     return Base.__cat(A, shape, catdims, X...)
 end
+_catdense(x::AbstractArray) = Array(x)
+_catdense(x) = x
 # with only arrays, `typed_hcat`/`typed_vcat` reach the same destination through `similar`
 # of the first, now sparse, array; a number among them takes the `cat` path as in Base
 _sparse_typed_hcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_hcat(T, X...)
@@ -392,13 +407,76 @@ Base.@constprop :aggressive function hvcat_internal(rows::Tuple{Vararg{Int}}, X1
     end
     return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
 end
-# Without a constant `rows` the block rows have unknown length and their types cannot be
-# inferred, which is the case when LinearAlgebra's `hvcat` calls back here after replacing
-# `UniformScaling` blocks with sparse identities. With only sparse matrices, the promoted
-# element and index types are known from the blocks alone, so the final `vcat` takes them
-# explicitly and the result type does not depend on `rows`.
-function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::AbstractSparseMatrixCSC...)
-    return _vcat_csc(promote_eltype(X...), promote_idxtype(X...), _hvcat_rows(rows, X...)...)
+# With only sparse matrices the result is built directly. `rows` is not a constant when
+# `hvcat` is called from compiled code, or when LinearAlgebra's `hvcat` calls back here
+# after replacing `UniformScaling` blocks with sparse identities, so a kernel that splats
+# the blocks of each row would have row tuples of unknown length: their types could not
+# be inferred and the calls could not be resolved, which `juliac --trim` rejects.
+function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::Vararg{AbstractSparseMatrixCSC,N}) where {N}
+    return _hvcat_csc(promote_eltype(X...), promote_idxtype(X...), rows, X...)
+end
+function _hvcat_csc(::Type{Tv}, ::Type{Ti}, rows::Tuple{Vararg{Int}}, X::Vararg{AbstractSparseMatrixCSC,N}) where {Tv,Ti,N}
+    nblocks = 0
+    for r in rows
+        r > 0 || throw(ArgumentError("length of block row must be positive, got $r"))
+        nblocks += r
+    end
+    nblocks == length(X) ||
+        throw(DimensionMismatch(lazy"block rows $rows take $nblocks blocks, got $(length(X))"))
+    m, n, k = 0, 0, 0
+    for (b, r) in enumerate(rows)
+        h, w = size(X[k + 1], 1), 0
+        for i in k+1:k+r
+            size(X[i], 1) == h || throw(DimensionMismatch(
+                lazy"block $i has $(size(X[i], 1)) rows, but block row $b has $h"))
+            w += size(X[i], 2)
+        end
+        b == 1 || w == n ||
+            throw(DimensionMismatch(lazy"block row $b has $w columns, but block row 1 has $n"))
+        m, n, k = m + h, w, k + r
+    end
+    # Build the result column by column, so that it is written in order. Block `blk[b]` of
+    # block row `b` covers the current column, and its columns end at `lastcol[b]`.
+    nbr = length(rows)
+    blk, lastcol, rowoff = Vector{Int}(undef, nbr), Vector{Int}(undef, nbr), Vector{Int}(undef, nbr)
+    k, i0 = 0, 0
+    for (b, r) in enumerate(rows)
+        blk[b], lastcol[b], rowoff[b] = k + 1, size(X[k + 1], 2), i0
+        i0 += size(X[k + 1], 1)
+        k += r
+    end
+    nnzres = 0
+    for x in X
+        nnzres += nnz(x)
+    end
+    colptr = Vector{Ti}(undef, n + 1)
+    rowval = Vector{Ti}(undef, nnzres)
+    nzval = Vector{Tv}(undef, nnzres)
+    colptr[1] = p = 1
+    # the shape checks above keep `blk[b]` within the blocks of block row `b`
+    @inbounds for j in 1:n
+        for b in 1:nbr
+            while j > lastcol[b]
+                blk[b] += 1
+                lastcol[b] += size(X[blk[b]], 2)
+            end
+            B = X[blk[b]]
+            p = _hvcat_copycol!(rowval, nzval, p, B, j - lastcol[b] + size(B, 2), rowoff[b])
+        end
+        colptr[j + 1] = p
+    end
+    return SparseMatrixCSC(m, n, colptr, rowval, nzval)
+end
+# `c` is a column of `B` and `p` stays within the `nnz` of all the blocks, by the shape
+# checks in `_hvcat_csc`
+function _hvcat_copycol!(rowval, nzval, p, B, c, i0)
+    cp, rv, nz = getcolptr(B), rowvals(B), nonzeros(B)
+    @inbounds for q in cp[c]:(cp[c + 1] - 1)
+        rowval[p] = rv[q] + i0
+        nzval[p] = nz[q]
+        p += 1
+    end
+    return p
 end
 Base.@constprop :aggressive _sparse_hvcat(rows::Tuple{Vararg{Int}}, X...) = vcat(_hvcat_rows(rows, X...)...)
 function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
