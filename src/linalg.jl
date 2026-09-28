@@ -1028,8 +1028,8 @@ function _leading_ritz(α::Vector{Float64}, β::Vector{Float64}, k::Integer)
         ev[2i] = β[i]
     end
     ev[2k-1] = α[k]
-    # a single eigenpair needs no sorting, and LinearAlgebra's sort by `eigsortby` is
-    # not specialized on the function, which `juliac --trim` cannot resolve
+    # one eigenpair needs no sorting; LinearAlgebra's `sorteig!` does not specialize on
+    # `sortby`, so `juliac --trim` cannot resolve its sorting calls
     F = eigen(SymTridiagonal(zeros(2k), ev), 2k:2k; sortby = nothing)
     return F.values[1], sqrt(2) * abs(F.vectors[2k, 1])
 end

@@ -1,8 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-# An app built with `juliac --trim=safe` in CI. SparseArrays extends Base's concatenation
-# for every numeric array, so loading it must keep dense concatenation trimmable, as
-# Julia's own trim test checks; the sparse calls cover the package's common paths.
+# An app that CI builds with `juliac --trim=safe` and runs. SparseArrays extends Base's
+# concatenation for dense numeric arrays, so loading it must keep dense concatenation
+# trimmable, as Julia's own trim test checks; the other checks cover the main sparse
+# operations.
 module SparseTrim
 
 using LinearAlgebra
@@ -94,7 +95,8 @@ function algebra()
     D = Matrix(A)
     x = [1.0, 1.0, 1.0]
     bad = 0
-    # dense products would call BLAS, so the expected values are written out
+    # a trimmed binary cannot load BLAS, so the expected values are written out rather
+    # than computed with dense products
     bad += check(A * x == [2.0, 3.0, 9.0])
     bad += check(A' * x == [6.0, 3.0, 5.0])
     bad += check(transpose(A) * x == [6.0, 3.0, 5.0])
@@ -161,14 +163,15 @@ function vectors()
     return bad
 end
 
-# The solvers pass trim verification, but a trimmed binary cannot yet load a library
-# through a `LazyLibrary`, as SuiteSparse is loaded, so CI builds them without running them.
+# A trimmed binary cannot yet load a `LazyLibrary`, which is how SuiteSparse is loaded, so
+# `main` runs these checks only when given `solvers`. CI does not pass it: the build still
+# verifies that the solvers trim, but they are not run.
 function solvers()
     # tridiagonal(-1, 4, -1), with x = [1, 2, 3, 4]
     T = spdiagm(-1 => [-1.0, -1.0, -1.0], 0 => [4.0, 4.0, 4.0, 4.0], 1 => [-1.0, -1.0, -1.0])
     b = [2.0, 4.0, 6.0, 13.0]
     x = [1.0, 2.0, 3.0, 4.0]
-    # not symmetric, with the same x
+    # not symmetric, with N * x == c for the same x
     N = sparse([1, 2, 1, 3, 2, 4, 4], [1, 1, 2, 2, 3, 3, 4], [2.0, 1.0, 1.0, 3.0, 1.0, 1.0, 1.0], 4, 4)
     c = [4.0, 4.0, 6.0, 7.0]
     bad = 0

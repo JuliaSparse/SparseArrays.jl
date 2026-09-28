@@ -1280,8 +1280,8 @@ dropstored!(A::AbstractSparseMatrixCSC, ::Colon) = dropstored!(A, :, :)
 
 # Column slices
 function getindex(x::AbstractSparseMatrixCSC, ::Colon, j::Integer)
-    # Base's `checkbounds(x, :, j)` throws through a call that is not specialized on
-    # `Colon <: Function`, which `juliac --trim` cannot resolve
+    # `checkbounds(x, :, j)` throws through Base's `_throw_boundserror_indices`, which does
+    # not specialize on `:` (a `Function`), so `juliac --trim` cannot resolve that call
     checkbounds(Bool, x, :, j) || throw(BoundsError(x, (:, j)))
     nzr = nzrange(x, j)
     return @if_move_fixed x SparseVector(size(x, 1), rowvals(x)[nzr], nonzeros(x)[nzr])
