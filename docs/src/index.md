@@ -595,8 +595,8 @@ SparseArrays.allowscalar
 ## Internals
 
 The helpers below are not part of the API: they are unexported, may change or disappear
-in any release, and are listed here only so that their docstrings are checked with the
-rest of the manual.
+in any release. This internal documentation is also not complete, but it is meant to be treated
+as a companion to the documentation of the public facing APIs adding more details and colour.
 
 ```@docs
 SparseArrays.ReadOnly
