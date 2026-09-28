@@ -763,18 +763,11 @@ end
 end
 
 @testset "Issue #618" begin
-    x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [1.0, 1.0, 1.0, 1.0])
-    @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "2.0")
-    x = SparseMatrixCSC(11, 11, [1; 112; 113; [114 for i=1:9]], [[1 for i=1:111]; 2; 3], [[9 for i=1:111]; 1; 1.])
-    @test !contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "▒▒▒")
-    x = SparseMatrixCSC(11, 11, [1; 113; 114; [115 for i=1:9]], [[1 for i=1:112]; 2; 3], [[9 for i=1:112]; 1; 1.])
-    @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "▒▒▒")
-    x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [7.0, 'o', 1.0, 1.0])
-    @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "#NaN")
-    v = similar(Any[1, 2, 3, 4]); v[2:4] = [1.0, 1.0, 1.0]
-    x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], v)
-    @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "#undef")
-
+    for v in ([1.0, 1.0, 1.0, 1.0], ['a', 7.0, 1.0, 1.0], [similar(Any[1]); 1.0; 1.0; 1.0])
+        # matrix with a repeated entry. test_broken since repeated entries are invalid
+        x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], v)
+        @test_broken !contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "‼")
+    end
     x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [1, 1, 1, 1])
     @test_broken 2 == Matrix(x)[1,1]
 end

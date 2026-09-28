@@ -462,7 +462,7 @@ struct ColumnIndices{Ti,S<:AbstractSparseMatrixCSC{<:Any,Ti}} <: AbstractVector{
     arr :: S
 end
 
-size(C::ColumnIndices) = (nnz(C.arr),)
+Base.size(C::ColumnIndices) = (nnz(C.arr),)
 # returns the column index of the n-th non-zero value from the column pointer
 @inline function getindex(C::ColumnIndices, i::Int)
     @boundscheck checkbounds(C, i)
@@ -519,7 +519,6 @@ function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans,
 
     scale != 1 && print(io, ", displaying at 1/$scale scale")
     println(io, ":")
-    warn && printstyled(stderr, "WARNING: could not find generic zero for given elements. expect errors and wrong results\n", color=:red)
 
     # Rows of output are cols of `brailleGrid` since julia is column-major
     brailleGrid = fill(UInt16(10240), char_w + 3, char_h)
@@ -539,6 +538,8 @@ function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans,
         end
     end
     foreach(c -> print(io, Char(c)), @view brailleGrid[1:end-1])
+
+    warn && printstyled(stderr, "\nWARNING: could not find generic zero for given elements. expect errors and inconsistent results", color=:red)
 end
 
 using Base: alignment
@@ -553,12 +554,7 @@ function _show_with_dotted_zeros(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans, P=pa
 
     println(io, ":")
 
-    try
-        zero(eltype(S))
-    catch
-        printstyled(stderr, "WARNING: could not find generic zero for given elements. expect errors and wrong results\n", color=:red)
-    end
-
+    warn = false
     for row in axes(S,1)
         for col in axes(S,2)
             index =       findall(==(col), cols)
@@ -572,23 +568,23 @@ function _show_with_dotted_zeros(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans, P=pa
                 print(io, " "^l)
                 isassigned(vals, index[]) ? show(io, vals[index[]]) : print(io, "#undef")
                 col == axes(S,2)[end] || print(io, " "^r)
-            else # default to summing entries, but print red to warn user that something's wrong
-                elm = any(!isassigned(vals, ind) for ind in index) ? "#undef" :
-                    try repr(sum(vals[index]); context=io) catch _ "#NaN" end
-
-                l, r = if textwidth(elm) <= l+r+2 # give up on alignment, just center item
-                    cld(l+r-textwidth(elm), 2) + 1, fld(l+r-textwidth(elm), 2) + 1
-                else # new item does not fit in column
-                    elm = "▒"^(l+r)
-                    1, 1
-                end
-
-                printstyled(io, " "^l, elm, color=:red)
-                col == axes(S,2)[end] || print(io, " "^r)
+            else
+                l, r = cld(l+r-1, 2) + 1, div(l+r-1, 2) + 1
+                printstyled(io, " "^l * "‼" * (col==axes(S,2)[end] ? "" : " "^r); color=:red)
+                warn = true
             end
         end
         row == axes(S,1)[end] || println(io)
     end
+    if warn
+        printstyled(stderr, "\nWARNING: array contains duplicate entries (shown as ‼). expect errors and inconsistent results", color=:red)
+    end
+    try
+        zero(eltype(S))
+    catch
+        printstyled(stderr, "\nWARNING: could not find generic zero for given elements. expect errors and inconsistent results", color=:red)
+    end
+
 end
 
 # The dense-operand methods in LinearAlgebra accept the thin shapes, so the sparse operands
