@@ -38,6 +38,16 @@ exact_equal(x::AbstractSparseVector, y::AbstractSparseVector) =
     eltype(x) == eltype(y) && eltype(nonzeroinds(x)) == eltype(nonzeroinds(y)) &&
     same_pattern(x, y) && nonzeros(x) == nonzeros(y)
 
+# An `AbstractSparseVector` that is not an `AbstractCompressedVector`, so that the generic
+# sparse-vector paths are reached rather than the compressed-vector specializations.
+struct WrappedSparseVector{Tv,Ti} <: SparseArrays.AbstractSparseVector{Tv,Ti}
+    x::SparseVector{Tv,Ti}
+end
+Base.size(v::WrappedSparseVector) = size(v.x)
+Base.getindex(v::WrappedSparseVector, i::Int) = v.x[i]
+SparseArrays.nonzeros(v::WrappedSparseVector) = SparseArrays.nonzeros(v.x)
+SparseArrays.nonzeroinds(v::WrappedSparseVector) = SparseArrays.nonzeroinds(v.x)
+
 # An eltype that counts its scalar multiplications and comparisons, so that a kernel
 # touching only the stored entries and a generic fallback visiting every element are told
 # apart by an operation count rather than by timing.

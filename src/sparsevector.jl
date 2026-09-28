@@ -148,6 +148,12 @@ rowvals(x::SparseVectorOrView) = nonzeroinds(x)
 indtype(x::SparseColumnView) = indtype(parent(x))
 indtype(x::Union{SparseVectorView, SparseVectorPartialView}) = indtype(parent(x))
 
+# the sparse vector a view reads as, built from its stored entries: `copy` of a column view
+# widens the index type to `Int` and `SparseVector(view)` scans every element
+_sparsevector(x::AbstractCompressedVector) = x
+_sparsevector(x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) =
+    SparseVector(length(x), convert(Vector{indtype(x)}, nonzeroinds(x)), convert(Vector{eltype(x)}, nonzeros(x)))
+
 
 function Base.sizehint!(v::SparseVector, newlen::Integer)
     sizehint!(nonzeroinds(v), newlen)
@@ -1101,14 +1107,13 @@ end
 
 # mode:
 # 0: f(nz, nz) -> nz, f(z, nz) -> z, f(nz, z) ->  z
-# 1: f(nz, nz) -> z/nz, f(z, nz) -> nz, f(nz, z) -> nz
 # 2: f(nz, nz) -> z/nz, f(z, nz) -> z/nz, f(nz, z) -> z/nz
 
 function _binarymap(f::Function,
                     x::AbstractSparseVector{Tx},
                     y::AbstractSparseVector{Ty},
                     mode::Int) where {Tx,Ty}
-    0 <= mode <= 2 || throw(ArgumentError("Incorrect mode $mode."))
+    mode == 0 || mode == 2 || throw(ArgumentError("Incorrect mode $mode."))
     R = Base.promote_typejoin_union(Base.promote_op(f, Tx, Ty))
     I = promote_type(eltype(nonzeroinds(x)), eltype(nonzeroinds(y)))
     n = length(x)
@@ -1128,8 +1133,6 @@ function _binarymap(f::Function,
     ir = 0
     ir = (
         mode == 0 ? _binarymap_mode_0!(f, mx, my,
-            xnzind, xnzval, ynzind, ynzval, rind, rval) :
-        mode == 1 ? _binarymap_mode_1!(f, mx, my,
             xnzind, xnzval, ynzind, ynzval, rind, rval) :
         _binarymap_mode_2!(f, mx, my,
             xnzind, xnzval, ynzind, ynzval, rind, rval)
@@ -1157,45 +1160,6 @@ function _binarymap_mode_0!(f::Function, mx::Int, my::Int,
         else
             iy += 1
         end
-    end
-    return ir
-end
-
-function _binarymap_mode_1!(f::Function, mx::Int, my::Int,
-                            xnzind, xnzval::AbstractVector{Tx},
-                            ynzind, ynzval::AbstractVector{Ty},
-                            rind, rval) where {Tx,Ty}
-    # f(nz, nz) -> z/nz, f(z, nz) -> nz, f(nz, z) -> nz
-    require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
-    ir = 0; ix = 1; iy = 1
-    @inbounds while ix <= mx && iy <= my
-        jx = xnzind[ix]
-        jy = ynzind[iy]
-        if jx == jy
-            v = f(xnzval[ix], ynzval[iy])
-            if _isnotzero(v)
-                ir += 1; rind[ir] = jx; rval[ir] = v
-            end
-            ix += 1; iy += 1
-        elseif jx < jy
-            v = f(xnzval[ix], zero(Ty))
-            ir += 1; rind[ir] = jx; rval[ir] = v
-            ix += 1
-        else
-            v = f(zero(Tx), ynzval[iy])
-            ir += 1; rind[ir] = jy; rval[ir] = v
-            iy += 1
-        end
-    end
-    @inbounds while ix <= mx
-        v = f(xnzval[ix], zero(Ty))
-        ir += 1; rind[ir] = xnzind[ix]; rval[ir] = v
-        ix += 1
-    end
-    @inbounds while iy <= my
-        v = f(zero(Tx), ynzval[iy])
-        ir += 1; rind[ir] = ynzind[iy]; rval[ir] = v
-        iy += 1
     end
     return ir
 end
@@ -1250,19 +1214,13 @@ end
 # definition of a few known broadcasted/mapped binary functions — all others defer to HigherOrderFunctions
 
 _bcast_binary_map(f, x, y, mode) = length(x) == length(y) ? _binarymap(f, x, y, mode) : HigherOrderFns._diffshape_broadcast(f, x, y)
-_getmode(::typeof(+), ::Type, ::Type) = 1
-_getmode(::typeof(-), ::Type, ::Type) = 1
 _getmode(::typeof(*), ::Type, ::Type) = 0
 _getmode(::typeof(*), ::Type{Union{Missing, T}}, ::Type) where {T} = 2
 _getmode(::typeof(*), ::Type, ::Type{Union{Missing, T}}) where {T} = 2
 _getmode(::typeof(*), ::Type{Union{Missing, T}}, ::Type{Union{Missing, S}}) where {T,S} = 2
 _getmode(::typeof(min), ::Type, ::Type) = 2
 _getmode(::typeof(max), ::Type, ::Type) = 2
-for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
-    fun in (:+, :-) && @eval begin
-        # Addition and subtraction can be defined directly on the arrays (without map/broadcast)
-        $(fun)(x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($(fun), x, y, $mode)
-    end
+for fun in (:*, :min, :max)
     @eval begin
         map(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
             _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
@@ -1275,19 +1233,20 @@ for (fun, mode) in [(:+, 1), (:-, 1), (:*, 0), (:min, 2), (:max, 2)]
     end
 end
 
+# `+` and `-` store an entry where the computed value is nonzero, the rule of the
+# HigherOrderFns kernels behind `.+`; plain compressed vectors use the merge above, which is
+# about twice as fast as the generic kernel, fixed inputs keep their pattern through the kernel,
+# and a view is read as the sparse vector it stores.
 for fun in (:+, :-)
-    @eval @propagate_inbounds function $(fun)(x::Union{SparseVectorOrView{Tx},SparseVectorPartialView{Tx}}, y::Union{SparseVectorOrView{Ty},SparseVectorPartialView{Ty}}) where {Tx, Ty}
-        @boundscheck axes(x) == axes(y) || throw(DimensionMismatch("$(axes(x)), $(axes(y))"))
-        T = promote_type(Tx, Ty)
-        res = spzeros(T, length(x))
-        copyto!(res, x)
-        nzinds = nonzeroinds(y)
-        nzvals = nonzeros(y)
-        @inbounds for nzidx in eachindex(nzinds)
-            res[nzinds[nzidx]] = $fun(res[nzinds[nzidx]], nzvals[nzidx])
-        end
-        dropzeros!(res)
-        return res
+    @eval begin
+        map(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($fun, x, y, 2)
+        map(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) =
+            _is_fixed(x) || _is_fixed(y) ?
+                (HigherOrderFns._checksameshape(x, y); HigherOrderFns._noshapecheck_map($fun, x, y)) :
+                _binarymap($fun, x, y, 2)
+        $(fun)(x::AbstractSparseVector, y::AbstractSparseVector) = map($fun, x, y)
+        $(fun)(x::Union{SparseVectorOrView,SparseVectorPartialView}, y::Union{SparseVectorOrView,SparseVectorPartialView}) =
+            map($fun, _sparsevector(x), _sparsevector(y))
     end
 end
 
