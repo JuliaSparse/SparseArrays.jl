@@ -399,21 +399,43 @@ function vcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     end
     return Base.typed_vcat(T, X1, X...)
 end
-# `@constprop :aggressive` propagates the `rows` of a block literal into `_hvcat_rows`, so
-# that the block rows have known lengths and the row `hcat`s infer.
-Base.@constprop :aggressive function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+# `Vararg{_SparseConcatGroup,N}` for the same reason as in `cat_internal`
+function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::Vararg{_SparseConcatGroup,N}) where {N}
     if _concatsparse(X1, X...)
         return _sparse_hvcat(rows, _makesparse(X1), map(_makesparse, X)...)
     end
     return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
 end
-# With only sparse matrices the result is built directly. `rows` is not a constant when
-# `hvcat` is called from compiled code, or when LinearAlgebra's `hvcat` calls back here
-# after replacing `UniformScaling` blocks with sparse identities, so a kernel that splats
-# the blocks of each row would have row tuples of unknown length: their types could not
-# be inferred and the calls could not be resolved, which `juliac --trim` rejects.
+# The result is built directly from the blocks. `rows` is not a constant when `hvcat` is
+# called from compiled code, or when LinearAlgebra's `hvcat` calls back here after
+# replacing `UniformScaling` blocks with sparse identities, so a kernel that splats the
+# blocks of each row would have row tuples of unknown length: their types could not be
+# inferred and the calls could not be resolved, which `juliac --trim` rejects.
 function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::Vararg{AbstractSparseMatrixCSC,N}) where {N}
     return _hvcat_csc(promote_eltype(X...), promote_idxtype(X...), rows, X...)
+end
+# A vector is an `n×1` block and a number a `1×1` block, as in dense `hvcat`. A number is
+# stored unless scalar `setindex!` would leave it implicit, and a sparse vector keeps its
+# stored zeros, as sparse matrix blocks do. A leading number widens the index type to at
+# least `Int`, as it does for `hcat` and `vcat` (#383).
+function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::Vararg{Any,N}) where {N}
+    Tv = promote_eltype(X...)
+    Ti = _hvcat_idxtype(X...)
+    return _hvcat_csc(Tv, Ti, rows, map(x -> _hvcat_block(Tv, Ti, x), X)...)
+end
+_hvcat_idxtype(X1::Number, X...) = promote_type(Int, _blocks_idxtype(X...))
+_hvcat_idxtype(X...) = _blocks_idxtype(X...)
+_blocks_idxtype() = Union{}
+_blocks_idxtype(x::Number, X...) = _blocks_idxtype(X...)
+_blocks_idxtype(x::AbstractSparseArray, X...) = promote_type(indtype(x), _blocks_idxtype(X...))
+_hvcat_block(::Type, ::Type, B::AbstractSparseMatrixCSC) = B
+function _hvcat_block(::Type, ::Type, x::AbstractSparseVector{<:Any,Ti}) where {Ti}
+    return SparseMatrixCSC(length(x), 1, Ti[1, nnz(x) + 1], nonzeroinds(x), nonzeros(x))
+end
+function _hvcat_block(::Type{Tv}, ::Type{Ti}, x::Number) where {Tv,Ti}
+    v = convert(Tv, x)
+    _isimplicitzero(v, Tv) && return SparseMatrixCSC(1, 1, Ti[1, 1], Ti[], Tv[])
+    return SparseMatrixCSC(1, 1, Ti[1, 2], Ti[1], Tv[v])
 end
 function _hvcat_csc(::Type{Tv}, ::Type{Ti}, rows::Tuple{Vararg{Int}}, X::Vararg{AbstractSparseMatrixCSC,N}) where {Tv,Ti,N}
     nblocks = 0
@@ -478,21 +500,6 @@ function _hvcat_copycol!(rowval, nzval, p, B, c, i0)
     end
     return p
 end
-Base.@constprop :aggressive _sparse_hvcat(rows::Tuple{Vararg{Int}}, X...) = vcat(_hvcat_rows(rows, X...)...)
-function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
-    if row1 ≤ 0
-        throw(ArgumentError("length of block row must be positive, got $row1"))
-    end
-    # assert `X` is non-empty so that inference of `eltype` won't include `Type{Union{}}`
-    T = eltype(X::Tuple{Any,Vararg{Any}})
-    # inference of `getindex` may be imprecise in case `row1` is not const-propagated up
-    # to here, so help inference with the following type-assertions
-    return (
-        hcat(X[1 : row1]::Tuple{typeof(X[1]),Vararg{T}}...),
-        _hvcat_rows(rows, X[row1+1:end]::Tuple{Vararg{T}}...)...
-    )
-end
-_hvcat_rows(::Tuple{}, X::_SparseConcatGroup...) = ()
 
 # `cat` is not overloaded by packages the way `vcat` and `hcat` are, so its hook keeps the
 # narrower numeric group, which avoids invalidating Base's `cat` on non-numeric vectors

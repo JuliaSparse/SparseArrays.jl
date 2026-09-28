@@ -52,6 +52,26 @@ include("testhelpers.jl")
         @test_throws ArgumentError hvcat(Base.inferencebarrier((0, 2)), A, A)
     end
 
+    @testset "h+v concatenation with vector and number blocks" begin
+        A = sparse([1.0 0; 0 2])
+        vz = sparsevec([1, 2], [0.0, 1.0])  # a stored zero
+        H = [A vz; 1.0 0.0 -0.0]
+        @test H isa SparseMatrixCSC{Float64,Int}
+        @test H == [Matrix(A) Vector(vz); 1.0 0.0 -0.0]
+        # the stored zero of `vz` stays, `0.0` is not stored and `-0.0` is, as in `setindex!`
+        @test findnz(H) == ([1, 3, 2, 1, 2, 3], [1, 1, 2, 3, 3, 3], [1.0, 1.0, 2.0, 0.0, 1.0, -0.0])
+        @test hvcat(Base.inferencebarrier((2, 3)), A, vz, 1.0, 0.0, -0.0) == H
+        @test [A [3.0, 4.0]; 1 2 3] == [Matrix(A) [3.0, 4.0]; 1 2 3]
+        @test [A vz; 1 im 3] isa SparseMatrixCSC{ComplexF64,Int}
+        @test [A vz; missing 2 3] isa SparseMatrixCSC{Union{Missing,Float64},Int}
+        A32 = SparseMatrixCSC{Float64,Int32}(A)
+        v32 = SparseVector{Float64,Int32}(vz)
+        @test [A32 v32; v32' 1.0] isa SparseMatrixCSC{Float64,Int32}
+        @test [1.0 v32'; v32 A32] isa SparseMatrixCSC{Float64,Int}  # a leading number widens
+        @test_throws DimensionMismatch [A vz; 1 2]
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2, 2)), A, vz, 1.0)
+    end
+
     @testset "cat with dims unknown to inference" begin
         A = sprand(3, 3, 0.5)
         D = rand(3, 3)
