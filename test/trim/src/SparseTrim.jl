@@ -45,6 +45,7 @@ function sparse_cat()
     v = sparsevec([1, 3], [0.0, 1.0], 3)
     E = [A v; 1.0 2.0 3.0 0.0]
     bad += check(E isa SparseMatrixCSC{Float64,Int} && size(E) == (4, 4) && nnz(E) == 9 && E[4, 3] == 3.0)
+    x = [1.0, 2.0, 3.0]
     bad += check([A x; x' 1.0] isa SparseMatrixCSC{Float64,Int})
     C = cat(A, D; dims = (1, 2))
     bad += check(C isa SparseMatrixCSC{Float64,Int} && size(C) == (6, 6) && C[4, 4] == 2.0 && C[1, 4] == 0.0)
