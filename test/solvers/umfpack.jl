@@ -333,6 +333,14 @@ end
         @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2)) ≈ [1.0 2; 4 5; 7 8]
     end
 
+    @testset "propertynames(::UmfpackLU)" begin
+        F = lu(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+        @test propertynames(F) == (:L, :U, :p, :q, :Rs, :(:))
+        @test hasproperty(F, :(:))
+        @test :numeric ∉ propertynames(F)
+        @test :numeric ∈ propertynames(F, true)
+    end
+
     @testset "Issues #18246,18244 - lu sparse pivot" begin
         A = sparse(1.0I, 4, 4)
         A[1:2,1:2] = [-.01 -200; 200 .001]
@@ -530,6 +538,15 @@ end
         F = lu(sparse([1.0 2 0; 0 1 3]))
         @test_throws DimensionMismatch det(F)
         @test_throws DimensionMismatch F \ [1.0, 2.0]
+    end
+
+    @testset "ldiv! DimensionMismatch names the sizes and leaves the output unchanged" begin
+        F = lu(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+        X = fill(7.0, 3)
+        @test_throws DimensionMismatch ldiv!(X, F, [1.0, 2])
+        @test_throws r"3×3.*2 rows" ldiv!(X, F, [1.0, 2])
+        @test_throws r"\(3,\).*\(3, 1\)" ldiv!(X, F, reshape([1.0, 2, 3], 3, 1))
+        @test X == fill(7.0, 3)
     end
 
     @testset "ldiv! with strided and adjoint/transpose right-hand sides, $Tv, $Ti" for
