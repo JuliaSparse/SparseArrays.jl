@@ -3607,109 +3607,56 @@ setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Abs
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatrix{Bool})
     require_one_based_indexing(A, x, I)
     checkbounds(A, I)
-    n = sum(I)
-    (n == 0) && (return A)
+    return setindex!(A, x, _masklinearindices(I))
+end
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
-    colptrB = colptrA; rowvalB = rowvalA; nzvalB = nzvalA
-    nadd = 0
-    bidx = xidx = 1
-    r1 = r2 = 0
-
-    @inbounds for col in axes(A,2)
-        r1 = Int(colptrA[col])
-        r2 = Int(colptrA[col+1]-1)
-
-        for row in axes(A,1)
-            if I[row, col]
-                v = x[xidx]
-                xidx += 1
-
-                if r1 <= r2
-                    copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 1
-                    if (copylen > 0)
-                        if (nadd > 0)
-                            copyto!(rowvalB, bidx, rowvalA, r1, copylen)
-                            copyto!(nzvalB, bidx, nzvalA, r1, copylen)
-                        end
-                        bidx += copylen
-                        r1 += copylen
-                    end
-                end
-
-                # 0: no change, 1: update, 2: add new
-                mode = ((r1 <= r2) && (rowvalA[r1] == row)) ? 1 : ((v == 0) ? 0 : 2)
-
-                if (mode > 1) && (nadd == 0)
-                    # copy storage to take changes
-                    colptrA = copy(colptrB)
-                    memreq = (x == 0) ? 0 : n
-                    # this x == 0 check and approach doesn't jive with use of v above
-                    # and may not make sense generally, as scalar x == 0 probably
-                    # means this section should never be called. also may not be generic.
-                    # TODO: clean this up, maybe separate scalar and array X cases
-                    rowvalA = copy(rowvalB)
-                    nzvalA = copy(nzvalB)
-                    resize!(rowvalB, length(rowvalA)+memreq)
-                    resize!(nzvalB, length(rowvalA)+memreq)
-                end
-                if mode == 1
-                    rowvalB[bidx] = row
-                    nzvalB[bidx] = v
-                    bidx += 1
-                    r1 += 1
-                elseif mode == 2
-                    rowvalB[bidx] = row
-                    nzvalB[bidx] = v
-                    bidx += 1
-                    nadd += 1
-                end
-                (xidx > n) && break
-            end # if I[row, col]
-        end # for row in axes(A,1)
-
-        if (nadd != 0)
-            l = r2-r1+1
-            if l > 0
-                copyto!(rowvalB, bidx, rowvalA, r1, l)
-                copyto!(nzvalB, bidx, nzvalA, r1, l)
-                bidx += l
-            end
-            colptrB[col+1] = bidx
-
-            if (xidx > n) && (length(colptrB) > (col+1))
-                diff = nadd
-                colptrB[(col+2):end] = colptrA[(col+2):end] .+ diff
-                r1 = colptrA[col+1]
-                r2 = colptrA[end]-1
-                l = r2-r1+1
-                if l > 0
-                    copyto!(rowvalB, bidx, rowvalA, r1, l)
-                    copyto!(nzvalB, bidx, nzvalA, r1, l)
-                    bidx += l
-                end
-            end
-        else
-            bidx = colptrA[col+1]
-        end
-        (xidx > n) && break
-    end # for col in axes(A,2)
-
-    if (nadd != 0)
-        n = length(nzvalB)
-        if n > (bidx-1)
-            deleteat!(nzvalB, bidx:n)
-            deleteat!(rowvalB, bidx:n)
+# The linear indices of the true entries of a mask, in ascending order. Sparse masks and
+# their transposes are walked by stored entry.
+_masklinearindices(I::AbstractMatrix{Bool}) = findall(vec(I))
+function _masklinearindices(I::AbstractSparseMatrixCSC{Bool})
+    m = size(I, 1)
+    rowvalI = rowvals(I); nzvalI = nonzeros(I)
+    L = Int[]
+    sizehint!(L, nnz(I))
+    for j in axes(I, 2)
+        offset = (j - 1) * m
+        for k in nzrange(I, j)
+            nzvalI[k] && push!(L, offset + Int(rowvalI[k]))
         end
     end
-    return _checkbuffers(A)
+    return L
+end
+function _masklinearindices(I::AdjOrTrans{Bool,<:AbstractSparseMatrixCSC{Bool}})
+    P = parent(I)
+    mI = size(I, 1)
+    rowvalP = rowvals(P); nzvalP = nonzeros(P)
+    L = Int[]
+    sizehint!(L, nnz(P))
+    for j in axes(P, 2)
+        for k in nzrange(P, j)
+            nzvalP[k] && push!(L, (Int(rowvalP[k]) - 1) * mI + j)
+        end
+    end
+    return sort!(L)
+end
+
+# A copy of `v` when it may share storage with a buffer the kernel writes; the kernel reads
+# the indices and values while it rewrites the storage.
+function _unalias_setindex(A::AbstractSparseMatrixCSC, v)
+    (Base.mightalias(v, nonzeros(A)) || Base.mightalias(v, rowvals(A)) ||
+        Base.mightalias(v, getcolptr(A))) && return Base.unaliascopy(v)
+    return v
 end
 
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVector{<:Integer})
     require_one_based_indexing(A, x, Ix)
+    # to_indices does not compare a Bool mask's length with A's
+    Ix isa AbstractVector{Bool} && checkbounds(A, Ix)
     (I,) = Base.ensure_indexable(to_indices(A, (Ix,)))
-    # We check bounds after sorting I
+    I = _unalias_setindex(A, I)
+    x = _unalias_setindex(A, x)
     n = length(I)
+    setindex_shape_check(x, n)
     (n == 0) && (return A)
 
     colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A); szA = size(A)
@@ -3720,11 +3667,9 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     S = issorted(I) ? (1:n) : sortperm(I)
     sxidx = r1 = r2 = 0
 
-    if (!isempty(I) && (I[S[1]] < 1 || I[S[end]] > widelength(A)))
+    if (I[S[1]] < 1 || I[S[end]] > widelength(A))
         throw(BoundsError(A, I))
     end
-
-    isa(x, AbstractArray) && setindex_shape_check(x, length(I))
 
     CartIndsA = CartesianIndices(szA)
 
@@ -3776,12 +3721,10 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
         if (mode > 1) && (nadd == 0)
             # copy storage to take changes
             colptrA = copy(colptrB)
-            memreq = (x == 0) ? 0 : n
-            # see comment/TODO for same statement in preceding logical setindex! method
             rowvalA = copy(rowvalB)
             nzvalA = copy(nzvalB)
-            resize!(rowvalB, length(rowvalA)+memreq)
-            resize!(nzvalB, length(rowvalA)+memreq)
+            resize!(rowvalB, length(rowvalA)+n)
+            resize!(nzvalB, length(rowvalA)+n)
         end
         if mode == 1
             rowvalB[bidx] = row
