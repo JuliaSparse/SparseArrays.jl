@@ -534,8 +534,12 @@ end
     @test cat(s, t; dims=2)::Matrix == cat([1, 0, 0], t; dims=2)
     @test vcat(s', permutedims(t))::Matrix == vcat([1 0 0], permutedims(t))
     @test cat(transpose(s), permutedims(t); dims=1)::Matrix == cat([1 0 0], permutedims(t); dims=1)
-    # a numeric array of more than two dimensions still takes Base's `cat`
+    # a numeric array of more than two dimensions still takes Base's `cat`, also with the
+    # same eltype as the sparse array
     @test cat(S, ones(1, 3, 2); dims=3)::Array{Float64,3} == cat(Array(S), ones(1, 3, 2); dims=3)
+    @test cat(S, ones(Int, 1, 3, 2); dims=3)::Array{Int,3} == cat(Array(S), ones(Int, 1, 3, 2); dims=3)
+    @test cat(s, ones(Int, 3, 1, 1); dims=2)::Array{Int,3} == cat([1, 0, 0], ones(Int, 3, 1, 1); dims=2)
+    @test cat(S, S; dims=3)::Array{Int,3} == cat(Array(S), Array(S); dims=3)
 end
 
 @testset "concatenation with a leading number fills its block like dense (#383)" begin

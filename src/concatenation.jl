@@ -507,19 +507,15 @@ end
 const _NumericSparseConcatGroup = Union{AbstractVecOrMat{<:Number},Number}
 Base.@constprop :aggressive Base._cat(dims, X1::_NumericSparseConcatGroup, X::_NumericSparseConcatGroup...) =
     cat_internal(dims, X1, X...)
-# a sparse array first with a non-`Number` array later reaches Base's own `cat`, which would
-# allocate a sparse result; see `_densesparse`
+# With a non-`Number` array, `cat` does not reach the hook above, and Base's `cat` would
+# allocate a sparse result when a sparse array comes first; see `_densesparse`. This is a
+# method of `cat`, which Base defines only for `A...`, because a method of `_cat` taking a
+# sparse array first is ambiguous with Base's `_cat(dims, A::AbstractArray{T}...)`.
 const _SparseCatLeader = Union{AbstractSparseVecOrMat,AdjOrTrans{<:Any,<:AbstractSparseVecOrMat}}
-Base.@constprop :aggressive function Base._cat(dims, X1::_SparseCatLeader, X...)
-    T = Base.promote_eltypeof(X1, X...)
-    _allnumeric(X1, X...) && return Base._cat_t(dims, T, X1, X...)
-    return Base._cat_t(dims, T, _densesparse(X1), map(_densesparse, X)...)
+@inline function Base.cat(X1::_SparseCatLeader, X::Vararg{Any,N}; dims) where {N}
+    _allnumeric(X1, X...) && return Base._cat(dims, X1, X...)
+    return Base._cat(dims, _densesparse(X1), map(_densesparse, X)...)
 end
-const _NumericSparseCatLeader = Union{AbstractSparseVector{<:Number},AbstractSparseMatrix{<:Number},
-                                      AdjOrTrans{<:Number,<:AbstractSparseVecOrMat}}
-# resolves the ambiguity between the two methods above
-Base.@constprop :aggressive Base._cat(dims, X1::_NumericSparseCatLeader, X::_NumericSparseConcatGroup...) =
-    cat_internal(dims, X1, X...)
 for f in (:hcat, :vcat)
     f_internal = Symbol(f, :_internal)
     @eval begin
