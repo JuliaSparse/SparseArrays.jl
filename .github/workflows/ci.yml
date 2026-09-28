@@ -64,6 +64,9 @@ jobs:
         with:
           coverage: ${{ matrix.coverage == true }}
           check_bounds: ${{ matrix.check-bounds || 'auto' }}
+          # Base runs these tests with `--depwarn=error`, which makes an access to a
+          # binding from a world before its definition an error rather than a warning
+          depwarn: 'error'
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.coverage == true
       - uses: codecov/codecov-action@v7
