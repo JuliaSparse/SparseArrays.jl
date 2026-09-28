@@ -1,0 +1,9 @@
+name = "SparseTrim"
+uuid = "3d1f6c7e-8a52-4b0e-9c4f-6f0d2a1b7e35"
+version = "0.1.0"
+
+[deps]
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+
+[sources]
+SparseArrays = {path = "../.."}
