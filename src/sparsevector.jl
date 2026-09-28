@@ -1697,43 +1697,45 @@ function copy!(dst::AbstractCompressedVector, src::AbstractVector)
     return dst
 end
 
-function _fillnonzero!(arr::AbstractSparseMatrixCSC{Tv, Ti}, val) where {Tv,Ti}
-    m, n = size(arr)
-    resize!(getcolptr(arr), n+1)
-    resize!(rowvals(arr), m*n)
-    resize!(nonzeros(arr), m*n)
-    copyto!(getcolptr(arr), 1:m:n*m+1)
-    fill!(nonzeros(arr), val)
-    index = 1
-    @inbounds for _ in 1:n
-        for i in 1:m
-            rowvals(arr)[index] = Ti(i)
-            index += 1
-        end
-    end
-    arr
-end
+_densifiable(A::SparseVecOrMat) = !_is_fixed(A) || nnz(A) == widelength(A)
+# a fixed pattern cannot be densified unless it already is; fail here rather than deep in ReadOnly
+_checkdensifiable(A::SparseVecOrMat) = _densifiable(A) ||
+    throw(ArgumentError("cannot store a nonzero f(0) into a $(nameof(typeof(A))), its sparsity pattern is read-only"))
 
-function _fillnonzero!(arr::AbstractCompressedVector{Tv,Ti}, val) where {Tv,Ti}
-    n = length(arr)
-    resize!(nonzeroinds(arr), n)
-    resize!(nonzeros(arr), n)
-    @inbounds for i in 1:n
-        nonzeroinds(arr)[i] = Ti(i)
+# Store every position of `A`; the values beyond the former `nnz(A)` are left for the caller to fill.
+function _densestructure!(A::AbstractCompressedVector)
+    _checkdensifiable(A)
+    _is_fixed(A) && return A   # passed the check above, so already full
+    n = length(A)
+    resize!(nonzeroinds(A), n)
+    resize!(nonzeros(A), n)
+    copyto!(nonzeroinds(A), 1:n)
+    return A
+end
+function _densestructure!(A::AbstractSparseMatrixCSC)
+    _checkdensifiable(A)
+    _is_fixed(A) && return A
+    m, n = size(A)
+    resize!(rowvals(A), m * n)
+    resize!(nonzeros(A), m * n)
+    colptr = resize!(getcolptr(A), n + 1)
+    @inbounds for j in 0:n
+        colptr[j + 1] = j * m + 1
     end
-    fill!(nonzeros(arr), val)
-    arr
+    for j in 0:n-1
+        copyto!(rowvals(A), j * m + 1, 1:m)
+    end
+    return A
 end
 
 import Base.fill!
 function fill!(A::SparseVecOrMat, x)
-    T = eltype(A)
-    xT = convert(T, x)
-    if _iszero(xT)
-        fill!(nonzeros(A), xT)
-    else
-        _fillnonzero!(A, xT)
+    xT = convert(eltype(A), x)
+    if !_iszero(xT)
+        _densifiable(A) || throw(ArgumentError("cannot fill! a $(nameof(typeof(A))) with a nonzero value, its sparsity pattern is read-only; fillstored!(A, x) sets the stored entries"))
+        _densestructure!(A)
     end
+    fill!(nonzeros(A), xT)
     return A
 end
 

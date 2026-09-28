@@ -741,33 +741,6 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
     return dest
 end
 
-# Faster version for non-abstract Array and SparseMatrixCSC
-function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
-    _checkbuffers(S)
-    isempty(S) && return A
-    length(A) < length(S) && throw(BoundsError())
-
-    # Zero elements that are also in S, don't change rest of A
-    @inbounds for i in 1:length(S)
-        A[i] = zero(T)
-    end
-    # Copy the structural nonzeros from S to A using
-    # the linear indices (to work when size(A)!=size(S))
-    num_rows = size(S,1)
-    rowval = getrowval(S)
-    nzval = getnzval(S)
-    linear_index_col0 = 0   # Linear index before column (linear index = linear_index_col0 + row)
-    @inbounds for col in axes(S, 2)
-        for i in nzrange(S, col)
-            row = rowval[i]
-            val = nzval[i]
-            A[linear_index_col0+row] = val
-        end
-        linear_index_col0 += num_rows
-    end
-    return A
-end
-
 ## similar
 #
 # parent method for similar that preserves stored-entry structure (for when new and old dims match)
