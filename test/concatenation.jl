@@ -522,6 +522,20 @@ end
     @test vcat(I, A, Z)::Matrix == vcat(Matrix(I, 2, 2), A, Array(Z))
     @test hvcat((3,), I, A, Z)::Matrix == hvcat((3,), Matrix(I, 2, 2), A, Array(Z))
     @test hcat(I, Z, spzeros(2, 2))::SparseMatrixCSC == hcat(Matrix(I, 2, 2), Array(Z), zeros(2, 2))
+    # with the sparse array first
+    @test vcat(S, M)::Matrix == vcat(Array(S), M)
+    @test hcat(S, M)::Matrix == hcat(Array(S), M)
+    @test hvcat((2, 2), S, M, M, S)::Matrix == hvcat((2, 2), Array(S), M, M, Array(S))
+    @test cat(S, M; dims=1)::Matrix == cat(Array(S), M; dims=1)
+    @test cat(S, M; dims=3)::Array{Any,3} == cat(Array(S), M; dims=3)
+    s = sparse([1, 0, 0]); t = fill("a", 3)
+    @test vcat(s, t)::Vector == vcat([1, 0, 0], t)
+    @test hcat(s, t)::Matrix == hcat([1, 0, 0], t)
+    @test cat(s, t; dims=2)::Matrix == cat([1, 0, 0], t; dims=2)
+    @test vcat(s', permutedims(t))::Matrix == vcat([1 0 0], permutedims(t))
+    @test cat(transpose(s), permutedims(t); dims=1)::Matrix == cat([1 0 0], permutedims(t); dims=1)
+    # a numeric array of more than two dimensions still takes Base's `cat`
+    @test cat(S, ones(1, 3, 2); dims=3)::Array{Float64,3} == cat(Array(S), ones(1, 3, 2); dims=3)
 end
 
 @testset "concatenation with a leading number fills its block like dense (#383)" begin
