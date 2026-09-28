@@ -416,6 +416,46 @@ end
     A[Is] = [0.1, 0.5]
     @test nnz(A) == 2
 
+    @testset "logical mask setindex!" begin
+        # (2, 2) is a stored zero; the mask updates (1, 1) and (2, 2), inserts (2, 1) and
+        # (4, 4), and leaves (3, 3) unstored because its value is zero
+        A0 = sparse([1, 3, 2, 4, 1], [1, 1, 2, 3, 4], [1.0, 2.0, 0.0, 3.0, 4.0], 4, 4)
+        M = BitMatrix([1 0 0 0; 1 1 0 0; 0 0 1 0; 0 0 0 1])
+        Ms = sparse([1, 2, 2, 3, 3, 4], [1, 1, 2, 2, 3, 4], Bool[1, 1, 1, 0, 1, 1], 4, 4)   # a stored false
+        x = [10.0, 20, 30, 0, 50]
+        D = Matrix(A0); D[M] = x
+        for mask in (M, Ms)   # findall(vec(I)), and the column walk of a sparse mask
+            A = copy(A0)
+            A[mask] = x
+            @test A == D && nnz(A) == nnz(A0) + 2
+        end
+        # the value's length and the mask's shape are checked before anything is written
+        A = copy(A0)
+        @test_throws DimensionMismatch A[M] = ones(4)
+        @test_throws DimensionMismatch A[falses(4, 4)] = [1.0]
+        @test_throws BoundsError A[trues(15)] = ones(15)
+        @test A == A0 && nnz(A) == nnz(A0)
+        # a fixed pattern rejects the nonzero at (2, 1) before writing (1, 1), which the mask visits first
+        F = SparseArrays.fixed(copy(A0))
+        @test_throws ArgumentError F[M] = x
+        @test F == A0 && nnz(F) == nnz(A0)
+        # indices or values aliased with the storage are copied before the kernel writes
+        A = sparse(reshape([2, 1], 2, 1)); A[nonzeros(A)] = [20, 10]
+        @test A == [10; 20;;]
+        for A in (sparse(reshape([1, 2], 2, 1)), SparseArrays.fixed(sparse(reshape([1, 2], 2, 1))))
+            A[trues(2, 1)] = view(nonzeros(A), 2:-1:1)
+            @test A == [2; 1;;]
+        end
+        # column views and transposes of a sparse mask are walked by stored entry too
+        M2 = sparse([1, 4, 2], [2, 3, 3], [true, true, false], 4, 4)
+        for mask in (view(M2, :, 2:3), view(M2, :, [3, 1, 2]), transpose(M2), M2', transpose(view(M2, :, 2:3)))
+            @test which(SparseArrays._masklinearindices, (typeof(mask),)) !==
+                  which(SparseArrays._masklinearindices, (Matrix{Bool},))
+            A = spzeros(size(mask)); A[mask] = 1:count(mask)
+            @test A == setindex!(zeros(size(mask)), 1:count(mask), Matrix(mask)) && nnz(A) == count(mask)
+        end
+    end
+
     @testset "heap-allocated zero (#389)" begin
         for T in (BigFloat, Complex{BigFloat})
             A = spzeros(T, 3, 3)
