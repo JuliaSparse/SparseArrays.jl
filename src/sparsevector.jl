@@ -1145,12 +1145,15 @@ copy(x::AbstractSparseVector) = if _is_fixed(x)
     end
 
 float(x::AbstractSparseVector{<:AbstractFloat}) = x
-float(x::AbstractSparseVector) =
-    SparseVector(length(x), nonzeroinds(x), float(nonzeros(x)))
+float(x::AbstractSparseVector) = _withnonzeros(x, float(nonzeros(x)))
 
 complex(x::AbstractSparseVector{<:Complex}) = x
-complex(x::AbstractSparseVector) =
-    SparseVector(length(x), nonzeroinds(x), complex(nonzeros(x)))
+complex(x::AbstractSparseVector) = _withnonzeros(x, complex(nonzeros(x)))
+
+# a vector with the index pattern of `x` (shared, as `copy` of a fixed vector shares it)
+# and `nzval` as its stored values
+_withnonzeros(x::AbstractSparseVector, nzval) = SparseVector(length(x), nonzeroinds(x), nzval)
+_withnonzeros(x::FixedSparseVector, nzval) = FixedSparseVector(length(x), nonzeroinds(x), nzval)
 
 
 ### Concatenation
@@ -1410,6 +1413,7 @@ end
 
 # zero-preserving functions (z->z, nz->nz)
 -(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
+-(x::FixedSparseVector) = FixedSparseVector(length(x), nonzeroinds(x), -nonzeros(x))
 
 for QT in (:LinAlgLeftQs, :LQPackedQ)
     @eval (*)(Q::$QT, B::AbstractSparseVector) = Q * Vector(B)

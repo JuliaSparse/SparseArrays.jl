@@ -121,6 +121,27 @@ end
     @test struct_eq(t, x)
 end
 
+@testset "structure queries and unary maps keep the fixed pattern" begin
+    same_pattern(X::AbstractVector, Y) = nonzeroinds(X) == nonzeroinds(Y)
+    same_pattern(X, Y) = getcolptr(X) == getcolptr(Y) && rowvals(X) == rowvals(Y)
+    # `issymmetric`/`ishermitian` advance a copy of the column pointers, which are
+    # read-only in a fixed matrix
+    S = fixed(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+    @test issymmetric(S) && ishermitian(S)
+    @test !issymmetric(fixed(sparse([4.0 1 0; 2 4 1; 0 1 4])))
+    @test ishermitian(fixed(sparse(ComplexF64[4 1+im 0; 1-im 4 1; 0 1 4])))
+    A = sparse([1, 2, 2], [1, 1, 2], [1, 2, 0], 3, 3)
+    x = sparsevec([1, 3], [1, 0], 4)
+    F, y = fixed(A), fixed(x)
+    @test which(-, (typeof(F),)).module === SparseArrays
+    for f in (-, float, complex)
+        R, r = f(F), f(y)
+        @test R isa FixedSparseCSC && r isa FixedSparseVector
+        @test R == f(A) && same_pattern(R, A) && r == f(x) && same_pattern(r, x)
+    end
+    @test getcolptr(-F) === getcolptr(F) && nonzeroinds(-y) === nonzeroinds(y)
+end
+
 @testset "Issue #190" begin
     J = move_fixed(sparse(Diagonal(ones(4))))
     W = move_fixed(sparse(Diagonal(ones(4))))
