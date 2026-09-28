@@ -145,14 +145,19 @@ SparseArrays.CHOLMOD.ldlt!
 SparseArrays.CHOLMOD.rcond
 SparseArrays.SPQR.qr
 SparseArrays.SPQR.lq
-Base.:\(::SparseArrays.SPQR.QRSparse, ::StridedVecOrMat)
-Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::StridedVecOrMat)
+Base.:\(::SparseArrays.SPQR.QRSparse, ::AbstractVecOrMat)
+Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::AbstractVecOrMat)
 SparseArrays.UMFPACK.lu
 SparseArrays.UMFPACK.lu!
 SparseArrays.UMFPACK.rcond
 SparseArrays.UMFPACK.UmfpackWS
 SparseArrays.CHOLMOD.CholmodWS
 SparseArrays.SPQR.SpqrWS
+SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
+SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
+Base.copy(::SparseArrays.UMFPACK.UmfpackLU{Tv,Ti}) where {Tv,Ti}
+Base.copy(::SparseArrays.SPQR.QRSparse)
+SparseArrays.LibSuiteSparse.init_suitesparse
 ```
 
 ## Multithreading and thread safety
@@ -231,7 +236,7 @@ julia> issuccess(cholesky(B; check = false)), issuccess(cholesky(B; shift = 1.0)
   `A`, and index it with the one-based constants `SparseArrays.UMFPACK.JL_UMFPACK_*`,
   such as `JL_UMFPACK_PIVOT_TOLERANCE` or `JL_UMFPACK_ORDERING`. The UMFPACK user guide
   describes each entry. The factorization keeps a copy, which later solves and
-  [`lu!`](@ref) use.
+  [`lu!`](@ref SparseArrays.UMFPACK.lu!) use.
 
 Unlike UMFPACK itself, SparseArrays turns iterative refinement off by default. To turn it
 back on, for example for an ill-conditioned matrix:
