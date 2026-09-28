@@ -114,11 +114,11 @@ nonzeroinds(x::SparseVectorView) = nonzeroinds(parent(x))
 _checkbuffers(x::AbstractCompressedVector) = (@assert length(nonzeros(x)) == length(nonzeroinds(x)); x)
 
 # return the first and last nonzero indices of the parent that belong to the view
-# return end+1:end if no nonzero in the parent
+# return end+1:end if no nonzero in the parent or the view is empty
 function _partialview_end_indices(x::SparseVectorPartialView)
     p = parent(x)
     nzinds = nonzeroinds(p)
-    if isempty(nzinds)
+    if isempty(nzinds) || isempty(parentindices(x)[1])
         last_idx = length(nzinds)
         first_idx = last_idx + 1
     else
@@ -835,42 +835,50 @@ end
 # as `Any` still work as long as the stored values themselves are numbers.
 _iszero_under(eq::F, x) where {F} = eq(x, zero(x))
 
-# Compare two compressed vectors by walking their stored entries only. `eq` is the
-# elementwise predicate (`==` or `isequal`); stored entries without a counterpart are
-# compared against the implicit zero of the other vector so that e.g. `isequal(-0.0, 0.0)`
-# and `isequal(NaN, NaN)` behave as they do for dense arrays.
-function _iseq(eq::F, A::AbstractCompressedVector, B::AbstractCompressedVector) where {F}
-    # Different sizes are always different
-    size(A) ≠ size(B) && return false
-    # Compare nonzero elements
-    i, j = 1, 1
-    @inbounds while i <= nnz(A) && j <= nnz(B)
-        if nonzeroinds(A)[i] == nonzeroinds(B)[j]
-            eq(nonzeros(A)[i], nonzeros(B)[j]) || return false
+# Merge the stored entries `ra` of `(ia, va)` with the entries `rb` of `(ib, vb)`, whose
+# indices are sorted within each range, comparing the values at equal indices with `eq`
+# (`==` or `isequal`). A stored entry without a counterpart is compared against the
+# implicit zero of the other array so that e.g. `isequal(-0.0, 0.0)` and
+# `isequal(NaN, NaN)` behave as they do for dense arrays. Callers pass ranges that lie
+# within the storage vectors: a column's `nzrange` or the whole stored range.
+@inline function _merge_eq(eq::F, ia, va, ib, vb, ra::AbstractUnitRange, rb::AbstractUnitRange) where {F}
+    i, j = first(ra), first(rb)
+    @inbounds while i <= last(ra) && j <= last(rb)
+        ii, jj = ia[i], ib[j]
+        if ii == jj
+            eq(va[i], vb[j]) || return false
             i += 1
             j += 1
-        elseif nonzeroinds(A)[i] <= nonzeroinds(B)[j]
-            _iszero_under(eq, nonzeros(A)[i]) || return false
+        elseif ii < jj
+            _iszero_under(eq, va[i]) || return false
             i += 1
-        else # nonzeroinds(A)[i] >= nonzeroinds(B)[j]
-            _iszero_under(eq, nonzeros(B)[j]) || return false
+        else # ii > jj
+            _iszero_under(eq, vb[j]) || return false
             j += 1
         end
     end
-
-    @inbounds for k in i:nnz(A)
-        _iszero_under(eq, nonzeros(A)[k]) || return false
+    @inbounds for k in i:last(ra)
+        _iszero_under(eq, va[k]) || return false
     end
-
-    @inbounds for k in j:nnz(B)
-        _iszero_under(eq, nonzeros(B)[k]) || return false
+    @inbounds for k in j:last(rb)
+        _iszero_under(eq, vb[k]) || return false
     end
-
     return true
 end
 
-==(A::AbstractCompressedVector, B::AbstractCompressedVector) = _iseq(==, A, B)
-Base.isequal(A::AbstractCompressedVector, B::AbstractCompressedVector) = _iseq(isequal, A, B)
+# Compare two sparse vectors, or unit-range views of them, by walking their stored
+# entries only. `eachindex` of the two storage vectors guards the `@inbounds` merge.
+function _iseq(eq::F, A::Union{AbstractCompressedVector,SparseVectorPartialView},
+               B::Union{AbstractCompressedVector,SparseVectorPartialView}) where {F}
+    size(A) == size(B) || return false
+    ia, va, ib, vb = nonzeroinds(A), nonzeros(A), nonzeroinds(B), nonzeros(B)
+    return _merge_eq(eq, ia, va, ib, vb, eachindex(ia, va), eachindex(ib, vb))
+end
+
+==(A::Union{AbstractCompressedVector,SparseVectorPartialView},
+    B::Union{AbstractCompressedVector,SparseVectorPartialView}) = _iseq(==, A, B)
+Base.isequal(A::Union{AbstractCompressedVector,SparseVectorPartialView},
+    B::Union{AbstractCompressedVector,SparseVectorPartialView}) = _iseq(isequal, A, B)
 
 ==(A::Transpose{<:Any,<:AbstractCompressedVector},
     B::Transpose{<:Any,<:AbstractCompressedVector}) = transpose(A) == transpose(B)
@@ -1081,27 +1089,6 @@ end
 conj(x::AbstractCompressedVector{<:Complex}) = typeof(x)(length(x), copy(nonzeroinds(x)), conj(nonzeros(x)))
 imag(x::AbstractSparseVector{Tv,Ti}) where {Tv<:Real,Ti<:Integer} = SparseVector(length(x), Ti[], Tv[])
 @unarymap_nz2z_z2z imag Complex
-
-# function that does not preserve zeros
-
-macro unarymap_z2nz(op, TF)
-    esc(quote
-        function $(op)(x::AbstractSparseVector{Tv,<:Integer}) where Tv<:$(TF)
-            require_one_based_indexing(x)
-            v0 = $(op)(zero(Tv))
-            R = typeof(v0)
-            xnzind = nonzeroinds(x)
-            xnzval = nonzeros(x)
-            n = length(x)
-            m = length(xnzind)
-            y = fill(v0, n)
-            @inbounds for j = 1:m
-                y[xnzind[j]] = $(op)(xnzval[j])
-            end
-            y
-        end
-    end)
-end
 
 ### Binary Map
 

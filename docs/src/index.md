@@ -603,7 +603,6 @@ SparseArrays.ReadOnly
 SparseArrays.ColumnIndices
 SparseArrays.iswrsparse
 SparseArrays.depth
-SparseArrays.unwrap
 SparseArrays.sparse_with_lmul
 SparseArrays.rowcheck_index
 SparseArrays.mergeinds!
