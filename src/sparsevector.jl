@@ -1096,10 +1096,10 @@ imag(x::AbstractSparseVector{Tv,Ti}) where {Tv<:Real,Ti<:Integer} = SparseVector
 # 0: f(nz, nz) -> nz, f(z, nz) -> z, f(nz, z) ->  z
 # 2: f(nz, nz) -> z/nz, f(z, nz) -> z/nz, f(nz, z) -> z/nz
 
-function _binarymap(f::Function,
+function _binarymap(f::F,
                     x::AbstractSparseVector{Tx},
                     y::AbstractSparseVector{Ty},
-                    mode::Int) where {Tx,Ty}
+                    mode::Int) where {F<:Function,Tx,Ty}
     mode == 0 || mode == 2 || throw(ArgumentError("Incorrect mode $mode."))
     R = Base.promote_typejoin_union(Base.promote_op(f, Tx, Ty))
     I = promote_type(eltype(nonzeroinds(x)), eltype(nonzeroinds(y)))

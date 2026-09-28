@@ -82,6 +82,8 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
         @test_throws BoundsError ss116[end+1, 1]
         @test_throws BoundsError ss116[1, 0]
         @test_throws BoundsError ss116[1, end+1]
+        @test_throws BoundsError ss116[:, 0]
+        @test_throws BoundsError ss116[:, end+1]
         for j in (1, 1:size(s116,2), 1:1, Int[1], trues(size(s116, 2)), 1:0, Int[])
             @test_throws BoundsError ss116[0:1, j]
             @test_throws BoundsError ss116[[0, 1], j]
