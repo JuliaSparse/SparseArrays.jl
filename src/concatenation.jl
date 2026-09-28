@@ -343,11 +343,10 @@ function _catdest(::Type{T}, shape, X1::Number, X...) where {T}
     A = _catleader(X1, X...)
     return similar(A, T, promote_type(Int, indtype(A)), shape)
 end
-# `cat` passes `dims` as a keyword, so it is not a constant here even when the call site
-# writes one, and `dims2cat` returns a tuple of unknown length. A sparse result has one or
-# two dimensions, so branching on the length gives each sparse branch a concrete `catdims`,
-# which keeps the calls below statically resolved, as `juliac --trim` requires. More
-# dimensions give a dense result, which Base's dense `cat` builds.
+# The compiled method serves every value of `dims`, so `dims2cat(dims)` has an unknown
+# length, and `similar` of a sparse array cannot be resolved for a shape of unknown length,
+# which `juliac --trim` rejects. A sparse result has one or two dimensions, so each gets a
+# branch with a concrete `catdims`; more dimensions give a dense result, which Base builds.
 Base.@constprop :aggressive function _sparse_cat_t(dims, ::Type{T}, X...) where {T}
     catdims = Base.dims2cat(dims)
     if length(catdims) == 1
@@ -406,11 +405,9 @@ function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::Var
     end
     return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
 end
-# The result is built directly from the blocks. `rows` is not a constant when `hvcat` is
-# called from compiled code, or when LinearAlgebra's `hvcat` calls back here after
-# replacing `UniformScaling` blocks with sparse identities, so a kernel that splats the
-# blocks of each row would have row tuples of unknown length: their types could not be
-# inferred and the calls could not be resolved, which `juliac --trim` rejects.
+# `_hvcat_csc` reads the blocks by index. Splitting them into a tuple per block row would
+# give tuples whose length depends on the value of `rows`, so their types could not be
+# inferred and `juliac --trim` could not resolve the calls on them.
 function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::Vararg{AbstractSparseMatrixCSC,N}) where {N}
     return _hvcat_csc(promote_eltype(X...), promote_idxtype(X...), rows, X...)
 end
@@ -458,7 +455,7 @@ function _hvcat_csc(::Type{Tv}, ::Type{Ti}, rows::Tuple{Vararg{Int}}, X::Vararg{
         m, n, k = m + h, w, k + r
     end
     # Build the result column by column, so that it is written in order. Block `blk[b]` of
-    # block row `b` covers the current column, and its columns end at `lastcol[b]`.
+    # block row `b` covers the current column, and `lastcol[b]` is the last column it covers.
     nbr = length(rows)
     blk, lastcol, rowoff = Vector{Int}(undef, nbr), Vector{Int}(undef, nbr), Vector{Int}(undef, nbr)
     k, i0 = 0, 0
