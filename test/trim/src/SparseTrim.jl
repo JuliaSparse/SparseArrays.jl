@@ -175,7 +175,7 @@ function eltypes()
     bad += check(sum(Ai) == 14 && sum(Ai; dims = 2) == reshape([2, 3, 9], 3, 1) && maximum(Ai) == 5)
     bad += check(sum(Ai .* Ai) == 54 && Ai * Ai == sparse([1, 3, 2, 3], [1, 1, 2, 3], [4, 28, 9, 25], 3, 3))
     M = Ai .> 2
-    bad += check(M isa SparseMatrixCSC{Bool,Int} && nnz(M) == 3 && count(M) == 3 && Ai[M] == [4, 3, 5])
+    bad += check(M isa SparseMatrixCSC{Bool,Int} && nnz(M) == nnz(Ai) && count(M) == 3 && Ai[M] == [4, 3, 5])
     Bi = copy(Ai)
     Bi[M] .= 1
     bad += check(sum(Bi) == 5 && Bi[3, 3] == 1)
