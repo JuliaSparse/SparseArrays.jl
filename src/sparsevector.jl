@@ -1052,10 +1052,8 @@ _withnonzeros(x::FixedSparseVector, nzval) = FixedSparseVector(length(x), nonzer
 -(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
 -(x::FixedSparseVector) = FixedSparseVector(length(x), nonzeroinds(x), -nonzeros(x))
 
-# functions f, such that
-#   f(x) can be zero or non-zero when x != 0
-#   f(x) = 0 when x == 0
-#
+# functions f with f(0) == 0: the result keeps the pattern of x, as `f.(x)` does, even where
+# f(x) is zero for a stored x
 macro unarymap_nz2z_z2z(op, TF)
     esc(quote
         function $(op)(x::AbstractSparseVector{Tv,Ti}) where Tv<:$(TF) where Ti<:Integer
@@ -1065,20 +1063,11 @@ macro unarymap_nz2z_z2z(op, TF)
             xnzval = nonzeros(x)
             m = length(xnzind)
 
-            ynzind = Vector{Ti}(undef, m)
+            ynzind = Vector{Ti}(xnzind)
             ynzval = Vector{R}(undef, m)
-            ir = 0
             @inbounds for j = 1:m
-                i = xnzind[j]
-                v = $(op)(xnzval[j])
-                if _isnotzero(v)
-                    ir += 1
-                    ynzind[ir] = i
-                    ynzval[ir] = v
-                end
+                ynzval[j] = $(op)(xnzval[j])
             end
-            resize!(ynzind, ir)
-            resize!(ynzval, ir)
             SparseVector(length(x), ynzind, ynzval)
         end
     end)
