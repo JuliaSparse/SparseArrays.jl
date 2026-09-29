@@ -187,12 +187,6 @@ end
     end
 end
 
-struct NonCopyableMapValue
-    value::Int
-end
-Base.transpose(x::NonCopyableMapValue) = x
-Base.adjoint(x::NonCopyableMapValue) = NonCopyableMapValue(-x.value)
-
 @testset "map[!] and broadcast[!] over one sparse array keep its pattern (issue #454)" begin
     samepattern(C, A) = getcolptr(C) == getcolptr(A) && rowvals(C) == rowvals(A)
     samepattern(c::SparseVector, a::SparseVector) = nonzeroinds(c) == nonzeroinds(a)
@@ -231,15 +225,13 @@ Base.adjoint(x::NonCopyableMapValue) = NonCopyableMapValue(-x.value)
             @test C isa AbstractSparseArray && C == map(f, Array(W)) && samepattern(C, P)
         end
     end
-    # Mapping a wrapper must not require copying its elements or break their aliases (#892).
-    A = SparseMatrixCSC(1, 1, [1, 2], [1], [NonCopyableMapValue(3)])
-    for op in (transpose, adjoint)
-        @test map(x -> x.value, op(A)) == map(x -> x.value, op(Array(A)))
-        for B in ([1 2; 3 4], [1im 2; 3 4im])
-            S = SparseMatrixCSC(1, 1, [1, 2], [1], [B])
-            @test only(nonzeros(map(parent, op(S)))) === B
-            @test map(sum, op(S)) == map(sum, op(Array(S)))
-        end
+    # Mapping a wrapper must not copy its elements or break their aliases (#892).
+    for op in (transpose, adjoint), D in ([1 2; 3 4], [1im 2; 3 4im])
+        B = CountedReads(D)
+        S = SparseMatrixCSC(1, 1, [1, 2], [1], [B])
+        @test only(nonzeros(map(parent, op(S)))) === B
+        @test B.reads[] == 0
+        @test map(sum, op(S)) == map(sum, op(Array(S)))
     end
 end
 
