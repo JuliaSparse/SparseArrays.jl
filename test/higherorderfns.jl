@@ -225,6 +225,14 @@ end
             @test C isa AbstractSparseArray && C == map(f, Array(W)) && samepattern(C, P)
         end
     end
+    # Mapping a wrapper must not copy its elements or break their aliases (#892).
+    for op in (transpose, adjoint), D in ([1 2; 3 4], [1im 2; 3 4im])
+        B = CountedReads(D)
+        S = SparseMatrixCSC(1, 1, [1, 2], [1], [B])
+        @test only(nonzeros(map(parent, op(S)))) === B
+        @test B.reads[] == 0
+        @test map(sum, op(S)) == map(sum, op(Array(S)))
+    end
 end
 
 @testset "broadcast[!] implementation specialized for pairs of (input) sparse vectors/matrices" begin

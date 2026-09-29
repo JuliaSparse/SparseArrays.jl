@@ -13,12 +13,12 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       AbstractSparseMatrix, AbstractSparseArray,
                       SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, SparseMatrixCSCOrView,
                       SparseMatrixCSCColumnSubset, SparseColumnView, SparseVectorView, SparseVectorPartialView,
-                      indtype, fixed, move_fixed, nnz, nzrange, spzeros,
+                      indtype, fixed, move_fixed, nnz, nzrange, spzeros, ftranspose,
                       nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
                       _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, @if_move_fixed
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
-using LinearAlgebra: AdjOrTrans, BandedMatrix
+using LinearAlgebra: AdjOrTrans, BandedMatrix, wrapperop
 
 # This module is organized as follows:
 # (0) Define BroadcastStyle rules and convenience types for dispatch
@@ -158,8 +158,10 @@ end
 # (2) map[!] entry points
 map(f::Tf, A::AbstractCompressedVector) where {Tf} = _noshapecheck_map(f, A)
 map(f::Tf, A::AbstractSparseMatrixCSC) where {Tf} = _noshapecheck_map(f, A)
-# `copy` keeps the stored entries, so these keep the input's pattern like the methods above
-map(f::Tf, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) where {Tf} = _noshapecheck_map(f, copy(A))
+# `copy(A)` also copies each stored element; `map` must see the original wrapped elements.
+map(f::Tf, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) where {Tf} =
+    _noshapecheck_map(f, ftranspose(parent(A), wrapperop(A), eltype(A)))
+# `copy` keeps the view's stored entries, so the result keeps its pattern.
 map(f::Tf, x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) where {Tf} =
     _noshapecheck_map(f, copy(x))
 # more specific than both the SparseVecOrMat and the SparseOrStructuredMatrix methods
