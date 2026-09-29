@@ -307,19 +307,23 @@ anysparse(X::T, Xs::T...) where {T} = anysparse(X)
 _concatsparse(X...) = anysparse(X...) && _allnumeric(X...)
 _allnumeric() = true
 _allnumeric(X, Xs...) = eltype(X) <: Number && _allnumeric(Xs...)
+# Base's dense concatenation allocates its result with `similar` of the first array. When
+# that array is sparse the result is too, and filling it needs `zero`, which a non-`Number`
+# eltype may not have, so the sparse inputs are made dense before Base sees them (#71)
+_densesparse(x) = anysparse(x) ? Array(x) : x
 
 const _SparseVecConcatGroup = Union{Vector, AbstractSparseVector}
 function hcat(X::_SparseVecConcatGroup...)
     if _concatsparse(X...)
-        X = map(sparse, X)
+        return cat(map(sparse, X)...; dims=Val(2))
     end
-    return cat(X...; dims=Val(2))
+    return cat(map(_densesparse, X)...; dims=Val(2))
 end
 function vcat(X::_SparseVecConcatGroup...)
     if _concatsparse(X...)
-        X = map(sparse, X)
+        return cat(map(sparse, X)...; dims=Val(1))
     end
-    return cat(X...; dims=Val(1))
+    return cat(map(_densesparse, X)...; dims=Val(1))
 end
 
 # Type piracy of Base's `cat` design; see https://github.com/JuliaLang/julia/issues/2326 for
@@ -382,28 +386,28 @@ Base.@constprop :aggressive function cat_internal(dims, X1::_SparseConcatGroup, 
     if _concatsparse(X1, X...)
         return _sparse_cat_t(dims, T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base._cat_t(dims, T, X1, X...)
+    return Base._cat_t(dims, T, _densesparse(X1), map(_densesparse, X)...)
 end
 function hcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
         return _sparse_typed_hcat(T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_hcat(T, X1, X...)
+    return Base.typed_hcat(T, _densesparse(X1), map(_densesparse, X)...)
 end
 function vcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
         return _sparse_typed_vcat(T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_vcat(T, X1, X...)
+    return Base.typed_vcat(T, _densesparse(X1), map(_densesparse, X)...)
 end
 # `Vararg{_SparseConcatGroup,N}` for the same reason as in `cat_internal`
 function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::Vararg{_SparseConcatGroup,N}) where {N}
     if _concatsparse(X1, X...)
         return _sparse_hvcat(rows, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
+    return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, _densesparse(X1), map(_densesparse, X)...)
 end
 # `_hvcat_csc` reads the blocks by index. Splitting them into a tuple per block row would
 # give tuples whose length depends on the value of `rows`, so their types could not be
@@ -503,6 +507,15 @@ end
 const _NumericSparseConcatGroup = Union{AbstractVecOrMat{<:Number},Number}
 Base.@constprop :aggressive Base._cat(dims, X1::_NumericSparseConcatGroup, X::_NumericSparseConcatGroup...) =
     cat_internal(dims, X1, X...)
+# With a non-`Number` array, `cat` does not reach the hook above, and Base's `cat` would
+# allocate a sparse result when a sparse array comes first; see `_densesparse`. This is a
+# method of `cat`, which Base defines only for `A...`, because a method of `_cat` taking a
+# sparse array first is ambiguous with Base's `_cat(dims, A::AbstractArray{T}...)`.
+const _SparseCatLeader = Union{AbstractSparseVecOrMat,AdjOrTrans{<:Any,<:AbstractSparseVecOrMat}}
+@inline function Base.cat(X1::_SparseCatLeader, X::Vararg{Any,N}; dims) where {N}
+    _allnumeric(X1, X...) && return Base._cat(dims, X1, X...)
+    return Base._cat(dims, _densesparse(X1), map(_densesparse, X)...)
+end
 for f in (:hcat, :vcat)
     f_internal = Symbol(f, :_internal)
     @eval begin
