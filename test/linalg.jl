@@ -368,7 +368,6 @@ end
     V = view(Cv, :, 2:5)   # V[1, 4] is the stored zero
     @test ishermitian(V) == ishermitian(Matrix(V)) == true
     @test issymmetric(V) == issymmetric(Matrix(V)) == false
-    # an empty view may name columns outside its parent
     @test issymmetric(view(spzeros(0, 2), :, 100:99)) && ishermitian(view(spzeros(0, 2), :, 100:99))
     @test issymmetric(A) == true
 
