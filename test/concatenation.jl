@@ -34,6 +34,59 @@ include("testhelpers.jl")
         @test length(nonzeros([sp33 0I; 1I 0I])) == 6
     end
 
+    @testset "h+v concatenation with block rows unknown to inference" begin
+        A = sparse([1, 3, 2], [1, 1, 3], [1.0, 2.0, 0.0], 3, 3)  # a stored zero
+        B = SparseMatrixCSC{Float32,Int32}(sprand(3, 2, 0.5))
+        C = sprand(3, 8, 0.5)
+        rows = Base.inferencebarrier((3, 1))
+        H = hvcat(rows, A, B, A, C)
+        @test H isa SparseMatrixCSC{Float64,Int}
+        @test H == hvcat((3, 1), Matrix(A), Matrix(B), Matrix(A), Matrix(C))
+        @test nnz(H) == 2nnz(A) + nnz(B) + nnz(C)
+        @test hvcat(rows, A, Matrix(B), A, C) == H
+        @test hvcat(Base.inferencebarrier((2, 2)), spzeros(0, 2), spzeros(0, 1), A[:, 1:2], A[:, 3:3]) == A
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2,)), A, spzeros(4, 2))
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2, 1)), A, A, C[:, 1:5])
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2, 2)), A, A, A)
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((1, 1)), A, A, A)
+        @test_throws ArgumentError hvcat(Base.inferencebarrier((0, 2)), A, A)
+    end
+
+    @testset "h+v concatenation with vector and number blocks" begin
+        A = sparse([1.0 0; 0 2])
+        vz = sparsevec([1, 2], [0.0, 1.0])  # a stored zero
+        H = [A vz; 1.0 0.0 -0.0]
+        @test H isa SparseMatrixCSC{Float64,Int}
+        @test H == [Matrix(A) Vector(vz); 1.0 0.0 -0.0]
+        # the stored zero of `vz` stays, `0.0` is not stored and `-0.0` is, as in `setindex!`
+        @test findnz(H) == ([1, 3, 2, 1, 2, 3], [1, 1, 2, 3, 3, 3], [1.0, 1.0, 2.0, 0.0, 1.0, -0.0])
+        @test hvcat(Base.inferencebarrier((2, 3)), A, vz, 1.0, 0.0, -0.0) == H
+        @test [A [3.0, 4.0]; 1 2 3] == [Matrix(A) [3.0, 4.0]; 1 2 3]
+        @test [A vz; 1 im 3] isa SparseMatrixCSC{ComplexF64,Int}
+        @test [A vz; missing 2 3] isa SparseMatrixCSC{Union{Missing,Float64},Int}
+        A32 = SparseMatrixCSC{Float64,Int32}(A)
+        v32 = SparseVector{Float64,Int32}(vz)
+        @test [A32 v32; v32' 1.0] isa SparseMatrixCSC{Float64,Int32}
+        @test [1.0 v32'; v32 A32] isa SparseMatrixCSC{Float64,Int}  # a leading number widens
+        @test_throws DimensionMismatch [A vz; 1 2]
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2, 2)), A, vz, 1.0)
+    end
+
+    @testset "cat with dims unknown to inference" begin
+        A = sprand(3, 3, 0.5)
+        D = rand(3, 3)
+        v = sprand(3, 0.5)
+        for dims in (1, 2, (1, 2), Val(2))
+            C = cat(A, D; dims = Base.inferencebarrier(dims))
+            @test C isa SparseMatrixCSC{Float64,Int}
+            @test C == cat(Matrix(A), D; dims)
+        end
+        @test cat(v, v; dims = Base.inferencebarrier(1)) isa SparseVector{Float64,Int}
+        C3 = cat(A, Matrix(A); dims = Base.inferencebarrier((1, 3)))
+        @test C3 isa Array{Float64,3}
+        @test C3 == cat(Matrix(A), Matrix(A); dims = (1, 3))
+    end
+
     @testset "blockdiag concatenation" begin
         @test blockdiag(se33, se33) == sparse(1:6,1:6,fill(1.,6))
         @test blockdiag() == spzeros(0, 0)
@@ -469,6 +522,24 @@ end
     @test vcat(I, A, Z)::Matrix == vcat(Matrix(I, 2, 2), A, Array(Z))
     @test hvcat((3,), I, A, Z)::Matrix == hvcat((3,), Matrix(I, 2, 2), A, Array(Z))
     @test hcat(I, Z, spzeros(2, 2))::SparseMatrixCSC == hcat(Matrix(I, 2, 2), Array(Z), zeros(2, 2))
+    # with the sparse array first
+    @test vcat(S, M)::Matrix == vcat(Array(S), M)
+    @test hcat(S, M)::Matrix == hcat(Array(S), M)
+    @test hvcat((2, 2), S, M, M, S)::Matrix == hvcat((2, 2), Array(S), M, M, Array(S))
+    @test cat(S, M; dims=1)::Matrix == cat(Array(S), M; dims=1)
+    @test cat(S, M; dims=3)::Array{Any,3} == cat(Array(S), M; dims=3)
+    s = sparse([1, 0, 0]); t = fill("a", 3)
+    @test vcat(s, t)::Vector == vcat([1, 0, 0], t)
+    @test hcat(s, t)::Matrix == hcat([1, 0, 0], t)
+    @test cat(s, t; dims=2)::Matrix == cat([1, 0, 0], t; dims=2)
+    @test vcat(s', permutedims(t))::Matrix == vcat([1 0 0], permutedims(t))
+    @test cat(transpose(s), permutedims(t); dims=1)::Matrix == cat([1 0 0], permutedims(t); dims=1)
+    # a numeric array of more than two dimensions still takes Base's `cat`, also with the
+    # same eltype as the sparse array
+    @test cat(S, ones(1, 3, 2); dims=3)::Array{Float64,3} == cat(Array(S), ones(1, 3, 2); dims=3)
+    @test cat(S, ones(Int, 1, 3, 2); dims=3)::Array{Int,3} == cat(Array(S), ones(Int, 1, 3, 2); dims=3)
+    @test cat(s, ones(Int, 3, 1, 1); dims=2)::Array{Int,3} == cat([1, 0, 0], ones(Int, 3, 1, 1); dims=2)
+    @test cat(S, S; dims=3)::Array{Int,3} == cat(Array(S), Array(S); dims=3)
 end
 
 @testset "concatenation with a leading number fills its block like dense (#383)" begin

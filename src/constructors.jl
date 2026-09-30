@@ -251,6 +251,8 @@ convert(T::Type{<:UpperTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
 
 float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
 complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
+float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
+complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
 
 """
     sparse(A::Union{AbstractVector, AbstractMatrix})
@@ -690,7 +692,7 @@ argument specifies a random number generator, see [Random Numbers](@ref).
 ```jldoctest; setup = :(using Random; Random.seed!(0))
 julia> sprandn(2, 2, 0.75)
 2×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
- -1.20577     ⋅
+ -1.20577       ⋅
   0.311817  -0.234641
 ```
 """
@@ -720,9 +722,9 @@ are still allocated, and a matrix additionally allocates a column pointer of
 ```jldoctest
 julia> spzeros(3, 3)
 3×3 SparseMatrixCSC{Float64, Int64} with 0 stored entries:
-  ⋅    ⋅    ⋅
-  ⋅    ⋅    ⋅
-  ⋅    ⋅    ⋅
+ ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅
 
 julia> spzeros(Float32, 4)
 4-element SparseVector{Float32, Int64} with 0 stored entries
