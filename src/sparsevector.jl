@@ -1534,9 +1534,13 @@ function ldiv!(xA::StridedTriangularMaybeAdjOrTrans, b::AbstractCompressedVector
     return b
 end
 
-# make every index of `active` a stored entry of `x`, filling the new ones with zero, and
-# return the range of storage positions that then holds `x[active]`; a fixed pattern cannot
-# grow, so it must already cover `active`, which is checked before anything is written
+"""
+    _densify!(x::AbstractCompressedVector, active::AbstractUnitRange{Int})
+
+Make every index of `active` a stored entry of `x`, filling the new ones with zero, and
+return the range of storage positions that then holds `x[active]`. A fixed pattern cannot
+grow, so it must already cover `active`, which is checked before anything is written.
+"""
 function _densify!(x::AbstractCompressedVector, active::AbstractUnitRange{Int})
     inds = nonzeroinds(x)
     vals = nonzeros(x)
