@@ -482,6 +482,10 @@ end
         @test R == rot(collect(a)) && R isa SparseMatrixCSC{ComplexF32,Int32} && nnz(R) == 4
     end
     @test rot180(fixed(a)) == rot180(collect(a)) && rot180(fixed(a)) isa SparseMatrixCSC
+    # values stored beyond nnz are unused capacity
+    b = sparse([1, 2, 1], [1, 2, 3], [1.0, 2.0, 3.0], 3, 3)
+    push!(nonzeros(b), NaN)
+    @test rot180(b) == rot180(Matrix(sparse([1, 2, 1], [1, 2, 3], [1.0, 2.0, 3.0], 3, 3)))
 end
 
 @testset "istriu/istril" begin

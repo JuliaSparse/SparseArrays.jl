@@ -1874,8 +1874,10 @@ end
 ## rotations
 
 # each rotation is a reversal of a fresh copy or transpose, so the index type and stored
-# zeros are kept; a fixed input is unfixed first because `copy` of it shares the pattern
-rot180(A::AbstractSparseMatrixCSC) = _reverse!(copy(_unsafe_unfix(A)), Colon())
+# zeros are kept. rot180 copies the buffers itself, since `copy` of a fixed input shares
+# the pattern and the buffers may hold unused capacity beyond nnz
+rot180(A::AbstractSparseMatrixCSC) = _reverse!(SparseMatrixCSC(size(A)..., Vector(getcolptr(A)),
+    Vector(view(rowvals(A), 1:nnz(A))), Vector(view(nonzeros(A), 1:nnz(A)))), Colon())
 rotr90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 2)
 rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 1)
 
@@ -2085,7 +2087,7 @@ function _reversalkeepspattern(S::AbstractSparseMatrixCSC, dims)
         r = nzrange(S, j)
         r2 = dims == 1 ? r : nzrange(S, n + 1 - j)
         length(r) == length(r2) || return false
-        for t in 0:length(r)-1
+        for t in 0:Int(length(r))-1
             i = rowinds[first(r) + t]
             mirrored = dims == 2 ? rowinds[first(r2) + t] : m + 1 - rowinds[last(r2) - t]
             i == mirrored || return false

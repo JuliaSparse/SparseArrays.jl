@@ -1781,12 +1781,12 @@ function reverse!(x::AbstractSparseVector, start::Integer=firstindex(x), stop::I
     checkbounds(x, start:stop)
     nzinds = nonzeroinds(x)
     lo, hi = searchsortedfirst(nzinds, start), searchsortedlast(nzinds, stop)
-    s = Int(start) + Int(stop)
+    s = start + stop
     if _is_fixed(x)
         # the pattern is read-only: the reversal must map the stored indices in
         # `start:stop` onto themselves, and then only the values move
         for t in 0:(hi - lo)
-            Int(nzinds[lo + t]) + Int(nzinds[hi - t]) == s ||
+            nzinds[hi - t] == s - nzinds[lo + t] ||
                 throw(ArgumentError(lazy"cannot reverse a $(nameof(typeof(x))) in place over $start:$stop: its sparsity pattern is read-only and the reversal would change it; use reverse(x, start, stop) for a new array"))
         end
     else

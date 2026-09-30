@@ -836,6 +836,10 @@ end
         @test_throws ArgumentError reverse!(f, 1, 9)
         @test f == s && nonzeroinds(f) == [2, 5, 6, 9]
     end
+    # the endpoint arithmetic stays in the index type, which may exceed Int
+    x = SparseVector(big(typemax(Int)) + 10, BigInt[1, 5], [1.0, 2.0])
+    @test nonzeroinds(reverse(x)) == [big(typemax(Int)) + 6, big(typemax(Int)) + 10]
+    @test nonzeroinds(reverse!(fixed(copy(x)), 1, 5)) == [1, 5]
 end
 
 ## math
