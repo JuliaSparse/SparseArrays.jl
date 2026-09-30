@@ -307,19 +307,23 @@ anysparse(X::T, Xs::T...) where {T} = anysparse(X)
 _concatsparse(X...) = anysparse(X...) && _allnumeric(X...)
 _allnumeric() = true
 _allnumeric(X, Xs...) = eltype(X) <: Number && _allnumeric(Xs...)
+# Base's dense concatenation allocates its result with `similar` of the first array. When
+# that array is sparse the result is too, and filling it needs `zero`, which a non-`Number`
+# eltype may not have, so the sparse inputs are made dense before Base sees them (#71)
+_densesparse(x) = anysparse(x) ? Array(x) : x
 
 const _SparseVecConcatGroup = Union{Vector, AbstractSparseVector}
 function hcat(X::_SparseVecConcatGroup...)
     if _concatsparse(X...)
-        X = map(sparse, X)
+        return cat(map(sparse, X)...; dims=Val(2))
     end
-    return cat(X...; dims=Val(2))
+    return cat(map(_densesparse, X)...; dims=Val(2))
 end
 function vcat(X::_SparseVecConcatGroup...)
     if _concatsparse(X...)
-        X = map(sparse, X)
+        return cat(map(sparse, X)...; dims=Val(1))
     end
-    return cat(X...; dims=Val(1))
+    return cat(map(_densesparse, X)...; dims=Val(1))
 end
 
 # Type piracy of Base's `cat` design; see https://github.com/JuliaLang/julia/issues/2326 for
@@ -343,15 +347,29 @@ function _catdest(::Type{T}, shape, X1::Number, X...) where {T}
     A = _catleader(X1, X...)
     return similar(A, T, promote_type(Int, indtype(A)), shape)
 end
+# The compiled method serves every value of `dims`, so `dims2cat(dims)` has an unknown
+# length, and `similar` of a sparse array cannot be resolved for a shape of unknown length,
+# which `juliac --trim` rejects. A sparse result has one or two dimensions, so each gets a
+# branch with a concrete `catdims`; more dimensions give a dense result, which Base builds.
 Base.@constprop :aggressive function _sparse_cat_t(dims, ::Type{T}, X...) where {T}
     catdims = Base.dims2cat(dims)
+    if length(catdims) == 1
+        return _sparse_cat_t_shaped((catdims[1],), T, X...)
+    elseif length(catdims) == 2
+        return _sparse_cat_t_shaped((catdims[1], catdims[2]), T, X...)
+    end
+    return Base._cat_t(dims, T, map(_catdense, X)...)
+end
+function _sparse_cat_t_shaped(catdims::Tuple{Vararg{Bool}}, ::Type{T}, X...) where {T}
     shape = Base.cat_size_shape(catdims, X...)
     A = _catdest(T, shape, X...)
-    if count(!iszero, catdims)::Int > 1
+    if count(catdims) > 1
         fill!(A, zero(T))
     end
     return Base.__cat(A, shape, catdims, X...)
 end
+_catdense(x::AbstractArray) = Array(x)
+_catdense(x) = x
 # with only arrays, `typed_hcat`/`typed_vcat` reach the same destination through `similar`
 # of the first, now sparse, array; a number among them takes the `cat` path as in Base
 _sparse_typed_hcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_hcat(T, X...)
@@ -359,65 +377,145 @@ _sparse_typed_hcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(2), T, X...)
 _sparse_typed_vcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_vcat(T, X...)
 _sparse_typed_vcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(1), T, X...)
 
+# `Vararg{_SparseConcatGroup,N}` makes Julia compile `cat_internal` for each argument
+# count. Otherwise, past a few arguments, it is compiled for an unknown count and the splat
+# into `Base._cat_t` is left unresolved, which `juliac --trim` rejects.
 # `@constprop :aggressive` allows `dims` to be propagated as constant improving return type inference
-Base.@constprop :aggressive function cat_internal(dims, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+Base.@constprop :aggressive function cat_internal(dims, X1::_SparseConcatGroup, X::Vararg{_SparseConcatGroup,N}) where {N}
     T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
         return _sparse_cat_t(dims, T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base._cat_t(dims, T, X1, X...)
+    return Base._cat_t(dims, T, _densesparse(X1), map(_densesparse, X)...)
 end
 function hcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
         return _sparse_typed_hcat(T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_hcat(T, X1, X...)
+    return Base.typed_hcat(T, _densesparse(X1), map(_densesparse, X)...)
 end
 function vcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     T = promote_eltype(X1, X...)
     if _concatsparse(X1, X...)
         return _sparse_typed_vcat(T, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_vcat(T, X1, X...)
+    return Base.typed_vcat(T, _densesparse(X1), map(_densesparse, X)...)
 end
-# `@constprop :aggressive` propagates the `rows` of a block literal into `_hvcat_rows`, so
-# that the block rows have known lengths and the row `hcat`s infer.
-Base.@constprop :aggressive function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...)
+# `Vararg{_SparseConcatGroup,N}` for the same reason as in `cat_internal`
+function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::Vararg{_SparseConcatGroup,N}) where {N}
     if _concatsparse(X1, X...)
         return _sparse_hvcat(rows, _makesparse(X1), map(_makesparse, X)...)
     end
-    return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
+    return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, _densesparse(X1), map(_densesparse, X)...)
 end
-# Without a constant `rows` the block rows have unknown length and their types cannot be
-# inferred, which is the case when LinearAlgebra's `hvcat` calls back here after replacing
-# `UniformScaling` blocks with sparse identities. With only sparse matrices, the promoted
-# element and index types are known from the blocks alone, so the final `vcat` takes them
-# explicitly and the result type does not depend on `rows`.
-function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::AbstractSparseMatrixCSC...)
-    return _vcat_csc(promote_eltype(X...), promote_idxtype(X...), _hvcat_rows(rows, X...)...)
+# `_hvcat_csc` reads the blocks by index. Splitting them into a tuple per block row would
+# give tuples whose length depends on the value of `rows`, so their types could not be
+# inferred and `juliac --trim` could not resolve the calls on them.
+function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::Vararg{AbstractSparseMatrixCSC,N}) where {N}
+    return _hvcat_csc(promote_eltype(X...), promote_idxtype(X...), rows, X...)
 end
-Base.@constprop :aggressive _sparse_hvcat(rows::Tuple{Vararg{Int}}, X...) = vcat(_hvcat_rows(rows, X...)...)
-function _hvcat_rows((row1, rows...)::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
-    if row1 ≤ 0
-        throw(ArgumentError("length of block row must be positive, got $row1"))
+# A vector is an `n×1` block and a number a `1×1` block, as in dense `hvcat`. A number is
+# stored unless scalar `setindex!` would leave it implicit, and a sparse vector keeps its
+# stored zeros, as sparse matrix blocks do. A leading number widens the index type to at
+# least `Int`, as it does for `hcat` and `vcat` (#383).
+function _sparse_hvcat(rows::Tuple{Vararg{Int}}, X::Vararg{Any,N}) where {N}
+    Tv = promote_eltype(X...)
+    Ti = _hvcat_idxtype(X...)
+    return _hvcat_csc(Tv, Ti, rows, map(x -> _hvcat_block(Tv, Ti, x), X)...)
+end
+_hvcat_idxtype(X1::Number, X...) = promote_type(Int, _blocks_idxtype(X...))
+_hvcat_idxtype(X...) = _blocks_idxtype(X...)
+_blocks_idxtype() = Union{}
+_blocks_idxtype(x::Number, X...) = _blocks_idxtype(X...)
+_blocks_idxtype(x::AbstractSparseArray, X...) = promote_type(indtype(x), _blocks_idxtype(X...))
+_hvcat_block(::Type, ::Type, B::AbstractSparseMatrixCSC) = B
+function _hvcat_block(::Type, ::Type, x::AbstractSparseVector{<:Any,Ti}) where {Ti}
+    return SparseMatrixCSC(length(x), 1, Ti[1, nnz(x) + 1], nonzeroinds(x), nonzeros(x))
+end
+function _hvcat_block(::Type{Tv}, ::Type{Ti}, x::Number) where {Tv,Ti}
+    v = convert(Tv, x)
+    _isimplicitzero(v, Tv) && return SparseMatrixCSC(1, 1, Ti[1, 1], Ti[], Tv[])
+    return SparseMatrixCSC(1, 1, Ti[1, 2], Ti[1], Tv[v])
+end
+function _hvcat_csc(::Type{Tv}, ::Type{Ti}, rows::Tuple{Vararg{Int}}, X::Vararg{AbstractSparseMatrixCSC,N}) where {Tv,Ti,N}
+    nblocks = 0
+    for r in rows
+        r > 0 || throw(ArgumentError("length of block row must be positive, got $r"))
+        nblocks += r
     end
-    # assert `X` is non-empty so that inference of `eltype` won't include `Type{Union{}}`
-    T = eltype(X::Tuple{Any,Vararg{Any}})
-    # inference of `getindex` may be imprecise in case `row1` is not const-propagated up
-    # to here, so help inference with the following type-assertions
-    return (
-        hcat(X[1 : row1]::Tuple{typeof(X[1]),Vararg{T}}...),
-        _hvcat_rows(rows, X[row1+1:end]::Tuple{Vararg{T}}...)...
-    )
+    nblocks == length(X) ||
+        throw(DimensionMismatch(lazy"block rows $rows take $nblocks blocks, got $(length(X))"))
+    m, n, k = 0, 0, 0
+    for (b, r) in enumerate(rows)
+        h, w = size(X[k + 1], 1), 0
+        for i in k+1:k+r
+            size(X[i], 1) == h || throw(DimensionMismatch(
+                lazy"block $i has $(size(X[i], 1)) rows, but block row $b has $h"))
+            w += size(X[i], 2)
+        end
+        b == 1 || w == n ||
+            throw(DimensionMismatch(lazy"block row $b has $w columns, but block row 1 has $n"))
+        m, n, k = m + h, w, k + r
+    end
+    # Build the result column by column, so that it is written in order. Block `blk[b]` of
+    # block row `b` covers the current column, and `lastcol[b]` is the last column it covers.
+    nbr = length(rows)
+    blk, lastcol, rowoff = Vector{Int}(undef, nbr), Vector{Int}(undef, nbr), Vector{Int}(undef, nbr)
+    k, i0 = 0, 0
+    for (b, r) in enumerate(rows)
+        blk[b], lastcol[b], rowoff[b] = k + 1, size(X[k + 1], 2), i0
+        i0 += size(X[k + 1], 1)
+        k += r
+    end
+    nnzres = 0
+    for x in X
+        nnzres += nnz(x)
+    end
+    colptr = Vector{Ti}(undef, n + 1)
+    rowval = Vector{Ti}(undef, nnzres)
+    nzval = Vector{Tv}(undef, nnzres)
+    colptr[1] = p = 1
+    # the shape checks above keep `blk[b]` within the blocks of block row `b`
+    @inbounds for j in 1:n
+        for b in 1:nbr
+            while j > lastcol[b]
+                blk[b] += 1
+                lastcol[b] += size(X[blk[b]], 2)
+            end
+            B = X[blk[b]]
+            p = _hvcat_copycol!(rowval, nzval, p, B, j - lastcol[b] + size(B, 2), rowoff[b])
+        end
+        colptr[j + 1] = p
+    end
+    return SparseMatrixCSC(m, n, colptr, rowval, nzval)
 end
-_hvcat_rows(::Tuple{}, X::_SparseConcatGroup...) = ()
+# `c` is a column of `B` and `p` stays within the `nnz` of all the blocks, by the shape
+# checks in `_hvcat_csc`
+function _hvcat_copycol!(rowval, nzval, p, B, c, i0)
+    cp, rv, nz = getcolptr(B), rowvals(B), nonzeros(B)
+    @inbounds for q in cp[c]:(cp[c + 1] - 1)
+        rowval[p] = rv[q] + i0
+        nzval[p] = nz[q]
+        p += 1
+    end
+    return p
+end
 
 # `cat` is not overloaded by packages the way `vcat` and `hcat` are, so its hook keeps the
 # narrower numeric group, which avoids invalidating Base's `cat` on non-numeric vectors
 const _NumericSparseConcatGroup = Union{AbstractVecOrMat{<:Number},Number}
 Base.@constprop :aggressive Base._cat(dims, X1::_NumericSparseConcatGroup, X::_NumericSparseConcatGroup...) =
     cat_internal(dims, X1, X...)
+# With a non-`Number` array, `cat` does not reach the hook above, and Base's `cat` would
+# allocate a sparse result when a sparse array comes first; see `_densesparse`. This is a
+# method of `cat`, which Base defines only for `A...`, because a method of `_cat` taking a
+# sparse array first is ambiguous with Base's `_cat(dims, A::AbstractArray{T}...)`.
+const _SparseCatLeader = Union{AbstractSparseVecOrMat,AdjOrTrans{<:Any,<:AbstractSparseVecOrMat}}
+@inline function Base.cat(X1::_SparseCatLeader, X::Vararg{Any,N}; dims) where {N}
+    _allnumeric(X1, X...) && return Base._cat(dims, X1, X...)
+    return Base._cat(dims, _densesparse(X1), map(_densesparse, X)...)
+end
 for f in (:hcat, :vcat)
     f_internal = Symbol(f, :_internal)
     @eval begin

@@ -437,6 +437,14 @@ end
         @test (x == y) == (Vector(x) == Vector(y))
     end
     @test !isequal(spzeros(3), spzeros(4))
+    # unit-range views of sparse vectors compare through the same stored-entry merge as
+    # sparse vectors, on either side, instead of the elementwise AbstractArray fallback
+    p = sparsevec([1, 3, 5, 7], [1.0, 2.0, 0.0, 3.0], 9)
+    q = sparsevec([2, 6], [2.0, 3.0], 6)        # the view's stored zero is implicit here
+    @test view(p, 2:7) == q && isequal(q, view(p, 2:7))
+    @test view(p, 2:7) != sparsevec([2, 4, 6], [2.0, 1.0, 3.0], 6) &&
+          !isequal(view(p, 1:6), view(p, 2:7))
+    @test nonzeros(view(p, 3:2)) == Float64[]   # empty view of a vector with stored entries
 end
 
 @testset "hash matches dense" begin
@@ -947,9 +955,9 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test exact_equal(imag(x), spzeros(Float64, length(x)))
         @test conj(x) === x
 
-        xcp = complex.(x, x2)
-        @test exact_equal(real(xcp), x)
-        @test exact_equal(imag(xcp), x2)
+        xcp = complex.(x, x2)   # real and imag keep the pattern of xcp, zeros included
+        @test real(xcp) == x && nonzeroinds(real(xcp)) == nonzeroinds(xcp)
+        @test imag(xcp) == x2 && nonzeroinds(imag(xcp)) == nonzeroinds(xcp)
         @test exact_equal(conj(xcp), complex.(x, -x2))
     end
 end
@@ -966,7 +974,7 @@ end
         for op in operations
             spresvec = op.(spvec)
             @test spresvec == op.(densevec)
-            @test all(!iszero, nonzeros(spresvec))
+            @test nonzeroinds(spresvec) == nonzeroinds(spvec)   # the pattern is kept, zeros included
             resvaltype = typeof(op(zero(eltype(spvec))))
             resindtype = SparseArrays.indtype(spvec)
             @test isa(spresvec, SparseVector{resvaltype,resindtype})
@@ -1349,6 +1357,8 @@ end
             end
         end
     end
+    A = spzeros(0, 3)
+    @test fill!(A, 1.0) === A && nnz(A) == 0
 end
 
 @testset "13130 and 16661" begin

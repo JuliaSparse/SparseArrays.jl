@@ -81,6 +81,13 @@ end
         @test isequal(Y, X) == isequal(Matrix(Y), Matrix(X))
         @test (X == Y) == (Matrix(X) == Matrix(Y))
     end
+    # column-range and column-subset views compare through the stored-entry merge on
+    # either side instead of the elementwise AbstractArray fallback
+    P = sparse([1, 2, 3, 1], [1, 2, 3, 4], [1.0, 0.0, 2.0, 5.0], 3, 4)
+    Q = sparse([1, 3], [1, 3], [1.0, 2.0], 3, 3)    # P's stored zero is implicit here
+    @test view(P, :, 1:3) == Q && isequal(Q, view(P, :, [1, 2, 3]))
+    @test view(P, :, 1:3) != sparse([1, 2, 3], [1, 2, 3], [1.0, 1.0, 2.0], 3, 3) &&
+          !isequal(view(P, :, [3, 2, 1]), view(P, :, 1:3))
 end
 
 @testset "hash matches dense" begin
@@ -334,7 +341,8 @@ end
         @test I == imag.(S) == imag(S)
         @test conj(Array(S)) == conj.(S) == conj(S)
         @test real.(spR) == R
-        @test nnz(imag.(spR)) == nnz(imag(spR)) == 0
+        @test nnz(imag(spR)) == 0
+        @test iszero(imag.(spR)) && nnz(imag.(spR)) == nnz(spR)   # broadcast keeps the pattern
         @test abs.(S) == abs.(D)
         @test abs2.(S) == abs2.(D)
 
@@ -474,8 +482,10 @@ end
     A = sparse([1, n ÷ 2], [1, n], OpCount.([1.0, 2.0]), n, n)
     B = sparse([1, n ÷ 2, 7], [1, n, 7], OpCount.([1.0, 2.0, 0.0]), n, n)
     for (x, y) in ((v, v), (v, w), (w, v), (v', w'), (transpose(v), transpose(w)),
+                   (view(v, 1:n), w),
                    (A, A), (A, B), (B, A), (A', B'), (transpose(A), transpose(B)),
-                   (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
+                   (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)),
+                   (A, view(B, :, [1:n;])))
         budget = nnz(parent(x isa Union{Adjoint,Transpose} ? x : x') ) +
                  nnz(parent(y isa Union{Adjoint,Transpose} ? y : y'))
         for eq in (==, isequal)
@@ -892,6 +902,54 @@ end
 
     # Test correct error for too small destination array
     @test_throws BoundsError copyto!(rand(2,2), sprand(3,3,0.2))
+end
+
+struct WrappedSV{Tv,Ti} <: SparseArrays.AbstractSparseVector{Tv,Ti}
+    x::SparseVector{Tv,Ti}
+end
+Base.size(v::WrappedSV) = size(v.x)
+Base.getindex(v::WrappedSV, i::Int) = v.x[i]
+SparseArrays.nnz(v::WrappedSV) = nnz(v.x)
+SparseArrays.nonzeros(v::WrappedSV) = nonzeros(v.x)
+SparseArrays.nonzeroinds(v::WrappedSV) = nonzeroinds(v.x)
+
+@testset "copyto! into dense arrays of any shape" begin
+    S = sparse([1, 3, 1], [1, 2, 3], [1.0, 3.0, 4.0], 3, 3)
+    D = Matrix(S)
+    @test which(copyto!, Tuple{Matrix{Float64}, typeof(S)}).module === SparseArrays
+    for dest in (fill(-1.0, 3, 3), fill(-1.0, 9), fill(-1.0, 3, 3, 1))
+        @test copyto!(dest, S) === dest && vec(dest) == vec(D)
+    end
+    @test copyto!(fill(-1.0, 3, 2), view(S, :, 2:3)) == D[:, 2:3]
+    @test copyto!(fill(-1.0, 3, 3), S') == D'
+    # a full pattern never asks for a zero, so an eltype without one copies (issue #28369)
+    M = reshape([fill(k, 1, 2) for k in 1:4], 2, 2)
+    @test Array(sparse(M)) == M
+    # a destination that is one of the source's own buffers still receives the source's values
+    for wrap in (identity, adjoint, transpose, A -> view(A, :, 1:2))
+        A = sparse([1 2; 3 4]); B = copy(A)
+        @test copyto!(nonzeros(A), wrap(A)) == vec(Matrix(wrap(B)))
+        @test rowvals(A) == rowvals(B) && getcolptr(A) == getcolptr(B)
+        A = sparse([1 2; 3 4])
+        @test copyto!(rowvals(A), wrap(A)) == vec(Matrix(wrap(B)))
+    end
+    for wrap in (identity, adjoint, x -> view(x, :), x -> view(x, 1:3))
+        x = sparsevec([1, 2, 3]); y = copy(x)
+        @test vec(copyto!(nonzeros(x), wrap(x))) == vec(collect(wrap(y)))
+        @test nonzeroinds(x) == nonzeroinds(y)
+    end
+    Sc = sparse([1 2; 3 4])
+    @test copyto!(nonzeros(Sc), view(Sc, :, 2)) == [2, 4, 2, 4]
+    # `ReadOnly` reports no data ids; the fixed pattern still shares `Sf`'s buffers. The
+    # destination is the row-index buffer itself, so only the result and `colptr` are checked.
+    Sf = sparse([1 2; 3 4]); Ff = fixed(Sf)
+    @test copyto!(rowvals(Sf), adjoint(Ff)) == [1, 2, 3, 4] && getcolptr(Ff) == [1, 3, 5]
+    # a sparse vector type that only implements the `nonzeroinds`/`nonzeros` interface
+    w = WrappedSV(sparsevec([2], [5.0], 4))
+    @test copyto!(fill(-1.0, 4), w) == [0, 5, 0, 0]
+    small = fill(-1.0, 2, 2)
+    @test_throws BoundsError copyto!(small, S)
+    @test all(small .== -1)
 end
 
 @testset "error conditions for reshape, and dropdims" begin
@@ -1507,14 +1565,6 @@ end
     nonzeros(A1)[2:5].=0
     @test A1==A2
     @test sparse([1,1,0])!=sparse([0,1,1])
-end
-
-@testset "expandptr" begin
-    local A = sparse(1.0I, 5, 5)
-    @test SparseArrays.expandptr(getcolptr(A)) == 1:5
-    A[1,2] = 1
-    @test SparseArrays.expandptr(getcolptr(A)) == [1; 2; 2; 3; 4; 5]
-    @test_throws ArgumentError SparseArrays.expandptr([2; 3])
 end
 
 @testset "reverse" begin

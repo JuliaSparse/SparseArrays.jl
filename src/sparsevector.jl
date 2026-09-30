@@ -114,11 +114,11 @@ nonzeroinds(x::SparseVectorView) = nonzeroinds(parent(x))
 _checkbuffers(x::AbstractCompressedVector) = (@assert length(nonzeros(x)) == length(nonzeroinds(x)); x)
 
 # return the first and last nonzero indices of the parent that belong to the view
-# return end+1:end if no nonzero in the parent
+# return end+1:end if no nonzero in the parent or the view is empty
 function _partialview_end_indices(x::SparseVectorPartialView)
     p = parent(x)
     nzinds = nonzeroinds(p)
-    if isempty(nzinds)
+    if isempty(nzinds) || isempty(parentindices(x)[1])
         last_idx = length(nzinds)
         first_idx = last_idx + 1
     else
@@ -835,42 +835,50 @@ end
 # as `Any` still work as long as the stored values themselves are numbers.
 _iszero_under(eq::F, x) where {F} = eq(x, zero(x))
 
-# Compare two compressed vectors by walking their stored entries only. `eq` is the
-# elementwise predicate (`==` or `isequal`); stored entries without a counterpart are
-# compared against the implicit zero of the other vector so that e.g. `isequal(-0.0, 0.0)`
-# and `isequal(NaN, NaN)` behave as they do for dense arrays.
-function _iseq(eq::F, A::AbstractCompressedVector, B::AbstractCompressedVector) where {F}
-    # Different sizes are always different
-    size(A) ≠ size(B) && return false
-    # Compare nonzero elements
-    i, j = 1, 1
-    @inbounds while i <= nnz(A) && j <= nnz(B)
-        if nonzeroinds(A)[i] == nonzeroinds(B)[j]
-            eq(nonzeros(A)[i], nonzeros(B)[j]) || return false
+# Merge the stored entries `ra` of `(ia, va)` with the entries `rb` of `(ib, vb)`, whose
+# indices are sorted within each range, comparing the values at equal indices with `eq`
+# (`==` or `isequal`). A stored entry without a counterpart is compared against the
+# implicit zero of the other array so that e.g. `isequal(-0.0, 0.0)` and
+# `isequal(NaN, NaN)` behave as they do for dense arrays. Callers pass ranges that lie
+# within the storage vectors: a column's `nzrange` or the whole stored range.
+@inline function _merge_eq(eq::F, ia, va, ib, vb, ra::AbstractUnitRange, rb::AbstractUnitRange) where {F}
+    i, j = first(ra), first(rb)
+    @inbounds while i <= last(ra) && j <= last(rb)
+        ii, jj = ia[i], ib[j]
+        if ii == jj
+            eq(va[i], vb[j]) || return false
             i += 1
             j += 1
-        elseif nonzeroinds(A)[i] <= nonzeroinds(B)[j]
-            _iszero_under(eq, nonzeros(A)[i]) || return false
+        elseif ii < jj
+            _iszero_under(eq, va[i]) || return false
             i += 1
-        else # nonzeroinds(A)[i] >= nonzeroinds(B)[j]
-            _iszero_under(eq, nonzeros(B)[j]) || return false
+        else # ii > jj
+            _iszero_under(eq, vb[j]) || return false
             j += 1
         end
     end
-
-    @inbounds for k in i:nnz(A)
-        _iszero_under(eq, nonzeros(A)[k]) || return false
+    @inbounds for k in i:last(ra)
+        _iszero_under(eq, va[k]) || return false
     end
-
-    @inbounds for k in j:nnz(B)
-        _iszero_under(eq, nonzeros(B)[k]) || return false
+    @inbounds for k in j:last(rb)
+        _iszero_under(eq, vb[k]) || return false
     end
-
     return true
 end
 
-==(A::AbstractCompressedVector, B::AbstractCompressedVector) = _iseq(==, A, B)
-Base.isequal(A::AbstractCompressedVector, B::AbstractCompressedVector) = _iseq(isequal, A, B)
+# Compare two sparse vectors, or unit-range views of them, by walking their stored
+# entries only. `eachindex` of the two storage vectors guards the `@inbounds` merge.
+function _iseq(eq::F, A::Union{AbstractCompressedVector,SparseVectorPartialView},
+               B::Union{AbstractCompressedVector,SparseVectorPartialView}) where {F}
+    size(A) == size(B) || return false
+    ia, va, ib, vb = nonzeroinds(A), nonzeros(A), nonzeroinds(B), nonzeros(B)
+    return _merge_eq(eq, ia, va, ib, vb, eachindex(ia, va), eachindex(ib, vb))
+end
+
+==(A::Union{AbstractCompressedVector,SparseVectorPartialView},
+    B::Union{AbstractCompressedVector,SparseVectorPartialView}) = _iseq(==, A, B)
+Base.isequal(A::Union{AbstractCompressedVector,SparseVectorPartialView},
+    B::Union{AbstractCompressedVector,SparseVectorPartialView}) = _iseq(isequal, A, B)
 
 ==(A::Transpose{<:Any,<:AbstractCompressedVector},
     B::Transpose{<:Any,<:AbstractCompressedVector}) = transpose(A) == transpose(B)
@@ -1044,10 +1052,8 @@ _withnonzeros(x::FixedSparseVector, nzval) = FixedSparseVector(length(x), nonzer
 -(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
 -(x::FixedSparseVector) = FixedSparseVector(length(x), nonzeroinds(x), -nonzeros(x))
 
-# functions f, such that
-#   f(x) can be zero or non-zero when x != 0
-#   f(x) = 0 when x == 0
-#
+# functions f with f(0) == 0: the result keeps the pattern of x, as `f.(x)` does, even where
+# f(x) is zero for a stored x
 macro unarymap_nz2z_z2z(op, TF)
     esc(quote
         function $(op)(x::AbstractSparseVector{Tv,Ti}) where Tv<:$(TF) where Ti<:Integer
@@ -1057,20 +1063,11 @@ macro unarymap_nz2z_z2z(op, TF)
             xnzval = nonzeros(x)
             m = length(xnzind)
 
-            ynzind = Vector{Ti}(undef, m)
+            ynzind = Vector{Ti}(xnzind)
             ynzval = Vector{R}(undef, m)
-            ir = 0
             @inbounds for j = 1:m
-                i = xnzind[j]
-                v = $(op)(xnzval[j])
-                if _isnotzero(v)
-                    ir += 1
-                    ynzind[ir] = i
-                    ynzval[ir] = v
-                end
+                ynzval[j] = $(op)(xnzval[j])
             end
-            resize!(ynzind, ir)
-            resize!(ynzval, ir)
             SparseVector(length(x), ynzind, ynzval)
         end
     end)
@@ -1082,37 +1079,16 @@ conj(x::AbstractCompressedVector{<:Complex}) = typeof(x)(length(x), copy(nonzero
 imag(x::AbstractSparseVector{Tv,Ti}) where {Tv<:Real,Ti<:Integer} = SparseVector(length(x), Ti[], Tv[])
 @unarymap_nz2z_z2z imag Complex
 
-# function that does not preserve zeros
-
-macro unarymap_z2nz(op, TF)
-    esc(quote
-        function $(op)(x::AbstractSparseVector{Tv,<:Integer}) where Tv<:$(TF)
-            require_one_based_indexing(x)
-            v0 = $(op)(zero(Tv))
-            R = typeof(v0)
-            xnzind = nonzeroinds(x)
-            xnzval = nonzeros(x)
-            n = length(x)
-            m = length(xnzind)
-            y = fill(v0, n)
-            @inbounds for j = 1:m
-                y[xnzind[j]] = $(op)(xnzval[j])
-            end
-            y
-        end
-    end)
-end
-
 ### Binary Map
 
 # mode:
 # 0: f(nz, nz) -> nz, f(z, nz) -> z, f(nz, z) ->  z
 # 2: f(nz, nz) -> z/nz, f(z, nz) -> z/nz, f(nz, z) -> z/nz
 
-function _binarymap(f::Function,
+function _binarymap(f::F,
                     x::AbstractSparseVector{Tx},
                     y::AbstractSparseVector{Ty},
-                    mode::Int) where {Tx,Ty}
+                    mode::Int) where {F<:Function,Tx,Ty}
     mode == 0 || mode == 2 || throw(ArgumentError("Incorrect mode $mode."))
     R = Base.promote_typejoin_union(Base.promote_op(f, Tx, Ty))
     I = promote_type(eltype(nonzeroinds(x)), eltype(nonzeroinds(y)))
@@ -1697,43 +1673,45 @@ function copy!(dst::AbstractCompressedVector, src::AbstractVector)
     return dst
 end
 
-function _fillnonzero!(arr::AbstractSparseMatrixCSC{Tv, Ti}, val) where {Tv,Ti}
-    m, n = size(arr)
-    resize!(getcolptr(arr), n+1)
-    resize!(rowvals(arr), m*n)
-    resize!(nonzeros(arr), m*n)
-    copyto!(getcolptr(arr), 1:m:n*m+1)
-    fill!(nonzeros(arr), val)
-    index = 1
-    @inbounds for _ in 1:n
-        for i in 1:m
-            rowvals(arr)[index] = Ti(i)
-            index += 1
-        end
-    end
-    arr
-end
+_densifiable(A::SparseVecOrMat) = !_is_fixed(A) || nnz(A) == widelength(A)
+# a fixed pattern cannot be densified unless it already is; fail here rather than deep in ReadOnly
+_checkdensifiable(A::SparseVecOrMat) = _densifiable(A) ||
+    throw(ArgumentError("cannot store a nonzero f(0) into a $(nameof(typeof(A))), its sparsity pattern is read-only"))
 
-function _fillnonzero!(arr::AbstractCompressedVector{Tv,Ti}, val) where {Tv,Ti}
-    n = length(arr)
-    resize!(nonzeroinds(arr), n)
-    resize!(nonzeros(arr), n)
-    @inbounds for i in 1:n
-        nonzeroinds(arr)[i] = Ti(i)
+# Store every position of `A`; the values beyond the former `nnz(A)` are left for the caller to fill.
+function _densestructure!(A::AbstractCompressedVector)
+    _checkdensifiable(A)
+    _is_fixed(A) && return A   # passed the check above, so already full
+    n = length(A)
+    resize!(nonzeroinds(A), n)
+    resize!(nonzeros(A), n)
+    copyto!(nonzeroinds(A), 1:n)
+    return A
+end
+function _densestructure!(A::AbstractSparseMatrixCSC)
+    _checkdensifiable(A)
+    _is_fixed(A) && return A
+    m, n = size(A)
+    resize!(rowvals(A), m * n)
+    resize!(nonzeros(A), m * n)
+    colptr = resize!(getcolptr(A), n + 1)
+    @inbounds for j in 0:n
+        colptr[j + 1] = j * m + 1
     end
-    fill!(nonzeros(arr), val)
-    arr
+    for j in 0:n-1
+        copyto!(rowvals(A), j * m + 1, 1:m)
+    end
+    return A
 end
 
 import Base.fill!
 function fill!(A::SparseVecOrMat, x)
-    T = eltype(A)
-    xT = convert(T, x)
-    if _iszero(xT)
-        fill!(nonzeros(A), xT)
-    else
-        _fillnonzero!(A, xT)
+    xT = convert(eltype(A), x)
+    if !_iszero(xT)
+        _densifiable(A) || throw(ArgumentError("cannot fill! a $(nameof(typeof(A))) with a nonzero value, its sparsity pattern is read-only; fillstored!(A, x) sets the stored entries"))
+        _densestructure!(A)
     end
+    fill!(nonzeros(A), xT)
     return A
 end
 

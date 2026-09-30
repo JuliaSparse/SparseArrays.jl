@@ -241,12 +241,27 @@ views of a subset of their columns, and sparse vectors, for which the result is 
 [`broadcast`](@ref) (including dot syntax such as `A .* B`) and [`map`](@ref) over sparse vectors
 and matrices return a sparse result. To decide which entries to store, the function is first
 evaluated once on the zeros of the arguments' element types. If `f(0, 0, ...)` is zero, as for
-`A .* B`, `abs.(A)` or `2 .* A`, only positions where some argument has a stored entry are visited,
-and only the results there that are nonzero are stored:
+`A .* B`, `abs.(A)` or `2 .* A`, only positions where some argument has a stored entry are visited.
+With a single sparse argument the result has exactly that argument's stored entries, so `2 .* A`,
+`abs.(A)` and `Float64.(A)` keep the stored zeros of `A`, just as `2A`, `-A` and `float(A)` do:
 
 ```jldoctest sparsebroadcast
-julia> A = sparse([1, 2, 3], [1, 2, 3], [1, -2, 3]);
+julia> A = sparse([1, 1, 2, 3], [1, 2, 2, 3], [1, 0, -2, 3])
+3×3 SparseMatrixCSC{Int64, Int64} with 4 stored entries:
+ 1   0  ⋅
+ ⋅  -2  ⋅
+ ⋅   ⋅  3
 
+julia> Float64.(A)
+3×3 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
+ 1.0   0.0   ⋅
+  ⋅   -2.0   ⋅
+  ⋅     ⋅   3.0
+```
+
+With two or more sparse arguments, only the results that are nonzero are stored:
+
+```jldoctest sparsebroadcast
 julia> B = sparse([1, 1, 3], [1, 3, 3], [1, 5, -3]);
 
 julia> A .* B
@@ -262,8 +277,8 @@ julia> A .+ B
  ⋅   ⋅  ⋅
 ```
 
-The entry `A[3, 3] + B[3, 3]` cancels to zero and is dropped rather than stored. Stored zeros in an
-argument are dropped the same way, so `2 .* A` can have fewer stored entries than `A`.
+The entry `A[3, 3] + B[3, 3]` cancels to zero and is dropped rather than stored, and so is the
+stored zero `A[1, 2]`, because `A[1, 2] + B[1, 2]` computes to zero.
 
 If `f(0, 0, ...)` is not zero, as for `A .+ 1`, `cos.(A)` or `A ./ B` (where `0/0` is `NaN`), the
 result is still a sparse array, but every entry is stored, including any that happen to compute to
@@ -540,10 +555,12 @@ DocTestSetup = nothing
 # [SparseArrays API](@id stdlib-sparse-arrays)
 
 ```@docs
+SparseArrays
 SparseArrays.AbstractSparseArray
 SparseArrays.AbstractSparseVector
 SparseArrays.AbstractSparseMatrix
 SparseArrays.AbstractSparseMatrixCSC
+SparseArrays.AbstractCompressedVector
 SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 SparseArrays.sparse
@@ -575,12 +592,54 @@ SparseArrays.dropzeros
 SparseArrays.dropstored!
 SparseArrays.fkeep!
 SparseArrays.permute
-permute!{Tv, Ti, Tp <: Integer, Tq <: Integer}(::SparseMatrixCSC{Tv,Ti}, ::SparseMatrixCSC{Tv,Ti}, ::AbstractArray{Tp,1}, ::AbstractArray{Tq,1})
+Base.permute!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::AbstractVector{<:Integer}, ::AbstractVector{<:Integer}) where {Tv,Ti}
 SparseArrays.halfperm!
 SparseArrays.ftranspose!
+SparseArrays.transpose!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+SparseArrays.adjoint!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+Base.sort!(::SparseArrays.AbstractSparseMatrixCSC)
+Base.sort(::SparseArrays.AbstractSparseMatrixCSC)
+Base.sort!(::Union{SparseArrays.AbstractCompressedVector, SparseArrays.SparseColumnView})
+SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
 SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
+SparseArrays.allowscalar
+```
+
+## Internals
+
+The helpers below are not part of the API: they are unexported, may change or disappear
+in any release. This internal documentation is also not complete, but it is meant to be treated
+as a companion to the documentation of the public facing APIs adding more details and colour.
+
+```@docs
+SparseArrays.ReadOnly
+SparseArrays.ColumnIndices
+SparseArrays.iswrsparse
+SparseArrays.depth
+SparseArrays.sparse_with_lmul
+SparseArrays.rowcheck_index
+SparseArrays.mergeinds!
+SparseArrays.move_fixed
+SparseArrays._unsafe_unfix
+SparseArrays.@RCI
+SparseArrays._densifyfirstnztoend!
+SparseArrays._densifystarttolastnz!
+SparseArrays.HigherOrderFns._map_zeropres!
+SparseArrays.HigherOrderFns._map_notzeropres!
+SparseArrays._spsetz_setindex!
+SparseArrays._spsetnz_setindex!
+SparseArrays.unchecked_noalias_permute!
+SparseArrays.unchecked_aliasing_permute!
+SparseArrays._computecolptrs_permute!
+SparseArrays._checkargs_sourcecompatperms_permute!
+SparseArrays._checkargs_permutationsvalid_permute!
+SparseArrays._checkargs_sourcecompatdest_permute!
+SparseArrays._checkargs_sourcecompatworkmat_permute!
+SparseArrays._checkargs_sourcecompatworkcolptr_permute!
+SparseArrays._computecolptrs_halfperm!
+SparseArrays._distributevals_halfperm!
 ```
 
 ```@meta

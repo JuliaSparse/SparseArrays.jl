@@ -73,7 +73,7 @@ end
 
 Supertype for `N`-dimensional sparse arrays (or array-like types) with elements
 of type `Tv` and index type `Ti`. [`SparseMatrixCSC`](@ref), [`SparseVector`](@ref)
-and `SuiteSparse.CHOLMOD.Sparse` are subtypes of this.
+and `SparseArrays.CHOLMOD.Sparse` are subtypes of this.
 """
 abstract type AbstractSparseArray{Tv,Ti,N} <: AbstractArray{Tv,N} end
 

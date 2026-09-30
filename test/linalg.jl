@@ -276,6 +276,24 @@ end
         v = sprand(eltype(D), size(D,1), 0.1)
         @test ldiv!(D, copy(v)) == D \ Array(v)
     end
+
+    # `D \ A` and `A / D` returned `Inf` for a singular `D`; the zero is not the first entry,
+    # so a kernel that checked while scaling would leave the destination modified
+    @testset "D \\ A and A / D" begin
+        A = sparse([1.0+im 0 2; 0 3 0]); MA = Matrix(A); v = sparsevec([2], [1.0+im], 2)
+        Dl = Diagonal([2.0, 1+im]); Dr = Diagonal([1.0, 2im, 3])
+        @test Dl \ A isa SparseMatrixCSC && Dl \ A ≈ Dl \ MA
+        @test A / Dr isa SparseMatrixCSC && A / Dr ≈ MA / Dr
+        @test ldiv!(Dl, copy(v)) ≈ Dl \ Vector(v)
+        Dl0 = Diagonal([1.0, 0]); Dr0 = Diagonal([1.0, 2, 0]); B = copy(A)
+        @test_throws SingularException(2) Dl0 \ A
+        @test_throws SingularException(2) ldiv!(Dl0, B)
+        @test B == A
+        @test_throws SingularException(3) A / Dr0
+        @test_throws SingularException(3) rdiv!(B, Dr0)
+        @test B == A
+        @test_throws DimensionMismatch Dr \ A
+    end
 end
 
 @testset "triu/tril" begin

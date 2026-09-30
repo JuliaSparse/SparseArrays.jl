@@ -161,6 +161,12 @@ end
     @test same_pattern(w, sparsevec([1, 3], [1.0, 2.0], 4))
     w .= sparsevec([3], [5.0], 4)
     @test w == [0, 0, 5, 0] && nnz(w) == 2
+    v = fixed(sparsevec([1, 3], [1 + 2im, 3 + 0im], 4))
+    for (f, d) in ((real, [1, 0, 3, 0]), (imag, [2, 0, 0, 0]))
+        r = f(v)
+        @test r isa SparseVector{Int,Int}
+        @test r == d && nonzeroinds(r) == [1, 3]
+    end
 end
 
 @testset "structure queries and unary maps keep the fixed pattern" begin
@@ -194,6 +200,16 @@ end
     @test (x .= x .* 0; true)
     @test (x .= 0; true)
     @test (fill!(x, false); true)
+end
+
+@testset "fill! keeps a fixed pattern" begin
+    P = sparse([1, 3], [1, 2], [1.0, 2.0], 3, 3)
+    A = fixed(copy(P))
+    @test_throws ArgumentError fill!(A, 2.0)
+    @test same_pattern(A, P) && nonzeros(A) == [1.0, 2.0] && _is_fixed(A)
+    @test fill!(A, 0.0) === A && same_pattern(A, P) && iszero(nonzeros(A)) && _is_fixed(A)
+    F = fixed(sparse(ones(2, 3)))
+    @test fill!(F, 2.5) === F && F == fill(2.5, 2, 3) && nnz(F) == 6 && _is_fixed(F)
 end
 
 @testset "`getindex`` should return type with same `_is_fixed`" begin
