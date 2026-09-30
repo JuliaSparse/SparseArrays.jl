@@ -1816,35 +1816,13 @@ end
 
 ## rotations
 
-function rot180(A::AbstractSparseMatrixCSC)
-    I,J,V = findnz(A)
-    m,n = size(A)
-    for i=1:length(I)
-        I[i] = m - I[i] + 1
-        J[i] = n - J[i] + 1
-    end
-    return sparse(I,J,V,m,n)
-end
-
-function rotr90(A::AbstractSparseMatrixCSC)
-    I,J,V = findnz(A)
-    m,n = size(A)
-    #old col inds are new row inds
-    for i=1:length(I)
-        I[i] = m - I[i] + 1
-    end
-    return sparse(J, I, V, n, m)
-end
-
-function rotl90(A::AbstractSparseMatrixCSC)
-    I,J,V = findnz(A)
-    m,n = size(A)
-    #old row inds are new col inds
-    for i=1:length(J)
-        J[i] = n - J[i] + 1
-    end
-    return sparse(J, I, V, n, m)
-end
+# each rotation is a reversal of a fresh copy or transpose, so the index type and stored
+# zeros are kept. rot180 copies the buffers itself, since `copy` of a fixed input shares
+# the pattern and the buffers may hold unused capacity beyond nnz
+rot180(A::AbstractSparseMatrixCSC) = _reverse!(SparseMatrixCSC(size(A)..., Vector(getcolptr(A)),
+    Vector(view(rowvals(A), 1:nnz(A))), Vector(view(nonzeros(A), 1:nnz(A)))), Colon())
+rotr90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 2)
+rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 1)
 
 ## Uniform matrix arithmetic
 
@@ -1862,6 +1840,8 @@ end
 ## circular shift
 
 function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c)::Base.DimsInteger{2})
+    # a fixed destination keeps its pattern, which `_copyto_fixed!` checks before writing
+    _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r, c)))
     nnz = length(nonzeros(X))
 
     iszero(nnz) && return copy!(O, X)
@@ -1991,69 +1971,82 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
     return nothing
 end
 
-reverse(A::AbstractSparseMatrixCSC; dims=:) = _reverse(A, dims)
-function _reverse(A::AbstractSparseMatrixCSC, ::Colon)
-    rowinds, colinds, nzval = findnz(A)
-    rowinds .= (size(A,1) + 1) .- rowinds
-    colinds .= (size(A,2) + 1) .- colinds
-    sparse!(rowinds, colinds, nzval, size(A)...)
-end
-function _reverse(A::AbstractSparseMatrixCSC, dims::Integer)
-    dims ∈ (1,2) || throw(ArgumentError("invalid dimension $dims in reverse"))
-    rowinds, colinds, nzval = findnz(A)
-    if dims == 1
-        rowinds .= (size(A,1) + 1) .- rowinds
-    else # dims == 2
-        colinds .= (size(A,2) + 1) .- colinds
-    end
-    sparse!(rowinds, colinds, nzval, size(A)...)
-end
-function _reverse(A::AbstractSparseMatrixCSC, dims::Tuple{Integer,Integer})
-    dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
-    _reverse(A, :)
+reverse(A::AbstractSparseMatrixCSC; dims=:) = _reverse!(copy(_unsafe_unfix(A)), _reversedims(dims))
+function reverse!(S::AbstractSparseMatrixCSC; dims=:)
+    d = _reversedims(dims)
+    _is_fixed(S) || return _reverse!(S, d)
+    _reversalkeepspattern(S, d) ||
+        throw(ArgumentError(lazy"cannot reverse a $(nameof(typeof(S))) in place along dims=$dims: its sparsity pattern is read-only and the reversal would change it; use reverse(A; dims) for a new array"))
+    return _reversevals!(S, d)
 end
 
-reverse(S::SparseMatrixCSC; dims...) = reverse!(copy(S); dims...)
-reverse!(S::SparseMatrixCSC; dims=:) = _reverse!(S, dims)
-function _reverse!(S::SparseMatrixCSC, ::Colon)
-    rowinds, nzval = rowvals(S), nonzeros(S)
-    colptr = getcolptr(S)
-    rowinds .= (size(S,1) + 1) .- rowinds
+_reversedims(::Colon) = Colon()
+_reversedims(dims::Integer) =
+    dims == 1 || dims == 2 ? Int(dims) : throw(ArgumentError(lazy"invalid dimension $dims in reverse"))
+_reversedims(dims::Tuple{Integer}) = _reversedims(dims[1])
+_reversedims(dims::Tuple{Integer,Integer}) =
+    dims == (1, 2) || dims == (2, 1) ? Colon() : throw(ArgumentError(lazy"invalid dimension $dims in reverse"))
+
+function _reverse!(S::AbstractSparseMatrixCSC, ::Colon)
+    rowinds, nzval, colptr = rowvals(S), nonzeros(S), getcolptr(S)
+    rowinds .= (size(S, 1) + 1) .- rowinds
     reverse!(rowinds)
     colptr .= (nnz(S) + 2) .- colptr
     reverse!(colptr)
     reverse!(nzval)
     return S
 end
-function _reverse!(S::SparseMatrixCSC, dims::Integer)
-    dims ∈ (1,2) || throw(ArgumentError("invalid dimension $dims in reverse"))
-    rowinds, nzval = rowvals(S), nonzeros(S)
-    colptr = getcolptr(S)
-    nzrs = nzrange.(Ref(S), axes(S,2))
-    if dims == 1
-        for col in axes(S,2)
-            nzr = nzrs[col]
-            reverse!(@views nzval[nzr])
-            rowinds_col = @view rowinds[nzr]
-            rowinds_col .= (size(S,1) + 1) .- rowinds_col
-            reverse!(rowinds_col)
+function _reverse!(S::AbstractSparseMatrixCSC, dims::Int)
+    rowinds, nzval, colptr = rowvals(S), nonzeros(S), getcolptr(S)
+    m = size(S, 1)
+    for j in axes(S, 2)
+        lo, hi = Int(colptr[j]), Int(colptr[j + 1]) - 1
+        if dims == 1
+            for k in lo:hi
+                rowinds[k] = m + 1 - rowinds[k]
+            end
         end
-    else # dims == 2
+        reverse!(rowinds, lo, hi)
+        reverse!(nzval, lo, hi)
+    end
+    if dims == 2
+        # every column block is reversed above, so reversing the whole buffers swaps the
+        # blocks into reverse column order and restores the row order within each
+        reverse!(rowinds)
+        reverse!(nzval)
         colptr .= (nnz(S) + 2) .- colptr
         reverse!(colptr)
-        for col in axes(S,2)
-            nzr = nzrs[col]
-            reverse!(@views nzval[nzr])
-            reverse!(@views rowinds[nzr])
-        end
-        reverse!(nzval)
-        reverse!(rowinds)
     end
     return S
 end
-function _reverse!(A::SparseMatrixCSC, dims::Tuple{Integer,Integer})
-    dims == (1,2) || dims == (2,1) || throw(ArgumentError("invalid dimension $dims in reverse"))
-    _reverse!(A, :)
+
+# A reversal keeps a read-only pattern when it maps the pattern onto itself: every column
+# onto its mirror column with the same row set (dims=2), the rows of each column onto
+# themselves mirrored (dims=1), or both at once (dims=:). Then only the values move.
+function _reversalkeepspattern(S::AbstractSparseMatrixCSC, dims)
+    rowinds = rowvals(S)
+    m, n = size(S)
+    for j in axes(S, 2)
+        r = nzrange(S, j)
+        r2 = dims == 1 ? r : nzrange(S, n + 1 - j)
+        length(r) == length(r2) || return false
+        for t in 0:Int(length(r))-1
+            i = rowinds[first(r) + t]
+            mirrored = dims == 2 ? rowinds[first(r2) + t] : m + 1 - rowinds[last(r2) - t]
+            i == mirrored || return false
+        end
+    end
+    return true
+end
+_reversevals!(S::AbstractSparseMatrixCSC, ::Colon) = (reverse!(nonzeros(S)); S)
+function _reversevals!(S::AbstractSparseMatrixCSC, dims::Int)
+    nzval = nonzeros(S)
+    for j in axes(S, 2)
+        r = nzrange(S, j)
+        reverse!(nzval, Int(first(r)), Int(last(r)))
+    end
+    dims == 2 && reverse!(nzval)
+    return S
 end
 
 function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)

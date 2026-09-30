@@ -534,6 +534,18 @@ end
     @test size(rot180(a)) == (3,5)
     @test size(rotr90(a)) == (5,3)
     @test size(rotl90(a)) == (5,3)
+
+    # the index type and stored zeros survive, and a fixed input rotates into a plain copy
+    a = SparseMatrixCSC{ComplexF32,Int32}(sparse([1,1,2,3], [1,3,4,1], [1,2,3,4]))
+    a[2,4] = 0
+    for rot in (rot180, rotr90, rotl90)
+        R = rot(a)
+        @test R == rot(collect(a)) && R isa SparseMatrixCSC{ComplexF32,Int32} && nnz(R) == 4
+    end
+    @test rot180(fixed(a)) == rot180(collect(a)) && rot180(fixed(a)) isa SparseMatrixCSC
+    b = sparse([1, 2, 1], [1, 2, 3], [1.0, 2.0, 3.0], 3, 3)
+    push!(nonzeros(b), NaN)
+    @test rot180(b) == rot180(Matrix(sparse([1, 2, 1], [1, 2, 3], [1.0, 2.0, 3.0], 3, 3)))
 end
 
 @testset "istriu/istril" begin
