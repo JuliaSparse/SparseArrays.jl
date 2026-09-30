@@ -169,6 +169,23 @@ end
     end
 end
 
+@testset "triangular kernel dispatch and shape checks" begin
+    A = sparse([1, 2, 2, 3], [1, 1, 2, 3], [2.0, 1.0, 3.0, 4.0], 3, 3)
+    B = ones(3, 2)
+    # a sparse matrix and its adjoint reach the SparseArrays hooks
+    for hook in (LinearAlgebra.generic_trimatmul!, LinearAlgebra.generic_trimatdiv!), S in (A, A')
+        @test which(hook, Tuple{typeof(B), Char, Char, typeof(identity), typeof(S), typeof(B)}).module === SparseArrays
+    end
+    # a bad destination shape throws before anything is written
+    C = fill(-1.0, 3, 3)
+    @test_throws DimensionMismatch LinearAlgebra.generic_trimatmul!(C, 'U', 'N', identity, A, B)
+    @test all(==(-1.0), C)
+    # a vector product may write to a one-column matrix, as with a dense triangle
+    for W in (LowerTriangular, UpperTriangular)
+        @test mul!(zeros(3, 1), W(A), ones(3)) == mul!(zeros(3, 1), W(Matrix(A)), ones(3))
+    end
+end
+
 @testset "triangular products visit stored entries" begin
     for n in (8, 16), W in (UpperTriangular, LowerTriangular)
         A = opcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
@@ -418,11 +435,16 @@ end
     for trop in (adjoint, transpose)
         @test trop(UpperTriangular(Ai)) \ bi ≈ Matrix(trop(UpperTriangular(Ai))) \ bi
         @test trop(LowerTriangular(Ac)) \ bf ≈ Matrix(trop(LowerTriangular(Ac))) \ bf
-        for (S, rhs, T1, T2) in ((Ai, bi, Float64, Int), (Ac, bf, Float64, ComplexF64))
+        for (S, rhs, upper, T1, T2) in ((Ai, bi, Val{true}, Float64, Int), (Ac, bf, Val{false}, Float64, ComplexF64))
             C = similar(rhs, eltype(S))
-            @test !hasunionlocal(LinearAlgebra.generic_trimatdiv!,
-                (typeof(C), Char, Char, typeof(trop), typeof(S), typeof(rhs)), T1, T2)
+            @test !hasunionlocal(SparseArrays._trimatdiv!,
+                (typeof(C), upper, Bool, typeof(trop), typeof(S), typeof(rhs)), T1, T2)
         end
+    end
+    # Int32 indices keep the kernels type-stable
+    A32 = SparseMatrixCSC{Float64,Int32}(Ai); b32 = ones(n); C32 = similar(b32)
+    for kernel in (SparseArrays._trimatdiv!, SparseArrays._trimatmul!)
+        @test !hasunionlocal(kernel, (typeof(C32), Val{true}, Bool, typeof(transpose), typeof(A32), typeof(b32)), Int32, Int)
     end
 end
 
