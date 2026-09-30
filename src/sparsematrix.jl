@@ -418,10 +418,7 @@ function Base.isstored(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Intege
     return false
 end
 
-Base.replace_in_print_matrix(A::SparseMatrixCSCMaybeAdjOrTrans, i::Integer, j::Integer, s::AbstractString) =
-    Base.isstored(A, i, j) ? s : Base.replace_with_centered_mark(s)
-
-function Base.array_summary(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans, dims::Tuple{Vararg{Base.OneTo}})
+function Base.summary(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans)
     _checkbuffers(S)
 
     xnnz = nnz(S)
@@ -431,12 +428,26 @@ function Base.array_summary(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans, dims::Tup
     nothing
 end
 
-# called by `show(io, MIME("text/plain"), ::SparseMatrixCSCMaybeAdjOrTrans)`
-function Base.print_array(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans)
-    if max(size(S)...) < 16
-        Base.print_matrix(io, S)
+using Base: show_circular
+function Base.show(io::IO, ::MIME"text/plain", S::SparseMatrixCSCMaybeAdjOrTrans)
+    isempty(S) && get(io, :compact, false) && return show(io, S)
+    summary(io, S)
+    isempty(S) && return
+
+    if get(io, :limit, false)
+        screen = displaysize(io)::Tuple{Int, Int}
+        screen[1] <= 4 && return print(io, ": …")
     else
+        screen = typemax(Int), typemax(Int)
+    end
+
+    show_circular(io, S) && return
+    io = IOContext(io, :compact=>true, :typeinfo=>eltype(S), :SHOWN_SET=>S)
+
+    if !get(io, :limit, false) || screen[1] < size(S, 1) + 4 || screen[2] < 3size(S, 2)
         _show_with_braille_patterns(io, S)
+    else
+        _show_with_dotted_zeros(io, S)
     end
 end
 
@@ -451,7 +462,7 @@ struct ColumnIndices{Ti,S<:AbstractSparseMatrixCSC{<:Any,Ti}} <: AbstractVector{
     arr :: S
 end
 
-size(C::ColumnIndices) = (nnz(C.arr),)
+Base.size(C::ColumnIndices) = (nnz(C.arr),)
 # returns the column index of the n-th non-zero value from the column pointer
 @inline function getindex(C::ColumnIndices, i::Int)
     @boundscheck checkbounds(C, i)
@@ -459,6 +470,8 @@ size(C::ColumnIndices) = (nnz(C.arr),)
     ind = searchsortedlast(colptr, i)
     eltype(C)(ind)
 end
+
+colvals(C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = Vector{Ti}(ColumnIndices(C))
 
 # always show matrices as `sparse(I, J, K)`
 function Base.show(io::IO, _S::SparseMatrixCSCMaybeAdjOrTrans)
@@ -482,95 +495,96 @@ function Base.show(io::IO, _S::SparseMatrixCSCMaybeAdjOrTrans)
 end
 
 const brailleBlocks = UInt16['⠁', '⠂', '⠄', '⡀', '⠈', '⠐', '⠠', '⢀']
-function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans)
-    m, n = size(S)
-    (m == 0 || n == 0) && return show(io, MIME("text/plain"), S)
-
-    # The maximal number of characters we allow to display the matrix
-    local maxHeight::Int, maxWidth::Int
-    maxHeight = displaysize(io)[1] - 4 # -4 from [Prompt, header, newline after elements, new prompt]
-    maxWidth = displaysize(io)[2] ÷ 2
-
-    # In the process of generating the braille pattern to display the nonzero
-    # structure of `S`, we need to be able to scale the matrix `S` to a
-    # smaller matrix with the same aspect ratio as `S`, but fits on the
-    # available screen space. The size of that smaller matrix is stored
-    # in the variables `scaleHeight` and `scaleWidth`. If no scaling is needed,
-    # we can use the size `m × n` of `S` directly.
-    # We determine if scaling is needed and set the scaling factors
-    # `scaleHeight` and `scaleWidth` accordingly. Note that each available
-    # character can contain up to 4 braille dots in its height (⡇) and up to
-    # 2 braille dots in its width (⠉).
-    if get(io, :limit, true) && (m > 4maxHeight || n > 2maxWidth)
-        s = min(2maxWidth / n, 4maxHeight / m)
-        scaleHeight = floor(Int, s * m)
-        scaleWidth = floor(Int, s * n)
+function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans,
+                                     rinds=rowvals(parent(S)), cinds=colvals(parent(S)))
+    # The maximum number of characters we allow to display the matrix
+    h, w = if get(io, :limit, false)::Bool
+        displaysize(io) .- (4, 2)
     else
-        scaleHeight = m
-        scaleWidth = n
+        typemax(Int)÷4, typemax(Int)÷2
+    end::Tuple{Int, Int}
+
+    warn = false
+    try
+        zero(eltype(S))
+    catch
+        warn = true
+        h -= 1
     end
 
-    # Make sure that the matrix size is big enough to be able to display all
-    # the corner border characters
-    if scaleHeight < 8
-        scaleHeight = 8
-    end
-    if scaleWidth < 4
-        scaleWidth = 4
-    end
+    # In order to prevent aliasing, we only scale down by full integers.
+    # Note each character has 4 dots of height and 2 dots of width.
+    scale = maximum(cld.(size(S), (4h, 2w)))
+    char_h, char_w = cld.(size(S), (4scale, 2scale))
 
-    # `brailleGrid` is used to store the needed braille characters for
-    # the matrix `S`. Each row of the braille pattern to print is stored
-    # in a column of `brailleGrid`.
-    brailleGrid = fill(UInt16(10240), (scaleWidth - 1) ÷ 2 + 4, (scaleHeight - 1) ÷ 4 + 1)
-    brailleGrid[1,:] .= '⎢'
-    brailleGrid[end-1,:] .= '⎥'
-    brailleGrid[1,1] = '⎡'
-    brailleGrid[1,end] = '⎣'
-    brailleGrid[end-1,1] = '⎤'
-    brailleGrid[end-1,end] = '⎦'
-    brailleGrid[end, :] .= '\n'
+    scale != 1 && print(io, ", displaying at 1/$scale scale")
+    println(io, ":")
 
-    rvals = rowvals(parent(S))
-    rowscale = max(1, scaleHeight - 1) / max(1, m - 1)
-    colscale = max(1, scaleWidth - 1) / max(1, n - 1)
-    if isa(S, AbstractSparseMatrixCSC)
-        @inbounds for j in axes(S,2)
-            # Scale the column index `j` to the best matching column index
-            # of a matrix of size `scaleHeight × scaleWidth`
-            sj = round(Int, (j - 1) * colscale + 1)
-            for x in nzrange(S, j)
-                # Scale the row index `i` to the best matching row index
-                # of a matrix of size `scaleHeight × scaleWidth`
-                si = round(Int, (rvals[x] - 1) * rowscale + 1)
+    # Rows of output are cols of `brailleGrid` since julia is column-major
+    brailleGrid = fill(UInt16(10240), char_w + 3, char_h)
+    brailleGrid[[1,end-1,end],:] .= ['⎢', '⎥', '\n']
+    brailleGrid[[1,end-1],[1,end]] .= ['⎡';'⎤';;'⎣';'⎦']
+    char_h == 1 && (brailleGrid[[1,end-1],1] .= ['[', ']'])
 
-                # Given the index pair `(si, sj)` of the scaled matrix,
-                # calculate the corresponding triple `(k, l, p)` such that the
-                # element at `(si, sj)` can be found at position `(k, l)` in the
-                # braille grid `brailleGrid` and corresponds to the 1-dot braille
-                # character `brailleBlocks[p]`
-                k = (sj - 1) ÷ 2 + 2
-                l = (si - 1) ÷ 4 + 1
-                p = ((sj - 1) % 2) * 4 + ((si - 1) % 4 + 1)
-
-                brailleGrid[k, l] |= brailleBlocks[p]
-            end
+    if S isa AbstractSparseMatrixCSC
+        for cords in zip(rinds, cinds)
+            row, col = cld.(cords, scale) |>x-> fldmod1.(x, (4, 2))
+            brailleGrid[col[1]+1, row[1]] |= brailleBlocks[row[2] + 4(col[2]-1)]
         end
-    else
-        # If `S` is a adjoint or transpose of a sparse matrix we invert the
-        # roles of the indices `i` and `j`
-        @inbounds for i = 1:m
-            si = round(Int, (i - 1) * rowscale + 1)
-            for x in nzrange(parent(S), i)
-                sj = round(Int, (rvals[x] - 1) * colscale + 1)
-                k = (sj - 1) ÷ 2 + 2
-                l = (si - 1) ÷ 4 + 1
-                p = ((sj - 1) % 2) * 4 + ((si - 1) % 4 + 1)
-                brailleGrid[k, l] |= brailleBlocks[p]
-            end
+    else # swap rows / cols for adj and transpose
+        for cords in zip(rinds, cinds)
+            col, row = cld.(cords, scale) |>x-> fldmod1.(x, (2, 4))
+            brailleGrid[col[1]+1, row[1]] |= brailleBlocks[row[2] + 4(col[2]-1)]
         end
     end
     foreach(c -> print(io, Char(c)), @view brailleGrid[1:end-1])
+
+    warn && printstyled(stderr, "\nWARNING: could not find generic zero for given elements. expect errors and inconsistent results", color=:red)
+end
+
+using Base: alignment
+function _show_with_dotted_zeros(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans, P=parent(S))
+    rows, cols = S isa Adjoint || S isa Transpose ? (colvals(P), rowvals(P)) : (rowvals(P), colvals(P))
+    vals = nonzeros(P)
+
+    align = [isassigned(vals, ind) ? alignment(io, vals[ind]) : (3, 3) for ind in eachindex(vals)]
+
+    colwidths = [maximum.((first,last), Ref(align[findall(==(col), cols)]);init=0) for col in axes(S,2)]
+    displaysize(io)[2] < sum(sum.(colwidths) .+ 2) && return _show_with_braille_patterns(io, S, rows, cols)
+
+    println(io, ":")
+
+    warn = false
+    for row in axes(S,1)
+        for col in axes(S,2)
+            index =       findall(==(col), cols)
+            index = index[findall(==(row), rows[index])]
+            l, r = colwidths[col]
+            if isempty(index) # no value here, print an aligned dot
+                l, r = cld(l+r-1, 2) + 1, div(l+r-1, 2) + 1
+                print(io, " "^l * "⋅" * (col==axes(S,2)[end] ? "" : " "^r))
+            elseif length(index) == 1 # print the element with 1 space of buffer on each side
+                l, r = (l+1, r+1) .- align[index[]]
+                print(io, " "^l)
+                isassigned(vals, index[]) ? show(io, vals[index[]]) : print(io, "#undef")
+                col == axes(S,2)[end] || print(io, " "^r)
+            else
+                l, r = cld(l+r-1, 2) + 1, div(l+r-1, 2) + 1
+                printstyled(io, " "^l * "‼" * (col==axes(S,2)[end] ? "" : " "^r); color=:red)
+                warn = true
+            end
+        end
+        row == axes(S,1)[end] || println(io)
+    end
+    if warn
+        printstyled(stderr, "\nWARNING: array contains duplicate entries (shown as ‼). expect errors and inconsistent results", color=:red)
+    end
+    try
+        zero(eltype(S))
+    catch
+        printstyled(stderr, "\nWARNING: could not find generic zero for given elements. expect errors and inconsistent results", color=:red)
+    end
+
 end
 
 # The dense-operand methods in LinearAlgebra accept the thin shapes, so the sparse operands
@@ -725,33 +739,6 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
         end
     end
     return dest
-end
-
-# Faster version for non-abstract Array and SparseMatrixCSC
-function Base.copyto!(A::Array{T}, S::SparseMatrixCSC{<:Number}) where {T<:Number}
-    _checkbuffers(S)
-    isempty(S) && return A
-    length(A) < length(S) && throw(BoundsError())
-
-    # Zero elements that are also in S, don't change rest of A
-    @inbounds for i in 1:length(S)
-        A[i] = zero(T)
-    end
-    # Copy the structural nonzeros from S to A using
-    # the linear indices (to work when size(A)!=size(S))
-    num_rows = size(S,1)
-    rowval = getrowval(S)
-    nzval = getnzval(S)
-    linear_index_col0 = 0   # Linear index before column (linear index = linear_index_col0 + row)
-    @inbounds for col in axes(S, 2)
-        for i in nzrange(S, col)
-            row = rowval[i]
-            val = nzval[i]
-            A[linear_index_col0+row] = val
-        end
-        linear_index_col0 += num_rows
-    end
-    return A
 end
 
 ## similar
@@ -974,7 +961,7 @@ to generate intermediate result `(AQ)^T` (`transpose(A[:,q])`) in `C`. (2) Colum
 
 The first step is a call to `halfperm!`, and the second is a variant on `halfperm!` that
 avoids an unnecessary length-`nnz(A)` array-sweep and associated recomputation of column
-pointers. See [`halfperm!`](:func:SparseArrays.halfperm!) for additional algorithmic
+pointers. See [`halfperm!`](@ref) for additional algorithmic
 information.
 
 See also `unchecked_aliasing_permute!`.
@@ -1434,9 +1421,9 @@ julia> A = sparse([1, 2, 3], [1, 2, 3], [1.0, 0.0, 1.0])
 
 julia> dropzeros(A)
 3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
- 1.0   ⋅    ⋅
-  ⋅    ⋅    ⋅
-  ⋅    ⋅   1.0
+ 1.0  ⋅   ⋅
+  ⋅   ⋅   ⋅
+  ⋅   ⋅  1.0
 ```
 """
 dropzeros(A::AbstractSparseMatrixCSC) = dropzeros!(copy(A))
@@ -1553,6 +1540,7 @@ end
 function (-)(A::AbstractSparseMatrixCSC)
     nzval = similar(nonzeros(A), typeof(-zero(eltype(A))))
     map!(-, view(nzval, 1:nnz(A)), nzvalview(A))
+    _is_fixed(A) && return FixedSparseCSC(size(A, 1), size(A, 2), getcolptr(A), rowvals(A), nzval)
     return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
 end
 
@@ -1578,43 +1566,19 @@ for op in (:+, :-)
 end
 
 ## full equality
-# Compare two CSC matrices by walking their stored entries only. `eq` is the elementwise
-# predicate (`==` or `isequal`); stored entries without a counterpart are compared against
-# the implicit zero of the other matrix so that e.g. `isequal(-0.0, 0.0)` and
-# `isequal(NaN, NaN)` behave as they do for dense arrays.
-function _iseq(eq::F, A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) where {F}
-    size(A1) != size(A2) && return false
-    @inbounds for i in axes(A1, 2)
-        nz1, nz2 = nzrange(A1,i), nzrange(A2,i)
-        j1, j2 = first(nz1), first(nz2)
-        # step through the rows of both matrices at once:
-        while j1 <= last(nz1) && j2 <= last(nz2)
-            r1, r2 = rowvals(A1)[j1], rowvals(A2)[j2]
-            if r1 == r2
-                eq(nonzeros(A1)[j1], nonzeros(A2)[j2]) || return false
-                j1 += 1
-                j2 += 1
-            elseif r1 < r2
-                _iszero_under(eq, nonzeros(A1)[j1]) || return false
-                j1 += 1
-            else # r1 > r2
-                _iszero_under(eq, nonzeros(A2)[j2]) || return false
-                j2 += 1
-            end
-        end
-        # finish off any left-overs:
-        for j = j1:last(nz1)
-            _iszero_under(eq, nonzeros(A1)[j]) || return false
-        end
-        for j = j2:last(nz2)
-            _iszero_under(eq, nonzeros(A2)[j]) || return false
-        end
+# Compare two CSC matrices, or column-subset views of them, by walking their stored
+# entries only, one column at a time through the merge shared with sparse vectors.
+function _iseq(eq::F, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) where {F}
+    size(A) == size(B) || return false
+    ia, va, ib, vb = rowvals(A), nonzeros(A), rowvals(B), nonzeros(B)
+    @inbounds for j in axes(A, 2)
+        _merge_eq(eq, ia, va, ib, vb, nzrange(A, j), nzrange(B, j)) || return false
     end
     return true
 end
 
-==(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(==, A1, A2)
-Base.isequal(A1::AbstractSparseMatrixCSC, A2::AbstractSparseMatrixCSC) = _iseq(isequal, A1, A2)
+==(A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) = _iseq(==, A, B)
+Base.isequal(A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) = _iseq(isequal, A, B)
 
 ## Explicit efficient comparisons with transposed arrays
 
@@ -1678,7 +1642,9 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
     colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval = nonzeros(A)
-    tracker = copy(getcolptr(A))
+    # `Vector`, not `copy`: a fixed matrix's column pointers are `ReadOnly` and `copy`
+    # keeps that wrapper, but the tracker is advanced below
+    tracker = Vector(getcolptr(A))
     @inbounds for col in axes(A,2)
         # `tracker` is updated such that, for symmetric matrices,
         # the loop below starts from an element at or below the
@@ -1815,15 +1781,6 @@ function isdiag(A::AbstractSparseMatrixCSC)
     end
     return true
 end
-
-## expand a colptr or rowptr into a dense index vector
-function expandptr(V::Vector{<:Integer})
-    if V[1] != 1 throw(ArgumentError("first index must be one")) end
-    res = similar(V, (Int64(V[end]-1),))
-    for i in 1:(length(V)-1), j in V[i]:(V[i+1] - 1); res[j] = i end
-    res
-end
-
 
 function diag(A::AbstractSparseMatrixCSC{Tv,Ti}, d::Integer=0) where {Tv,Ti}
     m, n = size(A)

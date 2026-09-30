@@ -77,15 +77,6 @@ end
 end
 
 
-# an AbstractSparseVector outside the types the sparse product kernel handles
-struct WrappedSparseVector <: AbstractSparseVector{Float64,Int}
-    x::SparseVector{Float64,Int}
-end
-Base.size(v::WrappedSparseVector) = size(v.x)
-Base.getindex(v::WrappedSparseVector, i::Int) = v.x[i]
-SparseArrays.nonzeros(v::WrappedSparseVector) = nonzeros(v.x)
-SparseArrays.nonzeroinds(v::WrappedSparseVector) = nonzeroinds(v.x)
-
 begin
     rng = Random.MersenneTwister(0)
     n = 100

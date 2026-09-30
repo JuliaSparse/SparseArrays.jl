@@ -1004,6 +1004,11 @@ end
 # backward compatibility
 umfpack_extract(lu::UmfpackLU) = getproperty(lu, :(:))
 
+function Base.propertynames(F::UmfpackLU, private::Bool=false)
+    public = (:L, :U, :p, :q, :Rs, :(:))
+    private ? ((public ∪ fieldnames(typeof(F)))...,) : public
+end
+
 function nnz(lu::UmfpackLU)
     lnz, unz, = umf_lunz(lu)
     return Int(lnz + unz)
@@ -1083,13 +1088,18 @@ ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Fl
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype,
                      workspace::Union{Nothing,UmfpackWS})
-    checksquare(lu)
-    if size(X, 2) != size(B, 2)
-        throw(DimensionMismatch("input and output arrays must have same number of columns"))
+    @lock lu.lock begin
+        checksquare(lu)
+        if size(B, 1) != lu.m
+            throw(DimensionMismatch("UmfpackLU is $(lu.m)×$(lu.n) but the right-hand side has $(size(B, 1)) rows"))
+        end
+        if size(X) != size(B)
+            throw(DimensionMismatch("output has size $(size(X)) but the right-hand side has size $(size(B))"))
+        end
+        # copy rather than unalias: unaliasing a view copies its whole parent
+        Base.mightalias(X, B) && (B = copy(B))
+        _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace)
     end
-    # copy rather than unalias: unaliasing a view copies its whole parent
-    Base.mightalias(X, B) && (B = copy(B))
-    _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace)
     return X
 end
 function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},

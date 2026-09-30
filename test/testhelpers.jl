@@ -38,6 +38,16 @@ exact_equal(x::AbstractSparseVector, y::AbstractSparseVector) =
     eltype(x) == eltype(y) && eltype(nonzeroinds(x)) == eltype(nonzeroinds(y)) &&
     same_pattern(x, y) && nonzeros(x) == nonzeros(y)
 
+# An `AbstractSparseVector` that is not an `AbstractCompressedVector`, so that the generic
+# sparse-vector paths are reached rather than the compressed-vector specializations.
+struct WrappedSparseVector{Tv,Ti} <: SparseArrays.AbstractSparseVector{Tv,Ti}
+    x::SparseVector{Tv,Ti}
+end
+Base.size(v::WrappedSparseVector) = size(v.x)
+Base.getindex(v::WrappedSparseVector, i::Int) = v.x[i]
+SparseArrays.nonzeros(v::WrappedSparseVector) = SparseArrays.nonzeros(v.x)
+SparseArrays.nonzeroinds(v::WrappedSparseVector) = SparseArrays.nonzeroinds(v.x)
+
 # An eltype that counts its scalar multiplications and comparisons, so that a kernel
 # touching only the stored entries and a generic fallback visiting every element are told
 # apart by an operation count rather than by timing.
@@ -93,14 +103,11 @@ function hasunionlocal(f, types, T1, T2)
 end
 
 # Base's Quaternions.jl test helper, a noncommutative eltype. It is loaded into `Main`
-# once, so that every suite in a process sees the same type.
-function quaternion_type()
-    if !isdefined(Main, :Quaternions)
-        path = joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testhelpers", "Quaternions.jl")
-        Base.include(Main, path)
-    end
-    return Main.Quaternions.Quaternion
-end
+# once, so that every suite in a process sees the same type, and at top level, because
+# a test that loaded it itself would run in a world where the type is not yet defined.
+isdefined(Main, :Quaternions) ||
+    Base.include(Main, joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testhelpers", "Quaternions.jl"))
+quaternion_type() = Main.Quaternions.Quaternion
 
 # A statically sized matrix eltype, in the spirit of StaticArrays, whose products and sums
 # fix the result size in the type.

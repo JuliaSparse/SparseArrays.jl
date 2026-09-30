@@ -662,39 +662,81 @@ end
 
 \(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::Vector) = copy(A) \ B
 
-function rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal)
-    dd = D.diag
-    if (k = length(dd)) ≠ size(A, 2)
-        throw(DimensionMismatch("size(A, 2)=$(size(A, 2)) should be size(D, 1)=$k"))
-    end
-    nonz = nonzeros(A)
-    @inbounds for j in 1:k
-        ddj = dd[j]
-        if iszero(ddj)
-            throw(LinearAlgebra.SingularException(j))
+## diagonal scaling
+
+# Scale the stored entries of `A` into `C`, which either is `A` or takes its pattern:
+# `C[i, j] = op(A[i, j], d[j])` columnwise, `C[i, j] = op(d[i], A[i, j])` rowwise. The
+# argument order of `op` is kept for non-commutative eltypes. The callers check that
+# `length(d)` matches the scaled dimension and that `size(C) == size(A)`.
+function _scalecols!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
+    copyinds!(C, A)
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
+    resize!(Cnzval, length(Anzval))
+    @inbounds for col in axes(A, 2)
+        dcol = d[col]
+        for p in nzrange(A, col)
+            Cnzval[p] = op(Anzval[p], dcol)
         end
-        for i in nzrange(A, j)
-            nonz[i] /= ddj
-        end
     end
-    A
+    return C
 end
 
-function ldiv!(D::Diagonal, A::Union{AbstractSparseMatrixCSC, AbstractSparseVector})
-    # require_one_based_indexing(A)
-    if size(A, 1) != length(D.diag)
-        throw(DimensionMismatch("diagonal matrix is $(length(D.diag)) by $(length(D.diag)) but right hand side has $(size(A, 1)) rows"))
-    end
-    nonz = nonzeros(A)
+function _scalerows!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
+    copyinds!(C, A)
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
     Arowval = rowvals(A)
-    b = D.diag
-    @inbounds for i=axes(b,1)
-        iszero(b[i]) && throw(SingularException(i))
+    resize!(Cnzval, length(Anzval))
+    @inbounds for col in axes(A, 2), p in nzrange(A, col)
+        Cnzval[p] = op(d[Arowval[p]], Anzval[p])
     end
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-        nonz[p] = b[Arowval[p]] \ nonz[p]
+    return C
+end
+
+function _scalerows!(x::AbstractSparseVector, d::AbstractVector, op::F) where {F}
+    xnzval = nonzeros(x)
+    xnzind = nonzeroinds(x)
+    @inbounds for p in eachindex(xnzind, xnzval)
+        xnzval[p] = op(d[xnzind[p]], xnzval[p])
     end
-    A
+    return x
+end
+
+function _checkscaledims(C, A, D::Diagonal, dim::Int)
+    n = size(A, dim)
+    k = length(D.diag)
+    n == k || throw(DimensionMismatch("A has size $(size(A)) but D has size ($k, $k)"))
+    size(C) == size(A) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
+    return nothing
+end
+
+function _checknonsingular(D::Diagonal)
+    i = findfirst(iszero, D.diag)
+    isnothing(i) || throw(SingularException(i))
+    return nothing
+end
+
+function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
+    _checkscaledims(C, A, D, 2)
+    _checknonsingular(D)
+    return _scalecols!(C, A, D.diag, /)
+end
+
+rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal) = LinearAlgebra._rdiv!(A, A, D)
+
+function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
+    _checkscaledims(C, A, D, 1)
+    _checknonsingular(D)
+    return _scalerows!(C, A, D.diag, \)
+end
+
+ldiv!(D::Diagonal, A::AbstractSparseMatrixCSC) = ldiv!(A, D, A)
+
+function ldiv!(D::Diagonal, x::AbstractSparseVector)
+    _checkscaledims(x, x, D, 1)
+    _checknonsingular(D)
+    return _scalerows!(x, D.diag, \)
 end
 
 ## triu, tril
@@ -1028,7 +1070,9 @@ function _leading_ritz(α::Vector{Float64}, β::Vector{Float64}, k::Integer)
         ev[2i] = β[i]
     end
     ev[2k-1] = α[k]
-    F = eigen(SymTridiagonal(zeros(2k), ev), 2k:2k)
+    # one eigenpair needs no sorting; LinearAlgebra's `sorteig!` does not specialize on
+    # `sortby`, so `juliac --trim` cannot resolve its sorting calls
+    F = eigen(SymTridiagonal(zeros(2k), ev), 2k:2k; sortby = nothing)
     return F.values[1], sqrt(2) * abs(F.vectors[2k, 1])
 end
 
@@ -1378,9 +1422,9 @@ julia> A[4:4:8] .= 1;
 
 julia> A
 3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
-  ⋅   1.0   ⋅
-  ⋅    ⋅   1.0
-  ⋅    ⋅    ⋅
+ ⋅  1.0   ⋅
+ ⋅   ⋅   1.0
+ ⋅   ⋅    ⋅
 
 julia> C = spzeros(3,3);
 
@@ -1388,9 +1432,9 @@ julia> C[2:4:6] .= 2;
 
 julia> C
 3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
-  ⋅    ⋅    ⋅
- 2.0   ⋅    ⋅
-  ⋅   2.0   ⋅
+  ⋅    ⋅   ⋅
+ 2.0   ⋅   ⋅
+  ⋅   2.0  ⋅
 
 julia> SparseArrays.mergeinds!(C, A)
 3×3 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
@@ -1417,41 +1461,6 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
         if !iszero(n_extra)
             @views C_colptr[col+2:end] .+= n_extra
         end
-    end
-    C
-end
-
-function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
-    m, n = size(A)
-    b    = D.diag
-    lb = length(b)
-    m==lb || throw(DimensionMismatch("D has size ($lb, $lb) but A has size ($m, $n)"))
-    szC = size(C)
-    size(A) == szC || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $szC"))
-    copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
-    resize!(Cnzval, length(Anzval))
-    for col in axes(A,2), p in nzrange(A, col)
-        @inbounds Cnzval[p] = b[Arowval[p]] \ Anzval[p]
-    end
-    C
-end
-
-function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
-    m, n = size(A)
-    b    = D.diag
-    lb = length(b)
-    n == lb || throw(DimensionMismatch("A has size ($m, $n) but D has size ($lb, $lb)"))
-    szC = size(C)
-    size(A) == szC || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $szC"))
-    copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    resize!(Cnzval, length(Anzval))
-    for col in axes(A,2), p in nzrange(A, col)
-        @inbounds Cnzval[p] = Anzval[p] / b[col]
     end
     C
 end

@@ -698,15 +698,15 @@ let
     B = similar(A, T12960)
     @test repr(B) == "sparse([1, 2, 3], [1, 2, 3], $T12960[#undef, #undef, #undef], 3, 3)"
     @test occursin(
-        "\n #undef             ⋅            ⋅    \n       ⋅      #undef             ⋅    \n       ⋅            ⋅      #undef",
-        repr(MIME("text/plain"), B),
+        " #undef     ⋅       ⋅\n    ⋅    #undef     ⋅\n    ⋅       ⋅    #undef",
+        sprint(show, MIME("text/plain"), B; context=:limit=>true),
     )
 
     B[1,2] = T12960()
     @test repr(B)  == "sparse([1, 1, 2, 3], [1, 2, 2, 3], $T12960[#undef, $T12960(), #undef, #undef], 3, 3)"
     @test occursin(
-        "\n #undef          T12960()        ⋅    \n       ⋅      #undef             ⋅    \n       ⋅            ⋅      #undef",
-        repr(MIME("text/plain"), B),
+        "\n #undef     T12960()     ⋅\n    ⋅    #undef          ⋅\n    ⋅         ⋅       #undef",
+        sprint(show, MIME("text/plain"), B; context=:limit=>true),
     )
 end
 
@@ -745,11 +745,30 @@ end
                        7 16 4])
 end
 
+@testset "Issue #512" begin # suppresses but does not fix the error mentioned
+    x = sparse([1, 1, 3], [1, 4, 3], [20, 0, [2]])
+    @test_warn "WARNING: could not find generic zero" repr(MIME("text/plain"), x)
+    x = sparse([1, 100, 3], [1, 4, 300], [20, 0, [2]])
+    @test_warn "WARNING: could not find generic zero" repr(MIME("text/plain"), x)
+
+    @test_broken repr(MIME("text/plain"), transpose(x'))
+end
+
 @testset "Issue #574" begin
     a = spzeros(Float32, Int16, 2, 3)
     v = spzeros(Float32, Int16, 2)
     @test eltype(rowvals(zero(a))) <: Int16
     @test eltype(rowvals(zero(v))) <: Int16
+end
+
+@testset "Issue #618" begin
+    for v in ([1.0, 1.0, 1.0, 1.0], ['a', 7.0, 1.0, 1.0], [similar(Any[1]); 1.0; 1.0; 1.0])
+        # matrix with a repeated entry. test_broken since repeated entries are invalid
+        x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], v)
+        @test_broken !contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "‼")
+    end
+    x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [1, 1, 1, 1])
+    @test_broken 2 == Matrix(x)[1,1]
 end
 
 end # SparseTestsBase

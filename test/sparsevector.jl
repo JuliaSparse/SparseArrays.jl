@@ -437,6 +437,14 @@ end
         @test (x == y) == (Vector(x) == Vector(y))
     end
     @test !isequal(spzeros(3), spzeros(4))
+    # unit-range views of sparse vectors compare through the same stored-entry merge as
+    # sparse vectors, on either side, instead of the elementwise AbstractArray fallback
+    p = sparsevec([1, 3, 5, 7], [1.0, 2.0, 0.0, 3.0], 9)
+    q = sparsevec([2, 6], [2.0, 3.0], 6)        # the view's stored zero is implicit here
+    @test view(p, 2:7) == q && isequal(q, view(p, 2:7))
+    @test view(p, 2:7) != sparsevec([2, 4, 6], [2.0, 1.0, 3.0], 6) &&
+          !isequal(view(p, 1:6), view(p, 2:7))
+    @test nonzeros(view(p, 3:2)) == Float64[]   # empty view of a vector with stored entries
 end
 
 @testset "hash matches dense" begin
@@ -864,6 +872,25 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test SparseVector(2, [1], Real[1.5]) + [1, 2] == [2.5, 2]
         @test sparse([2]) + fill(1) == [3]
 
+        # `+` and `-` are the `map` kernels: `x + y`, `map(+, x, y)` and `x .+ y` agree and store
+        # an entry only where the computed value is nonzero; a length mismatch throws even
+        # under `@inbounds`; other `AbstractSparseVector` subtypes keep the sparse merge
+        z = SparseVector(5, [1, 2, 3], [1.0, 0.0, 2.0]); w = SparseVector(5, [1, 4], [-1.0, 3.0])
+        r = SparseVector(5, [3, 4], [2.0, 3.0])
+        @test exact_equal(z + w, r) && exact_equal(map(+, z, w), r) && exact_equal(z .+ w, r)
+        inbounds_plus(a, b) = @inbounds a + b
+        @test_throws DimensionMismatch inbounds_plus(view(z, 1:4), view(w, 1:3))
+        a = WrappedSparseVector(sparsevec([1, 3], [1.0, 2.0], 5))
+        @test a + a isa SparseVector && a + a == [2, 0, 4, 0, 0]
+        @test_throws DimensionMismatch a + WrappedSparseVector(sparsevec([1], [1.0], 4))
+        # a view reads as the vector it stores with the parent's index type; a fixed input
+        # gives a fixed result over the union of the patterns, as for matrices
+        A32 = SparseMatrixCSC{Float64,Int32}(sparse([1, 4], [2, 2], [-1.0, 3.0], 5, 2))
+        @test exact_equal(view(A32, :, 2) - SparseVector{Float64,Int32}(z),
+                          SparseVector{Float64,Int32}(SparseVector(5, [1, 3, 4], [-2.0, -2.0, 3.0])))
+        fr = SparseArrays.fixed(copy(z)) + w
+        @test fr isa SparseArrays.FixedSparseVector && nonzeroinds(fr) == [1, 2, 3, 4] && fr == r
+
         # multiplies
         xm = SparseVector(8, [2, 6], [5.0, -19.25])
         @test exact_equal(x .* x, abs2.(x))
@@ -928,9 +955,9 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test exact_equal(imag(x), spzeros(Float64, length(x)))
         @test conj(x) === x
 
-        xcp = complex.(x, x2)
-        @test exact_equal(real(xcp), x)
-        @test exact_equal(imag(xcp), x2)
+        xcp = complex.(x, x2)   # real and imag keep the pattern of xcp, zeros included
+        @test real(xcp) == x && nonzeroinds(real(xcp)) == nonzeroinds(xcp)
+        @test imag(xcp) == x2 && nonzeroinds(imag(xcp)) == nonzeroinds(xcp)
         @test exact_equal(conj(xcp), complex.(x, -x2))
     end
 end
@@ -947,7 +974,7 @@ end
         for op in operations
             spresvec = op.(spvec)
             @test spresvec == op.(densevec)
-            @test all(!iszero, nonzeros(spresvec))
+            @test nonzeroinds(spresvec) == nonzeroinds(spvec)   # the pattern is kept, zeros included
             resvaltype = typeof(op(zero(eltype(spvec))))
             resindtype = SparseArrays.indtype(spvec)
             @test isa(spresvec, SparseVector{resvaltype,resindtype})
@@ -1330,6 +1357,8 @@ end
             end
         end
     end
+    A = spzeros(0, 3)
+    @test fill!(A, 1.0) === A && nnz(A) == 0
 end
 
 @testset "13130 and 16661" begin
