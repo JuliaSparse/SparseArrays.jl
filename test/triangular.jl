@@ -189,7 +189,6 @@ end
     C = fill(-1.0, 3, 3)
     @test_throws DimensionMismatch LinearAlgebra.generic_trimatmul!(C, 'U', 'N', identity, A, B)
     @test all(==(-1.0), C)
-    # a vector product may write to a one-column matrix, as with a dense triangle
     for W in (LowerTriangular, UpperTriangular)
         @test mul!(zeros(3, 1), W(A), ones(3)) == mul!(zeros(3, 1), W(Matrix(A)), ones(3))
     end
