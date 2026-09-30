@@ -429,18 +429,12 @@ function Base.summary(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans)
 end
 
 using Base: show_circular
-function Base.show(io::IO, ::MIME"text/plain", S::SparseMatrixCSCMaybeAdjOrTrans)
+const SparseShowable = Union{SparseMatrixCSCMaybeAdjOrTrans, SparseMatrixCSCView,
+    HermOrSym{<:Any,<:SparseMatrixCSCOrView}, SparseTriangular, Diagonal{<:Any,<:SparseVectorOrView}}
+
+function Base.show(io::IO, ::MIME"text/plain", S::SparseShowable)
     isempty(S) && get(io, :compact, false) && return show(io, S)
     summary(io, S)
-    _show_sparse_contents(io, S, S)
-end
-function Base.show(io::IO, ::MIME"text/plain", H::HermOrSym{<:Any,<:AbstractSparseMatrixCSC})
-    isempty(H) && get(io, :compact, false) && return show(io, H)
-    summary(io, H)
-    _show_sparse_contents(io, H, sparse(H))
-end
-
-function _show_sparse_contents(io::IO, X, S::SparseMatrixCSCMaybeAdjOrTrans)
     isempty(S) && return
 
     if get(io, :limit, false)
@@ -450,8 +444,8 @@ function _show_sparse_contents(io::IO, X, S::SparseMatrixCSCMaybeAdjOrTrans)
         screen = typemax(Int), typemax(Int)
     end
 
-    show_circular(io, X) && return
-    io = IOContext(io, :compact=>true, :typeinfo=>eltype(S), :SHOWN_SET=>X)
+    show_circular(io, S) && return
+    io = IOContext(io, :compact=>true, :typeinfo=>eltype(S), :SHOWN_SET=>S)
 
     if !get(io, :limit, false) || screen[1] < size(S, 1) + 4 || screen[2] < 3size(S, 2)
         _show_with_braille_patterns(io, S)
@@ -459,6 +453,32 @@ function _show_sparse_contents(io::IO, X, S::SparseMatrixCSCMaybeAdjOrTrans)
         _show_with_dotted_zeros(io, S)
     end
 end
+
+# (row, column, k) for each entry of S as displayed, where k indexes `_shown_values(S)`, or
+# is 0 for an implicit unit diagonal
+_shown_entries(S::SparseMatrixCSCOrView) =
+    ((getrowval(S)[k], j, k) for j in axes(S, 2) for k in nzrange(S, j))
+_shown_entries(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
+    ((j, i, k) for (i, j, k) in _shown_entries(parent(S)))
+function _shown_entries(T::SparseTriangular)
+    A = parent(T)
+    unit = T isa UnitUpperOrUnitLowerTriangular
+    rng = T isa UpperOrUnitUpperTriangular ? nzrangeup : nzrangelo
+    stored = ((getrowval(A)[k], j, k) for j in axes(A, 2) for k in rng(A, j, unit))
+    return unit ? Iterators.flatten((stored, ((j, j, 0) for j in axes(A, 2)))) : stored
+end
+function _shown_entries(H::HermOrSym{<:Any,<:SparseMatrixCSCOrView})
+    A = parent(H)
+    rng = H.uplo == 'U' ? nzrangeup : nzrangelo
+    stored = ((getrowval(A)[k], j, k) for j in axes(A, 2) for k in rng(A, j))
+    return Iterators.flatten((stored, ((j, i, k) for (i, j, k) in stored if i != j)))
+end
+_shown_entries(D::Diagonal{<:Any,<:SparseVectorOrView}) =
+    ((i, i, k) for (k, i) in enumerate(nonzeroinds(D.diag)))
+
+_shown_values(S::SparseMatrixCSCOrView) = getnzval(S)
+_shown_values(S::Union{AdjOrTrans,SparseTriangular,HermOrSym}) = _shown_values(parent(S))
+_shown_values(D::Diagonal{<:Any,<:SparseVectorOrView}) = nonzeros(D.diag)
 
 """
     ColumnIndices(S::AbstractSparseMatrixCSC)
@@ -504,8 +524,7 @@ function Base.show(io::IO, _S::SparseMatrixCSCMaybeAdjOrTrans)
 end
 
 const brailleBlocks = UInt16['⠁', '⠂', '⠄', '⡀', '⠈', '⠐', '⠠', '⢀']
-function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans,
-                                     rinds=rowvals(parent(S)), cinds=colvals(parent(S)))
+function _show_with_braille_patterns(io::IO, S::SparseShowable, entries=_shown_entries(S))
     # The maximum number of characters we allow to display the matrix
     h, w = if get(io, :limit, false)::Bool
         displaysize(io) .- (4, 2)
@@ -535,16 +554,9 @@ function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans,
     brailleGrid[[1,end-1],[1,end]] .= ['⎡';'⎤';;'⎣';'⎦']
     char_h == 1 && (brailleGrid[[1,end-1],1] .= ['[', ']'])
 
-    if S isa AbstractSparseMatrixCSC
-        for cords in zip(rinds, cinds)
-            row, col = cld.(cords, scale) |>x-> fldmod1.(x, (4, 2))
-            brailleGrid[col[1]+1, row[1]] |= brailleBlocks[row[2] + 4(col[2]-1)]
-        end
-    else # swap rows / cols for adj and transpose
-        for cords in zip(rinds, cinds)
-            col, row = cld.(cords, scale) |>x-> fldmod1.(x, (2, 4))
-            brailleGrid[col[1]+1, row[1]] |= brailleBlocks[row[2] + 4(col[2]-1)]
-        end
+    for (i, j) in entries
+        row, col = fldmod1.(cld.((i, j), scale), (4, 2))
+        brailleGrid[col[1]+1, row[1]] |= brailleBlocks[row[2] + 4(col[2]-1)]
     end
     foreach(c -> print(io, Char(c)), @view brailleGrid[1:end-1])
 
@@ -552,14 +564,17 @@ function _show_with_braille_patterns(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans,
 end
 
 using Base: alignment
-function _show_with_dotted_zeros(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans, P=parent(S))
-    rows, cols = S isa Adjoint || S isa Transpose ? (colvals(P), rowvals(P)) : (rowvals(P), colvals(P))
-    vals = nonzeros(P)
+function _show_with_dotted_zeros(io::IO, S::SparseShowable)
+    # only reached when S fits on the screen, so collecting its entries is cheap
+    entries = collect(_shown_entries(S))
+    vals = _shown_values(S)
+    rows, cols = getindex.(entries, 1), getindex.(entries, 2)
+    shown(k) = k == 0 || isassigned(vals, k)
 
-    align = [isassigned(vals, ind) ? alignment(io, vals[ind]) : (3, 3) for ind in eachindex(vals)]
+    align = [shown(k) ? alignment(io, S[i, j]) : (3, 3) for (i, j, k) in entries]
 
     colwidths = [maximum.((first,last), Ref(align[findall(==(col), cols)]);init=0) for col in axes(S,2)]
-    displaysize(io)[2] < sum(sum.(colwidths) .+ 2) && return _show_with_braille_patterns(io, S, rows, cols)
+    displaysize(io)[2] < sum(sum.(colwidths) .+ 2) && return _show_with_braille_patterns(io, S, entries)
 
     println(io, ":")
 
@@ -575,7 +590,7 @@ function _show_with_dotted_zeros(io::IO, S::SparseMatrixCSCMaybeAdjOrTrans, P=pa
             elseif length(index) == 1 # print the element with 1 space of buffer on each side
                 l, r = (l+1, r+1) .- align[index[]]
                 print(io, " "^l)
-                isassigned(vals, index[]) ? show(io, vals[index[]]) : print(io, "#undef")
+                shown(entries[index[]][3]) ? show(io, S[row, col]) : print(io, "#undef")
                 col == axes(S,2)[end] || print(io, " "^r)
             else
                 l, r = cld(l+r-1, 2) + 1, div(l+r-1, 2) + 1

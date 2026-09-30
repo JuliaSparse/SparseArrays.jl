@@ -1483,7 +1483,7 @@ end
         @test contains(String(take!(io)), brailleString)
     end
 
-    # Issue #657: the entries of the unused triangle, here 9.0 and (40, 1), are not shown
+    # Issue #657: entries outside the wrapper's triangle, like 9.0 and B[40, 1], are not shown
     A = sparse([1, 2, 1, 3], [1, 1, 3, 3], [1.0, 2.0, 9.0, 3.0])
     @test sprint(show, "text/plain", Symmetric(A, :L); context=:limit=>true) ==
         "3×3 $Symmetric{Float64, $SparseMatrixCSC{Float64, $Int}}:\n 1.0  2.0   ⋅\n 2.0   ⋅    ⋅\n  ⋅    ⋅   3.0"
@@ -1495,6 +1495,38 @@ end
         "40×40 $Hermitian{Float64, $SparseMatrixCSC{Float64, $Int}}, displaying at 1/2 scale:\n" *
         "⎡⠻⣦⡀⠀⠀⠀⠀⠀⠀⠀⎤\n⎢⠀⠈⠻⣦⡀⠀⠀⠀⠀⠀⎥\n⎢⠀⠀⠀⠈⠻⣦⡀⠀⠀⠀⎥\n⎢⠀⠀⠀⠀⠀⠈⠻⣦⡀⠀⎥\n⎣⠀⠀⠀⠀⠀⠀⠀⠈⠻⣦⎦"
     @test sprint(show, "text/plain", Symmetric(spzeros(0, 0))) == "0×0 $Symmetric{Float64, $SparseMatrixCSC{Float64, $Int}}"
+    for (X, contents) in (
+            (view(A, :, 2:3), " ⋅  9.0\n ⋅   ⋅\n ⋅  3.0"),
+            (Symmetric(view(A, :, 1:3), :L), " 1.0  2.0   ⋅\n 2.0   ⋅    ⋅\n  ⋅    ⋅   3.0"),
+            (UpperTriangular(A), " 1.0  ⋅  9.0\n  ⋅   ⋅   ⋅\n  ⋅   ⋅  3.0"),
+            (UnitLowerTriangular(A), " 1.0   ⋅    ⋅\n 2.0  1.0   ⋅\n  ⋅    ⋅   1.0"),
+            (Diagonal(sparsevec([1, 3], [1.0, 2.0])), " 1.0  ⋅   ⋅\n  ⋅   ⋅   ⋅\n  ⋅   ⋅  2.0"),
+            (Diagonal(view(A, :, 1)), " 1.0   ⋅   ⋅\n  ⋅   2.0  ⋅\n  ⋅    ⋅   ⋅"))
+        @test sprint(show, "text/plain", X; context=:limit=>true) == sprint(summary, X) * ":\n" * contents
+    end
+    @test sprint(show, "text/plain", LowerTriangular(B); context=(:limit=>true, :displaysize=>(10, 80))) ==
+        "40×40 $LowerTriangular{Float64, $SparseMatrixCSC{Float64, $Int}}, displaying at 1/2 scale:\n" *
+        "⎡⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⎤\n⎢⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⎥\n⎢⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⎥\n⎢⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⎥\n⎣⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⎦"
+    @test sprint(show, "text/plain", sparse([1im 2im])'; context=:limit=>true) ==
+        "2×1 $Adjoint{Complex{$Int}, $SparseMatrixCSC{Complex{$Int}, $Int}} with 2 stored entries:\n 0-1im\n 0-2im"
+    U = SparseMatrixCSC(2, 2, [1, 2, 3], [1, 2], Vector{BigFloat}(undef, 2))
+    for X in (Hermitian(U), UpperTriangular(U), view(U, :, 1:2))
+        @test endswith(sprint(show, "text/plain", X; context=:limit=>true), ":\n #undef     ⋅\n    ⋅    #undef")
+    end
+    b = [1 2; 3 4]
+    redirect_stderr(devnull) do
+        @test endswith(sprint(show, "text/plain", Hermitian(sparse([1, 2, 1], [1, 2, 2], [b, b, b])); context=:limit=>true),
+            ":\n [1 2; 2 4]  [1 2; 3 4]\n [1 3; 2 4]  [1 2; 2 4]")
+        @test endswith(sprint(show, "text/plain", Diagonal(sparsevec([1], [b], 2)); context=:limit=>true),
+            ":\n [1 2; 3 4]  ⋅\n      ⋅      ⋅")
+    end
+    # the braille pattern of a wrapper is drawn without copying its entries
+    shown_bytes(X) = @allocated sprint(show, "text/plain", X; context=(:limit=>true, :displaysize=>(24, 80)))
+    D = spdiagm(ones(100_000))
+    for X in (D, D', Hermitian(D), UnitLowerTriangular(D), view(D, :, 1:100_000), Diagonal(sparsevec(1:100_000, 1.0)))
+        shown_bytes(X)
+        @test shown_bytes(X) < nnz(D)
+    end
 
     # Issue #30589
     @test sprint(show, "text/plain", sparse([true true]); context=:limit=>true) == "1×2 $SparseMatrixCSC{Bool, $Int} with 2 stored entries:\n 1  1"
