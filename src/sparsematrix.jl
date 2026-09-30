@@ -1638,6 +1638,8 @@ ishermitian(A::SparseMatrixCSCOrView) = is_hermsym(A, adjoint)
 function is_hermsym(A::SparseMatrixCSCOrView, check::Function)
     m, n = size(A)
     if m != n; return false; end
+    # an empty view may name columns outside the parent, so has no column pointers to read
+    n == 0 && return true
 
     # getcolptr holds positions in the parent storage, which getrowval and getnzval index
     colptr = getcolptr(A)

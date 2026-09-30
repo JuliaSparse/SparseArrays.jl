@@ -826,6 +826,9 @@ function _sparse_findprevnz(v::SparseVectorOrView, i::Integer)
     end
 end
 
+_sparse_findnextnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findnextnz(v, i[1])
+_sparse_findprevnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findprevnz(v, i[1])
+
 ### Generic functions operating on AbstractSparseVector
 
 ## Explicit efficient comparisons with vectors

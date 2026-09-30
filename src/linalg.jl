@@ -964,9 +964,9 @@ diff(x::Union{SparseColumnView, SparseVectorView}; dims::Integer=1) = _sparse_di
 ## norm and rank
 function norm(A::SparseMatrixCSCOrView, p::Real=2)
     v = nzvalview(A)
-    # a single zero, stored or not, makes a norm with p < 0 zero
-    p < 0 && length(v) < length(A) && return float(norm(zero(eltype(A))))
-    return norm(v, p)
+    r = norm(v, p)
+    # an implicit zero makes a norm with p < 0 zero, but `min` keeps a stored NaN
+    return p < 0 && length(v) < length(A) ? min(r, zero(r)) : r
 end
 
 """

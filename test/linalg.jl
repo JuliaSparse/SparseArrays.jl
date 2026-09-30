@@ -326,6 +326,7 @@ end
     A = sparse([1.0])
     @test norm(A) == 1.0
     @test norm(sparse([1.0 0; 0 2]), -1) == norm(view(sparse([1.0 0; 0 2]), :, 1:2), -Inf) == 0.0
+    @test isnan(norm(sparse([NaN 0; 0 2]), -1)) && isnan(norm(view(sparse([NaN 0; 0 2]), :, 1:2), -Inf))
     @test_throws ArgumentError opnorm(sprand(5,5,0.2),3)
 end
 
@@ -367,6 +368,8 @@ end
     V = view(Cv, :, 2:5)   # V[1, 4] is the stored zero
     @test ishermitian(V) == ishermitian(Matrix(V)) == true
     @test issymmetric(V) == issymmetric(Matrix(V)) == false
+    # an empty view may name columns outside its parent
+    @test issymmetric(view(spzeros(0, 2), :, 100:99)) && ishermitian(view(spzeros(0, 2), :, 100:99))
     @test issymmetric(A) == true
 
     # explicit zeros

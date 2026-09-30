@@ -1200,6 +1200,8 @@ end
     end
     for i in keys(z)
         @test findnext(!iszero, view(z_sp, :), i) == findnext(!iszero, z, i)
+        @test findnext(!iszero, view(z_sp, :), CartesianIndex(i)) == findnext(!iszero, z, CartesianIndex(i))
+        @test findprev(!iszero, view(z_sp, :), CartesianIndex(i)) == findprev(!iszero, z, CartesianIndex(i))
     end
     B = spzeros(100, 100); B[2, 3] = 1.0; B[100, 99] = -0.0
     VB = view(B, :, 2:100)
