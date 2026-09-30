@@ -1464,13 +1464,10 @@ end
 _hermitian_solve(A::AbstractSparseMatrixCSC) =
     !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
 
-# `\` and `factorize` choose the same method from the structure of `A`, and `f` is what
-# the caller does with the choice, applied inside every branch so that the result stays
-# inferrable. A diagonal or triangular matrix is wrapped for substitution, the diagonal
-# kept sparse so that `factorize` stays O(nnz). A Hermitian
-# matrix is only wrapped, because the callers finish it differently: when its Cholesky
-# factorization fails, `\` falls back to `lu` and `factorize` to `ldlt`.
-function _sparse_factorize(f, A::AbstractSparseMatrixCSC)
+# `\` and `factorize` choose the same method from the structure of `A`; `f` (or `flu`, for
+# the LU factorization) is applied in each branch so that the result stays inferrable. A
+# Hermitian matrix is only wrapped, because `\` and `factorize` finish it differently.
+function _sparse_factorize(f, A::AbstractSparseMatrixCSC, flu = f)
     m, n = size(A)
     if m == n
         if istril(A)
@@ -1480,7 +1477,7 @@ function _sparse_factorize(f, A::AbstractSparseMatrixCSC)
         elseif _hermitian_solve(A)
             return f(Hermitian(A))
         end
-        return f(lu(A))
+        return flu(lu(A))
     elseif m > n
         return f(qr(A))
     else
@@ -1489,17 +1486,19 @@ function _sparse_factorize(f, A::AbstractSparseMatrixCSC)
     end
 end
 
-# The solvers work in double precision, so the solution is converted back to the eltype
-# dense `\` would give. The solve produces a dense result anyway, so a diagonal is
-# densified for it.
+# the solution is dense, so a diagonal is densified for the solve
 _solve_factor(F) = F
 _solve_factor(D::Diagonal) = Diagonal(Vector(diag(D)))
-_sparse_solve(op, F, A, B) =
-    convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(op(_solve_factor(F)), B))
+_sparse_solve(op, F, B) = \(op(_solve_factor(F)), B)
+# the sparse LU works in double precision, so its solution is converted to the eltype that
+# dense `\` gives
+_sparse_lusolve(op, F, A, B) =
+    convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, _sparse_solve(op, F, B))
 
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
-    return _sparse_factorize(F -> _sparse_solve(identity, F, A, B), A)
+    return _sparse_factorize(F -> _sparse_solve(identity, F, B), A,
+                             F -> _sparse_lusolve(identity, F, A, B))
 end
 for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
     @eval function \(xformA::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::AbstractVecOrMat)
@@ -1508,11 +1507,12 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
         m, n = size(A)
         if m < n
             # A' is tall, so the least squares solve needs a factorization of A' itself
-            return _sparse_solve(identity, qr($xformop(A)), A, B)
+            return _sparse_solve(identity, qr($xformop(A)), B)
         end
         # Otherwise the transformed choice for A serves. For a wide A' that is the
         # factorization of A, which gives the minimum-norm solution.
-        return _sparse_factorize(F -> _sparse_solve($xformop, F, A, B), A)
+        return _sparse_factorize(F -> _sparse_solve($xformop, F, B), A,
+                                 F -> _sparse_lusolve($xformop, F, A, B))
     end
 end
 

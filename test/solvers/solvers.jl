@@ -107,6 +107,8 @@ end
     # the adjoint solve converts its result to the eltype the plain solve gives
     x = square' \ Float32.(b)
     @test x isa Vector{Float32} && x ≈ Matrix(square') \ b
+    # only the LU solve converts its result, so a least squares solve takes any right-hand side
+    @test tall \ Any[1.0, 2, 3] ≈ Matrix(tall) \ b
     # when the Cholesky factorization of a Hermitian matrix fails, `factorize` returns
     # the LDLt factorization and `\` falls back to `lu`
     H = sparse([1.0 2 0; 2 1 0; 0 0 -3])
