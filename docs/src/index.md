@@ -624,8 +624,7 @@ SparseArrays.mergeinds!
 SparseArrays.move_fixed
 SparseArrays._unsafe_unfix
 SparseArrays.@RCI
-SparseArrays._densifyfirstnztoend!
-SparseArrays._densifystarttolastnz!
+SparseArrays._densify!
 SparseArrays.HigherOrderFns._map_zeropres!
 SparseArrays.HigherOrderFns._map_notzeropres!
 SparseArrays._spsetz_setindex!
