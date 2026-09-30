@@ -505,6 +505,18 @@ end
         @test (mat \ g)::Vector{Float64} ≈ mat \ Array(g)
     end
 
+    @testset "index type and eltype of the right-hand side" begin
+        L = LowerTriangular([2.0 1 1; 1 2 1; 1 1 2])
+        for Ti in (UInt64, Int128)
+            b = SparseVector(3, Ti[2], [1.0])
+            x = ldiv!(L, copy(b))
+            @test nonzeroinds(x) == 2:3 && x ≈ L \ Array(b)
+        end
+        b = SparseVector(3, [1, 3], Any[1.0, 2.0])
+        x = ldiv!(L, copy(b))
+        @test nonzeroinds(x) == 1:3 && x ≈ L \ [1.0, 0.0, 2.0]
+    end
+
     @testset "scalar promotion" for eltypemat in eltypes
         (densemat, sparsemat) = eltypemat in inttypes ? (denseintmat, sparseintmat) :
                                 eltypemat in floattypes ? (densefloatmat, sparsefloatmat) :

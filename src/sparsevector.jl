@@ -1500,7 +1500,7 @@ const StridedTriangularMaybeAdjOrTrans{T} =
 # lower triangular solve reads nothing above the first stored entry, an upper one nothing
 # below the last, and the rest of the solution is zero
 _activerange(::LowerOrUnitLowerTriangular, b::AbstractCompressedVector) =
-    Int(first(nonzeroinds(b))):length(b)
+    Int(first(nonzeroinds(b))):Int(length(b))
 _activerange(::UpperOrUnitUpperTriangular, b::AbstractCompressedVector) =
     1:Int(last(nonzeroinds(b)))
 
@@ -1562,7 +1562,7 @@ function _densify!(x::AbstractCompressedVector, active::AbstractUnitRange{Int})
             vals[dst] = vals[src]
             src -= 1
         else
-            vals[dst] = zero(eltype(vals))
+            vals[dst] = 0
         end
         inds[dst] = i
     end
