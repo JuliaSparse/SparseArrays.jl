@@ -1548,7 +1548,6 @@ end
         @test_throws ArgumentError reverse!(F; dims=2)
         @test_throws ArgumentError reverse!(F)
         @test F == [1 0 0; 0 0 0; 2 0 0] && rowvals(F) == [1,3]
-        # empty columns with unsigned indices
         for dims in (:, 1, 2)
             @test iszero(reverse!(fixed(spzeros(Float64, UInt64, 3, 3)); dims))
         end
