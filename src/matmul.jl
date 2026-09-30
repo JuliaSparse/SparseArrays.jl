@@ -528,12 +528,8 @@ LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Funct
 LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
     _trimatmul!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
 
-# C = M * B, where M is the `upper` or lower triangle of A, elementwise `f` of it for
-# `identity` and `conj`, or the `transpose`/`adjoint` `f` of it. The first kind scatters
-# column `j` of A scaled by row `j` of B, the second gathers row `j` of C from column `j`
-# of A; either way the columns are visited so that none is written before its last read,
-# and C may be B. `f` is only forwarded here, so the type parameter keeps the method
-# specialized on it; without it the call into the kernel dispatches at run time.
+# C = M * B for a triangle M of `f(A)`, computed column by column of A; C may be B.
+# `F` keeps the method specialized on the forwarded `f`.
 function _trimatmul!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
     require_one_based_indexing(C, A, B)
     n = checksquare(A)
@@ -544,8 +540,7 @@ function _trimatmul!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
     C !== B && copyto!(C, B)
     return upper ? _trimatmul!(C, Val(true), unit, f, A, B) : _trimatmul!(C, Val(false), unit, f, A, B)
 end
-# The triangle is a type parameter so that each walk of a column compiles to a loop of
-# unit stride; a runtime direction costs about a third on multi-column right-hand sides.
+# the triangle is a type parameter so that each column walk compiles to a unit-stride loop
 function _trimatmul!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
     n = size(A, 2)
     aa = getnzval(A)

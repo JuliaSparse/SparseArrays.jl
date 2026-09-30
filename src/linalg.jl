@@ -345,12 +345,8 @@ LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Funct
 LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
     _trimatdiv!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
 
-# C = M \ B, where M is the `upper` or lower triangle of A, elementwise `f` of it for
-# `identity` and `conj`, or the `transpose`/`adjoint` `f` of it. The first kind divides
-# row `j` by the pivot and scatters column `j` of A into the rows not yet solved, the
-# second gathers row `j` from column `j` of A and the rows already solved; either way the
-# columns are visited so that none is read before it is final, and C may be B. The type
-# parameter keeps the method specialized on the forwarded `f`, as in `_trimatmul!`.
+# C = M \ B for a triangle M of `f(A)`, solved column by column of A; C may be B.
+# `F` keeps the method specialized on the forwarded `f`.
 function _trimatdiv!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
     n = size(A, 2)
     size(B, 1) == n ||
@@ -360,7 +356,6 @@ function _trimatdiv!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
     C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
     return upper ? _trimatdiv!(C, Val(true), unit, f, A, B) : _trimatdiv!(C, Val(false), unit, f, A, B)
 end
-# The triangle is a type parameter for the same reason as in `_trimatmul!`.
 function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
     n = size(A, 2)
     aa = getnzval(A)
@@ -371,8 +366,6 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
         i1 = Int(ia[j])
         i2 = Int(ia[j + 1]) - 1
         if direct
-            # the pivot is the last stored entry of the column at or above the diagonal,
-            # or the first at or below it
             if upper
                 ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
                 hasdiag = ii >= i1 && ja[ii] == j

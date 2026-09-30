@@ -185,7 +185,7 @@ end
     for hook in (LinearAlgebra.generic_trimatmul!, LinearAlgebra.generic_trimatdiv!), S in (A, A')
         @test which(hook, Tuple{typeof(B), Char, Char, typeof(identity), typeof(S), typeof(B)}).module === SparseArrays
     end
-    # the product kernel checks the shape of the destination before touching it
+    # a bad destination shape throws before anything is written
     C = fill(-1.0, 3, 3)
     @test_throws DimensionMismatch LinearAlgebra.generic_trimatmul!(C, 'U', 'N', identity, A, B)
     @test all(==(-1.0), C)
@@ -446,7 +446,7 @@ end
                 (typeof(C), upper, Bool, typeof(trop), typeof(S), typeof(rhs)), T1, T2)
         end
     end
-    # the column pointers of an Int32 matrix seed the entry counters, which then carry Int
+    # Int32 indices keep the kernels type-stable
     A32 = SparseMatrixCSC{Float64,Int32}(Ai); b32 = ones(n); C32 = similar(b32)
     for kernel in (SparseArrays._trimatdiv!, SparseArrays._trimatmul!)
         @test !hasunionlocal(kernel, (typeof(C32), Val{true}, Bool, typeof(transpose), typeof(A32), typeof(b32)), Int32, Int)
