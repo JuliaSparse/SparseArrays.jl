@@ -1428,120 +1428,88 @@ end
 # the valid left-division operations are A[t|c]_ldiv_B[!] and \
 # the valid right-division operations are A(t|c)_rdiv_B[t|c][!]
 # see issue #14005 for discussion of these methods
-for isunittri in (true, false), islowertri in (true, false)
-    unitstr = isunittri ? "Unit" : ""
-    halfstr = islowertri ? "Lower" : "Upper"
-    tritype = :(LinearAlgebra.$(Symbol(unitstr, halfstr, "Triangular")))
 
-    # faster method requiring good view support of the
-    # triangular matrix type. hence the StridedMatrix restriction.
-    for (istrans, applyxform, xformtype, xformop) in (
-            (false, false, :identity,  :identity),
-            (true,  true,  :Transpose, :transpose),
-            (true,  true,  :Adjoint,   :adjoint) )
+# a triangular wrapper of a strided matrix, or of the adjoint or transpose of one: a view of
+# its diagonal block is again strided, so the solve on the block can reach tuned BLAS; the
+# generic LinearAlgebra methods handle every other backing
+const StridedTriangularMaybeAdjOrTrans{T} =
+    UpperOrLowerTriangular{T,<:Union{StridedMatrix, AdjOrTrans{<:Any,<:StridedMatrix}}}
 
-        xformtritype = applyxform ? :($tritype{<:TA,<:$xformtype{<:Any,<:StridedMatrix}}) :
-                                    :($tritype{<:TA,<:StridedMatrix})
-        @eval function \(xA::$xformtritype, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
-            TAb = $( isunittri ?
-                :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
-                :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
-            r = convert(Array{TAb}, b)
-            # If b has no nonzero entries, then r is necessarily zero. If b has nonzero
-            # entries, then the operation involves only b[nzrange], so we extract and
-            # operate on solely b[nzrange] for efficiency.
-            A = $( applyxform ? :(parent(parent(xA))) : :(parent(xA)) )
-            if nnz(b) != 0
-                nzrange = $( islowertri ?
-                    :(nonzeroinds(b)[1]:length(b::AbstractCompressedVector)) :
-                    :(1:nonzeroinds(b)[end]) )
-                nzrangeviewr = view(r, nzrange)
-                nzrangeviewA = $tritype($xformop(view(A, nzrange, nzrange)))
-                LinearAlgebra.ldiv!(convert(AbstractArray{TAb}, nzrangeviewA), nzrangeviewr)
-            end
-            return r
-        end
+# the indices of the solution that a triangular solve with right-hand side `b` can touch: a
+# lower triangular solve reads nothing above the first stored entry, an upper one nothing
+# below the last, and the rest of the solution is zero
+_activerange(::LowerOrUnitLowerTriangular, b::AbstractCompressedVector) =
+    Int(first(nonzeroinds(b))):Int(length(b))
+_activerange(::UpperOrUnitUpperTriangular, b::AbstractCompressedVector) =
+    1:Int(last(nonzeroinds(b)))
 
-        # build in-place left-division operations
-        xformtritype = applyxform ? :($tritype{<:Any,<:$xformtype{<:Any,<:StridedMatrix}}) :
-                                    :($tritype{<:Any,<:StridedMatrix})
-
-        # the generic in-place left-division methods handle these cases, but
-        # we can achieve greater efficiency where the triangular matrix provides
-        # good view support, hence the StridedMatrix restriction.
-        @eval function ldiv!(xA::$xformtritype, b::AbstractCompressedVector)
-            A = $( applyxform ? :(parent(parent(xA))) : :(parent(xA)) )
-            # If b has no nonzero entries, the result is necessarily zero and this call
-            # reduces to a no-op. If b has nonzero entries, then...
-            if nnz(b) != 0
-                # densify the relevant part of b in one shot rather
-                # than potentially repeatedly reallocating during the solve
-                $( islowertri ?
-                    :(_densifyfirstnztoend!(b)) :
-                    :(_densifystarttolastnz!(b)) )
-                # this operation involves only the densified section, so
-                # for efficiency we extract and operate on solely that section
-                # furthermore we operate on that section as a dense vector
-                # such that dispatch has a chance to exploit, e.g., tuned BLAS
-                nzrange = $( islowertri ?
-                    :(nonzeroinds(b)[1]:length(b)) :
-                    :(1:nonzeroinds(b)[end]) )
-                nzrangeviewbnz = view(nonzeros(b), nzrange .- (nonzeroinds(b)[1] - 1))
-                nzrangeviewA = $tritype($xformop(view(A, nzrange, nzrange)))
-                LinearAlgebra.ldiv!(nzrangeviewA, nzrangeviewbnz)
-            end
-            return b
-        end
-    end
+# the diagonal block `xA[r, r]` as the same triangular wrapper over a strided view
+_subblock(xA::StridedTriangularMaybeAdjOrTrans, r::AbstractUnitRange) = _rewrap(xA, _subblock(parent(xA), r))
+_subblock(A::StridedMatrix, r::AbstractUnitRange) = view(A, r, r)
+_subblock(A::AdjOrTrans{<:Any,<:StridedMatrix}, r::AbstractUnitRange) = wrapperop(A)(view(parent(A), r, r))
+for tri in (:LowerTriangular, :UnitLowerTriangular, :UpperTriangular, :UnitUpperTriangular)
+    @eval _rewrap(::$tri, A::AbstractMatrix) = $tri(A)
 end
 
-# helper functions for in-place matrix division operations defined above
-"Densifies `x::SparseVector` from its first nonzero (`x[nonzeroinds(x)[1]]`) through its end (`x[length(x::SparseVector)]`)."
-function _densifyfirstnztoend!(x::SparseVector)
-    # lengthen containers
-    oldnnz = nnz(x)
-    newnnz = length(x::SparseVector) - nonzeroinds(x)[1] + 1
-    resize!(nonzeros(x), newnnz)
-    resize!(nonzeroinds(x), newnnz)
-    # redistribute nonzero values over lengthened container
-    # initialize now-allocated zero values simultaneously
-    nextpos = newnnz
-    @inbounds for oldpos in oldnnz:-1:1
-        nzi = nonzeroinds(x)[oldpos]
-        nzv = nonzeros(x)[oldpos]
-        newpos = nzi - nonzeroinds(x)[1] + 1
-        newpos < nextpos && (nonzeros(x)[newpos+1:nextpos] .= 0)
-        newpos == oldpos && break
-        nonzeros(x)[newpos] = nzv
-        nextpos = newpos - 1
+function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
+    TAb = xA isa UnitUpperOrUnitLowerTriangular ?
+        typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb)) :
+        typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))
+    r = convert(Array{TAb}, b)
+    if nnz(b) != 0
+        active = _activerange(xA, b)
+        LinearAlgebra.ldiv!(convert(AbstractArray{TAb}, _subblock(xA, active)), view(r, active))
     end
-    # finally update lengthened nzinds
-    nonzeroinds(x)[2:end] = (nonzeroinds(x)[1]+1):length(x::SparseVector)
-    return x
+    return r
 end
 
-"Densifies `x::SparseVector` from its beginning (`x[1]`) through its last nonzero (`x[nonzeroinds(x)[end]]`)."
-function _densifystarttolastnz!(x::SparseVector)
-    # lengthen containers
-    oldnnz = nnz(x)
-    newnnz = nonzeroinds(x)[end]
-    resize!(nonzeros(x), newnnz)
-    resize!(nonzeroinds(x), newnnz)
-    # redistribute nonzero values over lengthened container
-    # initialize now-allocated zero values simultaneously
-    nextpos = newnnz
-    @inbounds for oldpos in oldnnz:-1:1
-        nzi = nonzeroinds(x)[oldpos]
-        nzv = nonzeros(x)[oldpos]
-        nzi < nextpos && (nonzeros(x)[nzi+1:nextpos] .= 0)
-        nzi == oldpos && (nextpos = 0; break)
-        nonzeros(x)[nzi] = nzv
-        nextpos = nzi - 1
+function ldiv!(xA::StridedTriangularMaybeAdjOrTrans, b::AbstractCompressedVector)
+    nnz(b) == 0 && return b
+    active = _activerange(xA, b)
+    # store the whole active section up front rather than entry by entry during the solve,
+    # which also lets the solve run on a dense vector and reach tuned BLAS
+    stored = _densify!(b, active)
+    LinearAlgebra.ldiv!(_subblock(xA, active), view(nonzeros(b), stored))
+    return b
+end
+
+"""
+    _densify!(x::AbstractCompressedVector, active::AbstractUnitRange{Int})
+
+Make every index of `active` a stored entry of `x`, filling the new ones with zero, and
+return the range of storage positions that then holds `x[active]`. A fixed pattern cannot
+grow, so it must already cover `active`, which is checked before anything is written.
+"""
+function _densify!(x::AbstractCompressedVector, active::AbstractUnitRange{Int})
+    inds = nonzeroinds(x)
+    vals = nonzeros(x)
+    k1 = searchsortedfirst(inds, first(active))
+    k2 = searchsortedlast(inds, last(active))
+    extra = length(active) - (k2 - k1 + 1)
+    extra == 0 && return k1:k2
+    _is_fixed(x) && throw(ArgumentError(LazyString("the pattern of the fixed sparse vector does not cover the entries ",
+        first(active), ":", last(active), " that the in-place triangular solve stores; `A \\ b` returns a dense solution")))
+    oldnnz = length(inds)
+    resize!(inds, oldnnz + extra)
+    resize!(vals, oldnnz + extra)
+    for k in oldnnz:-1:k2+1
+        inds[k+extra] = inds[k]
+        vals[k+extra] = vals[k]
     end
-    nextpos > 0 && (nonzeros(x)[1:nextpos] .= 0)
-    # finally update lengthened nzinds
-    nonzeroinds(x)[1:newnnz] = 1:newnnz
-    x
+    # spread the stored entries of the active section over their new positions from the
+    # back, so that no entry is overwritten before it has been moved
+    src = k2
+    for i in last(active):-1:first(active)
+        dst = k1 + (i - first(active))
+        if src >= k1 && inds[src] == i
+            vals[dst] = vals[src]
+            src -= 1
+        else
+            vals[dst] = 0
+        end
+        inds[dst] = i
+    end
+    return k1:k2+extra
 end
 
 """
