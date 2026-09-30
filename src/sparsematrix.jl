@@ -432,6 +432,15 @@ using Base: show_circular
 function Base.show(io::IO, ::MIME"text/plain", S::SparseMatrixCSCMaybeAdjOrTrans)
     isempty(S) && get(io, :compact, false) && return show(io, S)
     summary(io, S)
+    _show_sparse_contents(io, S, S)
+end
+function Base.show(io::IO, ::MIME"text/plain", H::HermOrSym{<:Any,<:AbstractSparseMatrixCSC})
+    isempty(H) && get(io, :compact, false) && return show(io, H)
+    summary(io, H)
+    _show_sparse_contents(io, H, sparse(H))
+end
+
+function _show_sparse_contents(io::IO, X, S::SparseMatrixCSCMaybeAdjOrTrans)
     isempty(S) && return
 
     if get(io, :limit, false)
@@ -441,8 +450,8 @@ function Base.show(io::IO, ::MIME"text/plain", S::SparseMatrixCSCMaybeAdjOrTrans
         screen = typemax(Int), typemax(Int)
     end
 
-    show_circular(io, S) && return
-    io = IOContext(io, :compact=>true, :typeinfo=>eltype(S), :SHOWN_SET=>S)
+    show_circular(io, X) && return
+    io = IOContext(io, :compact=>true, :typeinfo=>eltype(S), :SHOWN_SET=>X)
 
     if !get(io, :limit, false) || screen[1] < size(S, 1) + 4 || screen[2] < 3size(S, 2)
         _show_with_braille_patterns(io, S)

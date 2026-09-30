@@ -1483,6 +1483,19 @@ end
         @test contains(String(take!(io)), brailleString)
     end
 
+    # Issue #657: the entries of the unused triangle, here 9.0 and (40, 1), are not shown
+    A = sparse([1, 2, 1, 3], [1, 1, 3, 3], [1.0, 2.0, 9.0, 3.0])
+    @test sprint(show, "text/plain", Symmetric(A, :L); context=:limit=>true) ==
+        "3×3 $Symmetric{Float64, $SparseMatrixCSC{Float64, $Int}}:\n 1.0  2.0   ⋅\n 2.0   ⋅    ⋅\n  ⋅    ⋅   3.0"
+    C = sparse([1, 1, 2], [1, 2, 2], [1.0+1im, 2im, 3.0+0im])
+    @test sprint(show, "text/plain", Hermitian(C); context=:limit=>true) ==
+        "2×2 $Hermitian{ComplexF64, $SparseMatrixCSC{ComplexF64, $Int}}:\n 1.0+0.0im  0.0+2.0im\n 0.0-2.0im  3.0+0.0im"
+    B = sparse(1:40, [2:40; 1], 1.0, 40, 40)
+    @test sprint(show, "text/plain", Hermitian(B, :U); context=(:limit=>true, :displaysize=>(10, 80))) ==
+        "40×40 $Hermitian{Float64, $SparseMatrixCSC{Float64, $Int}}, displaying at 1/2 scale:\n" *
+        "⎡⠻⣦⡀⠀⠀⠀⠀⠀⠀⠀⎤\n⎢⠀⠈⠻⣦⡀⠀⠀⠀⠀⠀⎥\n⎢⠀⠀⠀⠈⠻⣦⡀⠀⠀⠀⎥\n⎢⠀⠀⠀⠀⠀⠈⠻⣦⡀⠀⎥\n⎣⠀⠀⠀⠀⠀⠀⠀⠈⠻⣦⎦"
+    @test sprint(show, "text/plain", Symmetric(spzeros(0, 0))) == "0×0 $Symmetric{Float64, $SparseMatrixCSC{Float64, $Int}}"
+
     # Issue #30589
     @test sprint(show, "text/plain", sparse([true true]); context=:limit=>true) == "1×2 $SparseMatrixCSC{Bool, $Int} with 2 stored entries:\n 1  1"
 
