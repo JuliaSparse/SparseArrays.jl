@@ -1479,34 +1479,34 @@ end
 # `AbstractSparseMatrixCSC` method above.
 findnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = findnz(copy(S))
 
-function _sparse_findnextnz(m::AbstractSparseMatrixCSC, ij::CartesianIndex{2})
+function _sparse_findnextnz(m::SparseMatrixCSCOrView, ij::CartesianIndex{2})
     row, col = Tuple(ij)
     col > size(m, 2) && return nothing
 
     lo, hi = getcolptr(m)[col], getcolptr(m)[col+1]
-    n = searchsortedfirst(view(rowvals(m), lo:hi-1), row) + lo - 1
+    n = searchsortedfirst(view(getrowval(m), lo:hi-1), row) + lo - 1
     if lo <= n <= hi-1
-        return CartesianIndex(rowvals(m)[n], col)
+        return CartesianIndex(getrowval(m)[n], col)
     end
     nextcol = searchsortedfirst(view(getcolptr(m), col+1:length(getcolptr(m))), hi + 1) + col
     nextcol > length(getcolptr(m)) && return nothing
     nextlo = getcolptr(m)[nextcol-1]
-    return CartesianIndex(rowvals(m)[nextlo], nextcol - 1)
+    return CartesianIndex(getrowval(m)[nextlo], nextcol - 1)
 end
 
-function _sparse_findprevnz(m::AbstractSparseMatrixCSC, ij::CartesianIndex{2})
+function _sparse_findprevnz(m::SparseMatrixCSCOrView, ij::CartesianIndex{2})
     row, col = Tuple(ij)
     iszero(col) && return nothing
 
     lo, hi = getcolptr(m)[col], getcolptr(m)[col+1]
-    n = searchsortedlast(view(rowvals(m), lo:hi-1), row) + lo - 1
+    n = searchsortedlast(view(getrowval(m), lo:hi-1), row) + lo - 1
     if lo <= n <= hi-1
-        return CartesianIndex(rowvals(m)[n], col)
+        return CartesianIndex(getrowval(m)[n], col)
     end
     prevcol = searchsortedlast(view(getcolptr(m), 1:col-1), lo - 1)
     prevcol < 1 && return nothing
     prevhi = getcolptr(m)[prevcol+1]
-    return CartesianIndex(rowvals(m)[prevhi-1], prevcol)
+    return CartesianIndex(getrowval(m)[prevhi-1], prevcol)
 end
 
 
@@ -1631,17 +1631,20 @@ Base.isequal(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatr
     isequal(transpose(A), transpose(B))
 
 ## Structure query functions
-issymmetric(A::AbstractSparseMatrixCSC) = is_hermsym(A, transpose)
+issymmetric(A::SparseMatrixCSCOrView) = is_hermsym(A, transpose)
 
-ishermitian(A::AbstractSparseMatrixCSC) = is_hermsym(A, adjoint)
+ishermitian(A::SparseMatrixCSCOrView) = is_hermsym(A, adjoint)
 
-function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
+function is_hermsym(A::SparseMatrixCSCOrView, check::Function)
     m, n = size(A)
     if m != n; return false; end
+    # an empty view may name columns outside the parent, so has no column pointers to read
+    n == 0 && return true
 
+    # getcolptr holds positions in the parent storage, which getrowval and getnzval index
     colptr = getcolptr(A)
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     # `Vector`, not `copy`: a fixed matrix's column pointers are `ReadOnly` and `copy`
     # keeps that wrapper, but the tracker is advanced below
     tracker = Vector(getcolptr(A))
@@ -1723,7 +1726,7 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
     return true
 end
 
-function istriu(A::AbstractSparseMatrixCSC, k::Integer=0)
+function istriu(A::SparseMatrixCSCOrView, k::Integer=0)
     m, n = size(A)
     k <= 1-m && return true
     k >= n && return iszero(A)
@@ -1746,7 +1749,7 @@ function istriu(A::AbstractSparseMatrixCSC, k::Integer=0)
     return true
 end
 
-function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
+function istril(A::SparseMatrixCSCOrView, k::Integer=0)
     m, n = size(A)
     k >= n-1 && return true
     k <= -m && return iszero(A)
@@ -1768,7 +1771,7 @@ function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     return true
 end
 
-function isdiag(A::AbstractSparseMatrixCSC)
+function isdiag(A::SparseMatrixCSCOrView)
     m, n = size(A)
     rowval = rowvals(A)
     nzval = nonzeros(A)
@@ -1782,10 +1785,10 @@ function isdiag(A::AbstractSparseMatrixCSC)
     return true
 end
 
-function diag(A::AbstractSparseMatrixCSC{Tv,Ti}, d::Integer=0) where {Tv,Ti}
+function diag(A::SparseMatrixCSCOrView{Tv,Ti}, d::Integer=0) where {Tv,Ti}
     m, n = size(A)
     k = Int(d)
-    l = k < 0 ? min(m+k,n) : min(n-k,m)
+    l = max(0, k < 0 ? min(m+k,n) : min(n-k,m))
     r, c = k <= 0 ? (-k, 0) : (0, k) # start row/col -1
     ind = Vector{Ti}()
     val = Vector{Tv}()

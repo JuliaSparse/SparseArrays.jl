@@ -241,7 +241,7 @@ indtype(T::UpperOrLowerTriangular{<:Any,<:Union{AbstractSparseArray,SparseMatrix
 _sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)
 _sparse_findprevnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedlast(I, i);  _isnotzero(n) ? I[n] : nothing)
 
-function findnext(f::Function, v::AbstractSparseArray, i)
+function findnext(f::Function, v::Union{AbstractSparseArray,SparseMatrixCSCView,SparseVectorOrView}, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
     if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
@@ -254,7 +254,7 @@ function findnext(f::Function, v::AbstractSparseArray, i)
     return j
 end
 
-function findprev(f::Function, v::AbstractSparseArray, i)
+function findprev(f::Function, v::Union{AbstractSparseArray,SparseMatrixCSCView,SparseVectorOrView}, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
     if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))

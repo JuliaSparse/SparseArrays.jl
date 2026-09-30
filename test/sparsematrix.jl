@@ -590,6 +590,13 @@ end
             @test istril(S, k) == istril(T, k)
         end
     end
+
+    # a view of a column range walks the stored entries of those columns, ignoring
+    # stored zeros, instead of the generic O(mn) element scan
+    S = sparse([1, 2, 4, 2, 4, 1], [1, 2, 3, 4, 5, 6], [1.0, 2.0, 0.0, 3.0, 4.0, 5.0], 4, 6)
+    V = view(S, :, 2:5)   # V[4, 2] is the stored zero
+    @test istriu(V, -1) == istriu(Matrix(V), -1) == true
+    @test istril(V) == istril(Matrix(V)) == false
 end
 
 @testset "isdiag" begin
@@ -624,6 +631,11 @@ end
     # Explicit zeros on off-diagonal should still be diagonal
     S = sparse([1, 2, 1], [1, 2, 2], [1.0, 2.0, 0.0])
     @test isdiag(S)
+
+    # views of a column range walk their stored entries
+    S = sparse([1, 1, 2, 1, 3], [1, 2, 3, 4, 4], [1.0, 0.0, 2.0, 0.0, 3.0], 3, 4)
+    V = view(S, :, 2:4)   # V[1, 3] is the stored zero
+    @test isdiag(V) == isdiag(Matrix(V)) == true
 end
 
 @testset "sort/sort! of a sparse matrix" begin
@@ -1178,6 +1190,25 @@ end
         @test findnext(f, y, i) == findnext(f, y_sp, i)
         @test findprev(f, y, i) == findprev(f, y_sp, i)
     end
+
+    # views of a column range, of a column and of a whole vector search the stored
+    # entries of the viewed columns by bisection instead of scanning every element
+    V = view(y_sp, :, 2:4); Y = y[:, 2:4]
+    for i in keys(Y), f in (!iszero, !isequal(0.0))
+        @test findnext(f, V, i) == findnext(f, Y, i)
+        @test findprev(f, V, i) == findprev(f, Y, i)
+    end
+    for i in keys(z)
+        @test findnext(!iszero, view(z_sp, :), i) == findnext(!iszero, z, i)
+        @test findnext(!iszero, view(z_sp, :), CartesianIndex(i)) == findnext(!iszero, z, CartesianIndex(i))
+        @test findprev(!iszero, view(z_sp, :), CartesianIndex(i)) == findprev(!iszero, z, CartesianIndex(i))
+    end
+    B = spzeros(100, 100); B[2, 3] = 1.0; B[100, 99] = -0.0
+    VB = view(B, :, 2:100)
+    calls[] = 0
+    @test findnext(counted, VB, CartesianIndex(3, 2)) == CartesianIndex(100, 98) && calls[] <= nnz(VB) + 1
+    calls[] = 0
+    @test findprev(counted, view(B, :, 99), 100) == 100 && calls[] <= nnz(view(B, :, 99)) + 1
 end
 
 #testing the sparse matrix/vector access functions nnz, nzrange, rowvals, nonzeros
