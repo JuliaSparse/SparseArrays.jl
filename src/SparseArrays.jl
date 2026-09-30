@@ -9,7 +9,7 @@ using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
     require_one_based_indexing, promote_eltype, @propagate_inbounds, &, |
 using Base.Order: Forward
 using LinearAlgebra
-using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
+using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod, matmul_size_check,
     AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ,
     UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, UpperOrUnitUpperTriangular,
     LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, isbanded,

@@ -532,11 +532,8 @@ LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function,
 # `F` keeps the method specialized on the forwarded `f`.
 function _trimatmul!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
     require_one_based_indexing(C, A, B)
-    n = checksquare(A)
-    size(B, 1) == n ||
-        throw(DimensionMismatch(lazy"A has $n columns and B has $(size(B, 1)) rows"))
-    size(C) == size(B) ||
-        throw(DimensionMismatch(lazy"C has size $(size(C)), A * B has size $(size(B))"))
+    checksquare(A)
+    matmul_size_check(size(C), size(A), size(B))
     C !== B && copyto!(C, B)
     return upper ? _trimatmul!(C, Val(true), unit, f, A, B) : _trimatmul!(C, Val(false), unit, f, A, B)
 end
