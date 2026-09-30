@@ -296,6 +296,32 @@ end
     end
 end
 
+@testset "\\ and factorize substitute for diagonal and triangular matrices" begin
+    # a `Rational` result proves substitution: a factorization would work in Float64
+    T = Rational{Int}
+    L = sparse(T[2 0 0; 1 3 0; 0 1 4])
+    D, U = sparse(Diagonal(T[2, 3, 4])), sparse(transpose(L))
+    b = T[1, 2, 3]
+    @test factorize(D) isa Diagonal{T, <:SparseVector{T}}
+    @test factorize(L) isa LowerTriangular{T, <:SparseMatrixCSC{T}}
+    @test factorize(U) isa UpperTriangular{T, <:SparseMatrixCSC{T}}
+    for A in (D, L, U)
+        x = A \ b
+        @test x isa Vector{T} && A * x == b
+    end
+    # the adjoint solve substitutes with the transformed choice
+    x = L' \ b
+    @test x isa Vector{T} && L' * x == b
+    # substitution keeps the result eltype of the right-hand side
+    D = sparse([2.0 0; 0 3])
+    for S in (D, D', sparse([2.0 0; 1 3]))
+        @test (S \ Any[1.0, 2.0])::Vector{Any} ≈ Matrix(S) \ [1.0, 2.0]
+    end
+    @test D \ Number[1.0, 2im] ≈ [0.5, 2im / 3]
+    Db = sparse([1, 2], [1, 2], [[2.0 0; 0 2], [3.0 0; 0 3]])
+    @test Db \ [[1.0, 1.0], [3.0, 3.0]] == [[0.5, 0.5], [1.0, 1.0]]
+end
+
 @testset "triu/tril" begin
     n = 5
     local A = sprand(n, n, 0.2)

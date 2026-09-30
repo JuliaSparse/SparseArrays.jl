@@ -90,6 +90,33 @@ end
     @test factorize(C)\b ≈ Array(C)\b
 end
 
+@testset "\\ and factorize choose the same method" begin
+    square = sparse(Float32[4 1 0; 0 4 2; 1 0 4])
+    herm = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    tall = sparse([2.0 0; 1 3; 0 1])
+    wide = sparse([2.0 1 0; 0 3 1])
+    b = [1.0, 2, 3]
+    for (A, F) in ((square, SparseArrays.UMFPACK.UmfpackLU), (herm, SparseArrays.CHOLMOD.Factor),
+                   (tall, SparseArrays.SPQR.QRSparse), (wide, SparseArrays.SPQR.AdjointQRSparse))
+        @test factorize(A) isa F
+        rhs = b[1:size(A, 1)]
+        @test A \ rhs ≈ Matrix(A) \ rhs
+    end
+    # A' of a wide A is tall, so its least squares solve needs `qr(A')`
+    @test wide' \ b ≈ Matrix(wide') \ b
+    # the adjoint solve converts its result to the eltype the plain solve gives
+    x = square' \ Float32.(b)
+    @test x isa Vector{Float32} && x ≈ Matrix(square') \ b
+    # only the LU solve converts its result, so a least squares solve takes any right-hand side
+    @test tall \ Any[1.0, 2, 3] ≈ Matrix(tall) \ b
+    # when the Cholesky factorization of a Hermitian matrix fails, `factorize` returns
+    # the LDLt factorization and `\` falls back to `lu`
+    H = sparse([1.0 2 0; 2 1 0; 0 0 -3])
+    F = factorize(H)
+    @test F isa SparseArrays.CHOLMOD.Factor && !isposdef(F)
+    @test H \ b ≈ Matrix(H) \ b
+end
+
 @testset "type stability of linear solve" begin
     for relty in (Float16, Float32, Float64), elty in (relty, Complex{relty})
         A = sprand(elty, 2, 2, 1.0)
