@@ -254,6 +254,10 @@ function _storedinds(S::SparseMatrixCSCColumnSubset)
     return inds
 end
 widelength(S::SparseMatrixCSCColumnSubset) = prod(Int64.(size(S)))
+# `A` itself where it exposes compressed storage through `nzrange`, `rowvals` and `nonzeros`,
+# otherwise its sparse copy
+_compressed(A) = A
+_compressed(A::SparseMatrixCSCSubArray) = A isa SparseMatrixCSCColumnSubset ? A : copy(A)
 
 """
     nnz(A)

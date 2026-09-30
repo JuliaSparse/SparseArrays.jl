@@ -493,17 +493,19 @@ end
     v = sparsevec([2, 17, 43, 60], [1.0, -2.0, 0.5, 3.0], 60)
     c = sparsevec([2, 17, 43, 60], [1.0+2im, -2.0+im, 0.5-im, 3.0-2im], 60)
     S = view(A, :, [7, 2, 2, 15])
-    for X in (A', transpose(C), C', S, v, v', transpose(c), c'), dims in (1, 2, (1, 2)),
+    # views that are not a column subset reduce through their copy (#56)
+    G, R = view(C, [9, 2, 2, 40, 17], [3, 8, 8, 31]), view(A, 5:40, 2:49)
+    for X in (A', transpose(C), C', S, G, R, v, v', transpose(c), c'), dims in (1, 2, (1, 2)),
         (f, op) in ((abs2, +), (abs, max), (x -> abs(x) + 1, (x, y) -> x + y))   # LinearAlgebra does not forward the last
         calls = Ref(0)
         rd = mapreduce(f, op, Array(X); dims, init = 0.0)
         r = mapreduce(x -> (calls[] += 1; f(x)), op, X; dims, init = 0.0)
         @test r isa Array && r ≈ rd
-        @test calls[] <= nnz(X) + sum(size(X)) + 1
+        @test calls[] <= nnz(X isa SubArray ? copy(X) : X) + sum(size(X)) + 1
         rs = mapreduce(f, op, X; dims, init = 0.0, sparse = true)
         @test rs isa (X isa AbstractVector ? SparseVector{Float64} : SparseMatrixCSC{Float64}) && rs ≈ rd
     end
-    for X in (A', S, v, v', transpose(c)), dims in (1, 2)
+    for X in (A', S, G, R, v, v', transpose(c)), dims in (1, 2)
         M = Array(X)
         @test sum(X; dims) isa Array && sum(X; dims) ≈ sum(M; dims)
         @test prod(X; dims, sparse = true) ≈ prod(M; dims)
@@ -512,6 +514,7 @@ end
         @test all(iszero, X; dims, sparse = true) == all(iszero, M; dims)
     end
     @test sum(S) ≈ sum(Matrix(S)) && prod(x -> x + 1, S) ≈ prod(x -> x + 1, Matrix(S))
+    @test sum(G) ≈ sum(Matrix(G)) && count(!iszero, R) == count(!iszero, Matrix(R)) && maximum(abs, G) == maximum(abs, Matrix(G))
     @test nnz(sum(v; dims = 1, sparse = true)) == 1 && nnz(sum(spzeros(5); dims = 1, sparse = true)) == 0
     # reducing both dimensions of an adjoint keeps its element order for a non-commutative `op`
     firstnz(x, y) = iszero(x) ? y : x

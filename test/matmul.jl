@@ -243,6 +243,7 @@ end
         for (A, X, x) in ((S, view(D, [1:n;], :), 1.0:n),
                           (S', view(D, :, [1:n;])', view(D, [1:n;], 1)),
                           (view(S, :, [1:n;]), reshape(1.0:n^2, n, n), 1.0:n),
+                          (view(S, [n:-1:1;], 1:n), D, c),   # no compressed storage of its own (#56)
                           (Symmetric(S), UpperHessenberg(D), view(D, [1:n;], 1)),
                           (Hermitian(S, :L), Hermitian(D, :L), 1.0:n))
             @test X * A ≈ Matrix(X) * Matrix(A)
@@ -254,6 +255,19 @@ end
             @test mul!(copy(C), A, S', 2, 3) ≈ mul!(copy(C), Matrix(A), Matrix(S'), 2, 3)
         end
     end
+    # a view that is not a column subset multiplies through its sparse copy (#56), and the
+    # product with a dense factor is dense
+    S = sprandn(rng, 10, 12, 0.3); G = view(S, [4, 1, 1, 9, 7], 2:11); M = Matrix(G)
+    X, Y, x, y = randn(rng, 10, 3), randn(rng, 3, 5), randn(rng, 10), randn(rng, 5)
+    @test which(mul!, Base.typesof(zeros(5, 3), 'N', 'N', G, X, true, false)).module == SparseArrays
+    @test which(mul!, Base.typesof(zeros(3, 10), 'N', 'N', Y, G, true, false)).module == SparseArrays
+    @test which(mul!, Base.typesof(zeros(5), 'N', G, x, true, false)).module == SparseArrays
+    @test G * X ≈ M * X && G * x ≈ M * x && G' * y ≈ M' * y && y' * G ≈ y' * M
+    @test Y * G isa Matrix && Y * G ≈ Y * M
+    P = sprandn(rng, 10, 6, 0.3); Q = sprandn(rng, 8, 5, 0.3)
+    @test G * P isa SparseMatrixCSC && G * P ≈ M * Matrix(P)
+    @test Q * G isa SparseMatrixCSC && Q * G ≈ Matrix(Q) * M
+    @test mul!(zeros(5, 6), G, P) ≈ M * Matrix(P)
     # the sparse kernels multiply by stored zeros, the generic fallbacks skip them
     Z = sparse([1, 2], [1, 2], [0.0, 1.0])
     @test isequal(view([Inf 1.0], [1], :) * Z, [NaN 1.0])
