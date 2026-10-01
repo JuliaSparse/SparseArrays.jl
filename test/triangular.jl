@@ -398,12 +398,16 @@ end
 end
 
 @testset "factorize of a triangular matrix, and unsupported eigen and inv" begin
-    A = sparse(Diagonal(rand(5))) + sprandn(5, 5, 0.2)
+    D = sparse(Diagonal(1.0:5.0))
+    A = D + sparse([1, 4], [3, 2], [0.5, -1.5], 5, 5)
     A = A*transpose(A)
+    @test !isdiag(A)
     @test factorize(triu(A)) == triu(A)
     @test isa(factorize(triu(A)), UpperTriangular{Float64, SparseMatrixCSC{Float64, Int}})
     @test factorize(tril(A)) == tril(A)
     @test isa(factorize(tril(A)), LowerTriangular{Float64, SparseMatrixCSC{Float64, Int}})
+    @test factorize(D) == D
+    @test isa(factorize(D), Diagonal{Float64})
     @test_throws ErrorException eigen(A)
     @test_throws ErrorException inv(A)
 end
