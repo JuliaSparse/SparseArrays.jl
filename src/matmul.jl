@@ -40,13 +40,13 @@ end
 
 matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
     Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
-matop_dest(::typeof(*), A, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
 # sparse products with banded matrices should return sparse arrays
-matop_dest(::typeof(*), A::BiTriSym, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A::BiTriSym, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # needed for disambiguation with LinearAlgebra
-matop_dest(::typeof(*), A::Diagonal, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A::Diagonal, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # a `Diagonal` product keeps the structure of the sparse operand, so a fixed operand gets
 # a fixed destination with that structure up front, which `mul!` then only has to fill
@@ -71,14 +71,15 @@ matop_dest(::typeof(*), A::QuasiSparseMatrix, B::BiTriSym) =
 # The dense factor arrives with its adjoint/transpose/symmetric/Hermitian wrapper stripped,
 # so it is any matrix with fast scalar `getindex`: strided or not, or a structured dense
 # type without a product of its own, such as `UpperHessenberg`.
-mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::AbstractMatrix, alpha::Number, beta::Number) =
-    spdensemul!(C, tA, tB, A, B, alpha, beta)
-mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number) =
-    densespmul!(C, tA, tB, A, B, alpha, beta)
+mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrSubArray, B::AbstractMatrix, alpha::Number, beta::Number) =
+    spdensemul!(C, tA, tB, _compressed(A), B, alpha, beta)
+mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number) =
+    densespmul!(C, tA, tB, A, _compressed(B), alpha, beta)
 # With both factors sparse, only pairs of stored entries contribute: column `k` of `B` selects
 # the columns of `A` that are added into column `k` of `C`. A wrapped or subset factor is
 # materialized first, which is O(nnz).
-function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
+function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrSubArray, B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number)
+    A, B = _compressed(A), _compressed(B)
     _spmatspmat_dense!(C, tA == 'N' ? A : sparse(wrap(A, tA)), tB == 'N' ? B : sparse(wrap(B, tB)), alpha, beta)
     return C
 end
@@ -100,8 +101,8 @@ function _spmatspmat_dense!(C, A, B, α, β)
 end
 LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
-mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrColumnSubset, B::AbstractVector, alpha::Number, beta::Number) =
-    spdensemul!(C, tA, 'N', A, B, alpha, beta)
+mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrSubArray, B::AbstractVector, alpha::Number, beta::Number) =
+    spdensemul!(C, tA, 'N', _compressed(A), B, alpha, beta)
 # LinearAlgebra materializes the second of two symmetric/Hermitian factors, elementwise
 # when it is sparse; the kernels take both wrappers as they are
 LinearAlgebra.mul(A::HermOrSym{<:Any,<:DenseMatrixUnion}, B::SparseMatrixCSCSymmHerm) = LinearAlgebra._mul(A, B)
@@ -494,8 +495,8 @@ end
 
 # A sparse destination takes the sparse product; its pattern becomes that of `A*B*α + C*β`.
 # A fixed destination is checked against that pattern before it is written.
-Base.@constprop :aggressive function mul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::SparseMatrixCSCOrColumnSubset,
-                            B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
+Base.@constprop :aggressive function mul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::SparseMatrixCSCOrSubArray,
+                            B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number)
     mA, nA = LinearAlgebra.lapack_size(_uppercase(tA) in ('S', 'H') ? 'N' : tA, A)
     mB, nB = LinearAlgebra.lapack_size(_uppercase(tB) in ('S', 'H') ? 'N' : tB, B)
     nA == mB || throw(DimensionMismatch(lazy"matrix A has dimensions ($mA,$nA), matrix B has dimensions ($mB,$nB)"))
@@ -513,7 +514,7 @@ _assign_sparse!(C::AbstractSparseMatrixCSC, R) = copyto!(C, R)
 # a column view is assigned through its parent, whose sparse `setindex!` is O(nnz)
 _assign_sparse!(C::SparseMatrixCSCColumnSubset, R) = (parent(C)[:, parentindices(C)[2]] = R; C)
 # only contiguous column views have a sparse product of their own
-_unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(wrap(A, t))
+_unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(wrap(_compressed(A), t))
 
 # determine if sort! shall be used or the whole column be scanned
 # based on empirical data on i7-3610QM CPU

@@ -118,25 +118,26 @@ end
 # nothing reduces to something nonzero, as for `f(0) != 0`), in time proportional to
 # nnz(A) + length(result) rather than to length(A). Base's `sum`, `prod`, `maximum` and
 # `minimum` forward unknown keywords to `mapreduce`, so the `mapreduce` method serves them all; `any`,
-# `all` and `count` do not and get their own methods below.
-for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
+# `all` and `count` do not and get their own methods below. A view without compressed storage
+# is reduced as its copy.
+for T in (:SparseMatrixCSCOrSubArray, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
           :AdjOrTransSparseVectorOrView)
     @eval Base.@constprop :aggressive function Base.mapreduce(f, op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false)
-        sparse || return Base._mapreduce_dim(f, op, init, A, dims)
+        sparse || return Base._mapreduce_dim(f, op, init, _compressed(A), dims)
         dims === (:) && throw(ArgumentError("a sparse result needs a reduction along a dimension, pass `dims`"))
-        return _mapreduce_dim_sparse(f, op, init, A, dims)
+        return _mapreduce_dim_sparse(f, op, init, _compressed(A), dims)
     end
     for (fname, _fname, op) in ((:any, :_any, :(Base.or_any)), (:all, :_all, :(Base.and_all)))
         @eval begin
             Base.$fname(A::$T; dims=:, sparse::Bool=false) = Base.$fname(identity, A; dims, sparse)
             Base.@constprop :aggressive Base.$fname(f, A::$T; dims=:, sparse::Bool=false) =
-                sparse ? mapreduce(f, $op, A; dims, sparse) : Base.$_fname(f, A, dims)
+                sparse ? mapreduce(f, $op, A; dims, sparse) : Base.$_fname(f, _compressed(A), dims)
         end
     end
     @eval begin
         Base.count(A::$T; dims=:, init=0, sparse::Bool=false) = count(identity, A; dims, init, sparse)
         Base.@constprop :aggressive Base.count(f, A::$T; dims=:, init=0, sparse::Bool=false) =
-            sparse ? mapreduce(Base._bool(f), Base.add_sum, A; dims, init, sparse) : Base._count(f, A, dims, init)
+            sparse ? mapreduce(Base._bool(f), Base.add_sum, A; dims, init, sparse) : Base._count(f, _compressed(A), dims, init)
     end
 end
 

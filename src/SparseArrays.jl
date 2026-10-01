@@ -129,6 +129,10 @@ const SparseMatrixCSCColumnSubset{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
         Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractVector{<:Integer}}
 const SparseMatrixCSCOrColumnSubset{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCColumnSubset{Tv,Ti}}
+# Any 2-d view (a superset of SparseMatrixCSCColumnSubset). One that is not a column subset
+# has no compressed storage of its own; `_compressed` gives the kernels its O(nnz) copy.
+const SparseMatrixCSCSubArray{Tv,Ti} = SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti}}
+const SparseMatrixCSCOrSubArray{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCSubArray{Tv,Ti}}
 
 # Whole-column views of sparse matrices and whole views of sparse vectors share the
 # sparse vector interface.
