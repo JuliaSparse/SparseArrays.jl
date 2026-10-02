@@ -352,6 +352,67 @@ end
     end
 end
 
+# An element type whose zero, sums and differences are of another type
+struct Variable
+    x::Int
+end
+mutable struct Expression
+    x::Int
+end
+Base.:(==)(a::Expression, b::Expression) = a.x == b.x
+Base.zero(::Type{Variable}) = Expression(0)
+Base.convert(::Type{Expression}, v::Variable) = Expression(v.x)
+Base.promote_rule(::Type{Variable}, ::Type{Expression}) = Expression
+Base.transpose(a::Union{Variable,Expression}) = a
+for op in (:+, :-)
+    @eval Base.$op(a::Union{Variable,Expression}, b::Int) = Expression($op(a.x, b))
+    @eval Base.$op(a::Int, b::Union{Variable,Expression}) = Expression($op(a, b.x))
+end
+
+@testset "dense copies and sums when the zero is of another type than the eltype" begin
+    S = sparse([1, 1, 2], [1, 2, 2], Variable.(1:3))
+    M = [10 20; 30 40]
+    E = Expression
+    for B in (M, view(M, :, :), Matrix(M')')
+        @test (S + B)::Matrix{E} == [E(11) E(22); E(30) E(43)]
+        @test (B + S)::Matrix{E} == [E(11) E(22); E(30) E(43)]
+        @test (S - B)::Matrix{E} == [E(-9) E(-18); E(-30) E(-37)]
+        @test (B - S)::Matrix{E} == [E(9) E(18); E(30) E(37)]
+        @test (view(S, :, 1:2) + B)::Matrix{E} == [E(11) E(22); E(30) E(43)]
+    end
+    D = [E(1) E(2); E(0) E(3)]
+    v = sparsevec([2], [Variable(1)], 2)
+    for f in (Array, Matrix)
+        @test f(S)::Matrix{E} == D
+        @test f(view(S, :, 1:2))::Matrix{E} == D
+        @test f(transpose(S))::Matrix{E} == permutedims(D)
+        @test f(transpose(v))::Matrix{E} == [E(0) E(1)]
+    end
+    for f in (Array, Vector)
+        @test f(v)::Vector{E} == [E(0), E(1)]
+        @test f(view(S, :, 1))::Vector{E} == [E(1), E(0)]
+        @test f(view(v, 1:2))::Vector{E} == [E(0), E(1)]
+    end
+    @test collect(S)::Matrix{E} == D
+    @test collect(v)::Vector{E} == [E(0), E(1)]
+    @test (v + [10, 20])::Vector{E} == [E(10), E(21)]
+    @test ([10, 20] - v)::Vector{E} == [E(10), E(19)]
+    @test hcat(S, M) == hcat(D, M)
+    @test vcat(S, M) == vcat(D, M)
+    # a mutable zero is not shared between positions
+    Z = Array(sparse([1], [1], [Variable(1)], 2, 2))
+    @test Z[1, 2] !== Z[2, 2]
+    Z = sparse([1], [1], [Variable(1)], 2, 2) + M
+    @test Z[1, 2] !== Z[2, 2]
+    # an eltype named by the caller is kept
+    @test_throws MethodError Matrix{Variable}(S)
+    # a structurally dense array needs no zero
+    @test Array(sparse([1, 2, 1, 2], [1, 1, 2, 2], Variable.(1:4)))::Matrix{Variable} == Variable.([1 3; 2 4])
+    F = sparse(fill([1.0 2.0], 2, 2))
+    @test Array(F)::Matrix{Matrix{Float64}} == fill([1.0 2.0], 2, 2)
+    @test (F + fill([1.0 1.0], 2, 2))::Matrix{Matrix{Float64}} == fill([2.0 3.0], 2, 2)
+end
+
 # A quantity with a unit: `one` is the dimensionless identity, `oneunit` keeps the unit
 struct Meters <: Number
     x::Int

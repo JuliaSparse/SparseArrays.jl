@@ -1561,12 +1561,34 @@ imag(A::SparseMatrixCSCOrView{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size
 (-)(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = map(-, A, B)
 
 # A sum with a strided dense matrix, or an adjoint or transpose of one, is dense, as for a
-# sparse and a dense vector. Densifying the sparse side leaves the shape and element type of
-# the result to the dense method. Symmetric, triangular and banded wrappers of a dense matrix
-# keep their own methods.
+# sparse and a dense vector. Symmetric, triangular and banded wrappers of a dense matrix keep
+# their own methods.
 for op in (:+, :-)
-    @eval $(op)(A::SparseMatrixCSCOrView, B::StridedMaybeAdjOrTransMat) = $(op)(Array(A), B)
-    @eval $(op)(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCOrView) = $(op)(A, Array(B))
+    @eval $(op)(A::SparseMatrixCSCOrView, B::StridedMaybeAdjOrTransMat) = _sparsedensesum($(op), A, B)
+    @eval $(op)(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCOrView) = _sparsedensesum((b, a) -> $(op)(a, b), B, A)
+end
+
+# `f(a, b)` for the entries `a` of the sparse `A` and `b` of the dense `B`, in one pass over `B`
+# and one over the stored entries of `A`. The result starts from `f` of a zero and `B`, whose
+# element type may not hold `f` of a stored entry (an abstract eltype, or a zero of another
+# type than the eltype), so it widens as broadcast does.
+function _sparsedensesum(f::F, A::SparseMatrixCSCOrView, B::AbstractMatrix) where {F}
+    Base.promote_shape(axes(A), axes(B))
+    # a structurally dense matrix needs no zero, so its eltype need not have one
+    length(A) > nnz(A) || return f.(Array(A), B)
+    C = f.(Ref(zero(eltype(A))), B)
+    rowinds, nzvals = rowvals(A), nonzeros(A)
+    for j in axes(A, 2)
+        @inbounds for k in nzrange(A, j)
+            i = rowinds[k]
+            v = f(nzvals[k], B[i, j])
+            if !(v isa eltype(C))
+                C = copyto!(similar(C, Base.promote_typejoin(eltype(C), typeof(v))), C)
+            end
+            C[i, j] = v
+        end
+    end
+    return C
 end
 
 ## full equality

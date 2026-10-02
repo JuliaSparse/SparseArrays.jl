@@ -271,13 +271,22 @@ end
 
 # `zeroval` is called only when a zero is written, so a fully stored source whose eltype has
 # no `zero` (a matrix of matrices) still copies. Iterating the `LinearIndices` itself is 2-3x slower.
+# A zero of another type than the source's eltype (an affine expression for a variable of an
+# optimization model) may be mutable, so each position gets its own, as `getindex` returns.
 function _dense_copy_prelude!(dest, src, zeroval::F) where {F}
     isrc = LinearIndices(src)
     checkbounds(dest, isrc)
     if length(src) > nnz(src)   # zero the part of dest spanned by src unless src is structurally dense
         z = zeroval()
-        @inbounds for i in eachindex(isrc)
-            dest[i] = z
+        if z isa eltype(src)
+            zd = convert(eltype(dest), z)
+            @inbounds for i in eachindex(isrc)
+                dest[i] = zd
+            end
+        else
+            @inbounds for i in eachindex(isrc)
+                dest[i] = zeroval()
+            end
         end
     end
     return isrc
@@ -309,7 +318,7 @@ function _sparse_copyto!(dest::AbstractArray, src::SparseMatrixCSCOrView)
     _checkbuffers(parent(src))
     (dest === src || isempty(src)) && return dest
     _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
-    isrc = _dense_copy_prelude!(dest, src, () -> convert(eltype(dest), zero(eltype(src))))
+    isrc = _dense_copy_prelude!(dest, src, () -> zero(eltype(src)))
     @inbounds for col in axes(src, 2), ptr in nzrange(src, col)
         dest[isrc[getrowval(src)[ptr], col]] = getnzval(src)[ptr]
     end
@@ -319,7 +328,7 @@ end
 function _sparse_copyto!(dest::AbstractVector, src::Union{AbstractSparseVector,SparseVectorOrView,SparseVectorPartialView})
     isempty(src) && return dest
     _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
-    isrc = _dense_copy_prelude!(dest, src, () -> convert(eltype(dest), zero(eltype(src))))
+    isrc = _dense_copy_prelude!(dest, src, () -> zero(eltype(src)))
     @inbounds for (i, v) in zip(nonzeroinds(src), nonzeros(src))
         dest[i] = v
     end
@@ -331,7 +340,7 @@ function _sparse_copyto!(dest::AbstractArray, src::AdjOrTrans{<:Any,<:AbstractSp
     _checkbuffers(P)
     isempty(P) && return dest
     _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
-    isrc = _dense_copy_prelude!(dest, src, () -> convert(eltype(dest), op(zero(eltype(P)))))
+    isrc = _dense_copy_prelude!(dest, src, () -> op(zero(eltype(P))))
     @inbounds for col in axes(P, 2), ptr in nzrange(P, col)
         dest[isrc[col, rowvals(P)[ptr]]] = op(nonzeros(P)[ptr])
     end
@@ -342,7 +351,7 @@ function _sparse_copyto!(dest::AbstractArray, src::AdjOrTransSparseVectorOrView)
     p, op = parent(src), wrapperop(src)
     isempty(p) && return dest
     _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
-    isrc = _dense_copy_prelude!(dest, src, () -> convert(eltype(dest), op(zero(eltype(p)))))
+    isrc = _dense_copy_prelude!(dest, src, () -> op(zero(eltype(p))))
     @inbounds for (i, v) in zip(nonzeroinds(p), nonzeros(p))
         dest[isrc[1, i]] = op(v)
     end
@@ -355,4 +364,23 @@ for S in (:SparseMatrixCSCOrView, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
     @eval copyto!(dest::PermutedDimsArray, src::$S) = _sparse_copyto!(dest, src)   # ambiguity resolution
     @eval copyto!(dest::Array, src::$S) = _sparse_copyto!(dest, src)
     @eval copyto!(dest::Matrix, src::$S) = _sparse_copyto!(dest, src)   # ambiguity resolution
+end
+
+# The zero of an element type need not be of that type (a variable of an optimization model
+# has an affine expression for a zero), so a dense copy made without naming an element type
+# holds both. A structurally dense source needs no zero.
+function _densearray(A)
+    Tv = eltype(A)
+    T = length(A) > nnz(A) ? promote_type(Tv, typeof(_densezero(A))) : Tv
+    return Array{T}(A)
+end
+_densezero(A) = zero(eltype(A))
+_densezero(A::AdjOrTrans) = wrapperop(A)(zero(eltype(parent(A))))
+for S in (:AbstractSparseVector, :SparseVectorOrView, :SparseVectorPartialView)
+    @eval Array(x::$S) = _densearray(x)
+    @eval Vector(x::$S) = _densearray(x)
+end
+for S in (:SparseMatrixCSCOrView, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}), :AdjOrTransSparseVectorOrView)
+    @eval Array(A::$S) = _densearray(A)
+    @eval Matrix(A::$S) = _densearray(A)
 end
