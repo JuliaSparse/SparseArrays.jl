@@ -356,9 +356,10 @@ end
 struct Variable
     x::Int
 end
-struct Expression
+mutable struct Expression
     x::Int
 end
+Base.:(==)(a::Expression, b::Expression) = a.x == b.x
 Base.zero(::Type{Variable}) = Expression(0)
 Base.convert(::Type{Expression}, v::Variable) = Expression(v.x)
 Base.promote_rule(::Type{Variable}, ::Type{Expression}) = Expression
@@ -398,6 +399,11 @@ end
     @test ([10, 20] - v)::Vector{E} == [E(10), E(19)]
     @test hcat(S, M) == hcat(D, M)
     @test vcat(S, M) == vcat(D, M)
+    # a mutable zero is not shared between positions
+    Z = Array(sparse([1], [1], [Variable(1)], 2, 2))
+    @test Z[1, 2] !== Z[2, 2]
+    Z = sparse([1], [1], [Variable(1)], 2, 2) + M
+    @test Z[1, 2] !== Z[2, 2]
     # an eltype named by the caller is kept
     @test_throws MethodError Matrix{Variable}(S)
     # a structurally dense array needs no zero
