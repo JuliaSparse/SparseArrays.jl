@@ -1229,11 +1229,20 @@ for fun in (:+, :-)
     end
 end
 
-# A sum with a dense array, or a view of one, is dense, as for a sparse and a dense matrix. Densifying
-# the sparse side leaves the shape and element type of the result to the dense method.
+# A sum with a dense array, or a view of one, is dense, as for a sparse and a dense matrix.
 for fun in (:+, :-)
-    @eval $(fun)(x::SparseVectorOrView, y::StridedVecOrMat) = $(fun)(Array(x), y)
-    @eval $(fun)(x::StridedVecOrMat, y::SparseVectorOrView) = $(fun)(x, Array(y))
+    @eval $(fun)(x::SparseVectorOrView, y::StridedVecOrMat) = _sparsedensesum($(fun), x, y)
+    @eval $(fun)(x::StridedVecOrMat, y::SparseVectorOrView) = _sparsedensesum((b, a) -> $(fun)(a, b), y, x)
+end
+
+function _sparsedensesum(f::F, x::SparseVectorOrView, y::AbstractVecOrMat) where {F}
+    Base.promote_shape(axes(x), axes(y))
+    length(x) > nnz(x) || return f.(Array(x), y)
+    C = f.(Ref(zero(eltype(x))), y)
+    @inbounds for (i, v) in zip(nonzeroinds(x), nonzeros(x))
+        C = _setindexwiden!(C, f(v, y[i]), i)
+    end
+    return C
 end
 
 ### Reduction
