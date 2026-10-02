@@ -1544,6 +1544,45 @@ end
         @test contains(String(take!(io)), brailleString)
     end
 
+    # Issue #657: wrappers and views display as the sparse matrix they are equal to, which
+    # leaves out entries outside the wrapper's triangle, like A[1, 3] and B[40, 1]
+    shown(X; displaysize=(24, 80)) = sprint(show, "text/plain", X; context=(:limit=>true, :displaysize=>displaysize))
+    contents(X; kwargs...) = last(split(shown(X; kwargs...), '\n'; limit=2))
+    A = sparse([1, 2, 1, 3], [1, 1, 3, 3], [1.0, 2.0, 9.0, 3.0])
+    C = sparse([1, 1, 2], [1, 2, 2], [1.0+1im, 2im, 3.0+0im])
+    for X in (Symmetric(A, :L), Hermitian(C), Hermitian(C, :L), view(A, :, 2:3), Symmetric(view(A, :, 1:3), :L),
+            UpperTriangular(A), UnitLowerTriangular(A), UnitUpperTriangular(C),
+            Diagonal(sparsevec([1, 3], [1.0, 2.0])), Diagonal(view(A, :, 1)))
+        @test shown(X) == sprint(summary, X) * ":\n" * contents(sparse(X))
+    end
+    B = sparse(1:40, [2:40; 1], 1.0, 40, 40)
+    for X in (Hermitian(B, :U), LowerTriangular(B), UnitUpperTriangular(B), view(B, :, 2:40), Diagonal(B[:, 40]))
+        @test shown(X; displaysize=(10, 80)) == sprint(summary, X) * ", displaying at 1/2 scale:\n" * contents(sparse(X); displaysize=(10, 80))
+    end
+    E = Symmetric(spzeros(0, 0))
+    @test shown(E) == sprint(summary, E)
+    Z = sparse([1im 2im])
+    @test contents(Z') == contents(copy(Z'))
+    # a stored `#undef` prints as it does for the parent
+    U = SparseMatrixCSC(2, 2, [1, 2, 3], [1, 2], Vector{BigFloat}(undef, 2))
+    for X in (Hermitian(U), UpperTriangular(U), view(U, :, 1:2))
+        @test shown(X) == sprint(summary, X) * ":\n" * contents(U)
+    end
+    # matrix-valued entries print as the wrapper's `getindex` returns them
+    b = [1 2; 3 4]
+    redirect_stderr(devnull) do
+        H = Hermitian(sparse([1, 2, 1], [1, 2, 2], [b, b, b]))
+        @test contents(H) == contents(sparse([1, 2, 1, 2], [1, 1, 2, 2], [H[1, 1], H[2, 1], H[1, 2], H[2, 2]]))
+        @test contents(Diagonal(sparsevec([1], [b], 2))) == contents(sparse([1], [1], [b], 2, 2))
+    end
+    # the braille pattern of a wrapper is drawn without copying its entries
+    shown_bytes(X) = @allocated sprint(show, "text/plain", X; context=(:limit=>true, :displaysize=>(24, 80)))
+    D = spdiagm(ones(100_000))
+    for X in (D, D', Hermitian(D), UnitLowerTriangular(D), view(D, :, 1:100_000), Diagonal(sparsevec(1:100_000, 1.0)))
+        shown_bytes(X)
+        @test shown_bytes(X) < nnz(D)
+    end
+
     # Issue #30589
     @test sprint(show, "text/plain", sparse([true true]); context=:limit=>true) == "1×2 $SparseMatrixCSC{Bool, $Int} with 2 stored entries:\n 1  1"
 
