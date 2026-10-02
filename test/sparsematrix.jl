@@ -352,6 +352,37 @@ end
     end
 end
 
+# An element type whose zero, sums and differences are of another type
+struct Variable
+    x::Int
+end
+struct Expression
+    x::Int
+end
+Base.zero(::Type{Variable}) = Expression(0)
+Base.convert(::Type{Expression}, v::Variable) = Expression(v.x)
+Base.promote_rule(::Type{Variable}, ::Type{Expression}) = Expression
+for op in (:+, :-)
+    @eval Base.$op(a::Union{Variable,Expression}, b::Int) = Expression($op(a.x, b))
+    @eval Base.$op(a::Int, b::Union{Variable,Expression}) = Expression($op(a, b.x))
+end
+
+@testset "sparse with strided dense, zero of another type than the eltype" begin
+    S = sparse([1, 1, 2], [1, 2, 2], Variable.(1:3))
+    M = [10 20; 30 40]
+    E = Expression
+    for B in (M, view(M, :, :), Matrix(M')')
+        @test (S + B)::Matrix{E} == [E(11) E(22); E(30) E(43)]
+        @test (B + S)::Matrix{E} == [E(11) E(22); E(30) E(43)]
+        @test (S - B)::Matrix{E} == [E(-9) E(-18); E(-30) E(-37)]
+        @test (B - S)::Matrix{E} == [E(9) E(18); E(30) E(37)]
+        @test (view(S, :, 1:2) + B)::Matrix{E} == [E(11) E(22); E(30) E(43)]
+    end
+    # a fully stored matrix needs no zero
+    F = sparse(fill([1.0 2.0], 2, 2))
+    @test (F + fill([1.0 1.0], 2, 2))::Matrix{Matrix{Float64}} == fill([2.0 3.0], 2, 2)
+end
+
 # A quantity with a unit: `one` is the dimensionless identity, `oneunit` keeps the unit
 struct Meters <: Number
     x::Int

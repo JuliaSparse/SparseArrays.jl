@@ -1565,8 +1565,16 @@ imag(A::SparseMatrixCSCOrView{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size
 # the result to the dense method. Symmetric, triangular and banded wrappers of a dense matrix
 # keep their own methods.
 for op in (:+, :-)
-    @eval $(op)(A::SparseMatrixCSCOrView, B::StridedMaybeAdjOrTransMat) = $(op)(Array(A), B)
-    @eval $(op)(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCOrView) = $(op)(A, Array(B))
+    @eval $(op)(A::SparseMatrixCSCOrView, B::StridedMaybeAdjOrTransMat) = $(op)(_densesummand(A), B)
+    @eval $(op)(A::StridedMaybeAdjOrTransMat, B::SparseMatrixCSCOrView) = $(op)(A, _densesummand(B))
+end
+
+# The zero of an element type need not be of that type (a variable of an optimization model
+# has an affine expression for a zero), so the dense copy holds both. A fully stored matrix
+# needs no zero.
+function _densesummand(A::SparseMatrixCSCOrView{Tv}) where {Tv}
+    T = length(A) > nnz(A) ? promote_type(Tv, typeof(zero(Tv))) : Tv
+    return Matrix{T}(A)
 end
 
 ## full equality
