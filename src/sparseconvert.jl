@@ -356,3 +356,22 @@ for S in (:SparseMatrixCSCOrView, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
     @eval copyto!(dest::Array, src::$S) = _sparse_copyto!(dest, src)
     @eval copyto!(dest::Matrix, src::$S) = _sparse_copyto!(dest, src)   # ambiguity resolution
 end
+
+# The zero of an element type need not be of that type (a variable of an optimization model
+# has an affine expression for a zero), so a dense copy made without naming an element type
+# holds both. A structurally dense source needs no zero.
+function _densearray(A)
+    Tv = eltype(A)
+    T = length(A) > nnz(A) ? promote_type(Tv, typeof(_densezero(A))) : Tv
+    return Array{T}(A)
+end
+_densezero(A) = zero(eltype(A))
+_densezero(A::AdjOrTrans) = wrapperop(A)(zero(eltype(parent(A))))
+for S in (:AbstractSparseVector, :SparseVectorOrView, :SparseVectorPartialView)
+    @eval Array(x::$S) = _densearray(x)
+    @eval Vector(x::$S) = _densearray(x)
+end
+for S in (:SparseMatrixCSCOrView, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}), :AdjOrTransSparseVectorOrView)
+    @eval Array(A::$S) = _densearray(A)
+    @eval Matrix(A::$S) = _densearray(A)
+end
