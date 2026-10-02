@@ -137,12 +137,15 @@ end
 """
     getcolptr(S)
 
-Return the vector of column start indices of an `AbstractSparseMatrixCSC` pointing
-into [`rowvals`](@ref) and [`nonzeros`](@ref): column `j` is stored at positions
-`getcolptr(S)[j]:(getcolptr(S)[j+1] - 1)`. The returned vector aliases `S`, but
-implementations with fixed sparsity may make it read-only. When it is writable,
+Return the vector of column start indices of an [`AbstractSparseMatrixCSC`](@ref)
+pointing into [`rowvals`](@ref) and [`nonzeros`](@ref): column `j` is stored at
+positions `getcolptr(S)[j]:(getcolptr(S)[j+1] - 1)`. The returned vector aliases `S`,
+but implementations with fixed sparsity may make it read-only. When it is writable,
 modifications to it mutate `S`. See also [`getrowval`](@ref), [`getnzval`](@ref)
 and [`nzrange`](@ref).
+
+`getcolptr` is not defined for a [`SparseVector`](@ref), which has no column pointers;
+use `nzrange(x, 1)` instead.
 
 # Examples
 ```jldoctest
