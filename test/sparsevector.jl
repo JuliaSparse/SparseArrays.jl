@@ -895,6 +895,12 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test x + reshape(Array(x2), 8, 1) isa Matrix{Float64}
         @test SparseVector(2, [1], Real[1.5]) + [1, 2] == [2.5, 2]
         @test sparse([2]) + fill(1) == [3]
+        # one pass: a single result array is allocated, not a dense copy of the sparse operand too
+        let xs = sprand(1000, 0.1), yd = rand(1000), plus(a, b) = a + b, minus(a, b) = a - b
+            plus(xs, yd); minus(yd, xs)
+            @test @allocated(plus(xs, yd)) < 1.5 * sizeof(yd)
+            @test @allocated(minus(yd, xs)) < 1.5 * sizeof(yd)
+        end
 
         # `+` and `-` are the `map` kernels: `x + y`, `map(+, x, y)` and `x .+ y` agree and store
         # an entry only where the computed value is nonzero; a length mismatch throws even

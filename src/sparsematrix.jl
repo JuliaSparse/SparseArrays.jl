@@ -1581,13 +1581,16 @@ function _sparsedensesum(f::F, A::SparseMatrixCSCOrView, B::AbstractMatrix) wher
     for j in axes(A, 2)
         @inbounds for k in nzrange(A, j)
             i = rowinds[k]
-            v = f(nzvals[k], B[i, j])
-            if !(v isa eltype(C))
-                C = copyto!(similar(C, Base.promote_typejoin(eltype(C), typeof(v))), C)
-            end
-            C[i, j] = v
+            C = _setindexwiden!(C, f(nzvals[k], B[i, j]), i, j)
         end
     end
+    return C
+end
+@inline function _setindexwiden!(C, v, I...)
+    if !(v isa eltype(C))
+        C = copyto!(similar(C, Base.promote_typejoin(eltype(C), typeof(v))), C)
+    end
+    @inbounds C[I...] = v
     return C
 end
 
