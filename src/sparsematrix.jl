@@ -1623,7 +1623,7 @@ end
 # entries only, one column at a time through the merge shared with sparse vectors.
 function _iseq(eq::F, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) where {F}
     size(A) == size(B) || return false
-    return _iseq(eq, A, B, _implicit_zeros(eq, eltype(A), eltype(B))...)
+    return _iseq(eq, A, B, _implicit_zeros(eq, A, B)...)
 end
 function _iseq(eq::F, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset,
                za, zb, distinct::Bool) where {F}
@@ -1678,7 +1678,7 @@ function _iseq(eq::F, A::AbstractSparseMatrixCSC,
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # `nzeq` never visits a position stored in neither matrix, where the implicit zeros meet
-    _implicit_zeros(eq, eltype(A), eltype(B))[3] && return _iseq(eq, A, _unwrap_adjtrans(B))
+    _implicit_zeros(eq, A, B)[3] && return _iseq(eq, A, _unwrap_adjtrans(B))
     # Compare nonzero elements
     return nzeq(eq, A, B) && nzeq(_swapargs(eq), B, A)
 end

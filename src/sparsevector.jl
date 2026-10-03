@@ -839,30 +839,36 @@ _sparse_findprevnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findpr
 struct UnknownZero end
 struct UnequalZero end
 
-_implicit_zero(::Type{T}) where {T<:Number} =
-    isconcretetype(T) ? zero(T) : _implicit_zero_fallback(T)
-_implicit_zero(::Type{T}) where {T} = _implicit_zero_fallback(T)
-function _implicit_zero_fallback(::Type{T}) where {T}
+# The implicit zero of the sparse array `A`, the value its dense copy holds at an unstored
+# position (`_densezero`), or `UnknownZero()` when the eltype has no `zero`.
+_implicit_zero(A::AbstractArray{T}) where {T<:Number} =
+    isconcretetype(T) ? _densezero(A) : _implicit_zero_fallback(A)
+_implicit_zero(A::AbstractArray) = _implicit_zero_fallback(A)
+function _implicit_zero_fallback(A)
+    T = eltype(A isa AdjOrTrans ? parent(A) : A)
     hasmethod(zero, Tuple{Type{T}}) || return UnknownZero()
     try
-        return zero(T)
+        return _densezero(A)
     catch
         return UnknownZero()
     end
 end
 
-# The implicit zeros of two sparse arrays with element types `Ta` and `Tb`, and whether
-# they are known to differ under `eq`, in which case a position stored in neither array
-# makes the arrays unequal. The zero of an element type need not be of that type (a
-# variable of an optimization model has an affine expression for a zero), so the zeros of
-# different types are compared rather than assumed equal. Without a `zero` for one of the
-# types the stored values decide alone, except that a number never equals an array.
-function _implicit_zeros(eq::F, ::Type{Ta}, ::Type{Tb}) where {F,Ta,Tb}
-    za, zb = _implicit_zero(Ta), _implicit_zero(Tb)
+# A number never equals an array, whatever their values
+_number_meets_array(::Type{Ta}, ::Type{Tb}) where {Ta,Tb} =
+    (Ta <: Number && Tb <: AbstractArray) || (Ta <: AbstractArray && Tb <: Number)
+
+# The implicit zeros of the sparse arrays `A` and `B`, and whether they are known to differ
+# under `eq`, in which case a position stored in neither array makes the arrays unequal.
+# The zero of an element type need not be of that type (a variable of an optimization
+# model has an affine expression for a zero), so the zeros of different eltypes are
+# compared rather than assumed equal. Without a `zero` for one of the eltypes the stored
+# values decide alone, except when a number meets an array.
+function _implicit_zeros(eq::F, A::AbstractArray{Ta}, B::AbstractArray{Tb}) where {F,Ta,Tb}
+    za, zb = _implicit_zero(A), _implicit_zero(B)
     Ta === Tb && return za, zb, false
     if za isa UnknownZero || zb isa UnknownZero
-        (Ta <: Number && Tb <: AbstractArray) || (Ta <: AbstractArray && Tb <: Number) ||
-            return za, zb, false
+        _number_meets_array(Ta, Tb) || return za, zb, false
         return UnequalZero(), UnequalZero(), true
     end
     return za, zb, eq(za, zb) === false
@@ -922,7 +928,7 @@ function _iseq(eq::F, A::Union{SparseVectorOrView,SparseVectorPartialView},
                B::Union{SparseVectorOrView,SparseVectorPartialView}) where {F}
     size(A) == size(B) || return false
     ia, va, ib, vb = nonzeroinds(A), nonzeros(A), nonzeroinds(B), nonzeros(B)
-    za, zb, distinct = _implicit_zeros(eq, eltype(A), eltype(B))
+    za, zb, distinct = _implicit_zeros(eq, A, B)
     nstored = _merge_eq(eq, ia, va, ib, vb, eachindex(ia, va), eachindex(ib, vb), za, zb)
     return distinct ? nstored == length(A) : nstored >= 0
 end
@@ -944,13 +950,11 @@ Base.isequal(A::Adjoint{<:Any,<:AbstractCompressedVector},
 
 ## Comparisons with dense arrays
 
-# The implicit zero of a sparse array with element type `Ta` as the entries of a dense
-# array with element type `Td` meet it. See `_implicit_zeros`.
-function _implicit_zero(::Type{Ta}, ::Type{Td}) where {Ta,Td}
-    za = _implicit_zero(Ta)
-    za isa UnknownZero || return za
-    return (Ta <: Number && Td <: AbstractArray) || (Ta <: AbstractArray && Td <: Number) ?
-        UnequalZero() : za
+# The implicit zero of the sparse array `A` as the entries of the dense array `D` meet it.
+# See `_implicit_zeros`.
+function _implicit_zero_against(A::AbstractArray{Ta}, D::AbstractArray{Td}) where {Ta,Td}
+    za = _implicit_zero(A)
+    return za isa UnknownZero && _number_meets_array(Ta, Td) ? UnequalZero() : za
 end
 
 # Compare a sparse array with a dense one in one pass over the dense array, reading the
@@ -959,7 +963,7 @@ end
 # eltype. As for dense arrays, `==` is `missing` when a comparison is and none is `false`.
 function _iseq_dense(eq::F, A::SparseMatrixCSCOrColumnSubset, D::AbstractMatrix) where {F}
     size(A) == size(D) || return false
-    return _iseq_dense(eq, A, D, _implicit_zero(eltype(A), eltype(D)))
+    return _iseq_dense(eq, A, D, _implicit_zero_against(A, D))
 end
 function _iseq_dense(eq::F, A::SparseMatrixCSCOrColumnSubset, D::AbstractMatrix, za) where {F}
     rv, nz = rowvals(A), nonzeros(A)
@@ -992,12 +996,13 @@ _iseq_dense(eq::F, A::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, D::Abs
 function _iseq_dense(eq::F, x::Union{SparseVectorOrView,SparseVectorPartialView},
                      D::AbstractVector) where {F}
     size(x) == size(D) || return false
-    return _iseq_dense(eq, x, D, _implicit_zero(eltype(x), eltype(D)))
+    return _iseq_dense(eq, x, D, _implicit_zero_against(x, D))
 end
 # a transposed sparse vector against a one-row matrix, read as the vector against a column
 function _iseq_dense(eq::F, x::AdjOrTransSparseVectorOrView, D::AbstractMatrix) where {F}
     size(x) == size(D) || return false
-    return _iseq_dense(eq, parent(x), wrapperop(x)(D), _implicit_zero(eltype(x), eltype(D)))
+    p, Dp = parent(x), wrapperop(x)(D)
+    return _iseq_dense(eq, p, Dp, _implicit_zero_against(p, Dp))
 end
 # `D` has the length of `x` and is indexed linearly
 function _iseq_dense(eq::F, x::Union{SparseVectorOrView,SparseVectorPartialView}, D::AbstractArray, za) where {F}
