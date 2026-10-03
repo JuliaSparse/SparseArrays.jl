@@ -833,55 +833,126 @@ _sparse_findprevnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findpr
 
 ## Explicit efficient comparisons with vectors
 
-# Is `x` equal to the implicit zero of a sparse array under the predicate `eq`?
-# Uses `zero(x)` rather than `zero(eltype(...))` so that non-numeric element types such
-# as `Any` still work as long as the stored values themselves are numbers.
-_iszero_under(eq::F, x) where {F} = eq(x, zero(x))
+# Stand-ins for an implicit zero that `zero(eltype)` does not give. `UnknownZero` is that
+# of an element type without a `zero`, such as `Any` or a matrix type: a stored value is
+# then compared against its own zero. `UnequalZero` equals no stored value.
+struct UnknownZero end
+struct UnequalZero end
+
+# The implicit zero of the sparse array `A`, the value its dense copy holds at an unstored
+# position (`_densezero`), or `UnknownZero()` when the eltype has no `zero`. Only the
+# builtin numbers are known to have one: another number type may define `zero` for its
+# values alone.
+_implicit_zero(A::AbstractArray{T}) where {T<:Union{Bool,Base.BitInteger,Base.IEEEFloat}} =
+    isconcretetype(T) ? _densezero(A) : _implicit_zero_fallback(A)
+_implicit_zero(A::AbstractArray{Complex{T}}) where {T<:Union{Bool,Base.BitInteger,Base.IEEEFloat}} =
+    isconcretetype(T) ? _densezero(A) : _implicit_zero_fallback(A)
+_implicit_zero(A::AbstractArray) = _implicit_zero_fallback(A)
+function _implicit_zero_fallback(A)
+    hasmethod(zero, Tuple{Type{eltype(A)}}) || return UnknownZero()
+    try
+        return _densezero(A)
+    catch
+        return UnknownZero()
+    end
+end
+
+# A number never equals an array, whatever their values
+_number_meets_array(::Type{Ta}, ::Type{Tb}) where {Ta,Tb} =
+    (Ta <: Number && Tb <: AbstractArray) || (Ta <: AbstractArray && Tb <: Number)
+
+# The implicit zeros of the sparse arrays `A` and `B`, and what `eq` of them is at a
+# position stored in neither array: `true`, `false`, which makes the arrays unequal, or
+# `missing`. The zero of an element type need not be of that type (a variable of an
+# optimization model has an affine expression for a zero), so the zeros of different
+# eltypes are compared rather than assumed equal. Without a `zero` for one of the eltypes
+# the stored values decide alone, except when a number meets an array.
+function _implicit_zeros(eq::F, A::AbstractArray{Ta}, B::AbstractArray{Tb}) where {F,Ta,Tb}
+    za, zb = _implicit_zero(A), _implicit_zero(B)
+    Ta === Tb && return za, zb, (za isa Missing ? eq(za, zb) : true)
+    if za isa UnknownZero || zb isa UnknownZero
+        _number_meets_array(Ta, Tb) || return za, zb, true
+        return UnequalZero(), UnequalZero(), false
+    end
+    c = eq(za, zb)
+    return za, zb, (c === false ? false : ismissing(c) ? missing : true)
+end
+
+# Is the value `x` of one array equal under `eq` to the implicit zero `z` of the other? The
+# arguments keep the order of the arrays, because `==` of two types may be defined for
+# one order only.
+@inline _eq_implicit(eq::F, x, z) where {F} = eq(x, z)
+@inline _eq_implicit(eq::F, x, ::UnknownZero) where {F} = eq(x, zero(x))
+@inline _eq_implicit(eq::F, x, ::UnequalZero) where {F} = false
+@inline _implicit_eq(eq::F, z, x) where {F} = eq(z, x)
+@inline _implicit_eq(eq::F, ::UnknownZero, x) where {F} = eq(zero(x), x)
+@inline _implicit_eq(eq::F, ::UnequalZero, x) where {F} = false
+
+# A kernel that walks its second array first calls the predicate with the arguments swapped
+_swapargs(eq::F) where {F} = (x, y) -> eq(y, x)
 
 # Merge the stored entries `ra` of `(ia, va)` with the entries `rb` of `(ib, vb)`, whose
 # indices are sorted within each range, comparing the values at equal indices with `eq`
 # (`==` or `isequal`). A stored entry without a counterpart is compared against the
-# implicit zero of the other array so that e.g. `isequal(-0.0, 0.0)` and
-# `isequal(NaN, NaN)` behave as they do for dense arrays. Callers pass ranges that lie
-# within the storage vectors: a column's `nzrange` or the whole stored range.
-@inline function _merge_eq(eq::F, ia, va, ib, vb, ra::AbstractUnitRange, rb::AbstractUnitRange) where {F}
-    i, j = first(ra), first(rb)
+# implicit zero of the other array (`zb` for an entry of `va`, `za` for one of `vb`) so
+# that e.g. `isequal(-0.0, 0.0)` and `isequal(NaN, NaN)` behave as they do for dense
+# arrays. Returns the number of positions stored in either array, or -1 once two values
+# differ, and whether a comparison was `missing`. Callers pass ranges that lie within the
+# storage vectors: a column's `nzrange` or the whole stored range.
+@inline function _merge_eq(eq::F, ia, va, ib, vb, ra::AbstractUnitRange, rb::AbstractUnitRange,
+                           za, zb) where {F}
+    i, j, nstored, anymissing = first(ra), first(rb), 0, false
     @inbounds while i <= last(ra) && j <= last(rb)
         ii, jj = ia[i], ib[j]
         if ii == jj
-            eq(va[i], vb[j]) || return false
+            c = eq(va[i], vb[j])
             i += 1
             j += 1
         elseif ii < jj
-            _iszero_under(eq, va[i]) || return false
+            c = _eq_implicit(eq, va[i], zb)
             i += 1
         else # ii > jj
-            _iszero_under(eq, vb[j]) || return false
+            c = _implicit_eq(eq, za, vb[j])
             j += 1
         end
+        c === false && return -1, false
+        anymissing |= ismissing(c)
+        nstored += 1
     end
     @inbounds for k in i:last(ra)
-        _iszero_under(eq, va[k]) || return false
+        c = _eq_implicit(eq, va[k], zb)
+        c === false && return -1, false
+        anymissing |= ismissing(c)
     end
     @inbounds for k in j:last(rb)
-        _iszero_under(eq, vb[k]) || return false
+        c = _implicit_eq(eq, za, vb[k])
+        c === false && return -1, false
+        anymissing |= ismissing(c)
     end
-    return true
+    return nstored + length(i:last(ra)) + length(j:last(rb)), anymissing
 end
 
-# Compare two sparse vectors, or unit-range views of them, by walking their stored
-# entries only. `eachindex` of the two storage vectors guards the `@inbounds` merge.
-function _iseq(eq::F, A::Union{AbstractCompressedVector,SparseVectorPartialView},
-               B::Union{AbstractCompressedVector,SparseVectorPartialView}) where {F}
+# Compare two sparse vectors, or views of them, by walking their stored entries only.
+# `eachindex` of the two storage vectors guards the `@inbounds` merge. As for dense arrays,
+# `==` is `missing` when a comparison is and none is `false`.
+function _iseq(eq::F, A::Union{SparseVectorOrView,SparseVectorPartialView},
+               B::Union{SparseVectorOrView,SparseVectorPartialView}) where {F}
     size(A) == size(B) || return false
     ia, va, ib, vb = nonzeroinds(A), nonzeros(A), nonzeroinds(B), nonzeros(B)
-    return _merge_eq(eq, ia, va, ib, vb, eachindex(ia, va), eachindex(ib, vb))
+    za, zb, zeq = _implicit_zeros(eq, A, B)
+    nstored, anymissing = _merge_eq(eq, ia, va, ib, vb, eachindex(ia, va), eachindex(ib, vb), za, zb)
+    nstored < 0 && return false
+    if nstored < length(A)
+        zeq === false && return false
+        anymissing |= ismissing(zeq)
+    end
+    return anymissing ? missing : true
 end
 
-==(A::Union{AbstractCompressedVector,SparseVectorPartialView},
-    B::Union{AbstractCompressedVector,SparseVectorPartialView}) = _iseq(==, A, B)
-Base.isequal(A::Union{AbstractCompressedVector,SparseVectorPartialView},
-    B::Union{AbstractCompressedVector,SparseVectorPartialView}) = _iseq(isequal, A, B)
+==(A::Union{SparseVectorOrView,SparseVectorPartialView},
+    B::Union{SparseVectorOrView,SparseVectorPartialView}) = _iseq(==, A, B)
+Base.isequal(A::Union{SparseVectorOrView,SparseVectorPartialView},
+    B::Union{SparseVectorOrView,SparseVectorPartialView}) = _iseq(isequal, A, B)
 
 ==(A::Transpose{<:Any,<:AbstractCompressedVector},
     B::Transpose{<:Any,<:AbstractCompressedVector}) = transpose(A) == transpose(B)
@@ -892,6 +963,111 @@ Base.isequal(A::Transpose{<:Any,<:AbstractCompressedVector},
     B::Adjoint{<:Any,<:AbstractCompressedVector}) = adjoint(A) == adjoint(B)
 Base.isequal(A::Adjoint{<:Any,<:AbstractCompressedVector},
     B::Adjoint{<:Any,<:AbstractCompressedVector}) = isequal(adjoint(A), adjoint(B))
+
+## Comparisons with dense arrays
+
+# A sparse array under `Adjoint` and `Transpose` wrappers as its compressed root, the
+# function the wrappers apply to an entry, and whether they swap the two indices
+_peel(A) = (A, identity, false)
+function _peel(A::AdjOrTrans)
+    P, op, swapped = _peel(parent(A))
+    return P, (op === identity ? wrapperop(A) : wrapperop(A) ∘ op), !swapped
+end
+
+# The implicit zero of the sparse array with root `P` and entry function `op` as the
+# entries of a dense array with eltype `Td` meet it. See `_implicit_zeros`. The wrappers
+# apply to an unstored position too: the adjoint of a complex zero has a negative
+# imaginary part.
+function _implicit_zero_against(P::AbstractArray{Tp}, op::O, ::Type{Td}) where {Tp,O,Td}
+    z = _implicit_zero(P)
+    z isa UnknownZero && return _number_meets_array(Tp, Td) ? UnequalZero() : z
+    return op(z)
+end
+
+# Compare a sparse array with a dense one in one pass over the dense array, reading the
+# stored entries in order rather than indexing the sparse array. An unstored position is
+# compared against the implicit zero without `getindex`, which needs a `zero` for the
+# eltype. The entry function of the wrappers is applied to the sparse entries and never to
+# the dense ones: `isequal` of a real and a complex number does not survive conjugating
+# both. As for dense arrays, `==` is `missing` when a comparison is and none is `false`.
+function _iseq_dense(eq::F, A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}},
+                     D::AbstractMatrix) where {F}
+    size(A) == size(D) || return false
+    P, op, swapped = _peel(A)
+    za = _implicit_zero_against(P, op, eltype(D))
+    return swapped ? _iseq_dense(eq, P, PermutedDimsArray(D, (2, 1)), za, op) :
+                     _iseq_dense(eq, P, D, za, op)
+end
+function _iseq_dense(eq::F, A::SparseMatrixCSCOrColumnSubset, D::AbstractMatrix, za, op::O) where {F,O}
+    rv, nz = rowvals(A), nonzeros(A)
+    anymissing = false
+    @inbounds for j in axes(A, 2)
+        i = 1
+        for k in nzrange(A, j)
+            r = Int(rv[k])
+            for ii in i:r-1
+                c = _implicit_eq(eq, za, D[ii, j])
+                c === false && return false
+                anymissing |= ismissing(c)
+            end
+            c = eq(op(nz[k]), D[r, j])
+            c === false && return false
+            anymissing |= ismissing(c)
+            i = r + 1
+        end
+        for ii in i:size(A, 1)
+            c = _implicit_eq(eq, za, D[ii, j])
+            c === false && return false
+            anymissing |= ismissing(c)
+        end
+    end
+    return anymissing ? missing : true
+end
+
+# a sparse vector against a vector, or a transposed one against a one-row matrix, which
+# linear indexing reads as a vector
+function _iseq_dense(eq::F, x::Union{SparseVectorOrView,SparseVectorPartialView,AdjOrTransSparseVectorOrView},
+                     D::AbstractVecOrMat) where {F}
+    size(x) == size(D) || return false
+    p, op, _ = _peel(x)
+    return _iseq_dense(eq, p, D, _implicit_zero_against(p, op, eltype(D)), op)
+end
+function _iseq_dense(eq::F, x::Union{SparseVectorOrView,SparseVectorPartialView}, D::AbstractVecOrMat,
+                     za, op::O) where {F,O}
+    ix, vx = nonzeroinds(x), nonzeros(x)
+    anymissing = false
+    i = 1
+    @inbounds for k in eachindex(ix, vx)
+        r = Int(ix[k])
+        for ii in i:r-1
+            c = _implicit_eq(eq, za, D[ii])
+            c === false && return false
+            anymissing |= ismissing(c)
+        end
+        c = eq(op(vx[k]), D[r])
+        c === false && return false
+        anymissing |= ismissing(c)
+        i = r + 1
+    end
+    @inbounds for ii in i:length(x)
+        c = _implicit_eq(eq, za, D[ii])
+        c === false && return false
+        anymissing |= ismissing(c)
+    end
+    return anymissing ? missing : true
+end
+
+for (S, D) in ((:SparseMatrixCSCOrColumnSubset, :DenseMatrixUnion),
+               (:(AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}), :DenseMatrixUnion),
+               (:(Union{SparseVectorOrView,SparseVectorPartialView}), :(Union{StridedVector,BitVector})),
+               (:AdjOrTransSparseVectorOrView, :DenseMatrixUnion))
+    @eval begin
+        ==(A::$S, B::$D) = _iseq_dense(==, A, B)
+        ==(A::$D, B::$S) = _iseq_dense(_swapargs(==), B, A)
+        Base.isequal(A::$S, B::$D) = _iseq_dense(isequal, A, B)
+        Base.isequal(A::$D, B::$S) = _iseq_dense(_swapargs(isequal), B, A)
+    end
+end
 
 ### getindex
 

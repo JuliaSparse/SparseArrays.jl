@@ -445,6 +445,15 @@ end
     @test view(p, 2:7) != sparsevec([2, 4, 6], [2.0, 1.0, 3.0], 6) &&
           !isequal(view(p, 1:6), view(p, 2:7))
     @test nonzeros(view(p, 3:2)) == Float64[]   # empty view of a vector with stored entries
+    # the implicit zeros of two eltypes need not be equal (issue #234); more eltypes are
+    # covered in sparsematrix.jl
+    zi, zm = spzeros(Int, 3), spzeros(Matrix{Int}, 3)
+    for (l, r) in ((zi, zm), (sparsevec([1, 2, 3], [0, 0, 0]), zm), (view(zi, 1:3), zm),
+                   (transpose(zi), transpose(zm)), (sparsevec([0]), sparsevec([[0;;]]))),
+        eq in (==, isequal)
+        @test !eq(l, r) && !eq(r, l)
+    end
+    @test spzeros(Int, 0) == spzeros(Matrix{Int}, 0) && zm == zm && zi == spzeros(Float64, 3)
 end
 
 @testset "hash matches dense" begin
