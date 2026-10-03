@@ -1664,10 +1664,9 @@ nzeq(eq::F, A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans},
     nzeq(eq, transpose(A), transpose(B))
 
 # Materialize nested `Adjoint` and `Transpose` wrappers one layer at a time, so that each
-# copy is the sparse one
+# step is the sparse transposition. The entries are only read, so they are not copied.
 _unwrap_adjtrans(A::AbstractSparseMatrixCSC) = A
-_unwrap_adjtrans(A::Adjoint) = copy(adjoint(_unwrap_adjtrans(parent(A))))
-_unwrap_adjtrans(A::Transpose) = copy(transpose(_unwrap_adjtrans(parent(A))))
+_unwrap_adjtrans(A::AdjOrTrans) = ftranspose(_unwrap_adjtrans(parent(A)), wrapperop(A), eltype(A))
 
 # Compare by walking both matrices
 # (We could further optimize the case `AbstractSparseMatrixCSC ==
@@ -1681,7 +1680,7 @@ function _iseq(eq::F, A::AbstractSparseMatrixCSC,
     # `nzeq` never visits a position stored in neither matrix, where the implicit zeros meet
     _implicit_zeros(eq, eltype(A), eltype(B))[3] && return _iseq(eq, A, _unwrap_adjtrans(B))
     # Compare nonzero elements
-    return nzeq(eq, A, B) && nzeq(eq, B, A)
+    return nzeq(eq, A, B) && nzeq(_swapargs(eq), B, A)
 end
 ==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(==, A, B)

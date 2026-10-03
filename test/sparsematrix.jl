@@ -413,6 +413,27 @@ end
     @test (F + fill([1.0 1.0], 2, 2))::Matrix{Matrix{Float64}} == fill([2.0 3.0], 2, 2)
 end
 
+# An element type that equals a number from the left only, as an affine expression of an
+# optimization model does
+struct OneSided
+    x::Int
+end
+Base.zero(::Type{OneSided}) = OneSided(0)
+Base.:(==)(a::OneSided, b::Number) = a.x == b
+Base.transpose(a::OneSided) = a
+
+@testset "== of sparse arrays keeps the order of the arguments" begin
+    Zo, So = spzeros(OneSided, 2, 2), sparse([1], [1], [OneSided(0)], 2, 2)
+    Do = fill(OneSided(0), 2, 2)
+    for (L, R) in ((Zo, spzeros(2, 2)), (So, spzeros(2, 2)), (Zo, sparse([1], [1], [0.0], 2, 2)),
+                   (Zo, zeros(2, 2)), (So, zeros(2, 2)), (Do, spzeros(2, 2)),
+                   (spzeros(OneSided, 2), spzeros(2)), (spzeros(OneSided, 2), zeros(2)),
+                   (Zo, transpose(sparse([1], [1], [0.0], 2, 2))), (transpose(So), spzeros(2, 2)))
+        @test L == R && (Do == zeros(2, 2))
+        @test R != L && (zeros(2, 2) != Do)
+    end
+end
+
 @testset "== and isequal compare the implicit zeros of the two eltypes (issue #234)" begin
     Zi, Zm = spzeros(Int, 2, 2), spzeros(Matrix{Int}, 2, 2)
     Zv, zv = spzeros(Variable, 2, 2), spzeros(Variable, 2)
@@ -442,6 +463,56 @@ end
         @test eq(Zm, spzeros(Matrix{Float64}, 2, 2)) && eq(Zi, spzeros(Float64, 2, 2))
         @test eq(sparse(Any[1 0; 0 2]), sparse([1.0 0; 0 2]))
         @test eq(sparse(Any[1 0; 0 2]), sparse([1, 2, 2], [1, 1, 2], [1.0, 0.0, 2.0]))
+        # column views take the stored-entry merge of sparse vectors
+        @test eq(view(S, :, 2), S[:, 2]) && !eq(view(S, :, 1), S[:, 2]) && !eq(view(Zi, :, 1), zv)
+    end
+end
+
+@testset "== and isequal of a sparse and a dense array" begin
+    Dm = [[1;;] [0;;]; [0;;] [2;;]]
+    Bm, bm = sparse(Dm), sparsevec(Dm[:, 1])
+    Zm = spzeros(Matrix{Int}, 2, 2)
+    Sa = sparse(Any[1 0; 0 2])
+    S = sparse([1, 1, 2], [1, 2, 2], Variable.(1:3))
+    A = sparse([1, 3, 2, 3], [1, 1, 3, 4], [1.0, NaN, -0.0, 2.0], 3, 4)
+    x = sparsevec([2, 5], [NaN, 3.0], 6)
+    C = sparse([1, 2], [2, 3], [1.0im, 2.0], 3, 3)
+    for eq in (==, isequal)
+        # an eltype without a `zero` has no `getindex` of an unstored position
+        for (L, R) in ((Bm, Dm), (Bm', copy(Dm')), (transpose(Bm'), Dm), (view(Bm, :, [2, 1]), Dm[:, [2, 1]]),
+                       (bm, Dm[:, 1]), (view(Bm, :, 2), Dm[:, 2]), (transpose(bm), permutedims(Dm[:, 1])),
+                       (Zm, fill([0;;], 2, 2)), (Zm, fill([0.0;;], 2, 2)),
+                       (Sa, [1 0; 0 2]), (Sa, Any[1.0 0; 0 2]), (Sa, view([1 0; 0 2], :, :)))
+            @test eq(L, R) && eq(R, L)
+        end
+        for (L, R) in ((Bm, [[1;;] [0;;]; [0;;] [3;;]]), (Bm, [[1;;] [0;;]; [1;;] [2;;]]),
+                       (Zm, zeros(Int, 2, 2)), (spzeros(Int, 2, 2), fill([0;;], 2, 2)),
+                       (bm, [0, 0]), (transpose(bm), [0 0]), (Sa, [1 0; 3 2]),
+                       (S, zeros(Int, 2, 2)), (S, Variable.([1 2; 0 3])), (Bm, Dm[:, 1:1]), (bm, Dm))
+            @test !eq(L, R) && !eq(R, L)
+        end
+        # same results as the dense comparison, for NaN, signed zeros and conjugation
+        for (L, R) in ((A, Matrix(A)), (A, zeros(3, 4)), (spzeros(3, 4), -zeros(3, 4)),
+                       (A', Matrix(A')), (A', Matrix(A)), (view(A, :, 2:3), Matrix(A)[:, 2:3]),
+                       (x, Vector(x)), (x, zeros(6)), (spzeros(6), -zeros(6)), (x', Matrix(x')),
+                       (view(x, 2:5), Vector(x)[2:5]), (view(A, :, 1), Matrix(A)[:, 1]),
+                       (C', Matrix(C')), (C', Matrix(transpose(C))), (transpose(C'), conj(Matrix(C))),
+                       (sparse([true false; false true]), BitMatrix([true false; false true])),
+                       (sparse([1 0; 0 2]), [1.0 0.0; 0.0 2.0]))
+            @test eq(L, R) === eq(Array(L), R)
+            @test eq(R, L) === eq(R, Array(L))
+        end
+    end
+    M = sparse([1, 2], [1, 2], [missing, 1.0])
+    @test (M == Matrix(M)) === missing && (Matrix(M) == M) === missing && isequal(M, Matrix(M))
+    @test (M == [missing 1.0; 0.0 1.0]) === false
+    # the dense operand is read once and the sparse one is not indexed
+    n = 200
+    v = sparsevec([1, n ÷ 2], OpCount.([1.0, 2.0]), n)
+    B = sparse([1, n ÷ 2], [1, n], OpCount.([1.0, 2.0]), n, n)
+    for (L, R) in ((v, Vector(v)), (B, Matrix(B)), (B', Matrix(B')), (transpose(v), Matrix(transpose(v)))),
+        eq in (==, isequal)
+        @test eqcount(() -> eq(L, R)) == length(L) && eqcount(() -> eq(R, L)) == length(L)
     end
 end
 

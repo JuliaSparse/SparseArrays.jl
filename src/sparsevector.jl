@@ -868,10 +868,18 @@ function _implicit_zeros(eq::F, ::Type{Ta}, ::Type{Tb}) where {F,Ta,Tb}
     return za, zb, eq(za, zb) === false
 end
 
-# Is the stored `x` equal under `eq` to the implicit zero `z` of the other array?
+# Is the value `x` of one array equal under `eq` to the implicit zero `z` of the other? The
+# arguments keep the order of the arrays, because `==` of two types may be defined for
+# one order only.
 @inline _eq_implicit(eq::F, x, z) where {F} = eq(x, z)
 @inline _eq_implicit(eq::F, x, ::UnknownZero) where {F} = eq(x, zero(x))
 @inline _eq_implicit(eq::F, x, ::UnequalZero) where {F} = false
+@inline _implicit_eq(eq::F, z, x) where {F} = eq(z, x)
+@inline _implicit_eq(eq::F, ::UnknownZero, x) where {F} = eq(zero(x), x)
+@inline _implicit_eq(eq::F, ::UnequalZero, x) where {F} = false
+
+# A kernel that walks its second array first calls the predicate with the arguments swapped
+_swapargs(eq::F) where {F} = (x, y) -> eq(y, x)
 
 # Merge the stored entries `ra` of `(ia, va)` with the entries `rb` of `(ib, vb)`, whose
 # indices are sorted within each range, comparing the values at equal indices with `eq`
@@ -894,7 +902,7 @@ end
             _eq_implicit(eq, va[i], zb) || return -1
             i += 1
         else # ii > jj
-            _eq_implicit(eq, vb[j], za) || return -1
+            _implicit_eq(eq, za, vb[j]) || return -1
             j += 1
         end
         nstored += 1
@@ -903,15 +911,15 @@ end
         _eq_implicit(eq, va[k], zb) || return -1
     end
     @inbounds for k in j:last(rb)
-        _eq_implicit(eq, vb[k], za) || return -1
+        _implicit_eq(eq, za, vb[k]) || return -1
     end
     return nstored + length(i:last(ra)) + length(j:last(rb))
 end
 
 # Compare two sparse vectors, or unit-range views of them, by walking their stored
 # entries only. `eachindex` of the two storage vectors guards the `@inbounds` merge.
-function _iseq(eq::F, A::Union{AbstractCompressedVector,SparseVectorPartialView},
-               B::Union{AbstractCompressedVector,SparseVectorPartialView}) where {F}
+function _iseq(eq::F, A::Union{SparseVectorOrView,SparseVectorPartialView},
+               B::Union{SparseVectorOrView,SparseVectorPartialView}) where {F}
     size(A) == size(B) || return false
     ia, va, ib, vb = nonzeroinds(A), nonzeros(A), nonzeroinds(B), nonzeros(B)
     za, zb, distinct = _implicit_zeros(eq, eltype(A), eltype(B))
@@ -919,10 +927,10 @@ function _iseq(eq::F, A::Union{AbstractCompressedVector,SparseVectorPartialView}
     return distinct ? nstored == length(A) : nstored >= 0
 end
 
-==(A::Union{AbstractCompressedVector,SparseVectorPartialView},
-    B::Union{AbstractCompressedVector,SparseVectorPartialView}) = _iseq(==, A, B)
-Base.isequal(A::Union{AbstractCompressedVector,SparseVectorPartialView},
-    B::Union{AbstractCompressedVector,SparseVectorPartialView}) = _iseq(isequal, A, B)
+==(A::Union{SparseVectorOrView,SparseVectorPartialView},
+    B::Union{SparseVectorOrView,SparseVectorPartialView}) = _iseq(==, A, B)
+Base.isequal(A::Union{SparseVectorOrView,SparseVectorPartialView},
+    B::Union{SparseVectorOrView,SparseVectorPartialView}) = _iseq(isequal, A, B)
 
 ==(A::Transpose{<:Any,<:AbstractCompressedVector},
     B::Transpose{<:Any,<:AbstractCompressedVector}) = transpose(A) == transpose(B)
@@ -933,6 +941,100 @@ Base.isequal(A::Transpose{<:Any,<:AbstractCompressedVector},
     B::Adjoint{<:Any,<:AbstractCompressedVector}) = adjoint(A) == adjoint(B)
 Base.isequal(A::Adjoint{<:Any,<:AbstractCompressedVector},
     B::Adjoint{<:Any,<:AbstractCompressedVector}) = isequal(adjoint(A), adjoint(B))
+
+## Comparisons with dense arrays
+
+# The implicit zero of a sparse array with element type `Ta` as the entries of a dense
+# array with element type `Td` meet it. See `_implicit_zeros`.
+function _implicit_zero(::Type{Ta}, ::Type{Td}) where {Ta,Td}
+    za = _implicit_zero(Ta)
+    za isa UnknownZero || return za
+    return (Ta <: Number && Td <: AbstractArray) || (Ta <: AbstractArray && Td <: Number) ?
+        UnequalZero() : za
+end
+
+# Compare a sparse array with a dense one in one pass over the dense array, reading the
+# stored entries in order rather than indexing the sparse array. An unstored position is
+# compared against the implicit zero without `getindex`, which needs a `zero` for the
+# eltype. As for dense arrays, `==` is `missing` when a comparison is and none is `false`.
+function _iseq_dense(eq::F, A::SparseMatrixCSCOrColumnSubset, D::AbstractMatrix) where {F}
+    size(A) == size(D) || return false
+    return _iseq_dense(eq, A, D, _implicit_zero(eltype(A), eltype(D)))
+end
+function _iseq_dense(eq::F, A::SparseMatrixCSCOrColumnSubset, D::AbstractMatrix, za) where {F}
+    rv, nz = rowvals(A), nonzeros(A)
+    anymissing = false
+    @inbounds for j in axes(A, 2)
+        i = 1
+        for k in nzrange(A, j)
+            r = Int(rv[k])
+            for ii in i:r-1
+                c = _implicit_eq(eq, za, D[ii, j])
+                c === false && return false
+                anymissing |= ismissing(c)
+            end
+            c = eq(nz[k], D[r, j])
+            c === false && return false
+            anymissing |= ismissing(c)
+            i = r + 1
+        end
+        for ii in i:size(A, 1)
+            c = _implicit_eq(eq, za, D[ii, j])
+            c === false && return false
+            anymissing |= ismissing(c)
+        end
+    end
+    return anymissing ? missing : true
+end
+_iseq_dense(eq::F, A::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, D::AbstractMatrix) where {F} =
+    _iseq_dense(eq, parent(A), wrapperop(A)(D))
+
+function _iseq_dense(eq::F, x::Union{SparseVectorOrView,SparseVectorPartialView},
+                     D::AbstractVector) where {F}
+    size(x) == size(D) || return false
+    return _iseq_dense(eq, x, D, _implicit_zero(eltype(x), eltype(D)))
+end
+# a transposed sparse vector against a one-row matrix, read as the vector against a column
+function _iseq_dense(eq::F, x::AdjOrTransSparseVectorOrView, D::AbstractMatrix) where {F}
+    size(x) == size(D) || return false
+    return _iseq_dense(eq, parent(x), wrapperop(x)(D), _implicit_zero(eltype(x), eltype(D)))
+end
+# `D` has the length of `x` and is indexed linearly
+function _iseq_dense(eq::F, x::Union{SparseVectorOrView,SparseVectorPartialView}, D::AbstractArray, za) where {F}
+    ix, vx = nonzeroinds(x), nonzeros(x)
+    anymissing = false
+    i = 1
+    @inbounds for k in eachindex(ix, vx)
+        r = Int(ix[k])
+        for ii in i:r-1
+            c = _implicit_eq(eq, za, D[ii])
+            c === false && return false
+            anymissing |= ismissing(c)
+        end
+        c = eq(vx[k], D[r])
+        c === false && return false
+        anymissing |= ismissing(c)
+        i = r + 1
+    end
+    @inbounds for ii in i:length(x)
+        c = _implicit_eq(eq, za, D[ii])
+        c === false && return false
+        anymissing |= ismissing(c)
+    end
+    return anymissing ? missing : true
+end
+
+for (S, D) in ((:SparseMatrixCSCOrColumnSubset, :DenseMatrixUnion),
+               (:(AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}), :DenseMatrixUnion),
+               (:(Union{SparseVectorOrView,SparseVectorPartialView}), :(Union{StridedVector,BitVector})),
+               (:AdjOrTransSparseVectorOrView, :DenseMatrixUnion))
+    @eval begin
+        ==(A::$S, B::$D) = _iseq_dense(==, A, B)
+        ==(A::$D, B::$S) = _iseq_dense(_swapargs(==), B, A)
+        Base.isequal(A::$S, B::$D) = _iseq_dense(isequal, A, B)
+        Base.isequal(A::$D, B::$S) = _iseq_dense(_swapargs(isequal), B, A)
+    end
+end
 
 ### getindex
 
