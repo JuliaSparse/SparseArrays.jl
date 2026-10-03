@@ -82,6 +82,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "factorization" begin
     Random.seed!(123)
     local A
@@ -103,6 +104,7 @@ end
     end
     C, b = A[:, 1:4], fill(1., size(A, 1))
     @test factorize(C)\b ≈ Array(C)\b
+end
 end
 
 @testset "\\ and factorize choose the same method" begin
@@ -134,6 +136,7 @@ end
     @test H \ b ≈ Matrix(H) \ b
 end
 
+@static if COMPREHENSIVE
 @testset "type stability of linear solve" begin
     for (elty, vecrhs) in ((Float64, true), (ComplexF64, false), (@static COMPREHENSIVE ? ((Float64, false),
             (ComplexF64, true), eachvalue((Float16, ComplexF16, Float32, ComplexF32), (true, false))...) : ())...)
@@ -142,6 +145,7 @@ end
         b = randn(elty, 2)
         @inferred A \ (vecrhs ? b : B)
     end
+end
 end
 
 @testset "integer Hermitian solve uses the sparse solvers" begin

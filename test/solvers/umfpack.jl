@@ -268,6 +268,7 @@ end
     end
     end
 
+    @static if COMPREHENSIVE
     @testset "Rectangular cases. elty=$elty, m=$m, n=$n" for
         elty in (Float64, ComplexF64),
             (m, n) in ((10,5), (5, 10))
@@ -279,6 +280,7 @@ end
         L, U, p, q, Rs = F.:(:)
         @test (Diagonal(Rs) * A)[p,q] ≈ L * U
         umfpack_report(F)
+    end
     end
 
     @static if COMPREHENSIVE
@@ -404,6 +406,7 @@ end
         @test UMFPACK.rcond(F) === 0.5
     end
 
+    @static if COMPREHENSIVE
     @testset "deserialization" begin
         A  = 10*I + sprandn(10, 10, 0.4)
         F1 = lu(A)
@@ -430,6 +433,7 @@ end
         umfpack_report(F2)
         umfpack_report(x.a)
         umfpack_report(x.b)
+    end
     end
 
     @testset "Do/do not reuse symbolic LU factorization" for reuse ∈ (true, false)
@@ -626,6 +630,7 @@ end
 end
 
 
+@static if COMPREHENSIVE
 @testset "UMFPACK's lu with custom permutation" begin
     A = sparse([1.0 0.0 0.9778920565882165 0.0 0.0 0.0 0.0 0.0 0.0 0.0;
     0.0 1.0 0.0 0.0 0.0 1.847311282254734 0.0 0.0 0.0 0.0;
@@ -647,6 +652,7 @@ end
         @test x ≈ x0
         @test x ≈ x1
     end
+end
 end
 
 @testset "a workspace grows when refinement is turned on" begin

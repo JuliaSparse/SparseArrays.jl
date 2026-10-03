@@ -101,6 +101,7 @@ paired(Tv, Ti, dim) = [x for (tv, ti, x) in pairwise(STD_ELTYPES, itypes, dim) i
         end
     end
 
+    @static if COMPREHENSIVE
     @testset "element type of B: $eltyB" for eltyB in (@static COMPREHENSIVE ? paired(eltyA, iltyA, (Int, Float64, ComplexF64)) : (eltyA,))
         if eltyB == Int
             B = rand(1:10, m, 2)
@@ -135,6 +136,7 @@ paired(Tv, Ti, dim) = [x for (tv, ti, x) in pairwise(STD_ELTYPES, itypes, dim) i
         @static if COMPREHENSIVE
         @test transpose(C)\y ≈ transpose(Array(C))\y
         end
+    end
     end
 
     @testset "lq (#114)" begin
@@ -282,6 +284,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "select ordering overdetermined" begin
      A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
      b = randn(m)
@@ -298,7 +301,9 @@ end
      end
      @test_throws ArgumentError qr(A, ordering=(@static COMPREHENSIVE ? Int32(10) : 10))
 end
+end
 
+@static if COMPREHENSIVE
 @testset "select ordering underdetermined" begin
      A = sparse([1:n; rand(1:n, nn - n)], [1:n; rand(1:m, nn - n)], randn(nn), n, m)
      b = A * ones(m)
@@ -309,6 +314,7 @@ end
          @test A * x ≈ b
      end
      @test_throws ArgumentError qr(A, ordering=(@static COMPREHENSIVE ? Int32(10) : 10))
+end
 end
 
 @testset "ORDERING_FIXED with a dependent column, $Tv $Ti" for Tv in (@static COMPREHENSIVE ? STD_ELTYPES : (Float64,)), Ti in (@static COMPREHENSIVE ? itypes : core_itypes)

@@ -355,6 +355,7 @@ end
 end
 end
 
+@static if COMPREHENSIVE
 @testset "isposdef(Factor) $elty $Ti" for elty in (Tv, (@static COMPREHENSIVE ? (Complex{Tv},) : ())...)
     local A, b, F, x
     o = elty <: Real ? elty(1) : elty(0, 1)
@@ -370,6 +371,7 @@ end
     end
     @test isposdef(cholesky(Hermitian(A)))
     @test !isposdef(ldlt(SparseMatrixCSC{elty,Ti}(sparse(elty[1 1; 1 1])); check = false))
+end
 end
 
 for Tv ∈ (@static COMPREHENSIVE ? (Float32, Float64) : (Float64,))
@@ -1258,6 +1260,7 @@ end
 end
 end
 
+@static if COMPREHENSIVE
 @testset "permutation handling" begin
     @testset "default permutation" begin
         # Assemble arrow matrix
@@ -1285,7 +1288,9 @@ end
         end
     end
 end
+end
 
+@static if COMPREHENSIVE
 @testset "sym indefinite poly alg" begin
     # Well conditioned and symmetric indefinite with a tiny diagonal: `cholesky` fails, and
     # an unpivoted LDLt succeeds but is inaccurate, so `\` has to fall back to `lu` (#325)
@@ -1297,6 +1302,7 @@ end
     u = K \ f
     residual = norm(f - K * u) / norm(f)
     @test residual < 1e-6
+end
 end
 
 @testset "wrapped sparse matrices" begin
