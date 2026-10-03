@@ -12,12 +12,14 @@ include("testhelpers.jl")
 
 const TRIANGLES = (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
 const TRANSFORMS = (identity, adjoint, transpose)
-# The kernels are compiled per transform and triangle, so a standard run gives each triangle
-# one transform and a comprehensive run every pair. A tuple holding a transform has a type of
-# its own for each transform, so the standard cases are vectors and `iscase`, which tells
-# whether a nested loop runs the case `c`, is not specialized.
+# The kernels are compiled per transform and triangle, so a standard run takes the fewest
+# cases that reach every branch of them and a comprehensive run every pair. Here those are
+# the unit triangles; the conjugate, dense-product and dispatch tests below have the nonunit
+# ones. A tuple holding a transform has a type of its own for each transform, so the standard
+# cases are vectors and `iscase`, which tells whether a nested loop runs the case `c`, is
+# not specialized.
 const TRICASES = @static COMPREHENSIVE ? Iterators.product(TRANSFORMS, TRIANGLES) :
-    (Any[identity, UpperTriangular], Any[adjoint, LowerTriangular], Any[transpose, UnitUpperTriangular], Any[identity, UnitLowerTriangular])
+    (Any[transpose, UnitUpperTriangular], Any[identity, UnitLowerTriangular])
 iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
 
 @testset "multiplication of sparse matrix and triangular matrix" begin
@@ -30,9 +32,10 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
     end
 
     n = 5
-    wrappers = Any[(Float64, LowerTriangular, identity, transpose), (ComplexF64, UnitLowerTriangular, adjoint, identity),
-                   (Float64, UpperTriangular, transpose, adjoint), (ComplexF64, UnitUpperTriangular, identity, transpose)]
-    @static COMPREHENSIVE && append!(wrappers, pairwise(STD_ELTYPES, TRIANGLES, TRANSFORMS, TRANSFORMS))
+    wrappers = Any[(Float64, LowerTriangular, identity, transpose)]
+    @static COMPREHENSIVE && append!(wrappers, Any[(ComplexF64, UnitLowerTriangular, adjoint, identity),
+                   (Float64, UpperTriangular, transpose, adjoint), (ComplexF64, UnitUpperTriangular, identity, transpose)],
+                   pairwise(STD_ELTYPES, TRIANGLES, TRANSFORMS, TRANSFORMS))
     @testset "wrappers" begin
         for ElType in STD_ELTYPES
             S = _sparse_test_matrix(n, ElType)
@@ -45,9 +48,10 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
             end
         end
     end
-    types = (Int, Float64, (@static COMPREHENSIVE ? (ComplexF32,) : ())...)
+    @static if COMPREHENSIVE
+    types = (Int, Float64, ComplexF32)
     promotions = Any[(Int, Float64, LowerTriangular)]
-    @static COMPREHENSIVE && append!(promotions, pairwise(types, types, (LowerTriangular, UpperTriangular)))
+    append!(promotions, pairwise(types, types, (LowerTriangular, UpperTriangular)))
     @testset "promotion" begin
         for T1 in types, T2 in types
             S = _sparse_test_matrix(n, T1)
@@ -56,6 +60,7 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
                 test_triangular_product(S, _triangular_test_matrix(n, TM, T2))
             end
         end
+    end
     end
 end
 
@@ -116,14 +121,18 @@ begin
         AW = tr(wr(A))
         MAW = (@static COMPREHENSIVE ? identity : Matrix)(tr(wr(MA)))
         @test AW * B ≈ MAW * B
+        @static if COMPREHENSIVE
         @test AW * s ≈ MAW * s ≈ MAW * sd
         @test AW * A ≈ MAW * MA
+        end
         @test X * AW ≈ rmul!(copy(X), AW) ≈ X * MAW
+        @static if COMPREHENSIVE
         @test mul!(similar(X), view(X, [1, 2, 3], :), AW) ≈ X * MAW
+        end
         @test X * AW isa Matrix
         tr === identity && @test AW * AW isa wr
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
-        COMPREHENSIVE || wr in (UpperTriangular, LowerTriangular) || continue # a view-backed triangle is a kernel of its own
+        COMPREHENSIVE || continue # a view-backed triangle is a kernel of its own
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
         @test vAW * A ≈ AW * A
@@ -134,15 +143,17 @@ begin
     ma = Matrix(a)
     ct, tc = x -> adjoint(transpose(x)), x -> transpose(adjoint(x))
     @testset "triangular multiply with conjugate matrices" for (tr, wr) in (@static COMPREHENSIVE ?
-        Iterators.product((ct, tc), TRIANGLES) : (Any[ct, UpperTriangular], Any[tc, UnitLowerTriangular]))
+        Iterators.product((ct, tc), TRIANGLES) : (Any[ct, UpperTriangular],))
         AW = tr(wr(a))
         MAW = (@static COMPREHENSIVE ? identity : Matrix)(tr(wr(ma)))
         @test AW * B ≈ MAW * B
+        @static if COMPREHENSIVE
         @test AW * s ≈ MAW * s ≈ MAW * sd
+        end
         @test X * AW ≈ rmul!(complex(X), AW) ≈ X * MAW
         @test X * AW isa Matrix
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
-        COMPREHENSIVE || wr in (UpperTriangular, LowerTriangular) || continue # a view-backed triangle is a kernel of its own
+        COMPREHENSIVE || continue # a view-backed triangle is a kernel of its own
         vAW = tr(wr(view([zero(a)+I a], :, (n+1):2n)))
         @test vAW * B ≈ AW * B
         @test X * vAW ≈ X * MAW
@@ -166,7 +177,7 @@ begin
         @test AW \ B ≈ MAW \ B
         @test !issparse(AW \ B)
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
-        COMPREHENSIVE || wr in (UpperTriangular, LowerTriangular) || continue # a view-backed triangle is a kernel of its own
+        COMPREHENSIVE || continue # a view-backed triangle is a kernel of its own
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW \ B ≈ AW \ B
     end
@@ -178,6 +189,7 @@ begin
     end
 end
 
+@static if COMPREHENSIVE
 @testset "triangular sparse structural cases" begin
     structural = Any[(ComplexF64, UpperTriangular, identity), (ComplexF64, UnitLowerTriangular, identity),
                      (ComplexF64, LowerTriangular, adjoint), (ComplexF64, UnitUpperTriangular, adjoint),
@@ -192,9 +204,7 @@ end
             iscase((T, W, op), structural) || continue
             S = op(W(A))
             D = Matrix(S)
-            @static if COMPREHENSIVE
             @test S * b ≈ D * b
-            end
             @test S * sparse(b) ≈ D * b
             @test S * A ≈ D * Matrix(A)
             @test S * hcat(b, 2b) ≈ D * hcat(b, 2b)
@@ -202,6 +212,7 @@ end
             @test S * spzeros(T, 6) == zeros(T, 6)
         end
     end
+end
 end
 
 @testset "triangular kernel dispatch and shape checks" begin
@@ -235,12 +246,14 @@ end
     end
     n = 1000
     A = opcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
-    for W in (@static COMPREHENSIVE ? TRIANGLES : (UpperTriangular, UnitLowerTriangular))
+    for W in (@static COMPREHENSIVE ? TRIANGLES : (UpperTriangular,))
         @test mulcount(() -> W(A) * A) == n
+        @static if COMPREHENSIVE
         @test mulcount(() -> W(view(A, :, :)) * A) == n
+        end
         X = OpCount.(ones(2, n))
         for op in (identity, transpose, adjoint)
-            COMPREHENSIVE || iscase((W, op), ((UpperTriangular, identity), (UnitLowerTriangular, adjoint))) || continue
+            COMPREHENSIVE || op === identity || continue
             @test mulcount(() -> X * op(W(A))) == 2n
         end
     end
@@ -251,9 +264,12 @@ end
 @testset "multiplication of triangular sparse and dense matrices" begin
     n = 7
     B = rand(n, 3)
-    _triangular_sparse_matrix(n, ULT, T) = T == Int ? ULT(sparse(rand(0:10, n, n))) : ULT(sprandn(T, n, n, 0.4))
-    eltypecases = Any[(Int, adjoint, UpperTriangular), (ComplexF64, transpose, UnitLowerTriangular)]
-    @static COMPREHENSIVE && append!(eltypecases, eachvalue((Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64),
+    # `+ I` stores the diagonal, which the nonunit branch of the product kernel needs
+    _triangular_sparse_matrix(n, ULT, T) = T == Int ? ULT(sparse(rand(0:10, n, n))) : ULT(sprandn(T, n, n, 0.4) + I)
+    eltypecases = Any[(ComplexF64, adjoint, LowerTriangular)]
+    @static COMPREHENSIVE && append!(eltypecases,
+        Any[(Int, adjoint, UpperTriangular), (ComplexF64, transpose, UnitLowerTriangular)],
+        eachvalue((Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64),
         (transpose, adjoint), (LowerTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperTriangular)))
     for T in (Int, Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64)
         for AT in (adjoint, transpose)
@@ -268,6 +284,7 @@ end
 end
 
 
+@static if COMPREHENSIVE
 @testset "multiplication of Triangular sparse matrices with sparse vectors #35642" begin
     n = 10
     A = sprand(n, n, 5/n)
@@ -277,11 +294,11 @@ end
     y = view(A, :, 6)
     z = view(x, :)
     ty = typeof
-    @testset "matvec multiplication $(ty(X)) * $(ty(v))" for (X, v) in (@static COMPREHENSIVE ?
-        Iterators.product((U, L), (x, y, z)) : (Any[U, y], Any[L, z]))
+    @testset "matvec multiplication $(ty(X)) * $(ty(v))" for X in (U, L), v in (x, y, z)
         @test X * v ≈ Matrix(X) * Vector(v)
         @test typeof(X * v) == typeof(x)
     end
+end
 end
 
 
@@ -289,9 +306,9 @@ end
     n = 10
     types = (Int, Float64, ComplexF64)
     tritypes = (LowerTriangular, UnitUpperTriangular)
-    vectorcases = Any[(Float64, Float64, LowerTriangular), (ComplexF64, ComplexF64, UnitUpperTriangular),
-                      (Float64, ComplexF64, UnitUpperTriangular)]
-    @static COMPREHENSIVE && append!(vectorcases, pairwise(types, types, tritypes))
+    vectorcases = Any[(ComplexF64, ComplexF64, UnitUpperTriangular)]
+    @static COMPREHENSIVE && append!(vectorcases, Any[(Float64, Float64, LowerTriangular),
+                      (Float64, ComplexF64, UnitUpperTriangular)], pairwise(types, types, tritypes))
     for ta in types
         for tri in tritypes
             if ta == Int
@@ -323,10 +340,12 @@ end
         T = tri(zeros(0, 0))
         @test T*x == Array(T) * Array(x)
         @test T' * x == Array(T)' * Array(x)
+        @static if COMPREHENSIVE
         @test transpose(T) * x == transpose(Array(T)) * Array(x)
         @test x' * T == Array(x)' * Array(T)
         @test x' * T' == Array(x)' * Array(T)'
         @test x' * transpose(T) == Array(x)' * transpose(Array(T))
+        end
     end
 end
 
@@ -351,11 +370,9 @@ end
     @test_throws LinearAlgebra.SingularException LowerTriangular(A)\b
     @test_throws LinearAlgebra.SingularException UpperTriangular(A)\b
 end
-end
 
 @testset "complex matrix-vector multiplication and triangular or diagonal left-division" begin
-    for i = 1:(@static COMPREHENSIVE ? 5 : 1)
-        @static if COMPREHENSIVE
+    for i = 1:5
         a = I + 0.1*sprandn(5, 5, 0.2)
         b = randn(5,3) + im*randn(5,3)
         c = randn(5) + im*randn(5)
@@ -381,22 +398,16 @@ end
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        end
 
         a = I + tril(0.1*sprandn(5, 5, 0.2))
         b = randn(5,3) + im*randn(5,3)
-        @static if COMPREHENSIVE
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        end
         @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @static if COMPREHENSIVE
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        end
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
 
-        @static if COMPREHENSIVE
         a = I + tril(0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2))
         b = randn(5,3)
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
@@ -414,20 +425,15 @@ end
         @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-        end
 
         a = I + triu(0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2))
         b = randn(5,3)
-        @static if COMPREHENSIVE
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        end
         @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @static if COMPREHENSIVE
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-        end
         # UpperTriangular/LowerTriangular solve
         a = UpperTriangular(I + triu(0.1*sprandn(5, 5, 0.2)))
         b = sprandn(5, 5, 0.2)
@@ -442,13 +448,10 @@ end
 
         a = sparse(Diagonal(randn(5) + im*randn(5)))
         b = randn(5,3)
-        @static if COMPREHENSIVE
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        end
         @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @static if COMPREHENSIVE
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
 
@@ -459,14 +462,15 @@ end
         @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-        end
     end
+end
 end
 
 @testset "factorize of a triangular matrix, and unsupported eigen and inv" begin
     D = sparse(Diagonal(1.0:5.0))
     A = D + sparse([1, 4], [3, 2], [0.5, -1.5], 5, 5)
     A = A*transpose(A)
+    @static if COMPREHENSIVE
     @test !isdiag(A)
     @test factorize(triu(A)) == triu(A)
     @test isa(factorize(triu(A)), UpperTriangular{Float64, SparseMatrixCSC{Float64, Int}})
@@ -474,6 +478,7 @@ end
     @test isa(factorize(tril(A)), LowerTriangular{Float64, SparseMatrixCSC{Float64, Int}})
     @test factorize(D) == D
     @test isa(factorize(D), Diagonal{Float64})
+    end
     @test_throws ErrorException eigen(A)
     @test_throws ErrorException inv(A)
 end
@@ -485,9 +490,9 @@ end
     n = 10
     A = sprandn(rng, n, n, 0.8); A += Diagonal((1:n) - diag(A))
     B = ones(n, 2)
+    @static if COMPREHENSIVE
     for (Ttri, triul ) in ((UpperTriangular, triu), (LowerTriangular, tril))
         for trop in (adjoint, transpose)
-            COMPREHENSIVE || Ttri === LowerTriangular && trop === adjoint || continue
             AT = Ttri(A)           # ...Triangular wrapped
             AC = triul(A)          # copied part of A
             ATa = trop(AT)         # wrapped Adjoint
@@ -498,6 +503,7 @@ end
             @test Matrix(ATa) \ B ≈ ATa \ B
             @test ATa * ( ATa \ B ) ≈ B
         end
+    end
     end
     # the accumulator of the transposed solves is seeded from the converted destination,
     # so an Int right-hand side or a real one against a complex matrix does not widen it
@@ -548,15 +554,16 @@ end
     complextypes = (ComplexF32, ComplexF64)
     eltypes = (inttypes..., floattypes..., complextypes...)
     coretypes = (Int64, Float64, ComplexF64)
-    @static COMPREHENSIVE || (eltypes = coretypes)
 
     # A strided backing takes the block solve of this package and a sparse one the sparse
-    # kernels; each backing meets an upper and a lower, a unit and a nonunit triangle and
-    # each transform, mostly complex since real solves do not conjugate.
-    boundaries = Any[(ComplexF64, true, LowerTriangular, identity), (ComplexF64, false, UpperTriangular, adjoint),
-                     (ComplexF64, true, UnitUpperTriangular, transpose), (ComplexF64, false, UnitLowerTriangular, transpose),
-                     (Float64, true, UpperTriangular, adjoint), (Float64, false, LowerTriangular, identity)]
-    @static COMPREHENSIVE && append!(boundaries, pairwise(STD_ELTYPES, (true, false), TRIANGLES, TRANSFORMS))
+    # kernels and the generic destination, which differs for a unit triangle. The standard
+    # cases are complex, since real solves do not conjugate, and the strided one is a lower
+    # triangle of a transpose, which the block solve unwraps.
+    boundaries = Any[(ComplexF64, false, UpperTriangular, adjoint),
+                     (ComplexF64, true, UnitUpperTriangular, transpose), (ComplexF64, false, UnitLowerTriangular, transpose)]
+    @static COMPREHENSIVE && append!(boundaries, Any[(ComplexF64, true, LowerTriangular, identity),
+                     (Float64, true, UpperTriangular, adjoint), (Float64, false, LowerTriangular, identity)],
+                     pairwise(STD_ELTYPES, (true, false), TRIANGLES, TRANSFORMS))
     # an integer quotient, integer to float, and real to complex in both directions
     promotions = Any[(Int64, Int64, true, LowerTriangular), (Int64, Float64, false, UnitLowerTriangular),
                      (Float64, ComplexF64, false, LowerTriangular), (ComplexF64, Float64, true, UnitLowerTriangular)]
@@ -602,18 +609,17 @@ end
         @test (mat \ g)::Vector{Float64} ≈ mat \ Array(g)
     end
 
+    @static if COMPREHENSIVE
     @testset "index type and eltype of the right-hand side" begin
         L = LowerTriangular([2.0 1 1; 1 2 1; 1 1 2])
-        for Ti in (UInt64, (@static COMPREHENSIVE ? (Int128,) : ())...)
+        for Ti in (UInt64, Int128)
             b = SparseVector(3, Ti[2], [1.0])
             x = ldiv!(L, copy(b))
             @test nonzeroinds(x) == 2:3 && x ≈ L \ Array(b)
         end
-        @static if COMPREHENSIVE
         b = SparseVector(3, [1, 3], Any[1.0, 2.0])
         x = ldiv!(L, copy(b))
         @test nonzeroinds(x) == 1:3 && x ≈ L \ [1.0, 0.0, 2.0]
-        end
     end
 
     @testset "scalar promotion" for eltypemat in eltypes
@@ -630,6 +636,7 @@ end
                 check_trisolve(tri(backing), spvec)
             end
         end
+    end
     end
 end
 @static if COMPREHENSIVE
