@@ -57,7 +57,8 @@ jobs:
           check_bounds: ${{ matrix.check-bounds || 'auto' }}
           depwarn: 'error'
         env:
-          # the coverage job is the one that also runs the comprehensive suites
+          # the coverage job (Linux x64) runs the tests in comprehensive mode instead of
+          # standard mode, so that coverage counts the guarded tests
           SPARSEARRAYS_TEST_COMPREHENSIVE: ${{ matrix.coverage == true }}
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.coverage == true

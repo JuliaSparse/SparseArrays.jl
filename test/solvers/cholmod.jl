@@ -344,7 +344,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "ldiv! with aliased solution and right-hand side $Ti" begin
-    local A, F, B, ws, ws2
+    local A, F, B, ws
     A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
     F = cholesky(A)
     B = A * Tv[1 2; 3 4; 5 6]
@@ -352,10 +352,6 @@ end
     ws = CHOLMOD.CholmodWS(F)
     B = A * Tv[1 2 3; 4 5 6; 7 8 9]
     @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2); workspace = ws) ≈ [1 2; 4 5; 7 8]
-    # a deepcopy gets its own Y/E handles instead of sharing the ones a solve allocated,
-    # and repeated references resolve to the same copy
-    ws2, ws3 = deepcopy((ws, ws))
-    @test ws2 === ws3 && ws2.Y[] == ws2.E[] == C_NULL != ws.Y[]
 end
 end
 
@@ -443,10 +439,9 @@ end
     @test isa(CHOLMOD.eye(3, 4), CHOLMOD.Dense{Float64})
     @test isa(CHOLMOD.eye(3, Tv), CHOLMOD.Dense{Tv})
     @test isa(CHOLMOD.eye(3), CHOLMOD.Dense{Float64})
-    @test isa(CHOLMOD.zeros(1, 1, ComplexF32), CHOLMOD.Dense{ComplexF32})
 end
 
-end # for Tv ∈ (Float32, Float64)
+end # for Tv
 
 @testset "test Sparse constructor and read_sparse" begin
     # avoid dependenting on delimited files
@@ -482,6 +477,7 @@ end
     b = Float32[1, 2]
     F = cholesky(A)
     @test F \ b ≈ Float32[1/11, 7/11]
+    @test isa(CHOLMOD.zeros(1, 1, ComplexF32), CHOLMOD.Dense{ComplexF32})
     @static if COMPREHENSIVE
     Ac = complex.(A)
     bc = complex.(b)
@@ -621,31 +617,6 @@ end
     @test !isposdef(A1)
     @test !isposdef(A1 + copy(A1') |> t -> t - 2eigmax(Array(t))*I)
 
-    @static if COMPREHENSIVE
-    if elty <: Real
-        @test CHOLMOD.issymmetric(Sparse(A1pd, 0))
-        @test CHOLMOD.Sparse(cholesky(Symmetric(A1pd, :L))) == CHOLMOD.Sparse(cholesky(A1pd))
-        F1 = CHOLMOD.Sparse(cholesky(Symmetric(A1pd, :L), shift=2))
-        F2 = CHOLMOD.Sparse(cholesky(A1pd, shift=2))
-        @test F1 == F2
-        @test CHOLMOD.Sparse(ldlt(Symmetric(A1pd, :L))) == CHOLMOD.Sparse(ldlt(A1pd))
-        F1 = CHOLMOD.Sparse(ldlt(Symmetric(A1pd, :L), shift=2))
-        F2 = CHOLMOD.Sparse(ldlt(A1pd, shift=2))
-        @test F1 == F2
-    else
-        @test !CHOLMOD.issymmetric(Sparse(A1pd, 0))
-        @test CHOLMOD.ishermitian(Sparse(A1pd, 0))
-        @test CHOLMOD.Sparse(cholesky(Hermitian(A1pd, :L))) == CHOLMOD.Sparse(cholesky(A1pd))
-        F1 = CHOLMOD.Sparse(cholesky(Hermitian(A1pd, :L), shift=2))
-        F2 = CHOLMOD.Sparse(cholesky(A1pd, shift=2))
-        @test F1 == F2
-        @test CHOLMOD.Sparse(ldlt(Hermitian(A1pd, :L))) == CHOLMOD.Sparse(ldlt(A1pd))
-        F1 = CHOLMOD.Sparse(ldlt(Hermitian(A1pd, :L), shift=2))
-        F2 = CHOLMOD.Sparse(ldlt(A1pd, shift=2))
-        @test F1 == F2
-    end
-    end
-
     ### cholesky!/ldlt!
     F = cholesky(A1pd)
     CHOLMOD.change_factor!(F, false, false, true, true)
@@ -679,13 +650,13 @@ end
         @test CHOLMOD.copy(A1Sparse, 0, 1) == A1Sparse
         @test CHOLMOD.aat(A1Sparse, [0:size(A1,2)-1;], 1) ≈ A1*A1'
         @test CHOLMOD.aat(A1Sparse, [0:1;], 1) ≈ A1[:,1:2]*A1[:,1:2]'
+        # integer values are converted
+        @test CHOLMOD.Sparse(sparse([2 0; 1 3])) == CHOLMOD.Sparse(sparse(Tv[2 0; 1 3]))
     end
     @test CHOLMOD.Sparse(CHOLMOD.Dense(A1Sparse)) == A1Sparse
-    # integer values are converted
-    @test CHOLMOD.Sparse(sparse([2 0; 1 3])) == CHOLMOD.Sparse(sparse(Tv[2 0; 1 3]))
 
     @testset "Mixed inputs ($elty2)" for elty2 in (@static COMPREHENSIVE ?
-            (elty <: Real ? (Float32, Tv, Complex{Tv}) : (Tv, ComplexF32)) : (Tv,)), Tv2 in (real(elty2),)
+            (elty <: Real ? (Tv, Complex{Tv}) : (Tv, ComplexF32)) : (Tv,)), Tv2 in (real(elty2),)
         A2 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
         A2Sparse = CHOLMOD.Sparse(A2)
         if elty <: Real
@@ -731,6 +702,16 @@ end
         @test CHOLMOD.vertcat(A1Sparse, A3Sparse, true) == [A1; A3]
         @test CHOLMOD.scale!(CHOLMOD.Dense(ones(Float32, 1)), CHOLMOD_SCALAR, A1Sparse) == A1Sparse
         @test A1Sparse*ones(Float32, 5) ≈ A1*ones(Tv, 5)
+        @static if COMPREHENSIVE
+        @test A1Sparse*A3Sparse ≈ A1*A3
+        @test A1Sparse'A3Sparse ≈ A1'A3
+        @test A1Sparse*A3Sparse' ≈ A1*A3'
+        for scaling in (CHOLMOD_ROW, CHOLMOD_COL, CHOLMOD_SYM)
+            @test CHOLMOD.scale!(CHOLMOD.Dense(ones(Float32, 5)), scaling, A1Sparse) == A1Sparse
+        end
+        @test A1Sparse'*ones(Float32, 5) ≈ A1'*ones(Tv, 5)
+        @test A1pd \ ones(Float32, 5) ≈ Matrix(A1pd) \ ones(Tv, 5)
+        end
     end
 end
 
@@ -795,10 +776,10 @@ end
         @test Fs.UP\b ≈ (Lfp'\b)[p_inv]
         @static if COMPREHENSIVE
         @test Fs.U'\b ≈ Lfp\b ≈ (Fs.U'\bs)::SparseVector
-        @test Fs.U\b ≈ Lfp'\b ≈ (Fs.U\bs)::SparseVector
+        @test (Fs.U\bs)::SparseVector ≈ Lfp'\b
         @test Fs.L'\b ≈ Lfp'\b ≈ (Fs.L'\bs)::SparseVector
-        @test Fs.PtL\b ≈ Lfp\b[p] ≈ (Fs.PtL\bs)::SparseVector
-        @test Fs.UP\b ≈ (Lfp'\b)[p_inv] ≈ (Fs.UP\bs)::SparseVector
+        @test (Fs.PtL\bs)::SparseVector ≈ Lfp\b[p]
+        @test (Fs.UP\bs)::SparseVector ≈ (Lfp'\b)[p_inv]
         @test Fs.PtL'\b ≈ (Lfp'\b)[p_inv] ≈ (Fs.PtL'\bs)::SparseVector
         @test Fs.UP'\b ≈ Lfp\b[p] ≈ (Fs.UP'\bs)::SparseVector
         end

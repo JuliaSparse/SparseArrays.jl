@@ -84,7 +84,7 @@ end
             @test Vector(v)::Vector{Float64} == collect(v)
         end
         # issue #54
-        y = SparseVector{ComplexF64,(@static COMPREHENSIVE ? Int32 : Int)}(x)
+        y = SparseVector{ComplexF64,(@static COMPREHENSIVE ? Int32 : Int16)}(x)
         @test promote_type(typeof(x), typeof(y)) === SparseVector{ComplexF64,Int}
         @test promote_type(Vector{Int}, typeof(x)) === Vector{Float64}
         @test promote(x, y) == (x, y)
@@ -506,10 +506,9 @@ end
     # `Vector{Int}` like dense, whether or not the predicate holds at zero
     @testset "findall index type, Ti = $Ti" for Ti in (Int, (@static COMPREHENSIVE ? (Int32,) : ())...)
         x = SparseVector(6, Ti[2, 3, 5], [1.5, 0.0, -0.5])
-        xc = SparseVector(6, Ti[2, 3, 5], [1.5 + 1.0im, 0.0im, -0.5im])
-        # the build's `Int` takes one predicate of each kind, another index type all of them
-        for (v, ps) in ((x, (>(0.5), iszero, (Ti === Int ? () : (<(0.5), !iszero, t -> true))...)),
-                        (Ti === Int ? () : ((xc, (t -> abs2(t) > 1, t -> abs2(t) < 1, iszero, !iszero)),))...)
+        for (v, ps) in ((x, (>(0.5), iszero, (@static COMPREHENSIVE ? (<(0.5), !iszero, t -> true) : ())...)),
+                        (@static COMPREHENSIVE ? ((SparseVector(6, Ti[2, 3, 5], [1.5 + 1.0im, 0.0im, -0.5im]),
+                                                   (t -> abs2(t) > 1, t -> abs2(t) < 1, iszero, !iszero)),) : ())...)
             d = Vector(v)
             for p in ps, w in (v, view(v, :))
                 @test @inferred(findall(p, w)) == findall(p, d)
@@ -1604,7 +1603,7 @@ end
 
 @testset "similar for SparseVector" begin
     A = SparseVector(10, Int[1, 3, 5, 7], Float64[1.0, 3.0, 5.0, 7.0])
-    Tv, Ti = @static COMPREHENSIVE ? (Float32, Int8) : (ComplexF64, Int)
+    Tv, Ti = @static COMPREHENSIVE ? (Float32, Int8) : (ComplexF64, Int16)
     # test similar without specifications (preserves stored-entry structure)
     simA = similar(A)
     @test typeof(simA) == typeof(A)
@@ -1765,7 +1764,7 @@ end
     end
     # the full-column and full-vector views scale in place through the parent's storage
     # (`view(x, :)` is a `SparseVectorView` only when the parent's axes are `Int`-sized)
-    for v in (view(A, :, 1), view(SparseVector{ComplexF64,Int}(x), :)), a in (0.5, (@static COMPREHENSIVE ? (1.0 + im,) : ())...)
+    for v in (view(A, :, 1), (Ti === Int ? (view(x, :),) : ())...), a in (0.5, (@static COMPREHENSIVE ? (1.0 + im,) : ())...)
         @test which(*, (typeof(v), typeof(a))).module === SparseArrays
         @test which(*, (typeof(a), typeof(v))).module === SparseArrays
         @test which(/, (typeof(v), typeof(a))).module === SparseArrays
@@ -1779,7 +1778,8 @@ end
         @test lmul!(a, w) === w && w == a * Array(v)
         @test nnz(p) == nnz(parent(v))
     end
-    # the results are built from the stored entries, not from every element
+    # the results are built from the stored entries, not from every element; standard mode
+    # stays on the `ComplexF64` views compiled above
     Tb = @static COMPREHENSIVE ? Float64 : ComplexF64
     B = SparseMatrixCSC{Tb,Ti}(sparse([2, 5], [1, 1], [1.0, 2.0], 10^5, 2))
     y = SparseVector{Tb,Ti}(sparsevec([3, 7], [1.0, 2.0], 10^5))
@@ -1821,8 +1821,8 @@ end
         @test circshift!(g, v, 3) === g && g == x
         @test_throws ArgumentError circshift!(g, v, 2)
         @test g == x && nonzeroinds(g) == [1, 5, 7, 8]
-        @test isempty(circshift(fixed(spzeros(0)), 1))
     end
+    @test isempty(circshift(fixed(spzeros(0)), 1))
 end
 
 @testset "SparseColumnView properties" begin

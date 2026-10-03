@@ -67,11 +67,11 @@ julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/s
 The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
 as a separate CI job.
 One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
-The tests run in two modes. Standard mode is what `Pkg.test`, every CI platform and
-Julia's own CI run: one representative test per feature, kept fast. Comprehensive mode
-also runs the tests guarded with `@static if COMPREHENSIVE`, the issue regressions and
-the wider corner cases, and `test/issues.jl`. One CI job runs it, the coverage job; run
-it locally before a PR that touches a kernel.
+The tests run in two modes. Standard mode is what `Pkg.test`, Julia's own CI and every CI
+job but the coverage job run: one representative test per feature, kept fast.
+Comprehensive mode also runs the tests guarded with `@static if COMPREHENSIVE`, the issue
+regressions and the wider corner cases, and `test/issues.jl`. One CI job runs it, the
+coverage job; run it locally before a PR that touches a kernel.
 
 ## Style
 
@@ -130,10 +130,10 @@ it locally before a PR that touches a kernel.
   exhaustive grids. Pure-Julia kernels are generic over `Ti`; one index type is enough.
 - Test time is compilation: it grows with the number of distinct type combinations a
   test compiles, not with sizes or repetitions. Standard mode uses `Float64` and
-  `ComplexF64` with `Int` indices, and never `Int8`, `Int32` or `UInt8`; neither mode
-  runs a full Cartesian grid. A test needing a type of its own takes it from
-  `test/SparseTestHelpers.jl`, which holds every test-defined type and shared helper; do
-  not define a `struct` in a suite file.
+  `ComplexF64` with `Int` indices, and never `Int8`, `Int32` or `UInt8`; both modes
+  prefer a `pairwise` or `eachvalue` subset to a full Cartesian grid. A test needing a
+  type of its own takes it from `test/SparseTestHelpers.jl`, which holds every
+  test-defined type and shared helper; do not define a `struct` in a suite file.
 - A method that exists only for speed needs a test proving it is dispatched to, not
   just a correctness check against dense, which passes on the fallback too.
 - No wall-clock assertions. Allocation bounds prove constancy, not zero. Match

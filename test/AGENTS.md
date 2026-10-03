@@ -7,14 +7,15 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
 
 - `runtests.jl` owns the suite inventory, used by both ParallelTestRunner and the serial
   fallback for Julia Base CI. On both paths selectors match suite names by prefix and a
-  `!prefix` selector excludes; the serial path takes selectors only, and errors when
-  nothing matches. `--jobs=N` and `PTR_NUM_JOBS` are honoured; without either, the
-  runner uses `Sys.CPU_THREADS` workers. Adding a feature file does not require adding a
-  worker task.
+  `!prefix` selector excludes; the serial path takes selectors, `--list` and
+  `--comprehensive` only, and errors when nothing matches. `--jobs=N` and `PTR_NUM_JOBS`
+  are honoured; without either, the runner uses `Sys.CPU_THREADS` workers. Adding a
+  feature file does not require adding a worker task.
 - `SparseTestHelpers.jl` is a module holding everything the suites share: the
-  `getproperty` guard that makes field access on the sparse types an error, the standard
-  type sets (`STD_ELTYPES`, `itypes`, `core_itypes`), the grid helpers `eachvalue` and
-  `pairwise`, `same_pattern` and `exact_equal`, and every type a test defines (`OpCount`
+  `getproperty` guard that makes field access on the sparse types an error, the type
+  sets (`STD_ELTYPES` and `core_itypes`, and `itypes`, which adds `Int32`, for guarded
+  code), the grid helpers `eachvalue` and `pairwise`, `same_pattern` and `exact_equal`,
+  and every type a test defines (`OpCount`
   with `mulcount`/`eqcount`/`opcount_sparse`, `CountedReads`, `WrappedSparseVector`,
   `NonCSCSparse`, `SimpleSMatrix`, `MockTropical`, `Meters` and the rest). Every suite is
   a module that `include`s `testhelpers.jl` first (`../testhelpers.jl` from a
@@ -58,25 +59,25 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   factorizations and one shared `lu` and `cholesky` factor in `threads_child.jl`, which
   loads nothing it does not need. The other shared-factor cases at one and four threads,
   `cholmod_lifetime.jl` (not a suite of its own) and the library-directory override in a
-  child are guarded, in the same file. Keep the rooting stress workload in the lifetime file until a demonstrated reproducer
-  supports a smaller replacement.
+  child are guarded, in the same file. Keep the rooting stress workload in the lifetime
+  file until a demonstrated reproducer supports a smaller replacement.
 
 ## Standard and comprehensive mode
 
-- **Standard** mode is what `Pkg.test`, every CI platform and Julia's own CI run. It
-  tests each feature and kernel once, for correctness, over `Float64` and `ComplexF64`
-  with `Int` indices. Another type, wrapper or shape appears only where it is the point
-  of the test, and `Int8`, `Int32` and `UInt8` not at all: a solver suite uses the
-  build's `Int`, so the 32-bit C entry points get their standard coverage from the 32-bit
-  CI jobs. Julia's CI runs every suite serially in one process, so standard mode must
-  stay fast.
+- **Standard** mode is what `Pkg.test`, Julia's own CI and every CI job but the coverage
+  job, which is the Linux x64 one, run. It tests each feature and kernel once, for
+  correctness, over `Float64` and `ComplexF64` with `Int` indices. Another type, wrapper
+  or shape appears only where it is the point of the test, and `Int8`, `Int32` and
+  `UInt8` not at all: a solver suite uses the build's `Int`, so the 32-bit C entry points
+  get their standard coverage from the 32-bit CI jobs. Julia's CI runs every suite
+  serially in one process, so standard mode must stay fast.
 - **Comprehensive** mode runs, in the same files, the tests guarded with
-  `@static if COMPREHENSIVE` as well, and the `issues` suite. It is selected by
-  `SPARSEARRAYS_TEST_COMPREHENSIVE=true` in the environment, which `runtests.jl` sets for
-  the `--comprehensive` argument, and in CI by the coverage job only. The guarded tests
-  are the issue regressions and the wider corner cases: more element and index types,
-  wrappers, promotion pairs, sizes, and the allocation, inference and dispatch checks
-  beyond one per kernel.
+  `@static if COMPREHENSIVE` as well, and the `issues` suite, which a standard run skips
+  unless a selector names it. It is selected by `SPARSEARRAYS_TEST_COMPREHENSIVE=true` in
+  the environment, which `runtests.jl` sets for the `--comprehensive` argument, and in CI
+  by the coverage job only. The guarded tests are the issue regressions and the wider
+  corner cases: more element and index types, wrappers, promotion pairs, sizes, and the
+  allocation, inference and dispatch checks beyond one per kernel.
 
 **A new test is guarded.** That covers a regression test for an issue and any additional
 case for code the standard tests already exercise. An unguarded test is only for new
@@ -102,10 +103,11 @@ end
 Write a test body once. When the two modes differ in the values a test runs over, the
 guard goes on the values, not around a copy of the body.
 
-Neither mode runs a full Cartesian grid. Take `eachvalue(dims...)`, in which every value
-of every dimension appears once, or `pairwise(dims...)`, in which every two values of
-different dimensions meet, and add the corner cases by name: empty, stored zeros, a
-missing diagonal, unsorted or aliased input, an unusual index type.
+Prefer a subset to a full Cartesian grid, which is worth its compile time only over two
+short dimensions. Take `eachvalue(dims...)`, in which every value of every dimension
+appears, or `pairwise(dims...)`, in which every two values of different dimensions meet
+(for two dimensions that is the full grid), and add the corner cases by name: empty,
+stored zeros, a missing diagonal, unsorted or aliased input, an unusual index type.
 
 Test time is almost all compilation, so it is the number of distinct type combinations
 that costs, not sizes or repetitions. Three things follow for the test code itself. A

@@ -149,11 +149,13 @@ end
     # generic `factorize`, a dense Bunch-Kaufman in `Rational{BigInt}`
     As = ((sparse([4 1 0; 1 4 1; 0 1 4]), Float64),
           (sparse(Complex{Int}[4 1+im 0; 1-im 4 1+im; 0 1-im 4]), ComplexF64))
+    for (A, T) in (@static COMPREHENSIVE ? As : As[1:1])
+        @test ishermitian(A)
+        @test factorize(A) isa SparseArrays.UMFPACK.UmfpackLU{T}
+    end
     for ((A, T), wrap, dense) in (@static COMPREHENSIVE ?
             pairwise(As, (identity, adjoint, transpose), (true, false)) : ((As[1], identity, true),))
         elty = eltype(A)
-        @test ishermitian(A)
-        @test factorize(A) isa SparseArrays.UMFPACK.UmfpackLU{T}
         b, B = elty[1, 2, 3], elty[1 2; 3 4; 5 6]
         for M in (wrap(A),)
             for rhs in (dense ? (@static COMPREHENSIVE ? (b, B) : (b,)) : ())
@@ -216,6 +218,8 @@ end
     b = ComplexF64[1, 2, 3]
     ws = fact === lu ? SparseArrays.UMFPACK.UmfpackWS(F) :
          fact === cholesky ? SparseArrays.CHOLMOD.CholmodWS(F) : SparseArrays.SPQR.SpqrWS(F)
+    # the adjoint of a Cholesky factorization solves the same system as the factorization,
+    # so its transpose is the wrapper that takes a path of its own
     for wrap in (identity, (@static COMPREHENSIVE ? (adjoint, transpose) : fact === cholesky ? (transpose,) : (adjoint,))...)
         G, D = wrap(F), wrap(Matrix(M))
         x = D \ b

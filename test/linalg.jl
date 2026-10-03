@@ -109,9 +109,12 @@ end
     @test Symmetric(real(A)) + Hermitian(B) isa Hermitian{ComplexF64, <:SparseMatrixCSC}
     @test Hermitian(A) + Symmetric(real(B)) isa Hermitian{ComplexF64, <:SparseMatrixCSC}
     @test Hermitian(A) + Symmetric(B) isa SparseMatrixCSC
-    # a wrapped and a plain sparse matrix
+    # a wrapped and a plain sparse matrix; the #35325 testset in issues.jl has every
+    # such combination, and it runs in comprehensive mode only
+    @static if !COMPREHENSIVE
     @test (A + Hermitian(B))::SparseMatrixCSC ≈ A + collect(Hermitian(B))
     @test (Hermitian(A) + B)::SparseMatrixCSC ≈ collect(Hermitian(A)) + B
+    end
 end
 
 @testset "destination array density in solves" begin
@@ -682,7 +685,6 @@ end
     @test nnz(spdiagm(sparse([x; 0]))) == 2
     @test spdiagm(3, 4, x)::SparseMatrixCSC == diagm(3, 4, x)
     @static if COMPREHENSIVE
-    @test spdiagm(-1 => x)::SparseMatrixCSC == diagm(-1 => x)
     @test nnz(spdiagm(3, 4, sparse([x; 0]))) == 2
     end
 
@@ -1061,8 +1063,8 @@ end
         Sd = trans(Matrix(B), uplo)
         @test dot(x, S, x) ≈ dot(x, Sd, x) ≈ dot(xd, S, xd) ≈ dot(xd, Sd, xd)
     end
-    # a real symmetric dense matrix between sparse vectors
-    xr = real(vx); Sr = Symmetric(real(Matrix(A))[:, 1:10])
+    # a real Hermitian dense matrix between sparse vectors has a method of its own
+    xr = real(vx); Sr = Hermitian(real(Matrix(A))[:, 1:10])
     @test dot(xr, Sr, xr) ≈ dot(Vector(xr), Sr, Vector(xr))
 end
 

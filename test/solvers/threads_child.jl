@@ -10,8 +10,8 @@ Base.Experimental.@compiler_options optimize=0
 
 Random.seed!(1234)
 
-A = sprandn(120, 120, 0.2)
-b = rand(120)
+A = sprandn(200, 200, 0.2)
+b = rand(200)
 
 function test(n::Integer)
     _A = A[1:n, 1:n]
@@ -21,11 +21,11 @@ function test(n::Integer)
 end
 
 res_threads = zeros(100)
-Threads.@threads for i in eachindex(res_threads)
-    res_threads[i] = test(i + 20)
+Threads.@threads for i in 1:100
+    res_threads[i] = test(i + 100)
 end
 
-@test res_threads ≈ [test(i + 20) for i in eachindex(res_threads)]
+@test res_threads ≈ [test(i + 100) for i in 1:100]
 
 cases = map(split(get(ENV, "SPARSEARRAYS_TEST_THREADS_CASES", ""), ';'; keepempty=false)) do case
     factorize, T, Ti = split(case, ',')

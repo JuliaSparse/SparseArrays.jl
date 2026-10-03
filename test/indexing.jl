@@ -34,7 +34,7 @@ include("testhelpers.jl")
         @test ss116[:,:] == copy(ss116)
 
         @static if COMPREHENSIVE
-        @test convert(SparseMatrixCSC{Float32,Int32}, sd116)[2:5,:] == convert(SparseMatrixCSC{Float32,Int32}, sd116[2:5,:])
+        @test convert(SparseMatrixCSC{Float32,Int32}, ss116)[2:5,:] == convert(SparseMatrixCSC{Float32,Int32}, ss116[2:5,:])
         end
 
         # range indexing
@@ -136,7 +136,10 @@ include("testhelpers.jl")
         end
         if @static COMPREHENSIVE || T <: Real
         x = A[:, 1]; m = A .!= 0
-        @test A[to_indices(A, (m,))...] == A[to_indices(A, ((@static COMPREHENSIVE ? vec(m) : m),))...] == Array(A)[m]
+        @test A[to_indices(A, (m,))...] == Array(A)[m]
+        @static if COMPREHENSIVE
+        @test A[to_indices(A, (vec(m),))...] == Array(A)[m]
+        end
         @test A[1:2, :][false:true, c] == Array(A)[1:2, :][false:true, c]
         @test which(getindex, typeof.((x, AllBut(2)))).module === SparseArrays
         @test x[AllBut(2)] == Array(x)[AllBut(2)]
@@ -731,12 +734,13 @@ _length_or_count_or_five(x) = length(x)
 end
 
 @testset "nonscalar setindex!" begin
-    Is = (1:4, :, 5:-1:2, [], trues(5), setindex!(falses(5), true, 2), 3)
+    Is = (1:4, :, [], 5:-1:2, trues(5), setindex!(falses(5), true, 2), 3)
     Js = (:, 4:-1:1, [], 2:4, 4, falses(5), setindex!(trues(5), false, 3))
-    # Each index form with each kind of value. Two integers take no array, so an integer
-    # is also paired with a colon for every kind of value.
+    # Each index form with each kind of value; the standard run takes each form once, in
+    # an order that assigns every kind of value non-empty. Two integers take no array, so
+    # an integer is also paired with a colon for every kind of value.
     cases = @static COMPREHENSIVE ?
-        [pairwise(Is, Js, 1:4); [(3, :, k) for k in 1:4]; [(:, 4, k) for k in 1:4]] :
+        unique([pairwise(Is, Js, 1:4); [(3, :, k) for k in 1:4]; [(:, 4, k) for k in 1:4]]) :
         push!(eachvalue(Is, Js, 1:4), (3, 4, 1))
     for case in cases
         I, J, k = case[1], case[2], case[3]     # destructuring compiles a method per tuple type

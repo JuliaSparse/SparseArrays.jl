@@ -183,10 +183,10 @@ end
     @test same_pattern(w, sparsevec([1, 3], [1.0, 2.0], 4))
     w .= sparsevec([3], [5.0], 4)
     @test w == [0, 0, 5, 0] && nnz(w) == 2
-    @static if COMPREHENSIVE
     r = real(fixed(sparsevec([1, 3], ComplexF64[1 + 2im, 3], 4)))
     @test r isa SparseVector{Float64,Int}
     @test r == [1, 0, 3, 0] && nonzeroinds(r) == [1, 3]
+    @static if COMPREHENSIVE
     v = fixed(sparsevec([1, 3], [1 + 2im, 3 + 0im], 4))
     for (f, d) in ((real, [1, 0, 3, 0]), (imag, [2, 0, 0, 0]))
         r = f(v)
@@ -210,8 +210,7 @@ end
     x = sparsevec([1, 3], (@static COMPREHENSIVE ? [1, 0] : [1.0, 0.0]), 4)
     F, y = fixed(A), fixed(x)
     @test which(-, (typeof(F),)).module === SparseArrays
-    @test float(F)::FixedSparseCSC == A && complex(F)::FixedSparseCSC == A
-    for f in (-, (@static COMPREHENSIVE ? (float, complex) : ())...)
+    for f in (-, complex, (@static COMPREHENSIVE ? (float,) : ())...)
         R, r = f(F), f(y)
         @test R isa FixedSparseCSC && r isa FixedSparseVector
         @test R == f(A) && same_pattern(R, A) && r == f(x) && same_pattern(r, x)
@@ -285,11 +284,11 @@ end
         for d in (1, 2)
             for f in (cumsum, (@static COMPREHENSIVE ? (cumprod,) : ())...)
                 R = f(F, dims=d)
-                @test R == f(S, dims=d) == f((@static COMPREHENSIVE ? Array(S) : S), dims=d)
+                @test R == f(S, dims=d) == f(Array(S), dims=d)
                 @test R isa SparseMatrixCSC{T} && !_is_fixed(R)
             end
             R = accumulate(+, F, dims=d, init=one(T))
-            @test R == accumulate(+, S, dims=d, init=one(T)) == accumulate(+, (@static COMPREHENSIVE ? Array(S) : S), dims=d, init=one(T))
+            @test R == accumulate(+, S, dims=d, init=one(T)) == accumulate(+, Array(S), dims=d, init=one(T))
             @test R isa SparseMatrixCSC{T} && !_is_fixed(R)
         end
         @static if COMPREHENSIVE
@@ -303,7 +302,7 @@ end
         @test which(cumsum, (typeof(v),)).module === SparseArrays
         for f in (cumsum, (@static COMPREHENSIVE ? (cumprod,) : ())...)
             r = f(v)
-            @test r == f(s) == f((@static COMPREHENSIVE ? Array(s) : s)) == f(v, dims=1)
+            @test r == f(s) == f(Array(s)) == f(v, dims=1)
             @test r isa SparseVector{T} && !_is_fixed(r)
         end
         @static if COMPREHENSIVE

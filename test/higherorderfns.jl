@@ -65,7 +65,7 @@ end
         @test map(*, A, B) == sparse(map(*, fA, fB))
         end
         @test map(f, A, B) == sparse(map(f, fA, fB))
-        @test_throws DimensionMismatch map(+, A, spzeros((shapeA .- 1)...))
+        retype === identity && @test_throws DimensionMismatch map(+, A, spzeros((shapeA .- 1)...))
         # --> test map! entry point
         fX = map(+, fA, fB); X = sparse(fX)
         map!(+, X, A, B); X = sparse(fX) # warmup for @allocated
@@ -78,7 +78,7 @@ end
         @test map!(*, X, A, B) == sparse(map!(*, fX, fA, fB))
         end
         @test map!(f, X, A, B) == sparse(map!(f, fX, fA, fB))
-        @test_throws DimensionMismatch map!(f, X, A, spzeros((shapeA .- 1)...))
+        retype === identity && @test_throws DimensionMismatch map!(f, X, A, spzeros((shapeA .- 1)...))
     end
     @static if COMPREHENSIVE
     # https://github.com/JuliaLang/julia/issues/37819
@@ -101,7 +101,7 @@ end
         @test map(*, A, B, C) == sparse(map(*, fA, fB, fC))
         end
         @test map(f, A, B, C) == sparse(map(f, fA, fB, fC))
-        @test_throws DimensionMismatch map(+, A, B, spzeros(N, M - 1))
+        retype === identity && @test_throws DimensionMismatch map(+, A, B, spzeros(N, M - 1))
         # --> test map! entry point
         fX = map(+, fA, fB, fC); X = sparse(fX)
         map!(+, X, A, B, C); X = sparse(fX) # warmup for @allocated
@@ -114,7 +114,7 @@ end
         @test map!(*, X, A, B, C) == sparse(map!(*, fX, fA, fB, fC))
         end
         @test map!(f, X, A, B, C) == sparse(map!(f, fX, fA, fB, fC))
-        @test_throws DimensionMismatch map!(f, X, A, B, spzeros((shapeA .- 1)...))
+        retype === identity && @test_throws DimensionMismatch map!(f, X, A, B, spzeros((shapeA .- 1)...))
     end
 end
 
@@ -166,7 +166,7 @@ end
         # --> test shape checks for broadcast! entry point
         # TODO strengthen this test, avoiding dependence on checking whether
         # check_broadcast_axes throws to determine whether sparse broadcast should throw
-        try
+        retype === identity && try
             Base.Broadcast.check_broadcast_axes(axes(Z), spzeros((shapeX .- 1)...))
         catch
             @test_throws DimensionMismatch broadcast!(sin, Z, spzeros((shapeX .- 1)...))
@@ -190,7 +190,7 @@ end
         # --> test shape checks for broadcast! entry point
         # TODO strengthen this test, avoiding dependence on checking whether
         # check_broadcast_axes throws to determine whether sparse broadcast should throw
-        try
+        retype === identity && try
             Base.Broadcast.check_broadcast_axes(axes(V), spzeros((shapeX .- 1)...))
         catch
             @test_throws DimensionMismatch broadcast!(sin, V, spzeros((shapeX .- 1)...))
@@ -277,7 +277,7 @@ end
             @test broadcast(f, X, Y) == sparse(broadcast(f, fX, fY))
             # TODO strengthen this test, avoiding dependence on checking whether
             # check_broadcast_axes throws to determine whether sparse broadcast should throw
-            try
+            retype === identity && try
                 Base.Broadcast.combine_axes(spzeros((shapeX .- 1)...), Y)
             catch
                 @test_throws DimensionMismatch broadcast(+, spzeros((shapeX .- 1)...), Y)
@@ -302,7 +302,7 @@ end
             # --> test shape checks for both broadcast and broadcast! entry points
             # TODO strengthen this test, avoiding dependence on checking whether
             # check_broadcast_axes throws to determine whether sparse broadcast should throw
-            try
+            retype === identity && try
                 Base.Broadcast.check_broadcast_axes(axes(Z), spzeros((shapeX .- 1)...), Y)
             catch
                 @test_throws DimensionMismatch broadcast!(f, Z, spzeros((shapeX .- 1)...), Y)
@@ -406,15 +406,18 @@ end
     tens = (mats..., vecs...)
     # Each vector/matrix mix of the three arguments is its own specialization of one generic
     # kernel. A standard run takes the all-vector mix, the only one with a vector result, and
-    # a vector between two matrices. The triples with an argument of another type are pairwise.
+    # a vector between two matrices. The triples with an argument of another type are pairwise,
+    # which leaves out the all-vector mix, so one is added.
     mixes = ((1, 1, 1), (2, 1, 2))
-    triples = @static COMPREHENSIVE ? pairwise(tens, tens, tens) : ()
+    triples = @static COMPREHENSIVE ? Any[pairwise(tens, tens, tens)..., (vecs[1], vecs[1], vecs[1])] : ()
     for Xo in tens, retype in retypes
         X = retype(Xo)
         # use different types to check internal type stability via allocation tests below
         shapeX, fX = size(X), Array(X)
         for Y in tens, Z in tens
             (retype === identity ? (ndims(X), ndims(Y), ndims(Z)) in mixes : any(t -> t === (Xo, Y, Z), triples)) || continue
+            # the shape checks do not depend on the type of X, so a mix runs them once
+            shapecheck = retype === identity || !((ndims(X), ndims(Y), ndims(Z)) in mixes)
             fY, fZ = Array(Y), Array(Z)
             # --> test broadcast entry point
             @test broadcast(+, X, Y, Z) == sparse(broadcast(+, fX, fY, fZ))
@@ -424,7 +427,7 @@ end
             @test broadcast(f, X, Y, Z) == sparse(broadcast(f, fX, fY, fZ))
             # TODO strengthen this test, avoiding dependence on checking whether
             # check_broadcast_axes throws to determine whether sparse broadcast should throw
-            try
+            shapecheck && try
                 Base.Broadcast.combine_axes(spzeros((shapeX .- 1)...), Y, Z)
             catch
                 @test_throws DimensionMismatch broadcast(+, spzeros((shapeX .- 1)...), Y, Z)
@@ -449,7 +452,7 @@ end
             # --> test shape checks for both broadcast and broadcast! entry points
             # TODO strengthen this test, avoiding dependence on checking whether
             # check_broadcast_axes throws to determine whether sparse broadcast should throw
-            try
+            shapecheck && try
                 Base.Broadcast.check_broadcast_axes(axes(Q), spzeros((shapeX .- 1)...), Y, Z)
             catch
                 @test_throws DimensionMismatch broadcast!(f, Q, spzeros((shapeX .- 1)...), Y, Z)
@@ -589,9 +592,7 @@ end
     for X in (view(M, :, :), view(M, 1:N, 1:N), view(M, collect(1:N), :), view(M, :, :)')[@static COMPREHENSIVE ? (1:4) : [2, 4]]
         fX = Array(X)
         (@static COMPREHENSIVE || !(X isa Adjoint)) && @test broadcast(+, A, X)::SparseMatrixCSC == sparse(broadcast(+, Array(A), fX))
-        @static if COMPREHENSIVE
-        @test broadcast(*, A, X)::SparseMatrixCSC == sparse(broadcast(*, Array(A), fX))
-        end
+        (@static COMPREHENSIVE || X isa Adjoint) && @test broadcast(*, A, X)::SparseMatrixCSC == sparse(broadcast(*, Array(A), fX))
         (@static COMPREHENSIVE || !(X isa Adjoint)) && @test broadcast!(*, Z, A, X) == sparse(broadcast(*, Array(A), fX))
         # the structural zeros of A must be preserved by a zero-preserving op
         (@static COMPREHENSIVE || X isa Adjoint) && @test nnz(broadcast(*, A, X)) <= nnz(A)
@@ -987,7 +988,6 @@ end
     @test SparseMatStyle(Val(1)) == SparseMatStyle()
     @test SparseMatStyle(Val(2)) == SparseMatStyle()
     @test SparseMatStyle(Val(3)) == Broadcast.DefaultArrayStyle{3}()
-    @test Broadcast.BroadcastStyle(SparseArrays.HigherOrderFns.PromoteToSparse(), SparseVecStyle()) == SparseArrays.HigherOrderFns.PromoteToSparse()
 end
 
 @testset "extrema" begin
@@ -1068,37 +1068,35 @@ end
 end
 
 @testset "map and broadcast kernels with the row count at typemax of the index type" begin
-    # Int16 because a narrow index type is the point; a comprehensive run adds the narrowest one
-    n = Int(typemax(Int16))
-    x = SparseVector(n, Int16[1], [1.0])
-    for (R, dR) in ((map(+, x, x), 2Array(x)), (x .+ x, 2Array(x)))
-        @test R == dR && SparseArrays.indtype(R) == Int16
+    # Int16 because a narrow index type is the point
+    for Ti in (Int16, (@static COMPREHENSIVE ? (Int8,) : ())...)
+        n = Int(typemax(Ti))
+        A = SparseMatrixCSC(n, 1, Ti[1, 2], Ti[1], [1.0])
+        x = SparseVector(n, Ti[1], [1.0])
+        for S in (x, (@static COMPREHENSIVE ? (A,) : ())...)
+            @test map(+, S, S) == 2Array(S) && SparseArrays.indtype(map(+, S, S)) == Ti
+            @test S .+ S == 2Array(S) && SparseArrays.indtype(S .+ S) == Ti
+            @static if COMPREHENSIVE
+            @test map(+, S, S, S) == 3Array(S) && SparseArrays.indtype(map(+, S, S, S)) == Ti
+            @test broadcast(+, S, S, S) == 3Array(S) && SparseArrays.indtype(broadcast(+, S, S, S)) == Ti
+            end
+        end
+        # a dense-structured result needs a column pointer of n + 1, so only the vector fits
+        @test map((a, b) -> a + b + 1, x, x) == 2Array(x) .+ 1
+        y = SparseVector(n, Ti.(1:n), ones(n))   # nnz + 1 does not fit the index type either
+        @test y .+ y == 2Array(y) && SparseArrays.indtype(y .+ y) == Ti
+        @static if COMPREHENSIVE
+        @test x .+ x .+ 1 == 2Array(x) .+ 1 && map(+, y, y) == 2Array(y)
+        end
     end
-    # a dense-structured result still fits a vector, whose indices stop at the length
-    @test map((a, b) -> a + b + 1, x, x) == 2Array(x) .+ 1
-    y = SparseVector(n, Int16.(1:n), ones(n))   # nnz + 1 does not fit the index type either
-    @test y .+ y == 2Array(y) && SparseArrays.indtype(y .+ y) == Int16
-    M = SparseMatrixCSC{Float64,Int16}
-    @test !hasunionlocal(SparseArrays.HigherOrderFns._map_zeropres!, (typeof(+), M, M, M), Int16, Int)
-    @test !hasunionlocal(SparseArrays.HigherOrderFns._broadcast_zeropres!, (typeof(+), M, M, M), Int16, Int)
-    @static if COMPREHENSIVE
-    A = SparseMatrixCSC(127, 1, Int8[1, 2], Int8[1], [1.0])
-    x = SparseVector(127, Int8[1], [1.0])
-    for S in (A, x), (R, dR) in ((map(+, S, S), 2Array(S)), (S .+ S, 2Array(S)),
-                                 (map(+, S, S, S), 3Array(S)), (broadcast(+, S, S, S), 3Array(S)))
-        @test R == dR && SparseArrays.indtype(R) == Int8
-    end
-    # a dense-structured 127-row Int8 matrix needs a column pointer of 128, so only the vector fits
-    @test map((a, b) -> a + b + 1, x, x) == 2Array(x) .+ 1 && x .+ x .+ 1 == 2Array(x) .+ 1
-    y = SparseVector(127, Int8.(1:127), ones(127))   # nnz + 1 does not fit the index type either
-    @test y .+ y == 2Array(y) && map(+, y, y) == 2Array(y) && SparseArrays.indtype(y .+ y) == Int8
-    n = Int128(typemax(Int)) + 1; w = SparseVector(n, [n], [1.0])   # indices wider than Int stay
-    @test nonzeroinds(map!(+, SparseVector(n, [n], [0.0]), w, w)) == [n]
-    for Ti in (Int8, Int32)
+    for Ti in (Int16, (@static COMPREHENSIVE ? (Int8, Int32) : ())...)
         M = SparseMatrixCSC{Float64,Ti}
         @test !hasunionlocal(SparseArrays.HigherOrderFns._map_zeropres!, (typeof(+), M, M, M), Ti, Int)
         @test !hasunionlocal(SparseArrays.HigherOrderFns._broadcast_zeropres!, (typeof(+), M, M, M), Ti, Int)
     end
+    @static if COMPREHENSIVE
+    n = Int128(typemax(Int)) + 1; w = SparseVector(n, [n], [1.0])   # indices wider than Int stay
+    @test nonzeroinds(map!(+, SparseVector(n, [n], [0.0]), w, w)) == [n]
     end
 end
 

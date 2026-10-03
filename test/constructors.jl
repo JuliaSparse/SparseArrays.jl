@@ -84,10 +84,12 @@ end
 @static if COMPREHENSIVE
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], -1.0, 2, 2, *) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [-1.0, -1.0, -1.0, 1.0], 2, 2)
     @test sparse(sparse(Int32.(1:5), Int32.(1:5), trues(5))') isa SparseMatrixCSC{Bool,Int32}
-    @test sparse(Int32[1,2,3], [1,2,3], [1.0, 2.0, 3.0], 3, 3) == sparse([1,2,3], [1,2,3], [1.0, 2.0, 3.0], 3, 3)
 end
     # row and column indices of different integer types are converted to `Int`
-    @test sparse(Int16[1,2,3], [1,2,3], [1.0, 2.0, 3.0], 3, 3) == sparse([1,2,3], [1,2,3], [1.0, 2.0, 3.0], 3, 3)
+    for Ti in (Int16, (@static COMPREHENSIVE ? (Int32,) : ())...)
+        S = sparse(Ti[1,2,3], [1,2,3], [1.0, 2.0, 3.0], 3, 3)
+        @test S::SparseMatrixCSC{Float64,Int} == sparse([1,2,3], [1,2,3], [1.0, 2.0, 3.0], 3, 3)
+    end
     # undef initializer
     sz = (3, 4)
     Tv, Ti = @static COMPREHENSIVE ? (Float32, Int16) : (Float64, Int)
@@ -221,16 +223,19 @@ end
     @test SparseMatrixCSC{Float64,Int}(2I, 3, 3)::SparseMatrixCSC{Float64,Int} == sparse(2.0I, 3, 3)
 end
 
+# linalg.jl compares the same call with `diagm` when COMPREHENSIVE
+@static if !COMPREHENSIVE
 @testset "spdiagm without diagonals" begin
     S = spdiagm(3, 4)
     @test S isa SparseMatrixCSC{Bool,Int} && size(S) == (3, 4) && nnz(S) == 0
+end
 end
 
 @testset "conversion to special LinearAlgebra types" begin
     # a diagonal matrix is representable as each of the structured types
     S = sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0])
     @test convert(Diagonal, S)::Diagonal == S
-    # the values are compared in the comprehensive linalg suite; `==` would compile once per type
+    # `isa` only: `==` would compile once per structured type; linalg.jl compares the values
     for T in (SymTridiagonal, Tridiagonal, LowerTriangular, UpperTriangular)
         @test convert(T, S) isa T
     end
@@ -279,7 +284,7 @@ end
 
 @testset "sprand" begin
     p=0.3; m=1000; n=2000;
-    for s in 1:2
+    for s in 1:(@static COMPREHENSIVE ? 10 : 2)
         # build a (dense) random matrix with randsubset + rand
         Random.seed!(s);
         v = randsubseq(1:m*n,p);

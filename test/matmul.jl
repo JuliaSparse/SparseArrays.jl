@@ -162,6 +162,7 @@ end
             D = St*Bt
             @test D ≈ Matrix(St) * Matrix(Bt)
             @test issparse(D)
+            @static COMPREHENSIVE && tA === tB && St isa LinearAlgebra.AbstractTriangular && @test D isa tA
         end
         b = sprandn(5, 0.3)
         c = At * b
@@ -184,11 +185,13 @@ end
     end
     # two triangular factors of one kind give that kind; an implicit unit diagonal is made
     # explicit for the kernel
+    @static if !COMPREHENSIVE
     S = sprandn(5, 5, 0.3); B = sprandn(5, 5, 0.3)
     for tA in (UnitUpperTriangular, LowerTriangular)
         D = tA(S) * tA(B)
         @test D isa tA && issparse(D)
         @test D ≈ Matrix(tA(S)) * Matrix(tA(B))
+    end
     end
 end
 
@@ -251,8 +254,9 @@ end
     rng = Random.MersenneTwister(1)
     n = 20
     # standard: the two wrappers differ only for a complex eltype
-    @testset "$T, $S($U)" for (T, S, U) in (@static COMPREHENSIVE ? pairwise((Float64, ComplexF64), (Symmetric, Hermitian), (:U, :L)) :
-                                            ((Float64, Symmetric, :U), (ComplexF64, Hermitian, :L)))
+    std = ((Float64, Symmetric, :U), (ComplexF64, Hermitian, :L))
+    @testset "$T, $S($U)" for (T, S, U) in (std..., (@static COMPREHENSIVE ?
+            filter(t -> t ∉ std, pairwise((Float64, ComplexF64), (Symmetric, Hermitian), (:U, :L))) : ())...)
         P = sprandn(rng, T, n, n + 2, 0.2)
         nonzeros(P)[1] = 0
         C = randn(rng, T, 3, n)
@@ -351,7 +355,7 @@ end
             pairwise((sA, vA), (identity, adjoint, transpose), (identity, adjoint, transpose), (true, false, a), (true, false, b))
         for (sA, trA, trB, α, β) in cases
             # the three-argument form is the five-argument one with `true, false`
-            (n == 30 || α === true) && @test mul!(copy(sC), trA(sA), trB(sB)) ≈ trA(A) * trB(B)
+            α === true && @test mul!(copy(sC), trA(sA), trB(sB)) ≈ trA(A) * trB(B)
             @test mul!(copy(sC), trA(sA), trB(sB), α, β) ≈ C*β + trA(A) * trB(B) * α
         end
     end
@@ -493,23 +497,22 @@ end
     end
     # a fixed destination whose pattern contains the product's is filled in place; one whose
     # pattern lacks an entry throws and is left untouched
-    S = sparse([1.0 0; 0 2]); D = Diagonal([2.0, 3.0])
+    S = sparse([1.0 0; 0 2]); D = Diagonal([2.0, 3.0]); S1 = sparse([1.0 1; 0 1])
     # standard: the plain matrix on the left and the adjoint on the right
     for W in (identity, adjoint, (@static COMPREHENSIVE ? (transpose,) : ())...),
-            (f, x, y) in ((mul!, W(S), D), (mul!, D, W(S)))[(@static COMPREHENSIVE ? (1:2) : W === identity ? (1:1) : (2:2))]
+            (f, x, y, x1, y1) in ((mul!, W(S), D, W(S1), D), (mul!, D, W(S), D, W(S1)))[(@static COMPREHENSIVE ? (1:2) : W === identity ? (1:1) : (2:2))]
         F = fixed(sparse(ones(2, 2)))
         @test f(F, x, y) === F
         @test F == Matrix(x) * Matrix(y) && nnz(F) == 4 && _is_fixed(F)
         @test f(F, x, y, 2, 3) ≈ 5 * Matrix(x) * Matrix(y)
         G = fixed(sparse([1.0 0; 0 1]))
-        S1 = sparse([1.0 1; 0 1])
-        @test_throws ArgumentError f(G, W(S1), D)
-        @test_throws ArgumentError f(G, W(S1), D, 2, 3)
+        @test_throws ArgumentError f(G, x1, y1)
+        @test_throws ArgumentError f(G, x1, y1, 2, 3)
         @test G == [1 0; 0 1]
     end
 end
 
-@testset "scaling by a number, and inverse scaling" begin
+@testset "scaling by a number, inverse scaling, non-commutative and 5-arg Diagonal mul!" begin
     b = randn(3)
     @test dA * 0.5            == sA * 0.5
     @test dA * 0.5            == mul!(sC, sA, 0.5)
@@ -610,8 +613,6 @@ end
         @test exact_equal(α * x, sx)
         @test exact_equal((α + 0.0*im) * x, complex(sx))
         @static if COMPREHENSIVE
-        @test exact_equal(x * α, sx)
-        @test exact_equal(α * x, sx)
         @test exact_equal(x .* α, sx)
         @test exact_equal(α .* x, sx)
         end
@@ -956,10 +957,12 @@ end
         @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
     end
     # one method serves the left Q types; the lq Q has its own
+    @static if !COMPREHENSIVE
     let Q = lq(D).Q
         @test (Q * B)::Matrix ≈ Q * Matrix(B)
         @test (C * Q)::Matrix ≈ Matrix(C) * Q
         @test (Q' * b)::Vector ≈ Q' * Vector(b)
+    end
     end
 end
 

@@ -437,8 +437,10 @@ end
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
         testtypes = [Float64, ComplexF64, Float32, ComplexF32, Float16, ComplexF16]
-        for (r, Tv, Ti) in (@static COMPREHENSIVE ? pairwise((true, false), testtypes, itypes) : [(reuse, Float64, Int)])
-            if r == reuse || (Tv, Ti) == (Float64, Int)
+        cases = @static COMPREHENSIVE ? pairwise((true, false), testtypes, itypes) : [(reuse, Float64, Int)]
+        for (r, Tv, Ti) in cases
+            # (Float64, Int) runs once under each `reuse`, whether or not the grid pairs them
+            if r == reuse || (Tv, Ti) == (Float64, Int) && (reuse, Tv, Ti) ∉ cases
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
                 B = convert(SparseMatrixCSC{Tv,Ti}, A1)
                 b = Tv[8., 45., -3., 3., 19.]
@@ -582,15 +584,15 @@ end
         @test ldiv!(F, v) ≈ Ad \ Tv.(1:2:8)
         @test w[2:2:8] == 2:2:8
         @test ldiv!(zeros(Tv, 4), F, view(Tv.(collect(1.0:8.0)), 1:2:8)) ≈ Ad \ Tv.(1:2:8)
-        # a standard run reaches the complex kernel here only
+        # the ComplexF64 solve! has a strided branch of its own, which a standard run reaches only here
         @static COMPREHENSIVE || @test ldiv!(zeros(ComplexF64, 4), lu(SparseMatrixCSC{ComplexF64,Ti}(A)), view(complex(collect(1.0:8.0)), 1:2:8)) ≈ Ad \ Tv.(1:2:8)
         M = Tv.(reshape(1.0:24.0, 8, 3))
         Y = zeros(Tv, 8, 3)
         ldiv!(view(Y, 1:2:8, :), transpose(F), view(M, 2:2:8, :))
         @test Y[1:2:8, :] ≈ transpose(Ad) \ M[2:2:8, :]
         @test iszero(Y[2:2:8, :])
-        for (op, G) in ((op, wrap(F)) for (tv, ti, op, wrap) in ((Float64, Int, adjoint, identity), (Float64, Int, transpose, adjoint),
-                (@static COMPREHENSIVE ? pairwise(STD_ELTYPES, itypes, (adjoint, transpose), (identity, adjoint, transpose)) : ())...) if (tv, ti) == (Tv, Ti))
+        for (op, G) in ((op, wrap(F)) for (tv, ti, op, wrap) in unique(((Float64, Int, adjoint, identity), (Float64, Int, transpose, adjoint),
+                (@static COMPREHENSIVE ? pairwise(STD_ELTYPES, itypes, (adjoint, transpose), (identity, adjoint, transpose)) : ())...)) if (tv, ti) == (Tv, Ti))
             B = Tv.(reshape(1.0:12.0, 3, 4))
             Bw = op(copy(B))
             @test ldiv!(G, Bw) === Bw

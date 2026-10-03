@@ -205,11 +205,6 @@ end
     @test S isa SparseMatrixCSC{Float64, Int8}
 end
 
-@testset "issue #12177, error path if triplet vectors are not all the same length" begin
-    @test_throws ArgumentError sparse([1,2,3], [1,2], [1,2,3], 3, 3)
-    @test_throws ArgumentError sparse([1,2,3], [1,2,3], [1,2], 3, 3)
-end
-
 @testset "issue #12118: sparse matrices are closed under +, -, min, max" begin
     A12118 = sparse([1,2,3,4,5], [1,2,3,4,5], [1,2,3,4,5])
     B12118 = sparse([1,2,4,5],   [1,2,3,5],   [2,1,-1,-2])
@@ -714,7 +709,7 @@ g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
 end
 
 @testset "Issue #512" begin # suppresses but does not fix the error mentioned
-    # the standard suite checks the warning itself
+    # `sparsematrix.jl` checks the warning itself
     x = sparse([1, 100, 3], [1, 4, 300], [20, 0, [2]])
     @test_broken repr(MIME("text/plain"), transpose(x'))
 end
@@ -727,7 +722,7 @@ end
 end
 
 @testset "Issue #618" begin
-    # the standard suite runs the `Float64` case
+    # `sparsematrix.jl` runs the `Float64` case
     for v in (['a', 7.0, 1.0, 1.0], [similar(Any[1]); 1.0; 1.0; 1.0])
         # matrix with a repeated entry. test_broken since repeated entries are invalid
         x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], v)

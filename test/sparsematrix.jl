@@ -118,13 +118,11 @@ end
     n = 100
     A = spzeros(n, n); A[1, 1] = 1
     B = copy(A)
-    @static if COMPREHENSIVE
-    for (L, R) in ((A', B'), (transpose(A), transpose(B)), (A, B'), (A', B),
-                   (A, transpose(B)), (transpose(A), B), (A', transpose(B)))
+    for (L, R) in ((A', B'), (A, B'), (transpose(A), B),
+                   (@static COMPREHENSIVE ? ((transpose(A), transpose(B)), (A', B),
+                   (A, transpose(B)), (A', transpose(B))) : ())...)
         @test isequal(L, R)
     end
-    end
-    @test isequal(A', B') && isequal(A, B') && isequal(transpose(A), B)
     A[1, 2] = 1; B[2, 1] = 1
     @test isequal(A, B') && isequal(A', B) && !isequal(A', B') && !isequal(A, B)
     @test !isequal(spzeros(2, 3)', spzeros(2, 3))
@@ -143,7 +141,7 @@ end
               sparse([1, 2, 3, 1, 3], [1, 1, 2, 3, 3], [NaN, -0.0, 2.0, 1.0im, 0.0], 3, 3),
               sparse([1, 2, 3, 1], [1, 1, 2, 3], [1.0, -0.0, 2.0, 1.0im], 3, 3))
         for (L, R) in ((X', Y'), (X, Y'), (@static COMPREHENSIVE ? ((transpose(X), transpose(Y)),
-                       (X, transpose(Y)), (transpose(X), Y), (X', transpose(Y))) : ())...)
+                       (X', Y), (X, transpose(Y)), (transpose(X), Y), (X', transpose(Y))) : ())...)
             @test isequal(L, R) == isequal(Matrix(L), Matrix(R))
             @test isequal(R, L) == isequal(Matrix(R), Matrix(L))
             @test (L == R) == (Matrix(L) == Matrix(R))
@@ -258,18 +256,22 @@ do33 = fill(1.,3)
                            (S, view(Matrix(M'), 1:4, :)'))),
                     fun in (+, -)
                 (T, k, fun) in pairwise(STD_ELTYPES, 1:8, (+, -)) || continue
+                # the lines after this loop run these two in both modes
+                (T, k, fun) in ((Float64, 1, +), (Float64, 2, -)) && continue
                 A, B = Array(X), Array(Y)
                 @test @inferred(fun(X, Y))::Matrix{T} == fun(A, B)
                 @test @inferred(fun(Y, X))::Matrix{T} == fun(B, A)
             end
-            @test S[1:4, :] + Symmetric(M[1:4, :]) isa Matrix{T}
             @test UpperTriangular(M[1:4, :]) - S[1:4, :] isa Matrix{T}
+            T == Float64 && continue   # the lines after this loop run these for Float64
+            @test S[1:4, :] + Symmetric(M[1:4, :]) isa Matrix{T}
             @test_throws DimensionMismatch S + M[:, 1:3]
             @test_throws DimensionMismatch M[:, 1:3]' - S
         end
         end
         # The kernel is the same for every eltype and operator, so each kind of operand pair
-        # (plain, views on both sides, adjoint dense) runs once.
+        # (plain, views on both sides, adjoint dense) runs once. These are written out because
+        # a loop over operand pairs compiles tuple iteration for every pair of types.
         S = sprandn(5, 4, 0.5)
         S[2, 3] = 0   # stored zero
         M = randn(5, 4)
@@ -286,8 +288,8 @@ do33 = fill(1.,3)
         @test_throws DimensionMismatch S + M[:, 1:3]
         @test_throws DimensionMismatch M[:, 1:3]' - S
         # promotion follows the dense method
-        @test sparse([1, 2], [1, 2], [1, 2]) + [1.5 0.0; 0.0 1.5] isa Matrix{Float64}
-        @test sparse(1:2, 1:2, Number[1.5, 2]) + [1 2; 3 4] == [2.5 2; 3 6]
+        @test sparse([1, 2], [1, 2], [1, 2]) + [1.5 0; 0 1.5] isa Matrix{Float64}
+        @test sparse([1], [1], Real[1.5], 2, 2) + [1 2; 3 4]' == [2.5 3; 2 4]
     end
     @testset "binary operations on sparse matrices with union eltype" begin
         @static if COMPREHENSIVE
@@ -363,12 +365,12 @@ end
     @test tan.(Afull) == Array(tan.(A)) # should be redundant with sin test
     @test ceil.(Afull) == Array(ceil.(A))
     @test floor.(Afull) == Array(floor.(A)) # should be redundant with ceil test
-    @test real.(Afull) == Array(real.(A)) == Array(real(A))
-    @test imag.(Afull) == Array(imag.(A)) == Array(imag(A))
-    @test conj.(Afull) == Array(conj.(A)) == Array(conj(A))
-    @test real.(Cfull) == Array(real.(C)) == Array(real(C))
-    @test imag.(Cfull) == Array(imag.(C)) == Array(imag(C))
-    @test conj.(Cfull) == Array(conj.(C)) == Array(conj(C))
+    @test real.(Afull) == Array(real.(A))
+    @test imag.(Afull) == Array(imag.(A))
+    @test conj.(Afull) == Array(conj.(A))
+    @test real.(Cfull) == Array(real.(C))
+    @test imag.(Cfull) == Array(imag.(C))
+    @test conj.(Cfull) == Array(conj.(C))
     # Test representatives of [unary functions that map zeros to zeros and nonzeros to nonzeros]
     @test expm1.(Afull) == Array(expm1.(A))
     @test abs.(Afull) == Array(abs.(A))
@@ -390,7 +392,7 @@ end
     @static if COMPREHENSIVE
     @test floor.(Int, Afull) == Array(floor.(Int, A))
     # Tests of real, imag, abs, and abs2 for SparseMatrixCSC{Int,X}s previously elsewhere
-    for T in (Int, Float16, Float32, Float64, BigInt, BigFloat)
+    for T in (Int, Float16, Float32, BigInt, BigFloat)
         R = rand(T[1:100;], 2, 2)
         I = rand(T[1:100;], 2, 2)
         D = R + I*im
@@ -426,22 +428,21 @@ end
     end
     D = [E(1) E(2); E(0) E(3)]
     v = sparsevec([2], [Variable(1)], 2)
-    @static if COMPREHENSIVE
-    for f in (Array, Matrix)
+    for f in (Array, (@static COMPREHENSIVE ? (Matrix,) : ())...)
         @test f(S)::Matrix{E} == D
-        @test f(view(S, :, 1:2))::Matrix{E} == D
         @test f(transpose(S))::Matrix{E} == permutedims(D)
+        @static if COMPREHENSIVE
+        @test f(view(S, :, 1:2))::Matrix{E} == D
         @test f(transpose(v))::Matrix{E} == [E(0) E(1)]
+        end
     end
-    for f in (Array, Vector)
+    for f in (Array, (@static COMPREHENSIVE ? (Vector,) : ())...)
         @test f(v)::Vector{E} == [E(0), E(1)]
+        @static if COMPREHENSIVE
         @test f(view(S, :, 1))::Vector{E} == [E(1), E(0)]
         @test f(view(v, 1:2))::Vector{E} == [E(0), E(1)]
+        end
     end
-    end
-    @test Array(S)::Matrix{E} == D
-    @test Array(transpose(S))::Matrix{E} == permutedims(D)
-    @test Array(v)::Vector{E} == [E(0), E(1)]
     @test collect(S)::Matrix{E} == D
     @test collect(v)::Vector{E} == [E(0), E(1)]
     @test (v + [10, 20])::Vector{E} == [E(10), E(21)]
@@ -600,24 +601,17 @@ end
     w = sparsevec([1, n ÷ 2, n], OpCount.([1.0, 0.0, 3.0]), n)
     A = sparse([1, n ÷ 2], [1, n], OpCount.([1.0, 2.0]), n, n)
     B = sparse([1, n ÷ 2, 7], [1, n, 7], OpCount.([1.0, 2.0, 0.0]), n, n)
-    @static if COMPREHENSIVE
-    for (x, y) in ((v, v), (v, w), (w, v), (v', w'), (transpose(v), transpose(w)),
-                   (view(v, 1:n), w),
-                   (A, A), (A, B), (B, A), (A', B'), (transpose(A), transpose(B)),
-                   (A, B'), (A', B), (A, transpose(B)), (transpose(A), B), (A', transpose(B)),
-                   (A, view(B, :, [1:n;])))
+    for (x, y) in ((v, w), (A, B), (A', B'), (A, transpose(B)),
+                   (@static COMPREHENSIVE ? ((v, v), (w, v), (v', w'),
+                   (transpose(v), transpose(w)), (view(v, 1:n), w),
+                   (A, A), (B, A), (transpose(A), transpose(B)),
+                   (A, B'), (A', B), (transpose(A), B), (A', transpose(B)),
+                   (A, view(B, :, [1:n;]))) : ())...)
         budget = nnz(parent(x isa Union{Adjoint,Transpose} ? x : x') ) +
                  nnz(parent(y isa Union{Adjoint,Transpose} ? y : y'))
         for eq in (==, isequal)
             @test eqcount(() -> eq(x, y)) <= budget
         end
-    end
-    end
-    for eq in (==, isequal)
-        @test eqcount(() -> eq(v, w)) <= nnz(v) + nnz(w)
-        @test eqcount(() -> eq(A, B)) <= nnz(A) + nnz(B)
-        @test eqcount(() -> eq(A', B')) <= nnz(A) + nnz(B)
-        @test eqcount(() -> eq(A, transpose(B))) <= nnz(A) + nnz(B)
     end
 end
 
@@ -778,8 +772,10 @@ end
     # compared against the input itself rather than against a dense reference
     # `dims = 2` covers the transposed shapes, so only one orientation of each is listed;
     # fully structural matrices are covered by the "empty and zero-size matrices" testset
-    # `rev` and `alg` run for a subset of the shapes, densities and dimensions
-    extra = @static COMPREHENSIVE ? pairwise(((6, 5), (1, 1), (0, 3), (1, 9), (20, 13)), (0.3, 1.0), (1, 2),
+    # `rev` and `alg` are only forwarded to the sort of each column, so they run in
+    # comprehensive mode alone, for a pairwise subset of the shapes, densities and dimensions
+    extra = @static COMPREHENSIVE ? pairwise(((6, 5), (1, 1), (0, 3), (1, 9), (20, 13)),
+                                             (0.3, 1.0), (1, 2),
                                              ((; rev=true), (; alg=Base.DEFAULT_STABLE))) : ()
     @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (0, 3), (1, 9),
                                                             (20, 13)),
@@ -1379,10 +1375,16 @@ end
     AL = LowerTriangular(A)
     b = SparseVector(9, I[1:4], V[1:4])
     c = view(A, :, 5)
-    d = @static COMPREHENSIVE ? view(b, :) : b
+    @static if COMPREHENSIVE
+    d = view(b, :)
+    @test nnz(d) == 4
+    @test nzrange(d, 1) == 1:4
+    @test rowvals(d) == I[1:4]
+    @test nonzeros(d) == V[1:4]
+    end
 
-    @test (nnz(A), nnz(AU), nnz(AL), nnz(b), nnz(c), nnz(d)) == (12, 11, 3, 4, 4, 4)
-    for M in (A, AU, AL, b, c, d)
+    @test (nnz(A), nnz(AU), nnz(AL), nnz(b), nnz(c)) == (12, 11, 3, 4, 4)
+    for M in (A, AU, AL, b, c, (@static COMPREHENSIVE ? (d,) : ())...)
         @test_throws BoundsError nzrange(M, 0)
         @test_throws BoundsError nzrange(M, size(M, 2) + 1)
     end
@@ -1397,21 +1399,18 @@ end
     end
     @test nzrange(b, 1) == 1:4
     @test nzrange(c, 1) == 1:4
-    @test nzrange(d, 1) == 1:4
 
     @test rowvals(A) == I
     @test rowvals(AL) == I
     @test rowvals(AL) == I
     @test rowvals(b) == I[1:4]
     @test rowvals(c) == I[5:8]
-    @test rowvals(d) == I[1:4]
 
     @test nonzeros(A) == V
     @test nonzeros(AU) == V
     @test nonzeros(AL) == V
     @test nonzeros(b) == V[1:4]
     @test nonzeros(c) == V[5:8]
-    @test nonzeros(d) == V[1:4]
     @test SparseArrays.getrowval(AL) === rowvals(A) && SparseArrays.getnzval(AL) === nonzeros(A)
 end
 

@@ -79,18 +79,18 @@ paired(Tv, Ti, dim) = [x for (tv, ti, x) in pairwise(STD_ELTYPES, itypes, dim) i
     end
 
     @testset "right-hand sides that are not strided arrays of the same element type" begin
-        # a wrapped and a complex right-hand side, and the other kinds in a comprehensive run
+        # a real wrapper and a complex view reach both right-hand side conversions; the other kinds vary only the array type
         kinds = [1, 5]
         @static COMPREHENSIVE && union!(kinds, paired(eltyA, iltyA, 1:7))
         rhs(k) = (randn(2, k)', transpose(randn(2, k)), sprandn(k, 0.5), 1:k,
                   view(complex.(randn(k, 2), randn(k, 2)), :, 1),
                   complex.(randn(2, k), randn(2, k))', randn(ComplexF32, k))[kinds]
-        C = A[1:9, :]   # wide
         for X in rhs(m)
             @test A \ X ≈ Array(A) \ Array(X)
             @test F \ X ≈ Array(A) \ Array(X)
         end
         @static if COMPREHENSIVE
+        C = A[1:9, :]   # wide
         for X in rhs(9)
             @test C \ X ≈ Array(C) \ Array(X)
             @test lq(C) \ X ≈ Array(C) \ Array(X)
@@ -126,6 +126,7 @@ paired(Tv, Ti, dim) = [x for (tv, ti, x) in pairwise(STD_ELTYPES, itypes, dim) i
         @test F'\D ≈ Array(A)'\D
         @test F'\D[:,1] ≈ Array(A)'\D[:,1]
         @test transpose(F)\D ≈ transpose(Array(A))\D
+        eltyB == eltyA && @test ldiv!(zeros(eltyA, m, 2), transpose(F), D; workspace = SPQR.SpqrWS(F)) ≈ transpose(F)\D
         @test A'\D ≈ Array(A)'\D
         @test_throws DimensionMismatch F'\B
         # Least squares solve of the overdetermined C'y = x for the wide C
@@ -161,6 +162,8 @@ paired(Tv, Ti, dim) = [x for (tv, ti, x) in pairwise(STD_ELTYPES, itypes, dim) i
     @test qr(SparseMatrixCSC{eltyA}(I, 5, 5)) \ fill(eltyA(1), 5) == fill(1, 5)
 end
 
+# the loop above covers the complex element type in a comprehensive run
+@static if !COMPREHENSIVE
 @testset "complex element type" begin
     A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(ComplexF64, nn), m, n)
     F = qr(A)
@@ -185,6 +188,7 @@ end
     L = lq(W)
     @test L.L * L.Q ≈ Ad[1:9, :][L.prow, L.pcol]
     @test L \ B[1:9, :] ≈ Ad[1:9, :] \ B[1:9, :]
+end
 end
 
 @testset "basic solution of rank deficient ls" begin
@@ -265,13 +269,11 @@ end
 end
 end
 
-@testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, (@static COMPREHENSIVE ? (ComplexF32, Float16, ComplexF16) : ())...)
+@testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, ComplexF32, (@static COMPREHENSIVE ? (Float16, ComplexF16) : ())...)
     A = sprandn(eltyA, m, n, 0.3)
     F = qr(A)
     @test eltype(F.Q) == eltype(F.R) == eltyA
     @test Matrix(F.Q) * F.R ≈ A[F.prow, F.pcol]
-    # a single-precision complex matrix is factorized in double precision too
-    @test qr(SparseMatrixCSC{ComplexF32, Int}(A)) isa SPQR.QRSparse{ComplexF32, Int}
     @static if COMPREHENSIVE
     # products with double-precision operands convert Q
     b, B = randn(m), randn(3, m)

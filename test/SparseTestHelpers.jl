@@ -32,9 +32,9 @@ end
 # environment, which `runtests.jl` also sets for the `--comprehensive` argument.
 const COMPREHENSIVE = get(ENV, "SPARSEARRAYS_TEST_COMPREHENSIVE", "false") == "true"
 
-# The element types of the standard suites. Test time is compilation, and one process runs
+# The element types of standard mode. Test time is compilation, and one process runs
 # every suite, so a kernel compiled for these types in one suite is reused by the others.
-# Another type appears in a standard suite only where that type is the point of the test.
+# Another type appears in standard mode only where that type is the point of the test.
 const STD_ELTYPES = (Float64, ComplexF64)
 # The C index types of the SuiteSparse solvers, and the one a build's `Int` selects.
 const itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)

@@ -12,8 +12,8 @@ include("testhelpers.jl")
 
 const TRIANGLES = (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
 const TRANSFORMS = (identity, adjoint, transpose)
-# The kernels are compiled per transform and triangle, so a standard run gives each transform
-# one triangle and a comprehensive run every pair. A tuple holding a transform has a type of
+# The kernels are compiled per transform and triangle, so a standard run gives each triangle
+# one transform and a comprehensive run every pair. A tuple holding a transform has a type of
 # its own for each transform, so the standard cases are vectors and `iscase`, which tells
 # whether a nested loop runs the case `c`, is not specialized.
 const TRICASES = @static COMPREHENSIVE ? Iterators.product(TRANSFORMS, TRIANGLES) :
@@ -46,7 +46,8 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
         end
     end
     types = (Int, Float64, (@static COMPREHENSIVE ? (ComplexF32,) : ())...)
-    promotions = @static COMPREHENSIVE ? pairwise(types, types, (LowerTriangular, UpperTriangular)) : Any[(Int, Float64, LowerTriangular)]
+    promotions = Any[(Int, Float64, LowerTriangular)]
+    @static COMPREHENSIVE && append!(promotions, pairwise(types, types, (LowerTriangular, UpperTriangular)))
     @testset "promotion" begin
         for T1 in types, T2 in types
             S = _sparse_test_matrix(n, T1)
@@ -559,7 +560,10 @@ end
     # an integer quotient, integer to float, and real to complex in both directions
     promotions = Any[(Int64, Int64, true, LowerTriangular), (Int64, Float64, false, UnitLowerTriangular),
                      (Float64, ComplexF64, false, LowerTriangular), (ComplexF64, Float64, true, UnitLowerTriangular)]
-    @static COMPREHENSIVE && append!(promotions, pairwise(eltypes, eltypes, (true, false), (LowerTriangular, UnitLowerTriangular)))
+    # the eltype pairs are chosen first, so that each of them meets both backings and triangles
+    @static COMPREHENSIVE && append!(promotions, ((p..., dense, tri) for (p, dense, tri) in
+        pairwise([(a, b) for a in eltypes, b in eltypes if (a in coretypes && b in coretypes) || a == Float64 || b == Float64],
+                 (true, false), (LowerTriangular, UnitLowerTriangular))))
 
     @testset "wrapper dispatch and active-index boundaries" for T in (Float64, ComplexF64)
         densemat, sparsemat = T == Float64 ? (densefloatmat, sparsefloatmat) :
@@ -619,8 +623,6 @@ end
         densemat = convert(Matrix{eltypemat}, densemat)
         sparsemat = convert(SparseMatrixCSC{eltypemat}, sparsemat)
         for eltypevec in eltypes
-            (eltypemat in coretypes && eltypevec in coretypes) ||
-                eltypemat == Float64 || eltypevec == Float64 || continue
             vals = eltypevec <: Complex ? eltypevec[2 + 3im, -1 + 2im, 3 - im] : eltypevec[2, -1, 3]
             spvec = SparseVector(m, [2, 5, 8], vals)
             for backing in (densemat, sparsemat), tri in (LowerTriangular, UnitLowerTriangular)

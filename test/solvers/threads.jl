@@ -12,7 +12,7 @@ include("testprocess.jl")
     others = @static COMPREHENSIVE ? setdiff(pairwise((lu, cholesky, qr), (Float64, ComplexF64), itypes), threads_standard_cases()) : []
     for nt in (@static COMPREHENSIVE ? (1, 4) : (4,))
         @testset "default threads = $nt" begin
-            cases = nt == 1 ? others[1:2:end] : [threads_standard_cases(); others[2:2:end]]
+            cases = nt == 1 ? others[1:2:end] : [threads_standard_cases(); others]
             @test success(pipeline(threadsprocess(cases; threads=nt); stdout, stderr))
         end
     end
