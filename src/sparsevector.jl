@@ -833,40 +833,79 @@ _sparse_findprevnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findpr
 
 ## Explicit efficient comparisons with vectors
 
-# Is `x` equal to the implicit zero of a sparse array under the predicate `eq`?
-# Uses `zero(x)` rather than `zero(eltype(...))` so that non-numeric element types such
-# as `Any` still work as long as the stored values themselves are numbers.
-_iszero_under(eq::F, x) where {F} = eq(x, zero(x))
+# Stand-ins for an implicit zero that `zero(eltype)` does not give. `UnknownZero` is that
+# of an element type without a `zero`, such as `Any` or a matrix type: a stored value is
+# then compared against its own zero. `UnequalZero` equals no stored value.
+struct UnknownZero end
+struct UnequalZero end
+
+_implicit_zero(::Type{T}) where {T<:Number} =
+    isconcretetype(T) ? zero(T) : _implicit_zero_fallback(T)
+_implicit_zero(::Type{T}) where {T} = _implicit_zero_fallback(T)
+function _implicit_zero_fallback(::Type{T}) where {T}
+    hasmethod(zero, Tuple{Type{T}}) || return UnknownZero()
+    try
+        return zero(T)
+    catch
+        return UnknownZero()
+    end
+end
+
+# The implicit zeros of two sparse arrays with element types `Ta` and `Tb`, and whether
+# they are known to differ under `eq`, in which case a position stored in neither array
+# makes the arrays unequal. The zero of an element type need not be of that type (a
+# variable of an optimization model has an affine expression for a zero), so the zeros of
+# different types are compared rather than assumed equal. Without a `zero` for one of the
+# types the stored values decide alone, except that a number never equals an array.
+function _implicit_zeros(eq::F, ::Type{Ta}, ::Type{Tb}) where {F,Ta,Tb}
+    za, zb = _implicit_zero(Ta), _implicit_zero(Tb)
+    Ta === Tb && return za, zb, false
+    if za isa UnknownZero || zb isa UnknownZero
+        (Ta <: Number && Tb <: AbstractArray) || (Ta <: AbstractArray && Tb <: Number) ||
+            return za, zb, false
+        return UnequalZero(), UnequalZero(), true
+    end
+    return za, zb, eq(za, zb) === false
+end
+
+# Is the stored `x` equal under `eq` to the implicit zero `z` of the other array?
+@inline _eq_implicit(eq::F, x, z) where {F} = eq(x, z)
+@inline _eq_implicit(eq::F, x, ::UnknownZero) where {F} = eq(x, zero(x))
+@inline _eq_implicit(eq::F, x, ::UnequalZero) where {F} = false
 
 # Merge the stored entries `ra` of `(ia, va)` with the entries `rb` of `(ib, vb)`, whose
 # indices are sorted within each range, comparing the values at equal indices with `eq`
 # (`==` or `isequal`). A stored entry without a counterpart is compared against the
-# implicit zero of the other array so that e.g. `isequal(-0.0, 0.0)` and
-# `isequal(NaN, NaN)` behave as they do for dense arrays. Callers pass ranges that lie
-# within the storage vectors: a column's `nzrange` or the whole stored range.
-@inline function _merge_eq(eq::F, ia, va, ib, vb, ra::AbstractUnitRange, rb::AbstractUnitRange) where {F}
-    i, j = first(ra), first(rb)
+# implicit zero of the other array (`zb` for an entry of `va`, `za` for one of `vb`) so
+# that e.g. `isequal(-0.0, 0.0)` and `isequal(NaN, NaN)` behave as they do for dense
+# arrays. Returns the number of positions stored in either array, or -1 once two values
+# differ. Callers pass ranges that lie within the storage vectors: a column's `nzrange`
+# or the whole stored range.
+@inline function _merge_eq(eq::F, ia, va, ib, vb, ra::AbstractUnitRange, rb::AbstractUnitRange,
+                           za, zb) where {F}
+    i, j, nstored = first(ra), first(rb), 0
     @inbounds while i <= last(ra) && j <= last(rb)
         ii, jj = ia[i], ib[j]
         if ii == jj
-            eq(va[i], vb[j]) || return false
+            eq(va[i], vb[j]) || return -1
             i += 1
             j += 1
         elseif ii < jj
-            _iszero_under(eq, va[i]) || return false
+            _eq_implicit(eq, va[i], zb) || return -1
             i += 1
         else # ii > jj
-            _iszero_under(eq, vb[j]) || return false
+            _eq_implicit(eq, vb[j], za) || return -1
             j += 1
         end
+        nstored += 1
     end
     @inbounds for k in i:last(ra)
-        _iszero_under(eq, va[k]) || return false
+        _eq_implicit(eq, va[k], zb) || return -1
     end
     @inbounds for k in j:last(rb)
-        _iszero_under(eq, vb[k]) || return false
+        _eq_implicit(eq, vb[k], za) || return -1
     end
-    return true
+    return nstored + length(i:last(ra)) + length(j:last(rb))
 end
 
 # Compare two sparse vectors, or unit-range views of them, by walking their stored
@@ -875,7 +914,9 @@ function _iseq(eq::F, A::Union{AbstractCompressedVector,SparseVectorPartialView}
                B::Union{AbstractCompressedVector,SparseVectorPartialView}) where {F}
     size(A) == size(B) || return false
     ia, va, ib, vb = nonzeroinds(A), nonzeros(A), nonzeroinds(B), nonzeros(B)
-    return _merge_eq(eq, ia, va, ib, vb, eachindex(ia, va), eachindex(ib, vb))
+    za, zb, distinct = _implicit_zeros(eq, eltype(A), eltype(B))
+    nstored = _merge_eq(eq, ia, va, ib, vb, eachindex(ia, va), eachindex(ib, vb), za, zb)
+    return distinct ? nstored == length(A) : nstored >= 0
 end
 
 ==(A::Union{AbstractCompressedVector,SparseVectorPartialView},

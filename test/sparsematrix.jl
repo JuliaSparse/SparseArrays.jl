@@ -413,6 +413,38 @@ end
     @test (F + fill([1.0 1.0], 2, 2))::Matrix{Matrix{Float64}} == fill([2.0 3.0], 2, 2)
 end
 
+@testset "== and isequal compare the implicit zeros of the two eltypes (issue #234)" begin
+    Zi, Zm = spzeros(Int, 2, 2), spzeros(Matrix{Int}, 2, 2)
+    Zv, zv = spzeros(Variable, 2, 2), spzeros(Variable, 2)
+    Si = sparse([1, 2, 1, 2], [1, 1, 2, 2], [0, 0, 0, 0])   # stored zeros in every position
+    S = sparse([1, 1, 2], [1, 2, 2], Variable.(1:3))
+    T = sparse([1, 2], [1, 2], Variable.([1, 3]))
+    v, w = sparsevec([2], [Variable(1)], 2), sparsevec([1], [Variable(1)], 2)
+    for eq in (==, isequal)
+        # a number is not an array, and the zero of a `Variable` is not the number zero
+        for (L, R) in ((Zi, Zm), (Si, Zm), (Zi, Zv), (Si, Zv), (S, Zi), (Zi', Zm), (Zi, Zm'),
+                       (transpose(Zi), transpose(Zm)), (Zi', transpose(Zm)),
+                       (Zi, transpose(Zv)), (view(Zi, :, 1:2), Zm), (view(Zi, :, 1:2), Zv),
+                       (sparse(fill(0, 1, 1)), sparse(fill([0;;], 1, 1))),
+                       (spzeros(Int, 2), zv), (view(spzeros(Int, 3), 1:2), zv))
+            @test !eq(L, R) && !eq(R, L)
+        end
+        @test !eq(Matrix(Zi), Matrix(Zv)) && !eq(Vector(spzeros(Int, 2)), Vector(zv))
+        # a stored entry without a counterpart meets the zero of the other array's eltype
+        for (L, R) in ((S, T), (S, sparse([1, 2, 1, 2], [1, 1, 2, 2], Variable.(1:4))), (transpose(S), transpose(T)),
+                       (S, transpose(T)), (view(S, :, 1:2), T), (v, w), (view(v, 1:2), w))
+            @test !eq(L, R) && !eq(R, L)
+        end
+        @test eq(S, copy(S)) && eq(S, view(S, :, 1:2)) && eq(v, copy(v)) && eq(Zv, Zv)
+        # nothing is compared in an empty array, and without a `zero` for an eltype the
+        # stored values decide alone
+        @test eq(spzeros(Int, 0, 2), spzeros(Matrix{Int}, 0, 2)) && eq(Zm, Zm)
+        @test eq(Zm, spzeros(Matrix{Float64}, 2, 2)) && eq(Zi, spzeros(Float64, 2, 2))
+        @test eq(sparse(Any[1 0; 0 2]), sparse([1.0 0; 0 2]))
+        @test eq(sparse(Any[1 0; 0 2]), sparse([1, 2, 2], [1, 1, 2], [1.0, 0.0, 2.0]))
+    end
+end
+
 # A quantity with a unit: `one` is the dimensionless identity, `oneunit` keeps the unit
 struct Meters <: Number
     x::Int

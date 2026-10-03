@@ -1623,9 +1623,15 @@ end
 # entries only, one column at a time through the merge shared with sparse vectors.
 function _iseq(eq::F, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) where {F}
     size(A) == size(B) || return false
+    return _iseq(eq, A, B, _implicit_zeros(eq, eltype(A), eltype(B))...)
+end
+function _iseq(eq::F, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset,
+               za, zb, distinct::Bool) where {F}
     ia, va, ib, vb = rowvals(A), nonzeros(A), rowvals(B), nonzeros(B)
+    m = size(A, 1)
     @inbounds for j in axes(A, 2)
-        _merge_eq(eq, ia, va, ib, vb, nzrange(A, j), nzrange(B, j)) || return false
+        nstored = _merge_eq(eq, ia, va, ib, vb, nzrange(A, j), nzrange(B, j), za, zb)
+        (distinct ? nstored == m : nstored >= 0) || return false
     end
     return true
 end
@@ -1657,6 +1663,12 @@ nzeq(eq::F, A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans},
      B::AbstractMatrix) where {F} =
     nzeq(eq, transpose(A), transpose(B))
 
+# Materialize nested `Adjoint` and `Transpose` wrappers one layer at a time, so that each
+# copy is the sparse one
+_unwrap_adjtrans(A::AbstractSparseMatrixCSC) = A
+_unwrap_adjtrans(A::Adjoint) = copy(adjoint(_unwrap_adjtrans(parent(A))))
+_unwrap_adjtrans(A::Transpose) = copy(transpose(_unwrap_adjtrans(parent(A))))
+
 # Compare by walking both matrices
 # (We could further optimize the case `AbstractSparseMatrixCSC ==
 # Adjoint(Transpose(AbstractSparseMatrixCSC))` more efficiently, i.e.
@@ -1666,6 +1678,8 @@ function _iseq(eq::F, A::AbstractSparseMatrixCSC,
                B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) where {F}
     # Different sizes are always different
     size(A) ≠ size(B) && return false
+    # `nzeq` never visits a position stored in neither matrix, where the implicit zeros meet
+    _implicit_zeros(eq, eltype(A), eltype(B))[3] && return _iseq(eq, A, _unwrap_adjtrans(B))
     # Compare nonzero elements
     return nzeq(eq, A, B) && nzeq(eq, B, A)
 end
