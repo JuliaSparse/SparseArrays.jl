@@ -56,6 +56,9 @@ jobs:
           coverage: ${{ matrix.coverage == true }}
           check_bounds: ${{ matrix.check-bounds || 'auto' }}
           depwarn: 'error'
+        env:
+          # the coverage job is the one that also runs the comprehensive suites
+          SPARSEARRAYS_TEST_COMPREHENSIVE: ${{ matrix.coverage == true }}
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.coverage == true
       - uses: codecov/codecov-action@v7

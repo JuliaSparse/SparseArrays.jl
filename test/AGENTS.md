@@ -1,7 +1,7 @@
 # AGENTS.md for `test/`
 
-How the test suite is organized, what its reduced grids must keep covering, and how to
-measure test time, in addition to the top-level `AGENTS.md`.
+How the test suite is organized, its standard and comprehensive modes, where a new
+test goes, and how to measure test time, in addition to the top-level `AGENTS.md`.
 
 ## Layout
 
@@ -11,13 +11,19 @@ measure test time, in addition to the top-level `AGENTS.md`.
   nothing matches. `--jobs=N` and `PTR_NUM_JOBS` are honoured; without either, the
   runner uses `Sys.CPU_THREADS` workers. Adding a feature file does not require adding a
   worker task.
-- `testhelpers.jl` holds the helpers every suite shares: the `getproperty` guard that
-  makes field access on the sparse types an error, `same_pattern` and `exact_equal`,
-  the `OpCount` eltype with `mulcount`/`eqcount`/`opcount_sparse`, `CountedReads`,
-  `hasunionlocal`, `quaternion_type` and `SimpleSMatrix`. It is a plain definition file:
-  every suite is a module that `include`s it first (`../testhelpers.jl` from `solvers/`),
-  so the guard applies whatever the worker order. `ambiguous.jl` alone does not include
-  it. Put a helper that a second suite needs there rather than duplicating it.
+- `SparseTestHelpers.jl` is a module holding everything the suites share: the
+  `getproperty` guard that makes field access on the sparse types an error, the standard
+  type sets (`STD_ELTYPES`, `itypes`, `core_itypes`), the grid helpers `eachvalue` and
+  `pairwise`, `same_pattern` and `exact_equal`, and every type a test defines (`OpCount`
+  with `mulcount`/`eqcount`/`opcount_sparse`, `CountedReads`, `WrappedSparseVector`,
+  `NonCSCSparse`, `SimpleSMatrix`, `MockTropical`, `Meters` and the rest). Every suite is
+  a module that `include`s `testhelpers.jl` first (`../testhelpers.jl` from a
+  subdirectory), which loads that module into `Main` once per process and brings its
+  exports in. A serial run therefore defines each test type once, and a kernel compiled
+  for it in one suite is reused by the next. **Do not define a `struct` in a suite file**:
+  add it to `SparseTestHelpers.jl` and export it, and reuse a type that is already there
+  when it fits. A helper that a second suite needs goes there as well. `ambiguous.jl`
+  alone does not include `testhelpers.jl`.
 - Test files are named after the source area they cover. `solvers/` mirrors
   `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
   `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
@@ -44,34 +50,91 @@ measure test time, in addition to the top-level `AGENTS.md`.
 - `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI gives it
   its own job. It restores the depot, load path, environment and active project in a
   `finally`, so an Aqua failure on Base CI leaves the worker usable.
-- `solvers/threads.jl` owns tests requiring fresh process state. Its `testprocess.jl`
+- `solvers/threads.jl` owns the tests requiring fresh process state. Its `testprocess.jl`
   helper preserves the active project and resolved load path, verifies the checkout
-  loaded by the child, and explicitly selects default-pool thread counts. The file has
-  two roles: the children it starts with one and four threads include it again with
-  `SPARSEARRAYS_TEST_THREADS_CHILD` set, which selects the solver concurrency checks
-  themselves. It also runs `cholmod_lifetime.jl`, which is not a suite of its own, and
-  covers library-directory selection. Keep the rooting stress
-  workload in the lifetime suite until a demonstrated reproducer supports a smaller
-  replacement.
+  loaded by the child, and explicitly selects default-pool thread counts. A child
+  compiles everything it runs from scratch, and that, not its iteration count, is its
+  cost. So standard mode starts one child, with four threads, for the concurrent
+  factorizations and one shared `lu` and `cholesky` factor in `threads_child.jl`, which
+  loads nothing it does not need. The other shared-factor cases at one and four threads,
+  `cholmod_lifetime.jl` (not a suite of its own) and the library-directory override in a
+  child are guarded, in the same file. Keep the rooting stress workload in the lifetime file until a demonstrated reproducer
+  supports a smaller replacement.
 
-## Coverage dimensions
+## Standard and comprehensive mode
 
-Factored grids separate independent dimensions instead of compiling their full
-Cartesian product. Each reduction must identify the replacement for every removed
-dimension; equal assertion counts or line coverage alone are insufficient.
+- **Standard** mode is what `Pkg.test`, every CI platform and Julia's own CI run. It
+  tests each feature and kernel once, for correctness, over `Float64` and `ComplexF64`
+  with `Int` indices. Another type, wrapper or shape appears only where it is the point
+  of the test, and `Int8`, `Int32` and `UInt8` not at all: a solver suite uses the
+  build's `Int`, so the 32-bit C entry points get their standard coverage from the 32-bit
+  CI jobs. Julia's CI runs every suite serially in one process, so standard mode must
+  stay fast.
+- **Comprehensive** mode runs, in the same files, the tests guarded with
+  `@static if COMPREHENSIVE` as well, and the `issues` suite. It is selected by
+  `SPARSEARRAYS_TEST_COMPREHENSIVE=true` in the environment, which `runtests.jl` sets for
+  the `--comprehensive` argument, and in CI by the coverage job only. The guarded tests
+  are the issue regressions and the wider corner cases: more element and index types,
+  wrappers, promotion pairs, sizes, and the allocation, inference and dispatch checks
+  beyond one per kernel.
 
-| Family | Retained coverage |
-| --- | --- |
-| Sparse-vector triangular solves | Four triangular wrappers × identity/transpose/adjoint × dense/sparse backing with Float64 and ComplexF64. RHS patterns are empty, first-only, last-only, interior gaps, and stored-zero endpoints. All 19 existing promotion pairs remain: the Int64/Float64/ComplexF64 cross product, plus Int32/BigInt/Float32/BigFloat/ComplexF32 paired with Float64 in both directions. Promotion uses lower/unit-lower representatives for each backing and checks valid in-place cases. Dense-backed speed specializations have dispatch assertions. |
-| Scalar/sparse broadcast | All four array forms, including the transposed column matrix, and one/two/more-than-two-array kernels. Scalar placement uses distinct values and an order-sensitive function; arity cases cover zero-preserving and non-zero-preserving functions. All seven eight-argument inference cases and their allocation bound remain. In-place references use dense destinations. |
-| Sparse/triangular products | All four wrappers and both operands' three transforms, in both multiplication orders, with Float64 and ComplexF32. All nine Int/Float64/ComplexF32 promotion pairs use upper/lower representatives. Dense result types are checked. |
-| Dense/sparse `mul!` | Both operand orders and every transform pair for Int, Float64, ComplexF64, and BigFloat. Boolean and numeric zero/one/general coefficient pairs cover sparse identity/transpose/adjoint kernels and plain/wrapped dense-left kernels separately. Existing noncommutative regressions remain. |
-| CHOLMOD operations | Single-input tests cover both precisions, real/complex values, and both supported C index types. Mixed-input operations retain all precision/type pairs. Ownership, invalid-wrapper cleanup, repeated `free!`, buffer isolation, Common accounting, and rooting tests remain in the lifetime process. |
-| Triangular scale and structure | The broad correctness grid uses size 100. Explicit empty-column, stored-zero, missing-diagonal, conjugated-diagonal, vector/matrix, and view cases cover structure. Size 127 retains Int8 diagonal-capacity coverage; operation-count checks retain a size-1,000 specialized-path case and mark the known transformed-product generic fallback broken. |
+**A new test is guarded.** That covers a regression test for an issue and any additional
+case for code the standard tests already exercise. An unguarded test is only for new
+code, and is one representative case; its variations are guarded.
 
-Other inference, aliasing, fixed-pattern, shape, empty-input, validation, and
-issue-specific tests remain independently useful. Retain targeted pure-Julia overflow
-and conversion tests. Complexity checks use operation counts or allocation growth.
+`COMPREHENSIVE` comes from `SparseTestHelpers.jl`. Guard with `@static`, which is
+resolved when the macro expands, so that a standard run does not lower or compile the
+guarded code:
+
+```julia
+@static if COMPREHENSIVE          # whole testsets; the body is not indented
+@testset "issue #1234" begin ... end
+end
+
+@testset "solve, $T" for T in (STD_ELTYPES..., (@static COMPREHENSIVE ? (Float32, BigFloat) : ())...)
+    ...                           # one body for both modes
+    @static if COMPREHENSIVE
+        @test_throws DimensionMismatch ...
+    end
+end
+```
+
+Write a test body once. When the two modes differ in the values a test runs over, the
+guard goes on the values, not around a copy of the body.
+
+Neither mode runs a full Cartesian grid. Take `eachvalue(dims...)`, in which every value
+of every dimension appears once, or `pairwise(dims...)`, in which every two values of
+different dimensions meet, and add the corner cases by name: empty, stored zeros, a
+missing diagonal, unsorted or aliased input, an unusual index type.
+
+Test time is almost all compilation, so it is the number of distinct type combinations
+that costs, not sizes or repetitions. Three things follow for the test code itself. A
+whole top-level statement compiles as one block: keep top-level testsets short, and use
+a `@testset for` rather than a top-level `for`, `let` or `begin` around testsets.
+`testhelpers.jl` sets `@compiler_options optimize=0` in every suite module, because the
+suites' own code runs once; the methods under test are compiled as usual. Interpreting
+the suites instead (`compile=min`) saves no more and breaks the allocation tests. And a
+helper that takes arrays or types is compiled again for each combination it is called
+with: mark its arguments `@nospecialize` unless it measures allocations or inference.
+
+## What a reduction must keep
+
+Cutting a grid separates independent dimensions instead of compiling their Cartesian
+product. Each reduction must identify the replacement for every removed dimension; equal
+assertion counts or line coverage alone are insufficient. In standard mode:
+
+- every kernel and every method that exists for speed is called at least once, with its
+  dispatch or operation-count assertion;
+- real and complex values, vector and matrix, and each wrapper family (adjoint and
+  transpose, triangular, symmetric and Hermitian, views) appear for each operation that
+  specializes on them, though not in every combination;
+- the solver suites reach both precisions once per solver, with the build's `Int`;
+- error paths keep their check that the destination is untouched.
+
+The structural corner cases (empty columns, stored zeros, a missing diagonal), the
+promotion pairs, the unusual element and index types, the allocation and inference
+bounds beyond one per kernel, and the lifetime and thread-count variations are
+comprehensive. Complexity checks use operation counts or allocation growth.
 
 ## Running and measuring
 
@@ -83,6 +146,7 @@ and to measure one suite:
 JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl
 julia +nightly --project --startup-file=no --threads=1 --check-bounds=auto .ci/measure-tests.jl higherorderfns
 julia +nightly --project --startup-file=no --threads=1 --check-bounds=yes .ci/measure-tests.jl higherorderfns --verbose
+SPARSEARRAYS_TEST_COMPREHENSIVE=true julia +nightly --project --startup-file=no --threads=1 .ci/measure-tests.jl higherorderfns
 ```
 
 The measurement script starts from a seeded RNG, selects one BLAS thread, verifies
@@ -96,6 +160,19 @@ process-suite elapsed time includes waiting for its children.
 - Use a fresh Julia process for every sample and at least three samples per revision,
   with the same Julia build, machine, bounds setting, thread count, and cache state.
   Compare medians and variation.
+- Julia keeps a persistent cache of JIT-compiled code under `~/.julia/cache`, which makes
+  a repeated run far faster than a fresh CI machine. Set `JULIA_OBJCACHE=0` when
+  measuring.
+- On a shared machine load moves a sample by a factor of two or more. Interleave the
+  revisions suite by suite and compare minima; the allocated bytes are a load-independent
+  check on the direction.
+- The number of method instances compiled is the other load-independent measure, and the
+  one that tracks test time most closely: run with `--trace-compile=FILE` and count its
+  lines. The file also shows which types and methods a suite spends its time on.
+- Julia's CI runs every suite in standard mode in one process, where a kernel compiled
+  by one suite is reused by the next, so the sum of per-suite measurements overstates
+  it. Measure the first command above, with `JULIA_OBJCACHE=0`, for the figure that
+  matters.
 - Report cold dependency preparation separately from warmed preparation and test
   execution.
 - Retain CI's verbose per-suite reporting; compare bounds-job elapsed time and summed

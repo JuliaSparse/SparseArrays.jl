@@ -12,6 +12,10 @@ using SparseArrays: getcolptr, nonzeroinds
 using LinearAlgebra
 using Random
 include("testhelpers.jl")
+# A standard run maps and broadcasts over `Float64`/`Int` arrays only. A comprehensive run
+# repeats those tests with one argument of another element and index type.
+const retypes = @static COMPREHENSIVE ? (identity,
+    X -> ndims(X) == 1 ? SparseVector{Float32,Int32}(X) : SparseMatrixCSC{Float32,Int32}(X)) : (identity,)
 function test_map_and_map!(A, alloc_tests)
     # --> test map entry point
     fA = Array(A)
@@ -40,22 +44,26 @@ end
         A = dropzeros(A)
         test_map_and_map!(A, true)
     end
+    @static if COMPREHENSIVE
     # https://github.com/JuliaLang/julia/issues/37819
     Z = spzeros(Float64, Int32, 50000, 50000)
     @test isa(-Z, SparseMatrixCSC{Float64, Int32})
+    end
 end
 
 @testset "map[!] implementation specialized for a pair of (input) sparse vectors/matrices" begin
     N, M = 10, 12
     f(x, y) = x + y + 1
-    for shapeA in ((N,), (N, M))
+    for shapeA in ((N,), (N, M)), retype in retypes
         A, Bo = sprand(shapeA..., 0.3), sprand(shapeA..., 0.3)
-        B = ndims(Bo) == 1 ? SparseVector{Float32, Int32}(Bo) : SparseMatrixCSC{Float32,Int32}(Bo)
+        B = retype(Bo)
         # use different types to check internal type stability via allocation tests below
         fA, fB = map(Array, (A, B))
         # --> test map entry point
         @test map(+, A, B) == sparse(map(+, fA, fB))
+        @static if COMPREHENSIVE
         @test map(*, A, B) == sparse(map(*, fA, fB))
+        end
         @test map(f, A, B) == sparse(map(f, fA, fB))
         @test_throws DimensionMismatch map(+, A, spzeros((shapeA .- 1)...))
         # --> test map! entry point
@@ -63,29 +71,35 @@ end
         map!(+, X, A, B); X = sparse(fX) # warmup for @allocated
         @test (@allocated map!(+, X, A, B)) < 500
         @test map!(+, X, A, B) == sparse(map!(+, fX, fA, fB))
+        @static if COMPREHENSIVE
         fX = map(*, fA, fB); X = sparse(fX)
         map!(*, X, A, B); X = sparse(fX) # warmup for @allocated
         @test (@allocated map!(*, X, A, B)) < 500
         @test map!(*, X, A, B) == sparse(map!(*, fX, fA, fB))
+        end
         @test map!(f, X, A, B) == sparse(map!(f, fX, fA, fB))
         @test_throws DimensionMismatch map!(f, X, A, spzeros((shapeA .- 1)...))
     end
+    @static if COMPREHENSIVE
     # https://github.com/JuliaLang/julia/issues/37819
     Z = spzeros(Float64, Int32, 50000, 50000)
     @test isa(Z + Z, SparseMatrixCSC{Float64, Int32})
+    end
 end
 
 @testset "map[!] implementation capable of handling >2 (input) sparse vectors/matrices" begin
     N, M = 10, 12
     f(x, y, z) = x + y + z + 1
-    for shapeA in ((N,), (N, M))
+    for shapeA in ((N,), (N, M)), retype in retypes
         A, B, Co = sprand(shapeA..., 0.2), sprand(shapeA..., 0.2), sprand(shapeA..., 0.2)
-        C = ndims(Co) == 1 ? SparseVector{Float32,Int32}(Co) : SparseMatrixCSC{Float32,Int32}(Co)
+        C = retype(Co)
         # use different types to check internal type stability via allocation tests below
         fA, fB, fC = map(Array, (A, B, C))
         # --> test map entry point
         @test map(+, A, B, C) == sparse(map(+, fA, fB, fC))
+        @static if COMPREHENSIVE
         @test map(*, A, B, C) == sparse(map(*, fA, fB, fC))
+        end
         @test map(f, A, B, C) == sparse(map(f, fA, fB, fC))
         @test_throws DimensionMismatch map(+, A, B, spzeros(N, M - 1))
         # --> test map! entry point
@@ -93,10 +107,12 @@ end
         map!(+, X, A, B, C); X = sparse(fX) # warmup for @allocated
         @test (@allocated map!(+, X, A, B, C)) < 500
         @test map!(+, X, A, B, C) == sparse(map!(+, fX, fA, fB, fC))
+        @static if COMPREHENSIVE
         fX = map(*, fA, fB, fC); X = sparse(fX)
         map!(*, X, A, B, C); X = sparse(fX) # warmup for @allocated
         @test (@allocated map!(*, X, A, B, C)) < 500
         @test map!(*, X, A, B, C) == sparse(map!(*, fX, fA, fB, fC))
+        end
         @test map!(f, X, A, B, C) == sparse(map!(f, fX, fA, fB, fC))
         @test_throws DimensionMismatch map!(f, X, A, B, spzeros((shapeA .- 1)...))
     end
@@ -108,7 +124,9 @@ end
     fV, fC = Array(V), Array(C)
     @test broadcast!(() -> 0, V) == sparse(broadcast!(() -> 0, fV))
     @test broadcast!(() -> 0, C) == sparse(broadcast!(() -> 0, fC))
+    @static if COMPREHENSIVE
     @test let z = 0, fz = 0; broadcast!(() -> z += 1, V) == broadcast!(() -> fz += 1, fV); end
+    end
     @test let z = 0, fz = 0; broadcast!(() -> z += 1, C) == broadcast!(() -> fz += 1, fC); end
 end
 
@@ -132,8 +150,8 @@ end
     vecs = (sprand(N, p), sprand(1, 1.0), spzeros(1))
     # --> test with matrix destination (Z/fZ)
     fZ = Array(first(mats))
-    for Xo in (mats..., vecs...)
-        X = ndims(Xo) == 1 ? SparseVector{Float32,Int32}(Xo) : SparseMatrixCSC{Float32,Int32}(Xo)
+    for Xo in (mats..., vecs...), retype in retypes
+        X = retype(Xo)
         shapeX, fX = size(X), Array(X)
         # --> test broadcast! entry point / zero-preserving op
         broadcast!(sin, fZ, fX); Z = sparse(fZ)
@@ -156,8 +174,8 @@ end
     end
     # --> test with vector destination (V/fV)
     fV = Array(first(vecs))
-    for Xo in vecs # vector target
-        X = SparseVector{Float32,Int32}(Xo)
+    for Xo in vecs, retype in retypes # vector target
+        X = retype(Xo)
         shapeX, fX = size(X), Array(X)
         # --> test broadcast! entry point / zero-preserving op
         broadcast!(sin, fV, fX); V = sparse(fV)
@@ -188,20 +206,21 @@ end
 end
 
 @testset "map[!] and broadcast[!] over one sparse array keep its pattern (issue #454)" begin
-    samepattern(C, A) = getcolptr(C) == getcolptr(A) && rowvals(C) == rowvals(A)
-    samepattern(c::SparseVector, a::SparseVector) = nonzeroinds(c) == nonzeroinds(a)
     for A in (sparse([1, 1, 2, 3], [1, 2, 3, 2], [0, 2, 3, 4], 3, 3),                      # stored zero
               sparse([1, 1, 2, 3], [1, 2, 3, 2], [0.0im, 2.0, 3.0im, 0.5], 3, 3),
               sparsevec([1, 3, 5], [0, 2, 3], 6),
-              sparsevec([1, 3, 5], [0.0im, 2.0, 3.0im], 6))
+              sparsevec([1, 3, 5], [0.0im, 2.0, 3.0im], 6))[@static COMPREHENSIVE ? (1:4) : [2, 4]]
         fA = Array(A)
-        for f in (identity, Float64 ∘ real, x -> 2x, x -> 0 * x, x -> abs(x) > 1)        # every f has f(0) == 0
+        for f in (eltype(A) <: Complex ? (identity, x -> 0 * x, (@static COMPREHENSIVE ? (Float64 ∘ real,) : ())...) :
+                  (x -> 2x, x -> abs(x) > 1))                                             # every f has f(0) == 0
             C = f.(A)
-            @test C == f.(fA) && samepattern(C, A)
-            @test samepattern(map(f, A), A)
-            @test samepattern(map!(f, similar(A, Base.promote_op(f, eltype(A))), A), A)
+            @test C == f.(fA) && same_pattern(C, A)
+            @test same_pattern(map(f, A), A)
+            @test same_pattern(map!(f, similar(A, Base.promote_op(f, eltype(A))), A), A)
         end
-        @test samepattern(Float64.(real(A)), A) && samepattern(2 .* A, A) && samepattern(A .* 0, A)
+        @static if COMPREHENSIVE
+        @test same_pattern(Float64.(real(A)), A) && same_pattern(2 .* A, A) && same_pattern(A .* 0, A)
+        end
         @test nnz(A .- A) == 0                  # cancellation between two arrays is still dropped
     end
     # a stored zero in a row expands into a densely stored column, an empty column stays empty
@@ -210,7 +229,7 @@ end
     @test C == 2 .* repeat(Array(r), 2, 1) && getcolptr(C) == [1, 3, 3, 5]
     # an n×1 matrix broadcast into an empty vector grows the destination
     c = sparse([1, 3], [1, 1], [0.0, 2.0], 4, 1)
-    for f in (zero, x -> 2x)
+    for f in (x -> 2x, (@static COMPREHENSIVE ? (zero,) : ())...)
         y = broadcast!(f, spzeros(4), c)
         @test y == f.(vec(Array(c))) && nonzeroinds(y) == [1, 3]
     end
@@ -219,14 +238,15 @@ end
     M = sparse([1, 1, 2], [1, 2, 2], [1.0im, 0.0, 2.0], 3, 3)
     x = sparsevec([1, 2], [0.0, 3.0], 4)
     for (W, P) in ((transpose(M), copy(transpose(M))), (M', copy(M')), (view(x, :), x),
-                   (view(x, 1:3), x[1:3]), (view(M, :, 2), M[:, 2]))
-        for f in (zero, x -> 2x)
+                   (view(x, 1:3), x[1:3]), (view(M, :, 2), M[:, 2]))[@static COMPREHENSIVE ? (1:5) : [2, 4]]
+        for f in (zero, (@static COMPREHENSIVE ? (x -> 2x,) : ())...)
             C = map(f, W)
-            @test C isa AbstractSparseArray && C == map(f, Array(W)) && samepattern(C, P)
+            @test C isa AbstractSparseArray && C == map(f, Array(W)) && same_pattern(C, P)
         end
     end
     # Mapping a wrapper must not copy its elements or break their aliases (#892).
     for op in (transpose, adjoint), D in ([1 2; 3 4], [1im 2; 3 4im])
+        @static COMPREHENSIVE || (op === transpose && eltype(D) <: Real) || continue
         B = CountedReads(D)
         S = SparseMatrixCSC(1, 1, [1, 2], [1], [B])
         @test only(nonzeros(map(parent, op(S)))) === B
@@ -242,16 +262,18 @@ end
     vecs = (sprand(N, p), sprand(1, 1.0), spzeros(1))
     tens = (mats..., vecs...)
     fZ = Array(first(mats))
-    for Xo in tens
-        X = ndims(Xo) == 1 ? SparseVector{Float32,Int32}(Xo) : SparseMatrixCSC{Float32,Int32}(Xo)
+    for Xo in tens, retype in retypes
+        X = retype(Xo)
         # use different types to check internal type stability via allocation tests below
         shapeX, fX = size(X), Array(X)
         for Y in tens
             fY = Array(Y)
             # --> test broadcast entry point
             @test broadcast(+, X, Y) == sparse(broadcast(+, fX, fY))
+            @static if COMPREHENSIVE
             @test broadcast(-, X, Y) == sparse(broadcast(-, fX, fY))
             @test broadcast(*, X, Y) == sparse(broadcast(*, fX, fY))
+            end
             @test broadcast(f, X, Y) == sparse(broadcast(f, fX, fY))
             # TODO strengthen this test, avoiding dependence on checking whether
             # check_broadcast_axes throws to determine whether sparse broadcast should throw
@@ -265,11 +287,13 @@ end
             broadcast!(+, Z, X, Y); Z = sparse(fZ) # warmup for @allocated
             @test (@allocated broadcast!(+, Z, X, Y)) < 500
             @test broadcast!(+, Z, X, Y) == sparse(broadcast!(+, fZ, fX, fY))
+            @static if COMPREHENSIVE
             # --> test broadcast! entry point / *-like zero-preserving op
             broadcast!(*, fZ, fX, fY); Z = sparse(fZ)
             broadcast!(*, Z, X, Y); Z = sparse(fZ) # warmup for @allocated
             @test (@allocated broadcast!(*, Z, X, Y)) < 500
             @test broadcast!(*, Z, X, Y) == sparse(broadcast!(*, fZ, fX, fY))
+            end
             # --> test broadcast! entry point / not zero-preserving op
             broadcast!(f, fZ, fX, fY); Z = sparse(fZ)
             broadcast!(f, Z, X, Y); Z = sparse(fZ) # warmup for @allocated
@@ -286,6 +310,7 @@ end
         end
     end
 
+    @static if COMPREHENSIVE
     # fix#23857
     @test sparse([1; 0]) ./ [1] == sparse([1.0; 0.0])
     @test isequal(sparse([1 2; 1 0]) ./ [1; 0], sparse([1.0 2; Inf NaN]))
@@ -296,16 +321,18 @@ end
     @test isequal(sparse([1; 0]) .\ sparse([1 2; 1 0]), sparse([1.0 2; Inf NaN]))
     @test sparse([1]) .\ sparse([1  0]) == sparse([1.0 0.0])
     @test isequal(sparse([1 0]) .\ sparse([1 2; 1 0]), sparse([1.0 Inf; 1 NaN]))
+    end
 
     # A dense argument has no structural zeros, so `f(0, 0)` (`NaN` for `/`) must not
     # densify the result, and zero quotients, `-0.0` included, are not stored (#551)
-    for T in (Float64, ComplexF64)
+    for T in (Float64, (@static COMPREHENSIVE ? (ComplexF64,) : ())...)
         A = sparse(T[0 0; 0.5 0; 0 0])
         x = T[1, 2, -3]
         y = T[-1 2]
         for (C, R) in ((A ./ x, Array(A) ./ x), (A ./ y, Array(A) ./ y), (x .\ A, x .\ Array(A)),
+                       (@static COMPREHENSIVE ? (
                        (A ./ x[1:2]', Array(A) ./ x[1:2]'), (A ./ view(x, 1:3), Array(A) ./ x),
-                       (A ./ x ./ y, Array(A) ./ x ./ y))
+                       (A ./ x ./ y, Array(A) ./ x ./ y)) : ())...)
             @test C isa SparseMatrixCSC{T}
             @test C == R
             @test nnz(C) == 1
@@ -326,13 +353,13 @@ end
 
     # scaling rows by a vector scans the matrix's stored entries instead of merging the
     # vector against every column, so `f` is called O(nnz + m) times, not O(m * n) (#543)
-    for T in (Float64, ComplexF64)
+    for T in (Float64, (@static COMPREHENSIVE ? (ComplexF64,) : ())...)
         m, n = 40, 30
         A = sprand(T, m, n, 0.05)
         v = rand(T, m) .+ 1
         ncalls = Ref(0)
         for (f, args) in ((*, (v, A)), (*, (A, v)), (/, (A, v)), (\, (v, A)),
-                           (*, (A, sparse(v))), (*, (sparse(v), A)))
+                           (*, (A, sparse(v))), (*, (sparse(v), A)))[@static COMPREHENSIVE ? (1:6) : [1, 3, 5]]
             ncalls[] = 0
             counted(x, y) = (ncalls[] += 1; f(x, y))
             C = broadcast(counted, args...)
@@ -347,18 +374,26 @@ end
         # a zero in the vector fills its row with `NaN`, which needs the merge
         v0 = copy(v); v0[3] = 0
         @test isequal(A ./ v0, sparse(Array(A) ./ v0))
+        @static if COMPREHENSIVE
         @test isequal(v0 .\ A, sparse(v0 .\ Array(A)))
         @test isequal(view(A, :, 2:n) ./ view(v0, :), sparse(Array(A)[:, 2:n] ./ v0))
         @test isequal(view(v0, :) .\ view(A, :, 2:n), sparse(v0 .\ Array(A)[:, 2:n]))
+        end
         @test A .+ v == Array(A) .+ v
+        @static if COMPREHENSIVE
         @test v .+ A == v .+ Array(A)
+        end
         # `f` is not probed against a zero for a row the matrix stores in full
         @test sqrt.(sparse(T[2 3; 0 0]) .- T[1, 0]) == sqrt.(T[2 3; 0 0] .- T[1, 0])
+        @static if COMPREHENSIVE
         @test sqrt.(T[-1, 0] .- sparse(T[-2 -3; 0 0])) == sqrt.(T[-1, 0] .- T[-2 -3; 0 0])
+        end
     end
     # nor is a zero constructed, which does not exist for `Any`
     @test sparse(Any[1 3; 2 4]) .* [2, 3] == [2 6; 6 12]
+    @static if COMPREHENSIVE
     @test [2, 3] .* sparse(Any[1 3; 2 4]) == [2 6; 6 12]
+    end
 
 end
 
@@ -369,15 +404,23 @@ end
     mats = (sprand(N, M, p), sprand(N, 1, p), sprand(1, M, p), sprand(1, 1, 1.0), spzeros(1, 1))
     vecs = (sprand(N, p), sprand(1, 1.0), spzeros(1))
     tens = (mats..., vecs...)
-    for Xo in tens
-        X = ndims(Xo) == 1 ? SparseVector{Float32,Int32}(Xo) : SparseMatrixCSC{Float32,Int32}(Xo)
+    # Each vector/matrix mix of the three arguments is its own specialization of one generic
+    # kernel. A standard run takes the all-vector mix, the only one with a vector result, and
+    # a vector between two matrices. The triples with an argument of another type are pairwise.
+    mixes = ((1, 1, 1), (2, 1, 2))
+    triples = @static COMPREHENSIVE ? pairwise(tens, tens, tens) : ()
+    for Xo in tens, retype in retypes
+        X = retype(Xo)
         # use different types to check internal type stability via allocation tests below
         shapeX, fX = size(X), Array(X)
         for Y in tens, Z in tens
+            (retype === identity ? (ndims(X), ndims(Y), ndims(Z)) in mixes : any(t -> t === (Xo, Y, Z), triples)) || continue
             fY, fZ = Array(Y), Array(Z)
             # --> test broadcast entry point
             @test broadcast(+, X, Y, Z) == sparse(broadcast(+, fX, fY, fZ))
+            @static if COMPREHENSIVE
             @test broadcast(*, X, Y, Z) == sparse(broadcast(*, fX, fY, fZ))
+            end
             @test broadcast(f, X, Y, Z) == sparse(broadcast(f, fX, fY, fZ))
             # TODO strengthen this test, avoiding dependence on checking whether
             # check_broadcast_axes throws to determine whether sparse broadcast should throw
@@ -391,11 +434,13 @@ end
             broadcast!(+, Q, X, Y, Z); Q = sparse(fQ) # warmup for @allocated
             @test (@allocated broadcast!(+, Q, X, Y, Z)) < 500
             @test broadcast!(+, Q, X, Y, Z) == sparse(broadcast!(+, fQ, fX, fY, fZ))
+            @static if COMPREHENSIVE
             # --> test broadcast! entry point / *-like zero-preserving op
             fQ = broadcast(*, fX, fY, fZ); Q = sparse(fQ)
             broadcast!(*, Q, X, Y, Z); Q = sparse(fQ) # warmup for @allocated
             @test (@allocated broadcast!(*, Q, X, Y, Z)) < 500
             @test broadcast!(*, Q, X, Y, Z) == sparse(broadcast!(*, fQ, fX, fY, fZ))
+            end
             # --> test broadcast! entry point / not zero-preserving op
             fQ = broadcast(f, fX, fY, fZ); Q = sparse(fQ)
             broadcast!(f, Q, X, Y, Z); Q = sparse(fQ) # warmup for @allocated
@@ -439,25 +484,15 @@ end
     A = sprand(elT, N, M, p)
     Aᵀ = transpose(sprand(elT, M, N, p))
     ordered(xs...) = foldl((x, y) -> 2x + y, xs)
-    function check_scalar_broadcast(f, sparseargs, alloc_limit=1028)
-        denseargs = map(x -> x isa AbstractArray ? Array(x) : x, sparseargs)
-        fX = broadcast(f, denseargs...)
-        X = @inferred broadcast(f, sparseargs...)
-        @test X == sparse(fX)
-        @test typeof(X) === typeof(sparse(fX))
-        @test (@inferred broadcast!(f, X, sparseargs...)) === X
-        @test X == sparse(broadcast!(f, fX, denseargs...))
-        X = sparse(fX)
-        # Transposed sparse inputs require materializing CSC copies.
-        extra = sum(x -> x isa Transpose ? @allocated(SparseMatrixCSC(x)) + 128 : 0, sparseargs)
-        @test (@allocated broadcast!(f, X, sparseargs...)) <= extra + alloc_limit
-    end
 
     @testset "array forms and argument counts" begin
         for args in ((s, A), (s, V), (s, Aᵀ), (s, Vᵀ),
                      (s, A, V), (s, A, Aᵀ), (s, V, Vᵀ),
                      (s, A, V, Aᵀ), (s, A, V, Aᵀ, Vᵀ), (s, A, V, Aᵀ, Vᵀ, A))
             for f in (*, ordered)
+                # a standard run takes these array forms, each with one of the two functions
+                @static COMPREHENSIVE || (f === ordered ? args === (s, V) || args === (s, A, V) : args === (s, A) ||
+                    args === (s, Aᵀ) || args === (s, Vᵀ) || args === (s, A, V, Aᵀ)) || continue
                 check_scalar_broadcast(f, args)
             end
         end
@@ -469,6 +504,7 @@ end
                      (s, t, A, V), (A, s, t, V), (A, V, s, t),
                      (s, A, t, V, u), (s, A, t, u, V),
                      (A, s, t, V, u), (A, s, t, u, V))
+            @static COMPREHENSIVE || args === (A, V, s) || args === (A, s, t, V) || continue
             check_scalar_broadcast(ordered, args)
         end
     end
@@ -480,6 +516,7 @@ end
                  (s, V, A, s, V, A, s, A),
                  (V, A, V, s, A, V, A, s),
                  (V, A, V, A, s, V, A, V))
+        @static COMPREHENSIVE || args === (s, V, s, A, s, V, s, A) || continue
         check_scalar_broadcast(*, args, 900)
     end
 end
@@ -499,13 +536,13 @@ end
     structuredarrays = (D, B, T, S)
     fstructuredarrays = map(Array, structuredarrays)
     for (X, fX) in zip(structuredarrays, fstructuredarrays)
-        @test (Q = broadcast(+, V, A, X); Q isa SparseMatrixCSC && Q == sparse(broadcast(+, fV, fA, fX)))
-        @test broadcast!(+, Z, V, A, X) == sparse(broadcast(+, fV, fA, fX))
-        @test (Q = broadcast(*, s, V, A, X); Q isa SparseMatrixCSC && Q == sparse(broadcast(*, s, fV, fA, fX)))
-        @test broadcast!(*, Z, s, V, A, X) == sparse(broadcast(*, s, fV, fA, fX))
+        (@static COMPREHENSIVE || X === D) && @test (Q = broadcast(+, V, A, X); Q isa SparseMatrixCSC && Q == sparse(broadcast(+, fV, fA, fX)))
+        (@static COMPREHENSIVE || X === B) && @test broadcast!(+, Z, V, A, X) == sparse(broadcast(+, fV, fA, fX))
+        (@static COMPREHENSIVE || X === T) && @test (Q = broadcast(*, s, V, A, X); Q isa SparseMatrixCSC && Q == sparse(broadcast(*, s, fV, fA, fX)))
+        (@static COMPREHENSIVE || X === S) && @test broadcast!(*, Z, s, V, A, X) == sparse(broadcast(*, s, fV, fA, fX))
         for (Y, fY) in zip(structuredarrays, fstructuredarrays)
-            @test broadcast!(+, Z, X, Y) == sparse(broadcast(+, fX, fY))
-            @test broadcast!(*, Z, X, Y) == sparse(broadcast(*, fX, fY))
+            (@static COMPREHENSIVE || (X === D && Y === B)) && @test broadcast!(+, Z, X, Y) == sparse(broadcast(+, fX, fY))
+            (@static COMPREHENSIVE || (X === T && Y === S)) && @test broadcast!(*, Z, X, Y) == sparse(broadcast(*, fX, fY))
         end
     end
     C = Array(sprand(N, 0.4))
@@ -513,22 +550,32 @@ end
     densearrays = (C, M)
     fD, fB = Array(D), Array(B)
     for X in densearrays
-        @test broadcast!(+, Z, D, X) == sparse(broadcast(+, fD, X))
-        @test broadcast!(*, Z, s, B, X) == sparse(broadcast(*, s, fB, X))
+        (@static COMPREHENSIVE || X === C) && @test broadcast!(+, Z, D, X) == sparse(broadcast(+, fD, X))
+        (@static COMPREHENSIVE || X === M) && @test broadcast!(*, Z, s, B, X) == sparse(broadcast(*, s, fB, X))
+        @static if COMPREHENSIVE
         @test broadcast(+, V, B, X)::SparseMatrixCSC == sparse(broadcast(+, fV, fB, X))
         @test broadcast!(+, Z, V, B, X) == sparse(broadcast(+, fV, fB, X))
-        @test broadcast(+, V, A, X)::SparseMatrixCSC == sparse(broadcast(+, fV, fA, X))
+        end
+        (@static COMPREHENSIVE || X === C) && @test broadcast(+, V, A, X)::SparseMatrixCSC == sparse(broadcast(+, fV, fA, X))
+        @static if COMPREHENSIVE
         @test broadcast!(+, Z, V, A, X) == sparse(broadcast(+, fV, fA, X))
-        @test broadcast(*, s, V, A, X)::SparseMatrixCSC == sparse(broadcast(*, s, fV, fA, X))
+        end
+        (@static COMPREHENSIVE || X === M) && @test broadcast(*, s, V, A, X)::SparseMatrixCSC == sparse(broadcast(*, s, fV, fA, X))
+        @static if COMPREHENSIVE
         @test broadcast!(*, Z, s, V, A, X) == sparse(broadcast(*, s, fV, fA, X))
+        end
         # Issue #20954 combinations of sparse arrays and Adjoint/Transpose vectors
         if X isa Vector
             @test broadcast(+, A, X')::SparseMatrixCSC == sparse(broadcast(+, fA, X'))
+            @static if COMPREHENSIVE
             @test broadcast(*, V, X')::SparseMatrixCSC == sparse(broadcast(*, fV, X'))
+            end
         end
     end
     @test V .+ ntuple(identity, N) isa Vector
+    @static if COMPREHENSIVE
     @test A .+ ntuple(identity, N) isa Matrix
+    end
 end
 
 @testset "broadcast[!] over views of dense and sparse arrays (#508)" begin
@@ -539,15 +586,17 @@ end
     C = rand(N)
     M = rand(N, N)
     # views of dense arrays should not force a dense result
-    for X in (view(M, :, :), view(M, 1:N, 1:N), view(M, collect(1:N), :), view(M, :, :)')
+    for X in (view(M, :, :), view(M, 1:N, 1:N), view(M, collect(1:N), :), view(M, :, :)')[@static COMPREHENSIVE ? (1:4) : [2, 4]]
         fX = Array(X)
-        @test broadcast(+, A, X)::SparseMatrixCSC == sparse(broadcast(+, Array(A), fX))
+        (@static COMPREHENSIVE || !(X isa Adjoint)) && @test broadcast(+, A, X)::SparseMatrixCSC == sparse(broadcast(+, Array(A), fX))
+        @static if COMPREHENSIVE
         @test broadcast(*, A, X)::SparseMatrixCSC == sparse(broadcast(*, Array(A), fX))
-        @test broadcast!(*, Z, A, X) == sparse(broadcast(*, Array(A), fX))
+        end
+        (@static COMPREHENSIVE || !(X isa Adjoint)) && @test broadcast!(*, Z, A, X) == sparse(broadcast(*, Array(A), fX))
         # the structural zeros of A must be preserved by a zero-preserving op
-        @test nnz(broadcast(*, A, X)) <= nnz(A)
+        (@static COMPREHENSIVE || X isa Adjoint) && @test nnz(broadcast(*, A, X)) <= nnz(A)
     end
-    for x in (view(C, :), view(C, 1:N), view(C, collect(1:N)))
+    for x in (view(C, :), view(C, 1:N), view(C, collect(1:N)))[@static COMPREHENSIVE ? (1:3) : (2:2)]
         @test broadcast(*, V, x)::SparseVector == sparse(broadcast(*, Array(V), Array(x)))
         @test nnz(broadcast(*, V, x)) <= nnz(V)
     end
@@ -559,23 +608,31 @@ end
     x = sparsevec([1, 3, 5], [0.0im, 2.0, 3.0im], 6)
     for (X, T) in ((view(S, :, :), SparseMatrixCSC), (view(S, :, 2:N), SparseMatrixCSC),
                    (view(S, :, [1, 3]), SparseMatrixCSC), (view(S, :, 2), SparseVector),
-                   (view(x, :), SparseVector), (view(x, 2:5), SparseVector))
+                   (view(x, :), SparseVector), (view(x, 2:5), SparseVector))[@static COMPREHENSIVE ? (1:6) : [2, 6]]
         fX = Array(X)
         @test (2 .* X)::T == 2 .* fX && nnz(2 .* X) <= nnz(copy(X))
         @test (X .+ 1)::T == fX .+ 1
+        @static if COMPREHENSIVE
         @test (X .* fX)::T == fX .* fX
+        end
         @test (X .+ copy(X))::T == 2 .* fX
+        @static if COMPREHENSIVE
         @test isequal((X ./ fX)::T, sparse(fX ./ fX))
+        end
     end
     # adjoints and transposes of sparse vector views convert through a sparse vector
-    for v in (view(x, :), view(x, 2:5), view(S, :, 2)), f in (adjoint, transpose)
+    for v in (view(x, :), view(x, 2:5), view(S, :, 2))[@static COMPREHENSIVE ? (1:3) : (2:2)], f in (adjoint, transpose)
         fv = Array(v)
-        @test (v .+ f(v))::SparseMatrixCSC == fv .+ f(fv)
+        (@static COMPREHENSIVE || f === adjoint) && @test (v .+ f(v))::SparseMatrixCSC == fv .+ f(fv)
+        @static if COMPREHENSIVE
         @test (f(v) .+ v)::SparseMatrixCSC == f(fv) .+ fv
         @test (v .* f(v))::SparseMatrixCSC == fv .* f(fv)
-        @test (f(v) .* v)::SparseMatrixCSC == f(fv) .* fv
+        end
+        (@static COMPREHENSIVE || f === transpose) && @test (f(v) .* v)::SparseMatrixCSC == f(fv) .* fv
+        @static if COMPREHENSIVE
         @test (f(v) .+ sparse(fv))::SparseMatrixCSC == f(fv) .+ fv
-        @test SparseMatrixCSC(f(v))::SparseMatrixCSC == f(fv)
+        end
+        (@static COMPREHENSIVE || f === adjoint) && @test SparseMatrixCSC(f(v))::SparseMatrixCSC == f(fv)
     end
     # sparse views are converted with `copy`, which keeps their stored entries in O(nnz)
     @test nnz(SparseArrays.HigherOrderFns._sparsifystructured(view(x, :))) == 3
@@ -595,15 +652,17 @@ end
     structuredarrays = (D, B, T, S)
     fstructuredarrays = map(Array, structuredarrays)
     for (X, fX) in zip(structuredarrays, fstructuredarrays)
-        @test map!(sin, Z, X) == sparse(map(sin, fX))
-        @test map!(cos, Z, X) == sparse(map(cos, fX))
-        @test (Q = map(+, A, X); Q isa SparseMatrixCSC && Q == sparse(map(+, fA, fX)))
-        @test map!(+, Z, A, X) == sparse(map(+, fA, fX))
+        (@static COMPREHENSIVE || X === D) && @test map!(sin, Z, X) == sparse(map(sin, fX))
+        (@static COMPREHENSIVE || X === B) && @test map!(cos, Z, X) == sparse(map(cos, fX))
+        (@static COMPREHENSIVE || X === T) && @test (Q = map(+, A, X); Q isa SparseMatrixCSC && Q == sparse(map(+, fA, fX)))
+        (@static COMPREHENSIVE || X === S) && @test map!(+, Z, A, X) == sparse(map(+, fA, fX))
         for (Y, fY) in zip(structuredarrays, fstructuredarrays)
+            @static if COMPREHENSIVE
             @test map!(+, Z, X, Y) == sparse(map(+, fX, fY))
-            @test map!(*, Z, X, Y) == sparse(map(*, fX, fY))
-            @test (Q = map(+, X, A, Y); Q isa SparseMatrixCSC && Q == sparse(map(+, fX, fA, fY)))
-            @test map!(+, Z, X, A, Y) == sparse(map(+, fX, fA, fY))
+            end
+            (@static COMPREHENSIVE || (X === D && Y === T)) && @test map!(*, Z, X, Y) == sparse(map(*, fX, fY))
+            (@static COMPREHENSIVE || (X === S && Y === B)) && @test (Q = map(+, X, A, Y); Q isa SparseMatrixCSC && Q == sparse(map(+, fX, fA, fY)))
+            (@static COMPREHENSIVE || (X === B && Y === D)) && @test map!(+, Z, X, A, Y) == sparse(map(+, fX, fA, fY))
         end
     end
 end
@@ -616,6 +675,7 @@ end
 
     @test A .* B == AF .* BF
     @test A[1,:] .* B == AF[1,:] .* BF
+    @static if COMPREHENSIVE
     @test A[:,1] .* B == AF[:,1] .* BF
     @test A .* B[1,:] == AF .*  BF[1,:]
     @test A .* B[:,1] == AF .*  BF[:,1]
@@ -623,8 +683,10 @@ end
     @test A[1,:] .* BF == AF[1,:] .* BF
     @test A[:,1] .* BF == AF[:,1] .* BF
     @test A .* BF[1,:] == AF .*  BF[1,:]
+    end
     @test A .* BF[:,1] == AF .*  BF[:,1]
 
+    @static if COMPREHENSIVE
     @test AF[1,:] .* B == AF[1,:] .* BF
     @test AF[:,1] .* B == AF[:,1] .* BF
     @test AF .* B[1,:] == AF .*  BF[1,:]
@@ -636,9 +698,13 @@ end
     @test A[:,1] .* 3 == AF[:,1] .* 3
 
     @test A .- 3 == AF .- 3
+    end
     @test 3 .- A == 3 .- AF
+    @static if COMPREHENSIVE
     @test A .- B == AF .- BF
+    end
     @test A - AF == zeros(size(AF))
+    @static if COMPREHENSIVE
     @test AF - A == zeros(size(AF))
     @test A[1,:] .- B == AF[1,:] .- BF
     @test A[:,1] .- B == AF[:,1] .- BF
@@ -649,38 +715,53 @@ end
     @test 3 .+ A == 3 .+ AF
     @test A .+ B == AF .+ BF
     @test A + AF == AF + A
+    end
     @test (A .< B) == (AF .< BF)
+    @static if COMPREHENSIVE
     @test (A .!= B) == (AF .!= BF)
 
     @test A ./ 3 == AF ./ 3
     @test A .\ 3 == AF .\ 3
+    end
     @test 3 ./ A == 3 ./ AF
+    @static if COMPREHENSIVE
     @test 3 .\ A == 3 .\ AF
     @test A .\ C == AF .\ CF
+    end
     @test A ./ C == AF ./ CF
+    @static if COMPREHENSIVE
     @test A ./ CF[:,1] == AF ./ CF[:,1]
     @test A .\ CF[:,1] == AF .\ CF[:,1]
     @test BF ./ C == BF ./ CF
     @test BF .\ C == BF .\ CF
+    end
 
     @test A .^ 3 == AF .^ 3
+    @static if COMPREHENSIVE
     @test 3 .^ A == 3 .^ AF
     @test A .^ BF[:,1] == AF .^ BF[:,1]
     @test BF[:,1] .^ A == BF[:,1] .^ AF
+    end
 
     # broadcasting against a dense-ish vector grows storage on demand instead of
     # preallocating the bound, which for these shapes is the dense size (#47)
     M, v = sprand(200, 200, 0.01), rand(200)
     @test M .* v == Array(M) .* v   # sparse result
+    @static if COMPREHENSIVE
     @test M .* v' == Array(M) .* v'
+    end
     @test M .+ v == Array(M) .+ v   # dense result: does grow to the bound
-    M .* v; M .* v' # warmup for @allocated
+    M .* v; @static COMPREHENSIVE && M .* v' # warmup for @allocated
     # the bound would be 200 * 200 * (8 + 8) bytes = 640 KB
     @test @allocated(M .* v) < 2^16
+    @static if COMPREHENSIVE
     @test @allocated(M .* v') < 2^16
+    end
 
     @test spzeros(0,0)  + spzeros(0,0) == zeros(0,0)
+    @static if COMPREHENSIVE
     @test spzeros(0,0)  * spzeros(0,0) == zeros(0,0)
+    end
     @test spzeros(1,0) .+ spzeros(2,1) == zeros(2,0)
     @test spzeros(1,0) .* spzeros(2,1) == zeros(2,0)
     @test spzeros(1,2) .+ spzeros(0,1) == zeros(0,2)
@@ -694,7 +775,7 @@ end
     sv1, sv5 = sprand(1, 1.), sprand(5, 1.)
     for (sa, sb) in ((sv1, sv1), (sv1, sv5), (sv5, sv1), (sv5, sv5))
         fa, fb = Vector(sa), Vector(sb)
-        for f in (+, -, *, min, max)
+        for f in (max, (@static COMPREHENSIVE ? (+, -, *, min) : ())...)
             @test @inferred(broadcast(f, sa, sb))::SparseVector == broadcast(f, fa, fb)
             @test @inferred(broadcast(f, Vector(sa), sb))::SparseVector == broadcast(f, fa, fb)
             @test @inferred(broadcast(f, sa, Vector(sb)))::SparseVector == broadcast(f, fa, fb)
@@ -747,10 +828,12 @@ end
     A[V] = (1:4) .+ 2^30
     @test A == [2,1,4,3] .+ 2^30
 
+    @static if COMPREHENSIVE
     A = sparse([2,1,4,3])
     R = reshape(view(A, :), 2, 2)
     A[R] = (1:4) .+ 2^30
     @test A == [2,1,4,3] .+ 2^30
+    end
 
     A = sparse([2,1,4,3])
     R = reshape(A, 2, 2)
@@ -766,20 +849,24 @@ end
     a[a] .= [4,5,6]
     @test a == [6,5,4]
 
+    @static if COMPREHENSIVE
     A = sparse([2,1,4,3])
     V = view(A, :)
     A[V] .= (1:4) .+ 2^30
     @test A == [2,1,4,3] .+ 2^30
+    end
 
     A = sparse([2,1,4,3])
     R = reshape(view(A, :), 2, 2)
     A[R] .= reshape((1:4) .+ 2^30, 2, 2)
     @test A == [2,1,4,3] .+ 2^30
 
+    @static if COMPREHENSIVE
     A = sparse([2,1,4,3])
     R = reshape(A, 2, 2)
     A[R] .= reshape((1:4) .+ 2^30, 2, 2)
     @test A == [2,1,4,3] .+ 2^30
+    end
 
     # map! with the destination among the inputs (issue #26)
     A = sparse([100 0; 300 400])
@@ -801,29 +888,41 @@ end
     A = spzeros(5)
     @test A .+ (1:5) == 1:5
     @test A .* 2 .+ view(collect(1:10), 1:5) == 1:5
+    @static if COMPREHENSIVE
     @test 2 .* A .+ view(1:10, 1:5) == 1:5
     @test (A .+ (1:5)) .* 2 == 2:2:10
     @test ((1:5) .+ A) .* 2 == 2:2:10
+    end
     @test 2 .* ((1:5) .+ A) == 2:2:10
+    @static if COMPREHENSIVE
     @test 2 .* (A .+ (1:5)) == 2:2:10
+    end
     # in-place with an unsupported (Tuple) argument used to recurse, see #573
     B = sparsevec([2], [3.0], 5)
     @test (B .= .*(B, A .+ 1, (2,))) == [0, 6, 0, 0, 0]
 
+    @static if COMPREHENSIVE
     # lu(zeros(5,5)) throw SingularException, see #42343
     @test_throws SingularException Diagonal(spzeros(5)) \ view(rand(10), 1:5)
+    end
 end
 
+@static if COMPREHENSIVE
 @testset "Issue #27836" begin
     @test minimum(sparse([1, 2], [1, 2], ones(Int32, 2)), dims = 1) isa Matrix
 end
+end
 
 @testset "Issue #30118" begin
+    @static if COMPREHENSIVE
     @test ((_, x) -> x).(Int, spzeros(3)) == spzeros(3)
+    end
     @test ((_, _, x) -> x).(Int, Int, spzeros(3)) == spzeros(3)
+    @static if COMPREHENSIVE
     @test ((_, _, _, x) -> x).(Int, Int, Int, spzeros(3)) == spzeros(3)
     @test ((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3)) == spzeros(3)
     @test_broken typeof(((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3))) == typeof(spzeros(3))
+    end
 end
 
 using SparseArrays.HigherOrderFns: SparseVecStyle, SparseMatStyle
@@ -844,8 +943,7 @@ using SparseArrays.HigherOrderFns: SparseVecStyle, SparseMatStyle
 end
 
 @testset "Sparse outer product, for type $T and vector $op" for
-         op in (transpose, adjoint),
-         T in (Float64, ComplexF64)
+         (op, T) in (@static COMPREHENSIVE ? pairwise : eachvalue)((transpose, adjoint), (Float64, ComplexF64))
     m, n, p = 100, 250, 0.1
     A = sprand(T, m, n, p)
     a, b = view(A, :, 1), sprand(T, m, p)
@@ -858,6 +956,17 @@ end
     @test w == bv .* op(av)
 end
 
+@testset "Sparse outer product drops products with stored zeros" begin
+    # the result is sized for nnz(x) * nnz(y) entries and must shrink for each stored zero
+    # of either vector (an oversized result errored, issue #42670)
+    A = SparseMatrixCSC(4, 1, [1, 4], [1, 2, 4], [1.0, 0.0, 3.0])
+    a, b = view(A, :, 1), SparseVector(3, [1, 2, 3], [0.0, 2.0, 5.0])
+    C = a .* transpose(b)
+    @test C == Vector(a) .* transpose(Vector(b))
+    @test nnz(C) == 4
+end
+
+@static if COMPREHENSIVE
 @testset "issue #31758: out of bounds write in _map_zeropres!" begin
     y = sparsevec([2,7], [1., 2.], 10)
     x1 = sparsevec(fill(1.0, 10))
@@ -866,6 +975,7 @@ end
     f(x, y, z) = x == y == z == 0 ? 0.0 : NaN
     y .= f.(x1, x2, x3)
     @test all(isnan, y)
+end
 end
 
 @testset "Vec/Mat Style" begin
@@ -877,6 +987,7 @@ end
     @test SparseMatStyle(Val(1)) == SparseMatStyle()
     @test SparseMatStyle(Val(2)) == SparseMatStyle()
     @test SparseMatStyle(Val(3)) == Broadcast.DefaultArrayStyle{3}()
+    @test Broadcast.BroadcastStyle(SparseArrays.HigherOrderFns.PromoteToSparse(), SparseVecStyle()) == SparseArrays.HigherOrderFns.PromoteToSparse()
 end
 
 @testset "extrema" begin
@@ -898,21 +1009,29 @@ end
     @test_throws "reducing over an empty" extrema(spzeros(0))
     @test extrema(sparse(ones(n, n))) == (1.0, 1.0)
     @test extrema(sparse(ones(n))) == (1.0, 1.0)
+    @static if COMPREHENSIVE
     @test extrema(A; dims=:) == extrema(B; dims=:)
+    end
     @test extrema(A; dims=1) == extrema(B; dims=1)
     @test extrema(A; dims=2) == extrema(B; dims=2)
+    @static if COMPREHENSIVE
     @test extrema(A; dims=(1,2)) == extrema(B; dims=(1,2))
+    end
     @test extrema(f, A; dims=1) == extrema(f, B; dims=1)
+    @static if COMPREHENSIVE
     @test_throws "reducing over an empty" extrema(sparse(C); dims=1) == extrema(C; dims=1)
     @test extrema(A; dims=[]) == extrema(B; dims=[])
     @test extrema(x; dims=:) == extrema(y; dims=:)
+    end
     @test extrema(x; dims=1) == extrema(y; dims=1)
+    @static if COMPREHENSIVE
     @test extrema(f, x; dims=1) == extrema(f, y; dims=1)
     @test_throws "reducing over an empty" extrema(sparse(z); dims=1)
     @test extrema(x; dims=[]) == extrema(y; dims=[])
+    end
 end
 
-function test_extrema(a; dims_test = ((), 1, 2, (1,2), 3))
+function test_extrema(a; dims_test = @static COMPREHENSIVE ? ((), 1, 2, (1,2), 3) : (1, (1,2)))
     for dims in dims_test
         vext = extrema(a; dims)
         vmin, vmax = minimum(a; dims), maximum(a; dims)
@@ -920,16 +1039,17 @@ function test_extrema(a; dims_test = ((), 1, 2, (1,2), 3))
     end
 end
 @testset "NaN test for sparse extrema" begin
-    for sz = (3, 10, 100)
+    for sz = (10, (@static COMPREHENSIVE ? (3, 100) : ())...)
         A = sprand(sz, sz, 0.3)
         A[rand(1:sz^2,sz)] .= NaN
         test_extrema(A)
         A = sprand(sz*sz, 0.3)
         A[rand(1:sz^2,sz)] .= NaN
-        test_extrema(A; dims_test = ((), 1, 2))
+        test_extrema(A; dims_test = @static COMPREHENSIVE ? ((), 1, 2) : (1,))
     end
 end
 
+@static if COMPREHENSIVE
 @testset "issue #42670 - error in sparsevec outer product" begin
     A = spzeros(Int, 4)
     B = copy(A)
@@ -945,8 +1065,23 @@ end
     y = spzeros(Int, 1)
     @test y ./ x == y
 end
+end
 
 @testset "map and broadcast kernels with the row count at typemax of the index type" begin
+    # Int16 because a narrow index type is the point; a comprehensive run adds the narrowest one
+    n = Int(typemax(Int16))
+    x = SparseVector(n, Int16[1], [1.0])
+    for (R, dR) in ((map(+, x, x), 2Array(x)), (x .+ x, 2Array(x)))
+        @test R == dR && SparseArrays.indtype(R) == Int16
+    end
+    # a dense-structured result still fits a vector, whose indices stop at the length
+    @test map((a, b) -> a + b + 1, x, x) == 2Array(x) .+ 1
+    y = SparseVector(n, Int16.(1:n), ones(n))   # nnz + 1 does not fit the index type either
+    @test y .+ y == 2Array(y) && SparseArrays.indtype(y .+ y) == Int16
+    M = SparseMatrixCSC{Float64,Int16}
+    @test !hasunionlocal(SparseArrays.HigherOrderFns._map_zeropres!, (typeof(+), M, M, M), Int16, Int)
+    @test !hasunionlocal(SparseArrays.HigherOrderFns._broadcast_zeropres!, (typeof(+), M, M, M), Int16, Int)
+    @static if COMPREHENSIVE
     A = SparseMatrixCSC(127, 1, Int8[1, 2], Int8[1], [1.0])
     x = SparseVector(127, Int8[1], [1.0])
     for S in (A, x), (R, dR) in ((map(+, S, S), 2Array(S)), (S .+ S, 2Array(S)),
@@ -963,6 +1098,7 @@ end
         M = SparseMatrixCSC{Float64,Ti}
         @test !hasunionlocal(SparseArrays.HigherOrderFns._map_zeropres!, (typeof(+), M, M, M), Ti, Int)
         @test !hasunionlocal(SparseArrays.HigherOrderFns._broadcast_zeropres!, (typeof(+), M, M, M), Ti, Int)
+    end
     end
 end
 
