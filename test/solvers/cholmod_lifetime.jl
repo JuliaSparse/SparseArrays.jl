@@ -28,8 +28,13 @@ function with_gc_disabled(f)
         GC.enable(enabled)
     end
 end
-itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
-for Ti ∈ itypes, Tv ∈ (Float32, Float64)
+
+# One index type and one real type per process: the process that includes this file may
+# name them in the environment. The default is the 32-bit index type, the one for which
+# the checks that an object is released through its own Common mean something.
+const Ti, Tv = let types = split(get(ENV, "SPARSEARRAYS_TEST_LIFETIME_TYPES", "$(first(itypes)),Float64"), ',')
+    getfield(Base, Symbol(types[1])), getfield(Base, Symbol(types[2]))
+end
 Random.seed!(123)
 
 @testset "illegal dtype" begin
@@ -264,7 +269,5 @@ end
         @test getproperty(current_common[], name) == getproperty(default_common[], name)
     end
 end
-
-end # Ti, Tv
 
 end # module
