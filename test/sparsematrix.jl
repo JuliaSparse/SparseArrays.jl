@@ -422,6 +422,29 @@ Base.zero(::Type{OneSided}) = OneSided(0)
 Base.:(==)(a::OneSided, b::Number) = a.x == b
 Base.transpose(a::OneSided) = a
 
+# A number whose zero keeps the unit of a value, so that the type alone has none
+struct Tagged <: Number
+    x::Int
+    unit::Symbol
+end
+Base.zero(a::Tagged) = Tagged(0, a.unit)
+Base.:(==)(a::Tagged, b::Tagged) = a.x == b.x && a.unit == b.unit
+
+@testset "== and isequal for a number type without a zero of the type" begin
+    @test_throws Exception zero(Tagged)
+    T = sparse([1, 2, 1, 2], [1, 1, 2, 2], Tagged.(1:4, :m))
+    U = sparse([1, 2, 2], [1, 1, 2], Tagged.([1, 2, 0], :m))
+    E = SparseMatrixCSC(2, 2, [1, 1, 1], Int[], Tagged[])
+    t = sparsevec([1, 2], Tagged.(1:2, :m))
+    for eq in (==, isequal)
+        @test eq(T, copy(T)) && eq(E, E) && eq(t, copy(t)) && eq(T, view(T, :, 1:2)) && eq(U, U)
+        @test eq(E, sparse([1], [1], [Tagged(0, :m)], 2, 2)) && eq(sparse([1], [1], [Tagged(0, :m)], 2, 2), E)
+        @test !eq(T, U) && !eq(U, T) && !eq(T, E) && !eq(t, sparsevec([1], [Tagged(1, :m)], 2))
+        @test eq(T, Tagged.([1 3; 2 4], :m)) && eq(Tagged.([1 3; 2 4], :m), T) && eq(t, Tagged.(1:2, :m))
+        @test eq(U, Tagged.([1 0; 2 0], :m)) && !eq(U, Tagged.([1 1; 2 0], :m))
+    end
+end
+
 @testset "== of sparse arrays keeps the order of the arguments" begin
     Zo, So = spzeros(OneSided, 2, 2), sparse([1], [1], [OneSided(0)], 2, 2)
     Do = fill(OneSided(0), 2, 2)
@@ -463,6 +486,7 @@ end
         @test eq(Zm, spzeros(Matrix{Float64}, 2, 2)) && eq(Zi, spzeros(Float64, 2, 2))
         @test eq(sparse(Any[1 0; 0 2]), sparse([1.0 0; 0 2]))
         @test eq(sparse(Any[1 0; 0 2]), sparse([1, 2, 2], [1, 1, 2], [1.0, 0.0, 2.0]))
+        @test eq(spzeros(Union{}, 0, 0), spzeros(0, 0)) && eq(spzeros(0), spzeros(Union{}, 0))
         # column views take the stored-entry merge of sparse vectors
         @test eq(view(S, :, 2), S[:, 2]) && !eq(view(S, :, 1), S[:, 2]) && !eq(view(Zi, :, 1), zv)
     end
@@ -498,6 +522,13 @@ end
                        (view(x, 2:5), Vector(x)[2:5]), (view(A, :, 1), Matrix(A)[:, 1]),
                        (C', Matrix(C')), (C', Matrix(transpose(C))), (transpose(C'), conj(Matrix(C))),
                        (sparse([true false; false true]), BitMatrix([true false; false true])),
+                       # the wrappers conjugate the sparse entries and their implicit zero, and
+                       # never the dense ones: a real zero is not `isequal` to `0.0 - 0.0im`
+                       (spzeros(1, 1)', zeros(ComplexF64, 1, 1)), (spzeros(ComplexF64, 1, 1)', zeros(1, 1)),
+                       (sparse([1], [1], [0.0 + 0.0im], 1, 1)', zeros(1, 1)), (C', zeros(3, 3)),
+                       (transpose(spzeros(ComplexF64, 2, 2)), zeros(2, 2)), (spzeros(ComplexF64, 2, 3)', zeros(3, 2)),
+                       (spzeros(2)', zeros(ComplexF64, 1, 2)), (spzeros(ComplexF64, 2)', zeros(1, 2)),
+                       (sparsevec([1], [0.0 + 0.0im], 2)', zeros(1, 2)), (transpose(spzeros(ComplexF64, 2)), zeros(1, 2)),
                        (sparse([1 0; 0 2]), [1.0 0.0; 0.0 2.0]))
             @test eq(L, R) === eq(Array(L), R)
             @test eq(R, L) === eq(R, Array(L))
@@ -506,6 +537,20 @@ end
     M = sparse([1, 2], [1, 2], [missing, 1.0])
     @test (M == Matrix(M)) === missing && (Matrix(M) == M) === missing && isequal(M, Matrix(M))
     @test (M == [missing 1.0; 0.0 1.0]) === false
+    # sparse against sparse propagates `missing` too, and a later difference still decides
+    N = sparse([1, 2], [1, 2], [missing, 2.0])
+    m1, vm = M[:, 1], view(M, :, 1)
+    for (L, R) in ((M, copy(M)), (M, view(M, :, 1:2)), (M, transpose(M)), (transpose(M), transpose(M)),
+                   (M, sparse([1, 2], [1, 2], [1.0, 1.0])), (m1, copy(m1)), (vm, vm), (vm, m1),
+                   (m1, sparsevec([1], [1.0], 2)), (spzeros(Missing, 2, 2), spzeros(Missing, 2, 2)),
+                   (spzeros(Missing, 2), spzeros(Missing, 2)))
+        @test (L == R) === missing && (R == L) === missing
+        @test isequal(L, R) === isequal(Array(L), Array(R))
+    end
+    for (L, R) in ((M, N), (M, view(N, :, 1:2)), (M, transpose(N)), (m1, sparsevec([1, 2], [missing, 1.0])),
+                   (vm, sparsevec([2], [1.0], 2)), (view(N, :, 2), vm))
+        @test (L == R) === false && (R == L) === false && !isequal(L, R)
+    end
     # the dense operand is read once and the sparse one is not indexed
     n = 200
     v = sparsevec([1, n ÷ 2], OpCount.([1.0, 2.0]), n)

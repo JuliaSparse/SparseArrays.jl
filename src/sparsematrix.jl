@@ -1626,14 +1626,20 @@ function _iseq(eq::F, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColu
     return _iseq(eq, A, B, _implicit_zeros(eq, A, B)...)
 end
 function _iseq(eq::F, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset,
-               za, zb, distinct::Bool) where {F}
+               za, zb, zeq) where {F}
     ia, va, ib, vb = rowvals(A), nonzeros(A), rowvals(B), nonzeros(B)
     m = size(A, 1)
+    anymissing = false
     @inbounds for j in axes(A, 2)
-        nstored = _merge_eq(eq, ia, va, ib, vb, nzrange(A, j), nzrange(B, j), za, zb)
-        (distinct ? nstored == m : nstored >= 0) || return false
+        nstored, colmissing = _merge_eq(eq, ia, va, ib, vb, nzrange(A, j), nzrange(B, j), za, zb)
+        nstored < 0 && return false
+        anymissing |= colmissing
+        if nstored < m
+            zeq === false && return false
+            anymissing |= ismissing(zeq)
+        end
     end
-    return true
+    return anymissing ? missing : true
 end
 
 ==(A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset) = _iseq(==, A, B)
@@ -1642,16 +1648,20 @@ Base.isequal(A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset)
 ## Explicit efficient comparisons with transposed arrays
 
 # Check whether all nonzero elements of A are equal to the respective elements in B
-# under the elementwise predicate `eq` (`==` or `isequal`)
+# under the elementwise predicate `eq` (`==` or `isequal`): `false`, `true`, or `missing`
+# when a comparison is and none is `false`
 function nzeq(eq::F, A::AbstractSparseMatrixCSC, B::AbstractMatrix) where {F}
+    anymissing = false
     @inbounds for j in axes(A,2)
         for k in nzrange(A, j)
             i = rowvals(A)[k]
             val = nonzeros(A)[k]
-            eq(val, B[i,j]) || return false
+            c = eq(val, B[i,j])
+            c === false && return false
+            anymissing |= ismissing(c)
         end
     end
-    return true
+    return anymissing ? missing : true
 end
 # Peel off `Adjoint` and `Transpose` from first argument
 # `B` may be a nested wrapper such as `Adjoint{<:Any,<:Transpose}` (from `A' == transpose(B)`),
@@ -1678,9 +1688,13 @@ function _iseq(eq::F, A::AbstractSparseMatrixCSC,
     # Different sizes are always different
     size(A) ≠ size(B) && return false
     # `nzeq` never visits a position stored in neither matrix, where the implicit zeros meet
-    _implicit_zeros(eq, A, B)[3] && return _iseq(eq, A, _unwrap_adjtrans(B))
+    _implicit_zeros(eq, A, first(_peel(B)))[3] === true || return _iseq(eq, A, _unwrap_adjtrans(B))
     # Compare nonzero elements
-    return nzeq(eq, A, B) && nzeq(_swapargs(eq), B, A)
+    c = nzeq(eq, A, B)
+    c === false && return false
+    d = nzeq(_swapargs(eq), B, A)
+    d === false && return false
+    return ismissing(c) || ismissing(d) ? missing : true
 end
 ==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(==, A, B)
