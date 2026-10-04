@@ -140,7 +140,36 @@ end
     tall = sparse([1.0 0; 0 2; 1 1])
     B = sparse([1.0 0; 0 0; 0 3])
     @test mismatch(tall \ B, Matrix(tall) \ Matrix(B); approx=true, Ti=Int) === nothing
+    # a Hermitian positive definite matrix is solved with `cholesky`, an indefinite one
+    # falls back to `SparseArrays.sparselu`
+    S = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    Sindef = sparse([1.0 2 0; 2 1 1; 0 1 1])
+    @test mismatch(S \ B, Matrix(S) \ Matrix(B); approx=true, Ti=Int) === nothing
+    @test SparseArrays._hermitian_rhs_solve(S, B) isa SparseMatrixCSC{Float64,Int}
+    @test SparseArrays._hermitian_rhs_solve(Sindef, B) === nothing
     @static if COMPREHENSIVE
+    @test mismatch(Sindef \ B, Matrix(Sindef) \ Matrix(B); approx=true, Ti=Int) === nothing
+    Sc = sparse(ComplexF64[4 1+im 0; 1-im 4 1+im; 0 1-im 4])
+    sb = sparsevec([1, 3], [1.0, 2.0], 3)
+    for H in (S, Sc), rhs in (B, sb, view(B, :, 2:2), view(B, :, 1))
+        @test SparseArrays._hermitian_rhs_solve(H, SparseArrays._rhs_matrix(rhs)) !== nothing
+        @test mismatch(@inferred(H \ rhs), Matrix(H) \ Array(rhs); approx=true, Ti=Int) === nothing
+        @test mismatch(H' \ rhs, Matrix(H') \ Array(rhs); approx=true, Ti=Int) === nothing
+        @test mismatch(transpose(H) \ rhs, transpose(Matrix(H)) \ Array(rhs); approx=true, Ti=Int) === nothing
+    end
+    # the index type of the solution is the promoted one, whichever CHOLMOD works in
+    S32, B32 = SparseMatrixCSC{Float64,Int32}(S), SparseMatrixCSC{Float64,Int32}(B)
+    for (H, rhs, Ti) in ((S32, B32, Int32), (S32, B, Int), (S, B32, Int))
+        @test SparseArrays._hermitian_rhs_solve(H, rhs) !== nothing
+        @test mismatch(@inferred(H \ rhs), Matrix(S) \ Matrix(B); approx=true, Ti) === nothing
+    end
+    # a right-hand side that CHOLMOD cannot hold, or a matrix it cannot factorize, is
+    # left to the LU factorization
+    @test SparseArrays._hermitian_rhs_solve(S, big.(B)) === nothing
+    @test SparseArrays._hermitian_rhs_solve(Float32.(S), B) === nothing
+    @test SparseArrays._hermitian_rhs_solve(big.(S), B) === nothing
+    @test mismatch(@inferred(Float32.(S) \ B), Matrix(S) \ Matrix(B); approx=true) === nothing
+    @test mismatch(Float32.(S) \ sparse([1 0; 0 0; 0 3]), Float32.(Matrix(S) \ Matrix(B)); approx=true) === nothing
     wide = copy(tall')
     b = sparsevec([2], [1.0], 2)
     @test mismatch(wide \ b, Matrix(wide) \ Vector(b); approx=true, Ti=Int) === nothing

@@ -1400,9 +1400,14 @@ end
 
 ## `\` with a sparse right-hand side returns a sparse solution (kernels in sparselu.jl)
 
-# `A \ B` for a sparse `B`: substitution for a triangular `A`, `sparselu` for
-# any other square `A`. Each branch returns the same sparse type, so the result is
-# inferrable. A rectangular `A` goes through its dense-right-hand-side solve.
+# The solvers add a method that solves a Hermitian positive definite system with
+# `cholesky`. `nothing` means that there is no such solve, or that the factorization failed.
+_hermitian_rhs_solve(A, B) = nothing
+
+# `A \ B` for a sparse `B`: substitution for a triangular `A`, `cholesky` for a Hermitian
+# `A` when the solvers provide it and it succeeds, `sparselu` for any other square `A`.
+# Each branch returns the same sparse type, so the result is inferrable. A rectangular `A`
+# goes through its dense-right-hand-side solve.
 function _sparse_rhs_solve(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCOrView)
     require_one_based_indexing(A, B)
     m, n = size(A)
@@ -1415,6 +1420,9 @@ function _sparse_rhs_solve(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCOrView)
             return _sptrisolve(A, true, false, B, T, Ti)
         elseif istriu(A)
             return _sptrisolve(A, false, false, B, T, Ti)
+        elseif _hermitian_solve(A)
+            X = _hermitian_rhs_solve(A, B)
+            X === nothing || return convert(SparseMatrixCSC{T,Ti}, X)
         end
         return _lusolve(sparselu(A), B, T, Ti)
     end
