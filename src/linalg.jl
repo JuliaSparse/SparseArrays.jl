@@ -1442,6 +1442,15 @@ function \(A::SparseTriangular, B::SparseSolveRHS)
 end
 \(A::SparseAdjOrTransTriangular, B::SparseSolveRHS) = _sptriangular(A) \ B
 
+# `B / T` for a sparse triangular `T` and a sparse `B` is sparse as well: X * T == B is
+# transpose(T) * transpose(X) == transpose(B)
+_sparsecsc(B::AbstractSparseMatrixCSC) = B
+_sparsecsc(B::Union{SparseMatrixCSCView,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) = SparseMatrixCSC(B)
+function /(B::Union{SparseMatrixCSCOrView,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}},
+           T::Union{SparseTriangular,SparseAdjOrTransTriangular})
+    return copy(transpose(transpose(T) \ transpose(_sparsecsc(B))))
+end
+
 _factorize_choice(F) = F
 _factorize_choice(H::Hermitian) = factorize(H)
 factorize(A::AbstractSparseMatrixCSC) = _sparse_factorize(_factorize_choice, A)
