@@ -325,7 +325,10 @@ julia> v .* v'
 Scalars (and `Ref`s) are folded into the function before the rules above are applied. Broadcasting
 a sparse array with a `Vector`, a `Matrix`, the adjoint or transpose of any of these, or a
 `Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix first converts those arguments to
-sparse, so the result is sparse as well, even when it is full, as in `A .+ ones(3, 3)`. A view of
+sparse, so the result is sparse as well, as in `A .* ones(3, 3)`. Sums are the exception: a
+broadcast made only of `+` and `-` that has a `Vector` or a `Matrix` (or a view, adjoint or
+transpose of one) among its arguments returns an `Array`, as `A + ones(3, 3)` does, so
+`A .+ ones(3, 3)` and `A .- v .+ ones(3)` are dense while `2 .* A .+ ones(3, 3)` is sparse. A view of
 whole columns of a sparse matrix, such as `@view A[:, 2:3]` or `@view A[:, j]`, or of a range of a
 sparse vector is copied to a sparse array in time proportional to its stored entries, so
 broadcasting over it is sparse too, even with no other sparse argument. Any other argument, such as
