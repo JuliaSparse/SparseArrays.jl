@@ -342,8 +342,19 @@ _uconvert_copyto!(c::AbstractArray{T}, b::AbstractArray{T}, _) where {T} = copyt
 
 LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat) =
     _trimatdiv!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
-LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
-    _trimatdiv!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
+function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
+    same = _undoes_wrapper(tfun, xA)
+    return _trimatdiv!(C, (uploc == 'U') != same, isunitc == 'U', same ? identity : conj, parent(xA), B)
+end
+
+# Whether `tfun(xA)` is the parent of `xA` rather than its conjugate, which is the parent
+# of a triangle built as `Adjoint(Adjoint(A))` or `Transpose(Transpose(A))`. LinearAlgebra
+# then names the triangle of `xA`, the opposite one of `parent(xA)`. For a real eltype it
+# passes `transpose` for either outer wrapper, with the triangle as the only difference,
+# so that case cannot be recognized here and is taken for the mixed pair.
+_undoes_wrapper(::typeof(adjoint), ::Adjoint) = true
+_undoes_wrapper(::typeof(transpose), ::Transpose{T}) where {T} = !(T <: Real)
+_undoes_wrapper(::Function, ::AdjOrTrans) = false
 
 # C = M \ B for a triangle M of `f(A)`, solved column by column of A; C may be B.
 # `F` keeps the method specialized on the forwarded `f`.

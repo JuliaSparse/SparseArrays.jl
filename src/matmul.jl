@@ -536,8 +536,10 @@ prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < 
 ## triangular multiplication
 LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat) =
     _trimatmul!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
-LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
-    _trimatmul!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
+function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
+    same = _undoes_wrapper(tfun, xA)
+    return _trimatmul!(C, (uploc == 'U') != same, isunitc == 'U', same ? identity : conj, parent(xA), B)
+end
 
 # C = M * B for a triangle M of `f(A)`, computed column by column of A; C may be B.
 # `F` keeps the method specialized on the forwarded `f`.
