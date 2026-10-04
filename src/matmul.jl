@@ -350,6 +350,16 @@ end
 *(A::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCSymmHerm) = A * sparse(B)
 *(A::SparseMatrixCSCSymmHerm, B::SparseMatrixCSCSymmHerm) = sparse(A) * sparse(B)
 *(A::SparseMatrixCSCSymmHerm, x::SparseVectorOrView) = sparse(A) * x
+# so is the eagerly made adjoint/transpose of a sparse triangular matrix
+for W in (:UpperTriangular, :LowerTriangular, :UnitUpperTriangular, :UnitLowerTriangular)
+    @eval _sptriangular(A::$W) = $W(copy(parent(A)))
+end
+*(A::SparseAdjOrTransTriangular, B::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},SparseMatrixCSCSymmHerm}) =
+    _sptriangular(A) * B
+*(A::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},SparseMatrixCSCSymmHerm}, B::SparseAdjOrTransTriangular) =
+    A * _sptriangular(B)
+*(A::SparseAdjOrTransTriangular, B::SparseAdjOrTransTriangular) = _sptriangular(A) * _sptriangular(B)
+*(A::SparseAdjOrTransTriangular, x::SparseVectorOrView) = _sptriangular(A) * x
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)

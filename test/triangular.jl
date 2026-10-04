@@ -268,10 +268,9 @@ end
     for n in (8, 16), W in (UpperTriangular, LowerTriangular)
         A = opcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
         @test mulcount(() -> W(A) * A) == n
-        # These wrappers currently select generic triangular multiplication.
         for op in (transpose, adjoint)
-            count = mulcount(() -> op(W(A)) * A)
-            @test_broken count <= 2n
+            @test mulcount(() -> op(W(A)) * A) <= 2n
+            @test mulcount(() -> A * op(W(A))) <= 2n
         end
     end
     end
@@ -289,6 +288,29 @@ end
         end
     end
     @test_throws DimensionMismatch ones(2, 3) * UpperTriangular(sparse(1.0I, 4, 4))
+end
+
+@static if COMPREHENSIVE
+@testset "products of an adjoint or transpose sparse triangular matrix" begin
+    for T in (Float64, ComplexF64)
+        S = sparse(T[1 2 0 1; 3 4 5 0; 0 6 7 8; 2 0 9 3])
+        B = sparse(T[0 1 2 0; 1 0 0 3; 4 0 1 0; 0 2 0 1])
+        T <: Complex && (S += im * B; B = B + im * S)
+        H = Hermitian(B + B')
+        x = B[:, 2]
+        for W in TRIANGLES, op in (transpose, adjoint, a -> transpose(adjoint(a))), M in (S, view(S, :, 1:4))
+            L, D = op(W(M)), op(W(Matrix(M)))
+            for (R, DR) in ((B, Matrix(B)), (B', Matrix(B)'), (H, Matrix(H)), (W(B), W(Matrix(B))), (L, D))
+                @test L * R ≈ D * DR
+                @test R * L ≈ DR * D
+                @test L * R isa Union{SparseMatrixCSC,SparseArrays.SparseTriangular}
+                @test R * L isa Union{SparseMatrixCSC,SparseArrays.SparseTriangular}
+            end
+            @test L * x ≈ D * Vector(x)
+            @test L * x isa SparseVector
+        end
+    end
+end
 end
 
 

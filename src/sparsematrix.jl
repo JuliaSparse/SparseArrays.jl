@@ -434,6 +434,7 @@ end
 
 using Base: show_circular
 const SparseShowable = Union{SparseMatrixCSCMaybeAdjOrTrans, SparseMatrixCSCView,
+    AdjOrTrans{<:Any,<:AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}},
     HermOrSym{<:Any,<:SparseMatrixCSCOrView}, SparseTriangular, Diagonal{<:Any,<:SparseVectorOrView}}
 
 function Base.show(io::IO, ::MIME"text/plain", S::SparseShowable)
@@ -462,8 +463,7 @@ end
 # is 0 for an implicit unit diagonal
 _shown_entries(S::SparseMatrixCSCOrView) =
     ((getrowval(S)[k], j, k) for j in axes(S, 2) for k in nzrange(S, j))
-_shown_entries(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
-    ((j, i, k) for (i, j, k) in _shown_entries(parent(S)))
+_shown_entries(S::AdjOrTrans) = ((j, i, k) for (i, j, k) in _shown_entries(parent(S)))
 function _shown_entries(T::SparseTriangular)
     A = parent(T)
     unit = T isa UnitUpperOrUnitLowerTriangular
@@ -574,8 +574,13 @@ function _show_with_dotted_zeros(io::IO, S::SparseShowable)
     vals = _shown_values(S)
     rows, cols = getindex.(entries, 1), getindex.(entries, 2)
     shown(k) = k == 0 || isassigned(vals, k)
+    # a repeated entry is marked instead of read, as indexing may find an unassigned copy
+    seen, repeated = Set{NTuple{2,Int}}(), Set{NTuple{2,Int}}()
+    for ij in zip(rows, cols)
+        push!(ij in seen ? repeated : seen, ij)
+    end
 
-    align = [shown(k) ? alignment(io, S[i, j]) : (3, 3) for (i, j, k) in entries]
+    align = [shown(k) && !((i, j) in repeated) ? alignment(io, S[i, j]) : (3, 3) for (i, j, k) in entries]
 
     colwidths = [maximum.((first,last), Ref(align[findall(==(col), cols)]);init=0) for col in axes(S,2)]
     displaysize(io)[2] < sum(sum.(colwidths) .+ 2) && return _show_with_braille_patterns(io, S, entries)

@@ -1202,18 +1202,6 @@ end
         return (parevalf, passedsrcargstup)
     end
 end
-# Work around losing Type{T}s as DataTypes within the tuple that makeargs creates
-@inline capturescalars(f, mixedargs::Tuple{Ref{Type{T}}, Vararg{Any}}) where {T} =
-    capturescalars((args...)->f(T, args...), Base.tail(mixedargs))
-@inline capturescalars(f, mixedargs::Tuple{Ref{Type{T}}, Ref{Type{S}}, Vararg{Any}}) where {T, S} =
-    # This definition is identical to the one above and necessary only for
-    # avoiding method ambiguity.
-    capturescalars((args...)->f(T, args...), Base.tail(mixedargs))
-@inline capturescalars(f, mixedargs::Tuple{SparseVecOrMat, Ref{Type{T}}, Vararg{Any}}) where {T} =
-    capturescalars((a1, args...)->f(a1, T, args...), (mixedargs[1], Base.tail(Base.tail(mixedargs))...))
-@inline capturescalars(f, mixedargs::Tuple{Union{Ref,AbstractArray{<:Any,0}}, Ref{Type{T}}, Vararg{Any}}) where {T} =
-    capturescalars((args...)->f(mixedargs[1], T, args...), Base.tail(Base.tail(mixedargs)))
-
 nonscalararg(::SparseVecOrMat) = true
 nonscalararg(::Any) = false
 scalarwrappedarg(::Union{AbstractArray{<:Any,0},Ref}) = true
@@ -1230,7 +1218,7 @@ end
             end # pass-through to broadcast
         elseif scalarwrappedarg(arg)
             return rest, @inline function(tail...)
-                (arg[], f(tail...)...) # TODO: This can put a Type{T} in a tuple
+                (arg[], f(tail...)...)
             end # unwrap and add back scalararg after (in makeargs)
         else
             return rest, @inline function(tail...)
@@ -1239,6 +1227,16 @@ end
         end
     end
 end
+# A `Type{T}` read back out of its `Ref` is only a `DataType` to inference, so take it from
+# the static parameter, which keeps `f(T, x)` inferable however many types are passed.
+@inline function _capturescalars(::Ref{Type{T}}, mixedargs...) where {T}
+    let (rest, f) = _capturescalars(mixedargs...)
+        return rest, @inline function(tail...)
+            (T, f(tail...)...)
+        end
+    end
+end
+@inline _capturescalars(::Ref{Type{T}}) where {T} = (), () -> (T,)
 @inline function _capturescalars(arg) # this definition is just an optimization (to bottom out the recursion slightly sooner)
     if nonscalararg(arg)
         return (arg,), (head,) -> (head,) # pass-through

@@ -209,8 +209,21 @@ end
     F = SparseArrays.fixed(sparse([4.0 1 0; 1 4 1; 0 1 4]))
     @test factorize(F) isa SparseArrays.CHOLMOD.Factor{Float64}
     @test F \ [1.0, 2, 3] ≈ Matrix(F) \ [1.0, 2, 3]
-    # an indefinite Hermitian fixed matrix reaches `ldlt!`, which takes a `SparseMatrixCSC` only
-    @test_broken factorize(SparseArrays.fixed(sparse([1.0 2 0; 2 1 2; 0 2 1]))) isa SparseArrays.CHOLMOD.Factor
+    # an indefinite Hermitian fixed matrix reaches `ldlt!`
+    G = SparseArrays.fixed(sparse([1.0 2 0; 2 1 2; 0 2 1]))
+    @test factorize(G) isa SparseArrays.CHOLMOD.Factor{Float64}
+    @test G \ [1.0, 2, 3] ≈ Matrix(G) \ [1.0, 2, 3]
+    @static if COMPREHENSIVE
+    for T in (Float64, ComplexF64), wrap in (identity, Hermitian)
+        Z = SparseArrays.fixed(sparse(T[1 2 0; 2 1 2; 0 2 1]))
+        b = T[1, 2, 3]
+        @test ldlt(wrap(Z)) \ b ≈ Matrix(Z) \ b
+        P = SparseArrays.fixed(sparse(T[4 1 0; 1 4 1; 0 1 4]))
+        @test cholesky!(cholesky(wrap(Z + 5I)), wrap(P)) \ b ≈ Matrix(P) \ b
+        @test ldlt!(ldlt(wrap(P)), wrap(Z)) \ b ≈ Matrix(Z) \ b
+    end
+    @test ldlt(Symmetric(G)) \ [1.0, 2, 3] ≈ Matrix(G) \ [1.0, 2, 3]
+    end
 end
 
 
