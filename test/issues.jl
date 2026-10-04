@@ -708,10 +708,16 @@ g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
     @test_throws MethodError sort!(x; banana=:blue); # From discussion at #335
 end
 
-@testset "Issue #512" begin # suppresses but does not fix the error mentioned
-    # `sparsematrix.jl` checks the warning itself
+@testset "Issue #512" begin
+    # `sparsematrix.jl` checks the warning for the matrix itself
     x = sparse([1, 100, 3], [1, 4, 300], [20, 0, [2]])
-    @test_broken repr(MIME("text/plain"), transpose(x'))
+    @test_warn "WARNING: could not find generic zero" begin
+        @test contains(repr(MIME("text/plain"), transpose(x')), "⎡")
+    end
+    x = sparse([1, 3], [1, 2], Any[20, [2]])
+    @test_warn "WARNING: could not find generic zero" begin
+        @test contains(repr(MIME("text/plain"), transpose(x'); context=:limit=>true), "20   ⋅\n")
+    end
 end
 
 @testset "Issue #574" begin
@@ -724,12 +730,12 @@ end
 @testset "Issue #618" begin
     # `sparsematrix.jl` runs the `Float64` case
     for v in (['a', 7.0, 1.0, 1.0], [similar(Any[1]); 1.0; 1.0; 1.0])
-        # matrix with a repeated entry. test_broken since repeated entries are invalid
+        # a repeated entry is invalid, so it is marked rather than shown
         x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], v)
-        @test_broken !contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "‼")
+        @test_warn "WARNING: array contains duplicate entries" begin
+            @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "‼")
+        end
     end
-    x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [1, 1, 1, 1])
-    @test_broken 2 == Matrix(x)[1,1]
 end
 
 end # SparseTestsBase

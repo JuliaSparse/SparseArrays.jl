@@ -928,7 +928,8 @@ end
     @static if COMPREHENSIVE
     @test ((_, _, _, x) -> x).(Int, Int, Int, spzeros(3)) == spzeros(3)
     @test ((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3)) == spzeros(3)
-    @test_broken typeof(((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3))) == typeof(spzeros(3))
+    @test typeof(((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3))) == typeof(spzeros(3))
+    @test typeof(((x, _, _, _, _, _, y) -> x + y).(spzeros(3), Int, Float32, Int, 1, Int, spzeros(3, 3))) == typeof(spzeros(3, 3))
     end
 end
 

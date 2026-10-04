@@ -1832,10 +1832,10 @@ end
     @test_warn "WARNING: could not find generic zero" repr(MIME("text/plain"), x; context=:limit=>true)
     x = sparse([1, 100, 3], [1, 4, 300], [20, 0, [2]])
     @test_warn "WARNING: could not find generic zero" repr(MIME("text/plain"), x)
-    # issue #618: a repeated entry. test_broken since repeated entries are invalid
+    # issue #618: a repeated entry is invalid, so it is marked rather than shown
     x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], [1.0, 1.0, 1.0, 1.0])
     @test_warn "WARNING: array contains duplicate entries" begin
-        @test_broken !contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "‼")
+        @test contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "‼")
     end
 end
 

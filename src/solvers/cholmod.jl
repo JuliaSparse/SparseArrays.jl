@@ -16,14 +16,14 @@ import Base: (*), convert, copy, eltype, getindex, getproperty, propertynames,
 using Base: require_one_based_indexing
 
 using LinearAlgebra
-using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans, AdjOrTransAbsMat
+using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans, AdjOrTransAbsMat, HermOrSym
 import LinearAlgebra: (\), AdjointFactorization, TransposeFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
                  issuccess, issymmetric, ldiv!, ldlt, ldlt!, logdet,
                  lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
-using SparseArrays: getcolptr, AbstractSparseVecOrMat
+using SparseArrays: getcolptr, AbstractSparseVecOrMat, FixedSparseCSC, _unsafe_unfix
 export
     Dense,
     Factor,
@@ -1969,6 +1969,16 @@ ldlt(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
     kws...) where {T<:Real} = ldlt(Sparse(A); kws...)
 ldlt(A::Union{AdjOrTrans{<:Any,<:SparseMatrixCSC},
     RealHermSymComplexHerm{<:Real,<:SubArray{<:Any,2,<:SparseMatrixCSC}}}; kws...) = ldlt(copy(A); kws...)
+
+# A fixed-pattern matrix is factorized through the `SparseMatrixCSC` that shares its buffers,
+# which CHOLMOD only reads.
+_unfix(A::FixedSparseCSC) = _unsafe_unfix(A)
+_unfix(A::Symmetric{<:Any,<:FixedSparseCSC}) = Symmetric(_unsafe_unfix(parent(A)), Symbol(A.uplo))
+_unfix(A::Hermitian{<:Any,<:FixedSparseCSC}) = Hermitian(_unsafe_unfix(parent(A)), Symbol(A.uplo))
+const FixedOrHermSym = Union{FixedSparseCSC, HermOrSym{<:Any,<:FixedSparseCSC}}
+ldlt(A::FixedOrHermSym; kws...) = ldlt(_unfix(A); kws...)
+ldlt!(F::Factor, A::FixedOrHermSym; kws...) = ldlt!(F, _unfix(A); kws...)
+cholesky!(F::Factor, A::FixedOrHermSym; kws...) = cholesky!(F, _unfix(A); kws...)
 
 for f in (:cholesky, :ldlt)
     @eval $f(A::Symmetric{<:Complex,<:Union{SparseMatrixCSC,SubArray{<:Any,2,<:SparseMatrixCSC}}}; kws...) =
