@@ -50,7 +50,7 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
 - Preserve issue references on regression tests.
 - `ambiguous.jl`, the Aqua ambiguity check, and `aqua.jl`, the other Aqua checks, are in
   the inventory but skipped unless a selector names them; CI runs each as its own step of
-  the `aqua-test` job. Both load Aqua through `with_aqua` in `aquahelper.jl`, which
+  the `code-checks` job. Both load Aqua through `with_aqua` in `aquahelper.jl`, which
   restores the depot, load path, environment and active project in a `finally`, so an
   Aqua failure on Base CI leaves the worker usable.
 - `solvers/threads.jl` owns the tests requiring fresh process state. Its `testprocess.jl`
