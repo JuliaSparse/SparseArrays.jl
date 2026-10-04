@@ -213,8 +213,9 @@ begin
     # A wrapper applied twice by its constructor is the matrix itself, not its conjugate.
     for (W, wr) in eachvalue((Adjoint, Transpose), (UpperTriangular, LowerTriangular))
         AW = wr(W(W(ad)))
-        @test_broken AW \ B ≈ Matrix(AW) \ B
-        @test_broken AW * B ≈ Matrix(AW) * B
+        @test AW \ B ≈ Matrix(AW) \ B
+        @test AW * B ≈ Matrix(AW) * B
+        @test X * AW ≈ X * Matrix(AW)
     end
     end
 end
