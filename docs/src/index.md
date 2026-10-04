@@ -194,6 +194,14 @@ julia> findall(!iszero, R)
  5
 ```
 
+The positions can also be given to [`sparse`](@ref) as one vector of `CartesianIndex`es, as
+`findall` returns them:
+
+```jldoctest sparse_function
+julia> sparse(findall(!iszero, S), [1, 2, 3, -5]) == S
+true
+```
+
 Another way to create a sparse array is to convert a dense array into a sparse array using
 the [`sparse`](@ref) function:
 

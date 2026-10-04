@@ -71,7 +71,20 @@ end
     @test_throws ArgumentError sparse([1,2,4], [1,2,3], [1,2,3], 3, 3)
     @test_throws ArgumentError sparse([1,2,3], [1,2,4], [1,2,3], 3, 3)
     @test isequal(sparse(Int[], Int[], Int[], 0, 0), SparseMatrixCSC(0, 0, Int[1], Int[], Int[]))
+    # positions as Cartesian indices
+    IJ = [CartesianIndex(3, 1), CartesianIndex(1, 2), CartesianIndex(3, 1)]
+    @test mismatch(sparse(IJ, [1.0, 2.0, 4.0], 3, 4), [0 2.0 0 0; 0 0 0 0; 5.0 0 0 0]) === nothing
 @static if COMPREHENSIVE
+    @test mismatch(sparse(IJ, [1.0, 2.0, 4.0]), [0 2.0; 0 0; 5.0 0]) === nothing   # size from the indices
+    @test mismatch(sparse(IJ, 1.5), [0 1.5; 0 0; 3.0 0]) === nothing && sparse(IJ, 1.5, 3, 4) == sparse([3, 1, 3], [1, 2, 1], 1.5, 3, 4)
+    @test sparse(IJ, [1.0, 2.0, 4.0], 3, 4, max) == sparse([3, 1, 3], [1, 2, 1], [1.0, 2.0, 4.0], 3, 4, max)
+    @test sparse(IJ, 2.0, 3, 4, *) == sparse([3, 1, 3], [1, 2, 1], 2.0, 3, 4, *)
+    @test sparse(IJ, [true, false, true], 3, 4) == sparse([3, 1, 3], [1, 2, 1], [true, false, true], 3, 4)   # `|`, not `+`
+    @test mismatch(sparse(StepRangeLen(CartesianIndex(1, 1), CartesianIndex(1, 1), 3), [1, 2, 3]), [1 0 0; 0 2 0; 0 0 3]) === nothing
+    @test mismatch(sparse(CartesianIndex{2}[], Float64[], 2, 3), zeros(2, 3)) === nothing
+    @test_throws ArgumentError sparse(IJ, [1.0, 2.0], 3, 4)
+    @test_throws ArgumentError sparse(IJ, [1.0, 2.0, 4.0], 2, 4)
+    @test_throws MethodError sparse([CartesianIndex(1, 1, 1)], [1.0], 3, 3)
     @test isequal(sparse(big.([1,1,1,2,2,3,4,5]),big.([1,2,3,2,3,3,4,5]),big.([1,2,4,3,5,6,7,8]), 6, 6),
         SparseMatrixCSC(6, 6, big.([1,2,4,7,8,9,9]), big.([1,1,2,1,2,3,4,5]), big.([1,2,3,4,5,6,7,8])))
     @test sparse(Any[1,2,3], Any[1,2,3], Any[1,1,1]) == sparse([1,2,3], [1,2,3], [1,1,1])
