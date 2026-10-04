@@ -11,8 +11,8 @@ linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) und
 this one; read it before working there:
 
 - `src/solvers/AGENTS.md`: rules for the SuiteSparse solver layer.
-- `test/AGENTS.md`: suite layout, the coverage each reduced test grid must keep, and
-  how to measure test time.
+- `test/AGENTS.md`: suite layout, standard and comprehensive mode, where a new test
+  goes, and how to measure test time.
 - `gen/AGENTS.md`: regenerating `src/solvers/wrappers.jl`, and upgrading SuiteSparse
   and Clang.jl.
 
@@ -56,6 +56,7 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
 
 ```sh
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one file; omit test_args for all
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["--comprehensive"])'   # comprehensive mode
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
 julia .ci/check-whitespace.jl
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'   # Aqua and ambiguity checks
@@ -66,6 +67,11 @@ julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/s
 The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
 as a separate CI job.
 One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
+The tests run in two modes. Standard mode is what `Pkg.test`, Julia's own CI and every CI
+job but the coverage job run: one representative test per feature, kept fast.
+Comprehensive mode also runs the tests guarded with `@static if COMPREHENSIVE`, the issue
+regressions and the wider corner cases, and `test/issues.jl`. One CI job runs it, the
+coverage job; run it locally before a PR that touches a kernel.
 
 ## Style
 
@@ -115,10 +121,19 @@ One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
 
 ## Tests
 
-- Regression tests go next to the feature they exercise, in an existing testset when
-  one fits. After an expected throw, assert the destination is unchanged.
+- A new test is a comprehensive test: put it next to the feature it exercises, in an
+  existing testset when one fits, inside `@static if COMPREHENSIVE ... end`. That covers
+  a regression test for an issue and any further case for code the standard tests
+  already exercise. An unguarded test is only for new code, and one representative case
+  of it. After an expected throw, assert the destination is unchanged.
 - Cover real and complex eltypes, vector and matrix, with representative rather than
   exhaustive grids. Pure-Julia kernels are generic over `Ti`; one index type is enough.
+- Test time is compilation: it grows with the number of distinct type combinations a
+  test compiles, not with sizes or repetitions. Standard mode uses `Float64` and
+  `ComplexF64` with `Int` indices, and never `Int8`, `Int32` or `UInt8`; both modes
+  prefer a `pairwise` or `eachvalue` subset to a full Cartesian grid. A test needing a
+  type of its own takes it from `test/SparseTestHelpers.jl`, which holds every
+  test-defined type and shared helper; do not define a `struct` in a suite file.
 - A method that exists only for speed needs a test proving it is dispatched to, not
   just a correctness check against dense, which passes on the fallback too.
 - No wall-clock assertions. Allocation bounds prove constancy, not zero. Match

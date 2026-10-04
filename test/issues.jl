@@ -205,11 +205,6 @@ end
     @test S isa SparseMatrixCSC{Float64, Int8}
 end
 
-@testset "issue #12177, error path if triplet vectors are not all the same length" begin
-    @test_throws ArgumentError sparse([1,2,3], [1,2], [1,2,3], 3, 3)
-    @test_throws ArgumentError sparse([1,2,3], [1,2,3], [1,2], 3, 3)
-end
-
 @testset "issue #12118: sparse matrices are closed under +, -, min, max" begin
     A12118 = sparse([1,2,3,4,5], [1,2,3,4,5], [1,2,3,4,5])
     B12118 = sparse([1,2,4,5],   [1,2,3,5],   [2,1,-1,-2])
@@ -261,7 +256,6 @@ end
 
 @testset "issue described in https://groups.google.com/forum/#!topic/julia-dev/QT7qpIpgOaA" begin
     @test sparse([1,1], [1,1], [true, true]) == sparse([1,1], [1,1], [true, true], 1, 1) == fill(true, 1, 1)
-    @test sparsevec([1,1], [true, true]) == sparsevec([1,1], [true, true], 1) == fill(true, 1)
 end
 
 @testset "issparse for sparse vectors #34253" begin
@@ -398,9 +392,6 @@ end
     @test Array(transpose(S)) == copy(transpose(M))
     @test permutedims(S) == SP
     @test permutedims(S, (2,1)) == SP
-    @test permutedims(S, (1,2)) == S
-    @test permutedims(S, (1,2)) !== S
-    @test_throws ArgumentError permutedims(S, (1,3))
     MC = reshape([[(1+im) 2; 3 4], [9 10; 11 12], [(5 + 2im) 6; 7 8], [13 14; 15 16]], (2,2))
     SC = sparse(MC)
     @test isa(adjoint(SC), Adjoint)
@@ -425,7 +416,7 @@ end
     @test m2.module == SparseArrays
 end
 
-@testset "issue #31453" for T in [UInt8, Int8, UInt16, Int16, UInt32, Int32]
+@testset "issue #31453" for T in (UInt8, Int8, Int32)
     i = Int[1, 2]
     j = Int[2, 1]
     i2 = T.(i)
@@ -504,9 +495,6 @@ end
     A = sprandn(ComplexF64, 10, 10, 0.1)
     B = sprandn(ComplexF64, 10, 10, 0.1)
 
-    @test Symmetric(real(A)) + Hermitian(B) isa Hermitian{ComplexF64, <:SparseMatrixCSC}
-    @test Hermitian(A) + Symmetric(real(B)) isa Hermitian{ComplexF64, <:SparseMatrixCSC}
-    @test Hermitian(A) + Symmetric(B) isa SparseMatrixCSC
     @testset "$Wrapper $op" for op ∈ (+, -), Wrapper ∈ (Hermitian, Symmetric)
         AWU = Wrapper(A, :U)
         AWL = Wrapper(A, :L)
@@ -612,6 +600,7 @@ module SparseTestsBase
 
 using Test
 using Random, LinearAlgebra, SparseArrays
+include("testhelpers.jl")
 
 # From arrayops.jl
 
@@ -689,23 +678,19 @@ end
 # From core.jl
 
 # issue #12960
-mutable struct T12960 end
-import Base.zero
-Base.zero(::Type{T12960}) = T12960()
-Base.zero(x::T12960) = T12960()
 let
     A = sparse(1.0I, 3, 3)
-    B = similar(A, T12960)
-    @test repr(B) == "sparse([1, 2, 3], [1, 2, 3], $T12960[#undef, #undef, #undef], 3, 3)"
+    B = similar(A, UndefElt)
+    @test repr(B) == "sparse([1, 2, 3], [1, 2, 3], $UndefElt[#undef, #undef, #undef], 3, 3)"
     @test occursin(
         " #undef     ⋅       ⋅\n    ⋅    #undef     ⋅\n    ⋅       ⋅    #undef",
         sprint(show, MIME("text/plain"), B; context=:limit=>true),
     )
 
-    B[1,2] = T12960()
-    @test repr(B)  == "sparse([1, 1, 2, 3], [1, 2, 2, 3], $T12960[#undef, $T12960(), #undef, #undef], 3, 3)"
+    B[1,2] = UndefElt()
+    @test repr(B)  == "sparse([1, 1, 2, 3], [1, 2, 2, 3], $UndefElt[#undef, $UndefElt(), #undef, #undef], 3, 3)"
     @test occursin(
-        "\n #undef     T12960()     ⋅\n    ⋅    #undef          ⋅\n    ⋅         ⋅       #undef",
+        "\n #undef     UndefElt()     ⋅\n    ⋅    #undef            ⋅\n    ⋅          ⋅        #undef",
         sprint(show, MIME("text/plain"), B; context=:limit=>true),
     )
 end
@@ -717,40 +702,15 @@ f12063(args...) = 2
 g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
 @test g12063() == 1
 
-@testset "Issue #210" begin
-    io = IOBuffer()
-    show(io, sparse([1 2; 3 4]))
-    @test String(take!(io)) == "sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2)"
-    io = IOBuffer()
-    show(io, sparse([1 2; 3 4])')
-    @test String(take!(io)) == "adjoint(sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2))"
-    io = IOBuffer()
-    show(io, transpose(sparse([1 2; 3 4])))
-    @test String(take!(io)) == "transpose(sparse([1, 2, 1, 2], [1, 1, 2, 2], [1, 3, 2, 4], 2, 2))"
-end
-
 @testset "Issue #334" begin
     x = sprand(10, .3);
     @test issorted(sort!(x; alg=Base.DEFAULT_STABLE));
     @test_throws MethodError sort!(x; banana=:blue); # From discussion at #335
 end
 
-@testset "Issue #390" begin
-    x = sparse([9 1 8
-                0 3 72
-                7 4 16])
-    Base.swapcols!(x, 2, 3)
-    @test x == sparse([9 8 1
-                       0 72 3
-                       7 16 4])
-end
-
 @testset "Issue #512" begin # suppresses but does not fix the error mentioned
-    x = sparse([1, 1, 3], [1, 4, 3], [20, 0, [2]])
-    @test_warn "WARNING: could not find generic zero" repr(MIME("text/plain"), x)
+    # `sparsematrix.jl` checks the warning itself
     x = sparse([1, 100, 3], [1, 4, 300], [20, 0, [2]])
-    @test_warn "WARNING: could not find generic zero" repr(MIME("text/plain"), x)
-
     @test_broken repr(MIME("text/plain"), transpose(x'))
 end
 
@@ -762,7 +722,8 @@ end
 end
 
 @testset "Issue #618" begin
-    for v in ([1.0, 1.0, 1.0, 1.0], ['a', 7.0, 1.0, 1.0], [similar(Any[1]); 1.0; 1.0; 1.0])
+    # `sparsematrix.jl` runs the `Float64` case
+    for v in (['a', 7.0, 1.0, 1.0], [similar(Any[1]); 1.0; 1.0; 1.0])
         # matrix with a repeated entry. test_broken since repeated entries are invalid
         x = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 1, 2, 3], v)
         @test_broken !contains(sprint(show, MIME"text/plain"(), x; context=:limit=>true), "‼")

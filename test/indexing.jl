@@ -10,21 +10,18 @@ using Random
 using Test: guardseed
 include("testhelpers.jl")
 
-# an index type lowered by `to_indices`, like `InvertedIndices.Not`
-struct AllBut; i::Int; end
-Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
-    (setdiff(inds[1], I[1].i), to_indices(A, Base.tail(inds), Base.tail(I))...)
-
 @testset "getindex" begin
     ni = 23
     nj = 32
     a116 = reshape(1:(ni*nj), ni, nj)
+    # the standard run indexes `Float64` matrices, whose kernels the other suites compile too
+    @static COMPREHENSIVE || (a116 = Matrix{Float64}(a116))
     s116 = sparse(a116)
 
     ad116 = diagm(0 => diag(a116))
     sd116 = sparse(ad116)
 
-    for (aa116, ss116) in [(a116, s116), (ad116, sd116)]
+    for (aa116, ss116) in ((a116, s116), (@static COMPREHENSIVE ? ((ad116, sd116),) : ())...)
         ij=11; i=3; j=2
         @test ss116[ij] == aa116[ij]
         @test ss116[(i,j)] == aa116[i,j]
@@ -36,7 +33,9 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
 
         @test ss116[:,:] == copy(ss116)
 
-        @test convert(SparseMatrixCSC{Float32,Int32}, sd116)[2:5,:] == convert(SparseMatrixCSC{Float32,Int32}, sd116[2:5,:])
+        @static if COMPREHENSIVE
+        @test convert(SparseMatrixCSC{Float32,Int32}, ss116)[2:5,:] == convert(SparseMatrixCSC{Float32,Int32}, ss116[2:5,:])
+        end
 
         # range indexing
         @test Array(ss116[i,:]) == aa116[i,:]
@@ -63,17 +62,21 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
         li = bitrand(size(aa116,1))
         lj = bitrand(size(aa116,2))
         @test Array(ss116[li,j]) == aa116[li,j]
+        @static if COMPREHENSIVE
         @test Array(ss116[li,:]) == aa116[li,:]
-        @test Array(ss116[i,lj]) == aa116[i,lj]
         @test Array(ss116[:,lj]) == aa116[:,lj]
+        end
+        @test Array(ss116[i,lj]) == aa116[i,lj]
         @test Array(ss116[li,lj]) == aa116[li,lj]
 
         # empty indices
         for empty in (1:0, Int[])
             @test Array(ss116[empty,:]) == aa116[empty,:]
             @test Array(ss116[:,empty]) == aa116[:,empty]
+            @static if COMPREHENSIVE
             @test Array(ss116[empty,lj]) == aa116[empty,lj]
             @test Array(ss116[li,empty]) == aa116[li,empty]
+            end
             @test Array(ss116[empty,empty]) == aa116[empty,empty]
         end
 
@@ -84,13 +87,13 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
         @test_throws BoundsError ss116[1, end+1]
         @test_throws BoundsError ss116[:, 0]
         @test_throws BoundsError ss116[:, end+1]
-        for j in (1, 1:size(s116,2), 1:1, Int[1], trues(size(s116, 2)), 1:0, Int[])
+        for j in (1, (@static COMPREHENSIVE ? (1:size(s116,2), trues(size(s116, 2)), Int[]) : ())...)
             @test_throws BoundsError ss116[0:1, j]
             @test_throws BoundsError ss116[[0, 1], j]
             @test_throws BoundsError ss116[end:end+1, j]
             @test_throws BoundsError ss116[[end, end+1], j]
         end
-        for i in (1, 1:size(s116,1), 1:1, Int[1], trues(size(s116, 1)), 1:0, Int[])
+        for i in (1, (@static COMPREHENSIVE ? (1:size(s116,1), trues(size(s116, 1)), Int[]) : ())...)
             @test_throws BoundsError ss116[i, 0:1]
             @test_throws BoundsError ss116[i, [0, 1]]
             @test_throws BoundsError ss116[i, end:end+1]
@@ -114,11 +117,15 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
     @test_throws BoundsError S[inds_out]
 
     @testset "indices lowered by to_indices (issue #42), $T" for T in (Float64, ComplexF64)
-        A = sprand(T, 6, 6, 0.4); c = isodd.(1:6); x = A[:, 1]; m = A .!= 0
-        for B in (A, A', transpose(A))
-            for I in ((1, c), (c, 2), (c, c), (:, c), (c, :), (2:5, c), ([3, 1], c), (:, :),
-                      (AllBut(2), AllBut(3)), (1, AllBut(3)), (AllBut(2), c), (Int32(2), Int32(3)))
-                @test which(getindex, typeof.((B, I...))).module === SparseArrays
+        A = sprand(T, 6, 6, 0.4); c = isodd.(1:6)
+        # The standard run indexes a real matrix and the adjoint of a complex one. Each form
+        # meets each wrapper once, for one of the two element types.
+        for b in (@static COMPREHENSIVE ? (1:3) : T <: Real ? 1 : 3)
+            B = (A, transpose(A), A')[b]
+            for I in ((1, c), (c, :), (c, c), (:, :), (2:5, c), (1, AllBut(3)), (AllBut(2), AllBut(3)),
+                      (CartesianIndex(2), CartesianIndex(3)), (c, 2), (@static COMPREHENSIVE ?
+                      ((:, c), ([3, 1], c), (AllBut(2), c), (Int32(2), Int32(3))) : ())...)[1+(isodd(b) ⊻ (T <: Real)):2:end]
+                @test which(getindex, Base.typesof(B, I...)).module === SparseArrays
                 @test B[I...] == B[to_indices(B, I)...] == Array(B)[I...]
                 @test B[I...] isa Union{T,SparseVector{T,Int},SparseMatrixCSC{T,Int}}
             end
@@ -127,18 +134,26 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
             @test_throws BoundsError B[trues(7), 1]
             @test_throws BoundsError B[1, trues(7)]
         end
-        @test A[to_indices(A, (m,))...] == A[to_indices(A, (vec(m),))...] == Array(A)[m]
+        if @static COMPREHENSIVE || T <: Real
+        x = A[:, 1]; m = A .!= 0
+        @test A[to_indices(A, (m,))...] == Array(A)[m]
+        @static if COMPREHENSIVE
+        @test A[to_indices(A, (vec(m),))...] == Array(A)[m]
+        end
         @test A[1:2, :][false:true, c] == Array(A)[1:2, :][false:true, c]
         @test which(getindex, typeof.((x, AllBut(2)))).module === SparseArrays
         @test x[AllBut(2)] == Array(x)[AllBut(2)]
         @test x[to_indices(x, (c,))...] == Array(x)[c]
         @test_throws BoundsError x[trues(7)]
+        end
     end
 
     # workaround issue #7197: comment out let-block
     #let S = SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[])
-    S1290 = SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[])
+    S1290 = @static COMPREHENSIVE ? SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[]) : spzeros(3, 3)
         S1290[1,1] = 1
+        # more hits than stored entries, from a repeated index
+        @test S1290[[1,1]] == [1, 1]
         S1290[5] = 2
         S1290[end] = 3
         @test S1290[end] == (S1290[1] + S1290[2,2])
@@ -149,12 +164,12 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
         # with same colptr and rowval eltypes as input. Tests PR 24548
         r1 = S1290[[5,9]]
         r2 = S1290[[1 2;5 9]]
-        @test isa(r1, SparseVector{Int64,UInt8})
-        @test isa(r2, SparseMatrixCSC{Int64,UInt8})
+        @test isa(r1, SparseVector{eltype(S1290),eltype(rowvals(S1290))})
+        @test isa(r2, SparseMatrixCSC{eltype(S1290),eltype(rowvals(S1290))})
     # end
 
     @testset "empty sparse matrix indexing" begin
-        for k = 0:3
+        for k = (@static COMPREHENSIVE ? (0:3) : (3,))
             @test issparse(spzeros(k,0)[:])
             @test isempty(spzeros(k,0)[:])
             @test issparse(spzeros(0,k)[:])
@@ -164,19 +179,25 @@ Base.to_indices(A, inds, I::Tuple{AllBut,Vararg}) =
 end
 
 @testset "setindex" begin
-    a = spzeros(Int, 10, 10)
+    a = @static COMPREHENSIVE ? spzeros(Int, 10, 10) : spzeros(10, 10)
+    @static if COMPREHENSIVE
     @test count(!iszero, a) == count((!iszero).(a)) == 0
     @test count(!iszero, a') == count((!iszero).(a')) == 0
     @test count(!iszero, transpose(a)) == count(transpose((!iszero).(a))) == 0
+    end
     a[1,:] .= 1
+    @static if COMPREHENSIVE
     @test count(!iszero, a) == count((!iszero).(a)) == 10
     @test count(!iszero, a, init=2) == count((!iszero).(a), init=2) == 12
     @test count(!iszero, a, init=Int128(2))::Int128 == 12
     @test count(!iszero, a') == count(((!iszero).(a))') == 10
     @test count(!iszero, transpose(a)) == count(transpose((!iszero).(a))) == 10
+    end
     @test a[1,:] == sparse(fill(1,10))
     a[:,2] .= 2
+    @static if COMPREHENSIVE
     @test count(!iszero, a) == count((!iszero).(a)) == 19
+    end
     @test a[:,2] == sparse(fill(2,10))
     b = copy(a)
 
@@ -211,11 +232,13 @@ end
         A[1:2, 1:2] .= -0.0     # stored, as by A[i, j] = -0.0
         A[3, :] .= 0
         @test nnz(A) == 4 && all(signbit, nonzeros(A))
+        @static if COMPREHENSIVE
         A = spzeros(BigFloat, 3, 3)
         A[1:2, 1:2] .= 0
         @test nnz(A) == 0
         A[1:2, 1:2] .= -big(0.0)
         @test nnz(A) == 4 && all(signbit, nonzeros(A))
+        end
     end
 
     @testset "first insertion between stored rows" begin
@@ -237,6 +260,7 @@ end
         B = spzeros(2, 2); B[1, 1] = -0.0
         A = spzeros(3, 3); A[[3, 1], 1:2] = B
         @test nnz(A) == 1 && negzeros(A) == 1 && A[3, 1] === -0.0
+        @static if COMPREHENSIVE
         A = spzeros(Union{Missing,Float64}, 3, 3); A[1:1, 1:1] = [missing;;]
         @test nnz(A) == 1 && ismissing(A[1, 1])
         A = sparse(1.0I, 3, 3); A[1:2, 2:3] = zeros(Int, 2, 2)
@@ -244,6 +268,7 @@ end
         A = spzeros(BigFloat, 3, 3)
         A[1:2, 1:2] = fill(big(0), 2, 2); A[trues(3, 3)] = fill(big(0), 9); A[[3]] = [big(0)]
         @test nnz(A) == 0
+        end
         A = sparse(1.0I, 3, 3); A[Int[], 1:2] = zeros(0, 2)
         @test A == I
     end
@@ -293,6 +318,7 @@ end
     @test_throws BoundsError a[:,-1] = spzeros(10,1)
     @test_throws BoundsError a[-1,:] = spzeros(1,10)
     @test_throws BoundsError a[0:9] = spzeros(1,10)
+    @test_throws BoundsError a[11,1] = 1
     @test_throws BoundsError (a[:,11] .= 0; a)
     @test_throws BoundsError (a[11,:] .= 0; a)
     @test_throws BoundsError (a[:,-1] .= 0; a)
@@ -308,8 +334,11 @@ end
     @test_throws DimensionMismatch a[1:2,1] = 1:3
     @test_throws DimensionMismatch a[1,1:2] = 1:3
     @test_throws DimensionMismatch a[1:2] = 1:3
+end
 
-    A = spzeros(Int, 10, 20)
+@static if COMPREHENSIVE
+@testset "setindex! of a block" begin
+    A = spzeros(10, 20)
     A[1:5,1:10] .= 10
     A[1:5,1:10] .= 10
     @test count(!iszero, A) == 50
@@ -341,8 +370,11 @@ end
     A[1:TSZ, 1:(2*TSZ)] = x
     @test count(!iszero, A) == nA
     @test A == B
+end
+end
 
-    A = sparse(1I, 5, 5)
+@testset "linear and logical setindex!" begin
+    A = sparse(1.0I, 5, 5)
     lininds = 1:10
     X=reshape([trues(10); falses(15)],5,5)
     @test A[lininds] == A[X] == [1,0,0,0,0,0,1,0,0,0]
@@ -357,21 +389,23 @@ end
     @test nnz(A) == 13
     @test count(!iszero, A) == 11
     @test A[lininds] == A[X] == c
-    A = sparse(1I, 5, 5)
+    A = sparse(1.0I, 5, 5)
     A[lininds] = c
     @test nnz(A) == 12
     @test count(!iszero, A) == 11
     @test A[lininds] == A[X] == c
 
     let # prevent assignment to I from overwriting UniformSampling in enclosing scope
-        S = sprand(50, 30, 0.5, x -> round.(Int, rand(x) * 100))
+        S = sprand(50, 30, 0.5, x -> round.(rand(x) * 100))
         I = sprand(Bool, 50, 30, 0.2)
         FS = Array(S)
         FI = Array(I)
         @test sparse(FS[FI]) == S[I] == S[FI]
         @test S[vec(FI)]::SparseVector == FS[vec(FI)]
         @test sum(S[FI]) + sum(S[.!FI]) == sum(S)
+        @static if COMPREHENSIVE
         @test count(!iszero, I) == count(I)
+        end
 
         sumS1 = sum(S)
         sumFI = sum(S[FI])
@@ -394,7 +428,7 @@ end
         S[FI] .= [1:sum(FI);]
         @test sum(S) == sumS2 + sum(1:sum(FI))
 
-        S = sprand(50, 30, 0.5, x -> round.(Int, rand(x) * 100))
+        S = sprand(50, 30, 0.5, x -> round.(rand(x) * 100))
         N = length(S) >> 2
         I = randperm(N) .* 4
         J = randperm(N)
@@ -441,16 +475,19 @@ end
         F = SparseArrays.fixed(copy(A0))
         @test_throws ArgumentError F[M] = x
         @test F == A0 && nnz(F) == nnz(A0)
+        # zeros outside the pattern are accepted and not stored
+        F[M] = [10.0, 0, 30, 0, 0]
+        @test F[1, 1] == 10 && F[2, 2] == 30 && nnz(F) == nnz(A0)
         # indices or values aliased with the storage are copied before the kernel writes
         A = sparse(reshape([2, 1], 2, 1)); A[nonzeros(A)] = [20, 10]
         @test A == [10; 20;;]
-        for A in (sparse(reshape([1, 2], 2, 1)), SparseArrays.fixed(sparse(reshape([1, 2], 2, 1))))
+        for A in (sparse(reshape([1, 2], 2, 1)), (@static COMPREHENSIVE ? (SparseArrays.fixed(sparse(reshape([1, 2], 2, 1))),) : ())...)
             A[trues(2, 1)] = view(nonzeros(A), 2:-1:1)
             @test A == [2; 1;;]
         end
         # column views and transposes of a sparse mask are walked by stored entry too
         M2 = sparse([1, 4, 2], [2, 3, 3], [true, true, false], 4, 4)
-        for mask in (view(M2, :, 2:3), view(M2, :, [3, 1, 2]), transpose(M2), M2', transpose(view(M2, :, 2:3)))
+        for mask in (view(M2, :, 2:3), transpose(M2), (@static COMPREHENSIVE ? (view(M2, :, [3, 1, 2]), M2', transpose(view(M2, :, 2:3))) : ())...)
             @test which(SparseArrays._masklinearindices, (typeof(mask),)) !==
                   which(SparseArrays._masklinearindices, (Matrix{Bool},))
             A = spzeros(size(mask)); A[mask] = 1:count(mask)
@@ -459,6 +496,7 @@ end
     end
 
     @testset "heap-allocated zero (#389)" begin
+        @static if COMPREHENSIVE
         for T in (BigFloat, Complex{BigFloat})
             A = spzeros(T, 3, 3)
             A[1, 1] = 0
@@ -473,19 +511,22 @@ end
         @test nnz(A) == 1 && signbit(A[1, 1])
         A[2, 2] = -0.0
         @test nnz(A) == 2 && signbit(A[2, 2])
+        end
         A = spzeros(2, 2)
         A[1, 1] = -0.0
         A[2, 2] = 0.0
         @test nnz(A) == 1 && signbit(A[1, 1])
+        @static if COMPREHENSIVE
         M = Matrix(Diagonal(BigFloat[1, 2, 3, 4]))
         S = spzeros(BigFloat, 4, 4)
         S .= M                  # the generic broadcast assigns every element
         @test nnz(S) == 4 && S == M
+        end
     end
 end
 
 @testset "dropstored!" begin
-    A = spzeros(Int, 10, 10)
+    A = spzeros(10, 10)
     # Introduce nonzeros in row and column two
     A[1,:] .= 1
     A[:,2] .= 2
@@ -519,8 +560,8 @@ end
     SparseArrays.dropstored!(A, :, 2)
     @test nnz(A) == 0
     # --> Introduce nonzeros in rows one and two and columns two and three
-    A[1:2,:] .= 1
-    A[:,2:3] .= 2
+    A[1:2,1:10] .= 1
+    A[1:10,2:3] .= 2
     @test nnz(A) == 36
     # --> Test dropping multiple rows containing stored and nonstored entries
     SparseArrays.dropstored!(A, 1:3, :)
@@ -544,7 +585,7 @@ end
 end
 
 @testset "test_getindex_algs" begin
-    function test_getindex_algs(S, I, J)
+    function test_getindex_algs(@nospecialize(S), @nospecialize(I), @nospecialize(J))
         D = Matrix(S)
         @test S[I, J] == D[I, J]
         sortedI = sort(I)
@@ -562,7 +603,7 @@ end
     m, n = 128, 8
     indices = (Int[], [1], [m], [m, 1, m ÷ 2, 1],
                randperm(rng, m)[1:13], repeat(collect(1:m), 3))
-    for density in (0.0, 0.0001, 0.001, 0.01, 0.1, 1.0)
+    for density in ((@static COMPREHENSIVE ? (0.0, 0.0001, 0.001, 0.01) : ())..., 0.1, 1.0)
         S = sprand(rng, m, n, density)
         isempty(nonzeros(S)) || (nonzeros(S)[1] = 0)
         for I in indices, J in (Int[], [n, 1, n], randperm(rng, n))
@@ -582,7 +623,7 @@ end
                 (2048, 2, 16, 400))
             rows = round.(Int, range(1, m; length=stored_per_column))
             S = sparse(repeat(rows, n), repeat(1:n; inner=stored_per_column),
-                       collect(1:(n * stored_per_column)), m, n)
+                       collect(1.0:(n * stored_per_column)), m, n)
             nonzeros(S)[1] = 0
             I = collect(1:selected_rows)
             test_getindex_algs(S, I, [n, 1, n])
@@ -622,12 +663,15 @@ end
     @test_throws BoundsError S[[2,1], [0,1,2]]
 end
 
+@static if COMPREHENSIVE
 @testset "row indexing a SparseMatrixCSC with non-Int integer type" begin
     local A = sparse(UInt32[1,2,3], UInt32[1,2,3], [1.0,2.0,3.0])
     @test A[1,1:3] == A[1,:] == [1,0,0]
 end
+end
 
-@testset "column slices keep the index type, Ti = $Ti" for Ti in (Int32, Int64)
+@static if COMPREHENSIVE
+@testset "column slices keep the index type, Ti = $Ti" for Ti in (@static COMPREHENSIVE ? (Int32, Int64) : (Int,))
     A = SparseMatrixCSC{Float64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0, 0.0, 2.0, 3.0], 5, 3))
     M = Matrix(A)
     for j in 1:3, I in (1:5, 2:4, 3:3, 4:5, 2:1)
@@ -635,8 +679,11 @@ end
     end
     @test A[1:5, 1]::SparseVector{Float64,Ti} == M[1:5, 1]
     @test nnz(A[1:5, 1]) == 2 # stored zeros stay stored
+    @static if COMPREHENSIVE
     @test copy(view(A, :, 1))::SparseVector{Float64,Ti} == M[:, 1]
     @test copy(view(A, 2:4, 1))::SparseVector{Float64,Ti} == M[2:4, 1]
+    end
+end
 end
 
 @testset "isstored" begin
@@ -644,9 +691,9 @@ end
     n = 4
     I = [1, 2, 5, 3]
     J = [2, 3, 4, 2]
-    A = sparse(I, J, [1, 2, 3, 4], m, n)
-    stored_indices = [CartesianIndex(i, j) for (i, j) in zip(I, J)]
-    unstored_indices = [c for c in CartesianIndices((m, n)) if !(c in stored_indices)]
+    A = sparse(I, J, [1.0, 2, 3, 4], m, n)
+    stored_indices = CartesianIndex.(I, J)
+    unstored_indices = setdiff(CartesianIndices((m, n)), stored_indices)
     for c in stored_indices
         @test Base.isstored(A, c[1], c[2]) == true
     end
@@ -657,8 +704,8 @@ end
     # `isstored` for adjoint and transposed matrices:
     for trans in (adjoint, transpose)
         B = trans(A)
-        stored_indices = [CartesianIndex(j, i) for (j, i) in zip(J, I)]
-        unstored_indices = [c for c in CartesianIndices((n, m)) if !(c in stored_indices)]
+        stored_indices = CartesianIndex.(J, I)
+        unstored_indices = setdiff(CartesianIndices((n, m)), stored_indices)
         for c in stored_indices
             @test Base.isstored(B, c[1], c[2]) == true
         end
@@ -684,30 +731,41 @@ _length_or_count_or_five(x) = length(x)
     @test A == A0
     A[:, 2] = sparse([1.0 0 2 0 0 3])   # 1×n into a column, #569
     @test A[:, 2] == [1, 0, 2, 0, 0, 3]
+    @static if COMPREHENSIVE
     K = SparseMatrixCSC{Float32,Int32}(A0); K[2:3, 2:3] = sparse([1.5 2; 3 4])
     @test K[2:3, 2:3] == [1.5 2; 3 4] && K isa SparseMatrixCSC{Float32,Int32}
+    end
 end
 
 @testset "nonscalar setindex!" begin
-    for I in (1:4, :, 5:-1:2, [], trues(5), setindex!(falses(5), true, 2), 3),
-        J in (2:4, :, 4:-1:1, [], setindex!(trues(5), false, 3), falses(5), 4)
-        V = sparse(1 .+ zeros(_length_or_count_or_five(I)*_length_or_count_or_five(J)))
-        M = sparse(1 .+ zeros(_length_or_count_or_five(I), _length_or_count_or_five(J)))
+    Is = (1:4, :, [], 5:-1:2, trues(5), setindex!(falses(5), true, 2), 3)
+    Js = (:, 4:-1:1, [], 2:4, 4, falses(5), setindex!(trues(5), false, 3))
+    # Each index form with each kind of value; the standard run takes each form once, in
+    # an order that assigns every kind of value non-empty. Two integers take no array, so
+    # an integer is also paired with a colon for every kind of value.
+    cases = @static COMPREHENSIVE ?
+        unique([pairwise(Is, Js, 1:4); [(3, :, k) for k in 1:4]; [(:, 4, k) for k in 1:4]]) :
+        push!(eachvalue(Is, Js, 1:4), (3, 4, 1))
+    for case in cases
+        I, J, k = case[1], case[2], case[3]     # destructuring compiles a method per tuple type
+        V = sparse(ones(_length_or_count_or_five(I)*_length_or_count_or_five(J)))
+        M = sparse(ones(_length_or_count_or_five(I), _length_or_count_or_five(J)))
         if I isa Integer && J isa Integer
             @test_throws MethodError spzeros(5,5)[I, J] = V
             @test_throws MethodError spzeros(5,5)[I, J] = M
             continue
         end
-        @test setindex!(spzeros(5, 5), V, I, J) == setindex!(zeros(5,5), V, I, J)
-        @test setindex!(spzeros(5, 5), M, I, J) == setindex!(zeros(5,5), M, I, J)
-        @test setindex!(spzeros(5, 5), Array(M), I, J) == setindex!(zeros(5,5), M, I, J)
-        @test setindex!(spzeros(5, 5), Array(V), I, J) == setindex!(zeros(5,5), V, I, J)
+        X = (V, Array(V), M, Array(M))[k]
+        @test setindex!(spzeros(5, 5), X, I, J) == setindex!(zeros(5,5), k <= 2 ? V : M, I, J)
     end
     @test setindex!(spzeros(5, 5), 1:25, :) == setindex!(zeros(5,5), 1:25, :) == reshape(1:25, 5, 5)
+    @static if COMPREHENSIVE
     # a 1×n matrix value into a column is reshaped rather than silently zeroed, see #569
     @test setindex!(sparse(1.0I, 5, 5), reshape(1.0:5.0, 1, 5), :, 2) == setindex!(Matrix(1.0I, 5, 5), reshape(1.0:5.0, 1, 5), :, 2)
     @test setindex!(spzeros(5, 5), (25:-1:1).+spzeros(25), :) == setindex!(zeros(5,5), (25:-1:1).+spzeros(25), :) == reshape(25:-1:1, 5, 5)
-    for X in (1:20, sparse(1:20), reshape(sparse(1:20), 20, 1), (1:20) .+ spzeros(20, 1), collect(1:20), collect(reshape(1:20, 20, 1)))
+    end
+    for X in (1:20, sparse(1:20), (@static COMPREHENSIVE ?
+            (reshape(sparse(1:20), 20, 1), (1:20) .+ spzeros(20, 1), collect(1:20), collect(reshape(1:20, 20, 1))) : ())...)
         @test setindex!(spzeros(5, 5), X, 6:25) == setindex!(zeros(5,5), 1:20, 6:25)
         @test setindex!(spzeros(5, 5), X, 21:-1:2) == setindex!(zeros(5,5), 1:20, 21:-1:2)
         b = trues(25)
@@ -715,7 +773,7 @@ end
         @test setindex!(spzeros(5, 5), X, b) == setindex!(zeros(5, 5), X, b)
     end
     # of a repeated index the last write wins and the pattern stays valid, see #811
-    for Tv in (Float64, ComplexF64)
+    for Tv in (@static COMPREHENSIVE ? (Float64, ComplexF64) : (Float64,))
         S = sparse(Tv[1 0 2 0; 0 3 0 0; 4 0 0 5; 0 0 6 0])
         rowssorted(A) = all(j -> issorted(view(rowvals(A), nzrange(A, j)), lt=≤), axes(A, 2))
         for (I, J) in (([1, 1], [1]), ([2], [3, 3]), ([3, 1, 3, 1], [4, 2, 4]), ([1, 2, 2, 4], [1, 3, 3]))
@@ -738,14 +796,16 @@ end
 end
 
 let
-    a116 = copy(reshape(1:16, 4, 4))
+    a116 = Matrix{@static COMPREHENSIVE ? Int : Float64}(reshape(1:16, 4, 4))
     s116 = sparse(a116)
 
+    @static if COMPREHENSIVE
     @testset "sparse ref" begin
         p = [4, 1, 2, 3, 2]
         @test Array(s116[p,:]) == a116[p,:]
         @test Array(s116[:,p]) == a116[:,p]
         @test Array(s116[p,p]) == a116[p,p]
+    end
     end
 
     @testset "sparse assignment" begin

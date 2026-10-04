@@ -11,17 +11,18 @@ using Random: seed!
 include("../testhelpers.jl")
 
 
-@testset "Sparse QR" begin
-m, n = 100, 10
-nn = 100
+const m, n, nn = 100, 10, 100
+
+# The values of `dim` that a comprehensive run tests with the element type `Tv` and the index
+# type `Ti` of A. `pairwise` puts every value with each element type and with each index type,
+# which takes fewer cases than putting it with every pair of them.
+paired(Tv, Ti, dim) = [x for (tv, ti, x) in pairwise(STD_ELTYPES, itypes, dim) if (tv, ti) == (Tv, Ti)]
 
 @test size(qr(sprandn(m, n, 0.1)).Q) == (m, m)
 
 @test repr("text/plain", qr(sprandn(4, 4, 0.5)).Q) == "4×4 $(SparseArrays.SPQR.QRSparseQ{Float64, Int})"
 
-itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
-
-@testset "element type of A: $eltyA" for eltyA in (Float64, ComplexF64), iltyA in itypes
+@testset "element type of A: $eltyA" for eltyA in (@static COMPREHENSIVE ? STD_ELTYPES : (Float64,)), iltyA in (@static COMPREHENSIVE ? itypes : core_itypes)
     if eltyA <: Real
         A = sparse(iltyA[1:n; rand(1:m, nn - n)], iltyA[1:n; rand(1:n, nn - n)], randn(nn), m, n)
     else
@@ -31,7 +32,7 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
     F = qr(A)
     @test size(F) == (m,n)
     # qr of an adjoint or transpose factorizes the sparse transpose with SPQR
-    for X in (A', transpose(A))
+    for X in (A', (@static COMPREHENSIVE ? (transpose(A),) : ())...)
         @test which(qr, Base.typesof(X)).module == SPQR
         G = qr(X; tol = 1e-3)
         @test G isa SPQR.QRSparse{eltyA, iltyA} && size(G) == (n, m)
@@ -78,24 +79,30 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
     end
 
     @testset "right-hand sides that are not strided arrays of the same element type" begin
+        # a real wrapper and a complex view reach both right-hand side conversions; the other kinds vary only the array type
+        kinds = [1, 5]
+        @static COMPREHENSIVE && union!(kinds, paired(eltyA, iltyA, 1:7))
         rhs(k) = (randn(2, k)', transpose(randn(2, k)), sprandn(k, 0.5), 1:k,
                   view(complex.(randn(k, 2), randn(k, 2)), :, 1),
-                  complex.(randn(2, k), randn(2, k))', randn(ComplexF32, k))
-        C = A[1:9, :]   # wide
+                  complex.(randn(2, k), randn(2, k))', randn(ComplexF32, k))[kinds]
         for X in rhs(m)
             @test A \ X ≈ Array(A) \ Array(X)
             @test F \ X ≈ Array(A) \ Array(X)
         end
+        @static if COMPREHENSIVE
+        C = A[1:9, :]   # wide
         for X in rhs(9)
             @test C \ X ≈ Array(C) \ Array(X)
             @test lq(C) \ X ≈ Array(C) \ Array(X)
+        end
         end
         for X in rhs(n)
             @test F' \ X ≈ Array(A)' \ Array(X)
         end
     end
 
-    @testset "element type of B: $eltyB" for eltyB in (Int, Float64, ComplexF64)
+    @static if COMPREHENSIVE
+    @testset "element type of B: $eltyB" for eltyB in (@static COMPREHENSIVE ? paired(eltyA, iltyA, (Int, Float64, ComplexF64)) : (eltyA,))
         if eltyB == Int
             B = rand(1:10, m, 2)
         elseif eltyB <: Real
@@ -120,12 +127,16 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test F'\D ≈ Array(A)'\D
         @test F'\D[:,1] ≈ Array(A)'\D[:,1]
         @test transpose(F)\D ≈ transpose(Array(A))\D
+        eltyB == eltyA && @test ldiv!(zeros(eltyA, m, 2), transpose(F), D; workspace = SPQR.SpqrWS(F)) ≈ transpose(F)\D
         @test A'\D ≈ Array(A)'\D
         @test_throws DimensionMismatch F'\B
         # Least squares solve of the overdetermined C'y = x for the wide C
         y = B[1:n, 1]
         @test C'\y ≈ Array(C)'\y
+        @static if COMPREHENSIVE
         @test transpose(C)\y ≈ transpose(Array(C))\y
+        end
+    end
     end
 
     @testset "lq (#114)" begin
@@ -153,6 +164,35 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
     @test qr(SparseMatrixCSC{eltyA}(I, 5, 5)) \ fill(eltyA(1), 5) == fill(1, 5)
 end
 
+# the loop above covers the complex element type in a comprehensive run
+@static if !COMPREHENSIVE
+@testset "complex element type" begin
+    A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(ComplexF64, nn), m, n)
+    F = qr(A)
+    Ad = Array(A)
+    @test F isa SPQR.QRSparse{ComplexF64, Int}
+    @test istriu(F.R)
+    R0 = F.Q' * Ad[F.prow, F.pcol]
+    @test R0[1:n, :] ≈ F.R
+    @test norm(R0[n + 1:end, :], 1) < 1e-12
+    # the transpose is not the adjoint
+    X = transpose(A)
+    G = qr(X)
+    @test G isa SPQR.QRSparse{ComplexF64, Int}
+    @test G.Q * G.R ≈ Matrix(X)[G.prow, G.pcol]
+    B = randn(ComplexF64, m, 2)
+    @test A\B ≈ Ad\B
+    D = B[1:n, :]
+    @test F'\D ≈ copy(Ad')\D
+    @test transpose(F)\D ≈ copy(transpose(Ad))\D
+    @test ldiv!(zeros(ComplexF64, m, 2), transpose(F), D; workspace = SPQR.SpqrWS(F)) ≈ transpose(F)\D
+    W = A[1:9, :]
+    L = lq(W)
+    @test L.L * L.Q ≈ Ad[1:9, :][L.prow, L.pcol]
+    @test L \ B[1:9, :] ≈ Ad[1:9, :] \ B[1:9, :]
+end
+end
+
 @testset "basic solution of rank deficient ls" begin
     seed!(12345)
     A = sprandn(m, 5, 0.9)*sprandn(5, n, 0.9)
@@ -165,11 +205,13 @@ end
     @test A*xs ≈ A*xd
 end
 
+@static if COMPREHENSIVE
 @testset "Issue 26367" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
     @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
     @test (sparse(I, 2, 2) * qr(A).Q)::Matrix == sparse(qr(A).Q) == sparse(I, 2, 2)
+end
 end
 
 @testset "thin Q products when SPQR stores fewer reflectors than columns" begin
@@ -181,14 +223,16 @@ end
     @test Matrix(F.R)' * F.Q' ≈ A[F.prow, F.pcol]'
 end
 
+@static if COMPREHENSIVE
 @testset "Issue 26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
     @test (F.Q*F.R)::Matrix == A[F.prow,F.pcol]
 end
+end
 
 @testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
-        (sprandn(27, 2, 0.8), sprandn(ComplexF64, 6, 20, 0.5))
+        (sprandn(27, 2, 0.8), (@static COMPREHENSIVE ? (sprandn(ComplexF64, 6, 20, 0.5),) : ())...)
     local m, n = size(A)
     k = min(m, n)   # the rows of R and the columns of the thin Q
     F = qr(A)
@@ -199,41 +243,48 @@ end
     # one operand of each kind, including the thin shapes the dense-operand methods
     # accept, gives the same dense result as its dense copy
     B, C, b = sprandn(T, m, 3, 0.5), sprandn(T, 3, m, 0.5), sprandn(T, m, 0.5)
-    for X in (B, sparse(B')', view(B, :, 1:2), sprandn(T, k, 3, 0.5))
+    for X in (B, (@static COMPREHENSIVE ? (sparse(B')', view(B, :, 1:2)) : ())..., sprandn(T, k, 3, 0.5))
         @test (Q * X)::Matrix ≈ Q * Matrix(X)
     end
-    for X in (C, transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b), sprandn(T, 3, k, 0.5))
+    for X in (C, (@static COMPREHENSIVE ? (transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)') : ())..., transpose(b), sprandn(T, 3, k, 0.5))
         @test (X * Q')::Matrix ≈ Matrix(X) * Q'
     end
     @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
     @test (C * Q)::Matrix ≈ Matrix(C) * Q
-    for x in (b, view(B, :, 1), view(b, 1:m))
+    for x in (b, (@static COMPREHENSIVE ? (view(B, :, 1), view(b, 1:m)) : ())...)
         @test (Q * x)::Vector ≈ Q * Vector(x)
     end
     @test (Q' * b)::Vector ≈ Q' * Vector(b)
+    @static if COMPREHENSIVE
     @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
+    end
     # and nothing else
     k == m || @test_throws DimensionMismatch Q' * sprandn(T, k, 3, 0.5)
     @test_throws DimensionMismatch Q * sprandn(T, m + 1, 2, 0.5)
 end
 
+@static if COMPREHENSIVE
 @testset "Issue #585 for element type: $eltyA" for eltyA in (Float64, Float32, Float16, ComplexF64, ComplexF32, ComplexF16)
     A = sparse(eltyA[1 0; 0 1])
     F = qr(A)
     @test eltype(F.Q) == eltype(F.R) == eltyA
 end
+end
 
-@testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, ComplexF32, Float16, ComplexF16)
+@testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, ComplexF32, (@static COMPREHENSIVE ? (Float16, ComplexF16) : ())...)
     A = sprandn(eltyA, m, n, 0.3)
     F = qr(A)
     @test eltype(F.Q) == eltype(F.R) == eltyA
     @test Matrix(F.Q) * F.R ≈ A[F.prow, F.pcol]
+    @static if COMPREHENSIVE
     # products with double-precision operands convert Q
     b, B = randn(m), randn(3, m)
     @test F.Q * b ≈ F.Q * eltyA.(b)
     @test B * F.Q' ≈ eltyA.(B) * F.Q'
+    end
 end
 
+@static if COMPREHENSIVE
 @testset "select ordering overdetermined" begin
      A = sparse([1:n; rand(1:m, nn - n)], [1:n; rand(1:n, nn - n)], randn(nn), m, n)
      b = randn(m)
@@ -248,9 +299,11 @@ end
          @test x ≈ xref
          @test QR' \ c ≈ cref
      end
-     @test_throws ArgumentError qr(A, ordering=Int32(10))
+     @test_throws ArgumentError qr(A, ordering=(@static COMPREHENSIVE ? Int32(10) : 10))
+end
 end
 
+@static if COMPREHENSIVE
 @testset "select ordering underdetermined" begin
      A = sparse([1:n; rand(1:n, nn - n)], [1:n; rand(1:m, nn - n)], randn(nn), n, m)
      b = A * ones(m)
@@ -260,10 +313,11 @@ end
          # x ≂̸ Array(A) \ b; LAPACK returns a min-norm x while SPQR returns a basic x
          @test A * x ≈ b
      end
-     @test_throws ArgumentError qr(A, ordering=Int32(10))
+     @test_throws ArgumentError qr(A, ordering=(@static COMPREHENSIVE ? Int32(10) : 10))
+end
 end
 
-@testset "ORDERING_FIXED with a dependent column, $Tv $Ti" for Tv in (Float64, ComplexF64), Ti in itypes
+@testset "ORDERING_FIXED with a dependent column, $Tv $Ti" for Tv in (@static COMPREHENSIVE ? STD_ELTYPES : (Float64,)), Ti in (@static COMPREHENSIVE ? itypes : core_itypes)
     # the second column is twice the first
     A = SparseMatrixCSC{Tv, Ti}([1 2 3; 4 8 6; 7 14 9; 1 2 5])
     F = qr(A; ordering=SPQR.ORDERING_FIXED)
@@ -283,10 +337,12 @@ end
 end
 
 @testset "non-floating-point element types" begin
+    @static if COMPREHENSIVE
     A = sparse(Complex{Int}[1 2; 3 4im])
     @test qr(A) isa SPQR.QRSparse{ComplexF64}
     @test qr(A) \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
     @test rank(A) == 2
+    end
     B = sparse([1 2; 3 4])
     F = qr(B; ordering=SPQR.ORDERING_NATURAL)
     @test F isa SPQR.QRSparse{Float64} && F.pcol == [1, 2]
@@ -318,15 +374,21 @@ end
     sQ = sparse(Q)
     @test sQ == sparse(Matrix(Q))
     Dq = qr(Matrix(A))
+    @static if COMPREHENSIVE
     perm = inv(Matrix(I, size(A)...)[q.prow, :])
     f = sum(q.R; dims=2) ./ sum(Dq.R; dims=2)
     @test perm * (transpose(f) .* sQ) ≈ sparse(Dq.Q)
+    end
     v, V = sprandn(100, 0.01), sprandn(100, 100, 0.01)
     @test Dq.Q * v ≈ Matrix(Dq.Q) * v
     @test Dq.Q * V ≈ Matrix(Dq.Q) * V
+    @static if COMPREHENSIVE
     @test Dq.Q * V' ≈ Matrix(Dq.Q) * V'
+    end
     @test V * Dq.Q ≈ V * Matrix(Dq.Q)
+    @static if COMPREHENSIVE
     @test V' * Dq.Q ≈ V' * Matrix(Dq.Q)
+    end
 end
 
 @testset "ldiv!" begin
@@ -394,9 +456,9 @@ end
         x, y = F \ b, F' \ c
         calls = (() -> ldiv!(zeros(n), F, b) ≈ x,
                  () -> F \ b ≈ x,
-                 () -> F \ complex.(b) ≈ x,
+                 (@static COMPREHENSIVE ? (() -> F \ complex.(b) ≈ x,) : ())...,
                  () -> ldiv!(zeros(m), F', c) ≈ y,
-                 () -> F' \ c ≈ y)
+                 (@static COMPREHENSIVE ? (() -> F' \ c ≈ y,) : ())...)
         for f in calls
             lock(F._lock)
             t = @async f()
@@ -413,10 +475,9 @@ end
 
 @testset "no strategies" begin
     A = I + sprandn(10, 10, 0.1)
-    for i in [ColumnNorm, RowMaximum, NoPivot]
+    for i in (ColumnNorm, (@static COMPREHENSIVE ? (RowMaximum, NoPivot) : ())...)
         @test_throws ErrorException qr(A, i())
     end
-end
 end
 
 end # module
