@@ -67,8 +67,7 @@ jobs:
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-  aqua-test:
-    name: aqua-test (ubuntu-latest, x64, nightly)
+  code-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -83,9 +82,21 @@ jobs:
           version: 'nightly'
           arch: x64
       - uses: julia-actions/cache@v3
-      - name: Run Aqua and ambiguity tests
+      - name: Check whitespace
+        run: |
+          julia --color=yes .ci/check-whitespace.jl
+      - name: Check that only src/solvers and test/solvers use the GPL solvers
+        if: ${{ !cancelled() }}
+        run: |
+          julia --color=yes .ci/check-gpl-usage.jl
+      - name: Run ambiguity tests
+        if: ${{ !cancelled() }}
         run: |
           julia --color=yes --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'
+      - name: Run Aqua tests
+        if: ${{ !cancelled() }}
+        run: |
+          julia --color=yes --project -e 'using Pkg; Pkg.test(test_args=["aqua"])'
   trim:
     name: trim (ubuntu-latest, x64, nightly)
     runs-on: ubuntu-latest

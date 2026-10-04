@@ -1,8 +1,8 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # Included by every suite module at its top. The shared types and helpers live in the
-# `SparseTestHelpers` module, loaded into `Main` once per process. `ambiguous.jl` does not
-# include this file, so that the helpers stay out of its checks.
+# `SparseTestHelpers` module, loaded into `Main` once per process. `ambiguous.jl` and
+# `aqua.jl` do not include this file, so that the helpers stay out of their checks.
 
 isdefined(Main, :SparseTestHelpers) ||
     Base.include(Main, joinpath(@__DIR__, "SparseTestHelpers.jl"))
