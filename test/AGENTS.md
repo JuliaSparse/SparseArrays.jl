@@ -48,8 +48,8 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   `sparsevector.jl` keeps the vector `axpy!` and `dot` tests. The `transpose`, `adjoint`
   and `permute` tests, including the in-place forms, live in `sparsematrix.jl`.
 - Preserve issue references on regression tests.
-- `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI gives it
-  its own job. It restores the depot, load path, environment and active project in a
+- `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI runs it
+  in the `lint` job. It restores the depot, load path, environment and active project in a
   `finally`, so an Aqua failure on Base CI leaves the worker usable.
 - `solvers/threads.jl` owns the tests requiring fresh process state. Its `testprocess.jl`
   helper preserves the active project and resolved load path, verifies the checkout

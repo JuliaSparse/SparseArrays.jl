@@ -49,7 +49,7 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
   generic LinearAlgebra functions (`lu`, `qr`, `cholesky`, `\`), never by naming a
   solver module. A test that factorizes or solves with a sparse matrix goes in
   `test/solvers/`, whatever feature it is about; the other suites must pass on a build
-  without GPL libraries. `.ci/check-gpl-usage.jl`, run by the Lint workflow, fails
+  without GPL libraries. `.ci/check-gpl-usage.jl`, run by the `lint` CI job, fails
   on solver names outside those directories.
 
 ## Running tests
@@ -64,8 +64,8 @@ julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/ma
 julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/solvers/
 ```
 
-The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
-as a separate CI job.
+The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, in
+the `lint` CI job, after the whitespace and GPL usage checks.
 One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
 The tests run in two modes. Standard mode is what `Pkg.test`, Julia's own CI and every CI
 job but the coverage job run: one representative test per feature, kept fast.
