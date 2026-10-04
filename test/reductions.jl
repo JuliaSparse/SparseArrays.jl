@@ -209,6 +209,18 @@ end
         @test m(F, dims=region) == m(Array(F), dims=region) && m(G, dims=region) == m(Array(G), dims=region)
     end
     @test argmin(F) == argmin(Array(F)) && argmax(G) == argmax(Array(G))
+    @static if COMPREHENSIVE
+    # a stored -0.0 is less than the zero of an entry that is not stored, as for dense input
+    for Z in (sparse([1], [1], [-0.0], 2, 1), sparse([1, 2], [1, 2], [-0.0, -0.0], 2, 2),
+              sparse([1, 2, 1, 2], [1, 1, 2, 2], [-0.0, -0.0, -0.0, -0.0], 2, 2),
+              sparse([1, 2, 3], [1, 1, 2], [-0.0, 0.0, -0.0], 3, 2), sparse([1, 2, 1], [1, 1, 2], [0.0, -0.0, NaN], 3, 2)),
+        m in (findmax, findmin)
+        @test isequal(m(Z), m(Array(Z)))
+        for region in (1, 2, (1,2))
+            @test isequal(m(Z, dims=region), m(Array(Z), dims=region))
+        end
+    end
+    end
     for m in [findmax, findmin]
         @test_throws ArgumentError m(S, (4, 3))
     end

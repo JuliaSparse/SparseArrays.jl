@@ -1400,27 +1400,77 @@ end
     @testset "nzrange(A, $i)" for (i, nzr) in ((1,1:0),(4,1:4),(5,5:8),(6,9:12),(9,13:12))
         @test nzrange(A, i) == nzr
     end
-    @testset "nzrange(AU, $i)" for (i, nzr) in ((2,1:0),(4,1:3),(5,5:8),(6,9:12),(8,13:12))
+    # the wrappers' accessors describe the entries of their triangle only
+    @testset "nzrange(AU, $i)" for (i, nzr) in ((2,1:0),(4,1:3),(5,4:7),(6,8:11),(8,12:11))
         @test nzrange(AU, i) == nzr
     end
-    @testset "nzrange(AL, $i)" for (i, nzr) in ((3,1:0),(4,3:4),(5,8:8),(6,13:12),(7,13:12))
+    @testset "nzrange(AL, $i)" for (i, nzr) in ((3,1:0),(4,1:2),(5,3:3),(6,4:3),(7,4:3))
         @test nzrange(AL, i) == nzr
     end
     @test nzrange(b, 1) == 1:4
     @test nzrange(c, 1) == 1:4
 
     @test rowvals(A) == I
-    @test rowvals(AL) == I
-    @test rowvals(AL) == I
+    @test rowvals(AU) == I[[1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]]
+    @test rowvals(AL) == I[[3, 4, 8]]
     @test rowvals(b) == I[1:4]
     @test rowvals(c) == I[5:8]
 
     @test nonzeros(A) == V
-    @test nonzeros(AU) == V
-    @test nonzeros(AL) == V
+    @test nonzeros(AU) == V[[1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]]
+    @test nonzeros(AL) == V[[3, 4, 8]]
     @test nonzeros(b) == V[1:4]
     @test nonzeros(c) == V[5:8]
-    @test SparseArrays.getrowval(AL) === rowvals(A) && SparseArrays.getnzval(AL) === nonzeros(A)
+    # the storage tier addresses the parent's vectors
+    for W in (AU, AL)
+        @test SparseArrays.getrowval(W) === rowvals(A) && SparseArrays.getnzval(W) === nonzeros(A)
+        @test all(j -> SparseArrays.getnzval(W)[SparseArrays.getnzrange(W, j)] == nonzeros(W)[nzrange(W, j)], 1:9)
+    end
+    # a view of some columns describes its own entries (#376)
+    e = view(A, :, 5:6)
+    @test nonzeros(e) == V[5:12] && rowvals(e) == I[5:12] && nzrange(e, 2) == 5:8
+end
+
+@static if COMPREHENSIVE
+@testset "nonzeros, rowvals and nzrange of triangular and symmetric wrappers (#64)" begin
+    @testset "$(nameof(T)) $(nameof(W)) $uplo" for T in (Float64, ComplexF64),
+            (W, uplo) in ((UpperTriangular, :U), (LowerTriangular, :L), (Symmetric, :U),
+                          (Symmetric, :L), (Hermitian, :U), (Hermitian, :L))
+        A = fixture(T, 9, 9)                     # with a stored zero on the diagonal
+        S = W <: Union{Symmetric,Hermitian} ? W(A, uplo) : W(A)
+        C = uplo == :U ? triu(A) : tril(A)       # the stored triangle keeps its pattern
+        @test length(nonzeros(S)) == length(rowvals(S)) == nnz(S) == nnz(C)
+        @test nonzeros(S) == nonzeros(C)         # the values as stored, before any conjugation
+        @test rowvals(S) == rowvals(C)
+        @test all(j -> nzrange(S, j) == nzrange(C, j), axes(S, 2))
+        @test_throws BoundsError nzrange(S, 0)
+        @test_throws BoundsError nzrange(S, 10)
+        # the documented loop visits exactly the stored triangle, and the wrapper reads it
+        seen = spzeros(T, 9, 9)
+        rows, vals = rowvals(S), nonzeros(S)
+        for j in axes(S, 2), k in nzrange(S, j)
+            seen[rows[k], j] = vals[k]
+        end
+        @test seen == C
+        @test all(S[i, j] == (W <: Hermitian && i == j ? real(C[i, j]) : C[i, j]) for j in 1:9, i in 1:9 if !iszero(C[i, j]))
+        # the storage tier and the public accessors walk the same entries, and writes go through
+        for j in axes(S, 2)
+            @test SparseArrays.getnzval(S)[SparseArrays.getnzrange(S, j)] == nonzeros(S)[nzrange(S, j)]
+        end
+        other = uplo == :U ? tril(A, -1) : triu(A, 1)
+        fill!(nonzeros(S), T(7))
+        @test all(==(T(7)), nonzeros(uplo == :U ? triu(A) : tril(A)))
+        @test (uplo == :U ? tril(A, -1) : triu(A, 1)) == other
+        @test nnz(A) == nnz(C) + nnz(other)
+    end
+    # a wrapper of a column-range view gathers within the view's columns
+    A = fixture(Float64, 12, 14)
+    for (S, R) in ((UpperTriangular(view(A, :, 2:13)), UpperTriangular(A[:, 2:13])),
+                   (Symmetric(view(A, :, 2:13), :L), Symmetric(A[:, 2:13], :L)))
+        @test nonzeros(S) == nonzeros(R) && rowvals(S) == rowvals(R) && nnz(S) == nnz(R)
+        @test all(j -> nzrange(S, j) == nzrange(R, j), 1:12)
+    end
+end
 end
 
 @testset "copy a ReshapedArray of SparseMatrixCSC" begin
@@ -1454,9 +1504,67 @@ end
 @testset "SparseMatrixCSCView" begin
     A  = fixture(Float64, 10, 10)
     vA = view(A, :, 1:5) # a CSCView contains all rows and a UnitRange of the columns
-    @test SparseArrays.getnzval(vA)  == SparseArrays.getnzval(A)
-    @test SparseArrays.getrowval(vA) == SparseArrays.getrowval(A)
+    # the storage tier addresses the parent's vectors
+    @test SparseArrays.getnzval(vA)  === SparseArrays.getnzval(A)
+    @test SparseArrays.getrowval(vA) === SparseArrays.getrowval(A)
     @test SparseArrays.getcolptr(vA) == SparseArrays.getcolptr(A[:, 1:5])
+    @test all(j -> SparseArrays.getnzrange(vA, j) == nzrange(A, j), 1:5)
+    sA = view(A, :, 1:10)   # a square view can be wrapped
+    for W in (UpperTriangular(sA), LowerTriangular(sA))
+        @test SparseArrays.getnzval(W) === SparseArrays.getnzval(A)
+        @test SparseArrays.getrowval(W) === SparseArrays.getrowval(A)
+        @test all(j -> SparseArrays.getnzrange(W, j) ⊆ nzrange(A, j), 1:10)
+    end
+    # the public accessors describe the view's own entries
+    @test nonzeros(vA) == nonzeros(A[:, 1:5])
+    @test rowvals(vA) == rowvals(A[:, 1:5])
+    @test all(j -> nzrange(vA, j) == nzrange(A[:, 1:5], j), 1:5)
+end
+
+@testset "nonzeros, rowvals and nzrange of column views (#376)" begin
+    a = sparse([1 0 2; 0 3 0])
+    b = view(a, :, 2:3)
+    @test nonzeros(b) == [3, 2]
+    @test rowvals(b) == [2, 1]
+    @test nzrange(b, 1) == 1:1
+    @test nzrange(b, 2) == 2:2
+    @test_throws BoundsError nzrange(b, 0)
+    @test_throws BoundsError nzrange(b, 3)
+    nonzeros(b) .*= 10   # writes go through to the parent
+    @test a == [1 0 20; 0 30 0]
+
+    e = view(spzeros(4, 5), :, 10:9)   # an empty range need not lie within the parent
+    @test nnz(e) == 0 && isempty(nonzeros(e)) && isempty(rowvals(e))
+
+    @testset "$(nameof(T)) $(name)" for T in (Float64, ComplexF64), (name, cols) in
+            (("range", 1:5), ("empty range", 4:3), ("permuted subset", [8, 2, 1]),
+             ("repeated column", [4, 6, 4]))
+        A = fixture(T, 6, 9)           # with a stored zero in column 1 and an empty column 2
+        S = view(A, :, cols)
+        C = A[:, cols]                 # the copy has the same stored pattern
+        @test length(nonzeros(S)) == length(rowvals(S)) == nnz(S) == nnz(C)
+        @test nonzeros(S) == nonzeros(C)
+        @test rowvals(S) == rowvals(C)
+        @test all(j -> nzrange(S, j) == nzrange(C, j), axes(S, 2))
+        @test_throws BoundsError nzrange(S, 0)
+        @test_throws BoundsError nzrange(S, length(cols) + 1)
+        # the storage tier and the public accessors walk the same entries
+        for j in axes(S, 2)
+            @test SparseArrays.getnzval(S)[SparseArrays.getnzrange(S, j)] == nonzeros(S)[nzrange(S, j)]
+            @test SparseArrays.getrowval(S)[SparseArrays.getnzrange(S, j)] == rowvals(S)[nzrange(S, j)]
+        end
+        # writes go through to the parent and touch nothing else
+        others = setdiff(1:9, cols)
+        before = A[:, others]
+        fill!(nonzeros(S), T(7))
+        @test all(==(T(7)), nonzeros(A[:, cols]))
+        @test nnz(A[:, cols]) == nnz(C)
+        @test A[:, others] == before
+        if cols isa UnitRange && !isempty(cols)
+            @test nzrange(S, 1) isa UnitRange
+            @test @allocated(nzrange(S, 1)) == 0
+        end
+    end
 end
 end
 
