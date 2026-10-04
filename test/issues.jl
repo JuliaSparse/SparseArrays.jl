@@ -6,7 +6,6 @@ using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr
 using LinearAlgebra
 using Random
-using Test: guardseed
 include("testhelpers.jl")
 
 
@@ -32,12 +31,14 @@ include("testhelpers.jl")
 end
 
 @testset "Issue #33169" begin
-    m21 = sparse([1, 2], [2, 2], SimpleSMatrix{2,1}.([rand(2, 1), rand(2, 1)]), 2, 2)
-    m12 = sparse([1, 2], [2, 2], SimpleSMatrix{1,2}.([rand(1, 2), rand(1, 2)]), 2, 2)
-    m22 = sparse([1, 2], [2, 2], SimpleSMatrix{2,2}.([rand(2, 2), rand(2, 2)]), 2, 2)
-    m23 = sparse([1, 2], [2, 2], SimpleSMatrix{2,3}.([rand(2, 3), rand(2, 3)]), 2, 2)
-    v12 = sparsevec([2], SimpleSMatrix{1,2}.([rand(1, 2)]))
-    v21 = sparsevec([2], SimpleSMatrix{2,1}.([rand(2, 1)]))
+    # distinct blocks, so that a product taking the wrong block or order differs
+    blk(k, m, n) = reshape(Float64.(k .+ (1:m*n)), m, n)
+    m21 = sparse([1, 2], [2, 2], SimpleSMatrix{2,1}.([blk(1, 2, 1), blk(3, 2, 1)]), 2, 2)
+    m12 = sparse([1, 2], [2, 2], SimpleSMatrix{1,2}.([blk(5, 1, 2), blk(7, 1, 2)]), 2, 2)
+    m22 = sparse([1, 2], [2, 2], SimpleSMatrix{2,2}.([blk(9, 2, 2), blk(13, 2, 2)]), 2, 2)
+    m23 = sparse([1, 2], [2, 2], SimpleSMatrix{2,3}.([blk(17, 2, 3), blk(23, 2, 3)]), 2, 2)
+    v12 = sparsevec([2], SimpleSMatrix{1,2}.([blk(29, 1, 2)]))
+    v21 = sparsevec([2], SimpleSMatrix{2,1}.([blk(31, 2, 1)]))
     @test m22 * m21 ≈ Matrix(m22) * Matrix(m21)
     @test m22' * m21 ≈ Matrix(m22') * Matrix(m21)
     @test m21' * m22 ≈ Matrix(m21') * Matrix(m22)
@@ -58,10 +59,11 @@ end
 end
 
 @testset "Issue #28963" begin
-    @test_throws DimensionMismatch (spzeros(10,10)[:, :] = sprand(10,20,0.5))
+    @test_throws DimensionMismatch (spzeros(10,10)[:, :] = fixture(Float64, 10, 20))
 end
 
 @testset "Issue #30502" begin
+    Random.seed!(30502)
     @test nnz(sprand(UInt8(16), UInt8(16), 1.0)) == 256
     @test nnz(sprand(UInt8(16), UInt8(16), 1.0, ones)) == 256
 end
@@ -76,10 +78,11 @@ end
 end
 
 @testset "issue #5824" begin
-    @test sprand(4,5,0.5).^0 == sparse(fill(1,4,5))
+    @test fixture(Float64, 4, 5).^0 == sparse(fill(1,4,5))
 end
 
 @testset "issue #5985" begin
+    Random.seed!(5985)
     @test sprand(Bool, 4, 5, 0.0) == sparse(zeros(Bool, 4, 5))
     @test sprand(Bool, 4, 5, 1.00) == sparse(fill(true, 4, 5))
     sprb45nnzs = zeros(5)
@@ -126,7 +129,7 @@ end
 end
 
 @testset "issue #7677" begin
-    A = sprand(5,5,0.5,(n)->rand(Float64,n))
+    A = fixture(Float64, 5, 5)
     ACPY = copy(A)
     B = reshape(A,25,1)
     @test A == ACPY
@@ -172,27 +175,27 @@ end
 end
 
 @testset "issues #10837 & #32466, sparse constructors from special matrices" begin
-    T = Tridiagonal(randn(4),randn(5),randn(4))
+    T = Tridiagonal([1.0, -2.0, 3.0, -4.0], [5.0, 6.0, -7.0, 8.0, 9.0], [-10.0, 11.0, 12.0, 13.0])
     S = sparse(T)
     S2 = SparseMatrixCSC(T)
     @test Array(T) == Array(S) == Array(S2)
     @test S == S2
-    T = SymTridiagonal(randn(5),rand(4))
+    T = SymTridiagonal([5.0, 6.0, -7.0, 8.0, 9.0], [1.0, 2.0, 3.0, 4.0])
     S = sparse(T)
     S2 = SparseMatrixCSC(T)
     @test Array(T) == Array(S) == Array(S2)
     @test S == S2
-    B = Bidiagonal(randn(5),randn(4),:U)
+    B = Bidiagonal([5.0, 6.0, -7.0, 8.0, 9.0], [1.0, -2.0, 3.0, -4.0], :U)
     S = sparse(B)
     S2 = SparseMatrixCSC(B)
     @test Array(B) == Array(S) == Array(S2)
     @test S == S2
-    B = Bidiagonal(randn(5),randn(4),:L)
+    B = Bidiagonal([5.0, 6.0, -7.0, 8.0, 9.0], [1.0, -2.0, 3.0, -4.0], :L)
     S = sparse(B)
     S2 = SparseMatrixCSC(B)
     @test Array(B) == Array(S) == Array(S2)
     @test S == S2
-    D = Diagonal(randn(5))
+    D = Diagonal([5.0, 6.0, -7.0, 8.0, 9.0])
     S = sparse(D)
     S2 = SparseMatrixCSC(D)
     @test Array(D) == Array(S) == Array(S2)
@@ -200,7 +203,7 @@ end
 
     # An issue discovered in #42574 where
     # SparseMatrixCSC{Tv, Ti}(::Diagonal) ignored Ti
-    D = Diagonal(rand(3))
+    D = Diagonal([1.0, 2.0, 3.0])
     S = SparseMatrixCSC{Float64, Int8}(D)
     @test S isa SparseMatrixCSC{Float64, Int8}
 end
@@ -259,13 +262,14 @@ end
 end
 
 @testset "issparse for sparse vectors #34253" begin
-    v = sprand(10, 0.5)
+    v = fixturevec(Float64, 10)
     @test issparse(v)
     @test issparse(v')
     @test issparse(transpose(v))
 end
 
 @testset "issue #16073" begin
+    Random.seed!(16073)
     @inferred sprand(1, 1, 1.0)
     @inferred sprand(1, 1, 1.0, rand, Float64)
     @inferred sprand(1, 1, 1.0, x -> round.(Int, rand(x) * 100))
@@ -330,7 +334,7 @@ end
 end
 
 @testset "dropstored issue #20513" begin
-    x = sparse(rand(3,3))
+    x = sparse(reshape(Float64.(1:9), 3, 3))
     SparseArrays.dropstored!(x, 1, 1)
     @test x[1, 1] == 0.0
     @test getcolptr(x) == [1, 3, 6, 9]
@@ -373,9 +377,7 @@ end
 
 @testset "reverse search direction if step < 0 #21986" begin
     local A, B
-    A = guardseed(1234) do
-        sprand(5, 5, 1/5)
-    end
+    A = fixture(Float64, 5, 5)
     A = max.(A, copy(A'))
     LinearAlgebra.fillstored!(A, 1)
     B = A[5:-1:1, 5:-1:1]
@@ -407,8 +409,8 @@ end
 
 #PR #29045
 @testset "Issue #28934" begin
-    A = sprand(5,5,0.5)
-    D = Diagonal(rand(5))
+    A = fixture(Float64, 5, 5)
+    D = Diagonal(Float64.(1:5))
     C = copy(A)
     m1 = which(mul!, Base.typesof(C,A,D,true,false))
     m2 = which(mul!, Base.typesof(C,D,A,true,false))
@@ -437,15 +439,15 @@ end
     J1 = [Int8(i) for _ in 1:20 for i in 1:20]
     # m * n >= typemax(Ti) and nnz >= typemax(Ti)
     @test_throws ArgumentError sparse(I1, J1, ones(length(I1)))
-    I1 = Int8.(rand(1:10, 500))
-    J1 = Int8.(rand(1:10, 500))
+    I1 = Int8.(mod1.(1:500, 10))
+    J1 = Int8.(mod1.(1:500, 7))
     V1 = ones(500)
     # m * n < typemax(Ti) and length(I) >= typemax(Ti) - combining values
     @test_throws ArgumentError sparse(I1, J1, V1, 10, 10)
     # m * n >= typemax(Ti) and length(I) >= typemax(Ti)
     @test_throws ArgumentError sparse(I1, J1, V1, 12, 13)
-    I1 = Int8.(rand(1:10, 126))
-    J1 = Int8.(rand(1:10, 126))
+    I1 = Int8.(mod1.(1:126, 10))
+    J1 = Int8.(mod1.(1:126, 7))
     V1 = ones(126)
     # m * n >= typemax(Ti) and length(I) < typemax(Ti)
     @test size(sparse(I1, J1, V1, 100, 100)) == (100,100)
@@ -492,8 +494,8 @@ end
 end
 
 @testset "Symmetric and Hermitian #35325" begin
-    A = sprandn(ComplexF64, 10, 10, 0.1)
-    B = sprandn(ComplexF64, 10, 10, 0.1)
+    A = fixture(ComplexF64, 10, 10)
+    B = permutedims(fixture(ComplexF64, 10, 10)) + sparse([9, 2], [2, 9], [3.0 - 2.0im, 1.0 + 4.0im], 10, 10)
 
     @testset "$Wrapper $op" for op ∈ (+, -), Wrapper ∈ (Hermitian, Symmetric)
         AWU = Wrapper(A, :U)
@@ -526,7 +528,7 @@ end
     @test eval(Meta.parse(repr(m))) == m
     @test summary(m) == "2×2 $SparseMatrixCSC{$Int, $Int} with 2 stored entries"
 
-    m = sprand(100, 100, .1)
+    m = fixture(Float64, 20, 30)
     @test occursin(r"^sparse\(\[.+\], \[.+\], \[.+\], \d+, \d+\)$", repr(m))
     @test eval(Meta.parse(repr(m))) == m
 
@@ -536,7 +538,7 @@ end
 end
 
 @testset "Issue #29" begin
-    s = sprand(6, 6, .2)
+    s = fixture(Float64, 5, 3)
     li = LinearIndices(s)
     ci = CartesianIndices(s)
     @test s[li] == s[ci] == s[Matrix(li)] == s[Matrix(ci)]
@@ -599,7 +601,7 @@ end
 module SparseTestsBase
 
 using Test
-using Random, LinearAlgebra, SparseArrays
+using LinearAlgebra, SparseArrays
 include("testhelpers.jl")
 
 # From arrayops.jl
@@ -642,7 +644,7 @@ end
 
 @testset "julia #17088" begin
     n = 10
-    M = rand(n, n)
+    M = reshape(Float64.(1:n*n), n, n)
     @testset "vector of vectors" begin
         v = [[M]; [M]] # using vcat
         @test size(v) == (2,)
@@ -703,7 +705,7 @@ g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
 @test g12063() == 1
 
 @testset "Issue #334" begin
-    x = sprand(10, .3);
+    x = sparsevec([1, 2, 4, 7, 8], [3.0, -1.0, 0.0, 2.0, -4.0], 10);
     @test issorted(sort!(x; alg=Base.DEFAULT_STABLE));
     @test_throws MethodError sort!(x; banana=:blue); # From discussion at #335
 end

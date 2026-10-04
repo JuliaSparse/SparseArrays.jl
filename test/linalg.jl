@@ -12,7 +12,7 @@ include("testhelpers.jl")
 @static if COMPREHENSIVE
 @testset "circshift" begin
     m,n = 17,15
-    A = sprand(m, n, 0.5)
+    A = fixture(Float64, m, n)
     for rshift in (-1, 0, 1, 10), cshift in (-1, 0, 1, 10)
         shifts = (rshift, cshift)
         # using dense circshift to compare
@@ -53,7 +53,7 @@ end
     A[:,4] = [0 0 0 0 5 3 0 0 0 0]'
     A[:,5] = [0 0 0 0 6 2 0 0 0 0]'
     A[:,6] = [0 0 0 0 7 4 0 0 0 0]'
-    A[:,7:n] = rand(ComplexF64, m, n-6)
+    A[:,7:n] = [complex(i + j, i - 2j) for i in 1:m, j in 7:n]
     B = Matrix(A)
     dowrap(wr, A) = wr(A)
     dowrap(wr::Tuple, A) = (wr[1])(A, wr[2:end]...)
@@ -138,13 +138,13 @@ end
     for T in (@static COMPREHENSIVE ? wrappers[5:7] : (LowerTriangular, UnitLowerTriangular))
         A = T(O)
         @static if COMPREHENSIVE
-        bs = sprandn(10, 0.3)
+        bs = fixturevec(Float64, 10)
         bd = Array(bs)
         x = A \ bs
         @test x ≈ A \ bd
         @test !issparse(x)
         end
-        Bs = sprandn(10, 3, 0.2)
+        Bs = fixture(Float64, 10, 3)
         Bd = Matrix(Bs)
         X = A \ Bs
         @test X ≈ A \ Bd
@@ -195,7 +195,7 @@ end
     Ac = fixture(ComplexF64, 5, 3)
     MAc = Array(Ac)
     @static if COMPREHENSIVE
-    Ar = sprandn(10,10,.1)
+    Ar = imag(fixture(ComplexF64, 10, 8))   # entries of both signs
     Ai = ceil.(Int, Ar*100)
     MAi = Array(Ai)
     end
@@ -222,7 +222,7 @@ end
     @test norm(view(Az, :, 2:3), 0) == norm(Matrix(Az)[:, 2:3], 0) == 1.0
 
     # Test (m x 1) sparse matrix
-    colM = sprandn(10, 1, 0.6)
+    colM = fixture(Float64, 10, 1)
     McolM = Array(colM)
     @test opnorm(colM, 1) ≈ opnorm(McolM, 1)
     @test opnorm(colM) ≈ opnorm(McolM)
@@ -230,7 +230,7 @@ end
     @test_throws ArgumentError opnorm(colM, 3)
 
     # Test (1 x n) sparse matrix
-    rowM = sprandn(1, 10, 0.6)
+    rowM = fixture(Float64, 1, 10)
     MrowM = Array(rowM)
     @test opnorm(rowM, 1) ≈ opnorm(MrowM, 1)
     @test opnorm(rowM) ≈ opnorm(MrowM)
@@ -276,20 +276,20 @@ end
 @testset "Diagonal linear solve" begin
     n = 12
     for elty in (ComplexF64,)
-        dd=convert(Vector{elty}, randn(n))
+        dd=convert(Vector{elty}, 1:n)
         if elty <: Complex
-            dd+=im*convert(Vector{elty}, randn(n))
+            dd+=im*convert(Vector{elty}, n:-1:1)
         end
         D = Diagonal(dd); MD = Array(D)
         b = fixture(elty, n, 5)
         bd = Array(b)
         @test mismatch(ldiv!(D, copy(b)), MD\bd; approx=true) === nothing
         @test_throws SingularException ldiv!(Diagonal(zeros(elty, n)), copy(b))
-        b = rand(elty, n+1, n+1)
+        b = Matrix(fixture(elty, n+1, n+1))
         b = sparse(b)
         @test_throws DimensionMismatch ldiv!(D, copy(b))
         @static if COMPREHENSIVE
-        b = view(rand(elty, n+1), Vector(1:n+1))
+        b = view(Vector(fixturevec(elty, n+1)), Vector(1:n+1))
         @test_throws DimensionMismatch ldiv!(D, b)
         end
         for b in (fixture(elty, n, 5), fixturevec(elty, n))
@@ -387,7 +387,7 @@ end
     @test isnan(norm(sparse([NaN 0; 0 2]), -1)) && isnan(norm(view(sparse([NaN 0; 0 2]), :, 1:2), -Inf))
     # with every entry stored there is no implicit zero to take the minimum
     @test norm(sparse([1.0 2; 3 4]), -1) ≈ 0.48 && norm(view(sparse([1.0 2; 3 4]), :, 1:2), -Inf) == 1.0
-    @test_throws ArgumentError opnorm(sprand(5,5,0.2),3)
+    @test_throws ArgumentError opnorm(fixture(Float64, 5, 3), 3)
 end
 
 @testset "ishermitian/issymmetric" begin
@@ -484,17 +484,18 @@ end
 
     # test some non-trivial cases
     local S
-    @testset "random matrices" begin
-        for sparsity in (0.1, (@static COMPREHENSIVE ? (0.01, 0.0) : ())...)
+    @testset "symmetrized matrices" begin
+        # the two triangles of each differ; the last two have one stored entry and none
+        for C in (fixture(ComplexF64, 20, 20), (@static COMPREHENSIVE ? (sparse([3], [17], [2.0 + im], 20, 20), spzeros(ComplexF64, 20, 20)) : ())...)
             @static if COMPREHENSIVE
-            S = sparse(Symmetric(sprand(20, 20, sparsity)))
+            S = sparse(Symmetric(real(C)))
             @test issymmetric(S)
             @test ishermitian(S)
             end
-            S = sparse(Symmetric(sprand(ComplexF64, 20, 20, sparsity)))
+            S = sparse(Symmetric(C))
             @test issymmetric(S)
             @test !ishermitian(S) || isreal(S)
-            S = sparse(Hermitian(sprand(ComplexF64, 20, 20, sparsity)))
+            S = sparse(Hermitian(C))
             @test ishermitian(S)
             @test !issymmetric(S) || isreal(S)
         end
@@ -534,7 +535,7 @@ end
 
 @testset "diff" begin
     @testset "$T" for T in (Float64,)
-        A = sprand(T, 7, 5, 0.5)
+        A = fixture(T, 7, 5)
         A[2, 2] = zero(T); A[3, 2] = one(T); A[4, 2] = one(T) # stored zero and a cancelling pair
         A[4, 1] = one(T)                                       # and a pair cancelling across columns
         A[:, 4] .= zero(T)                                     # a column of stored zeros
@@ -660,7 +661,7 @@ end
     @test mismatch(spdiagm(0 => x,  1 => x), [1 1 0; 0 1 1; 0 0 0]) === nothing
 
     @static if COMPREHENSIVE
-    v = rand(5)
+    v = Vector(fixturevec(Float64, 5))
     @test spdiagm(-1 => v)::SparseMatrixCSC         == diagm(-1 => v)
     @test spdiagm( 0 => v)::SparseMatrixCSC         == diagm( 0 => v) == sparse(Diagonal(v))
     # promotion
@@ -696,7 +697,7 @@ end
     end
 
     # sparsity-preservation
-    x = sprand(10, 0.2); y = ones(Int, 9)
+    x = fixturevec(Float64, 10); y = ones(Int, 9)
     @test spdiagm(0 => x, 1 => y)::SparseMatrixCSC{Float64,Int} == Bidiagonal(Vector(x), ones(9), :U)
     @test nnz(spdiagm(0 => x, 1 => y)) == length(y) + nnz(x)
 end
@@ -704,9 +705,9 @@ end
 @static if COMPREHENSIVE
 @testset "diag" begin
     for T in (Float64,)
-        S1 = sprand(T,  5,  5, 0.5)
-        S2 = sprand(T, 10,  5, 0.5)
-        S3 = sprand(T,  5, 10, 0.5)
+        S1 = fixture(T,  5,  5)
+        S2 = fixture(T, 10,  5)
+        S3 = fixture(T,  5, 10)
         for S in (S2, (@static COMPREHENSIVE ? (S1, S3) : ())...)
             local A = Matrix(S)
             @test diag(S)::SparseVector{T,Int} == diag(A)
@@ -740,7 +741,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "exp" begin
-    A = sprandn(5,5,0.2)
+    A = fixture(Float64, 5, 3)
     @test ℯ.^A ≈ ℯ.^Array(A)
 end
 
@@ -761,11 +762,11 @@ end
         v = view(a, :, 1); v_d = Vector(v)
         x = fixturevec(ComplexF64, m); x_d = Vector(x)
         y = fixturevec(Float64, n); y_d = Vector(y)
-        c_dis = Any[(@static COMPREHENSIVE ? (Diagonal(rand(m)),) : ())...,
-                    Tridiagonal(rand(m-1), rand(m), rand(m-1))]
+        c_dis = Any[(@static COMPREHENSIVE ? (Diagonal(Vector{Float64}(1:m)),) : ())...,
+                    Tridiagonal(Vector{Float64}(1:m-1), Vector{Float64}(11:10+m), Vector{Float64}(21:19+m))]
         @static if COMPREHENSIVE
-        d_dis = Any[Bidiagonal(rand(n), rand(n-1), :U),
-                    SymTridiagonal(rand(n), rand(n-1))]
+        d_dis = Any[Bidiagonal(Vector{Float64}(1:n), Vector{Float64}(11:9+n), :U),
+                    SymTridiagonal(Vector{Float64}(1:n), Vector{Float64}(11:9+n))]
         end
         # mat ⊗ mat
         for t in (identity, adjoint, (@static COMPREHENSIVE ? (transpose,) : ())...)
@@ -780,8 +781,8 @@ end
         @test mismatch(kron!(spzeros(eltype(Kd), size(Kd)...), y_d, a), kron(y_d, a_d)) === nothing
         @static if COMPREHENSIVE
         # complex operands, which an adjoint conjugates
-        ac = sprand(ComplexF64, m, 5, 0.4); ac_d = Matrix(ac)
-        bc = sprand(ComplexF64, n, 6, 0.3); bc_d = Matrix(bc)
+        ac = fixture(ComplexF64, m, 5); ac_d = Matrix(ac)
+        bc = fixture(ComplexF64, n, 6); bc_d = Matrix(bc)
         for (ta, tb) in ((adjoint, transpose),)
             @test mismatch(kron(ta(ac), tb(bc)), kron(ta(ac_d), tb(bc_d))) === nothing
         end
@@ -844,11 +845,12 @@ end
 
 @testset "sparse Frobenius dot/inner product" begin
     full_view = M -> view(M, :, :)
-    for i = 1:(@static COMPREHENSIVE ? 5 : 1)
-        A = sprand(ComplexF64,10,15,0.4); MA = Matrix(A)
-        B = sprand(ComplexF64,10,15,0.5); MB = Matrix(B)
+    for (m, n) in ((10, 15), (@static COMPREHENSIVE ? ((15, 10),) : ())...)
+        A = fixture(ComplexF64, m, n); MA = Matrix(A)
+        # another pattern and other values, with entries only one of the two stores
+        B = permutedims(fixture(ComplexF64, n, m)); MB = Matrix(B)
         @static if COMPREHENSIVE
-        C = rand(10,15) .> 0.3
+        C = [(i + 2j) % 4 != 0 for i in 1:m, j in 1:n]
         end
         @test dot(A,B) ≈ dot(MA, MB)
         @test dot(A,B) ≈ dot(A, MB)
@@ -884,9 +886,9 @@ end
             # a diagonal that is not real, which the adjoint of `D` conjugates
             D = Diagonal(M * transpose(M))
             a = spzeros(Complex{Float64}, size(D, 1))
-            a[1:3] = rand(Complex{Float64}, 3)
+            a[1:3] = [complex(1.0, 2.0), complex(0.0, -0.5), complex(3.0, 0.0)]
             b = spzeros(Complex{Float64}, size(D, 1))
-            b[1:3] = rand(Complex{Float64}, 3)
+            b[1:3] = [complex(2.0, -1.0), complex(1.0, 1.0), complex(0.0, -1.5)]
             @test dot(a, D, b) ≈ dot(a, sparse(D), b)
             @test dot(b, D, a) ≈ dot(b, sparse(D), a)
             @test dot(b, D, a) ≈ dot(b, D, collect(a))
@@ -896,9 +898,9 @@ end
             @test_throws DimensionMismatch dot([b; 1], D, [a; 1])
         end
     end
-    @test_throws DimensionMismatch dot(sprand(5,5,0.2),sprand(5,6,0.2))
-    @test_throws DimensionMismatch dot(rand(5,5),sprand(5,6,0.2))
-    @test_throws DimensionMismatch dot(sprand(5,5,0.2),rand(5,6))
+    @test_throws DimensionMismatch dot(fixture(Float64, 5, 5), fixture(Float64, 5, 6))
+    @test_throws DimensionMismatch dot(ones(5, 5), fixture(Float64, 5, 6))
+    @test_throws DimensionMismatch dot(fixture(Float64, 5, 5), ones(5, 6))
     # stored zeros, empty columns, and non-square shapes with a lazy adjoint (issue #627)
     for W in (adjoint, transpose)
         A = sparse([1, 3, 3, 5], [1, 1, 4, 2], [1.0im, 0.0, 2.0, 3.0], 6, 4)
@@ -994,10 +996,10 @@ end
         @test (@allocated dot(W(P), B)) < 1024
     end
     # fixed operands are read only
-    @test dot(fixed(sprand(5, 4, 0.5))', sprand(4, 5, 0.5)) isa Float64
+    @test dot(fixed(fixture(Float64, 5, 4))', fixture(Float64, 4, 5)) isa Float64
     @static if COMPREHENSIVE
     # matrix-valued entries have no `zero`, but the result is a scalar
-    Bm = sparse([1, 2, 2], [1, 1, 2], [rand(2, 2) for _ in 1:3], 2, 2)
+    Bm = sparse([1, 2, 2], [1, 1, 2], [[1.0 2; 3 4] .+ k for k in 1:3], 2, 2)
     Mm = [zeros(2, 2) for _ in 1:2, _ in 1:2]
     for (i, j, v) in zip(findnz(Bm)...); Mm[i, j] = v; end
     @test dot(Bm, Bm) ≈ dot(Mm, Bm) ≈ dot(Bm, Mm) ≈ dot(Mm, Mm)
@@ -1007,12 +1009,12 @@ end
 end
 
 @testset "generalized dot product" begin
-    A = sprand(ComplexF64, 10, 15, 1.0)
-    A15 = sprand(ComplexF64, 15, 15, 1.0)
+    A = fixture(ComplexF64, 10, 15)
+    A15 = fixture(ComplexF64, 15, 15)
     Av = view(A, :, :)
-    vx = sprand(ComplexF64, 10, 0.5)
-    vy = sprand(ComplexF64, 15, 0.5)
-    vy2 = sprand(ComplexF64, 15, 0.5)
+    vx = fixturevec(ComplexF64, 10)
+    vy = fixturevec(ComplexF64, 15)
+    vy2 = sparsevec([2, 3, 9, 15], [1.0 - im, 2.0im, -3.0, 4.0 + 2im], 15)
     for (x, y, y2) in ((vx, vy, vy2), (Vector(vx), Vector(vy), Vector(vy2)))
         @test dot(x, A, y) ≈ dot(Vector(x), A, Vector(y)) ≈ (Vector(x)' * Matrix(A)) * Vector(y)
         @test dot(x, A, y) ≈ dot(x, Av, y)
@@ -1033,8 +1035,8 @@ end
     @test iszero(dot(spzeros(ComplexF64, 10), collect(A), vy))
     @static if COMPREHENSIVE
     # matrix-valued entries: `dot(x, A, y)` entrywise, not `dot(x, A) * y`
-    Bm = sparse([1, 2, 2], [1, 1, 2], [rand(2, 2) for _ in 1:3], 2, 2)
-    xm = [rand(2, 2) for _ in 1:2]; ym = [rand(2, 2) for _ in 1:2]
+    Bm = sparse([1, 2, 2], [1, 1, 2], [[1.0 2; 3 4] .+ k for k in 1:3], 2, 2)
+    xm = [[1.0 -1; 2 0.5] .* k for k in 1:2]; ym = [[0.5 3; -2 1] .+ k for k in 1:2]
     r = sum(dot(xm[i], Bm[i, j], ym[j]) for (i, j) in zip(findnz(Bm)[1:2]...))
     @test dot(xm, Bm, ym) ≈ dot(sparsevec(xm), Bm, sparsevec(ym)) ≈ r
     end
@@ -1042,8 +1044,13 @@ end
     for (T, trans, uplo) in ((ComplexF64, Symmetric, :U), (ComplexF64, Hermitian, :L), (@static COMPREHENSIVE ?
             ((Float64, Symmetric, :L), (ComplexF64, Symmetric, :L), (ComplexF64, Hermitian, :U),
              (quaternion_type(){Float64}, Hermitian, :U)) : ())...)
-        B = sprandn(T, 10, 10, 0.2)
-        x = sprandn(T, 10, 0.4)
+        B = fixture(T, 10, 10)
+        x = fixturevec(T, 10)
+        if !(T <: Union{Real,Complex})
+            # the fixture of a quaternion type is real, and real entries commute
+            nonzeros(B) .= [T(k, -k, 2, k % 3) for k in 1:nnz(B)]
+            nonzeros(x) .= [T(1, k, -k, 3) for k in 1:nnz(x)]
+        end
         xd = Vector(x)
         S = trans(B, uplo)
         Sd = trans(Matrix(B), uplo)

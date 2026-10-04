@@ -123,7 +123,7 @@ end
 
 @testset "sparsevec from matrices" begin
     X = Matrix(1.0I, 5, 5)
-    M = rand(5,4)
+    M = Matrix(fixture(Float64, 5, 4))
     C = spzeros(3,3)
     SX = sparse(X); SM = sparse(M)
     VX = vec(X); VSX = vec(SX)
@@ -160,7 +160,7 @@ end
     @test sparse(SymTridiagonal(zeros(0, 0))) == empty
     @test sparse(Tridiagonal(zeros(0, 0))) == empty
 
-    one_by_one = rand(1,1)
+    one_by_one = fill(2.5, 1, 1)
     sp_one_by_one = sparse(one_by_one)
 
     @test sparse(Diagonal(one_by_one)) == sp_one_by_one
@@ -168,11 +168,11 @@ end
     @test sparse(Bidiagonal(one_by_one, :L)) == sp_one_by_one
     @test sparse(Tridiagonal(one_by_one)) == sp_one_by_one
 
-    s = SymTridiagonal(rand(1), rand(0))
+    s = SymTridiagonal([2.5], Float64[])
     @test sparse(s) == s
 
     # with the diagonals all different, so that one taken for another changes the result
-    M = rand(3, 3)
+    M = reshape(Float64.(1:9), 3, 3)
     for T in (Bidiagonal(M, :U), Bidiagonal(M, :L), Tridiagonal(M))
         @test mismatch(sparse(T), Matrix(T); Ti=Int) === nothing
     end
@@ -189,16 +189,16 @@ end
 @static if COMPREHENSIVE
 @testset "float" begin
     local A
-    A = sprand(Bool, 5, 5, 0.0)
+    A = spzeros(Bool, 5, 5)
     @test eltype(float(A)) == Float64  # issue #11658
-    A = sprand(Bool, 5, 5, 0.2)
+    A = sparse([1, 3, 5, 2], [1, 2, 2, 5], [true, false, true, true], 5, 5)  # a stored `false`
     @test float(A) == float(Array(A))
 end
 
 @testset "complex" begin
-    A = sprand(Bool, 5, 5, 0.0)
+    A = spzeros(Bool, 5, 5)
     @test eltype(complex(A)) == Complex{Bool}
-    A = sprand(Bool, 5, 5, 0.2)
+    A = sparse([1, 3, 5, 2], [1, 2, 2, 5], [true, false, true, true], 5, 5)  # a stored `false`
     @test complex(A) == complex(Array(A))
 end
 end
@@ -261,6 +261,7 @@ end
 end
 
 @testset "test created type of sprand{T}(::Type{T}, m::Integer, n::Integer, density::AbstractFloat)" begin
+    Random.seed!(1)
 @static if COMPREHENSIVE
     m = sprand(Float32, 10, 10, 0.1)
     @test eltype(m) == Float32
@@ -288,6 +289,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "sprandn with type $T" for T in (Float64, ComplexF32)
+    Random.seed!(1)
     @test sprandn(T, 5, 5, 0.5) isa AbstractSparseMatrix{T}
 end
 end
@@ -302,8 +304,9 @@ end
     function allocate_arrays(m, n)
         N = round(Int, 0.5 * m * n)
         Tv, Ti = Float64, Int
-        I = Ti[rand(1:m) for _ in 1:N]; I = Ti[I; I]
-        J = Ti[rand(1:n) for _ in 1:N]; J = Ti[J; J]
+        # unsorted, with repeated entries, and with rows and columns left empty
+        I = Ti[mod1(k * k, m) for k in 1:N]; I = Ti[I; I]
+        J = Ti[mod1(k + k ÷ 4, n) for k in 1:N]; J = Ti[J; J]
         V = Tv.(I)
         csrrowptr = Vector{Ti}(undef, m + 1)
         csrcolval = Vector{Ti}(undef, length(I))

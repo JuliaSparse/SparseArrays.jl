@@ -3,12 +3,11 @@
 module UMFPACKTests
 using Test
 
-using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
     LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet, Symmetric, Hermitian
-using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
+using SparseArrays: nnz, sparse, SparseMatrixCSC, UMFPACK, increment!
 include("../testhelpers.jl")
 
 function umfpack_report(l::UMFPACK.UmfpackLU)
@@ -67,9 +66,9 @@ for itype in UMFPACK.UmfpackIndexTypes
 end
 
 @testset "Workspace management" begin
-    A0 = I + sprandn(100, 100, 0.01)
-    b0 = randn(100)
-    bn0 = rand(100, 20)
+    A0 = fixture(Float64, 100, 100) + 100I
+    b0 = Float64.(1:100)
+    bn0 = reshape(Float64.(1:2000), 100, 20)
     @testset "Core functionality for $Tv elements" for Tv in ELTYPES
         for Ti in KERNEL_ITYPES
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
@@ -279,8 +278,12 @@ end
         elty in (Float64, ComplexF64),
             (m, n) in ((10,5), (5, 10))
 
-        Random.seed!(30072018)
-        A = sparse([1:min(m,n); rand(1:m, 10)], [1:min(m,n); rand(1:n, 10)], elty == Float64 ? randn(min(m, n) + 10) : complex.(randn(min(m, n) + 10), randn(min(m, n) + 10)))
+        # UMFPACK takes the pivots from the first min(m, n) columns of its ordering and
+        # reports a zero pivot when those are dependent, although the matrix has full rank.
+        # The fixture's columns 1, 4, 7 and 10 span two rows, so the entries that give it
+        # full rank go in the last columns, where the ordering finds nonzero pivots.
+        k = min(m, n)
+        A = fixture(elty, m, n) + sparse(1:k, n-k+1:n, elty == Float64 ? Float64.(1:k) : complex.(1.0:k, -1.0), m, n)
         F = lu(A)
         umfpack_report(F)
         L, U, p, q, Rs = F.:(:)
@@ -372,10 +375,9 @@ end
 
     @testset "Test that A[c|t]_ldiv_B!{T<:Complex}(X::StridedMatrix{T}, lu::UmfpackLU{Float64}, B::StridedMatrix{T}) works as expected." begin
         N = 10
-        p = 0.5
-        A = N*I + sprand(N, N, p)
+        A = N*I + fixture(Float64, N, N)
         X = zeros(ComplexF64, N, N)
-        B = complex.(rand(N, N), rand(N, N))
+        B = Matrix(fixture(ComplexF64, N, N))
         luA, lufA = lu(A), lu(Array(A))
         umfpack_report(luA)
         @test ldiv!(copy(X), luA, B) ≈ ldiv!(copy(X), lufA, B)
@@ -415,7 +417,7 @@ end
 
     @static if COMPREHENSIVE
     @testset "deserialization" begin
-        A  = 10*I + sprandn(10, 10, 0.4)
+        A  = 10*I + fixture(Float64, 10, 10)
         F1 = lu(A)
 
         umfpack_report(F1)
@@ -500,7 +502,7 @@ end
         @test all(logabsdet(F) .≈ logabsdet(Matrix(A)))
         @test det(F) ≈ det(Matrix(A))
         @static if COMPREHENSIVE
-        B = SparseMatrixCSC{Tv,Ti}(1e-15 * (sprandn(MersenneTwister(1), 50, 50, 0.1) + 10I))
+        B = SparseMatrixCSC{Tv,Ti}(1e-15 * (fixture(Tv, 50, 50) + 50I))
         @test all(logabsdet(lu(B)) .≈ logabsdet(Matrix(B)))
         end
     end
@@ -677,7 +679,7 @@ end
     q1 = [9, 8, 5, 1, 7, 2, 3, 4, 6, 10]
     q0 = q1 .- 1
     for i in 1:10
-        b = randn(10)
+        b = Float64.((1:10) .== i)
         x = lu(A) \ b
         x0 = lu(A; q=q0) \ b
         x1 = lu(A; q=q1) \ b
@@ -688,9 +690,9 @@ end
 end
 
 @testset "a workspace grows when refinement is turned on" begin
-    A = lu(sprandn(100, 100, 0.1) + I)
+    A = lu(fixture(Float64, 100, 100) + 100I)
     umfpack_report(A)
-    b = randn(100)
+    b = Float64.(1:100)
     ws = UMFPACK.UmfpackWS(A)
     @test length(ws.Wi) == 100
     @test length(ws.W) == 100
@@ -708,7 +710,7 @@ end
 
 
 @testset "copy should keep the numeric/symbolic by default" begin
-    S = sprandn(10, 10, 0.1) + I
+    S = fixture(Float64, 10, 10) + 10I
     A = lu(S)
     B = copy(A)
     @test A.numeric === B.numeric
@@ -725,9 +727,11 @@ end
 end
 
 
-A = I + sprandn(100, 100, 0.01)
-Af = lu(A)
-UMFPACK.umfpack_report_numeric(Af, 0)
-UMFPACK.umfpack_report_symbolic(Af, 0)
+@testset "reports at print level 0 do not throw" begin
+    A = fixture(Float64, 100, 100) + 100I
+    Af = lu(A)
+    UMFPACK.umfpack_report_numeric(Af, 0)
+    UMFPACK.umfpack_report_symbolic(Af, 0)
+end
 
 end # module

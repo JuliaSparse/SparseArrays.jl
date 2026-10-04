@@ -9,17 +9,10 @@ using LinearAlgebra
 using Random
 include("testhelpers.jl")
 
-### Data
-
-spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
-
-@test isa(spv_x1, SparseVector{Float64,Int})
-
-x1_full = zeros(length(spv_x1))
-x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
-
 @testset "basic properties" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     x = spv_x1
+    @test isa(x, SparseVector{Float64,Int})
     @test eltype(x) == Float64
     @test ndims(x) == 1
     @test length(x) == 8
@@ -60,6 +53,7 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
 end
 
 @testset "isstored" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     x = spv_x1
     stored_inds = [2, 5, 6]
     nonstored_inds = [1, 3, 4, 7, 8]
@@ -72,6 +66,8 @@ end
 end
 
 @testset "conversion to dense Array" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     let x = spv_x1, xf = x1_full
         @test isa(Array(x), Vector{Float64})
         @test Array(x) == xf
@@ -92,6 +88,7 @@ end
     end
 end
 @testset "other constructors" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     # construct empty sparse vector
 
     for dims in (8, (8,))
@@ -188,6 +185,7 @@ end
     end
 
     @testset "sprand & sprandn" begin
+        Random.seed!(20240)
         let xr = sprand(1000, 0.9)
             @test isa(xr, SparseVector{Float64,Int})
             @test length(xr) == 1000
@@ -260,6 +258,8 @@ end
 ### Element access
 
 @testset "getindex" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     @testset "single integer index" begin
         let x = spv_x1, xf = x1_full
             for i = 1:length(x)
@@ -268,8 +268,9 @@ end
         end
     end
     @testset "generic array index" begin
-        let x = sprand(100, 0.5)
-            I = rand(1:length(x), 20)
+        let x = fixturevec(Float64, 100)
+            # unsorted, with a repeat, and never 1, whose stored zero `r` would keep
+            I = [mod1(37k, 99) + 1 for k in [1:23; 1]]
             r = x[I]
             @test isa(r, SparseVector{Float64,Int})
             @test all(!iszero, nonzeros(r))
@@ -278,8 +279,8 @@ end
 
         @static if COMPREHENSIVE
         # issue 24534
-        let x = convert(SparseVector{Float64,UInt32},sprandn(100,0.5))
-            I = rand(1:length(x), 20)
+        let x = convert(SparseVector{Float64,UInt32},fixturevec(Float64, 100))
+            I = [mod1(37k, 99) + 1 for k in [1:23; 1]]
             r = x[I]
             @test isa(r, SparseVector{Float64,UInt32})
             @test all(!iszero, nonzeros(r))
@@ -287,8 +288,8 @@ end
         end
 
         # issue 24534
-        let x = convert(SparseVector{Float64,UInt32},sprandn(100,0.5))
-            I = rand(1:length(x), 20,1)
+        let x = convert(SparseVector{Float64,UInt32},fixturevec(Float64, 100))
+            I = reshape([mod1(37k, 99) + 1 for k in [1:19; 1]], 20, 1)
             r = x[I]
             @test isa(r, SparseMatrixCSC{Float64,UInt32})
             @test all(!iszero, nonzeros(r))
@@ -298,8 +299,8 @@ end
     end
     @testset "boolean array index" begin
         @static if COMPREHENSIVE
-        let x = sprand(10, 10, 0.5)
-            I = rand(1:size(x, 2), 10)
+        let x = fixture(Float64, 10, 10)
+            I = [2, 3, 4, 6, 7, 10]   # not column 1, whose stored zero `r` would keep
             bI = falses(size(x, 2))
             bI[I] .= true
             r = x[1,bI]
@@ -309,8 +310,8 @@ end
         end
         end
 
-        let x = sprand(10, 0.5)
-            I = rand(1:length(x), 5)
+        let x = fixturevec(Float64, 10)
+            I = [2, 3, 5, 8, 10]   # not 1, whose stored zero `r` would keep
             bI = falses(length(x))
             bI[I] .= true
             r = x[bI]
@@ -328,7 +329,7 @@ end
         end
 
         @static if COMPREHENSIVE
-        let x = sprand(ComplexF64, 10, 10, 0.5)
+        let x = fixture(ComplexF64, 3, 5)
             for t in (adjoint,)   # `transpose` takes the same method
                 xt = t(x)
                 @test xt[1,:] == t.(x[:,1])
@@ -344,6 +345,7 @@ end
 end
 @static if COMPREHENSIVE
 @testset "setindex" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     let xc = spzeros(Float64, 8)
         xc[3] = 2.0
         @test exact_equal(xc, SparseVector(8, [3], [2.0]))
@@ -472,7 +474,9 @@ end
     v = spzeros(n); v[1] = 1
     w = copy(v); w[2] = 0.0   # explicitly stored zero must not change the hash
     @test hash(w) == hash(v) && isequal(w, v)
-    for len in ((@static COMPREHENSIVE ? (5, 100) : ())..., 40000), x in (sprand(len, 0.1), (@static COMPREHENSIVE ? (sprandn(len, 0.3),) : ())..., spzeros(len))
+    # stored entries separated by runs of zeros of several lengths
+    spread(len, p, q) = (I = [i for i in 1:len if i % p == 2 || i % q == 0]; sparsevec(I, float.(I), len))
+    for len in ((@static COMPREHENSIVE ? (5, 100) : ())..., 40000), x in (spread(len, 13, 31), (@static COMPREHENSIVE ? (-spread(len, 3, 5),) : ())..., spzeros(len))
         k = min(3, nnz(x)); nonzeros(x)[1:k] .= [NaN, -0.0, 0.0][1:k]
         @test hash(x) == hash(Vector(x))
         @test hash(x, UInt(7)) == hash(Vector(x), UInt(7))
@@ -480,6 +484,8 @@ end
 end
 
 @testset "findall and findnz" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     @test findall(!iszero, spv_x1) == findall(!iszero, x1_full)
     @test findall(spv_x1 .> 1) == findall(x1_full .> 1)
     @test findall(x->x>1, spv_x1) == findall(x->x>1, x1_full)
@@ -520,6 +526,7 @@ end
 ### Array manipulation
 
 @testset "copy[!]" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
 
     let x = spv_x1
         xc = copy(x)
@@ -697,6 +704,8 @@ end
 end
 
 @testset "Type conversion" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     let x = convert(SparseVector, sparse([2, 5, 6], [1, 1, 1], [1.25, -0.75, 3.5], 8, 1))
         @test isa(x, SparseVector{Float64,Int})
         @test exact_equal(x, spv_x1)
@@ -733,11 +742,12 @@ end
 @static if COMPREHENSIVE
 @testset "Conversion from other issparse types" begin
     n = 10
-    D = Diagonal(rand(1:9, n, n))
-    Bl = Bidiagonal(rand(1:9, n, n), :L)
-    Bu = Bidiagonal(rand(1:9, n, n), :U)
-    T = Tridiagonal(rand(1:9, n, n))
-    S = SymTridiagonal(Symmetric(rand(1:9, n, n)))
+    M = [mod1(i + 3j, 9) for i in 1:n, j in 1:n]
+    D = Diagonal(M)
+    Bl = Bidiagonal(M, :L)
+    Bu = Bidiagonal(M, :U)
+    T = Tridiagonal(M)
+    S = SymTridiagonal(Symmetric(M))
     @test SparseMatrixCSC(D) == D
     @test SparseMatrixCSC(Bl) == Bl
     @test SparseMatrixCSC(Bu) == Bu
@@ -749,6 +759,8 @@ end
 end
 
 @testset "repeat" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     for m = 0:3
         @test issparse(repeat(spv_x1, m))
         @test mismatch(repeat(spv_x1, m), repeat(x1_full, m)) === nothing
@@ -761,7 +773,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "sparsemat: combinations with sparse matrix" begin
-    let S = sprand(4, 8, 0.5)
+    let S = fixture(Float64, 4, 8)
         Sf = Array(S)
         @assert isa(Sf, Matrix{Float64})
 
@@ -857,7 +869,7 @@ end
 
 @testset "reverse" begin
     @testset "$name" for (name, s) in (("standard", sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10)),
-                (@static COMPREHENSIVE ? (("random", sprand(20, 0.4)),) : ())...,
+                (@static COMPREHENSIVE ? (("fixture", fixturevec(Float64, 20)),) : ())...,
                 ("zeros", spzeros(4)),
                 ("fixed", SparseArrays.fixed(sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10))))
         w = collect(s)
@@ -897,18 +909,9 @@ end
 
 ## math
 
-### Data
-
-rnd_x0 = sprand(50, 0.6)
-rnd_x0f = Array(rnd_x0)
-
-rnd_x1 = sprand(50, 0.7) * 4.0
-rnd_x1f = Array(rnd_x1)
-
-spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
-spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
-
 @testset "Arithmetic operations" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
 
     let x = spv_x1, x2 = spv_x2
         # negate
@@ -944,7 +947,7 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test sparse([2]) + fill(1) == [3]
         end
         # one pass: a single result array is allocated, not a dense copy of the sparse operand too
-        let xs = sprand(1000, 0.1), yd = rand(1000), plus(a, b) = a + b, minus(a, b) = a - b
+        let xs = sparsevec(1:10:1000, 1.0:100.0, 1000), yd = collect(1.0:1000.0), plus(a, b) = a + b, minus(a, b) = a - b
             plus(xs, yd); minus(yd, xs)
             @test @allocated(plus(xs, yd)) < 1.5 * sizeof(yd)
             @test @allocated(minus(yd, xs)) < 1.5 * sizeof(yd)
@@ -1051,6 +1054,10 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
 end
 @static if COMPREHENSIVE
 @testset "Zero-preserving math functions: sparse -> sparse" begin
+    rnd_x0 = fixturevec(Float64, 50)
+    rnd_x0f = Array(rnd_x0)
+    rnd_x1 = fixturevec(Float64, 50) / 8   # fractional values, some of which `floor` takes to zero
+    rnd_x1f = Array(rnd_x1)
     # every function takes the same broadcast kernel; these differ in their result at the
     # stored entries only
     x1operations = (floor,)
@@ -1075,6 +1082,8 @@ end
 end
 @static if COMPREHENSIVE
 @testset "Non-zero-preserving math functions: sparse -> dense" begin
+    rnd_x0 = fixturevec(Float64, 50)
+    rnd_x0f = Array(rnd_x0)
     # every function takes the same broadcast kernel
     for op in (exp,)
         spvec = rnd_x0
@@ -1092,6 +1101,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "sum, norm" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     x = spv_x1
     f = t -> abs(t) + one(t)
     @test sum(x) == 4.0
@@ -1119,6 +1129,7 @@ end
 end
 
 @testset "maximum, minimum, findmax, findmin" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     f = t -> abs(t) + one(t)
     let x = spv_x1
         @test maximum(x) == 3.5
@@ -1289,7 +1300,7 @@ end
 
 @testset "BLAS Level-1" begin
 
-    let x = sprand(16, 0.5), x2 = sprand(16, 0.4)
+    let x = fixturevec(Float64, 16), x2 = sparsevec([1, 3, 4, 8, 9, 15, 16], [2.0, -1.5, 0.0, 4.0, 0.25, -3.0, 7.0], 16)
         xf = Array(x)
         xf2 = Array(x2)
 
@@ -1311,8 +1322,8 @@ end
         end
     end
 
-    let x = complex.(sprand(32, 0.6), sprand(32, 0.6)),
-        y = complex.(sprand(32, 0.6), sprand(32, 0.6))
+    let x = fixturevec(ComplexF64, 32),
+        y = sparsevec([1, 3, 4, 8, 17, 31, 32], ComplexF64[2 - im, 1.5im, 0, 4 + 3im, -0.25 + im, -3 - 2im, 7im], 32)
         xf = Array(x)::Vector{ComplexF64}
         yf = Array(y)::Vector{ComplexF64}
         @test dot(x, x) ≈ dot(xf, xf)
@@ -1323,7 +1334,7 @@ end
     end
     @static if COMPREHENSIVE
     # matrix-valued entries have no `zero`, but the result is a scalar
-    let x = sparsevec([1, 3], [rand(2, 2), rand(2, 2)], 4), y = sparsevec([3, 4], [rand(2, 2), rand(2, 2)], 4),
+    let x = sparsevec([1, 3], [[1.0 2.0; 3.0 4.0], [0.5 -1.0; 2.0 0.25]], 4), y = sparsevec([3, 4], [[2.0 0.0; -1.0 3.0], [1.0 1.0; 0.0 5.0]], 4),
         yd = [zeros(2, 2) for _ in 1:4]
         yd[3], yd[4] = nonzeros(y)
         r = dot(nonzeros(x)[2], nonzeros(y)[1])
@@ -1353,12 +1364,11 @@ end
 
 @static if COMPREHENSIVE
 @testset "dropzeros[!] with length=$m" for m in (10, (@static COMPREHENSIVE ? (20, 30) : ())...)
-    Random.seed!(123)
-    nzprob, targetnumposzeros, targetnumnegzeros = 0.4, 5, 5
-    v = sprand(m, nzprob)
+    v = sparsevec(1:3:m, inv.(1:3:m), m)
     struczerosv = findall(x -> x == 0, v)
-    poszerosinds = unique(rand(struczerosv, targetnumposzeros))
-    negzerosinds = unique(rand(struczerosv, targetnumnegzeros))
+    # the two sets share entries, which then hold a negative zero
+    poszerosinds = struczerosv[1:2:end]
+    negzerosinds = struczerosv[1:3:end]
     vposzeros = copy(v)
     vposzeros[poszerosinds] .= 2
     vnegzeros = copy(v)
@@ -1392,10 +1402,12 @@ end
 # It's tempting to share data between a SparseVector and a SparseMatrix,
 # but if that's done, then modifications to one or the other will cause
 # an inconsistent state:
-sv = sparse(1:10)
-sm = convert(SparseMatrixCSC, sv)
-sv[1] = 0
-@test Array(sm)[2:end] == 2:10
+@testset "a SparseVector and its SparseMatrixCSC conversion share no data" begin
+    sv = sparse(1:10)
+    sm = convert(SparseMatrixCSC, sv)
+    sv[1] = 0
+    @test Array(sm)[2:end] == 2:10
+end
 
 # Ensure that sparsevec with all-zero values returns an array of zeros
 @test sparsevec([1,2,3],[0,0,0]) == [0,0,0]
@@ -1427,7 +1439,7 @@ end
     @test Array(s14013)[2,:] == s14013[2,:] == a14013[2,:] == [0.0, 1.0, 0.0]
 end
 @testset "Issue 14046" begin
-    s14046 = sprand(5, 1.0)
+    s14046 = sparse([1.0, 2.5, -3.0, 4.0, 0.5])
     @test spzeros(5) + s14046 == s14046
     @test 2*s14046 == s14046 + s14046
 end
@@ -1476,9 +1488,9 @@ end
             sptypes = (SparseMatrixCSC{Tv, Ti}, SparseVector{Tv, Ti})
             sizes = [(3, 4), (3,)]
             for (siz, Sp) in zip(sizes, sptypes)
-                arr = rand(Tv, siz...)
+                arr = reshape(Tv.(1:prod(siz)), siz...)
                 sparr = Sp(arr)
-                x = rand(Tv)
+                x = Tv(2.5)
                 @test fill!(sparr, x) == fill(x, siz)
                 @test fill!(sparr, 0) == fill(0, siz)
             end
@@ -1491,20 +1503,22 @@ end
 
 @static if COMPREHENSIVE
 @testset "13130 and 16661" begin
-    @test issparse([sprand(10,10,.1) sprand(10,.1)])
-    @test issparse([sprand(10,1,.1); sprand(10,.1)])
+    xd = collect(1.0:10.0)
+    @test issparse([fixture(Float64, 10, 3) fixturevec(Float64, 10)])
+    @test issparse([fixture(Float64, 10, 1); fixturevec(Float64, 10)])
 
-    @test issparse([sprand(10,10,.1) rand(10)])
-    @test issparse([sprand(10,1,.1)  rand(10)])
-    @test issparse([sprand(10,2,.1) sprand(10,1,.1) rand(10)])
-    @test issparse([sprand(10,1,.1); rand(10)])
+    @test issparse([fixture(Float64, 10, 3) xd])
+    @test issparse([fixture(Float64, 10, 1)  xd])
+    @test issparse([fixture(Float64, 10, 2) fixture(Float64, 10, 1) xd])
+    @test issparse([fixture(Float64, 10, 1); xd])
 
-    @test issparse([sprand(10,.1)  rand(10)])
-    @test issparse([sprand(10,.1); rand(10)])
+    @test issparse([fixturevec(Float64, 10)  xd])
+    @test issparse([fixturevec(Float64, 10); xd])
 end
 end
 
 @testset "show" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     @test occursin("1.25", string(spv_x1))
     @test occursin("-0.75", string(spv_x1))
     @test occursin("3.5", string(spv_x1))
@@ -1519,10 +1533,10 @@ end
     show(io, MIME"text/plain"(),  spzeros(Float64, Int64, 2))
     @test String(take!(io)) == "2-element $SparseVector{Float64, Int64} with 0 stored entries"
     @static if COMPREHENSIVE
-    show(io, similar(sparsevec(rand(3) .+ 0.1), UndefElt))
+    show(io, similar(sparsevec([1.5, 2.5, 3.5]), UndefElt))
     @test String(take!(io)) == "sparsevec([1, 2, 3], $UndefElt[#undef, #undef, #undef], 3)"
     end
-    show(io, MIME"text/plain"(), similar(sparsevec(rand(3) .+ 0.1), UndefElt))
+    show(io, MIME"text/plain"(), similar(sparsevec([1.5, 2.5, 3.5]), UndefElt))
     @test String(take!(io)) == "3-element $SparseVector{$UndefElt, $Int} with 3 stored entries:\n  [1]  =  #undef\n  [2]  =  #undef\n  [3]  =  #undef"
     @static if COMPREHENSIVE
     # Test that we don't introduce unnecessary padding for long sparse arrays
@@ -1552,10 +1566,10 @@ end
         end
     end
     @static if COMPREHENSIVE
-    b = convert(SparseVector{Union{Float64, Missing}}, sprandn(Float64, 10, 0.2)); b[rand(1:10, 3)] .= missing
-    C = convert(SparseVector{Union{Float64, Missing}}, sprandn(Float64, 10, 0.9)); C[rand(1:10, 3)] .= missing
+    b = convert(SparseVector{Union{Float64, Missing}}, sparsevec([2, 7], [1.5, -2.0], 10)); b[[1, 7, 9]] .= missing
+    C = convert(SparseVector{Union{Float64, Missing}}, sparsevec([1:4; 6:10], [0.5, -1.0, 2.0, -0.25, 3.0, 1.5, -4.0, 0.75, -2.5], 10)); C[[2, 5, 9]] .= missing
     CA = Array(C)
-    D = convert(SparseVector{Union{Float64, Missing}}, spzeros(Float64, 10)); D[rand(1:10, 3)] .= missing
+    D = convert(SparseVector{Union{Float64, Missing}}, spzeros(Float64, 10)); D[[3, 4, 10]] .= missing
     E = convert(SparseVector{Union{Float64, Missing}}, spzeros(Float64, 10))
     for B in (b, C, D, E), fun in (+, *, max)
         BA = Array(B)
@@ -1665,7 +1679,8 @@ end
 @static if COMPREHENSIVE
 @testset "Fast operations on full column views" begin
     n = 1000
-    A = sprandn(n, n, 0.01)
+    # every column of the fixture, the empty one and the one with a stored zero included, each few entries long
+    A = kron(fixture(Float64, 10, 10), sparse(1.0I, 100, 100))
     for j in (@static COMPREHENSIVE ? (1:50:n) : (1, 501))
         Aj, Ajview = A[:, j], view(A, :, j)
         @test norm(Aj)          == norm(Ajview)
@@ -1812,7 +1827,7 @@ end
 @static if COMPREHENSIVE
 @testset "SparseColumnView properties" begin
     n = 10
-    A = sprand(n, n, 0.5)
+    A = fixture(Float64, n, n)
     scv = view(A, :, 1)
     @test SparseArrays.indtype(scv) == SparseArrays.indtype(A)
     @test nnz(scv) == nnz(A[:, 1])

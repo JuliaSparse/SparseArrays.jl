@@ -51,8 +51,8 @@ include("testhelpers.jl")
 
     @testset "h+v concatenation with block rows unknown to inference" begin
         A = sparse([1, 3, 2], [1, 1, 3], [1.0, 2.0, 0.0], 3, 3)  # a stored zero
-        B = @static COMPREHENSIVE ? SparseMatrixCSC{Float32,Int32}(sprand(3, 2, 0.5)) : A[:, 2:3]
-        C = sprand(3, 8, 0.5)
+        B = @static COMPREHENSIVE ? SparseMatrixCSC{Float32,Int32}(fixture(Float64, 3, 2)) : A[:, 2:3]
+        C = fixture(Float64, 3, 8)
         rows = Base.inferencebarrier((3, 1))
         H = hvcat(rows, A, B, A, C)
         @test H isa SparseMatrixCSC{Float64,Int}
@@ -97,7 +97,7 @@ include("testhelpers.jl")
 
     @testset "cat with dims unknown to inference" begin
         A = fixture(Float64, 5, 3)
-        D = rand(5, 3)
+        D = reshape(Float64.(1:15), 5, 3)
         v = fixturevec(Float64, 5)
         for dims in (1, 2, (@static COMPREHENSIVE ? ((1, 2), Val(2)) : ())...)
             C = cat(A, D; dims = Base.inferencebarrier(dims))
@@ -141,10 +141,10 @@ include("testhelpers.jl")
     end
     end
 
-    # check splicing + concatenation on random instances, with nested vcat and also side-checks sparse ref
-    @testset "splicing + concatenation on random instances" begin
-        for i = 1 : (@static COMPREHENSIVE ? 10 : 1)
-            a = sprand(5, 4, 0.5)
+    # check splicing + concatenation, with nested vcat and also side-checks sparse ref
+    @testset "splicing + concatenation" begin
+        for T in (Float64, (@static COMPREHENSIVE ? (ComplexF64,) : ())...)
+            a = fixture(T, 5, 4)
             @test mismatch([a[1:2,1:2] a[1:2,3:4]; a[3:5,1] [a[3:4,2:4]; a[5:5,2:4]]], Array(a); Ti=Int) === nothing
         end
     end
@@ -282,13 +282,13 @@ include("testhelpers.jl")
         @test_throws ArgumentError [I I; I]
         end
 
-        A = SparseMatrixCSC(rand(3,4))
-        B = SparseMatrixCSC(rand(3,3))
-        C = SparseMatrixCSC(rand(0,3))
-        D = SparseMatrixCSC(rand(2,0))
-        E = SparseMatrixCSC(rand(1,3))
-        F = SparseMatrixCSC(rand(3,1))
-        α = rand()
+        A = fixture(Float64, 3, 4)
+        B = fixture(Float64, 3, 3)
+        C = spzeros(0, 3)
+        D = spzeros(2, 0)
+        E = fixture(Float64, 1, 3)
+        F = fixture(Float64, 3, 1)
+        α = 0.75
         @static if COMPREHENSIVE
         @test (hcat(A, 2I, I(3)))::SparseMatrixCSC == hcat(A, Matrix(2I, 3, 3), Matrix(I, 3, 3))
         @test (hcat(E, α))::SparseMatrixCSC == hcat(E, [α])
@@ -367,9 +367,9 @@ end
 @testset "block literals mixing sparse and dense blocks infer" begin
     S = fixture(Float64, 4, 4)
     C = fixture(ComplexF64, 4, 4)
-    A = rand(4, 4)
+    A = reshape(Float64.(1:16), 4, 4)
     v = fixturevec(Float64, 4)
-    w = rand(4)
+    w = Float64.(1:4)
     dS, dC, dv = Array(S), Array(C), Array(v)
     # the literals are wrapped so that `@inferred` sees the constant `rows` of the syntax
     lit22 = (X, Y) -> [X Y; Y Y]
@@ -396,11 +396,11 @@ end
 end
 
 @testset "issue #19304" begin
-    @inferred hcat(sparse(rand(2,1)), I)
+    @inferred hcat(fixture(Float64, 2, 1), I)
     @static if COMPREHENSIVE
-    @inferred hcat(sparse(rand(2,1)), 1.0I)
-    @inferred hcat(sparse(rand(2,1)), Matrix(I, 2, 2))
-    @inferred hcat(sparse(rand(2,1)), Matrix(1.0I, 2, 2))
+    @inferred hcat(fixture(Float64, 2, 1), 1.0I)
+    @inferred hcat(fixture(Float64, 2, 1), Matrix(I, 2, 2))
+    @inferred hcat(fixture(Float64, 2, 1), Matrix(1.0I, 2, 2))
     end
 end
 
@@ -410,7 +410,8 @@ end
         A = Vector{SparseVector{Float64,Int}}(undef, n)
         tnnz = 0
         for i = 1:length(A)
-            A[i] = sprand(m, 0.3)
+            # the pattern and the value differ from one vector to the next
+            A[i] = sparsevec(mod1(i, 7):3:m, Float64(i), m)
             tnnz += nnz(A[i])
         end
 
@@ -455,7 +456,7 @@ end
     end
 
     @testset "stack (#498)" begin
-        A = [sprand(80, 0.3) for _ in 1:(@static COMPREHENSIVE ? 100 : 10)]
+        A = [sparsevec(mod1(i, 7):3:80, Float64(i), 80) for i in 1:(@static COMPREHENSIVE ? 100 : 10)]
         H = hcat(A...)
         S = @inferred stack(A)
         @test S isa SparseMatrixCSC{Float64,Int}

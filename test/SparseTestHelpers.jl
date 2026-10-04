@@ -13,7 +13,7 @@ export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     OneSided, Tagged, CustomType, UndefElt, Positive,
     check_trisolve, check_scalar_broadcast,
     show_plain, show_contents,
-    mismatch, fixture, fixturevec, FIXTURE_SHAPES
+    mismatch, fixture, fixturevec, fixturepair, fixturedense, fixturestrided, FIXTURE_SHAPES
 
 using Test
 using LinearAlgebra: LinearAlgebra
@@ -417,5 +417,19 @@ function fixturevec(::Type{T}, n::Integer) where {T}
     I = [i for i in 1:n-1 if i % 3 != 0]
     return SparseArrays.sparsevec(I, T[i == 1 ? zero(T) : fixturevalue(T, i, 1) for i in I], n)
 end
+# a fixture and its dense copy, each call a fresh pair, so that a testset owns its inputs
+fixturepair(::Type{T}, m::Integer, n::Integer) where {T} = (A = fixture(T, m, n); (A, Matrix(A)))
+fixturepair(::Type{T}, n::Integer) where {T} = (x = fixturevec(T, n); (x, Vector(x)))
+
+# Fixed dense operands and right-hand sides: values of either sign, none zero and, for a
+# complex `T`, none real, so that they cannot hide a dropped term or a missing `conj`.
+fixturedensevalue(::Type{T}, k) where {T} = T <: Complex ? T(cos(k^2), sin(3k)) : T(cos(k^2))
+fixturedense(::Type{T}, dims::Integer...) where {T} =
+    reshape(T[fixturedensevalue(T, k) for k in 1:prod(dims)], dims)
+# A sparse matrix that stores every `s`-th entry in column-major order, for a test that
+# needs a density of `1/s` or a size that `fixture` does not suit.
+fixturestrided(::Type{T}, m, n, s) where {T} =
+    SparseArrays.sparse([mod1(k, m) for k in 1:s:m*n], [cld(k, m) for k in 1:s:m*n],
+                        T[fixturedensevalue(T, k) for k in 1:s:m*n], m, n)
 
 end # module
