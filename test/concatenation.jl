@@ -13,18 +13,25 @@ include("testhelpers.jl")
     se33 = SparseMatrixCSC{Float64}(I, 3, 3)
     do33 = fill(1.,3)
     # a block with another element and index type, which promote
-    sc33 = SparseMatrixCSC{ComplexF64,Int16}(se33)
+    sc33 = SparseMatrixCSC{ComplexF64,Int16}(fixture(ComplexF64, 3, 3))
+    # blocks whose row and column counts differ
+    sf53 = fixture(Float64, 5, 3)
+    sf35 = fixture(Float64, 3, 5)
     @testset "horizontal concatenation" begin
-        @test [se33 se33] == [Array(se33) Array(se33)]
+        @test mismatch([sf53 sf53], [Array(sf53) Array(sf53)]; Ti=Int) === nothing
+        @test_throws DimensionMismatch [sf53 sf35]
         @static if COMPREHENSIVE
         @test length(nonzeros([sp33 0I])) == 3
-        @test [se33 sc33]::SparseMatrixCSC{ComplexF64,Int} == [Array(se33) Array(sc33)]
+        @test mismatch([se33 sc33], [Array(se33) Array(sc33)]; Ti=Int) === nothing
         end
     end
 
     @testset "vertical concatenation" begin
-        @test [se33; se33] == [Array(se33); Array(se33)]
-        @test [se33; sc33]::SparseMatrixCSC{ComplexF64,Int} == [Array(se33); Array(sc33)]
+        @test mismatch([sf53; sf53], [Array(sf53); Array(sf53)]; Ti=Int) === nothing
+        # the block with the narrower index type comes first, so that taking the first
+        # block's index type differs from promoting
+        @test mismatch([sc33; sf53], [Array(sc33); Array(sf53)]; Ti=Int) === nothing
+        @test_throws DimensionMismatch [sf53; sf35]
         @static if COMPREHENSIVE
         se33_32bit = convert(SparseMatrixCSC{Float32,Int32}, se33)
         @test [se33; se33_32bit] == [Array(se33); Array(se33_32bit)]
@@ -38,7 +45,7 @@ include("testhelpers.jl")
     sz34 = spzeros(3, 4)
     se77 = sparse(1.0I, 7, 7)
     @testset "h+v concatenation" begin
-        @test @inferred(hvcat((3, 2), se44, sz42, sz41, sz34, se33)) == se77 # [se44 sz42 sz41; sz34 se33]
+        @test mismatch(@inferred(hvcat((3, 2), se44, sz42, sz41, sz34, se33)), Array(se77); Ti=Int) === nothing # [se44 sz42 sz41; sz34 se33]
         @test length(nonzeros([sp33 0I; 1I 0I])) == 6
     end
 
@@ -49,12 +56,14 @@ include("testhelpers.jl")
         rows = Base.inferencebarrier((3, 1))
         H = hvcat(rows, A, B, A, C)
         @test H isa SparseMatrixCSC{Float64,Int}
-        @test H == hvcat((3, 1), Matrix(A), Matrix(B), Matrix(A), Matrix(C))
+        @test mismatch(H, hvcat((3, 1), Matrix(A), Matrix(B), Matrix(A), Matrix(C)); Ti=Int) === nothing
         @test nnz(H) == 2nnz(A) + nnz(B) + nnz(C)
-        @test hvcat(rows, A, Matrix(B), A, C) == H
-        @test hvcat(Base.inferencebarrier((2, 2)), spzeros(0, 2), spzeros(0, 1), A[:, 1:2], A[:, 3:3]) == A
+        @test mismatch(hvcat(rows, A, Matrix(B), A, C), Array(H); Ti=Int) === nothing
+        @test mismatch(hvcat(Base.inferencebarrier((2, 2)), spzeros(0, 2), spzeros(0, 1), A[:, 1:2], A[:, 3:3]), Array(A); Ti=Int) === nothing
         @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2,)), A, spzeros(4, 2))
         @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2, 1)), A, A, C[:, 1:5])
+        # a later block row wider than the first, which the copy loop must not be reached with
+        @test_throws DimensionMismatch hvcat(Base.inferencebarrier((1, 1)), A, C)
         @test_throws DimensionMismatch hvcat(Base.inferencebarrier((2, 2)), A, A, A)
         @test_throws DimensionMismatch hvcat(Base.inferencebarrier((1, 1)), A, A, A)
         @test_throws ArgumentError hvcat(Base.inferencebarrier((0, 2)), A, A)
@@ -65,10 +74,10 @@ include("testhelpers.jl")
         vz = sparsevec([1, 2], [0.0, 1.0])  # a stored zero
         H = [A vz; 1.0 0.0 -0.0]
         @test H isa SparseMatrixCSC{Float64,Int}
-        @test H == [Matrix(A) Vector(vz); 1.0 0.0 -0.0]
+        @test mismatch(H, [Matrix(A) Vector(vz); 1.0 0.0 -0.0]) === nothing
         # the stored zero of `vz` stays, `0.0` is not stored and `-0.0` is, as in `setindex!`
         @test findnz(H) == ([1, 3, 2, 1, 2, 3], [1, 1, 2, 3, 3, 3], [1.0, 1.0, 2.0, 0.0, 1.0, -0.0])
-        @test hvcat(Base.inferencebarrier((2, 3)), A, vz, 1.0, 0.0, -0.0) == H
+        @test mismatch(hvcat(Base.inferencebarrier((2, 3)), A, vz, 1.0, 0.0, -0.0), Array(H); Ti=Int) === nothing
         @static if COMPREHENSIVE
         @test [A [3.0, 4.0]; 1 2 3] == [Matrix(A) [3.0, 4.0]; 1 2 3]
         end
@@ -87,13 +96,13 @@ include("testhelpers.jl")
     end
 
     @testset "cat with dims unknown to inference" begin
-        A = sprand(3, 3, 0.5)
-        D = rand(3, 3)
-        v = sprand(3, 0.5)
+        A = fixture(Float64, 5, 3)
+        D = rand(5, 3)
+        v = fixturevec(Float64, 5)
         for dims in (1, 2, (@static COMPREHENSIVE ? ((1, 2), Val(2)) : ())...)
             C = cat(A, D; dims = Base.inferencebarrier(dims))
             @test C isa SparseMatrixCSC{Float64,Int}
-            @test C == cat(Matrix(A), D; dims)
+            @test mismatch(C, cat(Matrix(A), D; dims)) === nothing
         end
         @static if COMPREHENSIVE
         @test cat(v, v; dims = Base.inferencebarrier(1)) isa SparseVector{Float64,Int}
@@ -104,7 +113,8 @@ include("testhelpers.jl")
     end
 
     @testset "blockdiag concatenation" begin
-        @test blockdiag(se33, se33) == sparse(1:6,1:6,fill(1.,6))
+        # with blocks that are not square the row and the column offsets differ
+        @test mismatch(blockdiag(sf53, sf35), [Array(sf53) zeros(5, 5); zeros(3, 3) Array(sf35)]; Ti=Int) === nothing
         @test blockdiag() == spzeros(0, 0)
         @test nnz(blockdiag()) == 0
     end
@@ -135,7 +145,7 @@ include("testhelpers.jl")
     @testset "splicing + concatenation on random instances" begin
         for i = 1 : (@static COMPREHENSIVE ? 10 : 1)
             a = sprand(5, 4, 0.5)
-            @test [a[1:2,1:2] a[1:2,3:4]; a[3:5,1] [a[3:4,2:4]; a[5:5,2:4]]] == a
+            @test mismatch([a[1:2,1:2] a[1:2,3:4]; a[3:5,1] [a[3:4,2:4]; a[5:5,2:4]]], Array(a); Ti=Int) === nothing
         end
     end
 
@@ -366,35 +376,35 @@ end
 end
 
 @testset "block literals mixing sparse and dense blocks infer" begin
-    S = sprand(4, 4, 0.5)
-    C = sprand(ComplexF64, 4, 4, 0.5)
+    S = fixture(Float64, 4, 4)
+    C = fixture(ComplexF64, 4, 4)
     A = rand(4, 4)
-    v = sprand(4, 0.5)
+    v = fixturevec(Float64, 4)
     w = rand(4)
     dS, dC, dv = Array(S), Array(C), Array(v)
     # the literals are wrapped so that `@inferred` sees the constant `rows` of the syntax
     lit22 = (X, Y) -> [X Y; Y Y]
     border = (X, y, z) -> [X y; z' 1]
     litI = (X, Y) -> [X I; Y X]
-    @test @inferred(lit22(S, A))::SparseMatrixCSC{Float64,Int} == [dS A; A A]
+    @test mismatch(@inferred(lit22(S, A)), [dS A; A A]; Ti=Int) === nothing
     @static if COMPREHENSIVE
-    @test @inferred(lit22(A, C))::SparseMatrixCSC{ComplexF64,Int} == [A dC; dC dC]
-    @test @inferred(lit22(v, w))::SparseMatrixCSC{Float64,Int} == [dv w; w w]
-    @test @inferred(border(S, v, w))::SparseMatrixCSC{Float64,Int} == [dS dv; w' 1]
+    @test mismatch(@inferred(lit22(A, C)), [A dC; dC dC]; Ti=Int) === nothing
+    @test mismatch(@inferred(lit22(v, w)), [dv w; w w]; Ti=Int) === nothing
+    @test mismatch(@inferred(border(S, v, w)), [dS dv; w' 1]; Ti=Int) === nothing
     end
-    @test @inferred(litI(C, A))::SparseMatrixCSC{ComplexF64,Int} == [dC I; A dC]
+    @test mismatch(@inferred(litI(C, A)), [dC I; A dC]; Ti=Int) === nothing
     # LinearAlgebra replaces `UniformScaling` blocks by sparse identities and calls `hvcat`
     # back with `rows` no longer a constant; `@inferred` here sees only the type of `rows`
     rows = (2, 2)
-    @test @inferred(hvcat(rows, S, A, A, A))::SparseMatrixCSC{Float64,Int} == [dS A; A A]
+    @test mismatch(@inferred(hvcat(rows, S, A, A, A)), [dS A; A A]; Ti=Int) === nothing
     @static if COMPREHENSIVE
     B = sparse(I, 4, 4)
-    @test @inferred(hvcat(rows, S, B, B, S))::SparseMatrixCSC{Float64,Int} == [dS I; I dS]
-    @test @inferred(hvcat(rows, C, A, A, S))::SparseMatrixCSC{ComplexF64,Int} == [dC A; A dS]
+    @test mismatch(@inferred(hvcat(rows, S, B, B, S)), [dS I; I dS]; Ti=Int) === nothing
+    @test mismatch(@inferred(hvcat(rows, C, A, A, S)), [dC A; A dS]; Ti=Int) === nothing
     # a dense block converts to `Int` indices, and the index types of the blocks promote
     S32 = SparseMatrixCSC{Float64,Int32}(S)
-    @test @inferred(lit22(S32, A))::SparseMatrixCSC{Float64,Int} == [dS A; A A]
-    @test @inferred(lit22(S32, S32))::SparseMatrixCSC{Float64,Int32} == [dS dS; dS dS]
+    @test mismatch(@inferred(lit22(S32, A)), [dS A; A A]; Ti=Int) === nothing
+    @test mismatch(@inferred(lit22(S32, S32)), [dS dS; dS dS]; Ti=Int32) === nothing
     end
 end
 
@@ -425,19 +435,20 @@ end
         for j = 1:n
             Hr[:,j] = Array(A[j])
         end
-        @test Array(H) == Hr
+        @test mismatch(H, Hr) === nothing
 
         V = vcat(A...)
         @test isa(V, SparseVector{Float64,Int})
         @test length(V) == m * n
         Vr = vec(Hr)
-        @test Array(V) == Vr
+        @test mismatch(V, Vr) === nothing
         Vnum = vcat(A..., zero(Float64))
         Vnum2 = sparse_vcat(map(Array, A)..., zero(Float64))
         @test Vnum isa SparseVector{Float64,Int}
         @test Vnum2 isa SparseVector{Float64,Int}
         @test length(Vnum) == length(Vnum2) == m*n + 1
-        @test Array(Vnum) == Array(Vnum2) == [Vr; 0]
+        @test mismatch(Vnum, [Vr; 0]) === nothing
+        @test mismatch(Vnum2, [Vr; 0]) === nothing
         @static if COMPREHENSIVE
         Vnum = vcat(zero(Float64), A...)
         Vnum2 = sparse_vcat(zero(Float64), map(Array, A)...)
@@ -461,10 +472,10 @@ end
         H = hcat(A...)
         S = @inferred stack(A)
         @test S isa SparseMatrixCSC{Float64,Int}
-        @test S == H
+        @test mismatch(S, Array(H)) === nothing
         S1 = stack(A; dims=1)
         @test S1 isa SparseMatrixCSC{Float64,Int}
-        @test S1 == permutedims(H)
+        @test mismatch(S1, permutedims(Array(H))) === nothing
         @test_throws ArgumentError stack(A; dims=3)
         @static if COMPREHENSIVE
         @test stack(x for x in A if true) == H
@@ -612,17 +623,17 @@ end
 
 @testset "concatenation with a leading number fills its block like dense (#383)" begin
     M = sparse([1 2]); V = sparse([1, 2]); dM = Array(M); dV = Array(V)
-    @test vcat(1, M)::SparseMatrixCSC == vcat(1, dM)
+    @test mismatch(vcat(1, M), vcat(1, dM)) === nothing
     @static if COMPREHENSIVE
     @test vcat(1.5, M)::SparseMatrixCSC{Float64} == vcat(1.5, dM)
     @test vcat(1, M, M)::SparseMatrixCSC == vcat(1, dM, dM)
     end
-    @test vcat(1, V)::SparseVector == vcat(1, dV)
+    @test mismatch(vcat(1, V), vcat(1, dV)) === nothing
     @static if COMPREHENSIVE
     @test vcat(V, 3)::SparseVector == vcat(dV, 3)
     @test hcat(1, M)::SparseMatrixCSC == hcat(1, dM)
     end
-    @test hcat(1, M, 3)::SparseMatrixCSC == hcat(1, dM, 3)
+    @test mismatch(hcat(1, M, 3), hcat(1, dM, 3)) === nothing
     @static if COMPREHENSIVE
     @test hvcat((2,), 1, M)::SparseMatrixCSC == hvcat((2,), 1, dM)
     @test cat(1, M; dims=1)::SparseMatrixCSC == cat(1, dM; dims=1)
@@ -632,7 +643,7 @@ end
     @test sparse_hcat(1, dM, 3)::SparseMatrixCSC == hcat(1, dM, 3)
     @test sparse_hvcat((2,), 1, dM)::SparseMatrixCSC == hvcat((2,), 1, dM)
     end
-    @test sparse_vcat(1, 2)::SparseVector == [1, 2]
+    @test mismatch(sparse_vcat(1, 2), [1, 2]) === nothing
     @static if COMPREHENSIVE
     @test sparse_hcat(1, 2)::SparseMatrixCSC == [1 2]
     # a leading number widens a narrow index type as it did before

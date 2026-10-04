@@ -61,7 +61,7 @@ paired(Tv, Ti, dim) = [x for (tv, ti, x) in pairwise(STD_ELTYPES, itypes, dim) i
 
         # test that Q'Pl*A*Pr = R
         R0 = Q'*Array(A[F.prow, F.pcol])
-        @test R0[1:n, :] ≈ F.R
+        @test mismatch(F.R, R0[1:n, :]; Ti=iltyA, approx=true) === nothing
         @test norm(R0[n + 1:end, :], 1) < 1e-12
 
         offsizeA = Matrix{Float64}(I, m+1, m+1)
@@ -157,7 +157,7 @@ paired(Tv, Ti, dim) = [x for (tv, ti, x) in pairwise(STD_ELTYPES, itypes, dim) i
         @test_throws DimensionMismatch lq(A) \ ones(eltyA, m)   # overdetermined, as for dense lq
         c = eltyA <: Real ? randn(n) : complex.(randn(n), randn(n))
         @test lq(A') \ c ≈ Matrix(A') \ c   # reuses qr(A)
-        eltyA <: Real && @test lq(transpose(A)) \ c ≈ Matrix(A') \ c
+        @test lq(transpose(A)) \ c ≈ Matrix(transpose(A)) \ c
     end
 
     # Make sure that conversion to Sparse doesn't use SuiteSparse's symmetric flag
@@ -173,7 +173,7 @@ end
     @test F isa SPQR.QRSparse{ComplexF64, Int}
     @test istriu(F.R)
     R0 = F.Q' * Ad[F.prow, F.pcol]
-    @test R0[1:n, :] ≈ F.R
+    @test mismatch(F.R, R0[1:n, :]; Ti=Int, approx=true) === nothing
     @test norm(R0[n + 1:end, :], 1) < 1e-12
     # the transpose is not the adjoint
     X = transpose(A)
@@ -185,6 +185,7 @@ end
     D = B[1:n, :]
     @test F'\D ≈ copy(Ad')\D
     @test transpose(F)\D ≈ copy(transpose(Ad))\D
+    @test lq(X)\D ≈ copy(transpose(Ad))\D
     @test ldiv!(zeros(ComplexF64, m, 2), transpose(F), D; workspace = SPQR.SpqrWS(F)) ≈ transpose(F)\D
     W = A[1:9, :]
     L = lq(W)
@@ -232,7 +233,7 @@ end
 end
 
 @testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
-        (sprandn(27, 2, 0.8), (@static COMPREHENSIVE ? (sprandn(ComplexF64, 6, 20, 0.5),) : ())...)
+        (fixture(ComplexF64, 5, 3), (@static COMPREHENSIVE ? (sprandn(27, 2, 0.8), sprandn(ComplexF64, 6, 20, 0.5)) : ())...)
     local m, n = size(A)
     k = min(m, n)   # the rows of R and the columns of the thin Q
     F = qr(A)
@@ -241,22 +242,24 @@ end
     # the identity from the issue, with a thin R for a tall A
     @test (Q * F.R)::Matrix ≈ A[F.prow, F.pcol]
     # one operand of each kind, including the thin shapes the dense-operand methods
-    # accept, gives the same dense result as its dense copy
+    # accept, gives the product with an explicitly formed Q: a product of Q with the dense
+    # copy of the operand takes the same method again, and would agree with it when wrong
+    Qd = Q * Matrix{T}(I, m, m)
     B, C, b = sprandn(T, m, 3, 0.5), sprandn(T, 3, m, 0.5), sprandn(T, m, 0.5)
     for X in (B, (@static COMPREHENSIVE ? (sparse(B')', view(B, :, 1:2)) : ())..., sprandn(T, k, 3, 0.5))
-        @test (Q * X)::Matrix ≈ Q * Matrix(X)
+        @test (Q * X)::Matrix ≈ Qd[:, 1:size(X, 1)] * Matrix(X)
     end
     for X in (C, (@static COMPREHENSIVE ? (transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)') : ())..., transpose(b), sprandn(T, 3, k, 0.5))
-        @test (X * Q')::Matrix ≈ Matrix(X) * Q'
+        @test (X * Q')::Matrix ≈ Matrix(X) * Qd[:, 1:size(X, 2)]'
     end
-    @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
-    @test (C * Q)::Matrix ≈ Matrix(C) * Q
+    @test (Q' * B)::Matrix ≈ Qd' * Matrix(B)
+    @test (C * Q)::Matrix ≈ Matrix(C) * Qd
     for x in (b, (@static COMPREHENSIVE ? (view(B, :, 1), view(b, 1:m)) : ())...)
-        @test (Q * x)::Vector ≈ Q * Vector(x)
+        @test (Q * x)::Vector ≈ Qd * Vector(x)
     end
-    @test (Q' * b)::Vector ≈ Q' * Vector(b)
+    @test (Q' * b)::Vector ≈ Qd' * Vector(b)
     @static if COMPREHENSIVE
-    @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
+    @test (b' * Q)::Adjoint ≈ Vector(b)' * Qd
     end
     # and nothing else
     k == m || @test_throws DimensionMismatch Q' * sprandn(T, k, 3, 0.5)
@@ -372,7 +375,7 @@ end
     q = qr(A; ordering=SPQR.ORDERING_FIXED)
     Q = q.Q
     sQ = sparse(Q)
-    @test sQ == sparse(Matrix(Q))
+    @test mismatch(sQ, Matrix(Q)) === nothing
     Dq = qr(Matrix(A))
     @static if COMPREHENSIVE
     perm = inv(Matrix(I, size(A)...)[q.prow, :])

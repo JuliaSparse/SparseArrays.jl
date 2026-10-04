@@ -22,7 +22,7 @@ sA = sprandn(3, 7, 0.5)
     p28227 = sparse(Real[0 0.5])
     end
 
-    for arr in (sA, pA, spzeros(3, 3), (@static COMPREHENSIVE ? (se33, p28227) : ())...)
+    for arr in (sA, pA, spzeros(3, 3), fixture(Float64, 5, 3), (@static COMPREHENSIVE ? (se33, p28227) : ())...)
         farr = Array(arr)
         for f in (sum, prod, minimum, maximum)
             @test f(arr) ≈ f(farr)
@@ -190,7 +190,7 @@ sA = sprandn(3, 7, 0.5)
             r, rd = maximum(g, X; dims), maximum(g, Array(X); dims)   # no throw for the empty axis
             @test typeof(r) == typeof(rd) && isequal(r, rd)
         end
-        @test maximum(N; dims = 1, sparse = true) isa SparseMatrixCSC && isequal(maximum(N; dims = 1, sparse = true), maximum(Array(N); dims = 1))
+        @test maximum(N; dims = 1, sparse = true) isa SparseMatrixCSC && mismatch(maximum(N; dims = 1, sparse = true), maximum(Array(N); dims = 1)) === nothing
     end
 end
 
@@ -201,9 +201,14 @@ end
     @test @inferred(argmin(S)) == argmin(A)
     @test @inferred(findmin(S)) == findmin(A)
     @test @inferred(findmax(S)) == findmax(A)
+    # a stored zero is a zero like those not stored: the first of either kind is the one found
+    F = fixture(Float64, 5, 3)
+    G = sparse([1, 3, 1, 2], [1, 1, 3, 3], [0.0, -2.0, -1.0, -3.0], 5, 3)   # the maximum is a zero
     for region in [(1,), (2,), (1,2)], m in [findmax, findmin]
         @test m(S, dims=region) == m(A, dims=region)
+        @test m(F, dims=region) == m(Array(F), dims=region) && m(G, dims=region) == m(Array(G), dims=region)
     end
+    @test argmin(F) == argmin(Array(F)) && argmax(G) == argmax(Array(G))
     for m in [findmax, findmin]
         @test_throws ArgumentError m(S, (4, 3))
     end
@@ -211,6 +216,10 @@ end
     A = Array(S)
     @test argmax(S) == argmax(A) == CartesianIndex(1,1)
     @test argmin(S) == argmin(A) == CartesianIndex(1,1)
+    @static if COMPREHENSIVE
+    # along a dimension, every slice of a matrix that stores nothing reports CartesianIndex(1,1)
+    @test_broken findmax(S, dims=2) == findmax(A, dims=2)
+    end
 
     A = @static COMPREHENSIVE ? Matrix{Int}(I, 0, 0) : zeros(0, 0)
     S = sparse(A)
@@ -253,7 +262,6 @@ end
         @test isequal(findmax(A, tup), (rval, rind))
     end
 
-    @static if COMPREHENSIVE
     A = sparse([1.0 NaN 6.0;
                 NaN 2.0 4.0])
     for (tup, rval, rind) in [((1,), [NaN NaN 4.0], [CartesianIndex(2,1) CartesianIndex(1,2) CartesianIndex(2,3)]),
@@ -266,7 +274,6 @@ end
                               ((2,), reshape([NaN, NaN], 2, 1), reshape([CartesianIndex(1,2),CartesianIndex(2,1)], 2, 1)),
                               ((1,2), fill(NaN,1,1),fill(CartesianIndex(2,1),1,1))]
         @test isequal(findmax(A, tup), (rval, rind))
-    end
     end
 
     A = sparse([Inf -Inf Inf  -Inf;
@@ -382,9 +389,11 @@ end
 end
 
 @testset "reductions along a dimension: dense by default, sparse with `sparse = true` (#43), column views (#377)" begin
-    reductions = (   # (f, op); the last one has f(0) != 0
+    # (f, op); the last one has f(0) != 0, and `x != 0` under `&` holds for a full column only,
+    # which is where the predicate kernel may not stop at the first entry not stored
+    reductions = (
         (@static COMPREHENSIVE ? ((identity, *), (abs2, +)) : ())...,
-        (identity, +), (identity, max), (x -> x > 0.5, |), (x -> x >= 0, &), (x -> x + 1, +),
+        (identity, +), (identity, max), (x -> x > 0, |), (x -> x != 0, &), (x -> x + 1, +),
     )
     viewed = @static COMPREHENSIVE ? reductions : reductions[[2, 5]]
     @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (@static COMPREHENSIVE ? ((1, 1), (1, 9), (9, 1), (30, 20)) : ())...),
@@ -405,38 +414,38 @@ end
             # opt-in: the sparse result has the element type and values of the dense one
             T = eltype(rd)
             rs = mapreduce(f, op, A; dims, sparse = true)
-            @test rs isa SparseMatrixCSC{T} && rs ≈ rd
+            @test rs isa SparseMatrixCSC{T} && mismatch(rs, rd; approx = true) === nothing
             if (f, op) in viewed
             rvs = mapreduce(f, op, V; dims, sparse = true)
-            @test rvs isa SparseMatrixCSC{T} && rvs ≈ mapreduce(f, op, Matrix(C); dims)
+            @test rvs isa SparseMatrixCSC{T} && mismatch(rvs, mapreduce(f, op, Matrix(C); dims); approx = true) === nothing
             end
         end
         for dims in (1, 2)
-            @test sum(A; dims, sparse = true) ≈ sum(M; dims)
+            @test mismatch(sum(A; dims, sparse = true), sum(M; dims); approx = true) === nothing
             @static if COMPREHENSIVE
-            @test sum(abs, V; dims, sparse = true) ≈ sum(abs, Matrix(C); dims)
+            @test mismatch(sum(abs, V; dims, sparse = true), sum(abs, Matrix(C); dims); approx = true) === nothing
             end
-            @test prod(A; dims, sparse = true) ≈ prod(M; dims)
-            @test maximum(A; dims, sparse = true) == maximum(M; dims)
+            @test mismatch(prod(A; dims, sparse = true), prod(M; dims); approx = true) === nothing
+            @test mismatch(maximum(A; dims, sparse = true), maximum(M; dims)) === nothing
             @static if COMPREHENSIVE
-            @test minimum(abs2, A; dims, sparse = true) == minimum(abs2, M; dims)
-            @test sum(A; dims, init = 2.5, sparse = true) ≈ sum(M; dims, init = 2.5)
+            @test mismatch(minimum(abs2, A; dims, sparse = true), minimum(abs2, M; dims)) === nothing
+            @test mismatch(sum(A; dims, init = 2.5, sparse = true), sum(M; dims, init = 2.5); approx = true) === nothing
             @test mapreduce(abs, (x, y) -> x + y, A; dims, init = 1.5, sparse = true) ≈
                   mapreduce(abs, (x, y) -> x + y, M; dims, init = 1.5)
             end
-            @test count(>(0), A; dims, sparse = true) == count(>(0), M; dims)
+            @test mismatch(count(>(0), A; dims, sparse = true), count(>(0), M; dims)) === nothing
             @static if COMPREHENSIVE
-            @test count(A .> 0; dims, sparse = true) == count(M .> 0; dims)
+            @test mismatch(count(A .> 0; dims, sparse = true), count(M .> 0; dims)) === nothing
             end
-            @test count(A .> 0; dims, init = 3, sparse = true) == count(M .> 0; dims, init = 3)
+            @test mismatch(count(A .> 0; dims, init = 3, sparse = true), count(M .> 0; dims, init = 3)) === nothing
             @static if COMPREHENSIVE
-            @test any(>(0), A; dims, sparse = true) == any(>(0), M; dims)
+            @test mismatch(any(>(0), A; dims, sparse = true), any(>(0), M; dims)) === nothing
             end
-            @test any(A .> 0; dims, sparse = true) == any(M .> 0; dims)
+            @test mismatch(any(A .> 0; dims, sparse = true), any(M .> 0; dims)) === nothing
             @static if COMPREHENSIVE
-            @test all(<(0.4), A; dims, sparse = true) == all(<(0.4), M; dims)
+            @test mismatch(all(<(0.4), A; dims, sparse = true), all(<(0.4), M; dims)) === nothing
             end
-            @test all(A .< 0.4; dims, sparse = true) == all(M .< 0.4; dims)
+            @test mismatch(all(A .< 0.4; dims, sparse = true), all(M .< 0.4; dims)) === nothing
             for r in (count(>(0), A; dims, sparse = true), any(A .> 0; dims, sparse = true), all(A .< 0.4; dims, sparse = true))
                 @test r isa SparseMatrixCSC
             end
@@ -446,12 +455,14 @@ end
         @test sum(A) ≈ sum(M) && count(>(0), A) == count(>(0), M) && any(A .> 0) == any(M .> 0) && all(A .< 0.4) == all(M .< 0.4)
         @test_throws ArgumentError sum(A; sparse = true)
     end
-    C = sprand(ComplexF64, 6, 5, 0.3)
-    MC, VC = Matrix(C), view(C, :, 2:5)
+    C = fixture(ComplexF64, 5, 3)
+    MC, VC = Matrix(C), view(C, :, 2:3)
     for dims in (1, 2)
-        @test sum(C; dims, sparse = true) isa SparseMatrixCSC{ComplexF64} && sum(C; dims, sparse = true) ≈ sum(MC; dims)
+        @test sum(C; dims, sparse = true) isa SparseMatrixCSC{ComplexF64} && mismatch(sum(C; dims, sparse = true), sum(MC; dims); approx = true) === nothing
+        # no entry of `C` equals its conjugate, so the adjoint and the transpose reduce differently
+        @test mismatch(sum(C'; dims, sparse = true), sum(Array(C'); dims); approx = true) === nothing
         @static if COMPREHENSIVE
-        @test prod(abs2, C; dims, sparse = true) ≈ prod(abs2, MC; dims)
+        @test mismatch(prod(abs2, C; dims, sparse = true), prod(abs2, MC; dims); approx = true) === nothing
         @test sum(VC; dims) isa Matrix{ComplexF64} && sum(VC; dims) == sum(Matrix(VC); dims)
         end
     end
@@ -467,7 +478,7 @@ end
     @test nnz(sum(x -> x + 1, A; dims = 2, sparse = true)) == 4
     @test nnz(sum(A; dims = 2, init = 1.0, sparse = true)) == 4
     @test nnz(prod(A; dims = 1, sparse = true)) == 1   # the product of an unstored column is 0
-    @test sum(A; dims = 2, sparse = true) == sum(Matrix(A); dims = 2)
+    @test mismatch(sum(A; dims = 2, sparse = true), sum(Matrix(A); dims = 2)) === nothing
     # the element type is that of the dense result
     @static if COMPREHENSIVE
     @test sum(sparse(Int8[1 2; 3 4]); dims = 1, sparse = true) isa SparseMatrixCSC{Int}
@@ -481,15 +492,15 @@ end
     for (m, n) in ((0, 4), (4, 0), (@static COMPREHENSIVE ? ((0, 0),) : ())...), dims in (1, 2, (1, 2))
         A = spzeros(m, n)
         @test sum(A; dims) == sum(Matrix(A); dims)
-        @test sum(A; dims, sparse = true) == sum(Matrix(A); dims)
-        @test prod(A; dims, sparse = true) == prod(Matrix(A); dims)
-        @test sum(x -> x + 1, A; dims, sparse = true) == sum(x -> x + 1, Matrix(A); dims)
-        @test all(A .> 0; dims, sparse = true) == all(Matrix(A) .> 0; dims)
+        @test mismatch(sum(A; dims, sparse = true), sum(Matrix(A); dims)) === nothing
+        @test mismatch(prod(A; dims, sparse = true), prod(Matrix(A); dims)) === nothing
+        @test mismatch(sum(x -> x + 1, A; dims, sparse = true), sum(x -> x + 1, Matrix(A); dims)) === nothing
+        @test mismatch(all(A .> 0; dims, sparse = true), all(Matrix(A) .> 0; dims)) === nothing
         md = try maximum(Matrix(A); dims) catch err; err end   # throws over an empty axis
         if md isa ArgumentError
             @test_throws ArgumentError maximum(A; dims, sparse = true)
         else
-            @test maximum(A; dims, sparse = true) == md
+            @test mismatch(maximum(A; dims, sparse = true), md) === nothing
         end
     end
     @test_throws ArgumentError sum(spzeros(3, 3); dims = 0, sparse = true)
@@ -527,11 +538,13 @@ end
         @test @inferred(sparseany(transpose(b), dims)) isa AbstractSparseArray{Bool}
     end
     end
-    # hypersparse: only the rows that store something are visited
-    A = sparse([5, 10^6, 5], [1, 2, 3], [1.0, 2.0, 3.0], 10^6, 3)
+    # hypersparse: only the rows that store something are visited, and each of them, the last
+    # one included, folds two entries into one
+    A = sparse([5, 10^6, 5, 10^6], [1, 2, 3, 3], [1.0, 2.0, 3.0, 4.0], 10^6, 3)
     r = sum(A; dims = 2, sparse = true)
-    @test nnz(r) == 2 && r[5] == 4.0 && r[10^6] == 2.0
-    @test maximum(A; dims = 2, sparse = true) == maximum(Matrix(A); dims = 2)
+    @test nnz(r) == 2 && r[5] == 4.0 && r[10^6] == 6.0
+    @test mismatch(r, sum(Matrix(A); dims = 2)) === nothing
+    @test mismatch(maximum(A; dims = 2, sparse = true), maximum(Matrix(A); dims = 2)) === nothing
     @test nnz(sum(A; dims = 1, sparse = true)) == 3
     sum(A; dims = 2, sparse = true)
     @test (@allocated sum(A; dims = 2, sparse = true)) < 2^12
@@ -563,26 +576,28 @@ end
         @test r isa Array && r ≈ rd
         @test calls[] <= nnz(X isa SubArray ? copy(X) : X) + sum(size(X)) + 1
         rs = mapreduce(f, op, X; dims, init = 0.0, sparse = true)
-        @test rs isa (X isa AbstractVector ? SparseVector{Float64} : SparseMatrixCSC{Float64}) && rs ≈ rd
+        @test rs isa (X isa AbstractVector ? SparseVector{Float64} : SparseMatrixCSC{Float64}) && mismatch(rs, rd; approx = true) === nothing
     end
     @static if COMPREHENSIVE
-    for X in (A', S, G, R, v, v', transpose(c)), dims in (1, 2)
+    for X in (A', C', S, G, R, v, v', transpose(c), c'), dims in (1, 2)
         M = Array(X)
         @test sum(X; dims) isa Array && sum(X; dims) ≈ sum(M; dims)
-        @test prod(X; dims, sparse = true) ≈ prod(M; dims)
-        @test count(!iszero, X; dims, sparse = true) == count(!iszero, M; dims)
-        @test any(!iszero, X; dims, sparse = true) == any(!iszero, M; dims)
-        @test all(iszero, X; dims, sparse = true) == all(iszero, M; dims)
+        @test mismatch(prod(X; dims, sparse = true), prod(M; dims); approx = true) === nothing
+        @test mismatch(count(!iszero, X; dims, sparse = true), count(!iszero, M; dims)) === nothing
+        @test mismatch(any(!iszero, X; dims, sparse = true), any(!iszero, M; dims)) === nothing
+        @test mismatch(all(iszero, X; dims, sparse = true), all(iszero, M; dims)) === nothing
     end
     else
     for dims in (1, 2)   # one of these reductions per argument type
-        @test prod(A'; dims, sparse = true) ≈ prod(Array(A'); dims)
-        @test all(iszero, A'; dims, sparse = true) == all(iszero, Array(A'); dims)
-        @test sum(v'; dims) isa Array && sum(v'; dims) ≈ sum(Array(v'); dims)
-        @test count(!iszero, v'; dims, sparse = true) == count(!iszero, Array(v'); dims)
-        @test any(!iszero, v'; dims, sparse = true) == any(!iszero, Array(v'); dims)
+        @test mismatch(prod(A'; dims, sparse = true), prod(Array(A'); dims); approx = true) === nothing
+        @test mismatch(all(iszero, A'; dims, sparse = true), all(iszero, Array(A'); dims)) === nothing
+        for X in (c', transpose(c))   # complex, so that the two differ and neither may conjugate for the other
+            @test sum(X; dims) isa Array && sum(X; dims) ≈ sum(Array(X); dims)
+        end
+        @test mismatch(count(!iszero, v'; dims, sparse = true), count(!iszero, Array(v'); dims)) === nothing
+        @test mismatch(any(!iszero, v'; dims, sparse = true), any(!iszero, Array(v'); dims)) === nothing
         @test sum(S; dims) isa Array && sum(S; dims) ≈ sum(Matrix(S); dims)
-        @test count(!iszero, R; dims, sparse = true) == count(!iszero, Matrix(R); dims)
+        @test mismatch(count(!iszero, R; dims, sparse = true), count(!iszero, Matrix(R); dims)) === nothing
     end
     end
     @test sum(S) ≈ sum(Matrix(S)) && prod(x -> x + 1, S) ≈ prod(x -> x + 1, Matrix(S))
@@ -590,7 +605,10 @@ end
     @test sum(G) ≈ sum(Matrix(G)) && maximum(abs, G) == maximum(abs, Matrix(G))
     end
     @test count(!iszero, R) == count(!iszero, Matrix(R))
-    @test nnz(sum(v; dims = 1, sparse = true)) == 1 && nnz(sum(spzeros(5); dims = 1, sparse = true)) == 0
+    # a vector that stores something keeps an entry for a sum that cancels, and one that stores
+    # nothing gets an entry when its sum is nonzero
+    @test nnz(sum(sparsevec([1.0, -1.0]); dims = 1, sparse = true)) == 1 && nnz(sum(spzeros(5); dims = 1, sparse = true)) == 0
+    @test mismatch(sum(x -> x + 1, spzeros(5); dims = 1, sparse = true), [5.0]) === nothing
     # reducing both dimensions of an adjoint keeps its element order for a non-commutative `op`
     firstnz(x, y) = iszero(x) ? y : x
     B = sparse(@static COMPREHENSIVE ? [0 1; 2 0] : [0.0 1.0; 2.0 0.0])

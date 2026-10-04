@@ -238,7 +238,9 @@ end
     (2, 2, [1, 2], Ti[], Tv[]),
     (2, 2, [1, 2, 3], Ti[1], Tv[]),
     (2, 2, [1, 2, 3], Ti[], Tv[1.0]),
-    (2, 2, [1, 2, 3], Ti[1], Tv[1.0]))
+    (2, 2, [1, 2, 3], Ti[1], Tv[1.0]),
+    (2, 2, [1, 2, 3], Ti[1, 2], Tv[1.0]),
+    (2, 2, [1, 2, 3], Ti[1], Tv[1.0, 1.0]))
     @test_throws ArgumentError SparseMatrixCSC(t_...)
     @test_throws ArgumentError CHOLMOD.Sparse(t_[1], t_[2], t_[3] .- 1, t_[4] .- 1, t_[5])
 end
@@ -322,23 +324,25 @@ end
     A = I + A * A'
     A = convert(SparseMatrixCSC{Tv,Ti}, A)
     F = cholesky(A)
-    X = Tv[i + j for i in 1:6, j in 1:3]
+    X = Tv[i + j for i in 1:6, j in 1:8]
     B = A * X
 
-    # contiguous column view output is fine
-    P = zeros(Tv, 6, 5)
-    ldiv!(view(P, :, 1:3), F, B)
-    @test P[:, 1:3] ≈ X
+    # contiguous column view output is fine. It overlaps the right-hand side here, shifted
+    # by a column, and CHOLMOD solves four columns at a time: without a copy, the first
+    # block of solutions would overwrite right-hand sides of the second
+    P = hcat(B, zeros(Tv, 6))
+    ldiv!(view(P, :, 2:9), F, view(P, :, 1:8))
+    @test P[:, 2:9] ≈ X
     # non-contiguous outputs are rejected: CHOLMOD overwrites the leading dimension of the output
-    Q = zeros(Tv, 9, 3)
+    Q = zeros(Tv, 9, 8)
     @test_throws ArgumentError ldiv!(view(Q, 1:6, :), F, B)
     @static if COMPREHENSIVE
     q = zeros(Tv, 12)
     @test_throws ArgumentError ldiv!(view(q, 1:2:11), F, B[:, 1])
     # a strided RHS is fine: CHOLMOD only reads it
-    R = zeros(Tv, 9, 3)
+    R = zeros(Tv, 9, 8)
     R[1:6, :] .= B
-    @test ldiv!(zeros(Tv, 6, 3), F, view(R, 1:6, :)) ≈ X
+    @test ldiv!(zeros(Tv, 6, 8), F, view(R, 1:6, :)) ≈ X
     end
 end
 
@@ -422,6 +426,7 @@ end
 
     S = sparse(A)
     @test SparseMatrixCSC(ADense)::SparseMatrixCSC{elty, Int} == S
+    @test mismatch(SparseMatrixCSC(ADense), A; Ti=Int) === nothing
     @test SparseMatrixCSC{elty}(ADense)::SparseMatrixCSC{elty, Int} == S
     @static if COMPREHENSIVE
     @test SparseMatrixCSC{elty, Int32}(ADense)::SparseMatrixCSC{elty, Int32} == S
@@ -460,6 +465,12 @@ end # for Tv
 
         writedlm(testfile, "%%MatrixMarket matrix coordinate real symmetric","3 3 4","1 1 1","2 2 1","3 2 0.5","3 3 1")
         @test sparse(CHOLMOD.Sparse(testfile)) == [1 0 0;0 1 0.5;0 0.5 1]
+        @static if COMPREHENSIVE
+        # the requested precision is the one read
+        S32 = open(io -> CHOLMOD.read_sparse(io, Float32, Ti), testfile)
+        @test S32 isa CHOLMOD.Sparse{Float32,Ti}
+        @test sparse(S32) == [1 0 0;0 1 0.5;0 0.5 1]
+        end
         rm(testfile)
 
         writedlm(testfile, "%%MatrixMarket matrix coordinate complex Hermitian",
@@ -543,6 +554,8 @@ end
 
     ## High level interface
     @test isa(CHOLMOD.Sparse(3, 3, Ti[0,1,3,4], Ti[0,2,1,2], fill(one(Tv), 4)), CHOLMOD.Sparse) # Sparse doesn't require columns to be sorted
+    # nor the last column, and the conversion back sorts it
+    @test mismatch(sparse(CHOLMOD.Sparse(3, 3, Ti[0,1,2,4], Ti[0,1,2,0], Tv[1,2,3,4])), Tv[1 0 4; 0 2 0; 0 0 3]; Ti=Ti) === nothing
     A1Sparse = CHOLMOD.Sparse(A1)
     @test A1Sparse*A1Sparse' ≈ A1*A1'
     for i ∈ axes(A1, 1)
@@ -551,7 +564,7 @@ end
     A1Sparse = CHOLMOD.Sparse(A1)
     @test_throws BoundsError A1Sparse[6, 1]
     @test_throws BoundsError A1Sparse[1, 6]
-    @test sparse(A1Sparse) == A1
+    @test mismatch(sparse(A1Sparse), Matrix(A1); Ti=Ti) === nothing
     @test CHOLMOD.sparse(CHOLMOD.Sparse(Hermitian(A1, :L))) == Hermitian(A1, :L)
     @test CHOLMOD.sparse(CHOLMOD.Sparse(Hermitian(A1, :U))) == Hermitian(A1, :U)
     @test_throws ArgumentError convert(SparseMatrixCSC{elty,Ti}, A1pdSparse)
@@ -648,6 +661,8 @@ end
     @test CHOLMOD.nnz(A1Sparse) == nnz(A1)
     @test CHOLMOD.speye(5, 5, elty) == Matrix(I, 5, 5)
     @test CHOLMOD.spzeros(5, 5, 5, elty) == zeros(elty, 5, 5)
+    # room for entries that are not there is not part of the converted matrix
+    @test mismatch(sparse(CHOLMOD.spzeros(5, 5, 5, elty)), zeros(elty, 5, 5); Ti=Ti) === nothing
     if elty <: Real
         @test CHOLMOD.copy(A1Sparse, 0, 1) == A1Sparse
         @test CHOLMOD.aat(A1Sparse, [0:size(A1,2)-1;], 1) ≈ A1*A1'
@@ -659,7 +674,7 @@ end
 
     @testset "Mixed inputs ($elty2)" for elty2 in (@static COMPREHENSIVE ?
             (elty <: Real ? (Tv, Complex{Tv}) : (Tv, ComplexF32)) : (Tv,)), Tv2 in (real(elty2),)
-        A2 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty2 <: Real ? randn(Tv2, 6) : complex.(randn(Tv2, 6), randn(Tv2, 6)))
+        A2 = fixture(elty2, 5, 5)
         A2Sparse = CHOLMOD.Sparse(A2)
         if elty <: Real
             @test A1Sparse*A2Sparse ≈ A1*A2
@@ -681,7 +696,14 @@ end
             @test CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, A1Sparse) == A1Sparse
             @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense([svec; 1]), CHOLMOD_SYM, A1Sparse)
             @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_SYM, CHOLMOD.Sparse(A1[:,1:4]))
-            @test sparse(A1Sparse) == A1
+            @test mismatch(sparse(A1Sparse), Matrix(A1); Ti=Ti) === nothing
+            # a matrix with more rows than columns tells the row scaling from the column one
+            R = fixture(elty2, 5, 3)
+            svec = cumsum(svec)
+            @test mismatch(sparse(CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_ROW, CHOLMOD.Sparse(R))), svec .* Matrix(R); Ti=Ti) === nothing
+            @test mismatch(sparse(CHOLMOD.scale!(CHOLMOD.Dense(svec[1:3]), CHOLMOD_COL, CHOLMOD.Sparse(R))), Matrix(R) .* svec[1:3]'; Ti=Ti) === nothing
+            @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec[1:3]), CHOLMOD_ROW, CHOLMOD.Sparse(R))
+            @test_throws DimensionMismatch CHOLMOD.scale!(CHOLMOD.Dense(svec), CHOLMOD_COL, CHOLMOD.Sparse(R))
         else
             # CHOLMOD assumes Hermitian inputs for complex concatenation.
             @test_throws MethodError CHOLMOD.horzcat(A1Sparse, A2Sparse, true)
@@ -696,8 +718,10 @@ end
     if elty <: Real
         # a single precision partner is promoted
         A3 = SparseMatrixCSC{Float32,Ti}(A1)
-        A3Sparse = CHOLMOD.Sparse(A3)
-        A3 = SparseMatrixCSC{Tv,Ti}(A3)
+        # stored as its upper triangle, which the promotion has to keep
+        A3Sparse = CHOLMOD.Sparse(A3, 1)
+        @test A3Sparse isa CHOLMOD.Sparse{Float32,Ti}
+        A3 = SparseMatrixCSC{Tv,Ti}(sparse(Symmetric(A3, :U)))
         @test CHOLMOD.ssmult(A1Sparse, A3Sparse, 0, true, true) ≈ A1*A3
         @test_throws DimensionMismatch CHOLMOD.ssmult(CHOLMOD.Sparse(A1[:,1:4]), A3Sparse, 0, true, true)
         @test CHOLMOD.horzcat(A1Sparse, A3Sparse, true) == [A1 A3]
@@ -724,8 +748,24 @@ end
     wrap = elty <: Real ? Symmetric : Hermitian
     @test CHOLMOD.issymmetric(Sparse(A1pd, 0)) == (elty <: Real)
     @test CHOLMOD.ishermitian(Sparse(A1pd, 0))
+    # only the named triangle and the real part of the diagonal are read, so the other
+    # triangle and the imaginary part of the diagonal hold something else
+    ML, MU = copy(M), copy(M)
+    ML[1, 2] = ML[1, 3] = ML[2, 3] = MU[2, 1] = MU[3, 1] = MU[3, 2] = 7
+    if elty <: Complex
+        ML[2, 2] = MU[2, 2] = elty(3, 1)
+    end
+    ML, MU = SparseMatrixCSC{elty,Ti}(ML), SparseMatrixCSC{elty,Ti}(MU)
+    # the entries that equal their transposed entry, those that have one, and the
+    # entries off and on the diagonal
+    @test CHOLMOD.symmetry(Sparse(ML, 0), 2)[2:5] == (0, 4, 5, 3)
+    for W in (wrap(ML, :L), wrap(MU, :U))
+        @test Sparse(W) == M
+    end
     for f in (cholesky, ldlt)
-        @test CHOLMOD.Sparse(f(wrap(A1pd, :L))) == CHOLMOD.Sparse(f(A1pd))
+        for W in (wrap(ML, :L), wrap(MU, :U))
+            @test CHOLMOD.Sparse(f(W)) == CHOLMOD.Sparse(f(A1pd))
+        end
         F1 = CHOLMOD.Sparse(f(wrap(A1pd, :L), shift=2))
         F2 = CHOLMOD.Sparse(f(A1pd, shift=2))
         @test F1 == F2
@@ -748,8 +788,8 @@ end
         Fs = cholesky(As, perm=[1:3;])
         @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :p, :ptr])
         @test Fs.p == [1:3;]
-        @test @inferred(sparse(Fs.L))::SparseMatrixCSC{Tv, Ti} ≈ Lf
-        @test sparse(Fs) ≈ As
+        @test mismatch(@inferred(sparse(Fs.L))::SparseMatrixCSC{Tv, Ti}, Lf; approx=true) === nothing
+        @test mismatch(sparse(Fs), Af; Ti=Ti, approx=true) === nothing
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.U)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.PtL)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.UP)
@@ -761,7 +801,7 @@ end
         Afp = Af[p,p]
         Lfp = Matrix(cholesky(Afp).L)
         Ls = sparse(Fs.L)
-        @test Ls ≈ Lfp
+        @test mismatch(Ls, Lfp; Ti=Ti, approx=true) === nothing
         @test Ls * Ls' ≈ Afp
         @static if COMPREHENSIVE
         P = sparse(1:3, Fs.p, ones(Tv, 3))
@@ -800,8 +840,8 @@ end
         Fs = ldlt(As, perm=[1:3;])
         @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP, :p, :ptr])
         @test Fs.p == [1:3;]
-        @test @inferred(sparse(Fs.LD))::SparseMatrixCSC{Tv, Ti} ≈ LDf
-        @test sparse(Fs) ≈ As
+        @test mismatch(@inferred(sparse(Fs.LD))::SparseMatrixCSC{Tv, Ti}, LDf; approx=true) === nothing
+        @test mismatch(sparse(Fs), Af; Ti=Ti, approx=true) === nothing
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.L)
         @static if COMPREHENSIVE
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.U)
@@ -890,7 +930,7 @@ end
     for T in (@static COMPREHENSIVE ? eachonce(Ti2, (Complex{Tv}, Tv)) : (Tv,))
         A = tridiag(T, 10)
         @test sparse(cholesky(A)) isa SparseMatrixCSC{T}
-        @test sparse(cholesky(A)) ≈ A
+        @test mismatch(sparse(cholesky(A)), Matrix(A); Ti=Ti2, approx=true) === nothing
         # a dense intermediate would make the allocations grow quadratically
         F1, F2 = cholesky(tridiag(T, 250)), cholesky(tridiag(T, 2000))
         sparse(F1); sparse(F2)
@@ -986,11 +1026,11 @@ end
     Ad, Bd = Matrix(A), Matrix(B)
     Btd = Tv[1 0 3; 0 2 0; 0 0 1]
     for F in (cholesky(A), ldlt(A))
-        @test @inferred(F \ B)::SparseMatrixCSC{Tv, Ti} ≈ Ad \ Bd
+        @test mismatch(@inferred(F \ B)::SparseMatrixCSC{Tv, Ti}, Ad \ Bd; approx=true) === nothing
         @static if COMPREHENSIVE
         @test @inferred(F' \ B)::SparseMatrixCSC{Tv, Ti} ≈ Ad' \ Bd
         end
-        @test @inferred(F \ B')::SparseMatrixCSC{Tv, Ti} ≈ Ad \ Bd'
+        @test mismatch(@inferred(F \ B')::SparseMatrixCSC{Tv, Ti}, Ad \ Bd'; approx=true) === nothing
         @test @inferred(F.PtL \ B)::SparseMatrixCSC{Tv, Ti} ≈ F.PtL \ Bd
         # a lazily transposed right-hand side is copied
         @test F \ transpose(B) ≈ Ad \ Btd
@@ -1093,11 +1133,11 @@ end
 
             #Test update
             F11 = CHOLMOD.lowrankupdate(F1, C)
-            @test Array(sparse(F11)) ≈ AtA+C*C'
+            @test mismatch(sparse(F11), Array(AtA+C*C'); Ti=Int, approx=true) === nothing
             @test F11\b ≈ x
             #Make sure we get back the same factor again
             F10 = CHOLMOD.lowrankdowndate(F11, C)
-            @test Array(sparse(F10)) ≈ AtA
+            @test mismatch(sparse(F10), Array(AtA); Ti=Int, approx=true) === nothing
             @test F10\b ≈ x0
 
             #Test in-place update
@@ -1191,7 +1231,7 @@ end
             F = f(A)
             @test_throws ArgumentError f(N)
             @test_throws "not symmetric/Hermitian" f!(F, N)
-            @test sparse(F) ≈ A
+            @test mismatch(sparse(F), Matrix(A); Ti=Ti2, approx=true) === nothing
             @test F \ b ≈ Matrix(A) \ b
         end
     end
@@ -1286,6 +1326,7 @@ end
             @test_throws DimensionMismatch f(A; perm=[1, 2])
             @test_throws DimensionMismatch f(A; perm=1:4)
         end
+        @test_throws BoundsError CHOLMOD.analyze_p(Sparse(A), Ti2[0, 1, 2, 3])
     end
 end
 end
@@ -1338,10 +1379,11 @@ end
     end
     # the transpose of a complex matrix
     Bc = SparseMatrixCSC{Complex{Tv},Ti}(Complex{Tv}[4 im 0; -im 3 1; 0 1 2])
-    bc = Complex{Tv}[1, 2, 3]
+    bc = Complex{Tv}[1 + im, 2 - im, 3im]
     F = ldlt(transpose(Bc))
     @test F isa CHOLMOD.Factor{Complex{Tv}}
     @test transpose(Bc) * (F \ bc) ≈ bc
+    @test Bc * ldiv!(transpose(F), copy(bc)) ≈ bc
     C = sprandn(Complex{Tv}, 10, 10, 0.2); C = C + transpose(C)
     for S in (Symmetric(C), (@static COMPREHENSIVE ? (Symmetric(view(C, 1:8, 1:8)),) : ())...), f in (cholesky, (@static COMPREHENSIVE ? (ldlt,) : ())...)
         @test_throws "Hermitian" f(S)
@@ -1371,23 +1413,23 @@ end
         F = cholesky(A)
         # a symmetric square rhs, which `Sparse` would otherwise mark symmetric
         S = sparse(T[1 2 0; 2 1 0; 0 0 5])
-        N = sparse(T[1 2; 0 1; 3 0])
-        v = sparsevec(T[1, 0, 2])
+        N = fixture(T, 3, 5)
+        v = fixturevec(T, 3)
         for op in (@static COMPREHENSIVE ? eachonce(Ti2, T <: Real ? (transpose, adjoint) : (adjoint, transpose)) : (adjoint,)),
                 M in (op(Matrix(A)),)
             for B in (S, N)
                 X = op(F) \ B
                 @test X isa SparseMatrixCSC{T}
-                @test X ≈ M \ Matrix(B)
+                @test mismatch(X, M \ Matrix(B); Ti=Ti2, approx=true) === nothing
             end
             x = op(F) \ v
             @test x isa SparseVector{T}
-            @test x ≈ M \ Vector(v)
+            @test mismatch(x, M \ Vector(v); Ti=Ti2, approx=true) === nothing
         end
     end
     # the transpose of a complex factorization is not its adjoint
     Ac = SparseMatrixCSC{Complex{Tv},Ti2}(Complex{Tv}[4 im 0; -im 3 1; 0 1 2])
-    Nc = complex(sparse(Tv[1 2; 0 1; 3 0]))
+    Nc = fixture(Complex{Tv}, 3, 5)
     Xc = transpose(cholesky(Ac)) \ Nc
     @test Xc isa SparseMatrixCSC{Complex{Tv}}
     @test transpose(Ac) * Xc ≈ Nc
