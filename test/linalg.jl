@@ -9,6 +9,7 @@ using LinearAlgebra
 using Random
 include("testhelpers.jl")
 
+@static if COMPREHENSIVE
 @testset "circshift" begin
     m,n = 17,15
     A = sprand(m, n, 0.5)
@@ -36,6 +37,7 @@ include("testhelpers.jl")
         @test E1 == E2
         end
     end
+end
 end
 
 @testset "wrappers of sparse" begin
@@ -177,10 +179,12 @@ end
     @test I - A == I - MA
 end
 
+@static if COMPREHENSIVE
 @testset "unary minus for SparseMatrixCSC{Bool}" begin
     A = sparse([1,3], [1,3], [true, true])
     B = sparse([1,3], [1,3], [-1, -1])
     @test -A == B
+end
 end
 
 @testset "sparse matrix norms" begin
@@ -705,6 +709,7 @@ end
     @test nnz(spdiagm(0 => x, 1 => y)) == length(y) + nnz(x)
 end
 
+@static if COMPREHENSIVE
 @testset "diag" begin
     for T in (Float64, ComplexF64)
         S1 = sprand(T,  5,  5, 0.5)
@@ -732,6 +737,7 @@ end
     @test diag(V)::SparseVector{Float64,Int} == diag(Matrix(V))
     @test nonzeros(diag(V)) == [1.0, 0.0, 3.0]
     @test isempty(diag(view(spzeros(2, 3), :, 1:2), 3))
+end
 end
 
 @testset "conj" begin
@@ -1105,6 +1111,7 @@ end
     @test SparseMatrixCSC{Float64,Int32}(0I, 3, 3)::SparseMatrixCSC{Float64,Int32} == Matrix(0I, 3, 3)
     end
 end
+@static if COMPREHENSIVE
 @testset "sparse(S::UniformScaling, shape...) convenience constructors" begin
     # we exercise these methods only lightly as these methods call the SparseMatrixCSC
     # constructor methods well-exercised by the immediately preceding testset
@@ -1112,6 +1119,7 @@ end
     @test sparse(2I, (3, 4))::SparseMatrixCSC{Int,Int} == Matrix(2I, 3, 4)
     @test sparse(3I, 4, 5) == sparse(1:4, 1:4, 3, 4, 5)
     @test sparse(3I, 5, 4) == sparse(1:4, 1:4, 3, 5, 4)
+end
 end
 
 end # module

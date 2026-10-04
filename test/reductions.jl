@@ -331,6 +331,7 @@ end
 end
 end
 
+@static if COMPREHENSIVE
 @testset "any/all predicates over dims = 1" begin
     As = sparse([2, 3], [2, 3], [0.0, 1.0]) # empty, structural zero, non-zero
     Ad = Matrix(As)
@@ -351,6 +352,7 @@ end
         @test all(pred, Bs, dims = 1) == all(pred, Bd, dims = 1)
         @test all(pred, Cs, dims = 1) == all(pred, Cd, dims = 1)
     end
+end
 end
 
 @testset "mapreducecols" begin

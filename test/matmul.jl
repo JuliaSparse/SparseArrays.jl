@@ -18,12 +18,14 @@ dA = Array(sA)
 # every transform appears once on each side
 const TRANSFORM_PAIRS = ((identity, identity), (adjoint, transpose), (transpose, adjoint))
 
+@static if COMPREHENSIVE
 @testset "matrix-vector multiplication (non-square)" begin
     for i = 1:(@static COMPREHENSIVE ? 5 : 1)
         a = sprand(10, 5, 0.5)
         b = rand(5)
         @test maximum(abs.(a*b - Array(a)*b)) < 100*eps()
     end
+end
 end
 
 @testset "diagonal - sparse vector mutliplication" begin
@@ -43,6 +45,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "sparse matrix * BitArray" begin
     A = sprand(5,5,0.3)
     MA = Array(A)
@@ -55,6 +58,7 @@ end
         @test trB(B) * trA(A) ≈ trB(B) * trA(MA)
         end
     end
+end
 end
 
 
@@ -123,6 +127,7 @@ end
     @test mulcount(() -> Symmetric(P) * x) == mulcount(() -> P * x)
 end
 
+@static if COMPREHENSIVE
 @testset "Sparse promotion in sparse matmul" begin
     # the index and element types are the point: both promote
     A = @static COMPREHENSIVE ? SparseMatrixCSC{Float32, Int8}(2, 2, Int8[1, 2, 3], Int8[1, 2], Float32[1., 2.]) :
@@ -141,6 +146,7 @@ end
     @test adjoint(B)*A                    ≈ adjoint(MB) * MA
     @test adjoint(B)*adjoint(complex.(A)) ≈ adjoint(MB) * adjoint(Array(complex.(A)))
     end
+end
 end
 
 @testset "destination array density in multiplication" begin
@@ -205,6 +211,7 @@ end
     @test Symmetric(S) * B ≈ Symmetric(A) * B
 end
 
+@static if COMPREHENSIVE
 @testset "Symmetric of sparse matrix mul! dense vector" begin
     rng = Random.MersenneTwister(1)
     n = 1000
@@ -225,7 +232,9 @@ end
         @test norm(Asym * B - As * B, Inf) <= eps() * n * p * 10
     end
 end
+end
 
+@static if COMPREHENSIVE
 @testset "Symmetric of view of sparse matrix mul! dense vector" begin
     rng = Random.MersenneTwister(1)
     n = 1000
@@ -244,7 +253,9 @@ end
         @test norm(Asym * B - As * B, Inf) <= eps() * n * p * 10
     end
 end
+end
 
+@static if COMPREHENSIVE
 @testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
     @static if COMPREHENSIVE
     A = [1 3; 2 4]
@@ -280,6 +291,7 @@ end
     # the sparse kernel multiplies by stored zeros, the generic fallback skips them
     @test isequal([Inf 1.0] * Symmetric(sparse([1, 2], [1, 2], [0.0, 1.0])), [NaN 1.0])
     @test isequal(Symmetric([Inf 1.0; 1.0 1.0]) * sparse([1, 2], [1, 2], [0.0, 1.0]), [NaN 1.0; 0.0 1.0])
+end
 end
 
 @testset "sparse-dense products take the same dense factors on either side" begin

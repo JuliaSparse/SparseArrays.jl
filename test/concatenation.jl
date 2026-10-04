@@ -338,6 +338,7 @@ end
 
 # Test that concatenations of combinations of sparse matrices with sparse matrices or dense
 # matrices/vectors yield sparse arrays
+@static if COMPREHENSIVE
 @testset "sparse and dense concatenations" begin
     N = 4
     densevec = fill(1., N)
@@ -361,6 +362,7 @@ end
         @test issparse(cat(spmat, densearg; dims=(1,2)))
         @test issparse(cat(densearg, spmat; dims=(1,2)))
     end
+end
 end
 
 @testset "block literals mixing sparse and dense blocks infer" begin

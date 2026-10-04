@@ -87,6 +87,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "map[!] implementation capable of handling >2 (input) sparse vectors/matrices" begin
     N, M = 10, 12
     f(x, y, z) = x + y + z + 1
@@ -116,6 +117,7 @@ end
         @test map!(f, X, A, B, C) == sparse(map!(f, fX, fA, fB, fC))
         retype === identity && @test_throws DimensionMismatch map!(f, X, A, B, spzeros((shapeA .- 1)...))
     end
+end
 end
 
 @testset "broadcast! implementation specialized for solely an output sparse vector/matrix (no inputs)" begin
@@ -461,6 +463,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "sparse map/broadcast with result eltype not a concrete subtype of Number (#19561/#19589)" begin
     N = 4
     A, fA = sparse(1.0I, N, N), Matrix(1.0I, N, N)
@@ -477,7 +480,9 @@ end
         @test broadcast(fn, A, B, A) == sparse(broadcast(fn, fA, fB, fA))
     end
 end
+end
 
+@static if COMPREHENSIVE
 @testset "broadcast[!] over combinations of scalars and sparse vectors/matrices" begin
     N, M, p = 10, 12, 0.5
     elT = Float64
@@ -522,6 +527,7 @@ end
         @static COMPREHENSIVE || args === (s, V, s, A, s, V, s, A) || continue
         check_scalar_broadcast(*, args, 900)
     end
+end
 end
 
 @testset "broadcast[!] over combinations of scalars, sparse arrays, structured matrices, and dense vectors/matrices" begin

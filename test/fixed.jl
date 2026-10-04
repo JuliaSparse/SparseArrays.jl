@@ -244,6 +244,7 @@ end
     @test fill!(F, 2.5) === F && F == fill(2.5, 2, 3) && nnz(F) == 6 && _is_fixed(F)
 end
 
+@static if COMPREHENSIVE
 @testset "`getindex`` should return type with same `_is_fixed`" begin
     for A in [(@static COMPREHENSIVE ? (sprandn(10, 10, 0.1),) : ())..., fixed(sprandn(10, 10, 0.1))]
         @test _is_fixed(A) == _is_fixed(A[:, :])
@@ -256,6 +257,7 @@ end
         @test _is_fixed(A) == _is_fixed(A[:])
         @test _is_fixed(A) == _is_fixed(A[1:3])
     end
+end
 end
 
 @testset "getindex with unsorted indices keeps the pattern read-only" begin
@@ -314,6 +316,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "FixedSparseVector getindex with index vectors" begin
     x = sparsevec([1, 3, 6], [1.0, 2.0, 3.0], 8)
     v = fixed(x)
@@ -322,6 +325,7 @@ end
         @test r isa FixedSparseVector{Float64,Int} && r == x[I]
     end
     @test nonzeroinds(v) == [1, 3, 6] && nonzeros(v) == [1.0, 2.0, 3.0]
+end
 end
 
 always_false(x...) = false

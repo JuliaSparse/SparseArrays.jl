@@ -35,10 +35,12 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "issparse" begin
     @test issparse(sparse(fill(1,5,5)))
     @test !issparse(fill(1,5,5))
     @test nnz(zero(sparse(fill(1,5,5)))) == 0
+end
 end
 
 @testset "findnz for adjoint/transpose (issue #632)" begin
@@ -149,6 +151,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "iszero specialization for SparseMatrixCSC" begin
     @test !iszero(sparse(I, 3, 3))                  # test failure
     @test iszero(spzeros(3, 3))                     # test success with no stored entries
@@ -161,6 +164,7 @@ end
     fill!(S, 0)
     @test iszero(S)  # test success with stored zeros via fill!
     @test_throws ArgumentError iszero(SparseMatrixCSC(2, 2, [1,2,3], [1,2], [0,0,1])) # test failure with nonzeros beyond data range
+end
 end
 
 @testset "isone specialization for SparseMatrixCSC" begin
@@ -179,9 +183,11 @@ end
     @test isone(SparseMatrixCSC(2, 2, [1, 3, 4], [1, 2, 2], [1, 0, 1]))  # stored zero off-diagonal is fine
 end
 
+@static if COMPREHENSIVE
 @testset "indtype" begin
     Ti = @static COMPREHENSIVE ? Int8 : Int
     @test SparseArrays.indtype(sparse(Ti[1,1],Ti[1,1],[1,1])) == Ti
+end
 end
 
 se33 = SparseMatrixCSC{Float64}(I, 3, 3)
@@ -324,6 +330,7 @@ do33 = fill(1.,3)
 
 end
 
+@static if COMPREHENSIVE
 @testset "dropdims" begin
     for i = 1:(@static COMPREHENSIVE ? 5 : 1)
         am = sprand(20, 1, 0.2)
@@ -335,6 +342,7 @@ end
         @test ndims(av) == 1
         @test all(av' .== am)
     end
+end
 end
 
 @testset "findall" begin
@@ -467,6 +475,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "oneunit of sparse matrix" begin
     A = sparse([Meters(0) Meters(0); Meters(0) Meters(0)])
     @test oneunit(sprand(2, 2, 0.5)) isa SparseMatrixCSC{Float64}
@@ -474,6 +483,7 @@ end
     @test oneunit(A) == [Meters(1) Meters(0); Meters(0) Meters(1)]
     @test one(sprand(2, 2, 0.5)) isa SparseMatrixCSC{Float64}
     @test one(A) isa SparseMatrixCSC{Int}
+end
 end
 
 @testset "transpose! does not allocate" begin
@@ -586,10 +596,12 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "transpose of SubArrays" begin
     A = view(sprandn(10, 10, 0.3), 1:4, 1:4)
     @test copy(transpose(Array(A))) == Array(transpose(A))
     @test copy(adjoint(Array(A))) == Array(adjoint(A))
+end
 end
 
 # Deterministic replacement for wall-clock guards: with a counting eltype, a comparison
@@ -1109,6 +1121,7 @@ end
     @test isequal(SparseArrays.droptol!(sparse([1], [1], [1]), 1), SparseMatrixCSC(1, 1, Int[1, 1], Int[], Int[]))
 end
 
+@static if COMPREHENSIVE
 @testset "dropzeros[!]" begin
     smalldim = 5
     largedim = 10
@@ -1151,6 +1164,7 @@ end
     @test nnz(sparse([1, 2, 3], [1, 2, 3], [0.0, 1.0, 2.0])) == 3
     @test nnz(dropzeros!(sparse([1, 2, 3],[1, 2, 3],[0.0, 1.0, 2.0]))) == 2
     end
+end
 end
 
 @testset "similar should not alias the input sparse array" begin
@@ -1442,6 +1456,7 @@ end
     @test getcolptr(A) == [1, 1, 1, 1, 2] && rowvals(A) == [m ÷ 2]
 end
 
+@static if COMPREHENSIVE
 @testset "SparseMatrixCSCView" begin
     A  = sprand(10, 10, 0.2)
     vA = view(A, :, 1:5) # a CSCView contains all rows and a UnitRange of the columns
@@ -1449,7 +1464,9 @@ end
     @test SparseArrays.getrowval(vA) == SparseArrays.getrowval(A)
     @test SparseArrays.getcolptr(vA) == SparseArrays.getcolptr(A[:, 1:5])
 end
+end
 
+@static if COMPREHENSIVE
 @testset "fill! for SubArrays" begin
     a = sprand(10, 10, 0.2)
     b = copy(a)
@@ -1482,6 +1499,7 @@ end
     fill!(sC, zero(CustomType))
     @test C[1:1, 1:2] == zeros(CustomType, 1, 2)
     end
+end
 end
 
 using Base: swaprows!, swapcols!
@@ -1757,6 +1775,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "issparse for specialized matrix types" begin
     m = sprand(10, 10, 0.1)
     @test issparse(Symmetric(m))
@@ -1779,6 +1798,7 @@ end
     # greater nesting
     @test issparse(Symmetric(UpperTriangular(m)))
     @test issparse(Symmetric(UpperTriangular(Array(m)))) == false
+end
 end
 
 @testset "equality ==" begin

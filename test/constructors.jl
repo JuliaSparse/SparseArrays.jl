@@ -149,6 +149,7 @@ end
     @test nnz(VSX) == 5
 end
 
+@static if COMPREHENSIVE
 @testset "test that sparse / sparsevec constructors work for AbstractMatrix subtypes" begin
     D = Diagonal(fill((@static COMPREHENSIVE ? 1 : 1.0),10))
     sm = sparse(D)
@@ -159,6 +160,7 @@ end
 
     @test count(!iszero, sparse(Diagonal(eltype(D)[]))) == 0
     @test count(!iszero, sparsevec(Diagonal(eltype(D)[]))) == 0
+end
 end
 
 @testset "Sparse construction with empty/1x1 structured matrices" begin
@@ -190,11 +192,13 @@ end
     @test nnz(s) == 2
 end
 
+@static if COMPREHENSIVE
 @testset "float and complex" begin
     A = sparse([1, 3, 2], [1, 1, 3], [1, 2, 3], 3, 3)
     @test float(A)::SparseMatrixCSC{Float64,Int} == float(Array(A))
     B = float(A)
     @test complex(B)::SparseMatrixCSC{ComplexF64,Int} == complex(Array(B))
+end
 end
 
 @static if COMPREHENSIVE
@@ -297,8 +301,10 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "sprandn with type $T" for T in (Float64, (@static COMPREHENSIVE ? (Float32, Float16, ComplexF64, ComplexF32, ComplexF16) : ())...)
     @test sprandn(T, 5, 5, 0.5) isa AbstractSparseMatrix{T}
+end
 end
 
 @testset "sprandn with invalid type $T" for T in (AbstractFloat, Complex)

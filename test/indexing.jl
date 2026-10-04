@@ -336,6 +336,7 @@ end
     @test_throws DimensionMismatch a[1:2] = 1:3
 end
 
+@static if COMPREHENSIVE
 @testset "setindex! of a block" begin
     A = spzeros(10, 20)
     A[1:5,1:10] .= 10
@@ -369,6 +370,7 @@ end
     A[1:TSZ, 1:(2*TSZ)] = x
     @test count(!iszero, A) == nA
     @test A == B
+end
 end
 
 @testset "linear and logical setindex!" begin
@@ -668,6 +670,7 @@ end
 end
 end
 
+@static if COMPREHENSIVE
 @testset "column slices keep the index type, Ti = $Ti" for Ti in (@static COMPREHENSIVE ? (Int32, Int64) : (Int,))
     A = SparseMatrixCSC{Float64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0, 0.0, 2.0, 3.0], 5, 3))
     M = Matrix(A)
@@ -680,6 +683,7 @@ end
     @test copy(view(A, :, 1))::SparseVector{Float64,Ti} == M[:, 1]
     @test copy(view(A, 2:4, 1))::SparseVector{Float64,Ti} == M[2:4, 1]
     end
+end
 end
 
 @testset "isstored" begin

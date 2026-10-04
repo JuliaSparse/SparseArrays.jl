@@ -357,6 +357,7 @@ end
         @test isempty(spzeros(0)[:])
     end
 end
+@static if COMPREHENSIVE
 @testset "setindex" begin
     let xc = spzeros(Float64, 8)
         xc[3] = 2.0
@@ -427,6 +428,7 @@ end
         @test nnz(A) == 2 && signbit(A[1, 1])
     end
     end
+end
 end
 @testset "dropstored!" begin
     x = SparseVector(10, [2, 7, 9], [2.0, 7.0, 9.0])
@@ -781,6 +783,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "sparsemat: combinations with sparse matrix" begin
     let S = sprand(4, 8, 0.5)
         Sf = Array(S)
@@ -873,6 +876,7 @@ end
         end
     end
     end
+end
 end
 
 @testset "reverse" begin
@@ -1072,6 +1076,7 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         @test exact_equal(conj(xcp), complex.(x, -x2))
     end
 end
+@static if COMPREHENSIVE
 @testset "Zero-preserving math functions: sparse -> sparse" begin
     x1operations = (floor, ceil, trunc, round)
     x0operations = (log1p,  expm1,  sinpi,
@@ -1095,6 +1100,8 @@ end
         end
     end
 end
+end
+@static if COMPREHENSIVE
 @testset "Non-zero-preserving math functions: sparse -> dense" begin
     for op in (exp, (@static COMPREHENSIVE ? (exp2, exp10, log, log2, log10,
             cos, cosd, acos, cosh, cospi,
@@ -1110,9 +1117,11 @@ end
         @test isa(spresvec, SparseVector{resvaltype,resindtype})
     end
 end
+end
 
 ### Reduction
 
+@static if COMPREHENSIVE
 @testset "sum, norm" begin
     x = spv_x1
     f = t -> abs(t) + one(t)
@@ -1137,6 +1146,7 @@ end
     @test norm(x, 1) == 5.5
     @test norm(x, 2) == sqrt(14.375)
     @test norm(x, Inf) == 3.5
+end
 end
 
 @testset "maximum, minimum, findmax, findmin" begin
@@ -1375,6 +1385,7 @@ end
     @test_deprecated SparseArrays.fkeep!(xdrop, f_drop)
 end
 
+@static if COMPREHENSIVE
 @testset "dropzeros[!] with length=$m" for m in (10, (@static COMPREHENSIVE ? (20, 30) : ())...)
     Random.seed!(123)
     nzprob, targetnumposzeros, targetnumnegzeros = 0.4, 5, 5
@@ -1401,12 +1412,15 @@ end
         @test length(nonzeroinds(dropzeros!(copy(vwithzeros)))) == length(nonzeroinds(v))
     end
 end
+end
 
+@static if COMPREHENSIVE
 @testset "original dropzeros! test" begin
     xdrop = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
     nonzeros(xdrop)[[2, 4, 6]] .= 0.0
     SparseArrays.dropzeros!(xdrop)
     @test exact_equal(xdrop, SparseVector(7, [1, 3, 5, 7], [3, -1., -2., 3.]))
+end
 end
 
 # It's tempting to share data between a SparseVector and a SparseMatrix,
@@ -1489,6 +1503,7 @@ end
         end
     end
 end
+@static if COMPREHENSIVE
 @testset "fill!" begin
     for (Tv, Ti) in ((Float64, Int), (@static COMPREHENSIVE ? eachvalue((Float32, Float64, Int64, Int32, ComplexF64), (Int16, Int32, Int64, BigInt)) : ())...)
         @testset "Tv = $Tv, Ti = $Ti" begin
@@ -1505,6 +1520,7 @@ end
     end
     A = spzeros(0, 3)
     @test fill!(A, 1.0) === A && nnz(A) == 0
+end
 end
 
 @static if COMPREHENSIVE
@@ -1563,6 +1579,7 @@ end
 end
 end
 
+@static if COMPREHENSIVE
 @testset "binary operations on sparse vectors with union eltype" begin
     A = SparseVector(2, [1,2], Union{Int, Missing}[1, missing])
     for fun in (+, (@static COMPREHENSIVE ? (-, *, min, max) : ())...)
@@ -1593,6 +1610,7 @@ end
         @test collect(skipmissing(Array(broadcast(fun, C, B)))) == collect(skipmissing(broadcast(fun, CA, BA)))
     end
     end
+end
 end
 
 @static if COMPREHENSIVE
@@ -1684,6 +1702,7 @@ end
 end
 end
 
+@static if COMPREHENSIVE
 @testset "Fast operations on full column views" begin
     n = 1000
     A = sprandn(n, n, 0.01)
@@ -1703,6 +1722,7 @@ end
         @test LinearAlgebra.lowrankupdate!(Matrix(1.0*I, n, n), fill(1.0, n), Aj) ==
               LinearAlgebra.lowrankupdate!(Matrix(1.0*I, n, n), fill(1.0, n), Ajview)
     end
+end
 end
 
 @testset "diff" begin
@@ -1748,6 +1768,7 @@ end
     end
 end
 
+@static if COMPREHENSIVE
 @testset "unary and scalar operations on sparse vector views, Ti = $Ti" for Ti in (Int, (@static COMPREHENSIVE ? (Int32,) : ())...)
     A = SparseMatrixCSC{ComplexF64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0 + im, 0.0im, 2.0, 3.0im], 5, 3))
     x = SparseVector{ComplexF64,Ti}(sparsevec([2, 4, 5], [1.0 + im, 0.0im, 2.0], 7))
@@ -1796,6 +1817,7 @@ end
         end
     end
 end
+end
 
 @testset "SparseVector circshift" begin
     n = 100
@@ -1831,12 +1853,14 @@ end
     @test isempty(circshift(fixed(spzeros(0)), 1))
 end
 
+@static if COMPREHENSIVE
 @testset "SparseColumnView properties" begin
     n = 10
     A = sprand(n, n, 0.5)
     scv = view(A, :, 1)
     @test SparseArrays.indtype(scv) == SparseArrays.indtype(A)
     @test nnz(scv) == nnz(A[:, 1])
+end
 end
 
 @static if COMPREHENSIVE
