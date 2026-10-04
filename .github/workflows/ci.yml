@@ -67,8 +67,8 @@ jobs:
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
-  lint:
-    name: lint (whitespace, GPL usage, Aqua)
+  aqua-test:
+    name: aqua-test (ubuntu-latest, x64, nightly)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
