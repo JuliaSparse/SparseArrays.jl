@@ -124,10 +124,16 @@ end
     @test dmperm(V) == dmperm(A[:, 3:9]) && sprank(V) == sprank(A[:, 3:9])
     d = dmperm(SparseMatrixCSC{Float64,Int32}(A))
     @test d.p isa Vector{Int32} && d.coarse isa Vector{Int32} && d == dmperm(A)
-    # the worst case of the cheap matching: every column prefers row 1
+    # patterns the cheap matching gets wrong: every column prefers row 1, and a staircase
+    # whose last column needs an augmenting path through all the others
     n = 30
     W = sparse([ones(Int, n); 2:n], [1:n; 1:(n - 1)], 1.0, n, n)
     @test sprank(W) == n && dmperm_failures(W) == 0
+    St = sparse([1:n; 1:(n - 1)], [1:n; 2:n], 1.0, n, n)[:, n:-1:1]
+    @test sprank(St) == n && dmperm_failures(St) == 0
+    # a stored diagonal is matched to itself, which keeps a symmetric permutation symmetric
+    Sy = sparse(SymTridiagonal(ones(n), ones(n - 1)))
+    @test dmperm(Sy).match == 1:n && dmperm(Sy).p == dmperm(Sy).q
     @inferred dmperm(A)
     @inferred sprank(A)
 end
