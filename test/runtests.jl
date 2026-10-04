@@ -27,10 +27,10 @@ const comprehensive = get(ENV, "SPARSEARRAYS_TEST_COMPREHENSIVE", "false") == "t
 
 suitename(f) = splitext(f)[1]
 
-# Suites that run only when a selector names them. The Aqua and ambiguity checks in
-# `ambiguous.jl` get their own CI job; `issues.jl` holds regressions only, and runs in
-# comprehensive mode.
-skipped_by_default(name) = name == "ambiguous" || (!comprehensive && name == "issues")
+# Suites that run only when a selector names them. The ambiguity check in `ambiguous.jl`
+# and the other Aqua checks in `aqua.jl` get their own CI job; `issues.jl` holds
+# regressions only, and runs in comprehensive mode.
+skipped_by_default(name) = name in ("ambiguous", "aqua") || (!comprehensive && name == "issues")
 
 matches(name, selectors) = any(sel -> startswith(name, sel), selectors)
 

@@ -90,10 +90,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           julia --color=yes .ci/check-gpl-usage.jl
-      - name: Run Aqua and ambiguity tests
+      - name: Run ambiguity tests
         if: ${{ !cancelled() }}
         run: |
           julia --color=yes --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'
+      - name: Run Aqua tests
+        if: ${{ !cancelled() }}
+        run: |
+          julia --color=yes --project -e 'using Pkg; Pkg.test(test_args=["aqua"])'
   trim:
     name: trim (ubuntu-latest, x64, nightly)
     runs-on: ubuntu-latest

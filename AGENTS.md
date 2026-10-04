@@ -59,13 +59,14 @@ julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one f
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["--comprehensive"])'   # comprehensive mode
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
 julia .ci/check-whitespace.jl
-julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'   # Aqua and ambiguity checks
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous", "aqua"])'   # ambiguity and Aqua checks
 julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'  # doctests
 julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/solvers/
 ```
 
-The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, in
-the `aqua-test` CI job, after the whitespace and GPL usage checks.
+The ambiguity check in `test/ambiguous.jl` and the other Aqua checks in `test/aqua.jl` run
+only when selected by name, as two steps of the `aqua-test` CI job, after the whitespace
+and GPL usage checks.
 One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
 The tests run in two modes. Standard mode is what `Pkg.test`, Julia's own CI and every CI
 job but the coverage job run: one representative test per feature, kept fast.

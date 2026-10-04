@@ -24,7 +24,7 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   for it in one suite is reused by the next. **Do not define a `struct` in a suite file**:
   add it to `SparseTestHelpers.jl` and export it, and reuse a type that is already there
   when it fits. A helper that a second suite needs goes there as well. `ambiguous.jl`
-  alone does not include `testhelpers.jl`.
+  and `aqua.jl` alone do not include `testhelpers.jl`.
 - Test files are named after the source area they cover. `solvers/` mirrors
   `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
   `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
@@ -48,9 +48,11 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   `sparsevector.jl` keeps the vector `axpy!` and `dot` tests. The `transpose`, `adjoint`
   and `permute` tests, including the in-place forms, live in `sparsematrix.jl`.
 - Preserve issue references on regression tests.
-- `ambiguous.jl` is in the inventory but skipped unless a selector names it; CI runs it
-  in the `aqua-test` job. It restores the depot, load path, environment and active project in a
-  `finally`, so an Aqua failure on Base CI leaves the worker usable.
+- `ambiguous.jl`, the Aqua ambiguity check, and `aqua.jl`, the other Aqua checks, are in
+  the inventory but skipped unless a selector names them; CI runs each as its own step of
+  the `aqua-test` job. Both load Aqua through `with_aqua` in `aquahelper.jl`, which
+  restores the depot, load path, environment and active project in a `finally`, so an
+  Aqua failure on Base CI leaves the worker usable.
 - `solvers/threads.jl` owns the tests requiring fresh process state. Its `testprocess.jl`
   helper preserves the active project and resolved load path, verifies the checkout
   loaded by the child, and explicitly selects default-pool thread counts. A child
