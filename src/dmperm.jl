@@ -390,6 +390,37 @@ function _dmperm(A::SparseMatrixCSCOrView)
 end
 
 """
+    SparseArrays.DMPermutation{Ti}
+
+The Dulmage-Mendelsohn decomposition that [`dmperm`](@ref) returns, with the fields `p`,
+`q`, `rowblocks`, `colblocks`, `coarse` and `match` that `dmperm` describes. `p`, `q` and
+`match` have the index type `Ti` of the matrix; the block boundaries are `Vector{Int}`, as
+they run to one past its size. Iteration gives the fields in that order.
+"""
+struct DMPermutation{Ti<:Integer}
+    p::Vector{Ti}
+    q::Vector{Ti}
+    rowblocks::Vector{Int}
+    colblocks::Vector{Int}
+    coarse::Vector{Int}
+    match::Vector{Ti}
+end
+
+Base.iterate(d::DMPermutation, i::Int = 1) = i > 6 ? nothing : (getfield(d, i), i + 1)
+Base.length(::DMPermutation) = 6
+Base.eltype(::Type{DMPermutation{Ti}}) where {Ti} = Union{Vector{Ti},Vector{Int}}
+Base.:(==)(a::DMPermutation, b::DMPermutation) = all(i -> getfield(a, i) == getfield(b, i), 1:6)
+Base.hash(d::DMPermutation, h::UInt) = foldl((h, i) -> hash(getfield(d, i), h), 1:6; init = hash(:DMPermutation, h))
+
+function Base.show(io::IO, ::MIME"text/plain", d::DMPermutation)
+    c = d.coarse
+    nb = length(d.colblocks) - 1
+    print(io, typeof(d), " of a ", length(d.p), "×", length(d.q), " matrix with ", nb,
+          nb == 1 ? " block: " : " blocks: ", c[2] - c[1], " horizontal, ", c[3] - c[2],
+          " square, ", c[4] - c[3], " vertical")
+end
+
+"""
     dmperm(A)
 
 Compute the Dulmage-Mendelsohn decomposition of the sparse matrix `A`: row and column
@@ -397,19 +428,22 @@ permutations `p` and `q` for which `A[p, q]` is block upper triangular, with as 
 diagonal blocks as the pattern of `A` allows. Only the pattern of `A` is used, and a
 stored zero counts as an entry.
 
-Return a named tuple with the fields
+Return a [`SparseArrays.DMPermutation`](@ref) `d` with the fields
 
-* `p`, `q`: the row and column permutations.
-* `rowblocks`, `colblocks`: the block boundaries. Block `k` has the rows
+* `d.p`, `d.q`: the row and column permutations.
+* `d.rowblocks`, `d.colblocks`: the block boundaries. Block `k` has the rows
   `p[rowblocks[k]:rowblocks[k+1]-1]` and the columns `q[colblocks[k]:colblocks[k+1]-1]`,
   and `A[p, q]` is zero below these blocks.
-* `coarse`: a vector of four block numbers delimiting the coarse decomposition. Blocks
-  `coarse[1]:coarse[2]-1` are the *horizontal* (underdetermined) part, whose blocks
-  have more columns than rows; blocks `coarse[2]:coarse[3]-1` the *square* part; and
-  blocks `coarse[3]:coarse[4]-1` the *vertical* (overdetermined) part, whose blocks
+* `d.coarse`: a vector of four block numbers delimiting the coarse decomposition.
+  Blocks `coarse[1]:coarse[2]-1` are the *horizontal* (underdetermined) part, whose
+  blocks have more columns than rows; blocks `coarse[2]:coarse[3]-1` the *square* part;
+  and blocks `coarse[3]:coarse[4]-1` the *vertical* (overdetermined) part, whose blocks
   have more rows than columns.
-* `match`: a maximum matching. `match[j]` is the row matched to column `j`, or zero
+* `d.match`: a maximum matching. `match[j]` is the row matched to column `j`, or zero
   for an unmatched column; `count(!iszero, match)` is [`sprank`](@ref)`(A)`.
+
+Iterating `d` gives the fields in that order, so `p, q, r, s = dmperm(A)` takes the
+permutations and the row and column block boundaries.
 
 The blocks of the square part are square and irreducible, and have a zero-free
 diagonal in `A[p, q]`: they are the strongly connected components that a symmetric
@@ -437,7 +471,8 @@ julia> A = sparse([1 0 0 1; 1 1 0 0; 0 1 1 0; 0 0 0 1])
  ⋅  1  1  ⋅
  ⋅  ⋅  ⋅  1
 
-julia> d = dmperm(A);
+julia> d = dmperm(A)
+SparseArrays.DMPermutation{Int64} of a 4×4 matrix with 4 blocks: 0 horizontal, 4 square, 0 vertical
 
 julia> A[d.p, d.q]
 4×4 SparseMatrixCSC{Int64, Int64} with 7 stored entries:
@@ -446,7 +481,9 @@ julia> A[d.p, d.q]
  ⋅  ⋅  1  1
  ⋅  ⋅  ⋅  1
 
-julia> d.rowblocks == d.colblocks == [1, 2, 3, 4, 5]
+julia> p, q, r, s = d;
+
+julia> r == s == [1, 2, 3, 4, 5]
 true
 
 julia> d.coarse
@@ -460,8 +497,5 @@ julia> d.coarse
 function dmperm(A::SparseMatrixCSCOrView{<:Any,Ti}) where {Ti}
     require_one_based_indexing(A)
     p, q, rptr, cptr, nh, ns, nv, colmatch = _dmperm(A)
-    return (p = convert(Vector{Ti}, p), q = convert(Vector{Ti}, q),
-            rowblocks = convert(Vector{Ti}, rptr), colblocks = convert(Vector{Ti}, cptr),
-            coarse = Ti[1, nh + 1, nh + ns + 1, nh + ns + nv + 1],
-            match = convert(Vector{Ti}, colmatch))
+    return DMPermutation{Ti}(p, q, rptr, cptr, [1, nh + 1, nh + ns + 1, nh + ns + nv + 1], colmatch)
 end
