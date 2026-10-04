@@ -8,7 +8,7 @@ using Test, LinearAlgebra, SparseArrays
 testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsematrix.jl", "constructors.jl", "indexing.jl", "reductions.jl",
              "sparsevector.jl", "issues.jl", "linalg.jl", "matmul.jl",
-             "triangular.jl", "concatenation.jl", "ambiguous.jl"]
+             "triangular.jl", "concatenation.jl", "ambiguous.jl", "aqua.jl"]
 
 @static if Base.USE_GPL_LIBS
     append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl"])
