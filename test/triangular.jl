@@ -7,7 +7,6 @@ using Test
 using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr, rowvals, nonzeros, fixed, FixedSparseVector
 using LinearAlgebra
-using Random
 include("testhelpers.jl")
 
 const TRIANGLES = (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
@@ -26,8 +25,8 @@ const TRICASES = (Any[transpose, UnitUpperTriangular], Any[identity, UnitLowerTr
 iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
 
 @testset "multiplication of sparse matrix and triangular matrix" begin
-    _sparse_test_matrix(n, T) =  T == Int ? sparse(rand(0:4, n, n)) : fixture(T, n, n)
-    _triangular_test_matrix(n, TA, T) = T == Int ? TA(rand(0:9, n, n)) : TA(randn(T, n, n))
+    _sparse_test_matrix(n, T) = fixture(T, n, n)
+    _triangular_test_matrix(n, TA, T) = TA(T[T <: Complex ? complex(i - 2j, i + j) : i - 2j for i in 1:n, j in 1:n])
 
     function test_triangular_product(S, T)
         @test (T * S)::DenseMatrix ≈ Matrix(T) * Matrix(S)
@@ -110,15 +109,15 @@ end
 
 
 begin
-    rng = Random.MersenneTwister(0)
-    n = 100
+    n = 10
     B = ones(n)
     X = reshape(1.0:3n, 3, n) ./ n
-    s = sprandn(rng, n, 0.05)
+    s = fixturevec(Float64, n)
     sd = Vector(s)
-    A = sprand(rng, n, n, 0.01)
+    # scaled so that the unit triangles, whose diagonal is not stored, stay well conditioned
+    A = fixture(Float64, n, n) / 4n
     MA = Matrix(A)
-    lA = sprand(rng, n, n+10, 0.01)
+    lA = fixture(Float64, n, n+10)
     @test nnz(lA[:, n+1:n+10]) == nnz(view(lA, :, n+1:n+10))
     @testset "triangular multiply with $tr($wr)" for (tr, wr) in TRICASES
         AW = tr(wr(A))
@@ -141,7 +140,7 @@ begin
         @test vAW * A ≈ AW * A
         @test X * vAW ≈ X * MAW
     end
-    a = sprand(rng, ComplexF64, n, n, 0.01)
+    a = fixture(ComplexF64, n, n) / 4n
     a[1, 1] = 2 + im # Exercise conjugation of a stored nonunit diagonal.
     ma = Matrix(a)
     ct, tc = x -> adjoint(transpose(x)), x -> transpose(adjoint(x))
@@ -316,9 +315,9 @@ end
 
 @testset "multiplication of triangular sparse and dense matrices" begin
     n = 7
-    B = rand(n, 3)
+    B = reshape(1.0:3n, n, 3) ./ n
     # `+ I` stores the diagonal, which the nonunit branch of the product kernel needs
-    _triangular_sparse_matrix(n, ULT, T) = T == Int ? ULT(sparse(rand(0:10, n, n))) : ULT(fixture(T, n, n) + I)
+    _triangular_sparse_matrix(n, ULT, T) = ULT(fixture(T, n, n) + I)
     eltypecases = Any[(ComplexF64, adjoint, LowerTriangular)]
     @static COMPREHENSIVE && append!(eltypecases,
         Any[(Int, adjoint, UpperTriangular)],
@@ -340,10 +339,10 @@ end
 @static if COMPREHENSIVE
 @testset "multiplication of Triangular sparse matrices with sparse vectors #35642" begin
     n = 10
-    A = sprand(n, n, 5/n)
+    A = fixture(Float64, n, n)
     U = UpperTriangular(A)
     L = LowerTriangular(A)
-    x = sprand(n, 5/n)
+    x = fixturevec(Float64, n)
     y = view(A, :, 6)
     z = view(x, :)
     ty = typeof
@@ -365,14 +364,14 @@ end
     for ta in (@static COMPREHENSIVE ? types : (ComplexF64,))
         for tri in (@static COMPREHENSIVE ? tritypes : (UnitUpperTriangular,))
             if ta == Int
-                T = tri(rand(1:9, n, n))
+                T = tri([mod1(i + 2j, 9) for i in 1:n, j in 1:n])
             else
-                T = tri(randn(ta, n, n))
+                T = tri(ta[ta <: Complex ? complex(i - 2j, i + j) : i - 2j for i in 1:n, j in 1:n])
             end
             for tb in types
                 iscase((ta, tb, tri), vectorcases) || continue
                 if tb == Int
-                    x = sparse(rand(0:4, n))
+                    x = fixturevec(Int, n)
                 else
                     x = fixturevec(tb, n)
                 end
@@ -407,7 +406,7 @@ end
 @testset "issue #14816" begin
     m = 5
     intmat = fill(1, m, m)
-    ltintmat = LowerTriangular(rand(1:5, m, m))
+    ltintmat = LowerTriangular([mod1(i + 2j, 5) for i in 1:m, j in 1:m])
     @test \(transpose(ltintmat), sparse(intmat)) ≈ \(transpose(ltintmat), intmat)
 end
 
@@ -415,7 +414,8 @@ end
 @testset "issue #13792, use sparse triangular solvers for sparse triangular solves" begin
     local A, n, x
     n = 100
-    A, b = sprandn(n, n, 0.5) + sqrt(n)*I, fill(1., n)
+    # diagonally dominant, so both triangles are well conditioned
+    A, b = fixture(Float64, n, n) / 4n^2 + sqrt(n)*I, fill(1., n)
     @test LowerTriangular(A)\(LowerTriangular(A)*b) ≈ b
     @test UpperTriangular(A)\(UpperTriangular(A)*b) ≈ b
     A[2,2] = 0
@@ -425,13 +425,14 @@ end
 end
 
 @testset "complex matrix-vector multiplication and triangular or diagonal left-division" begin
-    for i = 1:5
-        a = I + 0.1*sprandn(5, 5, 0.2)
-        b = randn(5,3) + im*randn(5,3)
-        c = randn(5) + im*randn(5)
-        d = randn(5) + im*randn(5)
-        α = rand(ComplexF64)
-        β = rand(ComplexF64)
+    # the comparisons have absolute tolerances, so the operands are scaled to order one
+    let
+        a = I + 0.02*fixture(Float64, 5, 5)
+        b = reshape(complex.(1:15, 15:-1:1), 5, 3) / 15
+        c = complex.(1:5, 5:-1:1) / 5
+        d = complex.(5:-1:1, 1:5) / 5
+        α = 0.3 + 0.7im
+        β = 0.6 - 0.2im
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(mul!(similar(b), a, b) - Array(a)*b)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
         @test (maximum(abs.(mul!(similar(c), a, c) - Array(a)*c)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
@@ -442,27 +443,18 @@ end
         @test (maximum(abs.((a'*c + d) - (Array(a)'*c + d))) < 1000*eps())
         @test (maximum(abs.((α*transpose(a)*c + β*d) - (α*transpose(Array(a))*c + β*d))) < 1000*eps())
         @test (maximum(abs.((transpose(a)*c + d) - (transpose(Array(a))*c + d))) < 1000*eps())
-        c = randn(6) + im*randn(6)
+        c = complex.(1:6, 6:-1:1) / 6
         @test_throws DimensionMismatch α*transpose(a)*c + β*c
         @test_throws DimensionMismatch α*transpose(a)*fill(1.,5) + β*c
 
-        a = I + 0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2)
-        b = randn(5,3)
+        a = I + 0.02*fixture(ComplexF64, 5, 5)
+        b = reshape(1.0:15.0, 5, 3) / 15
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
 
-        a = I + tril(0.1*sprandn(5, 5, 0.2))
-        b = randn(5,3) + im*randn(5,3)
-        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
-        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
-        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-
-        a = I + tril(0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2))
-        b = randn(5,3)
+        a = I + tril(0.02*fixture(Float64, 5, 5))
+        b = reshape(complex.(1:15, 15:-1:1), 5, 3) / 15
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
@@ -470,8 +462,8 @@ end
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
 
-        a = I + triu(0.1*sprandn(5, 5, 0.2))
-        b = randn(5,3) + im*randn(5,3)
+        a = I + tril(0.02*fixture(ComplexF64, 5, 5))
+        b = reshape(1.0:15.0, 5, 3) / 15
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
@@ -479,8 +471,17 @@ end
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
 
-        a = I + triu(0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2))
-        b = randn(5,3)
+        a = I + triu(0.02*fixture(Float64, 5, 5))
+        b = reshape(complex.(1:15, 15:-1:1), 5, 3) / 15
+        @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
+        @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
+        @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
+        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
+        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
+        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
+
+        a = I + triu(0.02*fixture(ComplexF64, 5, 5))
+        b = reshape(1.0:15.0, 5, 3) / 15
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
@@ -488,19 +489,19 @@ end
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
         # UpperTriangular/LowerTriangular solve
-        a = UpperTriangular(I + triu(0.1*sprandn(5, 5, 0.2)))
-        b = sprandn(5, 5, 0.2)
+        a = UpperTriangular(I + triu(0.02*fixture(Float64, 5, 5)))
+        b = 0.05*permutedims(fixture(Float64, 5, 5))
         @test (maximum(abs.(a\b - Array(a)\Array(b))) < 1000*eps())
         # test error throwing for bwdTrisolve
         @test_throws DimensionMismatch a\Matrix{Float64}(I, 6, 6)
-        a = LowerTriangular(I + tril(0.1*sprandn(5, 5, 0.2)))
-        b = sprandn(5, 5, 0.2)
+        a = LowerTriangular(I + tril(0.02*fixture(Float64, 5, 5)))
+        b = 0.05*permutedims(fixture(Float64, 5, 5))
         @test (maximum(abs.(a\b - Array(a)\Array(b))) < 1000*eps())
         # test error throwing for fwdTrisolve
         @test_throws DimensionMismatch a\Matrix{Float64}(I, 6, 6)
 
-        a = sparse(Diagonal(randn(5) + im*randn(5)))
-        b = randn(5,3)
+        a = sparse(Diagonal(complex.(1:5, 5:-1:1) / 5))
+        b = reshape(1.0:15.0, 5, 3) / 15
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
@@ -508,7 +509,7 @@ end
         @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
         @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
 
-        b = randn(5,3) + im*randn(5,3)
+        b = reshape(complex.(1:15, 15:-1:1), 5, 3) / 15
         @test (maximum(abs.(a*b - Array(a)*b)) < 100*eps())
         @test (maximum(abs.(a'b - Array(a)'b)) < 100*eps())
         @test (maximum(abs.(transpose(a)*b - transpose(Array(a))*b)) < 100*eps())
@@ -539,9 +540,8 @@ end
 
 # PR 28242
 @testset "forward and backward solving of transpose/adjoint triangular matrices" begin
-    rng = MersenneTwister(20180730)
     n = 10
-    A = sprandn(rng, n, n, 0.8); A += Diagonal((1:n) - diag(A))
+    A = fixture(Float64, n, n) / 4n; A += Diagonal((1:n) - diag(A))
     B = ones(n, 2)
     @static if COMPREHENSIVE
     for (Ttri, triul ) in ((UpperTriangular, triu), (LowerTriangular, tril))
@@ -593,16 +593,16 @@ end
 end
 @testset "ldiv ops with triangular matrices and sparse vecs (#14005)" begin
     m = 10
-    sprmat = sprand(m, m, 0.2)
+    sprmat = fixture(Float64, m, m) / 4m
     sparsefloatmat = I + sprmat/(2m)
     sparsecomplexmat = I + SparseMatrixCSC(m, m, getcolptr(sprmat), rowvals(sprmat), complex.(nonzeros(sprmat), nonzeros(sprmat))/(4m))
     @static if COMPREHENSIVE
     sparseintmat = 10m*I + SparseMatrixCSC(m, m, getcolptr(sprmat), rowvals(sprmat), round.(Int, nonzeros(sprmat)*10))
     end
 
-    denseintmat = I*10m + rand(1:m, m, m)
-    densefloatmat = I + randn(m, m)/(2m)
-    densecomplexmat = I + randn(ComplexF64, m, m)/(4m)
+    denseintmat = I*10m + [mod1(i + 3j, m) for i in 1:m, j in 1:m]
+    densefloatmat = I + [(i - 2j) / m for i in 1:m, j in 1:m]/(2m)
+    densecomplexmat = I + [complex(i - 2j, i + j) / m for i in 1:m, j in 1:m]/(4m)
 
     inttypes = (Int64, (@static COMPREHENSIVE ? (Int32,) : ())...)
     floattypes = (Float32, Float64, BigFloat)

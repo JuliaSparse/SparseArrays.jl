@@ -8,7 +8,7 @@ using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCS
 include("testhelpers.jl")
 
 @testset "ReadOnly" begin
-    v = randn(100)
+    v = Float64.(1:100)
     r = ReadOnly(v)
     @test length(r) == length(v)
     @test r == v
@@ -219,7 +219,7 @@ end
     W .= gamma .* J
     @test W == J
 
-    x = move_fixed(sprandn(10, 10, 0.1))
+    x = move_fixed(fixture(Float64, 5, 3))
     @test (x .= x .* 0; true)
     @test (x .= 0; true)
     @test (fill!(x, false); true)
@@ -238,14 +238,14 @@ end
 
 @static if COMPREHENSIVE
 @testset "`getindex`` should return type with same `_is_fixed`" begin
-    for A in [fixed(sprandn(10, 10, 0.1))]
+    for A in [fixed(fixture(Float64, 5, 3))]
         @test _is_fixed(A) == _is_fixed(A[:, :])
         @test _is_fixed(A) == _is_fixed(A[:, 1])
         @test _is_fixed(A) == _is_fixed(A[1, :])
         @test _is_fixed(A) == _is_fixed(A[1:2, 1:2])
         @test _is_fixed(A) == _is_fixed(A[2:4, 2:3])
     end
-    for A in [sprandn(10, 0.1), fixed(sprandn(10, 0.1))]
+    for A in [fixturevec(Float64, 10), fixed(fixturevec(Float64, 10))]
         @test _is_fixed(A) == _is_fixed(A[:])
         @test _is_fixed(A) == _is_fixed(A[1:3])
     end
@@ -333,7 +333,7 @@ end
 always_false(x...) = false
 below_diagonal(i, j, v) = i > j
 @testset "Test fkeep!" begin
-    for a in [sprandn(10, 10, 0.99) + I, sprandn(10, 0.1) .+ 1]
+    for a in [fixture(Float64, 4, 4) + I, fixturevec(Float64, 10) .+ 1]
         a = fixed(a)
         b = copy(a)
         fkeep!(always_false, b)

@@ -15,20 +15,18 @@ include("../testhelpers.jl")
 end
 
 @testset "complex left-division" begin
-    for i = 1:5
-        a = I + 0.1*sprandn(5, 5, 0.2)
-        b = randn(5,3) + im*randn(5,3)
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @static if COMPREHENSIVE
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
+    a = I + 0.1*fixture(Float64, 5, 5)
+    b = complex.(reshape(1.0:15, 5, 3), reshape(15:-1.0:1, 5, 3))
+    @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
+    @static if COMPREHENSIVE
+    @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
 
-        a = I + 0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2)
-        b = randn(5,3)
-        @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
-        @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
-        @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
-        end
+    a = I + 0.1*fixture(ComplexF64, 5, 5)
+    b = reshape(collect(1.0:15), 5, 3)
+    @test (maximum(abs.(a\b - Array(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - Array(a')\b)) < 1000*eps())
+    @test (maximum(abs.(transpose(a)\b - Array(transpose(a))\b)) < 1000*eps())
     end
 end
 
@@ -75,7 +73,7 @@ end
     @test SparseArrays.opnormestinv(Ar) ≈ opnorm(inv(Array(Ar)),1) atol=1e-4
     @test_throws ArgumentError SparseArrays.opnormestinv(Ac,0)
     @test_throws ArgumentError SparseArrays.opnormestinv(Ac,21)
-    @test_throws DimensionMismatch SparseArrays.opnormestinv(sprand(3,5,.9))
+    @test_throws DimensionMismatch SparseArrays.opnormestinv(fixture(Float64, 3, 5))
     @static if COMPREHENSIVE
     #issue 680
     A33 = sparse(randn(3,3))
@@ -85,21 +83,20 @@ end
 
 @static if COMPREHENSIVE
 @testset "factorization" begin
-    Random.seed!(123)
     local A
     @static if COMPREHENSIVE
-    A = sparse(Diagonal(rand(5))) + sprandn(5, 5, 0.2) + im*sprandn(5, 5, 0.2)
+    A = sparse(Diagonal(1.0:5)) + fixture(ComplexF64, 5, 5)
     A = A + copy(A')
     @test abs(det(factorize(Hermitian(A)))) ≈ abs(det(factorize(Array(A))))
     end
-    A = sparse(Diagonal(rand(5))) + sprandn(5, 5, 0.2) + im*sprandn(5, 5, 0.2)
+    A = sparse(Diagonal(1.0:5)) + fixture(ComplexF64, 5, 5)
     A = A*A'
     @test abs(det(factorize(Hermitian(A)))) ≈ abs(det(factorize(Array(A))))
-    A = sparse(Diagonal(rand(5))) + sprandn(5, 5, 0.2)
+    A = sparse(Diagonal(1.0:5)) + fixture(Float64, 5, 5)
     A = A + copy(transpose(A))
     @test abs(det(factorize(Symmetric(A)))) ≈ abs(det(factorize(Array(A))))
     @static if COMPREHENSIVE
-    A = sparse(Diagonal(rand(5))) + sprandn(5, 5, 0.2)
+    A = sparse(Diagonal(1.0:5)) + fixture(Float64, 5, 5)
     A = A*transpose(A)
     @test abs(det(factorize(Symmetric(A)))) ≈ abs(det(factorize(Array(A))))
     end
@@ -140,9 +137,9 @@ end
 @static if COMPREHENSIVE
 @testset "type stability of linear solve" begin
     for (elty, vecrhs) in ((Float64, true), (ComplexF64, false), (Float32, false))
-        A = sprand(elty, 2, 2, 1.0)
-        B = randn(elty, 2, 2)
-        b = randn(elty, 2)
+        A = sparse(elty[4 1; 2 3])
+        B = elty[1 2; 3 4]
+        b = elty[1, 2]
         @inferred A \ (vecrhs ? b : B)
     end
 end
@@ -197,12 +194,12 @@ end
 end
 
 @testset "factorization of a fixed-pattern matrix" begin
-    b = sprandn(10, 10, 0.99) + I
+    b = 0.1*fixture(Float64, 10, 10) + I
     a = SparseArrays.fixed(b)
 
-    @test (lu(a) \ randn(10); true)
+    @test (lu(a) \ collect(1.0:10); true)
     @test b == a
-    @test (qr(a + a') \ randn(10); true)
+    @test (qr(a + a') \ collect(1.0:10); true)
     @test b == a
 
     # `factorize` and `\` query `ishermitian`, which used to throw on a fixed matrix

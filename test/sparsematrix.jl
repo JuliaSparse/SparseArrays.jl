@@ -7,7 +7,6 @@ using SparseArrays
 using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, _isimplicitzero, fixed, _is_fixed
 using LinearAlgebra
 using Random
-using Test: guardseed
 include("testhelpers.jl")
 
 @testset "_isnotzero" begin
@@ -109,7 +108,9 @@ end
     A = spzeros(n, n); A[1, 1] = 1
     B = copy(A); B[2, 2] = 0.0   # explicitly stored zero must not change the hash
     @test hash(B) == hash(A) && isequal(B, A)
-    for m in ((@static COMPREHENSIVE ? (2,) : ())..., 10, 200), X in (sprand(m, m, 0.1), (@static COMPREHENSIVE ? (sprandn(m, m, 0.3),) : ())..., spzeros(m, m))
+    # entries scattered over the matrix, so that the runs of zeros between them vary in length
+    scattered(m, k) = sparse([mod1(i * i, m) for i in 1:k], [mod1(3i, m) for i in 1:k], [1.5i for i in 1:k], m, m)
+    for m in ((@static COMPREHENSIVE ? (2,) : ())..., 10, 200), X in (scattered(m, 2m), (@static COMPREHENSIVE ? (-scattered(m, m * m ÷ 3),) : ())..., spzeros(m, m))
         k = min(3, nnz(X)); nonzeros(X)[1:k] .= [NaN, -0.0, 0.0][1:k]
         @test hash(X) == hash(Matrix(X))
         @test hash(X, UInt(7)) == hash(Matrix(X), UInt(7))
@@ -200,7 +201,7 @@ end
     end
 
     @testset "shape checks for sparse elementwise binary operations equivalent to map" begin
-        sqrfloatmat, colfloatmat = sprand(4, 4, 0.5), sprand(4, 1, 0.5)
+        sqrfloatmat, colfloatmat = fixture(Float64, 4, 4), fixture(Float64, 4, 1)
         @test_throws DimensionMismatch (+)(sqrfloatmat, colfloatmat)
         @test_throws DimensionMismatch map(min, sqrfloatmat, colfloatmat)
     end
@@ -214,9 +215,9 @@ end
     end
 
     @testset "binary ops with matrices" begin
-        λ = complex(randn(),randn())
+        λ = complex(0.5, -1.5)
         J = UniformScaling(λ)
-        for SS in (sprandn(3,3, 0.5), (@static COMPREHENSIVE ? (sparse(Int(1)I, 3, 3),) : ())...)
+        for SS in (fixture(Float64, 3, 3), (@static COMPREHENSIVE ? (sparse(Int(1)I, 3, 3),) : ())...)
             for S in (SS,)
                 @test @inferred(I*S) !== S # Don't alias
                 @test @inferred(S*I) !== S # Don't alias
@@ -233,10 +234,10 @@ end
         # the kinds of strided operand that the lines after this block leave out: a view
         # with a step, a transpose and the adjoint of a view, and a sparse view with a matrix
         for (T, fun, k) in ((Float64, +, 1), (ComplexF64, -, 2), (Float64, -, 3), (ComplexF64, +, 4))
-            S = sprandn(T, 5, 4, 0.5)
+            S = fixture(T, 5, 4)
             S[2, 3] = 0   # stored zero
-            M = randn(T, 5, 4)
-            X, Y = k == 1 ? (S, view(randn(T, 5, 8), :, 1:2:7)) :
+            M = T[T <: Real ? i + 2j : complex(i + 2j, i - 3j) for i in 1:5, j in 1:4]
+            X, Y = k == 1 ? (S, view(repeat(M, 1, 2), :, 1:2:7)) :
                    k == 2 ? (S, transpose(Matrix(transpose(M)))) :
                    k == 3 ? (S, view(Matrix(M'), 1:4, :)') : (view(S, :, 2:4), M[:, 2:4])
             A, B = Array(X), Array(Y)
@@ -250,16 +251,16 @@ end
         # The kernel is the same for every eltype and operator, so each kind of operand pair
         # (plain, views on both sides, adjoint dense) runs once. These are written out because
         # a loop over operand pairs compiles tuple iteration for every pair of types.
-        S = sprandn(5, 4, 0.5)
+        S = fixture(Float64, 5, 4)
         S[2, 3] = 0   # stored zero
-        M = randn(5, 4)
+        M = reshape(Float64.(1:20), 5, 4)
         @test @inferred(S + M)::Matrix{Float64} == Array(S) + M
         @test @inferred(M + S)::Matrix{Float64} == M + Array(S)
         SV, MV = view(S, :, 2:4), view(M, :, 2:4)
         @test @inferred(SV - MV)::Matrix{Float64} == Array(SV) - Array(MV)
         @test @inferred(MV - SV)::Matrix{Float64} == Array(MV) - Array(SV)
-        C = sprandn(ComplexF64, 5, 4, 0.5)
-        N = randn(ComplexF64, 4, 5)'
+        C = fixture(ComplexF64, 5, 4)
+        N = (reshape(Float64.(1:20), 4, 5) * (1.0 - 2.0im))'
         @test @inferred(C + N)::Matrix{ComplexF64} == Array(C) + Array(N)
         @test @inferred(N + C)::Matrix{ComplexF64} == Array(N) + Array(C)
         @test S[1:4, :] + Symmetric(M[1:4, :]) isa Matrix{Float64}
@@ -281,10 +282,12 @@ end
             @test collect(skipmissing(Array(broadcast(fun, A, A)))) == collect(skipmissing(broadcast(fun, MA, MA)))
         end
         end
-        b = convert(SparseMatrixCSC{Union{Float64, Missing}}, sprandn(Float64, 20, 10, 0.2)); b[rand(1:200, 3)] .= missing
-        C = convert(SparseMatrixCSC{Union{Float64, Missing}}, sprandn(Float64, 20, 10, 0.9)); C[rand(1:200, 3)] .= missing
+        # `b` is sparse and `C` nearly full, and each gets a `missing` on a stored entry and
+        # on an unstored one
+        b = convert(SparseMatrixCSC{Union{Float64, Missing}}, sparse([2, 7, 7, 13, 20, 1, 9], [1, 1, 4, 4, 6, 9, 10], [1.5, -2.0, 0.0, 4.0, -0.5, 3.0, 7.0], 20, 10)); b[[2, 64, 150]] .= missing
+        C = convert(SparseMatrixCSC{Union{Float64, Missing}}, sparse([(i + 2j) % 7 == 0 ? 0.0 : i - 2.5j for i in 1:20, j in 1:10])); C[[5, 7, 150]] .= missing
         CA = Array(C)
-        D = convert(SparseMatrixCSC{Union{Float64, Missing}}, spzeros(Float64, 20, 10)); D[rand(1:200, 3)] .= missing
+        D = convert(SparseMatrixCSC{Union{Float64, Missing}}, spzeros(Float64, 20, 10)); D[[3, 64, 199]] .= missing
         E = convert(SparseMatrixCSC{Union{Float64, Missing}}, spzeros(Float64, 20, 10))
         for B in (b, (@static COMPREHENSIVE ? (C, D) : ())..., E), fun in (+, (@static COMPREHENSIVE ? (*, min) : ())...)
             BA = Array(B)
@@ -304,12 +307,12 @@ end
 
 @static if COMPREHENSIVE
 @testset "dropdims" begin
-    for i = 1:(@static COMPREHENSIVE ? 5 : 1)
-        am = sprand(20, 1, 0.2)
+    for n in (20, 7, 1)
+        am = fixture(Float64, n, 1)
         av = dropdims(am, dims=2)
         @test ndims(av) == 1
         @test all(av.==am)
-        am = sprand(1, 20, 0.2)
+        am = fixture(Float64, 1, n)
         av = dropdims(am, dims=1)
         @test ndims(av) == 1
         @test all(av' .== am)
@@ -420,17 +423,17 @@ end
 @static if COMPREHENSIVE
 @testset "oneunit of sparse matrix" begin
     A = sparse([Meters(0) Meters(0); Meters(0) Meters(0)])
-    @test oneunit(sprand(2, 2, 0.5)) isa SparseMatrixCSC{Float64}
+    @test oneunit(fixture(Float64, 2, 2)) isa SparseMatrixCSC{Float64}
     @test oneunit(A) isa SparseMatrixCSC{Meters}
     @test oneunit(A) == [Meters(1) Meters(0); Meters(0) Meters(1)]
-    @test one(sprand(2, 2, 0.5)) isa SparseMatrixCSC{Float64}
+    @test one(fixture(Float64, 2, 2)) isa SparseMatrixCSC{Float64}
     @test one(A) isa SparseMatrixCSC{Int}
 end
 end
 
 @testset "transpose! does not allocate" begin
     function f()
-        A = sprandn(10, 10, 0.1)
+        A = fixture(Float64, 10, 10)
         X = copy(A)
         return @allocated transpose!(X, A)
     end
@@ -441,7 +444,7 @@ end
 end
 
 @testset "sparse transpose adjoint" begin
-    A = sprand(10, 10, 0.75)
+    A = fixture(Float64, 10, 10)
     @test A' == SparseMatrixCSC(A')
     @test SparseMatrixCSC(A') isa SparseMatrixCSC
     @test transpose(A) == SparseMatrixCSC(transpose(A))
@@ -473,9 +476,9 @@ end
 @testset "SparseMatrixCSC [c]transpose[!] and permute[!]" begin
     smalldim = 5
     largedim = 10
-    nzprob = 0.4
+    Random.seed!(20240817)   # for the permutations
     (m, n) = (smalldim, smalldim)
-    A = sprand(m, n, nzprob)
+    A = fixture(Float64, m, n)
     X = similar(A)
     C = copy(transpose(A))
     p = randperm(m)
@@ -515,7 +518,7 @@ end
     end
     @testset "overall functionality of [c]transpose[!] and permute[!]" begin
         for (m, n) in ((@static COMPREHENSIVE ? ((smalldim, smalldim),) : ())..., (smalldim, largedim), (@static COMPREHENSIVE ? ((largedim, smalldim),) : ())...)
-            A = sprand(m, n, nzprob)
+            A = fixture(Float64, m, n)
             At = copy(transpose(A))
             # transpose[!]
             fullAt = Array(transpose(A))
@@ -542,7 +545,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "transpose of SubArrays" begin
-    A = view(sprandn(10, 10, 0.3), 1:4, 1:4)
+    A = view(fixture(Float64, 10, 10), 1:4, 1:4)
     @test copy(transpose(Array(A))) == Array(transpose(A))
     @test copy(adjoint(Array(A))) == Array(adjoint(A))
 end
@@ -649,8 +652,8 @@ end
 @static if COMPREHENSIVE
 @testset "Issue #246" begin
     for t in [Float64]
-        a = OpCount.(sprand(t, 100, 0.5))
-        b = OpCount.(sprand(t, 100, 0.5))
+        a = OpCount.(fixturevec(t, 100))
+        b = OpCount.(2 * fixturevec(t, 100))
 
         c = if nnz(a) != 0
             c = copy(a)
@@ -775,6 +778,7 @@ end
     extra = @static COMPREHENSIVE ? eachvalue(((6, 5), (1, 1), (0, 3), (1, 9), (20, 13)),
                                               (0.3, 1.0), (1, 2),
                                               ((; rev=true), (; alg=Base.DEFAULT_STABLE))) : ()
+    Random.seed!(20240818)   # sorting needs values in no particular order
     @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (@static COMPREHENSIVE ? ((1, 1), (0, 3), (1, 9),
                                                             (20, 13)) : ())...),
                                                  d in (0.3, 1.0)
@@ -946,7 +950,7 @@ end
     end
     @static if COMPREHENSIVE
     # a non-Int index type is kept, including in the column pointers
-    A32 = SparseMatrixCSC{ComplexF64,Int32}(sprand(ComplexF64, 5, 3, 0.5))
+    A32 = SparseMatrixCSC{ComplexF64,Int32}(fixture(ComplexF64, 5, 3))
     A32_full = Matrix(A32)
     for m = 0:2, n = 0:3
         R = repeat(A32, m, n)
@@ -958,8 +962,8 @@ end
 end
 
 @testset "copyto!" begin
-    A = sprand(5, 5, 0.2)
-    B = sprand(5, 5, 0.2)
+    A = fixture(Float64, 5, 5)
+    B = 2 * permutedims(fixture(Float64, 5, 5))
     Ar = copyto!(A, B)
     @test Ar === A
     @test A == B
@@ -967,15 +971,15 @@ end
     @test pointer(rowvals(A)) != pointer(rowvals(B))
     @test pointer(getcolptr(A)) != pointer(getcolptr(B))
     # Test size(A) != size(B), but length(A) == length(B)
-    B = sprand(25, 1, 0.2)
+    B = fixture(Float64, 25, 1)
     copyto!(A, B)
     @test A[:] == B[:]
     # Test various size(A) / size(B) combinations
     sizes = @static COMPREHENSIVE ? [5, 10, 20] : [5, 20]
     for mA in sizes, nA in sizes, mB in sizes, nB in sizes
-        A = sprand(mA,nA,0.4)
+        A = fixture(Float64, mA, nA)
         Aorig = copy(A)
-        B = sprand(mB,nB,0.4)
+        B = 2 * fixture(Float64, mB, nB)
         if mA*nA >= mB*nB
             copyto!(A,B)
             @assert(A[1:length(B)] == B[:])
@@ -985,16 +989,16 @@ end
         end
     end
     # Test eltype(A) != eltype(B), size(A) != size(B)
-    A = sprand(5, 5, 0.2)
+    A = fixture(Float64, 5, 5)
     Aorig = copy(A)
-    B = sparse(rand(Float32, 3, 3))
+    B = sparse(Float32[1 0 7; 2 5 0; 0 6 9])
     copyto!(A, B)
     @test A[1:9] == B[:]
     @test A[10:end] == Aorig[10:end]
     @static if COMPREHENSIVE
     # Test eltype(A) != eltype(B), size(A) == size(B)
-    A = sparse(rand(Float64, 3, 3))
-    B = sparse(rand(Float32, 3, 3))
+    A = fixture(Float64, 3, 3)
+    B = sparse(Float32[1 0 7; 2 5 0; 0 6 9])
     copyto!(A, B)
     @test A == B
     end
@@ -1007,9 +1011,9 @@ end
     end
     @static if COMPREHENSIVE
     # indtype(A) != indtype(B), for every size relation
-    A = SparseMatrixCSC{Float64,Int32}(sprand(5, 5, 0.4))
+    A = SparseMatrixCSC{Float64,Int32}(fixture(Float64, 5, 5))
     Aorig = copy(A)
-    for B in (sprand(5, 5, 0.4), sprand(25, 1, 0.4), sprand(3, 3, 0.4))
+    for B in (2 * permutedims(fixture(Float64, 5, 5)), fixture(Float64, 25, 1), 2 * fixture(Float64, 3, 3))
         copyto!(A, B)
         @test A isa SparseMatrixCSC{Float64,Int32}
         @test A[1:length(B)] == B[:]
@@ -1018,14 +1022,14 @@ end
     end
     end
     # Test copyto!(dense, sparse)
-    B = sprand(5, 5, 1.0)
-    A = rand(5,5)
+    B = permutedims(fixture(Float64, 5, 5))   # has stored entries in `Rsrc` below
+    A = reshape(Float64.(1:25), 5, 5)
     A´ = similar(A)
     Ac = copyto!(A, B)
     @test Ac === A
     @test A == copyto!(A´, Matrix(B))
     # Test copyto!(dense, Rdest, sparse, Rsrc)
-    A = rand(5,5)
+    A = reshape(Float64.(1:25), 5, 5)
     A´ = similar(A)
     Rsrc = CartesianIndices((3:4, 2:3))
     Rdest = CartesianIndices((2:3, 1:2))
@@ -1037,7 +1041,7 @@ end
     copyto!(B´, Rdest, B´, Rsrc)
     @test Matrix(B´)[Rdest] == Matrix(B)[Rsrc]
     # Test that only elements at overlapping linear indices are overwritten
-    A = sprand(3, 3, 1.0); B = ones(4, 4)
+    A = sparse([2.0 5.0 8.0; 3.0 6.0 9.0; 4.0 7.0 10.0]); B = ones(4, 4)
     Bc = copyto!(B, A)
     @test B[4, :] != B[:, 4] == ones(4)
     @test Bc === B
@@ -1048,7 +1052,7 @@ end
     end
 
     # Test correct error for too small destination array
-    @test_throws BoundsError copyto!(rand(2,2), sprand(3,3,0.2))
+    @test_throws BoundsError copyto!(zeros(2,2), fixture(Float64, 3, 3))
 end
 
 @testset "copyto! into dense arrays of any shape" begin
@@ -1095,16 +1099,18 @@ end
 end
 
 @testset "error conditions for reshape, and dropdims" begin
-    local A = sprand(Bool, 5, 5, 0.2)
+    local A = sparse([1, 4, 4], [2, 2, 5], [true, false, true], 5, 5)
     @test_throws DimensionMismatch reshape(A,(20, 2))
     @test_throws ArgumentError dropdims(A,dims=(1, 1))
 end
 
 @testset "droptol" begin
-    A = guardseed(1234321) do
-        triu(sprand(10, 10, 0.2))
-    end
-    @test getcolptr(SparseArrays.droptol!(A, 0.01)) == [1, 1, 1, 1, 2, 2, 2, 4, 4, 5, 5]
+    # the entries are (i + 3j)/2000, so one of them equals the tolerance and is dropped
+    A = triu(fixture(Float64, 10, 10)) / 2000
+    kept = map(x -> abs(x) > 0.01 ? x : 0.0, Matrix(A))
+    @test getcolptr(SparseArrays.droptol!(A, 0.01)) == getcolptr(sparse(kept))
+    @test mismatch(A, kept) === nothing
+    @test 0 < nnz(A) < nnz(triu(fixture(Float64, 10, 10)))
     @test isequal(SparseArrays.droptol!(sparse([1], [1], [1]), 1), SparseMatrixCSC(1, 1, Int[1, 1], Int[], Int[]))
 end
 
@@ -1112,14 +1118,15 @@ end
 @testset "dropzeros[!]" begin
     smalldim = 5
     largedim = 10
-    nzprob = 0.4
     targetnumposzeros = 5
     targetnumnegzeros = 5
     for (m, n) in ((@static COMPREHENSIVE ? ((largedim, largedim),) : ())..., (smalldim, largedim), (@static COMPREHENSIVE ? ((largedim, smalldim),) : ())...)
-        local A = sprand(m, n, nzprob)
+        local A = fixture(Float64, m, n)
+        A[1, 1] = 1   # no stored zero in the reference
         struczerosA = findall(x -> x == 0, A)
-        poszerosinds = unique(rand(struczerosA, targetnumposzeros))
-        negzerosinds = unique(rand(struczerosA, targetnumnegzeros))
+        # the two sets share positions 1 and 13
+        poszerosinds = struczerosA[range(1; step=3, length=targetnumposzeros)]
+        negzerosinds = struczerosA[range(1; step=4, length=targetnumnegzeros)]
         Aposzeros = copy(A)
         Aposzeros[poszerosinds] .= 2
         Anegzeros = copy(A)
@@ -1155,7 +1162,7 @@ end
 end
 
 @testset "similar should not alias the input sparse array" begin
-    a = sparse(rand(3,3) .+ 0.1)
+    a = sparse([1.0 4.0 7.0; 2.0 5.0 8.0; 3.0 6.0 9.0])
     Ti = @static COMPREHENSIVE ? Int32 : Int
     b = similar(a, Float32, Ti)
     c = similar(b, Float32, Ti)
@@ -1248,7 +1255,7 @@ end
 
 @testset "similar should preserve underlying storage type and uplo flag" begin
     m, n = 4, 3
-    sparsemat = sprand(m, m, 0.5)
+    sparsemat = fixture(Float64, m, m)
     for SymType in (Symmetric, (@static COMPREHENSIVE ? (Hermitian,) : ())...)
         symsparsemat = SymType(sparsemat)
         @test isa(similar(symsparsemat), typeof(symsparsemat))
@@ -1262,7 +1269,7 @@ end
 
 @testset "similar should preserve underlying storage type" begin
     local m, n = 4, 3
-    sparsemat = sprand(m, m, 0.5)
+    sparsemat = fixture(Float64, m, m)
     for TriType in (UpperTriangular, (@static COMPREHENSIVE ? (UnitLowerTriangular,) : ())...)
         trisparsemat = TriType(sparsemat)
         @test isa(similar(trisparsemat), typeof(trisparsemat))
@@ -1417,7 +1424,7 @@ end
 end
 
 @testset "copy a ReshapedArray of SparseMatrixCSC" begin
-    A = sprand(20, 10, 0.2)
+    A = fixture(Float64, 20, 10)
     rA = reshape(A, 10, 20)
     crA = copy(rA)
     @test reshape(crA, 20, 10) == A
@@ -1445,7 +1452,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "SparseMatrixCSCView" begin
-    A  = sprand(10, 10, 0.2)
+    A  = fixture(Float64, 10, 10)
     vA = view(A, :, 1:5) # a CSCView contains all rows and a UnitRange of the columns
     @test SparseArrays.getnzval(vA)  == SparseArrays.getnzval(A)
     @test SparseArrays.getrowval(vA) == SparseArrays.getrowval(A)
@@ -1455,7 +1462,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "fill! for SubArrays" begin
-    a = sprand(10, 10, 0.2)
+    a = fixture(Float64, 10, 10)
     b = copy(a)
     sa = view(a, 1:10, 2:3)
     sa_filled = fill!(sa, 0.0)
@@ -1767,7 +1774,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "issparse for specialized matrix types" begin
-    m = sprand(10, 10, 0.1)
+    m = fixture(Float64, 10, 10)
     @test issparse(Symmetric(m))
     @test issparse(Hermitian(m))
     @test issparse(LowerTriangular(m))
@@ -1820,7 +1827,7 @@ end
 @testset "reverse" begin
     @testset "$name" for (name, S) in (("standard", sparse([2,2,4], [1,2,5], [-19.0, 73, -7])),
                             (@static COMPREHENSIVE ? (
-                            ("sprand", sprand(15, 18, 0.2)),
+                            ("fixture", fixture(Float64, 15, 18)),
                             ("zeros", spzeros(20, 40)),
                             ) : ())...,
                             ("fixed", SparseArrays.fixed(sparse([2,2,4], [1,2,5], [-19.0, 73, -7]))))
@@ -1887,7 +1894,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "hash of complex sparse arrays matches dense" begin
-    C = sprand(ComplexF64, 10, 10, 0.3); c = sprand(ComplexF64, 10, 0.3)
+    C = fixture(ComplexF64, 10, 10); c = fixturevec(ComplexF64, 10)
     @test hash(C) == hash(Matrix(C)) && hash(C') == hash(Matrix(C'))
     @test hash(c) == hash(Vector(c))
 end

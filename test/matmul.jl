@@ -8,7 +8,6 @@ using Test
 using SparseArrays
 using SparseArrays: AbstractSparseMatrixCSC, nonzeroinds, getcolptr, rowvals, nonzeros, fixed, _is_fixed
 using LinearAlgebra
-using Random
 include("testhelpers.jl")
 
 # every transform appears once on each side
@@ -16,21 +15,22 @@ const TRANSFORM_PAIRS = ((identity, identity), (adjoint, transpose), (transpose,
 
 @static if COMPREHENSIVE
 @testset "matrix-vector multiplication (non-square)" begin
-    for i = 1:(@static COMPREHENSIVE ? 5 : 1)
-        a = sprand(10, 5, 0.5)
-        b = rand(5)
+    for (m, n) in ((10, 5), (5, 10))
+        a = fixture(Float64, m, n)
+        # integers, so that both products are exact
+        b = Float64.(1:n)
         @test maximum(abs.(a*b - Array(a)*b)) < 100*eps()
     end
 end
 end
 
 @testset "diagonal - sparse vector mutliplication" begin
-    for _ in 1:(@static COMPREHENSIVE ? 10 : 1)
-        b = fixturevec(Float64, 10)
-        A = Diagonal(randn(10))
+    for n in (10, (@static COMPREHENSIVE ? (7,) : ())...)
+        b = fixturevec(Float64, n)
+        A = Diagonal(fixturedense(Float64, n))
         @test mismatch(A * b, A * Vector(b)) === nothing
         # the eltype of the result is that of the product, not of the vector
-        Ac = Diagonal(randn(Complex{Float64}, 10))
+        Ac = Diagonal(fixturedense(ComplexF64, n))
         @test mismatch(Ac * b, Ac * Vector(b)) === nothing
         @static if COMPREHENSIVE
         @test norm(A * b - Array(A) * b) <= 10eps()
@@ -43,7 +43,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "sparse matrix * BitArray" begin
-    A = sprand(5,5,0.3)
+    A = fixture(Float64, 5, 5)
     MA = Array(A)
     B = trues(5)
     @test A*B ≈ MA*B
@@ -59,15 +59,18 @@ end
 
 
 @testset "matrix multiplication" begin
-    for (m, p, n, q, k) in (
-                            # standard: one product whose columns are gathered by a scan, and one
-                            # sparse enough that they are sorted
-                            (10, 0.7, 5, 0.3, 15),
-                            (100, 0.03, 100, 0.02, 60),
-                            (@static COMPREHENSIVE ? ((100, 0.1, 100, 0.2, 100),) : ())...,
+    for (a, b) in (
+                            # standard: one product whose columns are gathered by a scan, one
+                            # sparse enough that they are sorted, and a full column times a full
+                            # row, whose product outgrows the size estimated for it
+                            (fixture(Float64, 10, 5), fixture(Float64, 5, 15)),
+                            (fixturestrided(Float64, 100, 100, 33), fixturestrided(Float64, 100, 60, 49)),
+                            (sparse(1:10, fill(1, 10), 1.0:10.0, 10, 10), sparse(fill(1, 10), 1:10, 1.0:10.0, 10, 10)),
+                            (@static COMPREHENSIVE ? ((fixturestrided(Float64, 100, 100, 9), fixturestrided(Float64, 100, 100, 7)),) : ())...,
                            )
-        a = sprand(m, n, p); ad = Array(a)
-        b = sprand(n, k, q); bd = Array(b)
+        n = size(a, 2)
+        ad = Array(a)
+        bd = Array(b)
         as = sparse(a')
         bs = sparse(b')
         ab = a * b
@@ -77,16 +80,16 @@ end
         @test a*bs' == ab
         @test as'*b == ab
         @test as'*bs' == ab
-        f = Diagonal(rand(n))
+        f = Diagonal(fixturedense(Float64, n))
         @test mismatch(a*f, ad*f) === nothing
         @test mismatch(f*b, f*bd) === nothing
-        A = rand(2n, 2n)
+        A = fixturedense(Float64, 2n, 2n)
         sA = view(A, 1:2:2n, 1:2:2n); dA = Array(sA)
         @test (sA*b)::Matrix ≈ dA*bd
         @test (a*sA)::Matrix ≈ ad*dA
         @test (sA'b)::Matrix ≈ dA'*bd
         @static if COMPREHENSIVE
-        c = sprandn(ComplexF32, n, n, q); cd = Array(c)
+        c = fixture(ComplexF32, n, n); cd = Array(c)
         @test (sA*c')::Matrix ≈ dA*cd'
         @test (c'*sA)::Matrix ≈ cd'*dA
         @test (sA'c)::Matrix ≈ dA'*cd
@@ -98,7 +101,7 @@ end
 @testset "symmetric/Hermitian sparse times sparse" begin
     n = 10
     @testset "$T" for T in (Float64, ComplexF64)
-        A = fixture(T, n, n); B = sprandn(T, n, n, 0.3)
+        A = fixture(T, n, n); B = permutedims(fixture(T, n, n))
         # standard: one pair for each eltype, as the two wrappers differ only for a complex one.
         # Comprehensive: every second factor once as well, shared out among the wrappers, for
         # the complex eltype; a wrapper is made sparse before the product, so the pairs add nothing.
@@ -150,13 +153,13 @@ end
     # another wrapper one other wrapper, and each one banded type.
     for tA in (@static COMPREHENSIVE ? wrappers : (adjoint, UpperTriangular))
         i = @static COMPREHENSIVE ? findfirst(==(tA), wrappers) : 1
-        A = randn(5,5)
+        A = fixturedense(Float64, 5, 5)
         At = tA(A)
         S = fixture(Float64, 5, 5)
         St = tA(S)
         for tB in ((tA === adjoint ? (Symmetric,) : tA === UpperTriangular ? (transpose,) : ())...,
                    (@static COMPREHENSIVE ? (St isa LinearAlgebra.AbstractTriangular ? tA : wrappers[mod1(i + 2, end)],) : ())...)
-            B = sprandn(5,5, 0.3)
+            B = permutedims(fixture(Float64, 5, 5))
             Bt = tB(B)
             C = At*Bt
             @test C ≈ Matrix(At) * Matrix(Bt)
@@ -173,7 +176,7 @@ end
         d = St*b
         @test mismatch(d, Matrix(St) * Vector(b); approx=true) === nothing
         @test d isa SparseVector
-        for T in (Diagonal(randn(5)),
+        for T in (Diagonal(fixturedense(Float64, 5)),
                     Bidiagonal(ones(5), ones(4), :U),
                     Tridiagonal(ones(4), ones(5), ones(4)),
                     SymTridiagonal(ones(5), ones(4)))[tA === UpperTriangular ? (2:2) : (mod1(i, 4):mod1(i, 4))]
@@ -188,7 +191,7 @@ end
     # two triangular factors of one kind give that kind; an implicit unit diagonal is made
     # explicit for the kernel
     @static if !COMPREHENSIVE
-    S = sprandn(5, 5, 0.3); B = sprandn(5, 5, 0.3)
+    S = fixture(Float64, 5, 5); B = permutedims(fixture(Float64, 5, 5))
     for tA in (UnitUpperTriangular, LowerTriangular)
         D = tA(S) * tA(B)
         @test D isa tA && issparse(D)
@@ -199,22 +202,21 @@ end
 
 @testset "multiplication of special sparse with dense matrix" begin
     # this results in a call of the most generic multiplication code in LinearAlgebra.jl
-    A = randn(2, 2)
+    A = [1.0 -2.0; 3.0 0.5]
     S = sparse(A)
-    B = rand(1, 2)'
+    B = [0.25 -1.5]'
     @test Symmetric(S) * B ≈ Symmetric(A) * B
 end
 
 @static if COMPREHENSIVE
 @testset "Symmetric of sparse matrix mul! dense vector" begin
-    rng = Random.MersenneTwister(1)
     n = 1000
     p = 0.02
-    q = 1 - sqrt(1-p)
-    Areal = sprandn(rng, n, n, p)
-    Breal = randn(rng, n)
-    Acomplex = sprandn(rng, n, n, q) + sprandn(rng, n, n, q) * im
-    Bcomplex = Breal + randn(rng, n) * im
+    # the strides give the density `p`; the two parts of the complex matrix share part of their pattern
+    Areal = fixturestrided(Float64, n, n, 49)
+    Breal = fixturedense(Float64, n)
+    Acomplex = fixturestrided(Float64, n, n, 99) + fixturestrided(Float64, n, n, 101) * im
+    Bcomplex = fixturedense(ComplexF64, n)
     # both triangles; the two wrappers differ only for a complex eltype
     @testset "symmetric/Hermitian sparse multiply with $S($U)" for (S, U, A, B) in
             ((Symmetric, :U, Areal, Breal), (Symmetric, :L, Areal, Breal),
@@ -230,14 +232,13 @@ end
 
 @static if COMPREHENSIVE
 @testset "Symmetric of view of sparse matrix mul! dense vector" begin
-    rng = Random.MersenneTwister(1)
     n = 1000
     p = 0.02
-    q = 1 - sqrt(1-p)
-    Areal = view(sprandn(rng, n, n+10, p), :, 6:n+5)
-    Breal = randn(rng, n)
-    Acomplex = view(sprandn(rng, n, n+10, q) + sprandn(rng, n, n+10, q) * im, :, 6:n+5)
-    Bcomplex = Breal + randn(rng, n) * im
+    # the strides give the density `p`; the two parts of the complex matrix share part of their pattern
+    Areal = view(fixturestrided(Float64, n, n+10, 49), :, 6:n+5)
+    Breal = fixturedense(Float64, n)
+    Acomplex = view(fixturestrided(Float64, n, n+10, 99) + fixturestrided(Float64, n, n+10, 101) * im, :, 6:n+5)
+    Bcomplex = fixturedense(ComplexF64, n)
     std = (Symmetric, :L, (Acomplex, Bcomplex))
     @testset "symmetric/Hermitian sparseview multiply with $S($U)" for (S, U, (A, B)) in (std, (@static COMPREHENSIVE ?
             eachvalue((Symmetric, Hermitian), (:U, :L), ((Areal, Breal), (Acomplex, Bcomplex))) : ())...)
@@ -258,23 +259,22 @@ end
     @test mul!(copy(B), B, Hermitian(A), true, true) == mul!(copy(B), B, Hermitian(As), true, true)
     end
 
-    rng = Random.MersenneTwister(1)
     n = 20
     # the two wrappers differ only for a complex eltype, which takes both, and both triangles
     std = ((Float64, Symmetric, :U), (ComplexF64, Hermitian, :L))
     @testset "$T, $S($U)" for (T, S, U) in (std..., (@static COMPREHENSIVE ?
             ((ComplexF64, Symmetric, :L), (ComplexF64, Hermitian, :U)) : ())...)
-        P = sprandn(rng, T, n, n + 2, 0.2)
+        P = fixture(T, n, n + 2)
         nonzeros(P)[1] = 0
-        C = randn(rng, T, 3, n)
-        for (A, X) in ((S(P[:, 1:n], U), randn(rng, T, 3, n)),
-                ((@static COMPREHENSIVE || S === Hermitian) ? ((S(view(P, :, 2:n+1), U), randn(rng, T, n, 3)'),) : ())...,
-                ((@static COMPREHENSIVE && T <: Complex) ? ((S(P[:, 1:n], U), transpose(randn(rng, T, n, 3))),) : ())...)
+        C = fixturedense(T, 3, n)
+        for (A, X) in ((S(P[:, 1:n], U), permutedims(fixturedense(T, n, 3))),
+                ((@static COMPREHENSIVE || S === Hermitian) ? ((S(view(P, :, 2:n+1), U), fixturedense(T, n, 3)'),) : ())...,
+                ((@static COMPREHENSIVE && T <: Complex) ? ((S(P[:, 1:n], U), transpose(fixturedense(T, n, 3))),) : ())...)
             @test X * A ≈ X * Matrix(A)
             @test mul!(copy(C), X, A, 2, 3) ≈ mul!(copy(C), X, Matrix(A), 2, 3)
         end
-        X = S(randn(rng, T, n, n), U)
-        C = randn(rng, T, n, n)
+        X = S(fixturedense(T, n, n), U)
+        C = permutedims(fixturedense(T, n, n))
         Q = P[:, 1:n]
         # the transformed sparse factors meet the Hermitian dense one only
         for B in (@static COMPREHENSIVE ? (Q, view(P, :, 2:n+1), Q', transpose(Q))[1:(S === Hermitian ? 4 : 2)] : S === Hermitian ? (Q',) : (Q,))
@@ -290,13 +290,12 @@ end
 end
 
 @testset "sparse-dense products take the same dense factors on either side" begin
-    rng = Random.MersenneTwister(1)
     n = 12
     @testset "$T" for T in (Float64, ComplexF64)
         S = fixture(T, n, n)
-        D = randn(rng, T, n, n)
-        C = randn(rng, T, n, n)
-        c = randn(rng, T, n)
+        D = fixturedense(T, n, n)
+        C = permutedims(D)
+        c = D[:, 2]
         # one dense factor per sparse kernel rather than the full grid
         for (A, X, x) in ((S, view(D, [1:n;], :), 1.0:n),
                           (S', view(D, :, [1:n;])', view(D, [1:n;], 1)),
@@ -320,14 +319,14 @@ end
     end
     # a view that is not a column subset multiplies through its sparse copy (#56), and the
     # product with a dense factor is dense
-    S = sprandn(rng, 10, 12, 0.3); G = view(S, [4, 1, 1, 9, 7], 2:11); M = Matrix(G)
-    X, Y, x, y = randn(rng, 10, 3), randn(rng, 3, 5), randn(rng, 10), randn(rng, 5)
+    S = fixture(Float64, 10, 12); G = view(S, [4, 1, 1, 9, 7], 2:11); M = Matrix(G)
+    X, Y, x, y = fixturedense(Float64, 10, 3), fixturedense(Float64, 3, 5), fixturedense(Float64, 10), fixturedense(Float64, 5)
     @test which(mul!, Base.typesof(zeros(5, 3), 'N', 'N', G, X, true, false)).module == SparseArrays
     @test which(mul!, Base.typesof(zeros(3, 10), 'N', 'N', Y, G, true, false)).module == SparseArrays
     @test which(mul!, Base.typesof(zeros(5), 'N', G, x, true, false)).module == SparseArrays
     @test G * X ≈ M * X && (@static COMPREHENSIVE ? G * x ≈ M * x && G' * y ≈ M' * y && y' * G ≈ y' * M : true)
     @test Y * G isa Matrix && Y * G ≈ Y * M
-    P = sprandn(rng, 10, 6, 0.3); Q = sprandn(rng, 8, 5, 0.3)
+    P = fixture(Float64, 10, 6); Q = fixture(Float64, 8, 5)
     @test G * P isa SparseMatrixCSC && mismatch(G * P, M * Matrix(P); approx=true) === nothing
     @static if COMPREHENSIVE
     @test Q * G isa SparseMatrixCSC && mismatch(Q * G, Matrix(Q) * M; approx=true) === nothing
@@ -351,9 +350,9 @@ end
 @testset "in-place sparse-sparse mul!" begin
     for n in (20, (@static COMPREHENSIVE ? (30,) : ())...)
         sA = fixture(ComplexF64, n, n); A = Array(sA)
-        sB = sprandn(ComplexF64, n, n, 0.1); B = Array(sB)
-        sC = sprandn(ComplexF64, n, n, 0.1); C = Array(sC)
-        a = randn(ComplexF64); b = randn(ComplexF64)
+        sB = permutedims(sA); B = Array(sB)
+        sC = sA[n:-1:1, :]; C = Array(sC)
+        a = 0.7 - 1.3im; b = -0.4 + 0.9im
         vA = view(sA, :, 1:1:n)
         # the plain product, each transform once on each side with general coefficients, and
         # a view; the other size takes every factor, transform and coefficient once more.
@@ -367,7 +366,7 @@ end
             @test mismatch(mul!(copy(sC), trA(sA), trB(sB), α, β), C*β + trA(A) * trB(B) * α; approx=true) === nothing
         end
     end
-    A = fixture(ComplexF64, 8, 8); B = sprandn(ComplexF64, 8, 8, 0.3); C = sprandn(ComplexF64, 8, 8, 0.3)
+    A = fixture(ComplexF64, 8, 8); B = permutedims(A); C = A[8:-1:1, :]
     for W in ((@static COMPREHENSIVE ? (Symmetric,) : ())..., Hermitian)
         @static if COMPREHENSIVE
         @test mismatch(mul!(copy(C), W(A), B, 2, 3), 2 * W(Matrix(A)) * Matrix(B) + 3 * Matrix(C); approx=true) === nothing
@@ -375,7 +374,7 @@ end
         @test mismatch(mul!(copy(C), A', W(B, :L), 2, 3), 2 * Matrix(A)' * W(Matrix(B), :L) + 3 * Matrix(C); approx=true) === nothing
     end
     # a column-view destination is assigned through its parent
-    P = sprandn(ComplexF64, 8, 10, 0.3); P0 = copy(P)
+    P = fixture(ComplexF64, 8, 10); P0 = copy(P)
     @test mul!(view(P, :, 2:9), A, B', 2, 3) ≈ 2 * Matrix(A) * Matrix(B)' + 3 * Matrix(P0)[:, 2:9]
     @test P[:, [1, 10]] == P0[:, [1, 10]]
     @static if COMPREHENSIVE
@@ -400,11 +399,11 @@ end
 @testset "scaling with * and mul!, rmul!, and lmul!" begin
     sA, dA = fixturepair(Float64, 3, 7)
     sC = similar(sA)
-    b = randn(7)
+    b = fixturedense(Float64, 7)
     @test mismatch(sA * Diagonal(b), dA * Diagonal(b)) === nothing
     @test mismatch(mul!(sC, sA, Diagonal(b)), dA * Diagonal(b)) === nothing
     @test mismatch(rmul!(copy(sA), Diagonal(b)), dA * Diagonal(b)) === nothing
-    b = randn(3)
+    b = fixturedense(Float64, 3)
     @test mismatch(Diagonal(b) * sA, Diagonal(b) * dA) === nothing
     @test mismatch(mul!(sC, Diagonal(b), sA), Diagonal(b) * dA) === nothing
     @test mismatch(lmul!(Diagonal(b), copy(sA)), Diagonal(b) * dA) === nothing
@@ -412,7 +411,7 @@ end
     # adjoint/transpose of a sparse matrix with a Diagonal (issue #619)
     for (T, W) in ((ComplexF64, adjoint), (ComplexF64, transpose))
         S = fixture(T, 7, 3); M = Matrix(S)
-        Dl = Diagonal(randn(T, 3)); Dr = Diagonal(randn(T, 7))
+        Dl = Diagonal(fixturedense(T, 3)); Dr = Diagonal(fixturedense(T, 7))
         @test W(S) * Dr isa SparseMatrixCSC
         @test Dl * W(S) isa SparseMatrixCSC
         @test mismatch(W(S) * Dr, W(M) * Dr; approx=true) === nothing
@@ -433,7 +432,7 @@ end
         @test mismatch(C, W(M) * Dr; approx=true) === nothing
         @test mul!(C, Dl, W(S)) === C
         @test mismatch(C, Dl * W(M); approx=true) === nothing
-        C0 = sprand(T, 3, 7, 0.5)
+        C0 = fixture(T, 3, 7)
         @test mismatch(mul!(copy(C0), W(S), Dr, 2, 3), 2 * W(M) * Dr + 3 * Matrix(C0); approx=true) === nothing
         @test mismatch(mul!(copy(C0), Dl, W(S), 2, 3), 2 * Dl * W(M) + 3 * Matrix(C0); approx=true) === nothing
         @test mismatch(mul!(copy(C0), W(S), Dr, 2, 0), 2 * W(M) * Dr; approx=true) === nothing
@@ -445,7 +444,7 @@ end
         @test mismatch(mul!(C32, Dl, W(S)), Dl * W(M); Ti=Int32, approx=true) === nothing
         end
         # so does a destination aliasing the parent
-        Q = fixture(T, 5, 5); MQ = Matrix(Q); Dq = Diagonal(randn(T, 5))
+        Q = fixture(T, 5, 5); MQ = Matrix(Q); Dq = Diagonal(fixturedense(T, 5))
         @test mismatch(mul!(Q, W(Q), Dq), W(MQ) * Dq; approx=true) === nothing
         @static if COMPREHENSIVE
         Q = fixture(T, 5, 5); MQ = Matrix(Q)
@@ -467,15 +466,15 @@ end
     end
     # a Diagonal times a fixed matrix keeps the structure, and the fixedness, of the input
     F = fixed(sA)
-    let Dl = Diagonal(randn(3)), Dr = Diagonal(randn(7))
+    let Dl = Diagonal(fixturedense(Float64, 3)), Dr = Diagonal(fixturedense(Float64, 7))
         @test mismatch(Dl * F, Dl * dA; approx=true) === nothing
         @test mismatch(F * Dr, dA * Dr; approx=true) === nothing
         @test _is_fixed(Dl * F) && _is_fixed(F * Dr)
     end
     # the kernels touch only the stored entries: exactly nnz(S) scalar multiplications,
     # whereas the generic Diagonal kernel visits every element of the result
-    S = opcount_sparse(sprand(20, 30, 0.2))
-    Dl = Diagonal(OpCount.(rand(30))); Dr = Diagonal(OpCount.(rand(20)))
+    S = opcount_sparse(fixture(Float64, 20, 30))
+    Dl = Diagonal(OpCount.(fixturedense(Float64, 30))); Dr = Diagonal(OpCount.(fixturedense(Float64, 20)))
     for W in (adjoint,)
         @test mulcount(() -> W(S) * Dr) == nnz(S)
         @test mulcount(() -> Dl * W(S)) == nnz(S)
@@ -525,7 +524,7 @@ end
 @testset "scaling by a number, inverse scaling, non-commutative and 5-arg Diagonal mul!" begin
     sA, dA = fixturepair(Float64, 3, 7)
     sC = similar(sA)
-    b = randn(3)
+    b = fixturedense(Float64, 3)
     @test mismatch(sA * 0.5, dA * 0.5) === nothing
     @test mismatch(mul!(sC, sA, 0.5), dA * 0.5) === nothing
     @test mismatch(rmul!(copy(sA), 0.5), dA * 0.5) === nothing
@@ -561,12 +560,13 @@ end
         Quaternion = quaternion_type()
         # the later testsets use the real `sA` and `dA` of the enclosing testset
         local sA, sC, dA
-        Avals = Quaternion.(randn(10), randn(10), randn(10), randn(10))
-        sA = sparse(rand(1:3, 10), rand(1:7, 10), Avals, 3, 7)
+        Avals = Quaternion.(eachcol(fixturedense(Float64, 10, 4))...)
+        # ten distinct positions, with the last two columns empty
+        sA = sparse(mod1.(1:10, 3), mod1.(1:10, 5), Avals, 3, 7)
         sC = copy(sA)
         dA = Array(sA)
 
-        b = Quaternion.(randn(7), randn(7), randn(7), randn(7))
+        b = Quaternion.(eachcol(fixturedense(Float64, 7, 4))...)
         D = Diagonal(b)
         @test mismatch(sA * D, dA * D; approx=true) === nothing
         @test rmul!(copy(sA), D) ≈ dA * D
@@ -574,7 +574,7 @@ end
         @test mul!(sC, copy(sA), D) ≈ dA * D
         end
 
-        b = Quaternion.(randn(3), randn(3), randn(3), randn(3))
+        b = Quaternion.(eachcol(fixturedense(Float64, 3, 4))...)
         D = Diagonal(b)
         @test mismatch(D * sA, D * dA; approx=true) === nothing
         @test lmul!(D, copy(sA)) ≈ D * dA
@@ -610,19 +610,19 @@ end
         # besides a destination with the pattern of `sA` and one with another pattern, one that
         # shares only the row indices (an empty column changes places) and one that shares only
         # the column pointers (the rows are reversed)
-        for sA2 in (similar(sA), sprand(size(sA)..., 0.1), sA[:, [1, 3, 2, 4, 5, 6, 7]], sA[[3, 2, 1], :])
+        for sA2 in (similar(sA), sparse([1, 3], [2, 6], [1.0, 1.0], size(sA)...), sA[:, [1, 3, 2, 4, 5, 6, 7]], sA[[3, 2, 1], :])
             nonzeros(sA2) .= 1
             @testset for (alpha, beta) in [(true, false), (true, true), (2,3)]
-                D = Diagonal(rand(size(sA,2)))
+                D = Diagonal(fixturedense(Float64, size(sA,2)))
                 @test mismatch(mul!(copy(sA2), sA, D, alpha, beta), dA * D * alpha + sA2 * beta; approx=true) === nothing
-                D = Diagonal(rand(size(sA,1)))
+                D = Diagonal(fixturedense(Float64, size(sA,1)))
                 @test mismatch(mul!(copy(sA2), D, sA, alpha, beta), D * dA * alpha + sA2 * beta; approx=true) === nothing
             end
         end
     end
 
     @testset "scale" begin
-        x = sprand(16, 0.5)
+        x = fixturevec(Float64, 16)
         α = 2.5
         sx = SparseVector(length(x::SparseVector), nonzeroinds(x), nonzeros(x) * α)
         @test exact_equal(x * α, sx)
@@ -688,7 +688,7 @@ end
         # comprehensive ones repeat a value
         for (α, β) in ((true, false), (false, true), (zero(ElType), one(ElType)), (one(ElType), general), (general, zero(ElType)),
                 (@static COMPREHENSIVE ? zip(vs, vs) : ())...)
-            C .= rand.(ElType)
+            C .= fixturedense(ElType, size(C)...)
             expected′ = expected .* α .+ C .* β
             @test mul!(C, A, B, α, β) === C
             @test C ≈ expected′
@@ -698,7 +698,7 @@ end
     # BigFloat adds the generic non-BLAS path to what the BLAS eltypes cover
     for ElType in (@static COMPREHENSIVE ? (Float64, ComplexF64, BigFloat) : (Float64, ComplexF64))
         SP = fixture(ElType, 10, 10)
-        D = rand(ElType, 10, 10)
+        D = fixturedense(ElType, 10, 10)
         fs = (identity, adjoint, transpose)
         # every transform once on each side; adjoint and transpose differ only for a complex eltype
         for (f1, f2) in (TRANSFORM_PAIRS[1:(ElType <: Real ? 1 : end)]..., ((@static COMPREHENSIVE && ElType <: Complex) ?
@@ -729,10 +729,10 @@ end
         for TA in (Float64, ComplexF64), Tx in (Float64, ComplexF64)
             T = Base.promote_op(LinearAlgebra.matprod, TA, Tx)
             sel(k) = (TA == Tx && (k == 1 || TA <: Complex && k in (2, 3, 7))) || (TA, Tx, k) in cases
-            sel(1) && let A = randn(TA, 9, 16), x = fixturevec(Tx, 16)
+            sel(1) && let A = fixturedense(TA, 9, 16), x = fixturevec(Tx, 16)
                 xf = Array(x)
                 for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                    y = rand(T, 9)
+                    y = fixturedense(T, 9)
                     rr = α*A*xf + β*y
                     @test mul!(y, A, x, α, β) === y
                     @test y ≈ rr
@@ -742,10 +742,10 @@ end
                 @test A*x ≈ A*xf
             end
 
-            sel(2) && let A = randn(TA, 16, 9), x = fixturevec(Tx, 16)
+            sel(2) && let A = fixturedense(TA, 16, 9), x = fixturevec(Tx, 16)
                 xf = Array(x)
                 for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                    y = rand(T, 9)
+                    y = fixturedense(T, 9)
                     rr = α*transpose(A)*xf + β*y
                     @test mul!(y, transpose(A), x, α, β) === y
                     @test y ≈ rr
@@ -755,10 +755,10 @@ end
                 @test y ≈ *(transpose(A), xf)
             end
 
-            sel(3) && let A = randn(TA, 16, 9), x = fixturevec(Tx, 16)
+            sel(3) && let A = fixturedense(TA, 16, 9), x = fixturevec(Tx, 16)
                 xf = Array(x)
                 for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                    y = rand(T, 9)
+                    y = fixturedense(T, 9)
                     rr = α*A'xf + β*y
                     @test mul!(y, adjoint(A), x, α, β) === y
                     @test y ≈ rr
@@ -768,13 +768,13 @@ end
                 @test y ≈ *(adjoint(A), xf)
             end
 
-            let A = randn(TA, 16, 16), x = fixturevec(Tx, 16)
+            let A = fixturedense(TA, 16, 16), x = fixturevec(Tx, 16)
                 xf = Array(x)
                 for (k, wrap) in enumerate((M -> Symmetric(M, :U), M -> Symmetric(M, :L),
                         M -> Hermitian(M, :U), M -> Hermitian(M, :L)))
                     sel(k + 3) || continue
                     for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
-                        y = rand(T, 16)
+                        y = fixturedense(T, 16)
                         rr = α*wrap(A)*xf + β*y
                         @test mul!(y, wrap(A), x, α, β) === y
                         @test y ≈ rr
@@ -794,7 +794,7 @@ end
             Af = Array(A)
             xf = Array(x)
             for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                y = rand(9)
+                y = fixturedense(Float64, 9)
                 rr = α*Af*xf + β*y
                 @test mul!(y, A, x, α, β) === y
                 @test y ≈ rr
@@ -808,7 +808,7 @@ end
             Af = Array(A)
             xf = Array(x)
             for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
-                y = rand(9)
+                y = fixturedense(Float64, 9)
                 rr = α*Af'xf + β*y
                 @test mul!(y, transpose(A), x, α, β) === y
                 @test y ≈ rr
@@ -840,7 +840,7 @@ end
                 # and a triangle of a symmetric wrapper.
                 M -> UpperTriangular(Symmetric(M)))[(@static COMPREHENSIVE ? [1, 2, 3, 4, 5, 12, 14, 15, 17] : [1, 2, 5, 15])]
                 for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
-                    y = rand(16)
+                    y = fixturedense(Float64, 16)
                     rr = α*wrap(Af)*xf + β*y
                     @test mul!(y, wrap(A), x, α, β) === y
                     @test y ≈ rr
@@ -863,7 +863,7 @@ end
         end
 
         @static if COMPREHENSIVE
-        let A = sparse(bitrand(9, 16)), x = sparse(bitrand(16))
+        let A = map(!iszero, fixture(Float64, 9, 16)), x = map(!iszero, fixturevec(Float64, 16))
             Af = Array(A)
             xf = Array(x)
             y = SparseArrays.densemv(A, x)
@@ -920,7 +920,7 @@ end
             end
         end
 
-        let A = sparse(bitrand(9, 16)), x = sparse(bitrand(16)), x2 = sparse(bitrand(9))
+        let A = map(!iszero, fixture(Float64, 9, 16)), x = map(!iszero, fixturevec(Float64, 16)), x2 = map(!iszero, fixturevec(Float64, 9))
             Af = Array(A)
             xf = Array(x)
             x2f = Array(x2)
@@ -938,7 +938,7 @@ end
     end
     @static if COMPREHENSIVE
     @testset "sparse A * dense x -> dense y" begin
-        let A = sparse(bitrand(9, 16)), x = Vector(bitrand(16)), x2 = Vector(bitrand(9))
+        let A = map(!iszero, fixture(Float64, 9, 16)), x = Vector(map(!iszero, fixturevec(Float64, 16))), x2 = Vector(map(!iszero, fixturevec(Float64, 9)))
             Af = Array(A)
             xf = Array(x)
             x2f = Array(x2)
@@ -956,7 +956,7 @@ end
 end
 
 @testset "products of LinearAlgebra's Q types with sparse operands" begin
-    D = randn(7, 7)
+    D = fixturedense(Float64, 7, 7)
     m = size(D, 1)
     # one operand of each kind gives the same dense result as its dense copy
     B, C, b = fixture(Float64, m, 3), fixture(Float64, 3, m), fixturevec(Float64, m)
@@ -976,7 +976,7 @@ end
         end
         @test (Q' * b)::Vector ≈ Q' * Vector(b)
         @test (b' * Q)::Adjoint ≈ Vector(b)' * Q
-        @test_throws DimensionMismatch Q * sprandn(m + 1, 2, 0.5)
+        @test_throws DimensionMismatch Q * fixture(Float64, m + 1, 2)
     end
     # one method serves the left Q types; the lq Q has its own
     @static if !COMPREHENSIVE
@@ -991,7 +991,7 @@ end
 @testset "product kernels touch stored entries only" begin
     n = 8
     # adjoint dense times adjoint sparse reads each entry of the dense factor at most once
-    A = fixture(ComplexF64, 6, n); X = randn(ComplexF64, n, 5); C0 = randn(ComplexF64, 5, 6)
+    A = fixture(ComplexF64, 6, n); X = fixturedense(ComplexF64, n, 5); C0 = fixturedense(ComplexF64, 5, 6)
     Xc = CountedReads(X)
     @test mul!(copy(C0), Xc', A', 2, 3) ≈ 2 * X' * Matrix(A)' + 3 * C0
     @test Xc.reads[] <= length(X)
@@ -1008,15 +1008,15 @@ end
     Q = opcount_sparse(sparse(1.0I, n, n + 1))
     @test mulcount(() -> mul!(view(Q, :, 1:n), P, P, two, two)) <= 4n
     # the adjoint kernel for a sparse vector does not allocate per column
-    A = sprandn(400, 400, 0.01); xs = sprandn(400, 0.1); ys = zeros(400)
+    A = fixturestrided(Float64, 400, 400, 99); xs = fixturevec(Float64, 400); ys = zeros(400)
     mul!(ys, A', xs, 2.0, 0.5)
     @test (@allocated mul!(ys, A', xs, 2.0, 0.5)) < 1000
 end
 
 @testset "dimension mismatch error" begin
-    fs = [rand, (x, y)->adjoint(rand(y, x)), (x, y)->transpose(rand(y, x)),
-          (x, y)->sprand(x, y, 0.5), (x, y)->adjoint(sprand(y, x, 0.5)),
-          (x, y)->transpose(sprand(y, x, 0.5))]
+    fs = [(x, y)->fixturedense(Float64, x, y), (x, y)->adjoint(fixturedense(Float64, y, x)), (x, y)->transpose(fixturedense(Float64, y, x)),
+          (x, y)->fixture(Float64, x, y), (x, y)->adjoint(fixture(Float64, y, x)),
+          (x, y)->transpose(fixture(Float64, y, x))]
     # each dense factor with a sparse one on either side, and two sparse factors; comprehensive
     # adds a plain sparse factor times a dense one, and a plain dense one times a transformed sparse one
     for (i, j) in ((1, 4), (3, 6), (5, 2), (6, 3), (4, 4), (@static COMPREHENSIVE ? ((4, 1), (1, 5)) : ())...)

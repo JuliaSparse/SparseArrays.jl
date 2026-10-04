@@ -64,8 +64,8 @@ include("testhelpers.jl")
         @test mismatch(ss116[p,p], aa116[p,p]) === nothing
 
         # bool indexing
-        li = bitrand(size(aa116,1))
-        lj = bitrand(size(aa116,2))
+        li = (1:size(aa116,1)) .% 3 .!= 1
+        lj = (1:size(aa116,2)) .% 4 .< 2
         @test mismatch(ss116[li,j], aa116[li,j]) === nothing
         @static if COMPREHENSIVE
         @test mismatch(ss116[li,:], aa116[li,:]) === nothing
@@ -122,7 +122,7 @@ include("testhelpers.jl")
     @test_throws BoundsError S[inds_out]
 
     @testset "indices lowered by to_indices (issue #42), $T" for T in (Float64, ComplexF64)
-        A = sprand(T, 6, 6, 0.4); c = isodd.(1:6)
+        A = fixture(T, 6, 6); c = isodd.(1:6)
         # The standard run indexes a real matrix and the adjoint of a complex one. The
         # wrappers take the complex matrix, whose adjoint differs from its transpose; every
         # form meets the plain matrix and one of the wrappers.
@@ -365,7 +365,7 @@ end
 
     ASZ = 1000
     TSZ = 800
-    A = sprand(ASZ, 2*ASZ, 0.0001)
+    A = sparse([mod1(37k, ASZ) for k in 1:200], [mod1(73k, 2*ASZ) for k in 1:200], collect(1.0:200.0), ASZ, 2*ASZ)
     B = copy(A)
     nA = count(!iszero, A)
     x = A[1:TSZ, 1:(2*TSZ)]
@@ -407,8 +407,8 @@ end
     @test A[lininds] == A[X] == c
 
     let # prevent assignment to I from overwriting UniformSampling in enclosing scope
-        S = sprand(50, 30, 0.5, x -> round.(rand(x) * 100))
-        I = sprand(Bool, 50, 30, 0.2)
+        S = fixture(Float64, 50, 30)   # integer values, so that the sums are exact
+        I = sparse([(i + 2j) % 5 == 0 for i in 1:50, j in 1:30])
         FS = Array(S)
         FI = Array(I)
         @test sparse(FS[FI]) == S[I] == S[FI]
@@ -441,10 +441,11 @@ end
         S[FI] .= [1:sum(FI);]
         @test sum(S) == sumS2 + sum(1:sum(FI))
 
-        S = sprand(50, 30, 0.5, x -> round.(rand(x) * 100))
+        # density 1 draws nothing at random: every entry is stored, a third of them zeros
+        S = sprand(50, 30, 1.0, k -> [Float64(i % 3) for i in 1:k])
         N = length(S) >> 2
-        I = randperm(N) .* 4
-        J = randperm(N)
+        I = [4 * mod1(7k, N) for k in 1:N]   # 7 and 11 are coprime to N: two permutations, unsorted
+        J = [mod1(11k, N) for k in 1:N]
         sumS1 = sum(S)
         sumS2 = sum(S[I])
         S[I] .= 0
@@ -457,7 +458,7 @@ end
     Is = fill(false, 10, 10)
     Is[1, 1] = true
     Is[10, 10] = true
-    A = sprand(10, 10, 0.2)
+    A = sparse([1, 4, 7], [1, 5, 2], [1.0, 2.0, 3.0], 10, 10)
     A[Is] = [0.1, 0.5]
     @test A[1, 1] == 0.1
     @test A[10, 10] == 0.5
@@ -684,7 +685,7 @@ end
 end
 
 @testset "getindex bounds checking" begin
-    S = sprand(10, 10, 0.1)
+    S = fixture(Float64, 5, 3)
     @test_throws BoundsError S[[0,1,2], [1,2]]
     @test_throws BoundsError S[[1,2], [0,1,2]]
     @test_throws BoundsError S[[0,2,1], [1,2]]
@@ -753,7 +754,7 @@ _length_or_count_or_five(x::AbstractVector{Bool}) = count(x)
 _length_or_count_or_five(x) = length(x)
 
 @testset "assigning a sparse block copies its storage" begin
-    A = sprandn(6, 8, 0.5); A0 = copy(A); B = sprandn(6, 3, 0.5)
+    A = fixture(Float64, 6, 8); A0 = copy(A); B = 2 * fixture(Float64, 6, 3)
     # the sparse method, not the elementwise conversion of a lazy reshape
     @test which(SparseArrays._to_same_csc, typeof.((A, B, 1:6, 2:4))) !==
           which(SparseArrays._to_same_csc, typeof.((A, Matrix(B), 1:6, 2:4)))
