@@ -70,7 +70,14 @@ end
     @test (d.p, d.q) == ([1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6])
     @test d.rowblocks == [1, 2, 4, 7] && d.colblocks == [1, 4, 6, 7]
     @test sprank(A) == 4 == count(!iszero, d.match)
-    @test d isa NamedTuple{(:p, :q, :rowblocks, :colblocks, :coarse, :match),NTuple{6,Vector{Int}}}
+    @test d isa SparseArrays.DMPermutation{Int}
+    # the fields in order, for `p, q, r, s = dmperm(A)`
+    p, q, r, s = d
+    @test (p, q, r, s) == (d.p, d.q, d.rowblocks, d.colblocks)
+    @test collect(d) == [d.p, d.q, d.rowblocks, d.colblocks, d.coarse, d.match]
+    @test d == dmperm(A) && hash(d) == hash(dmperm(A)) && d != dmperm(copy(A'))
+    @test sprint(show, MIME"text/plain"(), d) ==
+        "SparseArrays.DMPermutation{$Int} of a 6×6 matrix with 3 blocks: 1 horizontal, 1 square, 1 vertical"
     # a cycle with a diagonal is one irreducible block, and without it a permutation, which
     # has n; so has a triangular matrix, in an order that makes it upper triangular
     C = sparse([2, 3, 4, 1], 1:4, 1.0)
@@ -123,7 +130,10 @@ end
     @test dmperm_failures(V) == 0
     @test dmperm(V) == dmperm(A[:, 3:9]) && sprank(V) == sprank(A[:, 3:9])
     d = dmperm(SparseMatrixCSC{Float64,Int32}(A))
-    @test d.p isa Vector{Int32} && d.coarse isa Vector{Int32} && d == dmperm(A)
+    @test d.p isa Vector{Int32} && d.match isa Vector{Int32} && d.coarse isa Vector{Int} && d == dmperm(A)
+    # the block boundaries run to one past the size, which a narrow index type may not hold
+    d8 = dmperm(spzeros(Float64, Int8, 127, 127))
+    @test d8.p isa Vector{Int8} && d8.rowblocks[end] == d8.colblocks[end] == 128
     # patterns the cheap matching gets wrong: every column prefers row 1, and a staircase
     # whose last column needs an augmenting path through all the others
     n = 30

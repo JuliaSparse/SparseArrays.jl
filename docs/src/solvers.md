@@ -54,12 +54,17 @@ true
 For a sparse `A` and a sparse `B`, a vector or a matrix, `A \ B` returns a sparse
 solution, and so do `B / A`, `A' \ B` and a solve or a right division with a triangular
 wrapper of `A`.
-The work is proportional to the arithmetic that the nonzeros of `B` cause, not to the
-size of `A`:
+`A` is examined and factored as a whole, whatever `B` is. The solves that follow do
+work proportional to the arithmetic that the nonzeros of `B` cause, not to the size of
+`A`, so a factorization kept from [`SparseArrays.sparselu`](@ref) solves a sparse
+right-hand side in less time than it takes to read a dense one:
 
 * Diagonal or triangular: substitution over the entries that the nonzeros of each
   column of `B` reach in the graph of `A`.
-* Other square, Hermitian or not: [`SparseArrays.sparselu`](@ref), an LU
+* Hermitian (symmetric, if real): [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky), when
+  the GPL-licensed solvers are available and `A` is positive definite. Otherwise it is
+  solved like any other square matrix.
+* Other square: [`SparseArrays.sparselu`](@ref), an LU
   factorization written in Julia that does not need the GPL-licensed solvers. A
   permutation of a triangular matrix is recognized and solved by substitution.
   Otherwise it permutes `A` to block upper triangular form with [`dmperm`](@ref),
