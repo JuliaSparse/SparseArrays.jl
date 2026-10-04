@@ -609,8 +609,10 @@ end
 
 LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, tfun::Function, A::AbstractMatrix, B::SparseMatrixCSCOrView) =
     _mattrimul!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
-LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, ::Function, A::AbstractMatrix, xB::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}) =
-    _mattrimul!(C, uploc == 'U', isunitc == 'U', conj, A, parent(xB))
+function LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, tfun::Function, A::AbstractMatrix, xB::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView})
+    same = _undoes_wrapper(tfun, xB)
+    return _mattrimul!(C, (uploc == 'U') != same, isunitc == 'U', same ? identity : conj, A, parent(xB))
+end
 
 # C = X * M, where M is the `upper` or lower triangle of B, elementwise `f` of it for
 # `identity` and `conj`, or the `transpose`/`adjoint` `f` of it. The first kind gathers

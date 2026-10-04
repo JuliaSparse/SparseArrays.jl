@@ -215,6 +215,7 @@ begin
         AW = wr(W(W(ad)))
         @test AW \ B ≈ Matrix(AW) \ B
         @test AW * B ≈ Matrix(AW) * B
+        @test X * AW ≈ X * Matrix(AW)
     end
     end
 end
