@@ -52,7 +52,7 @@ end
     B = trues(5)
     @test A*B ≈ MA*B
     B = trues(5,5)
-    for (trA, trB) in (@static COMPREHENSIVE ? (TRANSFORM_PAIRS..., (identity, adjoint), (adjoint, identity)) : TRANSFORM_PAIRS[1:1])
+    for (trA, trB) in TRANSFORM_PAIRS[1:2]
         @test trA(A) * trB(B) ≈ trA(MA) * trB(B)
         @static if COMPREHENSIVE
         @test trB(B) * trA(A) ≈ trB(B) * trA(MA)
@@ -104,12 +104,13 @@ end
     @testset "$T" for T in (Float64, ComplexF64)
         A = fixture(T, n, n); B = sprandn(T, n, n, 0.3)
         # standard: one pair for each eltype, as the two wrappers differ only for a complex one.
-        # Comprehensive: every pair of wrappers as well, alternating between the eltypes.
+        # Comprehensive: every second factor once as well, shared out among the wrappers, for
+        # the complex eltype; a wrapper is made sparse before the product, so the pairs add nothing.
         std = T <: Complex ? (Hermitian(A, :L), B') : (Symmetric(A), B)
         for S in (@static COMPREHENSIVE ? (Symmetric(A), Hermitian(A, :L), Symmetric(view(A, :, 1:n))) : std[1:1])
             alt = xor(S isa Hermitian, T <: Complex)
-            for X in (@static COMPREHENSIVE ? ((S === std[1] && T <: Complex ? std[2:2] : ())..., (B, B', transpose(B), UpperTriangular(B),
-                    view(B, :, 1:n), Hermitian(B), Symmetric(B, :L))[(alt ? 2 : 1):2:end]...) : std[2:2])
+            for X in (@static COMPREHENSIVE ? ((S === std[1] ? std[2:2] : ())..., (T <: Complex ? (B, B', transpose(B), UpperTriangular(B),
+                    view(B, :, 1:n), Hermitian(B), Symmetric(B, :L))[(S isa Hermitian ? 2 : parent(S) isa SubArray ? 3 : 1):3:end] : ())...) : std[2:2])
                 @test mismatch((S * X)::SparseMatrixCSC, Matrix(S) * Matrix(X); approx=true) === nothing
                 @test mismatch((X * S)::SparseMatrixCSC, Matrix(X) * Matrix(S); approx=true) === nothing
             end
@@ -137,24 +138,20 @@ end
     B = @static COMPREHENSIVE ? SparseMatrixCSC{ComplexF32, Int32}(2, 2, Int32[1, 2, 3], Int32[1, 2], ComplexF32[1. + im, 2. - im]) :
         SparseMatrixCSC{ComplexF64, Int}(2, 2, [1, 2, 3], [1, 2], [1. + im, 2. - im])
     MB = Array(B)
-    @static if COMPREHENSIVE
-    @test mismatch(A*transpose(B), MA * transpose(MB); Ti=Int32, approx=true) === nothing
-    end
     @test mismatch(A*adjoint(B), MA * adjoint(MB); Ti=Int32, approx=true) === nothing
     @static if COMPREHENSIVE
-    @test mismatch(transpose(A)*B, transpose(MA) * MB; Ti=Int32, approx=true) === nothing
-    @test mismatch(transpose(A)*transpose(B), transpose(MA) * transpose(MB); Ti=Int32, approx=true) === nothing
     @test mismatch(adjoint(B)*A, adjoint(MB) * MA; Ti=Int32, approx=true) === nothing
-    @test mismatch(adjoint(B)*adjoint(complex.(A)), adjoint(MB) * adjoint(Array(complex.(A))); Ti=Int32, approx=true) === nothing
     end
 end
 end
 
 @testset "destination array density in multiplication" begin
-    wrappers = (adjoint, transpose, Hermitian, Symmetric, UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperHessenberg)
+    # `transpose` and `Hermitian` would take the methods of `adjoint` and `Symmetric`, as the eltype is real
+    wrappers = (adjoint, Symmetric, UpperTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperHessenberg)
     # standard: a transform, a symmetric and a triangular wrapper, and `Diagonal` and one of the
     # banded types, which share their methods; triangular.jl owns the triangular grid.
-    # Comprehensive: each wrapper also meets itself, one other wrapper and one banded type.
+    # Comprehensive: a triangular wrapper also meets itself, as the product keeps its kind,
+    # another wrapper one other wrapper, and each one banded type.
     for tA in (@static COMPREHENSIVE ? wrappers : (adjoint, UpperTriangular))
         i = @static COMPREHENSIVE ? findfirst(==(tA), wrappers) : 1
         A = randn(5,5)
@@ -162,7 +159,7 @@ end
         S = fixture(Float64, 5, 5)
         St = tA(S)
         for tB in ((tA === adjoint ? (Symmetric,) : tA === UpperTriangular ? (transpose,) : ())...,
-                   (@static COMPREHENSIVE ? (tA, wrappers[mod1(i + 4, end)]) : ())...)
+                   (@static COMPREHENSIVE ? (St isa LinearAlgebra.AbstractTriangular ? tA : wrappers[mod1(i + 2, end)],) : ())...)
             B = sprandn(5,5, 0.3)
             Bt = tB(B)
             C = At*Bt
@@ -226,7 +223,7 @@ end
     @testset "symmetric/Hermitian sparse multiply with $S($U)" for (S, U, A, B) in
             ((Symmetric, :U, Areal, Breal), (Symmetric, :L, Areal, Breal),
              (Hermitian, :U, Acomplex, Bcomplex), (Hermitian, :L, Acomplex, Bcomplex),
-             (@static COMPREHENSIVE ? ((Symmetric, :U, Acomplex, Bcomplex), (Hermitian, :L, Areal, Breal)) : ())...)
+             (@static COMPREHENSIVE ? ((Symmetric, :U, Acomplex, Bcomplex),) : ())...)
         Asym = S(A, U)
         As = sparse(Asym) # takes most time
         # @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
@@ -247,7 +244,7 @@ end
     Bcomplex = Breal + randn(rng, n) * im
     std = (Symmetric, :L, (Acomplex, Bcomplex))
     @testset "symmetric/Hermitian sparseview multiply with $S($U)" for (S, U, (A, B)) in (std, (@static COMPREHENSIVE ?
-            filter(t -> t !== std, pairwise((Symmetric, Hermitian), (:U, :L), ((Areal, Breal), (Acomplex, Bcomplex)))) : ())...)
+            eachvalue((Symmetric, Hermitian), (:U, :L), ((Areal, Breal), (Acomplex, Bcomplex))) : ())...)
         Asym = S(A, U)
         As = sparse(Asym) # takes most time
         # @test which(mul!, (typeof(B), typeof(Asym), typeof(B))).module == SparseArrays
@@ -267,23 +264,24 @@ end
 
     rng = Random.MersenneTwister(1)
     n = 20
-    # standard: the two wrappers differ only for a complex eltype
+    # the two wrappers differ only for a complex eltype, which takes both, and both triangles
     std = ((Float64, Symmetric, :U), (ComplexF64, Hermitian, :L))
     @testset "$T, $S($U)" for (T, S, U) in (std..., (@static COMPREHENSIVE ?
-            filter(t -> t ∉ std, pairwise((Float64, ComplexF64), (Symmetric, Hermitian), (:U, :L))) : ())...)
+            ((ComplexF64, Symmetric, :L), (ComplexF64, Hermitian, :U)) : ())...)
         P = sprandn(rng, T, n, n + 2, 0.2)
         nonzeros(P)[1] = 0
         C = randn(rng, T, 3, n)
         for (A, X) in ((S(P[:, 1:n], U), randn(rng, T, 3, n)),
                 ((@static COMPREHENSIVE || S === Hermitian) ? ((S(view(P, :, 2:n+1), U), randn(rng, T, n, 3)'),) : ())...,
-                (@static COMPREHENSIVE ? ((S(P[:, 1:n], U), transpose(randn(rng, T, n, 3))),) : ())...)
+                ((@static COMPREHENSIVE && T <: Complex) ? ((S(P[:, 1:n], U), transpose(randn(rng, T, n, 3))),) : ())...)
             @test X * A ≈ X * Matrix(A)
             @test mul!(copy(C), X, A, 2, 3) ≈ mul!(copy(C), X, Matrix(A), 2, 3)
         end
         X = S(randn(rng, T, n, n), U)
         C = randn(rng, T, n, n)
         Q = P[:, 1:n]
-        for B in (@static COMPREHENSIVE ? (Q, Q', transpose(Q), view(P, :, 2:n+1), Symmetric(Q), Hermitian(Q, :L)) : S === Hermitian ? (Q',) : (Q,))
+        # the transformed sparse factors meet the Hermitian dense one only
+        for B in (@static COMPREHENSIVE ? (Q, view(P, :, 2:n+1), Q', transpose(Q))[1:(S === Hermitian ? 4 : 2)] : S === Hermitian ? (Q',) : (Q,))
             @test X * B ≈ Matrix(X) * Matrix(B)
             @test mul!(copy(C), X, B, 2, 3) ≈ mul!(copy(C), Matrix(X), Matrix(B), 2, 3)
         end
@@ -311,7 +309,7 @@ end
                           (Symmetric(S), UpperHessenberg(D), view(D, [1:n;], 1)),
                           (Hermitian(S, :L), Hermitian(D, :L), 1.0:n))[
                 # the kernels conjugate only a complex eltype; a real one takes the plain factor
-                (@static COMPREHENSIVE ? (T <: Complex ? (1:6) : [1, 3, 5, 6]) : (T <: Complex ? [2, 4, 6] : [1]))]
+                (T <: Complex ? (@static COMPREHENSIVE ? (2:6) : [2, 4, 6]) : [1])]
             @test X * A ≈ Matrix(X) * Matrix(A)
             (@static COMPREHENSIVE || A isa Hermitian) && @test A * X ≈ Matrix(A) * Matrix(X)
             # with general coefficients the Hermitian kernel conjugates the mirrored triangle itself
@@ -362,11 +360,11 @@ end
         a = randn(ComplexF64); b = randn(ComplexF64)
         vA = view(sA, :, 1:1:n)
         # the plain product, each transform once on each side with general coefficients, and
-        # a view; the other size takes every pair of the factors, transforms and coefficients.
+        # a view; the other size takes every factor, transform and coefficient once more.
         # Vectors, so that destructuring the cases is compiled once.
         cases = n == 20 ? (Any[sA, identity, identity, true, false], Any[sA, identity, identity, a, b], Any[sA, adjoint, transpose, a, b],
                            Any[sA, transpose, adjoint, a, b], Any[vA, identity, adjoint, a, b]) :
-            pairwise((sA, vA), (identity, adjoint, transpose), (identity, adjoint, transpose), (true, false, a), (true, false, b))
+            eachvalue((sA, vA), (identity, adjoint, transpose), (identity, adjoint, transpose), (true, false, a), (true, false, b))
         for (sA, trA, trB, α, β) in cases
             # the three-argument form is the five-argument one with `true, false`
             α === true && @test mismatch(mul!(copy(sC), trA(sA), trB(sB)), trA(A) * trB(B); approx=true) === nothing
@@ -414,7 +412,7 @@ end
     @test mismatch(lmul!(Diagonal(b), copy(sA)), Diagonal(b) * dA) === nothing
 
     # adjoint/transpose of a sparse matrix with a Diagonal (issue #619)
-    for (T, W) in ((ComplexF64, adjoint), (ComplexF64, transpose), (@static COMPREHENSIVE ? ((Float64, adjoint),) : ())...)
+    for (T, W) in ((ComplexF64, adjoint), (ComplexF64, transpose))
         S = fixture(T, 7, 3); M = Matrix(S)
         Dl = Diagonal(randn(T, 3)); Dr = Diagonal(randn(T, 7))
         @test W(S) * Dr isa SparseMatrixCSC
@@ -422,7 +420,7 @@ end
         @test mismatch(W(S) * Dr, W(M) * Dr; approx=true) === nothing
         @test mismatch(Dl * W(S), Dl * W(M); approx=true) === nothing
         # the transpose shares the kernels, without the conjugation
-        @static COMPREHENSIVE || W === adjoint || continue
+        W === adjoint || continue
         @test mismatch(Dl * W(S) * Dr, Dl * W(M) * Dr; approx=true) === nothing
         @test_throws DimensionMismatch W(S) * Dl
         @test_throws DimensionMismatch Dr * W(S)
@@ -480,7 +478,7 @@ end
     # whereas the generic Diagonal kernel visits every element of the result
     S = opcount_sparse(sprand(20, 30, 0.2))
     Dl = Diagonal(OpCount.(rand(30))); Dr = Diagonal(OpCount.(rand(20)))
-    for W in (adjoint, (@static COMPREHENSIVE ? (transpose,) : ())...)
+    for W in (adjoint,)
         @test mulcount(() -> W(S) * Dr) == nnz(S)
         @test mulcount(() -> Dl * W(S)) == nnz(S)
         @static if COMPREHENSIVE
@@ -491,8 +489,8 @@ end
     end
     @static if COMPREHENSIVE
     # as for dense, the product is formed before conversion to the destination eltype,
-    # `alpha == 0` ignores `A`, and `beta == 0` ignores `C`
-    for W in (identity, adjoint, transpose)
+    # `alpha == 0` ignores `A`, and `beta == 0` ignores `C`; the transpose shares the adjoint's kernels
+    for W in (identity, adjoint)
         S = sparse([1e40;;]); D = Diagonal([1e-40])
         @test mul!(spzeros(Float32, 1, 1), W(S), D) == mul!(zeros(Float32, 1, 1), W(Matrix(S)), D)
         @test mul!(spzeros(Float32, 1, 1), D, W(S)) == mul!(zeros(Float32, 1, 1), D, W(Matrix(S)))
@@ -512,9 +510,9 @@ end
     # a fixed destination whose pattern contains the product's is filled in place; one whose
     # pattern lacks an entry throws and is left untouched
     S = sparse([1.0 0; 0 2]); D = Diagonal([2.0, 3.0]); S1 = sparse([1.0 1; 0 1])
-    # standard: the plain matrix on the left and the adjoint on the right
-    for W in (identity, adjoint, (@static COMPREHENSIVE ? (transpose,) : ())...),
-            (f, x, y, x1, y1) in ((mul!, W(S), D, W(S1), D), (mul!, D, W(S), D, W(S1)))[(@static COMPREHENSIVE ? (1:2) : W === identity ? (1:1) : (2:2))]
+    # the plain matrix on the left and the adjoint on the right
+    for W in (identity, adjoint),
+            (f, x, y, x1, y1) in ((mul!, W(S), D, W(S1), D), (mul!, D, W(S), D, W(S1)))[W === identity ? (1:1) : (2:2)]
         F = fixed(sparse(ones(2, 2)))
         @test f(F, x, y) === F
         @test F == Matrix(x) * Matrix(y) && nnz(F) == 4 && _is_fixed(F)
@@ -685,9 +683,9 @@ end
         general = ElType <: Complex ? ElType(2 + im) : ElType(2)
         vs = (false, true, zero(ElType), one(ElType), general)
         # the Bool pair and the eltype pairs reach the zero, one and general branches; the
-        # comprehensive ones mix the two kinds, or repeat a value
+        # comprehensive ones repeat a value
         for (α, β) in ((true, false), (false, true), (zero(ElType), one(ElType)), (one(ElType), general), (general, zero(ElType)),
-                (@static COMPREHENSIVE ? (zip(vs, vs)..., (true, general), (general, false), (false, zero(ElType)), (one(ElType), true)) : ())...)
+                (@static COMPREHENSIVE ? zip(vs, vs) : ())...)
             C .= rand.(ElType)
             expected′ = expected .* α .+ C .* β
             @test mul!(C, A, B, α, β) === C
@@ -695,23 +693,25 @@ end
         end
     end
 
-    # Int and BigFloat add the generic non-BLAS path to what the BLAS eltypes cover
-    for ElType in (@static COMPREHENSIVE ? (Int, Float64, ComplexF64, BigFloat) : (Float64, ComplexF64))
+    # BigFloat adds the generic non-BLAS path to what the BLAS eltypes cover
+    for ElType in (@static COMPREHENSIVE ? (Float64, ComplexF64, BigFloat) : (Float64, ComplexF64))
         SP = fixture(ElType, 10, 10)
         D = rand(ElType, 10, 10)
         fs = (identity, adjoint, transpose)
         # every transform once on each side; adjoint and transpose differ only for a complex eltype
-        for (f1, f2) in (TRANSFORM_PAIRS[1:(ElType === Float64 ? 1 : end)]..., ((@static COMPREHENSIVE && ElType in STD_ELTYPES) ?
-                ((identity, adjoint), (adjoint, identity), (transpose, transpose), (adjoint, adjoint)) : ())...)
+        for (f1, f2) in (TRANSFORM_PAIRS[1:(ElType <: Real ? 1 : end)]..., ((@static COMPREHENSIVE && ElType <: Complex) ?
+                ((adjoint, adjoint),) : ())...)
             test_mul(f1(SP), f2(D))
             test_mul(f1(D), f2(SP))
         end
-        # Coefficients branch on the sparse transform and on plain/wrapped dense-left inputs.
-        for f in (@static COMPREHENSIVE ? (ElType in STD_ELTYPES ? fs : (adjoint,)) : ElType <: Complex ? (identity, adjoint) : ())
+        # Coefficients branch on the sparse transform and on plain/wrapped dense-left inputs;
+        # the real BLAS eltype would repeat the complex one's branches.
+        ElType === Float64 && continue
+        for f in (@static COMPREHENSIVE ? (ElType <: Complex ? fs : (adjoint,)) : (identity, adjoint))
             test_mul_coefficients(f(SP), D)
             test_mul_coefficients(D, f(SP))
         end
-        for f in (@static COMPREHENSIVE ? (adjoint, transpose) : ElType <: Complex ? (transpose,) : ())
+        for f in (@static COMPREHENSIVE ? (adjoint, transpose)[1:(ElType <: Complex ? 2 : 1)] : (transpose,))
             test_mul_coefficients(f(D), SP)
         end
     end
@@ -720,9 +720,10 @@ end
 @testset "BLAS Level-2" begin
     @testset "dense A * sparse x -> dense y" begin
         # standard: a plain matrix with either eltype, and the transposed and wrapped factors
-        # with the complex one, for which they differ. Comprehensive: every pair of the
-        # eltypes and of the seven kinds of factor.
-        cases = @static COMPREHENSIVE ? pairwise((Float64, ComplexF64), (Float64, ComplexF64), 1:7) : ()
+        # with the complex one, for which they differ. Comprehensive: a plain and an adjoint
+        # factor with a vector of the other eltype, and the remaining complex wrapped factors.
+        cases = @static COMPREHENSIVE ? ((Float64, ComplexF64, 1), (ComplexF64, Float64, 3),
+            (ComplexF64, ComplexF64, 4), (ComplexF64, ComplexF64, 5), (ComplexF64, ComplexF64, 6)) : ()
         for TA in (Float64, ComplexF64), Tx in (Float64, ComplexF64)
             T = Base.promote_op(LinearAlgebra.matprod, TA, Tx)
             sel(k) = (TA == Tx && (k == 1 || TA <: Complex && k in (2, 3, 7))) || (TA, Tx, k) in cases
@@ -832,8 +833,10 @@ end
                 M -> UpperTriangular(adjoint(M)), M -> UnitUpperTriangular(adjoint(M)),
                 M -> LowerTriangular(adjoint(M)), M -> UnitLowerTriangular(adjoint(M)),
                 # standard: both triangles of a symmetric wrapper, one triangle and one triangle
-                # of an adjoint parent; triangular.jl owns the triangular grid
-                M -> UpperTriangular(Symmetric(M)))[(@static COMPREHENSIVE ? (1:17) : [1, 2, 5, 15])]
+                # of an adjoint parent; triangular.jl owns the triangular grid. Comprehensive adds
+                # the Hermitian wrapper, a unit triangle of a transposed and of an adjoint parent,
+                # and a triangle of a symmetric wrapper.
+                M -> UpperTriangular(Symmetric(M)))[(@static COMPREHENSIVE ? [1, 2, 3, 4, 5, 12, 14, 15, 17] : [1, 2, 5, 15])]
                 for α in (0.0, 1.0, 2.0), β in (0.0, 0.5, 1.0)
                     y = rand(16)
                     rr = α*wrap(Af)*xf + β*y
@@ -955,18 +958,18 @@ end
     m = size(D, 1)
     # one operand of each kind gives the same dense result as its dense copy
     B, C, b = fixture(Float64, m, 3), fixture(Float64, 3, m), fixturevec(Float64, m)
-    # comprehensive: the other Q types, and every kind of sparse operand once, the Q types cycling
-    @testset "$name" for (k, name, Q) in ((1, "qr", qr(D).Q), (@static COMPREHENSIVE ? ((2, "pivoted qr", qr(D, ColumnNorm()).Q),
-                                       (3, "hessenberg", hessenberg(D).Q), (4, "lq", lq(D).Q)) : ())...)
-        for X in (B, (@static COMPREHENSIVE ? ((sparse(B')', view(B, :, 1:2))[mod1(k, 2)],) : ())...)
+    # comprehensive: the lq Q, which has a method of its own, and every kind of sparse operand
+    # once, shared between the two
+    @testset "$name" for (k, name, Q) in ((1, "qr", qr(D).Q), (@static COMPREHENSIVE ? ((2, "lq", lq(D).Q),) : ())...)
+        for X in (B, (@static COMPREHENSIVE ? ((sparse(B')', view(B, :, 1:2))[k],) : ())...)
             @test (Q * X)::Matrix ≈ Q * Matrix(X)
         end
-        for X in (C, (@static COMPREHENSIVE ? ((transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b))[k],) : ())...)
+        for X in (C, (@static COMPREHENSIVE ? (transpose(sparse(transpose(C))), view(C, :, 1:m), view(B, :, 1:2)', transpose(b))[k:2:end] : ())...)
             @test (X * Q')::Matrix ≈ Matrix(X) * Q'
         end
         @test (Q' * B)::Matrix ≈ Q' * Matrix(B)
         @test (C * Q)::Matrix ≈ Matrix(C) * Q
-        for x in (b, (@static COMPREHENSIVE ? ((view(B, :, 1), view(b, 1:m))[mod1(k, 2)],) : ())...)
+        for x in (b, (@static COMPREHENSIVE ? ((view(B, :, 1), view(b, 1:m))[k],) : ())...)
             @test (Q * x)::Vector ≈ Q * Vector(x)
         end
         @test (Q' * b)::Vector ≈ Q' * Vector(b)

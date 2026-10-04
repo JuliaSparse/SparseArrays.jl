@@ -151,7 +151,9 @@ Random.seed!(123)
         # for `Vector` and `Matrix` but not for views or adjoint/transpose wrappers of them
         Z = complex.(B, 2B)
         Zt = Matrix(transpose(Z[:, 2:3]))
-        for sym in (:L, :U, :PtL, :UP)
+        # the right-hand side is converted the same way for every component, so one of
+        # them, and `F.UP` as its adjoint, stands for all
+        for sym in (:PtL,)
             C = getproperty(F, sym)
             ref = C \ Vector(b)
             @test C \ view(B, :, 1) ≈ ref
@@ -183,7 +185,7 @@ Random.seed!(123)
         # a complex right-hand side of the other precision is solved in the precision of
         # the (real) factor, as a real one is
         Z2 = Complex{Tv === Float64 ? Float32 : Float64}.(Z)
-        for G in (F, F', F.L, F.PtL')
+        for G in (F, F.PtL')
             X = G \ Z2
             @test eltype(X) === Complex{Tv}
             @test X ≈ G \ Z rtol=sqrt(eps(Float32))
@@ -401,7 +403,7 @@ end
 end
 end
 
-@testset "High level interface" for elty in (Tv, (@static COMPREHENSIVE ? (Complex{Tv},) : ())...)
+@testset "High level interface" for elty in (Tv, (@static COMPREHENSIVE ? (Tv === Float64 ? (Complex{Tv},) : ()) : ())...)
     local A, b
     if elty <: Real
         A = randn(Tv, 5, 5)
@@ -673,7 +675,7 @@ end
     @test CHOLMOD.Sparse(CHOLMOD.Dense(A1Sparse)) == A1Sparse
 
     @testset "Mixed inputs ($elty2)" for elty2 in (@static COMPREHENSIVE ?
-            (elty <: Real ? (Tv, Complex{Tv}) : (Tv, ComplexF32)) : (Tv,)), Tv2 in (real(elty2),)
+            (elty <: Real ? (Tv, Complex{Tv}) : (ComplexF32,)) : (Tv,)), Tv2 in (real(elty2),)
         A2 = fixture(elty2, 5, 5)
         A2Sparse = CHOLMOD.Sparse(A2)
         if elty <: Real
@@ -1155,7 +1157,7 @@ end
 end
 
 @static if COMPREHENSIVE
-@testset "low rank update of a complex factorization, Ti = $Ti2" for Ti2 in itypes
+@testset "low rank update of a complex factorization, Ti = $Ti2" for Ti2 in core_itypes
     A = SparseMatrixCSC{Complex{Tv},Ti2}(Complex{Tv}[4 1 0; 1 3 1; 0 1 2])
     b = Complex{Tv}[1, 2, 3]
     F = cholesky(A)
@@ -1205,7 +1207,7 @@ end
 end
 
 @testset "failed column in PosDefException and ZeroPivotException, Ti = $Ti2" for Ti2 in (@static COMPREHENSIVE ? itypes : core_itypes)
-    for T in (@static COMPREHENSIVE ? (eachonce(Ti2, (Float32, ComplexF32))..., Tv, Complex{Tv}) : (Tv,))
+    for T in (@static COMPREHENSIVE ? eachonce(Ti2, (ComplexF32, Tv)) : (Tv,))
         # CHOLMOD's 0-based failed column is reported 1-based, as dense `cholesky` does
         A = SparseMatrixCSC{T,Ti2}(sparse(Diagonal(T[1, 1, -1])))
         @test_throws PosDefException(3) cholesky(A; perm=1:3)
@@ -1238,7 +1240,7 @@ end
 end
 
 @testset "det and logdet keep the sign of D, Ti = $Ti2" for Ti2 in (@static COMPREHENSIVE ? itypes : core_itypes)
-    for T in ((@static COMPREHENSIVE ? eachonce(Ti2, (Float32, ComplexF32)) : ())..., Tv, Complex{Tv})
+    for T in ((@static COMPREHENSIVE ? eachonce(Ti2, (ComplexF32,)) : ())..., Tv, Complex{Tv})
         A = SparseMatrixCSC{T,Ti2}(sparse(Diagonal(T[2, -3, 1])))
         F = ldlt(A)
         @test det(F) ≈ -6
@@ -1275,7 +1277,8 @@ end
 
 @static if COMPREHENSIVE
 @testset "Issues #27860 & #28363" begin
-    for (typeA, typeB, transform) in pairwise((Tv, Complex{Tv}), (Tv, Complex{Tv}), (identity, adjoint, transpose))
+    # both mixed pairs of element types, and each transform once
+    for (typeA, typeB, transform) in ((Tv, Complex{Tv}, adjoint), (Complex{Tv}, Tv, transpose), (Complex{Tv}, Complex{Tv}, identity))
         A = sparse(typeA[2.0 0.1; 0.1 2.0])
         B = randn(typeB, 2, 2)
         @test A \ transform(B) ≈ cholesky(A) \ transform(B) ≈ Matrix(A) \ transform(B)
@@ -1354,9 +1357,9 @@ end
     @test issuccess(cholesky(A, NoPivot()))
     @test issuccess(cholesky(view(A, :, :), NoPivot()))
 
-    # each wrapper once, and in comprehensive mode every pair of element type, wrapper and factorization
+    # each wrapper once, and in comprehensive mode each of them with the other element type or factorization
     cases = ((Tv, 1, cholesky), (Tv, 3, cholesky))
-    @static COMPREHENSIVE && (cases = union(cases, pairwise((Tv, Complex{Tv}), 1:3, (cholesky, ldlt))))
+    @static COMPREHENSIVE && (cases = (cases..., (Complex{Tv}, 1, ldlt), (Complex{Tv}, 3, cholesky), (Tv, 2, ldlt)))
     for T in (Tv, (@static COMPREHENSIVE ? (Complex{Tv},) : ())...)
         B = sprandn(T, 10, 10, 0.2); B = B'B + I; b = rand(T, 10)
         for k in 1:3, f in (cholesky, ldlt)

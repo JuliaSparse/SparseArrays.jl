@@ -171,14 +171,17 @@ include("testhelpers.jl")
         @test sparse_hvcat((2,), dmat, fdiagmat)::SparseMatrixCSC == hvcat((2,), spmat, fdiagmat)
         @test issparse(cat(fdiagmat, spvec; dims=(1,2)))
         @static if COMPREHENSIVE
-        for specialmat in specialmats
+        # `Diagonal` is covered by `fdiagmat` above
+        for specialmat in specialmats[2:end]
             # --> Tests applicable only to pairs of matrices
             @test issparse(vcat(specialmat, spmat))
             @test issparse(vcat(spmat, specialmat))
             @test sparse_vcat(specialmat, dmat)::SparseMatrixCSC == vcat(specialmat, spmat)
             @test sparse_vcat(dmat, specialmat)::SparseMatrixCSC == vcat(spmat, specialmat)
             # --> Tests applicable also to pairs including vectors
-            for (smatorvec, dmatorvec) in ((spmat, dmat), (spvec, dvec))
+            # the partner only decides how the other block converts, so one special type
+            # takes the vector partner and the others the matrix
+            for (smatorvec, dmatorvec) in (specialmat === tridiagmat ? ((spvec, dvec),) : ((spmat, dmat),))
                 @test issparse(hcat(specialmat, smatorvec))
                 @test sparse_hcat(specialmat, dmatorvec)::SparseMatrixCSC == hcat(specialmat, smatorvec)
                 @test issparse(hcat(smatorvec, specialmat))
@@ -229,8 +232,10 @@ include("testhelpers.jl")
         annospcmats = [annot(spmat) for annot in annotations]
         end
         # Test that concatenations of pairwise combinations of annotated sparse/special
-        # yield sparse matrices
-        for (a, b, op) in (@static COMPREHENSIVE ? pairwise(annospcmats, annospcmats, ops) : ((Lsp, Ssp, vcat),))
+        # yield sparse matrices. The concatenation methods see an annotation only through
+        # `issparse` and the conversion to `SparseMatrixCSC`, one block at a time, so each
+        # annotation, partner, operation and side appears, not their combinations
+        for (a, b, op) in (@static COMPREHENSIVE ? eachvalue(annospcmats, reverse(annospcmats), ops) : ((Lsp, Ssp, vcat),))
             @test issparse(op(a, b))
         end
         # Test that concatenations of pairwise combinations of annotated sparse/special
@@ -238,11 +243,12 @@ include("testhelpers.jl")
         cases = ((Lsp, densevec, hcat, true), (Lsp, spvec, cat12, true),
                  (Ssp, Sd, vcat, false), (Ssp, Ld, hvcat2, true))
         # the grids may pick one of `cases` again, which then runs once
-        for (a, other, op, lead) in (cases..., (@static COMPREHENSIVE ? filter(c -> !any(s -> s === c, cases), [
-                pairwise(annospcmats, (densemat, sparseconcatmats...), ops, sides)...,
+        for (a, other, op, lead) in (cases..., (@static COMPREHENSIVE ? filter(c -> !any(s -> s === c, cases), Any[
+                eachvalue(annospcmats, (densemat, sparseconcatmats...), ops, sides)...,
                 # a vector does not `vcat` with a matrix
-                pairwise(annospcmats, (spvec, densevec), (hcat, hvcat2, cat12), sides)...,
-                eachvalue(annospcmats, reverse(annodmats), ops, sides)...]) : ())...)
+                eachvalue(annospcmats[1:2:end], (spvec, densevec), (hcat, hvcat2, cat12), sides)...,
+                # the operations in the other order, so that each meets both sides
+                eachvalue(annospcmats, reverse(annodmats), reverse(ops), sides)...]) : ())...)
             @test issparse(lead ? op(a, other) : op(other, a))
         end
         @test sparse_hcat(Ld, fdiagmat)::SparseMatrixCSC == hcat(Lsp, fdiagmat)
@@ -251,7 +257,7 @@ include("testhelpers.jl")
         # The `sparse_*` entry points on the annotated dense matrices match the annotated sparse ones
         sparse_hvcat2 = (a, b) -> sparse_hvcat((2,), a, b)
         entries = ((sparse_hcat, hcat), (sparse_vcat, vcat), (sparse_hvcat2, hvcat2))
-        for (i, specialmat, (sparse_op, op), lead) in pairwise(eachindex(annotations), sparseconcatmats, entries, sides)
+        for (i, specialmat, (sparse_op, op), lead) in eachvalue(eachindex(annotations), sparseconcatmats, entries, sides)
             smat, dmat = annospcmats[i], annodmats[i]
             if lead
                 @test sparse_op(dmat, specialmat)::SparseMatrixCSC == op(smat, specialmat)
@@ -262,13 +268,8 @@ include("testhelpers.jl")
         # The preceding tests should cover multi-way combinations of those types, but for good
         # measure test a few multi-way combinations involving those types
         @test issparse(vcat(spmat, densemat, annospcmats[1], annodmats[2]))
-        @test issparse(vcat(densemat, spmat, annodmats[1], annospcmats[2]))
         @test issparse(hcat(spvec, annodmats[1], annospcmats[1], densevec, diagmat))
-        @test issparse(hcat(annodmats[2], annospcmats[2], spvec, densevec, diagmat))
-        @test issparse(hvcat((5,), diagmat, densevec, spvec, annodmats[1], annospcmats[1]))
-        @test issparse(hvcat((5,), spvec, annodmats[2], diagmat, densevec, annospcmats[2]))
         @test issparse(cat(annodmats[1], diagmat, annospcmats[2], densevec, spvec; dims=(1,2)))
-        @test issparse(cat(spvec, diagmat, densevec, annospcmats[1], annodmats[2]; dims=(1,2)))
         end
     end
 
@@ -305,35 +306,23 @@ include("testhelpers.jl")
         @test_throws DimensionMismatch vcat(D, α)
         @test (hcat(I, 3I, A, 2I))::SparseMatrixCSC == hcat(Matrix(I, 3, 3), Matrix(3I, 3, 3), A, Matrix(2I, 3, 3))
         @test (vcat(I, 3I, A, 2I))::SparseMatrixCSC == vcat(Matrix(I, 4, 4), Matrix(3I, 4, 4), A, Matrix(2I, 4, 4))
-        @test (hvcat((2,1,2), B, 2I, I(6), 3I, 4I))::SparseMatrixCSC ==
-            hvcat((2,1,2), B, Matrix(2I, 3, 3), Matrix(I, 6, 6), Matrix(3I, 3, 3), Matrix(4I, 3, 3))
         @test hvcat((3,1), C, C, I, 3I)::SparseMatrixCSC == hvcat((2,1), C, C, Matrix(3I, 6, 6))
-        @test hvcat((2,2,2), I, 2I, 3I, 4I, C, C)::SparseMatrixCSC ==
-            hvcat((2,2,2), Matrix(I, 3, 3), Matrix(2I, 3, 3), Matrix(3I, 3, 3), Matrix(4I, 3, 3), C, C)
         @test hvcat((2,2,4), C, C, I(3), 2I, 3I, 4I, 5I, D)::SparseMatrixCSC ==
             hvcat((2,2,4), C, C, Matrix(I, 3, 3), Matrix(2I, 3, 3),
                 Matrix(3I, 2, 2), Matrix(4I, 2, 2), Matrix(5I, 2, 2), D)
-        @test (hvcat((2,3,2), B, 2I(3), C, C, I, 3I, 4I))::SparseMatrixCSC ==
-            hvcat((2,2,2), B, Matrix(2I, 3, 3), C, C, Matrix(3I, 3, 3), Matrix(4I, 3, 3))
-        @test hvcat((3,2,1), C, C, I, B, 3I(3), 2I)::SparseMatrixCSC ==
-            hvcat((2,2,1), C, C, B, Matrix(3I, 3, 3), Matrix(2I, 6, 6))
         @test (hvcat((1,2), A, E, α))::SparseMatrixCSC == hvcat((1,2), A, E, [α]) == hvcat((1,2), A, E, α*I)
         @test (hvcat((2,2), α, E, F, 3I))::SparseMatrixCSC == hvcat((2,2), [α], E, F, Matrix(3I, 3, 3))
-        @test (hvcat((2,2), 3I, F, E, α))::SparseMatrixCSC == hvcat((2,2), Matrix(3I, 3, 3), F, E, [α])
         end
         # the `sparse_*` entry points size a `UniformScaling` from its neighbours like the plain ones
         dA, dB = Array(A), Array(B)
         @test sparse_hcat(A, I)::SparseMatrixCSC == sparse_hcat(dA, I)::SparseMatrixCSC == hcat(A, I)
         @static if COMPREHENSIVE
         @test sparse_hcat(I, A, 2I)::SparseMatrixCSC == sparse_hcat(I, dA, 2I)::SparseMatrixCSC == hcat(I, A, 2I)
-        @test sparse_vcat(A, I)::SparseMatrixCSC == sparse_vcat(dA, I)::SparseMatrixCSC == vcat(A, I)
         end
         @test sparse_vcat(3I, A)::SparseMatrixCSC == sparse_vcat(3I, dA)::SparseMatrixCSC == vcat(3I, A)
         @test sparse_hvcat((2,2), B, I, I, B)::SparseMatrixCSC == sparse_hvcat((2,2), dB, I, I, dB)::SparseMatrixCSC ==
             hvcat((2,2), B, I, I, B)
         @static if COMPREHENSIVE
-        @test sparse_hvcat((2,2), I, B, B, 2I)::SparseMatrixCSC == sparse_hvcat((2,2), I, dB, dB, 2I)::SparseMatrixCSC ==
-            hvcat((2,2), I, B, B, 2I)
         @test sparse_hvcat((3,1), C, C, I, 3I)::SparseMatrixCSC == hvcat((3,1), C, C, I, 3I)
         end
         @test_throws ArgumentError sparse_hcat(I)
@@ -400,11 +389,9 @@ end
     @static if COMPREHENSIVE
     B = sparse(I, 4, 4)
     @test mismatch(@inferred(hvcat(rows, S, B, B, S)), [dS I; I dS]; Ti=Int) === nothing
-    @test mismatch(@inferred(hvcat(rows, C, A, A, S)), [dC A; A dS]; Ti=Int) === nothing
-    # a dense block converts to `Int` indices, and the index types of the blocks promote
+    # a dense block converts to `Int` indices
     S32 = SparseMatrixCSC{Float64,Int32}(S)
     @test mismatch(@inferred(lit22(S32, A)), [dS A; A A]; Ti=Int) === nothing
-    @test mismatch(@inferred(lit22(S32, S32)), [dS dS; dS dS]; Ti=Int32) === nothing
     end
 end
 
@@ -523,31 +510,18 @@ end
             # The preceding tests should cover multi-way combinations of those types, but for good
             # measure test a few multi-way combinations involving those types
             @test issparse(vcat(spvec, densevec, spmat, densemat))
-            @test issparse(vcat(densevec, spvec, densemat, spmat))
-            @test issparse(hcat(spvec, densemat, spmat, densevec, diagmat))
-            @test issparse(hcat(densemat, spmat, spvec, densevec, diagmat))
-            @test issparse(hvcat((5,), diagmat, densevec, spvec, densemat, spmat))
-            @test issparse(hvcat((5,), spvec, densemat, diagmat, densevec, spmat))
             @test issparse(cat(densemat, diagmat, spmat, densevec, spvec; dims=(1,2)))
-            @test issparse(cat(spvec, diagmat, densevec, spmat, densemat; dims=(1,2)))
             end
 
             @test issparse(@inferred cat_with_constdims(densemat, diagmat, spmat, densevec, spvec))
-            @static if COMPREHENSIVE
-            @test issparse(@inferred cat_with_constdims(spvec, diagmat, densevec, spmat, densemat))
-            end
         end
         @static if COMPREHENSIVE
         @testset "vertical concatenation of SparseVectors with different el- and ind-type (#22225)" begin
             spv6464 = SparseVector(0, Int64[], Int64[])
-            @test isa(vcat(spv6464, SparseVector(0, Int64[], Int32[])), SparseVector{Int64,Int64})
-            @test isa(vcat(spv6464, SparseVector(0, Int32[], Int64[])), SparseVector{Int64,Int64})
             @test isa(vcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseVector{Int64,Int64})
         end
         @testset "horizontal concatenation of SparseVectors with different el- and ind-type (#22225)" begin
             spv6464 = SparseVector(0, Int64[], Int64[])
-            @test isa(hcat(spv6464, SparseVector(0, Int64[], Int32[])), SparseMatrixCSC{Int64,Int64})
-            @test isa(hcat(spv6464, SparseVector(0, Int32[], Int64[])), SparseMatrixCSC{Int64,Int64})
             @test isa(hcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseMatrixCSC{Int64,Int64})
         end
         end

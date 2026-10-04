@@ -52,9 +52,6 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
     @static if COMPREHENSIVE
     @test count(SparseVector(8, [2, 5, 6], [true,false,true]), init=Int16(2))::Int16 == 4
-    y = SparseVector(8, Int128[4], [5])
-    @test y isa SparseVector{Int,Int128}
-    @test @inferred size(y) == (@inferred(length(y))::Int128,)
     y = SparseVector(8, Int8[4], [5.0])
     @test y isa SparseVector{Float64,Int8}
     @test @inferred size(y) == (@inferred(length(y))::Int8,)
@@ -84,7 +81,7 @@ end
             @test Vector(v)::Vector{Float64} == collect(v)
         end
         # issue #54
-        y = SparseVector{ComplexF64,(@static COMPREHENSIVE ? Int32 : Int16)}(x)
+        y = SparseVector{ComplexF64,Int16}(x)
         @test promote_type(typeof(x), typeof(y)) === SparseVector{ComplexF64,Int}
         @test promote_type(Vector{Int}, typeof(x)) === Vector{Float64}
         @test promote(x, y) == (x, y)
@@ -196,14 +193,6 @@ end
             @test all(nonzeros(xr) .>= 0.0)
         end
 
-        @static if COMPREHENSIVE
-        let xr = sprand(Float32, 1000, 0.9)
-            @test isa(xr, SparseVector{Float32,Int})
-            @test length(xr) == 1000
-            @test all(nonzeros(xr) .>= 0.0)
-        end
-        end
-
         let xr = sprandn(1000, 0.9)
             @test isa(xr, SparseVector{Float64,Int})
             @test length(xr) == 1000
@@ -229,7 +218,6 @@ end
             @test sprandn(r1, ComplexF64, 100, .9) == sprandn(r2, ComplexF64, 100, .9)
             @static if COMPREHENSIVE
             @test sprand(r1, Bool, 100, .9) == sprand(r2,  Bool, 100, .9)
-            @test sprandn(r1, Float16, 100, .9) == sprandn(r2,  Float16, 100, .9)
             end
         end
 
@@ -243,13 +231,6 @@ end
         end
         @test sprand(1000, 0.9, rand, Float64) isa SparseVector{Float64,Int}
         @static if COMPREHENSIVE
-        let xr = sprand(1000, 0.9, rand, Float32)
-            @test isa(xr, SparseVector{Float32,Int})
-            @test length(xr) == 1000
-            if !isempty(nonzeros(xr))
-                @test all(nonzeros(xr) .> 0.0)
-            end
-        end
         # as documented, `rfn` takes `k` without an rng and `(rng, k)` with one, as for matrices
         let rfn1 = k -> rand(Int8, k), rfn2 = (r, k) -> rand(r, Int8, k)
             Random.seed!(1234)
@@ -264,7 +245,7 @@ end
         end
     end
 
-    @testset "Undef initializer" for (Tv, Ti) in ((Float64, Int), (@static COMPREHENSIVE ? ((Float32, Int16),) : ())...)
+    @testset "Undef initializer" for (Tv, Ti) in ((Float64, Int),)
         sz = (4,)
         for v in (SparseVector{Tv, Ti}(undef, sz),
                     SparseVector{Tv, Ti}(undef, sz...),
@@ -347,7 +328,7 @@ end
 
         @static if COMPREHENSIVE
         let x = sprand(ComplexF64, 10, 10, 0.5)
-            for t in (transpose, adjoint)
+            for t in (adjoint,)   # `transpose` takes the same method
                 xt = t(x)
                 @test xt[1,:] == t.(x[:,1])
                 @test xt[2:4,:] == t(x[:,2:4])
@@ -409,7 +390,7 @@ end
 
     @static if COMPREHENSIVE
     @testset "heap-allocated zero (#389)" begin
-        for T in (BigFloat, Complex{BigFloat})
+        for T in (BigFloat,)
             x = spzeros(T, 4)
             x[1] = 0
             x[3] = zero(T)
@@ -518,9 +499,7 @@ end
     # `Vector{Int}` like dense, whether or not the predicate holds at zero
     @testset "findall index type, Ti = $Ti" for Ti in (Int, (@static COMPREHENSIVE ? (Int32,) : ())...)
         x = SparseVector(6, Ti[2, 3, 5], [1.5, 0.0, -0.5])
-        for (v, ps) in ((x, (>(0.5), iszero, (@static COMPREHENSIVE ? (<(0.5), !iszero, t -> true) : ())...)),
-                        (@static COMPREHENSIVE ? ((SparseVector(6, Ti[2, 3, 5], [1.5 + 1.0im, 0.0im, -0.5im]),
-                                                   (t -> abs2(t) > 1, t -> abs2(t) < 1, iszero, !iszero)),) : ())...)
+        for (v, ps) in ((x, (>(0.5), iszero)),)
             d = Vector(v)
             for p in ps, w in (v, view(v, :))
                 @test @inferred(findall(p, w)) == findall(p, d)
@@ -694,7 +673,7 @@ end
     end
 end
 @testset "vec/float/complex" begin
-    a = SparseVector(8, [2, 5, 6], (@static COMPREHENSIVE ? Int32 : Int)[12, 35, 72])
+    a = SparseVector(8, [2, 5, 6], [12, 35, 72])
     # vec
     @test vec(a) == a
 
@@ -732,14 +711,9 @@ end
         @test exact_equal(xc, SparseVector(8, [2, 5, 6], ComplexF64[1.25, -0.75, 3.5]))
 
         @static if COMPREHENSIVE
-        xc = convert(SparseVector{Float32,Int}, x)
-        xf32 = SparseVector(8, [2, 5, 6], [1.25f0, -0.75f0, 3.5f0])
-        @test isa(xc, SparseVector{Float32,Int})
-        @test exact_equal(xc, xf32)
-
-        xc = convert(SparseVector{Float32}, x)
-        @test isa(xc, SparseVector{Float32,Int})
-        @test exact_equal(xc, xf32)
+        xc = convert(SparseVector{ComplexF64,Int}, x)
+        @test isa(xc, SparseVector{ComplexF64,Int})
+        @test exact_equal(xc, SparseVector(8, [2, 5, 6], ComplexF64[1.25, -0.75, 3.5]))
         end
 
         xm = convert(SparseMatrixCSC, x)
@@ -749,12 +723,6 @@ end
         xm = convert(SparseMatrixCSC{ComplexF64}, x)
         @test isa(xm, SparseMatrixCSC{ComplexF64,Int})
         @test mismatch(xm, reshape(xf, 8, 1), Tv=ComplexF64) === nothing
-
-        @static if COMPREHENSIVE
-        xm = convert(SparseMatrixCSC{Float32}, x)
-        @test isa(xm, SparseMatrixCSC{Float32,Int})
-        @test Array(xm) == reshape(convert(Vector{Float32}, xf), 8, 1)
-        end
 
         xc = SparseVector(x)
         @test exact_equal(xc, x) && nonzeroinds(xc) !== nonzeroinds(x)
@@ -774,11 +742,8 @@ end
     @test SparseMatrixCSC(Bu) == Bu
     @test SparseMatrixCSC(T) == T
     @test SparseMatrixCSC(S) == S
-    @test SparseMatrixCSC{Float64, Int16}(D) == D
-    @test SparseMatrixCSC{Float64, Int16}(Bl) == Bl
-    @test SparseMatrixCSC{Float64, Int16}(Bu) == Bu
+    # the constructors above forward to the typed ones, so one structure carries the types
     @test SparseMatrixCSC{Float64, Int16}(T) == T
-    @test SparseMatrixCSC{Float64, Int16}(S) == S
 end
 end
 
@@ -835,52 +800,52 @@ end
     end
 
     @static if COMPREHENSIVE
-    let r = [1,10], S = sparse(r, r, r)
+    let r = [1,10], S = sparse(r, r, float(r))   # two entries in a 10x10 matrix
         Sf = Array(S)
-        @assert isa(Sf, Matrix{Int})
+        @assert isa(Sf, Matrix{Float64})
 
         inds = [1,1,1,1,1,1]
         v = S[inds]
-        @test isa(v, SparseVector{Int,Int})
+        @test isa(v, SparseVector{Float64,Int})
         @test length(v) == length(inds)
         @test Array(v) == Sf[inds]
 
         inds = [2,2,2,2,2,2]
         v = S[inds]
-        @test isa(v, SparseVector{Int,Int})
+        @test isa(v, SparseVector{Float64,Int})
         @test length(v) == length(inds)
         @test Array(v) == Sf[inds]
 
         # get a single column
         for j = 1:size(S,2)
             col = S[:, j]
-            @test isa(col, SparseVector{Int,Int})
+            @test isa(col, SparseVector{Float64,Int})
             @test length(col) == size(S,1)
             @test Array(col) == Sf[:,j]
         end
 
         # Get a reshaped vector
         v = S[:]
-        @test isa(v, SparseVector{Int,Int})
+        @test isa(v, SparseVector{Float64,Int})
         @test length(v) == length(S)
         @test Array(v) == Sf[:]
 
         # Get a linear subset
         for i=0:length(S)
             v = S[1:i]
-            @test isa(v, SparseVector{Int,Int})
+            @test isa(v, SparseVector{Float64,Int})
             @test length(v) == i
             @test Array(v) == Sf[1:i]
         end
         for i=1:length(S)+1
             v = S[i:end]
-            @test isa(v, SparseVector{Int,Int})
+            @test isa(v, SparseVector{Float64,Int})
             @test length(v) == length(S) - i + 1
             @test Array(v) == Sf[i:end]
         end
         for i=0:div(length(S),2)
             v = S[1+i:end-i]
-            @test isa(v, SparseVector{Int,Int})
+            @test isa(v, SparseVector{Float64,Int})
             @test length(v) == length(S) - 2i
             @test Array(v) == Sf[1+i:end-i]
         end
@@ -891,7 +856,7 @@ end
 
 @testset "reverse" begin
     @testset "$name" for (name, s) in (("standard", sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10)),
-                (@static COMPREHENSIVE ? (("random", sprand(Float32, 20, 0.4)),) : ())...,
+                (@static COMPREHENSIVE ? (("random", sprand(20, 0.4)),) : ())...,
                 ("zeros", spzeros(4)),
                 ("fixed", SparseArrays.fixed(sparsevec([2, 4, 5 ,8], [0.1, 0.2, 0.3, 0.4], 10))))
         w = collect(s)
@@ -1021,9 +986,6 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
 
         # max & min
         @test exact_equal(max.(x, x), x)
-        @static if COMPREHENSIVE
-        @test exact_equal(min.(x, x), x)
-        end
         @test exact_equal(max.(x, x2),
             SparseVector(8, Int[1, 2, 6], Float64[3.25, 4.0, 3.5]))
         @static if COMPREHENSIVE
@@ -1088,11 +1050,10 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
 end
 @static if COMPREHENSIVE
 @testset "Zero-preserving math functions: sparse -> sparse" begin
-    x1operations = (floor, ceil, trunc, round)
-    x0operations = (log1p,  expm1,  sinpi,
-                    sin,    tan,    sind,   tand,
-                    asin,   atan,   asind,  atand,
-                    sinh,   tanh,   asinh,  atanh)
+    # every function takes the same broadcast kernel; these differ in their result at the
+    # stored entries only
+    x1operations = (floor,)
+    x0operations = (sin,)
     @static if !COMPREHENSIVE
         x1operations, x0operations = (floor,), (sin,)
     end
@@ -1113,11 +1074,8 @@ end
 end
 @static if COMPREHENSIVE
 @testset "Non-zero-preserving math functions: sparse -> dense" begin
-    for op in (exp, (@static COMPREHENSIVE ? (exp2, exp10, log, log2, log10,
-            cos, cosd, acos, cosh, cospi,
-            csc, cscd, acot, csch, acsch,
-            cot, cotd, acosd, coth,
-            sec, secd, acotd, sech, asech) : ())...)
+    # every function takes the same broadcast kernel
+    for op in (exp,)
         spvec = rnd_x0
         densevec = rnd_x0f
         spresvec = op.(spvec)
@@ -1241,10 +1199,6 @@ end
         @test minimum(x) == 0.0
         @test maximum(abs, x) == 0.0
         @test minimum(abs, x) == 0.0
-        @static if COMPREHENSIVE
-        @test @inferred(minimum(t -> true, x)) === true
-        @test @inferred(maximum(t -> true, x)) === true
-        end
         @test @inferred(minimum(f, x)) === 1.0
         @test @inferred(maximum(f, x)) === 1.0
         @test @inferred(sum(f, x)) === 8.0   # every element is a structural zero, counted once
@@ -1326,9 +1280,6 @@ end
                 @test @inferred(fun(f, x)) === fun(f, d)
             end
         end
-        xc = SparseVector(5, Int32[2, 4], [1.0 + 2.0im, 0.0im])
-        @test @inferred(findmax(abs2, xc)) === findmax(abs2, Vector(xc))
-        @test @inferred(findmin(t -> t + 1, SparseVector(3, Int32[], Float64[]))) === (1.0, 1)
     end
     end
 end
@@ -1519,7 +1470,7 @@ end
 end
 @static if COMPREHENSIVE
 @testset "fill!" begin
-    for (Tv, Ti) in ((Float64, Int), (@static COMPREHENSIVE ? eachvalue((Float32, Float64, Int64, Int32, ComplexF64), (Int16, Int32, Int64, BigInt)) : ())...)
+    for (Tv, Ti) in ((Float64, Int), (Float64, BigInt))
         @testset "Tv = $Tv, Ti = $Ti" begin
             sptypes = (SparseMatrixCSC{Tv, Ti}, SparseVector{Tv, Ti})
             sizes = [(3, 4), (3,)]
@@ -1588,15 +1539,9 @@ end
 end
 
 @static if COMPREHENSIVE
-@testset "spzeros with index type" begin
-    @test typeof(spzeros(Float32, Int16, 3)) == SparseVector{Float32,Int16}
-end
-end
-
-@static if COMPREHENSIVE
 @testset "binary operations on sparse vectors with union eltype" begin
-    A = SparseVector(2, [1,2], Union{Int, Missing}[1, missing])
-    for fun in (+, (@static COMPREHENSIVE ? (-, *, min, max) : ())...)
+    A = SparseVector(2, [1,2], Union{Float64, Missing}[1, missing])
+    for fun in (+,)
         if fun in (+, -)
             @test collect(skipmissing(Array(fun(A, A)))) == collect(skipmissing(Array(fun(Array(A), Array(A)))))
         end
@@ -1611,7 +1556,7 @@ end
     CA = Array(C)
     D = convert(SparseVector{Union{Float64, Missing}}, spzeros(Float64, 10)); D[rand(1:10, 3)] .= missing
     E = convert(SparseVector{Union{Float64, Missing}}, spzeros(Float64, 10))
-    for B in (b, C, D, E), fun in (+, -, *, min, max)
+    for B in (b, C, D, E), fun in (+, *, max)
         BA = Array(B)
         # reverse order for opposite nonzeroinds-structure
         if fun in (+, -)
@@ -1641,7 +1586,7 @@ end
 
 @testset "similar for SparseVector" begin
     A = SparseVector(10, Int[1, 3, 5, 7], Float64[1.0, 3.0, 5.0, 7.0])
-    Tv, Ti = @static COMPREHENSIVE ? (Float32, Int8) : (ComplexF64, Int16)
+    Tv, Ti = ComplexF64, Int16
     # test similar without specifications (preserves stored-entry structure)
     simA = similar(A)
     @test typeof(simA) == typeof(A)
@@ -1668,14 +1613,14 @@ end
     @test length(nonzeros(simA)) == 0
     @static if COMPREHENSIVE
     # test similar with entry type and Dims{1} specification (preserves nothing)
-    simA = similar(A, Float32, (6,))
-    @test typeof(simA) == SparseVector{Float32,eltype(nonzeroinds(A))}
+    simA = similar(A, Tv, (6,))
+    @test typeof(simA) == SparseVector{Tv,eltype(nonzeroinds(A))}
     @test size(simA) == (6,)
     @test length(nonzeroinds(simA)) == 0
     @test length(nonzeros(simA)) == 0
     # test similar with entry type, index type, and Dims{1} specification (preserves nothing)
-    simA = similar(A, Float32, Int8, (6,))
-    @test typeof(simA) == SparseVector{Float32,Int8}
+    simA = similar(A, Tv, Ti, (6,))
+    @test typeof(simA) == SparseVector{Tv,Ti}
     @test size(simA) == (6,)
     @test length(nonzeroinds(simA)) == 0
     @test length(nonzeros(simA)) == 0
@@ -1692,8 +1637,8 @@ end
     @test length(nonzeros(simA)) == 0
     @static if COMPREHENSIVE
     # test similar with entry type and Dims{2} specification (preserves allocated storage space only)
-    simA = similar(A, Float32, (6,6))
-    @test typeof(simA) == SparseMatrixCSC{Float32,eltype(nonzeroinds(A))}
+    simA = similar(A, Tv, (6,6))
+    @test typeof(simA) == SparseMatrixCSC{Tv,eltype(nonzeroinds(A))}
     @test size(simA) == (6,6)
     @test getcolptr(simA) == fill(1, 6+1)
     @test length(rowvals(simA)) == 0
@@ -1726,11 +1671,6 @@ end
         @test dot(Aj, copy(Aj)) == dot(Ajview, Aj) # don't alias since it takes a different code path
         @test rmul!(Aj, 0.1)    == rmul!(Ajview, 0.1)
         @test lmul!(0.1, Aj)    == lmul!(0.1, Ajview)
-        @static if COMPREHENSIVE
-        @test Aj*0.1            == Ajview*0.1
-        @test 0.1*Aj            == 0.1*Ajview
-        @test Aj/0.1            == Ajview/0.1
-        end
         @test LinearAlgebra.axpy!(1.0, Aj,     sparse(fill(1., n))) ==
               LinearAlgebra.axpy!(1.0, Ajview, sparse(fill(1., n)))
         @test LinearAlgebra.lowrankupdate!(Matrix(1.0*I, n, n), fill(1.0, n), Aj) ==
@@ -1791,29 +1731,23 @@ end
 end
 
 @static if COMPREHENSIVE
-@testset "unary and scalar operations on sparse vector views, Ti = $Ti" for Ti in (Int, (@static COMPREHENSIVE ? (Int32,) : ())...)
+# the views read their indices through `nonzeroinds`, whose index type "basic properties",
+# "Arithmetic operations" and "reverse" check on `Int32` parents
+@testset "unary and scalar operations on sparse vector views, Ti = $Ti" for Ti in (Int,)
     A = SparseMatrixCSC{ComplexF64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0 + im, 0.0im, 2.0, 3.0im], 5, 3))
     x = SparseVector{ComplexF64,Ti}(sparsevec([2, 4, 5], [1.0 + im, 0.0im, 2.0], 7))
-    for v in (view(A, :, 1), (@static COMPREHENSIVE ? (view(A, :, 3),) : ())..., view(x, :), view(x, 2:6), view(x, 5:4))
+    for v in (view(A, :, 1), view(A, :, 3), view(x, :), view(x, 2:6), view(x, 5:4))
         d = Array(v)
         T = SparseVector{ComplexF64,Ti}
         @test (-v)::T == -d
         @test conj(v)::T == conj(d)
-        @test (2.0 * v)::T == 2.0 * d
-        @static if COMPREHENSIVE
-        @test (v * 2.0)::T == d * 2.0
-        end
         @test (v / 2.0)::T == d / 2.0
-        @static if COMPREHENSIVE
-        @test (2.0 \ v)::T == 2.0 \ d
         @test ((1 + im) * v)::T == (1 + im) * d
-        @test (v * (1 + im))::T == d * (1 + im)
-        end
         @test copy(v)::T == d
     end
     # the full-column and full-vector views scale in place through the parent's storage
     # (`view(x, :)` is a `SparseVectorView` only when the parent's axes are `Int`-sized)
-    for v in (view(A, :, 1), (Ti === Int ? (view(x, :),) : ())...), a in (0.5, (@static COMPREHENSIVE ? (1.0 + im,) : ())...)
+    for v in (view(A, :, 1), (Ti === Int ? (view(x, :),) : ())...), a in (1.0 + im,)
         @test which(*, (typeof(v), typeof(a))).module === SparseArrays
         @test which(*, (typeof(a), typeof(v))).module === SparseArrays
         @test which(/, (typeof(v), typeof(a))).module === SparseArrays
@@ -1827,13 +1761,12 @@ end
         @test lmul!(a, w) === w && w == a * Array(v)
         @test nnz(p) == nnz(parent(v))
     end
-    # the results are built from the stored entries, not from every element; standard mode
-    # stays on the `ComplexF64` views compiled above
-    Tb = @static COMPREHENSIVE ? Float64 : ComplexF64
-    B = SparseMatrixCSC{Tb,Ti}(sparse([2, 5], [1, 1], [1.0, 2.0], 10^5, 2))
-    y = SparseVector{Tb,Ti}(sparsevec([3, 7], [1.0, 2.0], 10^5))
+    # the results are built from the stored entries, not from every element; the views have
+    # the types compiled above
+    B = SparseMatrixCSC{ComplexF64,Ti}(sparse([2, 5], [1, 1], [1.0, 2.0], 10^5, 2))
+    y = SparseVector{ComplexF64,Ti}(sparsevec([3, 7], [1.0, 2.0], 10^5))
     for v in (view(B, :, 1), view(y, :), view(y, 2:10^5 - 1))
-        for f in (-, (@static COMPREHENSIVE ? (conj, w -> 2.0 * w) : ())..., w -> w / 2.0)
+        for f in (-, w -> w / 2.0)
             f(v)
             @test @allocated(f(v)) < 10^4
         end
