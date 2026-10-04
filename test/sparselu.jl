@@ -1,0 +1,214 @@
+# This file is a part of Julia. License is MIT: https://julialang.org/license
+
+module SparseLUTests
+
+using Test
+using SparseArrays
+using SparseArrays: sparselu, SparseLU
+using LinearAlgebra
+using Random
+include("testhelpers.jl")
+
+# A reducible matrix: `nblocks` irreducible diagonal blocks of order `bs` in a scrambled
+# order, each coupled to the next. Well conditioned, and no entry equals its conjugate.
+function reducible(::Type{T}, nblocks::Int, bs::Int, rng) where {T}
+    n = nblocks * bs
+    A = spzeros(T, n, n)
+    for b in 1:nblocks
+        r = (b - 1) * bs .+ (1:bs)
+        A[r, r] = rand(rng, T, bs, bs) + 4I
+        b < nblocks && (A[r[1], r[end] + 1] = T <: Complex ? T(1, 2) : T(1))
+    end
+    p = randperm(rng, n)
+    return A[p, randperm(rng, n)]
+end
+
+@testset "sparselu and sparse right-hand sides, $T" for T in STD_ELTYPES
+    rng = MersenneTwister(232)
+    A = reducible(T, 5, 3, rng)
+    n = size(A, 1)
+    D = Matrix(A)
+    F = sparselu(A)
+    @test F isa SparseLU{T,Int} && size(F) == (n, n)
+    L, U = F.L, F.U
+    @test istril(L) && istriu(U) && all(isone, diag(L))
+    @test L * U ≈ A[F.p, F.q]
+    # only the diagonal blocks are factored: L is block diagonal
+    @test nnz(L) <= 5 * 6
+    b = rand(rng, T, n)
+    @test F \ b ≈ D \ b
+    @test ldiv!(F, copy(b)) ≈ D \ b
+    B = sprand(rng, T, n, 4, 0.1)
+    @test mismatch(F \ B, D \ Matrix(B); approx=true) === nothing
+    # `\` returns a sparse solution for a sparse right-hand side, of either shape
+    @test mismatch(A \ B, D \ Matrix(B); approx=true, Ti=Int) === nothing
+    x = sparsevec([F.p[1]], [one(T)], n)
+    @test mismatch(A \ x, D \ Vector(x); approx=true, Ti=Int) === nothing
+    # the first block feeds no other, so its right-hand side reaches that block only
+    @test nnz(A \ x) == 3
+    # a triangular matrix is solved by substitution over the reach of the right-hand side
+    Lt = tril(A[F.p, F.q]) + 4I
+    e = sparsevec([n - 1], [one(T)], n)
+    @test mismatch(Lt \ e, Matrix(Lt) \ Vector(e); approx=true) === nothing
+    @test nnz(Lt \ e) <= 2
+    @test mismatch(LowerTriangular(Lt) \ B, Matrix(Lt) \ Matrix(B); approx=true) === nothing
+    @test mismatch(UpperTriangular(copy(Lt')) \ B, Matrix(Lt') \ Matrix(B); approx=true) === nothing
+    # `/` goes through `\` of the adjoints
+    C = copy(B')
+    @test mismatch(C / A, Matrix(C) / D; approx=true) === nothing
+    @test_throws SingularException sparselu(sparse(T[1 1; 1 1]))
+end
+
+@testset "sparse solves cost their reach" begin
+    # a unit lower bidiagonal matrix and a right-hand side near the end: two columns apply
+    for n in (20, 200)
+        S = opcount_sparse(sparse([1:n; 2:n], [1:n; 1:(n - 1)], 1.0))
+        b = opcount_sparse(sparsevec([n - 1], [1.0], n))
+        @test mulcount(() -> UnitLowerTriangular(S) \ b) == 1
+        @test mulcount(() -> LowerTriangular(S) \ b) == 1
+    end
+    # independent 2×2 blocks: the solve touches the block of the right-hand side only
+    for nblocks in (10, 100)
+        n = 2nblocks
+        S = opcount_sparse(blockdiag(fill(sparse([4.0 1; 1 3]), nblocks)...))
+        F = sparselu(S)
+        b = opcount_sparse(sparsevec([5], [1.0], n))
+        @test mulcount(() -> F \ b) <= 2
+        @test nnz(F \ b) == 2
+    end
+end
+
+@static if COMPREHENSIVE
+@testset "sparselu: random matrices" begin
+    rng = MersenneTwister(1988)
+    for _ in 1:300
+        n = rand(rng, 1:12)
+        T = rand(rng, STD_ELTYPES)
+        A = sprand(rng, T, n, n, 0.6 * rand(rng)) + (rand(rng) < 0.7 ? 2I : 0I)
+        if sprank(A) < n
+            @test_throws SingularException sparselu(A)
+            @test_throws SingularException A \ sprand(rng, T, n, 0.5)
+            continue
+        end
+        D = Matrix(A)
+        cond(D) > 1e8 && continue
+        B = sprand(rng, T, n, 3, 0.3)
+        b = sprand(rng, T, n, 0.3)
+        for prune in (true, false), tol in (1.0, 0.01)
+            F = sparselu(A; prune, tol)
+            @test F.L * F.U ≈ A[F.p, F.q]
+            @test mismatch(F \ B, D \ Matrix(B); approx=true) === nothing
+            @test mismatch(F \ b, D \ Vector(b); approx=true) === nothing
+            @test F \ Matrix(B) ≈ D \ Matrix(B)
+        end
+        @test mismatch(A \ B, D \ Matrix(B); approx=true) === nothing
+        @test mismatch(A' \ B, D' \ Matrix(B); approx=true) === nothing
+        @test mismatch(transpose(A) \ b, transpose(D) \ Vector(b); approx=true) === nothing
+    end
+end
+
+@testset "sparselu: pruning changes the work, not the factors" begin
+    # exact arithmetic, so that the order of the updates cannot show
+    rng = MersenneTwister(1993)
+    for _ in 1:30
+        n = rand(rng, 30:60)
+        P = sprand(rng, n, n, 3 / n) + I
+        A = SparseMatrixCSC(n, n, copy(getcolptr(P)), copy(rowvals(P)),
+                            Rational{BigInt}.(rand(rng, 1:9, nnz(P))))
+        F = try
+            sparselu(A)
+        catch err
+            err isa SingularException || rethrow()
+            continue
+        end
+        G = sparselu(A; prune=false)
+        @test F.L == G.L && F.U == G.U && F.p == G.p && F.q == G.q
+        @test F.L * F.U == A[F.p, F.q]
+        b = SparseVector(n, [1, n], Rational{BigInt}[1, 2])
+        x = A \ b
+        @test x isa SparseVector{Rational{BigInt},Int} && A * x == b
+    end
+    # a symmetric pattern is where pruning applies: every column is pruned by its first
+    # off-diagonal pivot
+    A = sparse(SymTridiagonal(fill(4.0, 50), fill(1.0, 49))) + sparse([1, 50], [50, 1], 1.0)
+    @test sparselu(A).L ≈ sparselu(A; prune=false).L
+    @test sparselu(A) \ ones(50) ≈ Matrix(A) \ ones(50)
+end
+
+@testset "sparselu: pivoting and singular matrices" begin
+    # a zero on the matched diagonal forces a row exchange inside the block
+    A = sparse([0.0 1 1; 1 0 1; 1 1 0])
+    F = sparselu(A)
+    @test F.L * F.U ≈ A[F.p, F.q] && F \ [1.0, 2, 3] ≈ Matrix(A) \ [1.0, 2, 3]
+    # the diagonal is kept when it is within `tol` of the largest entry
+    A = sparse([1.0 2; 3 1e-3])
+    @test sparselu(sparse([1.0 0.5; 3 4]); tol=0.1).p == [1, 2]
+    @test sparselu(sparse([1.0 0.5; 3 4])).p == [2, 1]
+    @test_throws ArgumentError sparselu(A; tol=2)
+    @test_throws DimensionMismatch sparselu(sprand(3, 4, 0.5))
+    # numerically singular with a full structural rank, and a stored zero pivot
+    @test_throws SingularException sparselu(sparse([1.0 2; 2 4]))
+    @test_throws SingularException sparselu(sparse([1, 2], [1, 2], [1.0, 0.0]))
+    @test_throws SingularException sparse([1, 2], [1, 2], [1.0, 0.0]) \ sparsevec([1], [1.0], 2)
+    # empty
+    F = sparselu(spzeros(0, 0))
+    @test size(F) == (0, 0) && F \ spzeros(0, 2) == spzeros(0, 2)
+    @test_throws DimensionMismatch F \ sprand(3, 2, 0.5)
+    @test_throws DimensionMismatch sparse(1.0I, 3, 3) \ sprand(4, 2, 0.5)
+    @test_throws DimensionMismatch LowerTriangular(sparse(1.0I, 3, 3)) \ sprand(4, 0.5)
+    @test_throws DimensionMismatch ldiv!(sparselu(sparse(1.0I, 3, 3)), ones(4))
+end
+
+@testset "sparse right-hand sides: types, wrappers and views" begin
+    rng = MersenneTwister(708)
+    n = 8
+    A = sprand(rng, n, n, 0.4) + 3I
+    D = Matrix(A)
+    B = sprand(rng, n, 3, 0.4)
+    b = sprand(rng, n, 0.4)
+    for W in (LowerTriangular, UnitLowerTriangular, UpperTriangular, UnitUpperTriangular)
+        @test mismatch(W(A) \ B, W(D) \ Matrix(B); approx=true) === nothing
+        @test mismatch(W(A) \ b, W(D) \ Vector(b); approx=true) === nothing
+        @test mismatch(W(A)' \ B, W(D)' \ Matrix(B); approx=true) === nothing
+        @test mismatch(W(view(A, :, 1:n)) \ view(B, :, 2:3), W(D) \ Matrix(B)[:, 2:3]; approx=true) === nothing
+    end
+    for M in (A, tril(A), triu(A), sparse(Diagonal(A)))
+        @test mismatch(M \ view(B, :, 2:3), Matrix(M) \ Matrix(B)[:, 2:3]; approx=true) === nothing
+        @test mismatch(M \ view(B, :, 2), Matrix(M) \ Matrix(B)[:, 2]; approx=true) === nothing
+        @test mismatch(M \ copy(B')', Matrix(M) \ Matrix(B); approx=true) === nothing
+        @test mismatch(B' / M, Matrix(B') / Matrix(M); approx=true) === nothing
+        @inferred M \ B
+        @inferred M \ b
+        @inferred M' \ B
+    end
+    # a stored zero in the other triangle leaves the matrix triangular
+    Z = tril(A)
+    Z[1, n] = 1.0
+    nonzeros(Z)[end] = 0.0
+    @test mismatch(Z \ b, Matrix(Z) \ Vector(b); approx=true) === nothing
+    # a missing or zero diagonal is singular, as for a dense triangle, wherever it is
+    S = sparse([1.0 0 0; 1 0 0; 1 1 1])
+    @test_throws SingularException LowerTriangular(S) \ sparsevec([3], [1.0], 3)
+    @test_throws SingularException LowerTriangular(dropzeros(S)) \ sparsevec([3], [1.0], 3)
+    @test mismatch(UnitLowerTriangular(S) \ sparsevec([1], [1.0], 3), [1.0, -1, 0]) === nothing
+    # element and index types
+    Ai = sparse([2 0 0; 1 2 0; 0 1 2])
+    @test mismatch(Ai \ sparsevec([1], [1], 3), [0.5, -0.25, 0.125]; Ti=Int) === nothing
+    @test mismatch(UnitLowerTriangular(Ai) \ sparsevec([1], [1], 3), [1, -1, 1]; Ti=Int) === nothing
+    A32 = SparseMatrixCSC{Float32,Int32}(A)
+    X = A32 \ SparseMatrixCSC{Float32,Int32}(B)
+    @test mismatch(X, Matrix(A32) \ Matrix{Float32}(B); approx=true, Ti=Int32) === nothing
+    @test sparselu(A32) isa SparseLU{Float32,Int32}
+    @test mismatch(A \ SparseMatrixCSC{ComplexF64,Int32}(B), D \ Matrix(B); Tv=ComplexF64, Ti=Int, approx=true) === nothing
+    # a Hermitian matrix takes the same path
+    H = A + A'
+    @test mismatch(H \ B, Matrix(H) \ Matrix(B); approx=true) === nothing
+    # the factorization of a fixed-pattern matrix
+    @test mismatch(SparseArrays.fixed(A) \ B, D \ Matrix(B); approx=true) === nothing
+    # printing
+    @test occursin("2 diagonal blocks", sprint(show, MIME"text/plain"(), sparselu(sparse([1.0 2; 0 3]))))
+    @test propertynames(sparselu(A)) == (:L, :U, :p, :q)
+end
+end
+
+end # module SparseLUTests
