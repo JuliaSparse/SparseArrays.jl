@@ -21,7 +21,7 @@ include("testhelpers.jl")
     ad116 = diagm(0 => diag(a116))
     sd116 = sparse(ad116)
 
-    for (aa116, ss116) in ((a116, s116), (ad116, sd116))
+    for (aa116, ss116) in ((a116, s116), (@static COMPREHENSIVE ? ((ad116, sd116),) : ())...)
         ij=11; i=3; j=2
         @test ss116[ij] == aa116[ij]
         @test ss116[(i,j)] == aa116[i,j]
@@ -169,7 +169,7 @@ include("testhelpers.jl")
     # end
 
     @testset "empty sparse matrix indexing" begin
-        for k = 0:3
+        for k = (@static COMPREHENSIVE ? (0:3) : (3,))
             @test issparse(spzeros(k,0)[:])
             @test isempty(spzeros(k,0)[:])
             @test issparse(spzeros(0,k)[:])
@@ -601,7 +601,7 @@ end
     m, n = 128, 8
     indices = (Int[], [1], [m], [m, 1, m ÷ 2, 1],
                randperm(rng, m)[1:13], repeat(collect(1:m), 3))
-    for density in (0.0, 0.0001, 0.001, 0.01, 0.1, 1.0)
+    for density in ((@static COMPREHENSIVE ? (0.0, 0.0001, 0.001, 0.01) : ())..., 0.1, 1.0)
         S = sprand(rng, m, n, density)
         isempty(nonzeros(S)) || (nonzeros(S)[1] = 0)
         for I in indices, J in (Int[], [n, 1, n], randperm(rng, n))

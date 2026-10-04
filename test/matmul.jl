@@ -19,7 +19,7 @@ dA = Array(sA)
 const TRANSFORM_PAIRS = ((identity, identity), (adjoint, transpose), (transpose, adjoint))
 
 @testset "matrix-vector multiplication (non-square)" begin
-    for i = 1:5
+    for i = 1:(@static COMPREHENSIVE ? 5 : 1)
         a = sprand(10, 5, 0.5)
         b = rand(5)
         @test maximum(abs.(a*b - Array(a)*b)) < 100*eps()
@@ -27,7 +27,7 @@ const TRANSFORM_PAIRS = ((identity, identity), (adjoint, transpose), (transpose,
 end
 
 @testset "diagonal - sparse vector mutliplication" begin
-    for _ in 1:10
+    for _ in 1:(@static COMPREHENSIVE ? 10 : 1)
         b = spzeros(10)
         b[1:3] .= 1:3
         A = Diagonal(randn(10))
@@ -60,9 +60,11 @@ end
 
 @testset "matrix multiplication" begin
     for (m, p, n, q, k) in (
+                            # standard: one product whose columns are gathered by a scan, and one
+                            # sparse enough that they are sorted
                             (10, 0.7, 5, 0.3, 15),
                             (100, 0.01, 100, 0.01, 20),
-                            (100, 0.1, 100, 0.2, 100),
+                            (@static COMPREHENSIVE ? ((100, 0.1, 100, 0.2, 100),) : ())...,
                            )
         a = sprand(m, n, p); ad = Array(a)
         b = sprand(n, k, q); bd = Array(b)

@@ -37,7 +37,7 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
                    (Float64, UpperTriangular, transpose, adjoint), (ComplexF64, UnitUpperTriangular, identity, transpose)],
                    pairwise(STD_ELTYPES, TRIANGLES, TRANSFORMS, TRANSFORMS))
     @testset "wrappers" begin
-        for ElType in STD_ELTYPES
+        for ElType in (Float64, (@static COMPREHENSIVE ? (ComplexF64,) : ())...)
             S = _sparse_test_matrix(n, ElType)
             for TM in (LowerTriangular, UnitLowerTriangular, UpperTriangular, UnitUpperTriangular)
                 T = _triangular_test_matrix(n, TM, ElType)
@@ -309,8 +309,8 @@ end
     vectorcases = Any[(ComplexF64, ComplexF64, UnitUpperTriangular)]
     @static COMPREHENSIVE && append!(vectorcases, Any[(Float64, Float64, LowerTriangular),
                       (Float64, ComplexF64, UnitUpperTriangular)], pairwise(types, types, tritypes))
-    for ta in types
-        for tri in tritypes
+    for ta in (@static COMPREHENSIVE ? types : (ComplexF64,))
+        for tri in (@static COMPREHENSIVE ? tritypes : (UnitUpperTriangular,))
             if ta == Int
                 T = tri(rand(1:9, n, n))
             else
@@ -543,7 +543,9 @@ end
     sprmat = sprand(m, m, 0.2)
     sparsefloatmat = I + sprmat/(2m)
     sparsecomplexmat = I + SparseMatrixCSC(m, m, getcolptr(sprmat), rowvals(sprmat), complex.(nonzeros(sprmat), nonzeros(sprmat))/(4m))
+    @static if COMPREHENSIVE
     sparseintmat = 10m*I + SparseMatrixCSC(m, m, getcolptr(sprmat), rowvals(sprmat), round.(Int, nonzeros(sprmat)*10))
+    end
 
     denseintmat = I*10m + rand(1:m, m, m)
     densefloatmat = I + randn(m, m)/(2m)
@@ -572,15 +574,15 @@ end
         pairwise([(a, b) for a in eltypes, b in eltypes if (a in coretypes && b in coretypes) || a == Float64 || b == Float64],
                  (true, false), (LowerTriangular, UnitLowerTriangular))))
 
-    @testset "wrapper dispatch and active-index boundaries" for T in (Float64, ComplexF64)
+    @testset "wrapper dispatch and active-index boundaries" for T in ((@static COMPREHENSIVE ? (Float64,) : ())..., ComplexF64)
         densemat, sparsemat = T == Float64 ? (densefloatmat, sparsefloatmat) :
                                             (densecomplexmat, sparsecomplexmat)
         z = T == Float64 ? T(2) : T(2 + 3im)
         spvecs = (spzeros(T, m),
-                  SparseVector(m, [1], [z]),
-                  SparseVector(m, [m], [z]),
+                  (@static COMPREHENSIVE ? (SparseVector(m, [1], [z]),
+                  SparseVector(m, [m], [z])) : ())...,
                   SparseVector(m, [3, 7], [z, -z]),
-                  SparseVector(m, [1, 3, m], [zero(T), z, zero(T)]))
+                  (@static COMPREHENSIVE ? (SparseVector(m, [1, 3, m], [zero(T), z, zero(T)]),) : ())...)
         for backing in (densemat, sparsemat), tri in (LowerTriangular, UpperTriangular, UnitLowerTriangular, UnitUpperTriangular),
             transform in (identity, adjoint, transpose)
             iscase((T, backing isa Matrix, tri, transform), boundaries) || continue

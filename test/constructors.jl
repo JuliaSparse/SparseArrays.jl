@@ -284,7 +284,7 @@ end
 
 @testset "sprand" begin
     p=0.3; m=1000; n=2000;
-    for s in 1:(@static COMPREHENSIVE ? 10 : 2)
+    for s in 1:(@static COMPREHENSIVE ? 10 : 1)
         # build a (dense) random matrix with randsubset + rand
         Random.seed!(s);
         v = randsubseq(1:m*n,p);
@@ -324,7 +324,7 @@ end
         return I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval, csccolptr, cscrowval, cscnzval
     end
 
-    for (m, n) in ((10, 5), (5, 10), (10, 10))
+    for (m, n) in ((10, 5), (@static COMPREHENSIVE ? ((5, 10), (10, 10)) : ())...)
         # Passing csr vectors
         I, J, V, klasttouch, csrrowptr, csrcolval, csrnzval = allocate_arrays(m, n)
         S  = sparse(I, J, V, m, n)

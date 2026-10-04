@@ -146,8 +146,8 @@ end
 @testset "broadcast! implementation specialized for a single (input) sparse vector/matrix" begin
     N, M, p = 10, 12, 0.3
     f(x, y) = x + y + 1
-    mats = (sprand(N, M, p), sprand(N, 1, p), sprand(1, M, p), sprand(1, 1, 1.0), spzeros(1, 1))
-    vecs = (sprand(N, p), sprand(1, 1.0), spzeros(1))
+    mats = (sprand(N, M, p), (@static COMPREHENSIVE ? (sprand(N, 1, p),) : ())..., sprand(1, M, p), (@static COMPREHENSIVE ? (sprand(1, 1, 1.0), spzeros(1, 1)) : ())...)
+    vecs = (sprand(N, p), sprand(1, 1.0), (@static COMPREHENSIVE ? (spzeros(1),) : ())...)
     # --> test with matrix destination (Z/fZ)
     fZ = Array(first(mats))
     for Xo in (mats..., vecs...), retype in retypes
@@ -258,8 +258,8 @@ end
 @testset "broadcast[!] implementation specialized for pairs of (input) sparse vectors/matrices" begin
     N, M, p = 10, 12, 0.3
     f(x, y) = x + y + 1
-    mats = (sprand(N, M, p), sprand(N, 1, p), sprand(1, M, p), sprand(1, 1, 1.0), spzeros(1, 1))
-    vecs = (sprand(N, p), sprand(1, 1.0), spzeros(1))
+    mats = (sprand(N, M, p), (@static COMPREHENSIVE ? (sprand(N, 1, p),) : ())..., sprand(1, M, p), (@static COMPREHENSIVE ? (sprand(1, 1, 1.0), spzeros(1, 1)) : ())...)
+    vecs = (sprand(N, p), sprand(1, 1.0), (@static COMPREHENSIVE ? (spzeros(1),) : ())...)
     tens = (mats..., vecs...)
     fZ = Array(first(mats))
     for Xo in tens, retype in retypes
@@ -401,8 +401,8 @@ end
 @testset "broadcast[!] implementation capable of handling >2 (input) sparse vectors/matrices" begin
     N, M, p = 10, 12, 0.3
     f(x, y, z) = x + y + z + 1
-    mats = (sprand(N, M, p), sprand(N, 1, p), sprand(1, M, p), sprand(1, 1, 1.0), spzeros(1, 1))
-    vecs = (sprand(N, p), sprand(1, 1.0), spzeros(1))
+    mats = (sprand(N, M, p), (@static COMPREHENSIVE ? (sprand(N, 1, p),) : ())..., sprand(1, M, p), (@static COMPREHENSIVE ? (sprand(1, 1, 1.0), spzeros(1, 1)) : ())...)
+    vecs = (sprand(N, p), sprand(1, 1.0), (@static COMPREHENSIVE ? (spzeros(1),) : ())...)
     tens = (mats..., vecs...)
     # Each vector/matrix mix of the three arguments is its own specialization of one generic
     # kernel. A standard run takes the all-vector mix, the only one with a vector result, and
@@ -774,7 +774,7 @@ end
 
 @testset "sparse vector broadcast of two arguments" begin
     sv1, sv5 = sprand(1, 1.), sprand(5, 1.)
-    for (sa, sb) in ((sv1, sv1), (sv1, sv5), (sv5, sv1), (sv5, sv5))
+    for (sa, sb) in ((sv1, sv1), (sv1, sv5), (sv5, sv1), (sv5, sv5))[@static COMPREHENSIVE ? (1:4) : [2, 4]]
         fa, fb = Vector(sa), Vector(sb)
         for f in (max, (@static COMPREHENSIVE ? (+, -, *, min) : ())...)
             @test @inferred(broadcast(f, sa, sb))::SparseVector == broadcast(f, fa, fb)

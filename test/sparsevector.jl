@@ -483,7 +483,7 @@ end
     v = spzeros(n); v[1] = 1
     w = copy(v); w[2] = 0.0   # explicitly stored zero must not change the hash
     @test hash(w) == hash(v) && isequal(w, v)
-    for len in (5, 100, 40000), x in (sprand(len, 0.1), sprandn(len, 0.3), spzeros(len))
+    for len in ((@static COMPREHENSIVE ? (5, 100) : ())..., 40000), x in (sprand(len, 0.1), (@static COMPREHENSIVE ? (sprandn(len, 0.3),) : ())..., spzeros(len))
         k = min(3, nnz(x)); nonzeros(x)[1:k] .= [NaN, -0.0, 0.0][1:k]
         @test hash(x) == hash(Vector(x))
         @test hash(x, UInt(7)) == hash(Vector(x), UInt(7))
@@ -541,6 +541,7 @@ end
         x2 = SparseVector(8, [3, 4], [1.2, 3.4])
         copyto!(x2, x1)
         @test x2 == x1
+        @static if COMPREHENSIVE   # more destination patterns on the same branches
         x2 = SparseVector(8, [2, 4, 8], [10.3, 7.4, 3.1])
         copyto!(x2, x1)
         @test x2 == x1
@@ -551,6 +552,7 @@ end
         copyto!(x2, x1)
         @test x2[1:8] == x1
         @test x2[9:10] == spzeros(2)
+        end
         x2 = SparseVector(10, [3, 4, 9], [1.2, 3.4, 17.8])
         copyto!(x2, x1)
         @test x2[1:8] == x1
@@ -569,6 +571,7 @@ end
         x2 = SparseVector(8, [3, 4], [1.2, 3.4])
         copyto!(x2, x1)
         @test x2[:] == x1[:]
+        @static if COMPREHENSIVE   # more destination patterns on the same branches
         x2 = SparseVector(8, [2, 4, 8], [10.3, 7.4, 3.1])
         copyto!(x2, x1)
         @test x2[:] == x1[:]
@@ -579,6 +582,7 @@ end
         copyto!(x2, x1)
         @test x2[1:8] == x1[:]
         @test x2[9:10] == spzeros(2)
+        end
         x2 = SparseVector(10, [3, 4, 9], [1.2, 3.4, 17.8])
         copyto!(x2, x1)
         @test x2[1:8] == x1[:]
@@ -597,6 +601,7 @@ end
         x2 = sparse([1, 2], [2, 2], [1.2, 3.4], 2, 4)
         copyto!(x2, x1)
         @test x2[:] == x1[:]
+        @static if COMPREHENSIVE   # more destination patterns on the same branches
         x2 = sparse([2, 2, 2], [1, 3, 4], [10.3, 7.4, 3.1], 2, 4)
         copyto!(x2, x1)
         @test x2[:] == x1[:]
@@ -607,6 +612,7 @@ end
         copyto!(x2, x1)
         @test x2[1:8] == x1
         @test x2[9:10] == spzeros(2)
+        end
         x2 = sparse([1, 2, 1], [2, 2, 5], [1.2, 3.4, 17.8], 2, 5)
         copyto!(x2, x1)
         @test x2[1:8] == x1
@@ -1021,7 +1027,7 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
         (SparseVector(5, [3], [2.0]), SparseVector(5, [4], [3.0])),
         (SparseVector(5, Int[], Float64[]), SparseVector(5, [4], [3.0])),
     ]
-    @testset "View operations $((collect(xa), collect(xb))), op $op" for (xa, xb) in test_vectors, op in (-, +)
+    @testset "View operations $((collect(xa), collect(xb))), op $op" for (xa, xb) in (@static COMPREHENSIVE ? test_vectors : test_vectors[[1, end]]), op in (-, +)
         r1 = op(@view(xa[1:end]), @view(xb[1:end]))
         @test r1 == op(xa, xb)
         @test r1 isa SparseVector
@@ -1369,7 +1375,7 @@ end
     @test_deprecated SparseArrays.fkeep!(xdrop, f_drop)
 end
 
-@testset "dropzeros[!] with length=$m" for m in (10, 20, 30)
+@testset "dropzeros[!] with length=$m" for m in (10, (@static COMPREHENSIVE ? (20, 30) : ())...)
     Random.seed!(123)
     nzprob, targetnumposzeros, targetnumnegzeros = 0.4, 5, 5
     v = sprand(m, nzprob)
@@ -1385,7 +1391,7 @@ end
     map!(x -> x == 2 ? 0.0 : x, nonzeros(vposzeros), nonzeros(vposzeros))
     map!(x -> x == -2 ? -0.0 : x, nonzeros(vnegzeros), nonzeros(vnegzeros))
     map!(x -> x == 2 ? 0.0 : x == -2 ? -0.0 : x, nonzeros(vbothsigns), nonzeros(vbothsigns))
-    for vwithzeros in (vposzeros, vnegzeros, vbothsigns)
+    for vwithzeros in ((@static COMPREHENSIVE ? (vposzeros, vnegzeros) : ())..., vbothsigns)
         # Basic functionality / dropzeros!
         @test dropzeros!(copy(vwithzeros)) == v
         # Basic functionality / dropzeros
@@ -1681,7 +1687,7 @@ end
 @testset "Fast operations on full column views" begin
     n = 1000
     A = sprandn(n, n, 0.01)
-    for j in 1:50:n
+    for j in (@static COMPREHENSIVE ? (1:50:n) : (1, 501))
         Aj, Ajview = A[:, j], view(A, :, j)
         @test norm(Aj)          == norm(Ajview)
         @test dot(Aj, copy(Aj)) == dot(Ajview, Aj) # don't alias since it takes a different code path
@@ -1725,7 +1731,7 @@ end
         end
     end
     @testset "empty and length-1 inputs" begin
-        for n in (0, 1, 2)
+        for n in (0, 1, (@static COMPREHENSIVE ? (2,) : ())...)
             x = spzeros(n)
             d = diff(x)
             @test d isa SparseVector{Float64,Int}
@@ -1745,7 +1751,7 @@ end
 @testset "unary and scalar operations on sparse vector views, Ti = $Ti" for Ti in (Int, (@static COMPREHENSIVE ? (Int32,) : ())...)
     A = SparseMatrixCSC{ComplexF64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0 + im, 0.0im, 2.0, 3.0im], 5, 3))
     x = SparseVector{ComplexF64,Ti}(sparsevec([2, 4, 5], [1.0 + im, 0.0im, 2.0], 7))
-    for v in (view(A, :, 1), view(A, :, 3), view(x, :), view(x, 2:6), view(x, 5:4))
+    for v in (view(A, :, 1), (@static COMPREHENSIVE ? (view(A, :, 3),) : ())..., view(x, :), view(x, 2:6), view(x, 5:4))
         d = Array(v)
         T = SparseVector{ComplexF64,Ti}
         @test (-v)::T == -d

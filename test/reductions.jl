@@ -39,13 +39,13 @@ sA = sprandn(3, 7, 0.5)
         end
     end
 
-    for s0 in (spzeros(3, 7), spzeros(1, 3), spzeros(3, 1)), d in (1, 2, 3, (1,2))
+    for s0 in (spzeros(3, 7), (@static COMPREHENSIVE ? (spzeros(1, 3), spzeros(3, 1)) : ())...), d in (1, 2, 3, (1,2))
         @test all(isone, sum(s0, dims=d, init=1.0))
     end
 
     for f in (sum, prod, maximum, (@static COMPREHENSIVE ? (minimum,) : ())...)
         # Test with a map function that maps to non-zero
-        for arr in (se33, sA, pA)
+        for arr in (sA, (@static COMPREHENSIVE ? (se33, pA) : ())...)
             @test f(x->x+1, arr) ≈ f(arr .+ 1)
         end
 
@@ -368,6 +368,7 @@ end
         @test B[row] ≈ sum(A[row, :] .+ 1)
     end
     @test B ≈ mapreduce(x->x+1, +, Matrix(A), dims=2)
+    @static if COMPREHENSIVE
     # case when there are no zeros in the sparse matrix
     A = sparse(rand(n, m))
     B = mapreduce(identity, +, A, dims=2)
@@ -375,6 +376,7 @@ end
         @test B[row] ≈ sum(A[row, :])
     end
     @test B ≈ mapreduce(identity, +, Matrix(A), dims=2)
+    end
 end
 
 @testset "reductions along a dimension: dense by default, sparse with `sparse = true` (#43), column views (#377)" begin
@@ -383,7 +385,7 @@ end
         (identity, +), (identity, max), (x -> x > 0.5, |), (x -> x >= 0, &), (x -> x + 1, +),
     )
     viewed = @static COMPREHENSIVE ? reductions : reductions[[2, 5]]
-    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (1, 9), (9, 1), (@static COMPREHENSIVE ? ((30, 20),) : ())...),
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (@static COMPREHENSIVE ? ((1, 1), (1, 9), (9, 1), (30, 20)) : ())...),
                                                  d in (0.0, 0.2, 1.0)
         A = sparse(sprand(m, n, d) .- 0.5)   # negative entries, so that max and min do not see 0 as a bound
         M = Matrix(A)
@@ -474,7 +476,7 @@ end
     @test sum(sparse(Int8[1 2; 3 4]); dims = 1, init = Int8(1), sparse = true) isa SparseMatrixCSC{Int8}
     end
     # empty dimensions
-    for (m, n) in ((0, 4), (4, 0), (0, 0)), dims in (1, 2, (1, 2))
+    for (m, n) in ((0, 4), (4, 0), (@static COMPREHENSIVE ? ((0, 0),) : ())...), dims in (1, 2, (1, 2))
         A = spzeros(m, n)
         @test sum(A; dims) == sum(Matrix(A); dims)
         @test sum(A; dims, sparse = true) == sum(Matrix(A); dims)

@@ -245,7 +245,7 @@ end
 
     @testset "2-norm" begin
         rng = Random.Xoshiro(1)
-        for T in (STD_ELTYPES..., (@static COMPREHENSIVE ? (ComplexF32,) : ())...), (m, n) in ((60, 40), (40, 60))
+        for T in (STD_ELTYPES..., (@static COMPREHENSIVE ? (ComplexF32,) : ())...), (m, n) in ((60, 40), (@static COMPREHENSIVE ? ((40, 60),) : ())...)
             A = sprandn(rng, T, m, n, 0.1)
             @test opnorm(A) ≈ opnorm(Array(A))
             @test opnorm(A) isa real(T)
@@ -489,7 +489,7 @@ end
     # test some non-trivial cases
     local S
     @testset "random matrices" begin
-        for sparsity in (0.1, 0.01, 0.0)
+        for sparsity in (0.1, (@static COMPREHENSIVE ? (0.01, 0.0) : ())...)
             @static if COMPREHENSIVE
             S = sparse(Symmetric(sprand(20, 20, sparsity)))
             @test issymmetric(S)
@@ -627,7 +627,7 @@ end
     end
     end
 
-    @testset "band offset k, $T $(m)x$(n)" for T in (@static COMPREHENSIVE ? (Float64, ComplexF64) : (ComplexF64,)), (m, n) in ((1, 2), (2, 1), (3, 5), (5, 3), (0, 3), (3, 0))
+    @testset "band offset k, $T $(m)x$(n)" for T in (@static COMPREHENSIVE ? (Float64, ComplexF64) : (ComplexF64,)), (m, n) in ((@static COMPREHENSIVE ? ((1, 2), (2, 1)) : ())..., (3, 5), (5, 3), (@static COMPREHENSIVE ? ((0, 3), (3, 0)) : ())...)
         @test which(istriu, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
         @test which(istril, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
         v = T <: Complex ? T(2 + im) : T(2)
@@ -689,7 +689,7 @@ end
     end
 
     # non-square:
-    for m=1:4, n=2:4
+    for m=(@static COMPREHENSIVE ? (1:4) : (1, 3)), n=(@static COMPREHENSIVE ? (2:4) : (2, 4))
         if m < 2 || n < 3
             @test_throws DimensionMismatch spdiagm(m,n, 0 => x,  1 => x)
         else
@@ -710,7 +710,7 @@ end
         S1 = sprand(T,  5,  5, 0.5)
         S2 = sprand(T, 10,  5, 0.5)
         S3 = sprand(T,  5, 10, 0.5)
-        for S in (S1, S2, S3)
+        for S in (S2, (@static COMPREHENSIVE ? (S1, S3) : ())...)
             local A = Matrix(S)
             @test diag(S)::SparseVector{T,Int} == diag(A)
             for k in -size(S,1):size(S,2)
@@ -844,7 +844,7 @@ end
 
 @testset "sparse Frobenius dot/inner product" begin
     full_view = M -> view(M, :, :)
-    for i = 1:5
+    for i = 1:(@static COMPREHENSIVE ? 5 : 1)
         A = sprand(ComplexF64,10,15,0.4); MA = Matrix(A)
         B = sprand(ComplexF64,10,15,0.5); MB = Matrix(B)
         @static if COMPREHENSIVE

@@ -107,7 +107,7 @@ end
     A = spzeros(n, n); A[1, 1] = 1
     B = copy(A); B[2, 2] = 0.0   # explicitly stored zero must not change the hash
     @test hash(B) == hash(A) && isequal(B, A)
-    for m in (2, 10, 200), X in (sprand(m, m, 0.1), sprandn(m, m, 0.3), spzeros(m, m))
+    for m in ((@static COMPREHENSIVE ? (2,) : ())..., 10, 200), X in (sprand(m, m, 0.1), (@static COMPREHENSIVE ? (sprandn(m, m, 0.3),) : ())..., spzeros(m, m))
         k = min(3, nnz(X)); nonzeros(X)[1:k] .= [NaN, -0.0, 0.0][1:k]
         @test hash(X) == hash(Matrix(X))
         @test hash(X, UInt(7)) == hash(Matrix(X), UInt(7))
@@ -308,7 +308,7 @@ do33 = fill(1.,3)
         CA = Array(C)
         D = convert(SparseMatrixCSC{Union{Float64, Missing}}, spzeros(Float64, 20, 10)); D[rand(1:200, 3)] .= missing
         E = convert(SparseMatrixCSC{Union{Float64, Missing}}, spzeros(Float64, 20, 10))
-        for B in (b, C, D, E), fun in (+, (@static COMPREHENSIVE ? (-, *, min, max) : ())...)
+        for B in (b, (@static COMPREHENSIVE ? (C, D) : ())..., E), fun in (+, (@static COMPREHENSIVE ? (-, *, min, max) : ())...)
             BA = Array(B)
             # reverse order for opposite nonzeroinds-structure
             if fun in (+, -)
@@ -325,7 +325,7 @@ do33 = fill(1.,3)
 end
 
 @testset "dropdims" begin
-    for i = 1:5
+    for i = 1:(@static COMPREHENSIVE ? 5 : 1)
         am = sprand(20, 1, 0.2)
         av = dropdims(am, dims=2)
         @test ndims(av) == 1
@@ -560,7 +560,7 @@ end
         @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = n + 1; r))
     end
     @testset "overall functionality of [c]transpose[!] and permute[!]" begin
-        for (m, n) in ((smalldim, smalldim), (smalldim, largedim), (largedim, smalldim))
+        for (m, n) in ((@static COMPREHENSIVE ? ((smalldim, smalldim),) : ())..., (smalldim, largedim), (@static COMPREHENSIVE ? ((largedim, smalldim),) : ())...)
             A = sprand(m, n, nzprob)
             At = copy(transpose(A))
             # transpose[!]
@@ -777,8 +777,8 @@ end
     extra = @static COMPREHENSIVE ? pairwise(((6, 5), (1, 1), (0, 3), (1, 9), (20, 13)),
                                              (0.3, 1.0), (1, 2),
                                              ((; rev=true), (; alg=Base.DEFAULT_STABLE))) : ()
-    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (1, 1), (0, 3), (1, 9),
-                                                            (20, 13)),
+    @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (@static COMPREHENSIVE ? ((1, 1), (0, 3), (1, 9),
+                                                            (20, 13)) : ())...),
                                                  d in (0.3, 1.0)
         A = sprand(m, n, d)
         M = Matrix(A)
@@ -906,7 +906,7 @@ end
         end
 
         # structurally empty, but not zero-size: here dense does give a reference
-        @testset "all structural zeros, size = ($m, $n)" for (m, n) in ((1, 1), (5, 4))
+        @testset "all structural zeros, size = ($m, $n)" for (m, n) in ((@static COMPREHENSIVE ? ((1, 1),) : ())..., (5, 4))
             A = spzeros(m, n)
             for dims in (1, 2)
                 B = sort!(copy(A); dims)
@@ -972,7 +972,8 @@ end
     copyto!(A, B)
     @test A[:] == B[:]
     # Test various size(A) / size(B) combinations
-    for mA in [5, 10, 20], nA in [5, 10, 20], mB in [5, 10, 20], nB in [5, 10, 20]
+    sizes = @static COMPREHENSIVE ? [5, 10, 20] : [5, 20]
+    for mA in sizes, nA in sizes, mB in sizes, nB in sizes
         A = sprand(mA,nA,0.4)
         Aorig = copy(A)
         B = sprand(mB,nB,0.4)
@@ -1001,7 +1002,7 @@ end
     # an empty source leaves the destination untouched, as for dense
     A = sparse([3, 4, 2, 1], [1, 1, 2, 4], [1.0, 2.0, 3.0, 4.0], 4, 4)
     Aorig = copy(A)
-    for B in (spzeros(0, 0), spzeros(0, 3), spzeros(3, 0))
+    for B in (spzeros(0, 0), (@static COMPREHENSIVE ? (spzeros(0, 3), spzeros(3, 0)) : ())...)
         @test copyto!(A, B) === A
         @test A == Aorig
     end
@@ -1114,7 +1115,7 @@ end
     nzprob = 0.4
     targetnumposzeros = 5
     targetnumnegzeros = 5
-    for (m, n) in ((largedim, largedim), (smalldim, largedim), (largedim, smalldim))
+    for (m, n) in ((@static COMPREHENSIVE ? ((largedim, largedim),) : ())..., (smalldim, largedim), (@static COMPREHENSIVE ? ((largedim, smalldim),) : ())...)
         local A = sprand(m, n, nzprob)
         struczerosA = findall(x -> x == 0, A)
         poszerosinds = unique(rand(struczerosA, targetnumposzeros))
@@ -1128,7 +1129,7 @@ end
         map!(x -> x == 2 ? 0.0 : x, nonzeros(Aposzeros), nonzeros(Aposzeros))
         map!(x -> x == -2 ? -0.0 : x, nonzeros(Anegzeros), nonzeros(Anegzeros))
         map!(x -> x == 2 ? 0.0 : x == -2 ? -0.0 : x, nonzeros(Abothsigns), nonzeros(Abothsigns))
-        for Awithzeros in (Aposzeros, Anegzeros, Abothsigns)
+        for Awithzeros in ((@static COMPREHENSIVE ? (Aposzeros, Anegzeros) : ())..., Abothsigns)
             # Basic functionality / dropzeros!
             @test dropzeros!(copy(Awithzeros)) == A
             # Basic functionality / dropzeros
