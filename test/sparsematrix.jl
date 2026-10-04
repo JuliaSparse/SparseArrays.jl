@@ -627,6 +627,84 @@ end
     end
 end
 
+# A sparse array is compared with a dense one without indexing the sparse one, which an
+# eltype without a `zero` cannot do at an unstored position: the generic fallback throws.
+@testset "== and isequal of a sparse and a dense array" begin
+    Dm = [[1;;] [0;;]; [0;;] [2;;]]
+    Bm = sparse(Dm)
+    A = sparse([1, 3, 2, 3], [1, 1, 3, 4], [1.0, NaN, -0.0, 2.0], 3, 4)
+    x = sparsevec([2, 5], [NaN, 3.0], 6)
+    C = sparse([1, 2], [2, 3], [1.0im, 2.0], 3, 3)
+    for eq in (==, isequal)
+        @test eq(Bm, Dm) && eq(Dm, Bm) && !eq(Bm, [[1;;] [0;;]; [0;;] [3;;]])
+        # as the dense comparison, for NaN, signed zeros and conjugation: the wrappers
+        # conjugate the sparse entries and their implicit zero, never the dense ones
+        for (L, R) in ((A, Matrix(A)), (C', Matrix(C')), (x, Vector(x)),
+                       (@static COMPREHENSIVE ? ((A, zeros(3, 4)), (spzeros(3, 4), -zeros(3, 4)),
+                       (A', Matrix(A')), (view(A, :, 2:3), Matrix(A)[:, 2:3]),
+                       (x', Matrix(x')), (view(A, :, 1), Matrix(A)[:, 1]),
+                       (C', Matrix(transpose(C))), (transpose(C'), conj(Matrix(C))),
+                       (spzeros(1, 1)', zeros(ComplexF64, 1, 1)), (spzeros(ComplexF64, 1, 1)', zeros(1, 1)),
+                       (spzeros(ComplexF64, 2)', zeros(1, 2)),
+                       (sparse([true false; false true]), BitMatrix([true false; false true]))) : ())...)
+            @test eq(L, R) === eq(Array(L), R)
+            @test eq(R, L) === eq(R, Array(L))
+        end
+        @static if COMPREHENSIVE
+            for (L, R) in ((Bm', copy(Dm')), (sparsevec(Dm[:, 1]), Dm[:, 1]), (sparse(Any[1 0; 0 2]), [1 0; 0 2]))
+                @test eq(L, R) && eq(R, L)
+            end
+            for (L, R) in ((spzeros(Matrix{Int}, 2, 2), zeros(Int, 2, 2)), (spzeros(Int, 2, 2), fill([0;;], 2, 2)))
+                @test !eq(L, R) && !eq(R, L)
+            end
+        end
+    end
+end
+
+@static if COMPREHENSIVE
+@testset "== and isequal compare the implicit zeros of the two eltypes (issue #234)" begin
+    Zi, Zm, Zv = spzeros(Int, 2, 2), spzeros(Matrix{Int}, 2, 2), spzeros(Variable, 2, 2)
+    Si = sparse([1, 2, 1, 2], [1, 1, 2, 2], [0, 0, 0, 0])   # stored zeros in every position
+    S = sparse([1, 1, 2], [1, 2, 2], Variable.(1:3))
+    T = sparse([1, 2], [1, 2], Variable.([1, 3]))
+    G = sparse([1, 2, 1, 2], [1, 1, 2, 2], Tagged.(1:4, :m))
+    for eq in (==, isequal)
+        # a number is not an array, the zero of a `Variable` is not the number zero, and a
+        # stored entry without a counterpart meets the zero of the other eltype
+        for (L, R) in ((Zi, Zm), (Si, Zm), (Zi, Zv), (Zi', Zm), (Zi, transpose(Zv)),
+                       (view(Zi, :, 1:2), Zv), (spzeros(Int, 2), spzeros(Matrix{Int}, 2)),
+                       (view(Zi, :, 1), spzeros(Variable, 2)),
+                       (S, T), (S, transpose(T)), (view(S, :, 1), T[:, 2]))
+            @test !eq(L, R) && !eq(R, L)
+        end
+        # equal zeros, no `zero` to compare, or no position to compare
+        @test eq(S, copy(S)) && eq(view(S, :, 2), S[:, 2]) && eq(Zi, spzeros(2, 2))
+        @test eq(Zm, spzeros(Matrix{Float64}, 2, 2))
+        @test eq(sparse(Any[1 0; 0 2]), sparse([1, 2, 2], [1, 1, 2], [1.0, 0.0, 2.0]))
+        @test eq(spzeros(Int, 0, 2), spzeros(Matrix{Int}, 0, 2))
+        @test eq(spzeros(Union{}, 0, 0), spzeros(0, 0))
+        # a number type without a zero of the type
+        @test eq(G, copy(G)) && eq(G, Tagged.([1 3; 2 4], :m))
+        @test !eq(G, sparse([1], [1], [Tagged(1, :m)], 2, 2))
+    end
+    # the arguments keep their order
+    Zo = spzeros(OneSided, 2, 2)
+    for R in (spzeros(2, 2), sparse([1], [1], [0.0], 2, 2), transpose(spzeros(2, 2)), zeros(2, 2))
+        @test Zo == R && R != Zo
+    end
+    # `missing` propagates, and a later difference still decides
+    M = sparse([1, 2], [1, 2], [missing, 1.0])
+    N = sparse([1, 2], [1, 2], [missing, 2.0])
+    for R in (Matrix(M), copy(M), transpose(M))
+        @test (M == R) === missing && (R == M) === missing && isequal(M, R)
+    end
+    @test (view(M, :, 1) == M[:, 1]) === missing
+    for R in (Matrix(N), N, transpose(N))
+        @test (M == R) === false && (R == M) === false
+    end
+end
+end
+
 # `Base.hash` on a large array skips runs of equal values with `findprev(!isequal(elt), A, i)`.
 # Each such call on a sparse array costs at most nnz(A) + 1 element comparisons and `hash`
 # makes only a handful of them, whereas the generic `findprev` performs up to length(A).
