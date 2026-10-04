@@ -536,7 +536,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
     # Dense finds the first of the entries that compare equal, so a stored value replaces the
     # zero of an unstored entry it ties with when it comes before it.
     if region == 1 || region == (1,)
-        (N == 0) && (return (fill(zval,1,n), fill(i1,1,n)))
+        (N == 0) && (return (fill(zval,1,n), collect(CartesianIndices((1, n)))))
         S = Vector{Tv}(undef, n); I = Vector{Ti}(undef, n)
         @inbounds for i = 1 : n
             Sc = zval; Ic = _findz(A, 1:m, i:i)
@@ -555,7 +555,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
         end
         return(reshape(S,1,n), reshape(I,1,n))
     elseif region == 2 || region == (2,)
-        (N == 0) && (return (fill(zval,m,1), fill(i1,m,1)))
+        (N == 0) && (return (fill(zval,m,1), collect(CartesianIndices((m, 1)))))
         S = Vector{Tv}(undef, m)
         I = Vector{Ti}(undef, m)
         @inbounds for row in 1:m

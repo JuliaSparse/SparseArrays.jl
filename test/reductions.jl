@@ -231,8 +231,8 @@ end
     @test argmax(S) == argmax(A) == CartesianIndex(1,1)
     @test argmin(S) == argmin(A) == CartesianIndex(1,1)
     @static if COMPREHENSIVE
-    # along a dimension, every slice of a matrix that stores nothing reports CartesianIndex(1,1)
-    @test_broken findmax(S, dims=2) == findmax(A, dims=2)
+    # along a dimension, each slice of a matrix that stores nothing reports its own first index
+    @test all(m(S, dims=d) == m(A, dims=d) for m in (findmax, findmin), d in (1, 2))
     end
 
     A = @static COMPREHENSIVE ? Matrix{Int}(I, 0, 0) : zeros(0, 0)
