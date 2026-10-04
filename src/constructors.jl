@@ -617,8 +617,12 @@ sparse(I,J,V::AbstractVector{Bool},m,n) = sparse(I, J, V, Int(m), Int(n), |)
 
 sparse(I,J,v::Number,m,n,combine::Function) = sparse(I, J, fill(v,length(I)), Int(m), Int(n), combine)
 
-# positions given as two-dimensional Cartesian indices
-_rowscols(IJ::AbstractVector{CartesianIndex{2}}) = (map(ij -> ij[1], IJ), map(ij -> ij[2], IJ))
+# positions given as two-dimensional Cartesian indices: the rows and the columns, read in
+# place without copying them
+function _rowscols(IJ::AbstractVector{CartesianIndex{2}})
+    A = reinterpret(reshape, Int, IJ)
+    return view(A, 1, :), view(A, 2, :)
+end
 
 sparse(IJ::AbstractVector{CartesianIndex{2}}, V::Union{Number,AbstractVector}) =
     sparse(_rowscols(IJ)..., V)
