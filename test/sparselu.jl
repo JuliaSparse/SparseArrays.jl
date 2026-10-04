@@ -164,6 +164,25 @@ end
     W = pattern(0.05)
     @test sparselu(W).q == sparselu(W; ordering=:colamd).q
     @test sparselu(W) \ ones(60) ≈ Matrix(W) \ ones(60)
+    # A grid whose diagonal passes the pivot test at first, so `:auto` takes AMD, but whose
+    # pivots then leave the diagonal: the factors outgrow AMD's prediction, and `:auto`
+    # orders again with COLAMD. The values come from a fixed linear congruential sequence.
+    k = 12
+    T = sparse(SymTridiagonal(zeros(k), ones(k - 1)))
+    P = kron(T, sparse(I, k, k)) + kron(sparse(I, k, k), T)
+    state = 20
+    V = map(1:nnz(P)) do _
+        state = (1103515245 * state + 12345) % 2147483648
+        u = state / 2147483648
+        (u < 0.5 ? -1.0 : 1.0) * (0.5 + abs(2u - 1) / 2)
+    end
+    G = SparseMatrixCSC(k^2, k^2, copy(getcolptr(P)), copy(rowvals(P)), V) + 0.11I
+    F, Famd = sparselu(G), sparselu(G; ordering=:amd)
+    @test F.q != Famd.q
+    @test nnz(F.L) + nnz(F.U) < 0.9 * (nnz(Famd.L) + nnz(Famd.U))
+    @test F.L * F.U ≈ G[F.p, F.q]
+    @test F \ ones(k^2) ≈ Matrix(G) \ ones(k^2)
+    @test mismatch(G \ sparsevec([1], [1.0], k^2), Matrix(G) \ Vector(sparsevec([1], [1.0], k^2)); approx=true) === nothing
     # the same orderings through the 32-bit index type of the matrix
     A = SparseMatrixCSC{Float64,Int32}(sprand(rng, 50, 50, 0.1) + 4I)
     for ordering in (:colamd, :amd)
@@ -321,6 +340,17 @@ end
     @test mismatch(H \ B, Matrix(H) \ Matrix(B); approx=true) === nothing
     # the factorization of a fixed-pattern matrix
     @test mismatch(SparseArrays.fixed(A) \ B, D \ Matrix(B); approx=true) === nothing
+    # the factors may hold more entries than a narrow index type of the matrix counts
+    arrow = sparse([1:15; fill(1, 14); 2:15], [1:15; 2:15; fill(1, 14)], [fill(4.0, 15); fill(1.0, 28)])
+    A8 = SparseMatrixCSC{Float64,Int8}(blockdiag(arrow, arrow))
+    F8 = sparselu(A8)
+    @test F8 isa SparseLU{Float64,Int8} && F8.p isa Vector{Int8} && nnz(F8.L) > typemax(Int8)
+    x8 = A8 \ SparseVector{Float64,Int8}(sparsevec([2], [1.0], 30))
+    @test mismatch(x8, Matrix(A8) \ [0.0; 1.0; zeros(28)]; approx=true, Ti=Int8) === nothing
+    # equal candidates: the pivots do not depend on the order of the search, pruned or not
+    Teq = sparse([1.0 0 0 1 0 0 1 -1; 1 1 0 1 0 0 0 1; 0 0 1 -1 -1 1 0 0; 1 0 1 0 -1 0 1 1;
+                  0 1 0 0 1 0 0 0; 0 0 -1 1 0 1 -1 0; -1 1 0 -1 1 0 2 0; 1 0 0 0 0 -1 1 1])
+    @test sparselu(Teq; tol=1, ordering=:natural).p == sparselu(Teq; tol=1, ordering=:natural, prune=false).p
     # printing
     @test occursin("2 diagonal blocks", sprint(show, MIME"text/plain"(), sparselu(sparse([1.0 2; 0 3]))))
     @test propertynames(sparselu(A)) == (:L, :U, :p, :q)
