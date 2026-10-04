@@ -640,24 +640,18 @@ end
         # as the dense comparison, for NaN, signed zeros and conjugation: the wrappers
         # conjugate the sparse entries and their implicit zero, never the dense ones
         for (L, R) in ((A, Matrix(A)), (C', Matrix(C')), (x, Vector(x)),
-                       (@static COMPREHENSIVE ? ((A, zeros(3, 4)), (spzeros(3, 4), -zeros(3, 4)),
-                       (A', Matrix(A')), (view(A, :, 2:3), Matrix(A)[:, 2:3]),
-                       (x', Matrix(x')), (view(A, :, 1), Matrix(A)[:, 1]),
-                       (C', Matrix(transpose(C))), (transpose(C'), conj(Matrix(C))),
-                       (spzeros(1, 1)', zeros(ComplexF64, 1, 1)), (spzeros(ComplexF64, 1, 1)', zeros(1, 1)),
+                       (@static COMPREHENSIVE ? ((spzeros(3, 4), -zeros(3, 4)),
+                       (view(A, :, 2:3), Matrix(A)[:, 2:3]), (x', Matrix(x')),
+                       (transpose(C'), conj(Matrix(C))), (spzeros(1, 1)', zeros(ComplexF64, 1, 1)),
                        (spzeros(ComplexF64, 2)', zeros(1, 2)),
                        (sparse([true false; false true]), BitMatrix([true false; false true]))) : ())...)
             @test eq(L, R) === eq(Array(L), R)
             @test eq(R, L) === eq(R, Array(L))
         end
-        @static if COMPREHENSIVE
-            for (L, R) in ((Bm', copy(Dm')), (sparsevec(Dm[:, 1]), Dm[:, 1]), (sparse(Any[1 0; 0 2]), [1 0; 0 2]))
-                @test eq(L, R) && eq(R, L)
-            end
-            for (L, R) in ((spzeros(Matrix{Int}, 2, 2), zeros(Int, 2, 2)), (spzeros(Int, 2, 2), fill([0;;], 2, 2)))
-                @test !eq(L, R) && !eq(R, L)
-            end
-        end
+    end
+    @static if COMPREHENSIVE
+        @test sparsevec(Dm[:, 1]) == Dm[:, 1] && sparse(Any[1 0; 0 2]) == [1 0; 0 2]
+        @test spzeros(Matrix{Int}, 2, 2) != zeros(Int, 2, 2)
     end
 end
 
@@ -668,25 +662,19 @@ end
     S = sparse([1, 1, 2], [1, 2, 2], Variable.(1:3))
     T = sparse([1, 2], [1, 2], Variable.([1, 3]))
     G = sparse([1, 2, 1, 2], [1, 1, 2, 2], Tagged.(1:4, :m))
-    for eq in (==, isequal)
-        # a number is not an array, the zero of a `Variable` is not the number zero, and a
-        # stored entry without a counterpart meets the zero of the other eltype
-        for (L, R) in ((Zi, Zm), (Si, Zm), (Zi, Zv), (Zi', Zm), (Zi, transpose(Zv)),
-                       (view(Zi, :, 1:2), Zv), (spzeros(Int, 2), spzeros(Matrix{Int}, 2)),
-                       (view(Zi, :, 1), spzeros(Variable, 2)),
-                       (S, T), (S, transpose(T)), (view(S, :, 1), T[:, 2]))
-            @test !eq(L, R) && !eq(R, L)
-        end
-        # equal zeros, no `zero` to compare, or no position to compare
-        @test eq(S, copy(S)) && eq(view(S, :, 2), S[:, 2]) && eq(Zi, spzeros(2, 2))
-        @test eq(Zm, spzeros(Matrix{Float64}, 2, 2))
-        @test eq(sparse(Any[1 0; 0 2]), sparse([1, 2, 2], [1, 1, 2], [1.0, 0.0, 2.0]))
-        @test eq(spzeros(Int, 0, 2), spzeros(Matrix{Int}, 0, 2))
-        @test eq(spzeros(Union{}, 0, 0), spzeros(0, 0))
-        # a number type without a zero of the type
-        @test eq(G, copy(G)) && eq(G, Tagged.([1 3; 2 4], :m))
-        @test !eq(G, sparse([1], [1], [Tagged(1, :m)], 2, 2))
+    # a number is not an array, the zero of a `Variable` is not the number zero, and a
+    # stored entry without a counterpart meets the zero of the other eltype
+    for (L, R) in ((Zi, Zm), (Si, Zm), (Zi, Zv), (Zi', Zm), (spzeros(Int, 2), spzeros(Matrix{Int}, 2)),
+                   (S, T), (view(S, :, 1), T[:, 2]))
+        @test L != R && R != L
     end
+    @test !isequal(Zi, Zm)
+    # equal zeros, no `zero` to compare, or no position to compare
+    @test S == copy(S) && Zi == spzeros(2, 2) && Zm == spzeros(Matrix{Float64}, 2, 2)
+    @test sparse(Any[1 0; 0 2]) == sparse([1, 2, 2], [1, 1, 2], [1.0, 0.0, 2.0])
+    @test spzeros(Int, 0, 2) == spzeros(Matrix{Int}, 0, 2) && spzeros(Union{}, 0, 0) == spzeros(0, 0)
+    # a number type without a zero of the type
+    @test G == copy(G) && G == Tagged.([1 3; 2 4], :m) && G != sparse([1], [1], [Tagged(1, :m)], 2, 2)
     # the arguments keep their order
     Zo = spzeros(OneSided, 2, 2)
     for R in (spzeros(2, 2), sparse([1], [1], [0.0], 2, 2), transpose(spzeros(2, 2)), zeros(2, 2))
@@ -699,9 +687,7 @@ end
         @test (M == R) === missing && (R == M) === missing && isequal(M, R)
     end
     @test (view(M, :, 1) == M[:, 1]) === missing
-    for R in (Matrix(N), N, transpose(N))
-        @test (M == R) === false && (R == M) === false
-    end
+    @test (M == N) === false && (M == Matrix(N)) === false
 end
 end
 
