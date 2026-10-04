@@ -184,6 +184,31 @@ end
     end
 end
 
+@testset "AMD and COLAMD wrappers" begin
+    L = SparseArrays.LibSuiteSparse
+    # an arrow matrix pointing the wrong way: a good ordering puts the full column last
+    n = 30
+    A = sparse([1:n; fill(1, n - 1); 2:n], [1:n; 2:n; fill(1, n - 1)], 1.0)
+    T, amd, colamd, recommended = Int === Int64 ?
+        (Int64, L.amd_l_order, L.colamd_l, L.colamd_l_recommended) :
+        (Int32, L.amd_order, L.colamd, L.colamd_recommended)
+    Ap = Vector{T}(getcolptr(A) .- 1)
+    Ai = Vector{T}(rowvals(A) .- 1)
+    p = Vector{T}(undef, n)
+    info = Vector{Cdouble}(undef, L.AMD_INFO)
+    @test amd(n, Ap, Ai, p, C_NULL, info) == L.AMD_OK
+    @test isperm(p .+ 1) && p[end] == 0
+    @test info[L.AMD_LNZ + 1] == n - 1
+    # COLAMD takes the row indices in a work array of the size it recommends, and returns
+    # the column order in place of the column pointers
+    work = Vector{T}(undef, recommended(nnz(A), n, n))
+    copyto!(work, Ai)
+    stats = Vector{T}(undef, L.COLAMD_STATS)
+    @test colamd(n, n, length(work), work, Ap, C_NULL, stats) == 1
+    @test stats[L.COLAMD_STATUS + 1] == L.COLAMD_OK
+    @test isperm(Ap[1:n] .+ 1)
+end
+
 @testset "LibSuiteSparse names are not imported into SparseArrays" begin
     @test isdefined(SparseArrays.LibSuiteSparse, :cholmod_l_start)
     @test isdefined(SparseArrays.LibSuiteSparse, :umfpack_dl_symbolic)

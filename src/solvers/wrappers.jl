@@ -2344,6 +2344,64 @@ function amd_version(version)
     @ccall libamd.amd_version(version::Ptr{Cint})::Cvoid
 end
 
+function colamd_recommended(nnz, n_row, n_col)
+    @ccall libcolamd.colamd_recommended(nnz::Int32, n_row::Int32, n_col::Int32)::Csize_t
+end
+
+function colamd_l_recommended(nnz, n_row, n_col)
+    @ccall libcolamd.colamd_l_recommended(nnz::Int64, n_row::Int64, n_col::Int64)::Csize_t
+end
+
+function colamd_set_defaults(knobs)
+    @ccall libcolamd.colamd_set_defaults(knobs::Ptr{Cdouble})::Cvoid
+end
+
+function colamd_l_set_defaults(knobs)
+    @ccall libcolamd.colamd_l_set_defaults(knobs::Ptr{Cdouble})::Cvoid
+end
+
+function colamd(n_row, n_col, Alen, A, p, knobs, stats)
+    @ccall libcolamd.colamd(n_row::Int32, n_col::Int32, Alen::Int32, A::Ptr{Int32},
+                            p::Ptr{Int32}, knobs::Ptr{Cdouble}, stats::Ptr{Int32})::Cint
+end
+
+function colamd_l(n_row, n_col, Alen, A, p, knobs, stats)
+    @ccall libcolamd.colamd_l(n_row::Int64, n_col::Int64, Alen::Int64, A::Ptr{Int64},
+                              p::Ptr{Int64}, knobs::Ptr{Cdouble}, stats::Ptr{Int64})::Cint
+end
+
+function symamd(n, A, p, perm, knobs, stats, allocate, release)
+    @ccall libcolamd.symamd(n::Int32, A::Ptr{Int32}, p::Ptr{Int32}, perm::Ptr{Int32},
+                            knobs::Ptr{Cdouble}, stats::Ptr{Int32}, allocate::Ptr{Cvoid},
+                            release::Ptr{Cvoid})::Cint
+end
+
+function symamd_l(n, A, p, perm, knobs, stats, allocate, release)
+    @ccall libcolamd.symamd_l(n::Int64, A::Ptr{Int64}, p::Ptr{Int64}, perm::Ptr{Int64},
+                              knobs::Ptr{Cdouble}, stats::Ptr{Int64}, allocate::Ptr{Cvoid},
+                              release::Ptr{Cvoid})::Cint
+end
+
+function colamd_report(stats)
+    @ccall libcolamd.colamd_report(stats::Ptr{Int32})::Cvoid
+end
+
+function colamd_l_report(stats)
+    @ccall libcolamd.colamd_l_report(stats::Ptr{Int64})::Cvoid
+end
+
+function symamd_report(stats)
+    @ccall libcolamd.symamd_report(stats::Ptr{Int32})::Cvoid
+end
+
+function symamd_l_report(stats)
+    @ccall libcolamd.symamd_l_report(stats::Ptr{Int64})::Cvoid
+end
+
+function colamd_version(version)
+    @ccall libcolamd.colamd_version(version::Ptr{Cint})::Cvoid
+end
+
 function umfpack_version(version)
     @ccall libumfpack.umfpack_version(version::Ptr{Cint})::Cvoid
 end
@@ -3641,6 +3699,66 @@ AMD_VERSION_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
 const AMD_VERSION = AMD_VERSION_CODE(3, 3)
 
 const AMD__VERSION = SUITESPARSE__VERCODE(3, 3, 4)
+
+const COLAMD_DATE = "July 25, 2025"
+
+const COLAMD_MAIN_VERSION = 3
+
+const COLAMD_SUB_VERSION = 3
+
+const COLAMD_SUBSUB_VERSION = 5
+
+COLAMD_VERSION_CODE(main, sub) = SUITESPARSE_VER_CODE(main, sub)
+
+const COLAMD_VERSION = COLAMD_VERSION_CODE(3, 3)
+
+const COLAMD__VERSION = SUITESPARSE__VERCODE(3, 3, 5)
+
+const COLAMD_KNOBS = 20
+
+const COLAMD_STATS = 20
+
+const COLAMD_DENSE_ROW = 0
+
+const COLAMD_DENSE_COL = 1
+
+const COLAMD_AGGRESSIVE = 2
+
+const COLAMD_DEFRAG_COUNT = 2
+
+const COLAMD_STATUS = 3
+
+const COLAMD_INFO1 = 4
+
+const COLAMD_INFO2 = 5
+
+const COLAMD_INFO3 = 6
+
+const COLAMD_OK = 0
+
+const COLAMD_OK_BUT_JUMBLED = 1
+
+const COLAMD_ERROR_A_not_present = -1
+
+const COLAMD_ERROR_p_not_present = -2
+
+const COLAMD_ERROR_nrow_negative = -3
+
+const COLAMD_ERROR_ncol_negative = -4
+
+const COLAMD_ERROR_nnz_negative = -5
+
+const COLAMD_ERROR_p0_nonzero = -6
+
+const COLAMD_ERROR_A_too_small = -7
+
+const COLAMD_ERROR_col_length_negative = -8
+
+const COLAMD_ERROR_row_index_out_of_bounds = -9
+
+const COLAMD_ERROR_out_of_memory = -10
+
+const COLAMD_ERROR_internal_error = -999
 
 const UMFPACK_INFO = 90
 

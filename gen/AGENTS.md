@@ -30,6 +30,11 @@ to be red; do not delete the merged bump PR's branch.
   stdlib that Pkg cannot upgrade or pin.
 - Keep the version in `Makefile` in sync with the `SuiteSparse_jll` compat entry in the
   top-level `Project.toml`.
+- `generator.jl` lists the headers to wrap, and `library_names` in `generator.toml` maps
+  each header to its library. The keys are matched as patterns against the header path,
+  so `/amd.h` and `/colamd.h` carry the separator that keeps the first from matching the
+  second. AMD and COLAMD are BSD-licensed and present on a build without GPL libraries,
+  so their wrappers may be called from outside `src/solvers/`.
 - To drop a macro Clang.jl cannot handle, add it to `output_ignorelist` in
   `generator.toml`.
 - Never edit `src/solvers/wrappers.jl` by hand: change `prologue.jl`, `generator.toml` or

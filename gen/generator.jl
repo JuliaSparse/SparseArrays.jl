@@ -26,6 +26,13 @@ cholmod_h = joinpath(include_dir, "cholmod.h")
 SuiteSparseQR_C_h = joinpath(include_dir, "SuiteSparseQR_C.h")
 @assert isfile(SuiteSparseQR_C_h)
 
+# the BSD-licensed ordering libraries, which a build without GPL libraries keeps
+amd_h = joinpath(include_dir, "amd.h")
+@assert isfile(amd_h)
+
+colamd_h = joinpath(include_dir, "colamd.h")
+@assert isfile(colamd_h)
+
 umfpack_h = joinpath(include_dir, "umfpack.h")
 @assert isfile(umfpack_h)
 
@@ -40,7 +47,7 @@ options["general"]["output_file_path"] = joinpath(@__DIR__, "..", "src/solvers/w
 args = get_default_args()
 push!(args, "-I$include_dir")
 
-header_files = [config_h, cholmod_h, SuiteSparseQR_C_h, umfpack_h]
+header_files = [config_h, cholmod_h, SuiteSparseQR_C_h, amd_h, colamd_h, umfpack_h]
 
 ctx = create_context(header_files, args, options)
 
