@@ -191,10 +191,8 @@ end
 end
 end
 
-se33 = SparseMatrixCSC{Float64}(I, 3, 3)
-do33 = fill(1.,3)
-
 @testset "sparse binary operations" begin
+    se33 = SparseMatrixCSC{Float64}(I, 3, 3)
     @test isequal(se33 * se33, se33)
 
     @static if COMPREHENSIVE

@@ -9,17 +9,10 @@ using LinearAlgebra
 using Random
 include("testhelpers.jl")
 
-### Data
-
-spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
-
-@test isa(spv_x1, SparseVector{Float64,Int})
-
-x1_full = zeros(length(spv_x1))
-x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
-
 @testset "basic properties" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     x = spv_x1
+    @test isa(x, SparseVector{Float64,Int})
     @test eltype(x) == Float64
     @test ndims(x) == 1
     @test length(x) == 8
@@ -59,6 +52,7 @@ x1_full[SparseArrays.nonzeroinds(spv_x1)] = nonzeros(spv_x1)
 end
 
 @testset "isstored" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     x = spv_x1
     stored_inds = [2, 5, 6]
     nonstored_inds = [1, 3, 4, 7, 8]
@@ -71,6 +65,8 @@ end
 end
 
 @testset "conversion to dense Array" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     let x = spv_x1, xf = x1_full
         @test isa(Array(x), Vector{Float64})
         @test Array(x) == xf
@@ -91,6 +87,7 @@ end
     end
 end
 @testset "other constructors" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     # construct empty sparse vector
 
     for dims in (8, (8,))
@@ -259,6 +256,8 @@ end
 ### Element access
 
 @testset "getindex" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     @testset "single integer index" begin
         let x = spv_x1, xf = x1_full
             for i = 1:length(x)
@@ -343,6 +342,7 @@ end
 end
 @static if COMPREHENSIVE
 @testset "setindex" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     let xc = spzeros(Float64, 8)
         xc[3] = 2.0
         @test exact_equal(xc, SparseVector(8, [3], [2.0]))
@@ -479,6 +479,8 @@ end
 end
 
 @testset "findall and findnz" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     @test findall(!iszero, spv_x1) == findall(!iszero, x1_full)
     @test findall(spv_x1 .> 1) == findall(x1_full .> 1)
     @test findall(x->x>1, spv_x1) == findall(x->x>1, x1_full)
@@ -519,6 +521,7 @@ end
 ### Array manipulation
 
 @testset "copy[!]" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
 
     let x = spv_x1
         xc = copy(x)
@@ -696,6 +699,8 @@ end
 end
 
 @testset "Type conversion" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     let x = convert(SparseVector, sparse([2, 5, 6], [1, 1, 1], [1.25, -0.75, 3.5], 8, 1))
         @test isa(x, SparseVector{Float64,Int})
         @test exact_equal(x, spv_x1)
@@ -748,6 +753,8 @@ end
 end
 
 @testset "repeat" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    x1_full = [0.0, 1.25, 0.0, 0.0, -0.75, 3.5, 0.0, 0.0]
     for m = 0:3
         @test issparse(repeat(spv_x1, m))
         @test mismatch(repeat(spv_x1, m), repeat(x1_full, m)) === nothing
@@ -896,18 +903,9 @@ end
 
 ## math
 
-### Data
-
-rnd_x0 = sprand(50, 0.6)
-rnd_x0f = Array(rnd_x0)
-
-rnd_x1 = sprand(50, 0.7) * 4.0
-rnd_x1f = Array(rnd_x1)
-
-spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
-spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
-
 @testset "Arithmetic operations" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
+    spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
 
     let x = spv_x1, x2 = spv_x2
         # negate
@@ -1050,6 +1048,10 @@ spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
 end
 @static if COMPREHENSIVE
 @testset "Zero-preserving math functions: sparse -> sparse" begin
+    rnd_x0 = sprand(50, 0.6)
+    rnd_x0f = Array(rnd_x0)
+    rnd_x1 = sprand(50, 0.7) * 4.0
+    rnd_x1f = Array(rnd_x1)
     # every function takes the same broadcast kernel; these differ in their result at the
     # stored entries only
     x1operations = (floor,)
@@ -1074,6 +1076,8 @@ end
 end
 @static if COMPREHENSIVE
 @testset "Non-zero-preserving math functions: sparse -> dense" begin
+    rnd_x0 = sprand(50, 0.6)
+    rnd_x0f = Array(rnd_x0)
     # every function takes the same broadcast kernel
     for op in (exp,)
         spvec = rnd_x0
@@ -1091,6 +1095,7 @@ end
 
 @static if COMPREHENSIVE
 @testset "sum, norm" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     x = spv_x1
     f = t -> abs(t) + one(t)
     @test sum(x) == 4.0
@@ -1118,6 +1123,7 @@ end
 end
 
 @testset "maximum, minimum, findmax, findmin" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     f = t -> abs(t) + one(t)
     let x = spv_x1
         @test maximum(x) == 3.5
@@ -1391,10 +1397,12 @@ end
 # It's tempting to share data between a SparseVector and a SparseMatrix,
 # but if that's done, then modifications to one or the other will cause
 # an inconsistent state:
-sv = sparse(1:10)
-sm = convert(SparseMatrixCSC, sv)
-sv[1] = 0
-@test Array(sm)[2:end] == 2:10
+@testset "a SparseVector and its SparseMatrixCSC conversion share no data" begin
+    sv = sparse(1:10)
+    sm = convert(SparseMatrixCSC, sv)
+    sv[1] = 0
+    @test Array(sm)[2:end] == 2:10
+end
 
 # Ensure that sparsevec with all-zero values returns an array of zeros
 @test sparsevec([1,2,3],[0,0,0]) == [0,0,0]
@@ -1504,6 +1512,7 @@ end
 end
 
 @testset "show" begin
+    spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     @test occursin("1.25", string(spv_x1))
     @test occursin("-0.75", string(spv_x1))
     @test occursin("3.5", string(spv_x1))

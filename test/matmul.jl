@@ -11,10 +11,6 @@ using LinearAlgebra
 using Random
 include("testhelpers.jl")
 
-sA = fixture(Float64, 3, 7)
-sC = similar(sA)
-dA = Array(sA)
-
 # every transform appears once on each side
 const TRANSFORM_PAIRS = ((identity, identity), (adjoint, transpose), (transpose, adjoint))
 
@@ -402,6 +398,8 @@ end
 end
 
 @testset "scaling with * and mul!, rmul!, and lmul!" begin
+    sA, dA = fixturepair(Float64, 3, 7)
+    sC = similar(sA)
     b = randn(7)
     @test mismatch(sA * Diagonal(b), dA * Diagonal(b)) === nothing
     @test mismatch(mul!(sC, sA, Diagonal(b)), dA * Diagonal(b)) === nothing
@@ -525,6 +523,8 @@ end
 end
 
 @testset "scaling by a number, inverse scaling, non-commutative and 5-arg Diagonal mul!" begin
+    sA, dA = fixturepair(Float64, 3, 7)
+    sC = similar(sA)
     b = randn(3)
     @test mismatch(sA * 0.5, dA * 0.5) === nothing
     @test mismatch(mul!(sC, sA, 0.5), dA * 0.5) === nothing
@@ -559,6 +559,8 @@ end
 
     @testset "non-commutative multiplication" begin
         Quaternion = quaternion_type()
+        # the later testsets use the real `sA` and `dA` of the enclosing testset
+        local sA, sC, dA
         Avals = Quaternion.(randn(10), randn(10), randn(10), randn(10))
         sA = sparse(rand(1:3, 10), rand(1:7, 10), Avals, 3, 7)
         sC = copy(sA)

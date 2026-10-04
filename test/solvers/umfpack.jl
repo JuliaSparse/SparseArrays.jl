@@ -725,9 +725,11 @@ end
 end
 
 
-A = I + sprandn(100, 100, 0.01)
-Af = lu(A)
-UMFPACK.umfpack_report_numeric(Af, 0)
-UMFPACK.umfpack_report_symbolic(Af, 0)
+@testset "reports at print level 0 do not throw" begin
+    A = I + sprandn(100, 100, 0.01)
+    Af = lu(A)
+    UMFPACK.umfpack_report_numeric(Af, 0)
+    UMFPACK.umfpack_report_symbolic(Af, 0)
+end
 
 end # module

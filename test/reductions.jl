@@ -12,13 +12,11 @@ include("testhelpers.jl")
 # `@inferred` on a call with keywords compiles a wrapper per signature, so those go through this
 along(f::F, X, dims) where {F} = f(X; dims)
 
-se33 = SparseMatrixCSC{Float64}(I, 3, 3)
-
-sA = sprandn(3, 7, 0.5)
-
 @testset "reductions" begin
+    sA = sprandn(3, 7, 0.5)
     pA = sparse(rand(3, 7))
     @static if COMPREHENSIVE
+    se33 = SparseMatrixCSC{Float64}(I, 3, 3)
     p28227 = sparse(Real[0 0.5])
     end
 
