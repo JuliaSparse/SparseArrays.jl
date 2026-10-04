@@ -1181,10 +1181,9 @@ end
     end
     return z
 end
-kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseKronGroup) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+# `sparse` of the dense operand, as in `kron`: a dense vector has no conversion to a matrix
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseKronGroup) = kron!(C, A, sparse(B))
+kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) = kron!(C, sparse(A), B)
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) =
