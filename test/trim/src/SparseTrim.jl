@@ -259,6 +259,27 @@ function triangular()
     return bad
 end
 
+# a sparse right-hand side: the structure functions, the LU factorization written in Julia
+# and the sparse solution of `\`
+function sparse_rhs()
+    # not triangular, but a permutation of a triangular matrix, and N * [1, 2, 3, 4] == [4, 4, 6, 7]
+    N = sparse([1, 2, 1, 3, 2, 4, 4], [1, 1, 2, 2, 3, 3, 4], [2.0, 1.0, 1.0, 3.0, 1.0, 1.0, 1.0], 4, 4)
+    c = sparsevec([1, 2, 3, 4], [4.0, 4.0, 6.0, 7.0], 4)
+    x = [1.0, 2.0, 3.0, 4.0]
+    bad = 0
+    d = dmperm(N)
+    bad += check(sprank(N) == 4 && isperm(d.p) && length(d.colblocks) == 5)
+    F = SparseArrays.sparselu(N)
+    bad += check(near(F.L * F.U, N[F.p, F.q]))
+    bad += check(near(F \ Vector(c), x) && near(F \ c, x))
+    y = N \ c
+    bad += check(y isa SparseVector{Float64,Int} && near(y, x))
+    Y = N \ sparse(reshape(Vector(c), 4, 1))
+    bad += check(Y isa SparseMatrixCSC{Float64,Int} && near(Y, reshape(x, 4, 1)))
+    bad += check(near(N' \ sparsevec([1, 2, 3, 4], [4.0, 10.0, 6.0, 4.0], 4), x))
+    return bad
+end
+
 function inplace()
     A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
     x = [1.0, 1.0, 1.0]
@@ -391,7 +412,7 @@ end
 function @main(args::Vector{String})::Cint
     bad = dense_cat() + sparse_cat() + construction() + indexing() + algebra() +
         structure() + vectors() + eltypes() + wrappers() + triangular() + inplace() +
-        kernels() + search() + reshaping() + broadcasting() + equality()
+        kernels() + search() + reshaping() + broadcasting() + equality() + sparse_rhs()
     if "solvers" in args
         bad += solvers()
     end

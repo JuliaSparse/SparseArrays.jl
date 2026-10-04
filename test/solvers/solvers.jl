@@ -134,6 +134,25 @@ end
     @test H \ b ≈ Matrix(H) \ b
 end
 
+@testset "sparse right-hand side" begin
+    # a rectangular matrix has no sparse solve of its own: the least squares and the
+    # minimum-norm solution come from the dense solve, as a sparse array
+    tall = sparse([1.0 0; 0 2; 1 1])
+    B = sparse([1.0 0; 0 0; 0 3])
+    @test mismatch(tall \ B, Matrix(tall) \ Matrix(B); approx=true, Ti=Int) === nothing
+    @static if COMPREHENSIVE
+    wide = copy(tall')
+    b = sparsevec([2], [1.0], 2)
+    @test mismatch(wide \ b, Matrix(wide) \ Vector(b); approx=true, Ti=Int) === nothing
+    @test mismatch(wide' \ B, Matrix(wide') \ Matrix(B); approx=true) === nothing
+    @inferred tall \ B
+    @inferred wide \ b
+    # a square solve agrees with the dense-right-hand-side one, which uses `lu`
+    A = sparse([4.0 1 0; 1 4 1; 0 2 4])
+    @test mismatch(A \ B, A \ Matrix(B); approx=true) === nothing
+    end
+end
+
 @static if COMPREHENSIVE
 @testset "type stability of linear solve" begin
     for (elty, vecrhs) in ((Float64, true), (ComplexF64, false), (Float32, false))
@@ -166,7 +185,7 @@ end
             end
             for rhs in (dense ? () : (sparsevec(b), sparse(B)))
                 x = M \ rhs
-                @test x isa Array{T}
+                @test x isa AbstractSparseArray{T}
                 @test x ≈ Matrix(M) \ rhs
             end
         end

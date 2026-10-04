@@ -21,7 +21,8 @@ Sparse factorizations call [SuiteSparse](https://github.com/DrTimothyAldenDavis/
 
 For a sparse `A` and a dense `b`, `A \ b` picks a method from the structure of `A` and
 returns a dense result. `factorize(A)` makes the same choice and returns the
-factorization.
+factorization. A sparse `b` gives a sparse result, by the methods under
+[Sparse right-hand sides](@ref man-sparse-rhs).
 
 * Diagonal or triangular: substitution, no factorization.
 * Hermitian (symmetric, if real): [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky). If
@@ -46,6 +47,42 @@ true
 
 julia> qr(A) \ b ≈ [1.0, 2.0, 0.0, 0.0]
 true
+```
+
+### [Sparse right-hand sides](@id man-sparse-rhs)
+
+For a sparse `A` and a sparse `B`, a vector or a matrix, `A \ B` returns a sparse
+solution, and so do `B / A`, `A' \ B` and a solve with a triangular wrapper of `A`.
+The work is proportional to the arithmetic that the nonzeros of `B` cause, not to the
+size of `A`:
+
+* Diagonal or triangular: substitution over the entries that the nonzeros of each
+  column of `B` reach in the graph of `A`.
+* Other square, Hermitian or not: [`SparseArrays.sparselu`](@ref), an LU
+  factorization written in Julia that does not need SuiteSparse. It permutes `A` to
+  block upper triangular form with [`dmperm`](@ref), factors the diagonal blocks, and
+  solves only the blocks that the nonzeros of each column of `B` reach.
+* Rectangular: the dense solve above, converted to sparse.
+
+The solution is as sparse as `A` is reducible. When `A` has one irreducible block, as
+the matrix of a connected mesh does, every entry of the solution is stored, and
+`A \ Matrix(B)` is the better choice: `sparselu` applies no fill-reducing ordering.
+
+```jldoctest
+julia> A = sparse([2.0 1 0 0; 1 2 0 0; 0 0 4 0; 0 0 1 5]);
+
+julia> A \ sparsevec([3], [8.0], 4)
+4-element SparseVector{Float64, Int64} with 2 stored entries:
+  [3]  =  2.0
+  [4]  =  -0.4
+
+julia> length(dmperm(A).colblocks) - 1
+3
+```
+
+```@docs
+SparseArrays.sparselu
+SparseArrays.SparseLU
 ```
 
 ### Reusing a factorization
