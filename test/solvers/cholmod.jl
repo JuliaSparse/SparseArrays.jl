@@ -4,7 +4,6 @@ module CHOLMODTests
 using Test
 
 using SparseArrays.CHOLMOD
-using Random
 using Serialization
 using LinearAlgebra:
     I, cholesky, cholesky!, det, diag, eigmax, ishermitian, isposdef, issuccess,
@@ -17,7 +16,6 @@ include("../testhelpers.jl")
 
 # CHOLMOD tests
 Ti, Tv = only(core_itypes), Float64
-Random.seed!(123)
 
 @testset "based on deps/SuiteSparse-4.0.2/CHOLMOD/Demo/ index type $Ti" begin
 
@@ -266,7 +264,7 @@ end
 
 @testset "ldiv! $Tv $Ti" begin
     local A, x, x2, b, X, X2, B
-    A = sprand(10, 10, 0.1)
+    A = fixture(Float64, 10, 10)
     A = I + A * A'
     A = convert(SparseMatrixCSC{Tv,Ti}, A)
     factor = cholesky(A)
@@ -322,7 +320,7 @@ end
 
 @testset "ldiv! into views $Tv $Ti" begin
     local A, F, X, B
-    A = sprand(6, 6, 0.3)
+    A = fixture(Float64, 6, 6)
     A = I + A * A'
     A = convert(SparseMatrixCSC{Tv,Ti}, A)
     F = cholesky(A)
@@ -395,7 +393,7 @@ end
 end
 
 @testset "test Sparse constructor Symmetric and Hermitian input (and issymmetric and ishermitian)" begin
-    ACSC = sprandn(Tv, 10, 10, 0.3) + I
+    ACSC = fixture(Tv, 10, 10) + I
     @test issymmetric(Sparse(Symmetric(ACSC, :L)))
     @test issymmetric(Sparse(Symmetric(ACSC, :U)))
     @test ishermitian(Sparse(Hermitian(complex(ACSC), :L)))
@@ -405,13 +403,8 @@ end
 
 @testset "High level interface" for elty in (Tv, (@static COMPREHENSIVE ? (Tv === Float64 ? (Complex{Tv},) : ()) : ())...)
     local A, b
-    if elty <: Real
-        A = randn(Tv, 5, 5)
-        b = randn(Tv, 5)
-    else
-        A = complex.(randn(Tv, 5, 5), randn(Tv, 5, 5))
-        b = complex.(randn(Tv, 5), randn(Tv, 5))
-    end
+    A = Matrix(fixture(elty, 5, 5))
+    b = Vector(fixturevec(elty, 5))
     ADense = CHOLMOD.Dense(A)
     bDense = CHOLMOD.Dense(b)
 
@@ -522,7 +515,6 @@ using Test
 
 using SparseArrays.CHOLMOD
 using SparseArrays.CHOLMOD: getcommon
-using Random
 using Serialization
 using LinearAlgebra:
     I, cholesky, cholesky!, cond, det, diag, eigmax, factorize, ishermitian, isposdef, issuccess,
@@ -536,7 +528,6 @@ include("../testhelpers.jl")
 
 # CHOLMOD tests
 Ti, Tv = only(core_itypes), Float64
-Random.seed!(123)
 
 @static if COMPREHENSIVE
 # The entries of `vals` that run with the index type `Ti2`: the index types take turns, so
@@ -545,7 +536,7 @@ eachonce(Ti2, vals) = vals[findfirst(==(Ti2), itypes):length(itypes):end]
 end
 
 @testset "Core functionality ($elty, $Ti)" for elty in (Tv, (@static COMPREHENSIVE ? (Complex{Tv},) : ())...)
-    A1 = sparse(Ti[1:5; 1], Ti[1:5; 2], elty <: Real ? randn(Tv, 6) : complex.(randn(Tv, 6), randn(Tv, 6)))
+    A1 = SparseMatrixCSC{elty,Ti}(fixture(elty, 5, 5))
     A1pd = A1'A1 + 10I
     A1pdSparse = CHOLMOD.Sparse(
         size(A1pd, 1),
@@ -625,7 +616,7 @@ end
     @test logdet(F) ≈ logdet(Array(A1pd))
     @test det(F) == exp(logdet(F))
     let # to test supernodal, we must use a larger matrix
-        Ftmp = SparseMatrixCSC{Tv, Ti}(sprandn(Tv, 100, 100, 0.1))
+        Ftmp = SparseMatrixCSC{Tv, Ti}(fixture(Tv, 100, 100))
         Ftmp = Ftmp'Ftmp + 10I
         @test logdet(cholesky(Ftmp)) ≈ logdet(Array(Ftmp))
     end
@@ -810,7 +801,7 @@ end
         @test P' * Ls * Ls' * P ≈ As
         end
         @test sparse(Fs) ≈ As
-        b = rand(Tv, 3)
+        b = Tv[1, 2, 3]
         bs = sparse(b)
         @test Fs\b ≈ Af\b ≈ (Fs\bs)::SparseVector
         @test Fs.UP\(Fs.PtL\b) ≈ Af\b
@@ -860,7 +851,7 @@ end
         Fs = ldlt(As, perm=p)
         @test Fs.p == p
         @test sparse(Fs) ≈ As
-        b = rand(Tv, 3)
+        b = Tv[1, 2, 3]
         bs = sparse(b)
         Asp = As[p,p]
         LDp = sparse(ldlt(Asp, perm=[1,2,3]).LD)
@@ -903,7 +894,7 @@ end
         end
         # the factor components are inferred from the property name, so a solve through
         # them is inferred too (the `F.UP \ (F.PtL \ b)` idiom of the docs)
-        b = rand(Tv, 3)
+        b = Tv[1, 2, 3]
         F = cholesky(As)
         @static if COMPREHENSIVE
         for (sym, component) in ((:L, F -> F.L), (:PtL, F -> F.PtL), (:UP, F -> F.UP), (:U, F -> F.L'))
@@ -957,7 +948,7 @@ end
 end
 
 @testset "Issue 14134" begin
-    A = CHOLMOD.Sparse(sprandn(Tv, 10,5,0.1) + I |> t -> t't)
+    A = CHOLMOD.Sparse(fixture(Tv, 10, 5) + I |> t -> t't)
     b = IOBuffer()
     serialize(b, A)
     seekstart(b)
@@ -978,8 +969,8 @@ end
 end
 
 @testset "Issue #28985" begin
-    @test typeof(cholesky(Tv.(sparse(I, 4, 4)))'\rand(Tv, 4)) == Array{Tv, 1}
-    @test typeof(cholesky(Tv.(sparse(I, 4, 4)))'\rand(Tv, 4,1)) == Array{Tv, 2}
+    @test typeof(cholesky(Tv.(sparse(I, 4, 4)))'\ones(Tv, 4)) == Array{Tv, 1}
+    @test typeof(cholesky(Tv.(sparse(I, 4, 4)))'\ones(Tv, 4,1)) == Array{Tv, 2}
 end
 
 @testset "Issue with promotion during conversion to CHOLMOD.Dense" begin
@@ -1000,7 +991,7 @@ end
 end
 
 @testset "test \\ for Factor and StridedVecOrMat" begin
-    x = rand(5)
+    x = Float64.(1:5)
     A = cholesky(sparse(Diagonal(x.\1)))
     @static if COMPREHENSIVE
     @test A\view(fill(1.,10),1:2:10) ≈ x
@@ -1015,8 +1006,8 @@ end
 
 @testset "Test \\ for Factor and SparseVecOrMat" begin
     sparseI = sparse(1.0I, 100, 100)
-    sparseb = sprandn(100, 0.5)
-    sparseB = sprandn(100, 100, 0.5)
+    sparseb = fixturevec(Float64, 100)
+    sparseB = fixture(Float64, 100, 100)
     chI = cholesky(sparseI)
     @test chI \ sparseb ≈ sparseb
     @test chI \ sparseB ≈ sparseB
@@ -1057,7 +1048,8 @@ end
 
 @testset "Make sure that ldlt performs an LDLt (Issue #19032)" begin
     m, n = 400, 500
-    A = sprandn(m, n, .2)
+    # entries of at most one keep M well conditioned
+    A = fixture(Float64, m, n) / (m + 3n)
     M = [I copy(A'); A -I]
     b = M * fill(1., m+n)
     F = ldlt(M)
@@ -1084,7 +1076,8 @@ end
     # Test that \ and '\ and transpose(...)\ work for Symmetric and Hermitian. This is just
     # a dispatch exercise so it doesn't matter that the complex matrix has
     # zero imaginary parts
-    Apre = sprandn(Tv, 10, 10, 0.2) - I
+    # scaled so that Apre is indefinite and Apre + 10I diagonally dominant
+    Apre = fixture(Tv, 10, 10) / 40 - I
     for A in (Symmetric(Apre), (@static COMPREHENSIVE ? (Hermitian(Apre),
               Symmetric(Apre + 10I), Hermitian(Apre + 10I),
               Hermitian(complex(Apre))) : ())...)
@@ -1104,8 +1097,7 @@ end
 end
 
 @testset "Check that Symmetric{SparseMatrixCSC} can be constructed from CHOLMOD.Sparse" begin
-    sizeof(Int) == 4 && Random.seed!(124)
-    A = sprandn(Tv, 10, 10, 0.1)
+    A = fixture(Tv, 10, 6)
     B = CHOLMOD.Sparse(A)
     C = B'B
     # Change internal representation to symmetric (upper/lower)
@@ -1114,6 +1106,10 @@ end
         unsafe_store!(Ptr{Cint}(pointer(C) + o), uplo)
         @test convert(Symmetric{Tv,SparseMatrixCSC{Tv,Int}}, C) ≈ Symmetric(A'A)
     end
+    # CHOLMOD returns a column of this product with its two row indices out of order
+    A = sparse(Ti[2, 1, 2], Ti[1, 2, 2], Tv[1, 2, 3])
+    B = CHOLMOD.Sparse(A)
+    @test mismatch(sparse(B'B), Matrix(A'A); Ti=Ti) === nothing
 end
 
 @testset "Test sparse low rank update for cholesky decomposition" begin
@@ -1280,9 +1276,9 @@ end
     # both mixed pairs of element types, and each transform once
     for (typeA, typeB, transform) in ((Tv, Complex{Tv}, adjoint), (Complex{Tv}, Tv, transpose), (Complex{Tv}, Complex{Tv}, identity))
         A = sparse(typeA[2.0 0.1; 0.1 2.0])
-        B = randn(typeB, 2, 2)
+        B = typeB <: Real ? typeB[1 2; 3 4] : typeB[1+2im 2-im; 3+im 4-3im]
         @test A \ transform(B) ≈ cholesky(A) \ transform(B) ≈ Matrix(A) \ transform(B)
-        C = randn(typeA, 2, 2)
+        C = typeA <: Real ? typeA[2 -1; 1 3] : typeA[2-im -1+3im; 1+im 3+2im]
         sC = sparse(C)
         sF = typeA <: Real ? cholesky(Symmetric(A)) : cholesky(Hermitian(A))
         @test cholesky(A) \ transform(sC) ≈ Matrix(A) \ transform(C)
@@ -1316,7 +1312,8 @@ end
 
     @testset "user-specified permutation" begin
         n = 100
-        A = sprand(Tv, n,n,5/n) |> t -> t't + I
+        # an arrow matrix, which the default ordering permutes
+        A = sparse(Tv(n)*I, n, n); A[:, 1] .= 1; A[1, :] .= 1; A[1, 1] = n
         @test cholesky(A, perm=1:n).p == 1:n
     end
 
@@ -1350,7 +1347,7 @@ end
 end
 
 @testset "wrapped sparse matrices" begin
-    A = I + sprand(Tv, 10, 10, 0.1); A = A'A
+    A = fixture(Tv, 10, 10); A = A'A + I
     @test issuccess(cholesky(view(A, :, :)))
     @test issuccess(cholesky(Symmetric(view(A, :, :))))
     @test_throws ErrorException cholesky(view(A, :, :), RowMaximum())
@@ -1361,7 +1358,7 @@ end
     cases = ((Tv, 1, cholesky), (Tv, 3, cholesky))
     @static COMPREHENSIVE && (cases = (cases..., (Complex{Tv}, 1, ldlt), (Complex{Tv}, 3, cholesky), (Tv, 2, ldlt)))
     for T in (Tv, (@static COMPREHENSIVE ? (Complex{Tv},) : ())...)
-        B = sprandn(T, 10, 10, 0.2); B = B'B + I; b = rand(T, 10)
+        B = fixture(T, 10, 10); B = B'B + I; b = T.(1:10) .+ (T <: Real ? 0 : im) .* (10:-1:1)
         for k in 1:3, f in (cholesky, ldlt)
             (T, k, f) in cases || continue
             W = (B', transpose(B), Hermitian(view(B, 1:8, 1:8)))[k]
@@ -1370,7 +1367,7 @@ end
             @test Matrix(W) * (F \ b[1:size(W, 1)]) ≈ b[1:size(W, 1)]
         end
         F = cholesky(B)
-        X = rand(T, 10, 2)
+        X = Matrix(fixture(T, 10, 2))
         @test ldiv!(F, copy(X)) ≈ F \ X
         @test ldiv!(F, copy(b)) ≈ F \ b
         @test ldiv!(F', copy(b)) ≈ F \ b
@@ -1387,7 +1384,7 @@ end
     @test F isa CHOLMOD.Factor{Complex{Tv}}
     @test transpose(Bc) * (F \ bc) ≈ bc
     @test Bc * ldiv!(transpose(F), copy(bc)) ≈ bc
-    C = sprandn(Complex{Tv}, 10, 10, 0.2); C = C + transpose(C)
+    C = fixture(Complex{Tv}, 10, 10); C = C + transpose(C)
     for S in (Symmetric(C), (@static COMPREHENSIVE ? (Symmetric(view(C, 1:8, 1:8)),) : ())...), f in (cholesky, (@static COMPREHENSIVE ? (ldlt,) : ())...)
         @test_throws "Hermitian" f(S)
     end
@@ -1396,10 +1393,10 @@ end
 @static if COMPREHENSIVE
 @testset "solve with adjoint factorization and adjoint rhs" begin
     n = 10
-    A = sprand(Tv, n, n, 1/n)
-    A = A + A' + 10I
+    A = fixture(Tv, n, n)
+    A = A'A + 10I
 
-    B = rand(n, 2)
+    B = Matrix(fixture(Float64, n, 2))
     Bt = Matrix(B')
     Bts = sparse(B')
 
@@ -1476,7 +1473,7 @@ end
     S = SparseMatrixCSC{Tv,Ti}(sparse(Diagonal(Tv[1, 0])))
     @test CHOLMOD.rcond(cholesky(S; check=false)) === 0.0
     # the estimate never reports a matrix as worse conditioned than it is
-    B = sprandn(Tv, 20, 20, 0.4)
+    B = fixture(Tv, 20, 20)
     C = SparseMatrixCSC{Tv,Ti}(B*B' + 20I)
     @test CHOLMOD.rcond(cholesky(C)) >= 1/cond(Matrix{Float64}(C), 2) - sqrt(eps(Tv))
     end

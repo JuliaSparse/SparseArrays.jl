@@ -6,15 +6,14 @@ using Test
 using SparseArrays
 using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, fixed, _is_fixed
 using LinearAlgebra
-using Random
 include("testhelpers.jl")
 
 # `@inferred` on a call with keywords compiles a wrapper per signature, so those go through this
 along(f::F, X, dims) where {F} = f(X; dims)
 
 @testset "reductions" begin
-    sA = sprandn(3, 7, 0.5)
-    pA = sparse(rand(3, 7))
+    sA = sparse([1, 3, 2, 3, 1, 2], [1, 1, 3, 4, 6, 7], [-1.5, 2.0, 0.5, -3.0, 4.0, -0.25], 3, 7)
+    pA = sparse(reshape((1:21) ./ 32, 3, 7))   # every entry stored and in (0, 1)
     @static if COMPREHENSIVE
     se33 = SparseMatrixCSC{Float64}(I, 3, 3)
     p28227 = sparse(Real[0 0.5])
@@ -132,7 +131,7 @@ along(f::F, X, dims) where {F} = f(X; dims)
     @testset "seed without copying the first slice" begin
         # the `Array` seed is built only for an empty slice; a non-empty reduction
         # allocates the result and Base's own temporary, not a dense copy of the slice
-        A = sprand(10^5, 4, 0.01)
+        A = sparse([i + 7j for j in 1:4 for i in 1:100:10^5], repeat(1:4; inner=1000), collect(1.0:4000.0), 10^5, 4)
         for g in (A -> maximum(A; dims=2), (@static COMPREHENSIVE ? (A -> minimum(A'; dims=1), A -> extrema(A; dims=2),
                   A -> maximum(view(A, :, 1:2); dims=2)) : ())...)
             r = g(A)
@@ -195,7 +194,8 @@ along(f::F, X, dims) where {F} = f(X; dims)
 end
 
 @testset "argmax, argmin, findmax, findmin" begin
-    S = sprand(100,80, 0.5)
+    S = fixture(Float64, 9, 7)
+    nonzeros(S)[2:3:end] .*= -1   # both extremes are stored entries
     A = Array(S)
     @test @inferred(argmax(S)) == argmax(A)
     @test @inferred(argmin(S)) == argmin(A)
@@ -365,7 +365,7 @@ end
 @testset "mapreducecols" begin
     n = 20
     m = 10
-    A = sprand(n, m, 0.2)
+    A = fixture(Float64, n, m)
     B = mapreduce(identity, +, A, dims=2)
     for row in 1:n
         @test B[row] ≈ sum(A[row, :])
@@ -379,7 +379,7 @@ end
     @test B ≈ mapreduce(x->x+1, +, Matrix(A), dims=2)
     @static if COMPREHENSIVE
     # case when there are no zeros in the sparse matrix
-    A = sparse(rand(n, m))
+    A = sparse(reshape(Float64.(1:n*m), n, m))
     B = mapreduce(identity, +, A, dims=2)
     for row in 1:n
         @test B[row] ≈ sum(A[row, :])
@@ -398,7 +398,10 @@ end
     viewed = reductions[@static COMPREHENSIVE ? [3, 4, 6] : [2, 5]]   # a view shares the kernels: one more `op` is enough
     @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (@static COMPREHENSIVE ? ((1, 1), (1, 9), (9, 1), (30, 20)) : ())...),
                                                  d in (0.0, 0.2, 1.0)
-        A = sparse(sprand(m, n, d) .- 0.5)   # negative entries, so that max and min do not see 0 as a bound
+        # entries of both signs in about a fraction `d` of the positions; the first column is
+        # full and negative, so that 0 is not a bound for its maximum
+        val(i, j) = ((3i + 7j) % 11 - 5.25) / 11
+        A = sparse([d > 0 && j == 1 ? -abs(val(i, j)) : d == 1 || (d > 0 && (i + 2j) % 5 == 0) ? val(i, j) : 0.0 for i in 1:m, j in 1:n])
         M = Matrix(A)
         V = view(A, :, (n + 1) ÷ 2:n)   # a view of a column range reduces like its copy (#377)
         C = A[:, (n + 1) ÷ 2:n]
@@ -507,7 +510,7 @@ end
     # the `sparse` keyword is folded away, so the result type is inferred for every argument
     # type that has the keyword, adjoints and transposes included (`@inferred` cannot pass
     # the keyword as a constant, so the opt-in goes through a function)
-    A, v = sprand(4, 3, 0.5), sprand(4, 0.5)
+    A, v = fixture(Float64, 4, 3), fixturevec(Float64, 4)
     B = sparse(A .> 0)
     sparsesum(X, dims) = sum(X; dims, sparse = true)
     sparsecount(X, dims) = count(iszero, X; dims, sparse = true)
@@ -561,7 +564,10 @@ end
     @test nnz(sum(x -> x + 1, w'; dims = 1, sparse = true)) == 6 && nnz(sum(spzeros(5)'; dims = 2, sparse = true)) == 0
     # adjoints, views of a column subset and sparse vectors reduce like their copy, calling `f`
     # for the stored entries and once per slice rather than per element
-    A, C = sprand(60, 50, 0.05), sprand(ComplexF64, 60, 50, 0.05)
+    # 150 entries at distinct positions, a few in every row and column
+    rows, cols = [mod1(7k, 60) for k in 1:150], [mod1(11k, 50) for k in 1:150]
+    A = sparse(rows, cols, [(-1.0)^k * k for k in 1:150], 60, 50)
+    C = sparse(rows, cols, [complex(k, 151.0 - 2k) for k in 1:150], 60, 50)
     v = sparsevec([2, 17, 43, 60], [1.0, -2.0, 0.5, 3.0], 60)
     c = sparsevec([2, 17, 43, 60], [1.0+2im, -2.0+im, 0.5-im, 3.0-2im], 60)
     S = view(A, :, [7, 2, 2, 15])

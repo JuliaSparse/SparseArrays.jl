@@ -7,7 +7,7 @@ include("testhelpers.jl")
 
 # the flag is process-wide, so it is restored even when an assertion throws
 @testset "allowscalar" begin try
-    A = sprandn(10, 20, 0.9)
+    A = fixture(Float64, 3, 5)
     A[1, 1] = 2
     @test A[1, 1] == 2
     SparseArrays.@allowscalar(false)
@@ -18,7 +18,7 @@ include("testhelpers.jl")
     A[1, 1] = 3
     @test A[1, 1] == 3
 
-    B = sprandn(10, 0.9)
+    B = fixturevec(Float64, 10)
     B[1] = 2
     @test B[1] == 2
     SparseArrays.@allowscalar(false)

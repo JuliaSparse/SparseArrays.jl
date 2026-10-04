@@ -10,7 +10,6 @@ using Test
 using SparseArrays
 using SparseArrays: getcolptr, nonzeroinds
 using LinearAlgebra
-using Random
 include("testhelpers.jl")
 # A standard run maps and broadcasts over `Float64`/`Int` arrays only. A comprehensive run
 # repeats one case of each kernel with an argument of another element and index type: the
@@ -39,7 +38,7 @@ end
 @testset "map[!] implementation specialized for a single (input) sparse vector/matrix" begin
     N, M = 10, 12
     for shapeA in ((N,), (N, M))
-        A = sprand(shapeA..., 0.4)
+        A = length(shapeA) == 1 ? fixturevec(Float64, N) : fixture(Float64, N, M)
         nonzeros(A)[sin.(nonzeros(A)) .== 0] .= .0
         nonzeros(A)[cos.(nonzeros(A)) .== 0] .= .0
         A = dropzeros(A)
@@ -58,7 +57,9 @@ end
     for shapeA in ((N,), (N, M)), retype in retypes
         # `+` of two vectors has a method of its own, so the matrices take the other type
         retype === identity || length(shapeA) == 2 || continue
-        A, Bo = sprand(shapeA..., 0.3), length(shapeA) == 1 ? fixturevec(Float64, N) : fixture(Float64, N, M)
+        # the two patterns differ, and the second stored entry of the vectors cancels
+        A, Bo = length(shapeA) == 1 ? (sparsevec([2, 3, 6, 10], [-5.0, 2.0, 0.5, 4.0], N), fixturevec(Float64, N)) :
+                                      (permutedims(fixture(Float64, M, N)), fixture(Float64, N, M))
         B = retype(Bo)
         # use different types to check internal type stability via allocation tests below
         fA, fB = map(Array, (A, B))
@@ -99,7 +100,10 @@ end
     N, M = 10, 12
     f(x, y, z) = x + y + z + 1
     for (shapeA, retype) in eachvalue(((N, M), (N,)), retypes)
-        A, B, Co = sprand(shapeA..., 0.2), sprand(shapeA..., 0.2), sprand(shapeA..., 0.2)
+        # three different patterns, with entries that only one, only two and all three store
+        A, B, Co = length(shapeA) == 1 ?
+            (fixturevec(Float64, N), sparsevec([2, 3, 6, 10], [-5.0, 2.0, 0.5, 4.0], N), sparsevec([1, 2, 6, 9], [1.0, 3.0, -0.5, 2.0], N)) :
+            (fixture(Float64, N, M), permutedims(fixture(Float64, M, N)), sparse([1, 3, 3, 9, 10], [2, 2, 7, 5, 12], [1.5, -2.0, 0.5, 3.0, 4.0], N, M))
         C = retype(Co)
         # use different types to check internal type stability via allocation tests below
         fA, fB, fC = map(Array, (A, B, C))
@@ -129,8 +133,8 @@ end
 end
 
 @testset "broadcast! implementation specialized for solely an output sparse vector/matrix (no inputs)" begin
-    N, M, p = 10, 12, 0.4
-    V, C = sprand(N, p), sprand(N, M, p)
+    N, M = 10, 12
+    V, C = fixturevec(Float64, N), fixture(Float64, N, M)
     fV, fC = Array(V), Array(C)
     @test mismatch(broadcast!(() -> 0, V), broadcast!(() -> 0, fV)) === nothing
     @test mismatch(broadcast!(() -> 0, C), broadcast!(() -> 0, fC)) === nothing
@@ -144,8 +148,8 @@ end
     # broadcast for a single (input) sparse vector/matrix falls back to map, tested
     # extensively above. here we simply lightly exercise the relevant broadcast entry
     # point.
-    N, M, p = 10, 12, 0.4
-    a, A = sprand(N, p), sprand(N, M, p)
+    N, M = 10, 12
+    a, A = fixturevec(Float64, N), fixture(Float64, N, M)
     fa, fA = Array(a), Array(A)
     @test mismatch(broadcast(sin, a), broadcast(sin, fa)) === nothing
     @test mismatch(broadcast(sin, A), broadcast(sin, fA)) === nothing
@@ -154,10 +158,12 @@ end
 end
 
 @testset "broadcast! implementation specialized for a single (input) sparse vector/matrix" begin
-    N, M, p = 10, 12, 0.3
+    N, M = 10, 12
     f(x, y) = x + y + 1
-    mats = (sprand(N, M, p), (@static COMPREHENSIVE ? (sprand(N, 1, p),) : ())..., sprand(1, M, p), (@static COMPREHENSIVE ? (sprand(1, 1, 1.0), spzeros(1, 1)) : ())...)
-    vecs = (sprand(N, p), sprand(1, 1.0), (@static COMPREHENSIVE ? (spzeros(1),) : ())...)
+    # A stored zero of the one input stays stored, and the destinations below are sized from
+    # the dense result, so the allocation bounds need inputs without one.
+    mats = map(dropzeros, (fixture(Float64, N, M), (@static COMPREHENSIVE ? (fixture(Float64, N, 1),) : ())..., fixture(Float64, 1, M), (@static COMPREHENSIVE ? (sparse(fill(0.5, 1, 1)), spzeros(1, 1)) : ())...))
+    vecs = map(dropzeros, (fixturevec(Float64, N), sparse([0.5]), (@static COMPREHENSIVE ? (spzeros(1),) : ())...))
     # --> test with matrix destination (Z/fZ)
     fZ = Array(first(mats))
     for Xo in (mats..., vecs...), retype in retypes
@@ -269,11 +275,11 @@ end
 end
 
 @testset "broadcast[!] implementation specialized for pairs of (input) sparse vectors/matrices" begin
-    N, M, p = 10, 12, 0.3
+    N, M = 10, 12
     f(x, y) = x + y + 1
     # the matrix, the row and the vector each have a stored zero and unstored entries
-    mats = (fixture(Float64, N, M), (@static COMPREHENSIVE ? (sprand(N, 1, p),) : ())..., fixture(Float64, 1, M), (@static COMPREHENSIVE ? (sprand(1, 1, 1.0), spzeros(1, 1)) : ())...)
-    vecs = (fixturevec(Float64, N), sprand(1, 1.0), (@static COMPREHENSIVE ? (spzeros(1),) : ())...)
+    mats = (fixture(Float64, N, M), (@static COMPREHENSIVE ? (fixture(Float64, N, 1),) : ())..., fixture(Float64, 1, M), (@static COMPREHENSIVE ? (sparse(fill(0.5, 1, 1)), spzeros(1, 1)) : ())...)
+    vecs = (fixturevec(Float64, N), sparse([0.5]), (@static COMPREHENSIVE ? (spzeros(1),) : ())...)
     tens = (mats..., vecs...)
     fZ = Array(first(mats))
     for Xo in tens, retype in retypes
@@ -359,7 +365,7 @@ end
         C = (A .+ sparse(T[0 0; 0 0; 0 1])) ./ x0
         @test isequal(C, sparse(Array(A .+ sparse(T[0 0; 0 0; 0 1])) ./ x0))
         @test nnz(C) == 3
-        D = sprand(T, 3, 2, 0.5)
+        D = fixture(T, 3, 2)
         @test broadcast!(/, D, A, x) === D
         @test D == Array(A) ./ x
         @test nnz(D) == 1
@@ -372,8 +378,9 @@ end
     # vector against every column, so `f` is called O(nnz + m) times, not O(m * n) (#543)
     for T in (Float64,)
         m, n = 40, 30
-        A = sprand(T, m, n, 0.05)
-        v = rand(T, m) .+ 1
+        # 60 entries in the odd rows: the bound below needs a matrix much sparser than m * n
+        A = sparse([mod1(2k + 1, m) for k in 1:60], [mod1(7k, n) for k in 1:60], collect(T, 1:60), m, n)
+        v = collect(T, 2:m+1)
         ncalls = Ref(0)
         for (f, args) in ((*, (v, A)), (*, (A, v)), (/, (A, v)), (\, (v, A)),
                            (*, (A, sparse(v))), (*, (sparse(v), A)))[@static COMPREHENSIVE ? (1:6) : [1, 3, 5]]
@@ -384,7 +391,7 @@ end
             @test C == broadcast(f, map(Array, args)...)
             @test nnz(C) == nnz(A)
             ncalls[] = 0
-            D = sprand(T, m, n, 0.5)
+            D = fixture(T, m, n)
             @test broadcast!(counted, D, args...) == C
             @test ncalls[] <= nnz(A) + 2m
         end
@@ -418,10 +425,10 @@ end
 
 
 @testset "broadcast[!] implementation capable of handling >2 (input) sparse vectors/matrices" begin
-    N, M, p = 10, 12, 0.3
+    N, M = 10, 12
     f(x, y, z) = x + y + z + 1
-    mats = (sprand(N, M, p), (@static COMPREHENSIVE ? (sprand(N, 1, p),) : ())..., sprand(1, M, p), (@static COMPREHENSIVE ? (sprand(1, 1, 1.0), spzeros(1, 1)) : ())...)
-    vecs = (sprand(N, p), sprand(1, 1.0), (@static COMPREHENSIVE ? (spzeros(1),) : ())...)
+    mats = (fixture(Float64, N, M), (@static COMPREHENSIVE ? (fixture(Float64, N, 1),) : ())..., fixture(Float64, 1, M), (@static COMPREHENSIVE ? (sparse(fill(0.5, 1, 1)), spzeros(1, 1)) : ())...)
+    vecs = (fixturevec(Float64, N), sparse([0.5]), (@static COMPREHENSIVE ? (spzeros(1),) : ())...)
     tens = (mats..., vecs...)
     # Each vector/matrix mix of the three arguments is its own specialization of one generic
     # kernel. A standard run takes the all-vector mix, the only one with a vector result, and
@@ -501,13 +508,15 @@ end
 
 @static if COMPREHENSIVE
 @testset "broadcast[!] over combinations of scalars and sparse vectors/matrices" begin
-    N, M, p = 10, 12, 0.5
+    N, M = 10, 12
     elT = Float64
     s = Float32(2.0)
-    V = sprand(elT, N, p)
-    Vᵀ = transpose(sprand(elT, 1, N, p))
-    A = sprand(elT, N, M, p)
-    Aᵀ = transpose(sprand(elT, M, N, p))
+    # A stored zero times a scalar stays stored, and `check_scalar_broadcast` sizes its
+    # destination from the dense result, so its allocation bound needs inputs without one.
+    V = dropzeros(fixturevec(elT, N))
+    Vᵀ = transpose(dropzeros(fixture(elT, 1, N)))
+    A = dropzeros(fixture(elT, N, M))
+    Aᵀ = transpose(dropzeros(fixture(elT, M, N)))
     ordered(xs...) = foldl((x, y) -> 2x + y, xs)
 
     @testset "array forms and argument counts" begin
@@ -534,17 +543,17 @@ end
 end
 
 @testset "broadcast[!] over combinations of scalars, sparse arrays, structured matrices, and dense vectors/matrices" begin
-    N, p = 10, 0.4
-    s = rand()
-    V = sprand(N, p)
-    A = sprand(N, N, p)
+    N = 10
+    s = 0.3
+    V = fixturevec(Float64, N)
+    A = fixture(Float64, N, N)
     Z = copy(A)
     sparsearrays = (V, A)
     fV, fA = map(Array, sparsearrays)
-    D = Diagonal(rand(N))
-    B = Bidiagonal(rand(N), rand(N - 1), :U)
-    T = Tridiagonal(rand(N - 1), rand(N), rand(N - 1))
-    S = SymTridiagonal(rand(N), rand(N - 1))
+    D = Diagonal(collect(Float64, 1:N))
+    B = Bidiagonal(collect(Float64, 1:N), collect(Float64, 2:N), :U)
+    T = Tridiagonal(collect(Float64, 2:N), collect(Float64, 1:N), -collect(Float64, 2:N))
+    S = SymTridiagonal(collect(Float64, 1:N), collect(Float64, 2:N))
     structuredarrays = (D, B, T, S)
     fstructuredarrays = map(Array, structuredarrays)
     # each structured type once on each side, rather than every pair of them
@@ -559,8 +568,8 @@ end
             (@static COMPREHENSIVE ? partner[X] === Y : (X === T && Y === S)) && @test mismatch(broadcast!(*, Z, X, Y), broadcast(*, fX, fY)) === nothing
         end
     end
-    C = Array(sprand(N, 0.4))
-    M = Array(sprand(N, N, 0.4))
+    C = reverse(Vector(fixturevec(Float64, N)))
+    M = Matrix(permutedims(fixture(Float64, N, N)))
     densearrays = (C, M)
     fD, fB = Array(D), Array(B)
     for X in densearrays
@@ -593,12 +602,12 @@ end
 end
 
 @testset "broadcast[!] over views of dense and sparse arrays (#508)" begin
-    N, p = 10, 0.4
-    V = sprand(N, p)
-    A = sprand(N, N, p)
+    N = 10
+    V = fixturevec(Float64, N)
+    A = fixture(Float64, N, N)
     Z = copy(A)
-    C = rand(N)
-    M = rand(N, N)
+    C = collect(Float64, 1:N)
+    M = reshape(collect(Float64, 1:N*N), N, N)
     # views of dense arrays should not force a dense result
     for X in (view(M, :, :), view(M, 1:N, 1:N), view(M, collect(1:N), :), view(M, :, :)')[@static COMPREHENSIVE ? (2:4) : [2, 4]]
         fX = Array(X)
@@ -613,7 +622,7 @@ end
         @test nnz(broadcast(*, V, x)) <= nnz(V)
     end
     # views of sparse arrays likewise
-    S = sprand(N, 2N, p)
+    S = permutedims(fixture(Float64, 2N, N))   # its second column has stored entries
     @test broadcast(*, A, view(S, :, 1:N))::SparseMatrixCSC ==
         sparse(broadcast(*, Array(A), Array(S[:, 1:N])))
     # and on their own, sparse views of whole columns give a sparse result
@@ -656,13 +665,13 @@ end
 end
 
 @testset "map[!] over combinations of sparse and structured matrices" begin
-    N, p = 10, 0.4
-    A = sprand(N, N, p)
+    N = 10
+    A = fixture(Float64, N, N)
     Z, fA = copy(A), Array(A)
-    D = Diagonal(rand(N))
-    B = Bidiagonal(rand(N), rand(N - 1), :U)
-    T = Tridiagonal(rand(N - 1), rand(N), rand(N - 1))
-    S = SymTridiagonal(rand(N), rand(N - 1))
+    D = Diagonal(collect(Float64, 1:N))
+    B = Bidiagonal(collect(Float64, 1:N), collect(Float64, 2:N), :U)
+    T = Tridiagonal(collect(Float64, 2:N), collect(Float64, 1:N), -collect(Float64, 2:N))
+    S = SymTridiagonal(collect(Float64, 1:N), collect(Float64, 2:N))
     structuredarrays = (D, B, T, S)
     fstructuredarrays = map(Array, structuredarrays)
     # each structured type once on each side, rather than every pair of them
@@ -686,8 +695,9 @@ end
 
 # Older tests of sparse broadcast, now largely covered by the tests above
 @testset "assorted tests of sparse broadcast over two input arguments" begin
-    N, p = 10, 0.3
-    A, B, CF = sprand(N, N, p), sprand(N, N, p), rand(N, N)
+    N = 10
+    # `CF` has no zero, so that no quotient below is `NaN`
+    A, B, CF = fixture(Float64, N, N), permutedims(fixture(Float64, N, N)), reshape(collect(Float64, 1:N*N), N, N)
     AF, BF, C = Array(A), Array(B), sparse(CF)
 
     @test A .* B == AF .* BF
@@ -734,7 +744,9 @@ end
 
     # broadcasting against a dense-ish vector grows storage on demand instead of
     # preallocating the bound, which for these shapes is the dense size (#47)
-    M, v = sprand(200, 200, 0.01), rand(200)
+    # the two diagonals: two entries in each row, 1% of the matrix
+    M = sparse([1:200; 1:200], [1:200; 200:-1:1], collect(Float64, 1:400), 200, 200)
+    v = collect(Float64, 1:200)
     @test M .* v == Array(M) .* v   # sparse result
     @static if COMPREHENSIVE
     @test M .* v' == Array(M) .* v'
@@ -761,7 +773,7 @@ end
 end
 
 @testset "sparse vector broadcast of two arguments" begin
-    sv1, sv5 = sprand(1, 1.), sprand(5, 1.)
+    sv1, sv5 = sparse([2.5]), sparse(collect(Float64, 1:5))
     for (sa, sb) in ((sv1, sv1), (sv1, sv5), (sv5, sv1), (sv5, sv5))[@static COMPREHENSIVE ? (1:4) : [2, 4]]
         fa, fb = Vector(sa), Vector(sb)
         for f in (max, (@static COMPREHENSIVE ? (*,) : ())...)
@@ -790,9 +802,9 @@ end
     A .+= B
     @test A == sparse([1,1,1,1])
 
-    A = sprandn(10, 10, 0.1)
+    A = fixture(Float64, 10, 8)
     fA = Array(A)
-    b = randn(10);
+    b = collect(Float64, 1:10);
     broadcast!(/, A, A, b)
     @test A == fA ./ Array(b)
 
@@ -862,11 +874,11 @@ end
     @test map!(x -> x + 1, A) == [101 1; 301 401]
     v = sparsevec([1, 0, 2])
     @test map!(x -> x + 1, v) == [2, 1, 3]
-    S0 = sprand(10, 10, 0.3); S1 = sprand(10, 10, 0.3); S2 = sprand(10, 10, 0.3); C = copy(S0)
+    S0 = fixture(Float64, 10, 10); S1 = permutedims(S0); S2 = sparse([1, 4, 4, 9], [2, 2, 7, 10], [1.5, -2.0, 0.5, 4.0], 10, 10); C = copy(S0)
     @test map!(+, S0, S0, S1) == C + S1
     S0 = copy(C)
     @test map!(+, S0, S1, S2, S0) == S1 + S2 + C
-    S0 = copy(C); D = Diagonal(rand(10))
+    S0 = copy(C); D = Diagonal(collect(Float64, 1:10))
     @test map!(+, S0, D, S0) == D + C
 end
 
@@ -892,7 +904,7 @@ end
 
     @static if COMPREHENSIVE
     # lu(zeros(5,5)) throw SingularException, see #42343
-    @test_throws SingularException Diagonal(spzeros(5)) \ view(rand(10), 1:5)
+    @test_throws SingularException Diagonal(spzeros(5)) \ view(ones(10), 1:5)
     end
 end
 
@@ -934,9 +946,9 @@ end
 
 @testset "Sparse outer product, for type $T and vector $op" for
          (op, T) in (@static COMPREHENSIVE ? pairwise : eachvalue)((transpose, adjoint), (Float64, ComplexF64))
-    m, n, p = 100, 250, 0.1
-    A = sprand(T, m, n, p)
-    a, b = view(A, :, 1), sprand(T, n, p)   # of different lengths, so the product is not square
+    m, n = 100, 250
+    A = fixture(T, m, n)
+    a, b = view(A, :, 1), fixturevec(T, n)   # of different lengths, so the product is not square
     av, bv = Vector(a), Vector(b)
     v = @inferred a .* op(b)
     w = @inferred b .* op(a)
@@ -948,7 +960,7 @@ end
     # the index type is promoted over both vectors, and the wider one holds the result;
     # the promotion depends on neither `T` nor `op`
     if T === Float64 && op === transpose
-        c = SparseVector{T,Int8}(sprand(T, m, 0.5))
+        c = SparseVector{T,Int8}(fixturevec(T, m))
         @test mismatch(c .* op(b), Vector(c) .* op(bv); Ti=Int) === nothing
         @test mismatch(b .* op(c), bv .* op(Vector(c)); Ti=Int) === nothing
     end
@@ -990,10 +1002,11 @@ end
 
 @testset "extrema" begin
     n = 10
-    A = sprand(n, n, 0.2)
+    # entries of both signs, so that a structural zero is not always the minimum
+    A = fixture(Float64, n, n + 2) - permutedims(fixture(Float64, n + 2, n))
     B = Array(A)
     C = Array{Real}(undef, 0, 0)
-    x = sprand(n, 0.2)
+    x = fixturevec(Float64, n) - sparsevec([2, 5, 6], [7.0, 1.0, 2.5], n)
     y = Array(x)
     z = Array{Real}(undef, 0)
     f(x) = x^3
@@ -1038,11 +1051,12 @@ function test_extrema(a; dims_test = @static COMPREHENSIVE ? ((), 1, 2, (1,2), 3
 end
 @testset "NaN test for sparse extrema" begin
     for sz = (10, (@static COMPREHENSIVE ? (3, 100) : ())...)
-        A = sprand(sz, sz, 0.3)
-        A[rand(1:sz^2,sz)] .= NaN
+        # `NaN`s at stored and at unstored positions, and columns without one
+        A = fixture(Float64, sz, sz)
+        A[1:sz+3:sz^2] .= NaN
         test_extrema(A)
-        A = sprand(sz*sz, 0.3)
-        A[rand(1:sz^2,sz)] .= NaN
+        A = fixturevec(Float64, sz*sz)
+        A[1:sz+3:sz^2] .= NaN
         test_extrema(A; dims_test = @static COMPREHENSIVE ? ((), 1, 2) : (1,))
     end
 end
