@@ -53,8 +53,8 @@ end
 # of X are the vertices reachable from those of the column of B in the graph of T, found
 # by depth-first search; reverse postorder is a topological order, so the columns of T
 # are applied in that order, to a dense vector touched at those positions only (Gilbert
-# and Peierls, Lemma 1). After an O(n log n) pass that locates the diagonal, each column
-# costs its arithmetic plus the sort of its pattern.
+# and Peierls, Lemma 1). After a pass over the columns that locates the diagonal, each
+# column of B costs its arithmetic plus the sort of its pattern.
 function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
                      B::SparseMatrixCSCOrView, ::Type{T}, ::Type{Ti}) where {T,Ti}
     require_one_based_indexing(A, B)
@@ -65,10 +65,10 @@ function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
     Ax = nonzeros(A)
     Bi = rowvals(B)
     Bx = nonzeros(B)
-    # the strict triangle of column j is Ai[from[j]:to[j]], and its diagonal Ax[dptr[j]]
+    # the strict triangle of column j is Ai[from[j]:to[j]]; a stored diagonal is next to
+    # it, before a lower triangle and after an upper one
     from = Vector{Int}(undef, n)
     to = Vector{Int}(undef, n)
-    dptr = Vector{Int}(undef, n)
     @inbounds for j in 1:n
         r = nzrange(A, j)
         d = searchsortedfirst(Ai, j, first(r), last(r), Forward)
@@ -76,7 +76,6 @@ function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
         if !unit && (!stored || _iszero(Ax[d]))
             throw(LinearAlgebra.SingularException(j))
         end
-        dptr[j] = d
         if lower
             from[j] = stored ? d + 1 : d
             to[j] = last(r)
@@ -132,7 +131,7 @@ function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
         end
         for t in top:n
             j = order[t]
-            xj = unit ? x[j] : Ax[dptr[j]] \ x[j]
+            xj = unit ? x[j] : Ax[lower ? from[j] - 1 : to[j] + 1] \ x[j]
             x[j] = xj
             for p in from[j]:to[j]
                 x[Ai[p]] -= Ax[p] * xj
@@ -347,16 +346,17 @@ function _gplu(B::AbstractSparseMatrixCSC, bp::Vector{Int}, ::Type{Tv}, tol::Flo
                 end
             end
             # the pivot: the diagonal if it is within `tol` of the largest candidate
-            piv = 0
-            amax = abs(zero(Tv))
-            for t in 1:ncand
+            ncand == 0 && throw(LinearAlgebra.SingularException(q[j]))
+            piv = cand[1]
+            amax = abs(x[piv])
+            for t in 2:ncand
                 a = abs(x[cand[t]])
                 if a > amax
                     amax = a
                     piv = cand[t]
                 end
             end
-            piv == 0 && throw(LinearAlgebra.SingularException(q[j]))
+            _iszero(amax) && throw(LinearAlgebra.SingularException(q[j]))
             if piv != j && pinv[j] == 0 && mark[j] == j
                 a = abs(x[j])
                 if !_iszero(a) && (tol == 1 ? a >= amax : a >= tol * amax)
