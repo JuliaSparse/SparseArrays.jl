@@ -53,9 +53,17 @@ end
     @test nnz(Lt \ e) <= 2
     @test mismatch(LowerTriangular(Lt) \ B, Matrix(Lt) \ Matrix(B); approx=true) === nothing
     @test mismatch(UpperTriangular(copy(Lt')) \ B, Matrix(Lt') \ Matrix(B); approx=true) === nothing
-    # `/` goes through `\` of the adjoints
+    # `/` goes through `\` of the adjoints, and of the transposes for a triangle
     C = copy(B')
     @test mismatch(C / A, Matrix(C) / D; approx=true) === nothing
+    @test mismatch(C / LowerTriangular(Lt), Matrix(C) / Matrix(Lt); approx=true) === nothing
+    # a permuted triangular matrix is recognized and is its own U factor
+    P = Lt[randperm(rng, n), randperm(rng, n)]
+    G = sparselu(P)
+    @test SparseArrays._triangularorder(P) !== nothing && SparseArrays._triangularorder(A) === nothing
+    @test G.L == I && istriu(G.U) && G.U == P[G.p, G.q]
+    @test G \ b ≈ Matrix(P) \ b
+    @test mismatch(P \ B, Matrix(P) \ Matrix(B); approx=true) === nothing
     @test_throws SingularException sparselu(sparse(T[1 1; 1 1]))
 end
 
@@ -216,6 +224,51 @@ end
     @test_throws DimensionMismatch ldiv!(sparselu(sparse(1.0I, 3, 3)), ones(4))
 end
 
+@testset "sparselu: permuted triangular matrices and runs of 1×1 blocks" begin
+    rng = MersenneTwister(1992)
+    for _ in 1:300
+        n = rand(rng, 0:30)
+        T = rand(rng, STD_ELTYPES)
+        kind = rand(rng, 1:3)
+        if kind == 1       # upper or lower triangular, scrambled
+            A = (rand(rng, Bool) ? triu : tril)(sprand(rng, T, n, n, 0.3)) + 2I
+        else               # triangular, irreducible, triangular: runs around a larger block
+            h = n ÷ 2
+            A = blockdiag(sparse(triu(sprand(rng, T, h, h, 0.4))) + 2I, sprand(rng, T, 5, 5, 0.6) + 3I,
+                          sparse(triu(sprand(rng, T, 3, 3, 0.5))) + 2I)
+            A[1:h, (h + 1):end] = sprand(rng, T, h, 8, 0.2)
+        end
+        n = size(A, 1)
+        A = A[randperm(rng, n), randperm(rng, n)]
+        D = Matrix(A)
+        (n > 0 && cond(D) > 1e8) && continue
+        F = sparselu(A)
+        order = SparseArrays._triangularorder(A)
+        kind == 1 && n > 0 && @test order !== nothing
+        order === nothing || @test istriu(A[order[1], order[2]])
+        @test F.L * F.U ≈ A[F.p, F.q]
+        b = rand(rng, T, n)
+        B = sprand(rng, T, n, 3, 0.3)
+        @test F \ b ≈ D \ b
+        @test mismatch(F \ B, D \ Matrix(B); approx=true) === nothing
+        @test F \ Matrix(B) ≈ D \ Matrix(B)
+    end
+    # a stored zero on the diagonal of a permuted triangular matrix is singular
+    Z = sparse([1, 1, 2], [1, 2, 2], [1.0, 2.0, 0.0])[[2, 1], :]
+    @test_throws SingularException sparselu(Z)
+    # exact, and another index type
+    R = sparse(Rational{BigInt}[2 3 0; 0 1 5; 0 0 4])[[3, 1, 2], [2, 3, 1]]
+    F = sparselu(R)
+    @test F.L * F.U == R[F.p, F.q] && F \ Rational{BigInt}[1, 2, 3] == Matrix(R) \ [1, 2, 3]
+    @test sparselu(SparseMatrixCSC{Float32,Int32}(R)) isa SparseLU{Float32,Int32}
+    # a solve that reaches few entries of a permuted triangular matrix stores only those
+    n = 200
+    U = sparse([1:n; 1:(n - 1)], [1:n; 2:n], 1.0)[randperm(rng, n), :]
+    F = sparselu(U)
+    x = F \ sparsevec([F.p[3]], [1.0], n)
+    @test nnz(x) == 3 && U * x ≈ sparsevec([F.p[3]], [1.0], n)
+end
+
 @testset "sparse right-hand sides: types, wrappers and views" begin
     rng = MersenneTwister(708)
     n = 8
@@ -228,6 +281,12 @@ end
         @test mismatch(W(A) \ b, W(D) \ Vector(b); approx=true) === nothing
         @test mismatch(W(A)' \ B, W(D)' \ Matrix(B); approx=true) === nothing
         @test mismatch(W(view(A, :, 1:n)) \ view(B, :, 2:3), W(D) \ Matrix(B)[:, 2:3]; approx=true) === nothing
+        # right division by the triangle, its adjoint and its transpose
+        C = sprand(rng, 2, n, 0.5)
+        @test mismatch(C / W(A), Matrix(C) / W(D); approx=true) === nothing
+        @test mismatch(C / W(A)', Matrix(C) / W(D)'; approx=true) === nothing
+        @test mismatch(B' / transpose(W(A)), Matrix(B') / transpose(W(D)); approx=true) === nothing
+        @test mismatch(view(C, :, 1:n) / W(A), Matrix(C) / W(D); approx=true) === nothing
     end
     for M in (A, tril(A), triu(A), sparse(Diagonal(A)))
         @test mismatch(M \ view(B, :, 2:3), Matrix(M) \ Matrix(B)[:, 2:3]; approx=true) === nothing

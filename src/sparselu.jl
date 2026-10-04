@@ -184,6 +184,9 @@ struct SparseLU{Tv,Ti<:Integer} <: Factorization{Tv}
     # block b is the rows and columns blockptr[b]:blockptr[b+1]-1, and blockof inverts that
     blockptr::Vector{Ti}
     blockof::Vector{Ti}
+    # the same boundaries with every run of 1×1 blocks merged into one triangular block,
+    # which a solve with a dense right-hand side sweeps in one pass
+    solveptr::Vector{Ti}
     # the blocks that the solution in block b feeds are graphadj[graphptr[b]:graphptr[b+1]-1]
     graphptr::Vector{Ti}
     graphadj::Vector{Ti}
@@ -510,14 +513,60 @@ function _orderblocks!(p::Vector{Int}, q::Vector{Int}, A::AbstractSparseMatrixCS
     return nothing
 end
 
+# Row and column permutations that make `A` upper triangular with a zero-free diagonal,
+# or `nothing` when there are none. A column with a single entry can come first, with the
+# row of that entry; removing the row may leave other columns with a single entry, and
+# `A` is a permuted triangular matrix exactly when this uses up every column. O(nnz), and
+# O(n) when no column has a single entry to start from.
+function _triangularorder(A::AbstractSparseMatrixCSC)
+    n = size(A, 2)
+    rv = rowvals(A)
+    count = Vector{Int}(undef, n)
+    queue = Int[]
+    @inbounds for j in 1:n
+        count[j] = length(nzrange(A, j))
+        count[j] == 1 && push!(queue, j)
+    end
+    isempty(queue) && return nothing
+    rowptr, colind = _rowpattern(A)
+    removed = falses(n)
+    p = Vector{Int}(undef, n)
+    q = Vector{Int}(undef, n)
+    k = 0
+    head = 1
+    @inbounds while head <= length(queue)
+        j = queue[head]
+        head += 1
+        count[j] == 1 || continue
+        i = 0
+        for t in nzrange(A, j)
+            if !removed[rv[t]]
+                i = Int(rv[t])
+                break
+            end
+        end
+        k += 1
+        p[k] = i
+        q[k] = j
+        removed[i] = true
+        for t in rowptr[i]:(rowptr[i + 1] - 1)
+            c = colind[t]
+            count[c] -= 1
+            count[c] == 1 && push!(queue, c)
+        end
+    end
+    return k == n ? (p, q) : nothing
+end
+
 """
     SparseArrays.sparselu(A; tol = 0.1, ordering = :auto, prune = true) -> F::SparseArrays.SparseLU
 
 Compute the LU factorization of the square sparse matrix `A`, in Julia, for any element
 type with a division. `F.L * F.U ≈ A[F.p, F.q]`; see [`SparseArrays.SparseLU`](@ref).
 
-`A` is first permuted to block upper triangular form by [`dmperm`](@ref), and only its
-diagonal blocks are factored, so entries above them cause no fill. Each block is
+A permutation of a triangular matrix is recognized first and needs no factorization.
+Any other `A` is permuted to block upper triangular form by [`dmperm`](@ref), and only
+its diagonal blocks are factored, so entries above them cause no fill. Each block is
 factored a column at a time with partial pivoting, by the left-looking algorithm of
 Gilbert and Peierls [^GilbertPeierls1988], in time proportional to the arithmetic,
 with the symmetric pruning of Eisenstat and Liu [^EisenstatLiu1993] to shorten its
@@ -572,24 +621,60 @@ function sparselu(A::AbstractSparseMatrixCSC{TvA,Ti}; tol::Real = 0.1, ordering:
     ordering in (:auto, :colamd, :amd, :natural) ||
         throw(ArgumentError(lazy"the ordering must be :auto, :colamd, :amd or :natural, got :$ordering"))
     Tv = typeof(oneunit(TvA) / oneunit(TvA))
-    p, q, bp, _, _, _, _, colmatch = _dmperm(A)
-    unmatched = findfirst(iszero, colmatch)
-    unmatched === nothing || throw(LinearAlgebra.SingularException(unmatched))
-    ordering === :natural || _orderblocks!(p, q, A, bp, ordering, Float64(tol))
-    Lp, Li, Lx, Up, Ui, Ux, pinv = _gplu(permute(A, p, q), bp, Tv, Float64(tol), prune, q)
-    pfinal = Vector{Ti}(undef, n)
-    @inbounds for i in 1:n
-        pfinal[pinv[i]] = p[i]
+    triangular = _triangularorder(A)
+    if triangular !== nothing
+        # a permuted triangular matrix is its own U factor, in n blocks of one
+        p, q = triangular
+        upper = convert(SparseMatrixCSC{Tv,Ti}, permute(A, p, q))
+        Ux = nonzeros(upper)
+        @inbounds for j in 1:n
+            _iszero(Ux[last(nzrange(upper, j))]) && throw(LinearAlgebra.SingularException(q[j]))
+        end
+        lower = SparseMatrixCSC{Tv,Ti}(n, n, Vector{Ti}(1:(n + 1)), Vector{Ti}(1:n), ones(Tv, n))
+        bp = collect(1:(n + 1))
+        pfinal = convert(Vector{Ti}, p)
+    else
+        p, q, bp, _, _, _, _, colmatch = _dmperm(A)
+        unmatched = findfirst(iszero, colmatch)
+        unmatched === nothing || throw(LinearAlgebra.SingularException(unmatched))
+        ordering === :natural || _orderblocks!(p, q, A, bp, ordering, Float64(tol))
+        Lp, Li, Lx, Up, Ui, Ux, pinv = _gplu(permute(A, p, q), bp, Tv, Float64(tol), prune, q)
+        pfinal = Vector{Ti}(undef, n)
+        @inbounds for i in 1:n
+            pfinal[pinv[i]] = p[i]
+        end
+        lower = SparseMatrixCSC{Tv,Ti}(n, n, convert(Vector{Ti}, Lp), convert(Vector{Ti}, Li), Lx)
+        upper = SparseMatrixCSC{Tv,Ti}(n, n, convert(Vector{Ti}, Up), convert(Vector{Ti}, Ui), Ux)
     end
-    # a row of the permuted matrix is pinv[invperm(p)[row]]
+    return _sparselu(lower, upper, pfinal, convert(Vector{Ti}, q), bp)
+end
+
+# the factorization object, from the factors, the permutations and the block boundaries
+function _sparselu(lower::SparseMatrixCSC{Tv,Ti}, upper::SparseMatrixCSC{Tv,Ti}, p::Vector{Ti},
+                   q::Vector{Ti}, bp::Vector{Int}) where {Tv,Ti}
+    n = size(upper, 2)
+    Up = getcolptr(upper)
+    Ui = rowvals(upper)
     rowpos = Vector{Ti}(undef, n)
     @inbounds for t in 1:n
-        rowpos[pfinal[t]] = t
+        rowpos[p[t]] = t
     end
     nb = length(bp) - 1
     blockof = Vector{Ti}(undef, n)
-    @inbounds for b in 1:nb, j in bp[b]:(bp[b + 1] - 1)
-        blockof[j] = b
+    solveptr = Ti[1]
+    @inbounds for b in 1:nb
+        lo = bp[b]
+        hi = bp[b + 1] - 1
+        for j in lo:hi
+            blockof[j] = b
+        end
+        # a block of one extends a run of them; anything else ends the run before it
+        if hi > lo
+            solveptr[end] == lo || push!(solveptr, lo)
+            push!(solveptr, hi + 1)
+        elseif b == nb
+            push!(solveptr, hi + 1)
+        end
     end
     # the block graph: an edge from a block to each block with a row in its columns
     graphptr = Vector{Ti}(undef, nb + 1)
@@ -611,10 +696,8 @@ function sparselu(A::AbstractSparseMatrixCSC{TvA,Ti}; tol::Real = 0.1, ordering:
         end
     end
     graphptr[nb + 1] = length(graphadj) + 1
-    lower = SparseMatrixCSC{Tv,Ti}(n, n, convert(Vector{Ti}, Lp), convert(Vector{Ti}, Li), Lx)
-    upper = SparseMatrixCSC{Tv,Ti}(n, n, convert(Vector{Ti}, Up), convert(Vector{Ti}, Ui), Ux)
-    return SparseLU{Tv,Ti}(lower, upper, pfinal, convert(Vector{Ti}, q), rowpos,
-                           convert(Vector{Ti}, bp), blockof, graphptr, graphadj)
+    return SparseLU{Tv,Ti}(lower, upper, p, q, rowpos, convert(Vector{Ti}, bp), blockof,
+                           solveptr, graphptr, graphadj)
 end
 
 ## Solves with the factorization
@@ -650,12 +733,12 @@ function _lusolve!(b::AbstractVector, F::SparseLU, y::Vector)
     upper = getfield(F, :upper)
     p = getfield(F, :p)
     q = getfield(F, :q)
-    blockptr = getfield(F, :blockptr)
+    solveptr = getfield(F, :solveptr)
     @inbounds for t in eachindex(y)
         y[t] = b[p[t]]
     end
-    @inbounds for blk in (length(blockptr) - 1):-1:1
-        _blocksolve!(y, lower, upper, Int(blockptr[blk]), Int(blockptr[blk + 1]) - 1)
+    @inbounds for blk in (length(solveptr) - 1):-1:1
+        _blocksolve!(y, lower, upper, Int(solveptr[blk]), Int(solveptr[blk + 1]) - 1)
     end
     @inbounds for t in eachindex(y)
         b[q[t]] = y[t]
