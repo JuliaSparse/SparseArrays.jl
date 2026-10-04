@@ -7,23 +7,34 @@
 [docs-img]: https://img.shields.io/badge/docs-blue.svg
 [docs-url]: https://sparsearrays.juliasparse.org/dev/
 
-[docs-v1-img]: https://img.shields.io/badge/docs-v1-blue.svg
-[docs-v1-url]: https://sparsearrays.juliasparse.org/v1/
-
 [ci-img]: https://github.com/JuliaSparse/SparseArrays.jl/actions/workflows/ci.yml/badge.svg?branch=main
 [ci-url]: https://github.com/JuliaSparse/SparseArrays.jl/actions/workflows/ci.yml?query=branch%3Amain
 
 [codecov-img]: https://codecov.io/gh/JuliaSparse/sparsearrays.jl/branch/main/graph/badge.svg
 [codecov-url]: https://codecov.io/gh/JuliaSparse/sparsearrays.jl
 
-This package ships as part of the Julia stdlib.
-
 SparseArrays.jl provides functionality for working with sparse arrays in Julia.
 
-## Updating SuiteSparse
+This package ships as part of the Julia stdlib, so its version is tied to the Julia
+version: each Julia release bundles a fixed copy, and it cannot be upgraded separately.
 
-In order to upgrade SparseArrays.jl to use a new release of SuiteSparse, the following steps are necessary:
-1. Update SuiteSparse in Yggdrasil
-2. Update the SuiteSparse wrappers in SparseArrays.jl/gen and generate the new wrappers
-3. Run BumpStdlibs to update the SparseArrays.jl version in julia master
-4. Update the relevant stdlibs in Julia to pull in the new releases
+```julia
+using SparseArrays, LinearAlgebra
+
+A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [4.0, 5.0, 1.0, 6.0])  # rows, columns, values
+A[3, 1]          # 1.0
+nnz(A)           # 4 stored entries
+x = A \ ones(3)  # sparse direct solve through SuiteSparse
+```
+
+## Contributing
+
+Development happens against Julia nightly. To run the tests:
+
+```sh
+julia +nightly --project -e 'using Pkg; Pkg.test()'
+```
+
+[AGENTS.md](AGENTS.md) has the conventions this repository follows, the commands for
+running a single test file, the whitespace check and the doctests, and pointers to the
+guides for the solvers, the test suite and upgrading SuiteSparse.

@@ -1,7 +1,13 @@
-using Test, SparseArrays
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
-@testset "allowscalar" begin
-    A = sprandn(10, 20, 0.9)
+module SparseAllowScalarTests
+
+using Test, SparseArrays
+include("testhelpers.jl")
+
+# the flag is process-wide, so it is restored even when an assertion throws
+@testset "allowscalar" begin try
+    A = fixture(Float64, 3, 5)
     A[1, 1] = 2
     @test A[1, 1] == 2
     SparseArrays.@allowscalar(false)
@@ -12,7 +18,7 @@ using Test, SparseArrays
     A[1, 1] = 3
     @test A[1, 1] == 3
 
-    B = sprandn(10, 0.9)
+    B = fixturevec(Float64, 10)
     B[1] = 2
     @test B[1] == 2
     SparseArrays.@allowscalar(false)
@@ -21,4 +27,8 @@ using Test, SparseArrays
     @test B[1] == 2
     B[1] = 3
     @test B[1] == 3
-end
+finally
+    SparseArrays.@allowscalar(true)
+end end
+
+end # module

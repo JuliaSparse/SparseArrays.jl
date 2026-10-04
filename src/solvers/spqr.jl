@@ -5,7 +5,7 @@ module SPQR
 import Base: \, *
 using Base: require_one_based_indexing
 using LinearAlgebra
-using LinearAlgebra: AbstractQ, AdjointQ, AdjointAbsVec, copy_similar
+using LinearAlgebra: AbstractQ, AdjOrTrans, AdjointQ, AdjointAbsVec, AdjointFactorization, copy_similar
 using ..LibSuiteSparse: SuiteSparseQR_C, SuiteSparseQR_i_C
 
 # ordering options */
@@ -29,7 +29,8 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix
+using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix,
+    SparseQMatOperand, SparseQVecOperand
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -45,14 +46,15 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         E::Union{Ref{Ptr{Ti}}    , Ptr{Cvoid}} = C_NULL,
         H::Union{Ref{Ptr{CHOLMOD.cholmod_sparse}}        , Ptr{Cvoid}} = C_NULL,
         HPinv::Union{Ref{Ptr{Ti}}, Ptr{Cvoid}} = C_NULL,
-        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
+        HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
 
-    ordering ∈ ORDERINGS || error("unknown ordering $ordering")
+    ordering ∈ ORDERINGS || throw(ArgumentError(
+        "unknown SPQR ordering $ordering; use one of the SPQR.ORDERING_* constants"))
 
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = spqr_call(
+    rnk  = CHOLMOD.@checked spqr_call(
         ordering,       # all, except 3:given treated as 0:fixed
         tol,            # columns with 2-norm <= tol treated as 0
         econ,           # e = max(min(m,econ),rank(A))
@@ -71,7 +73,10 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
 
     if rnk < 0
-        error("Sparse QR factorization failed")
+        # A negative status has already been raised by `@checked`, so what is
+        # left is a failure SPQR reports through its return value only.
+        throw(CHOLMOD.CHOLMODException(string("SuiteSparseQR failed on a ", m, "×", n,
+            " matrix: rank ", rnk, ", status ", CHOLMOD.getcommon(Ti)[].status)))
     end
 
     e = E[]
@@ -115,12 +120,56 @@ struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
 end
 
 Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
+# columns of the thin Q, which is the row count of R; SPQR stores only the reflectors it needs
+_thinwidth(Q::QRSparseQ) = min(size(Q.factors, 1), Q.n)
 
 Matrix{T}(Q::QRSparseQ) where {T} = lmul!(Q, Matrix{T}(I, size(Q, 1), min(size(Q, 1), Q.n)))
+QRSparseQ{T}(Q::QRSparseQ) where {T} =
+    QRSparseQ(convert(SparseMatrixCSC{T}, Q.factors), convert(Vector{T}, Q.τ), Q.n)
+Base.convert(::Type{AbstractQ{T}}, Q::QRSparseQ) where {T} = QRSparseQ{T}(Q)
 
 # Struct for storing sparse QR from SPQR such that
 # A[invperm(rpivinv), cpiv] = (I - factors[:,1]*τ[1]*factors[:,1]')*...*(I - factors[:,k]*τ[k]*factors[:,k]')*R
 # with k = size(factors, 2).
+"""
+    SPQR.QRSparse{Tv,Ti} <: Factorization{Tv}
+
+The QR factorization of a sparse matrix computed by SPQR, returned by
+[`qr`](@ref SparseArrays.SPQR.qr). SPQR's output is copied into Julia arrays, so `F` holds
+no memory owned by the C library. `Ti` is `Int32` or `Int64` (only `Int32` on 32-bit
+systems); see `qr` for the element types.
+
+| Property | Description                                                      |
+|:---------|:-----------------------------------------------------------------|
+| `F.Q`    | orthogonal factor, stored as sparse Householder reflectors       |
+| `F.R`    | upper trapezoidal `SparseMatrixCSC`                              |
+| `F.prow` | row permutation `Vector`                                         |
+| `F.pcol` | column permutation `Vector`                                      |
+
+They satisfy `F.Q * F.R == A[F.prow, F.pcol]`, where `F.Q` is square and only its leading
+columns enter the product.
+
+`F` supports `\\` and `ldiv!` for least squares and minimum-norm solutions, `rank`, `copy`,
+and `F'`, which is the LQ factorization
+[`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `ldiv!`, with `F`
+or `F'`, takes an optional [`SPQR.SpqrWS`](@ref SparseArrays.SPQR.SpqrWS) to avoid
+allocating. Solves with one `F` take an internal lock, so they are safe
+from several tasks but run one at a time. For parallel solves, give each task its own
+`copy(F)`.
+
+# Examples
+```jldoctest
+julia> A = sparse([1.0 0.0; 1.0 1.0; 0.0 1.0]);
+
+julia> F = qr(A);
+
+julia> propertynames(F)
+(:R, :Q, :prow, :pcol)
+
+julia> F.Q * F.R ≈ A[F.prow, F.pcol]
+true
+```
+"""
 struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     factors::SparseMatrixCSC{Tv,Ti}
     τ::Vector{Tv}
@@ -130,7 +179,6 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     rpivinv::Vector{Ti}
 
     _lock::ReentrantLock
-    _ldiv_workspace::Vector{Tv}   # backing storage for work buffer (resizable)
 end
 
 function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
@@ -138,7 +186,7 @@ function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
     newτ = convert(Vector{Tv}, F.τ)
     newR = convert(SparseMatrixCSC{Tv}, F.R)
     newQ = QRSparseQ{Tv,Ti}(newfactors, newτ, size(newR, 2))
-    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock(), Tv[])
+    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock())
 end
 
 Base.size(F::QRSparse) = (size(F.factors, 1), size(F.R, 2))
@@ -156,7 +204,52 @@ end
 
 # From SPQR manual p. 6
 _default_tol(A::AbstractSparseMatrixCSC) =
-    20*sum(size(A))*eps()*maximum(norm(view(A, :, i)) for i in axes(A, 2))
+    20*sum(size(A))*eps()*maximum((norm(view(A, :, i)) for i in axes(A, 2)); init=0.0)
+
+# Return the pointer held by `r` and clear `r`, transferring ownership to the caller.
+function _take!(r::Ref{Ptr{T}}) where T
+    p = r[]
+    r[] = C_NULL
+    return p
+end
+
+# Copy the entries of a dense CHOLMOD array into a Vector and free it. A `Dense` wrapper
+# would free through the native-Int Common, but SPQR allocated `ptr` in the Common of `Ti`.
+function _take_dense_vec!(ptr::Ptr{CHOLMOD.cholmod_dense}, ::Type{Tv}, ::Type{Ti}) where {Tv, Ti}
+    try
+        d = unsafe_load(ptr)
+        x = Ptr{Tv}(d.x)
+        v = Vector{Tv}(undef, d.nrow * d.ncol)
+        k = 0
+        for j in 1:d.ncol, i in 1:d.nrow
+            v[k += 1] = unsafe_load(x, (j - 1) * d.d + i)
+        end
+        return v
+    finally
+        free!(ptr, Ti)
+    end
+end
+
+# SPQR returns no column permutation for ORDERING_FIXED. It then leaves the columns it
+# finds dependent in place, so that R is a staircase whose leading block need not be
+# triangular. Move those columns to the end, as the other orderings do, so that the
+# leading rank(R) columns of R are triangular.
+function _fixed_pivots(R::SparseMatrixCSC{Tv, Ti}) where {Tv, Ti}
+    live = Ti[]
+    dead = Ti[]
+    k = 0
+    for j in axes(R, 2)
+        r = nzrange(R, j)
+        if !isempty(r) && rowvals(R)[last(r)] > k
+            k = rowvals(R)[last(r)]
+            push!(live, j)
+        else
+            push!(dead, j)
+        end
+    end
+    p = [live; dead]
+    return p, issorted(p) ? R : R[:, p]
+end
 
 """
     qr(A::SparseMatrixCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) -> QRSparse
@@ -164,18 +257,23 @@ _default_tol(A::AbstractSparseMatrixCSC) =
 Compute the `QR` factorization of a sparse matrix `A`. Fill-reducing row and column permutations
 are used such that `F.R = F.Q'*A[F.prow,F.pcol]`. The main application of this type is to
 solve least squares or underdetermined problems with [`\\`](@ref). The function calls the C library SPQR[^ACM933].
+With `ordering=ORDERING_FIXED`, `F.pcol` is the identity unless `A` is rank deficient, in
+which case the columns that SPQR finds dependent are moved to the end.
 
 !!! note
-    The returned `QRSparse` object uses an internal workspace for
-    [`ldiv!()`](@ref) calls that is protected by a lock for threadsafety. For
-    multithreaded use, create a separate copy of this object for each task with
-    `copy(F)`.
+    Solves with the returned `QRSparse` object take an internal lock, so concurrent solves
+    with one object run one at a time. For parallel solves, create a separate copy of
+    this object for each task with `copy(F)`.
 
 !!! note
-    `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
-    As this library only supports sparse matrices with [`Float64`](@ref), `ComplexF64`, `Float32`, or
-    `ComplexF32` elements, calling `qr` on a matrix with a different element type will either convert it to a supported type or
-    raise an error.
+    `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
+    which only works in double precision. For any other element type, `qr` factorizes a
+    [`Float64`](@ref) or `ComplexF64` copy of `A`. For `Float16`, `Float32`, `ComplexF16`
+    and `ComplexF32` the factors are then converted back, so the returned `QRSparse` has
+    the element type of `A` but was computed in double precision and needs temporary
+    storage for the double-precision copies of `A` and of the factors. Integer and other
+    non-floating-point element types return a `Float64` factorization, and floating-point
+    types wider than `Float64` throw an `ArgumentError`.
 
 # Examples
 ```jldoctest
@@ -192,8 +290,8 @@ Q factor:
 4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
- -1.41421    ⋅
-   ⋅       -1.41421
+ -1.41421      ⋅
+     ⋅     -1.41421
 Row permutation:
 4-element Vector{Int64}:
  1
@@ -208,44 +306,64 @@ Column permutation:
 
 [^ACM933]: Foster, L. V., & Davis, T. A. (2013). Algorithm 933: Reliable Calculation of Numerical Rank, Null Space Bases, Pseudoinverse Solutions, and Basic Solutions Using SuitesparseQR. ACM Trans. Math. Softw., 40(1). [doi:10.1145/2513109.2513116](https://doi.org/10.1145/2513109.2513116)
 """
-function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:CHOLMOD.VTypes}
-    R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    E     = Ref{Ptr{Ti}}()
-    H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}()
-    HPinv = Ref{Ptr{Ti}}()
+function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
+    # Initialize all output pointers to NULL so that the frees below never
+    # see garbage if SPQR returns without writing one of them.
+    R     = Ref{Ptr{CHOLMOD.cholmod_sparse}}(C_NULL)
+    E     = Ref{Ptr{Ti}}(C_NULL)
+    H     = Ref{Ptr{CHOLMOD.cholmod_sparse}}(C_NULL)
+    HPinv = Ref{Ptr{Ti}}(C_NULL)
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
-    # SPQR doesn't accept symmetric matrices so we explicitly set the stype
-    r, p, hpinv = _qr!(ordering, tol, 0, 0, Sparse(A, 0),
-        C_NULL, C_NULL, C_NULL, C_NULL,
-        R, E, H, HPinv, HTau)
-
-    R_ = SparseMatrixCSC{Tv, Ti}(Sparse(R[]))
-    factors = SparseMatrixCSC{Tv, Ti}(Sparse(H[]))
-    τ = vec(Array{Tv}(CHOLMOD.Dense(HTau[])))
+    # Factorize and wrap the C-allocated outputs in one `try` so that anything
+    # SPQR has written is freed whether the factorization or the wrapping
+    # throws. Each wrapper constructor frees its own pointer if it throws (or
+    # owns it via a finalizer once constructed), but the siblings that have not
+    # been wrapped yet would leak, so hand each pointer over by clearing its Ref
+    # first and free whatever is still held in a Ref before rethrowing.
+    local p, hpinv, R_, factors, τ
+    try
+        # SPQR doesn't accept symmetric matrices so we explicitly set the stype
+        _, p, hpinv = _qr!(ordering, tol, 0, 0, Sparse(A, 0),
+            C_NULL, C_NULL, C_NULL, C_NULL,
+            R, E, H, HPinv, HTau)
+        R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(R)))
+        factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(H)))
+        τ = _take_dense_vec!(_take!(HTau), Tv, Ti)
+    catch
+        R[] != C_NULL && free!(R[], Ti)
+        H[] != C_NULL && free!(H[], Ti)
+        HTau[] != C_NULL && free!(HTau[], Ti)
+        rethrow()
+    end
     R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                 size(R_, 2),
                                 getcolptr(R_),
                                 rowvals(R_),
                                 nonzeros(R_))
+    if isempty(p)
+        p, R = _fixed_pivots(R)
+    end
 
     return QRSparse(factors, τ, R,
                     QRSparseQ(factors, τ, size(R, 2)),
                     p, hpinv,
-                    ReentrantLock(),
-                    Tv[])              # _ldiv_workspace (lazily sized on first solve)
+                    ReentrantLock())
 end
-LinearAlgebra.qr(A::SparseMatrixCSC{Float16}; tol=_default_tol(A)) =
-    QRSparse{Float16}(qr(convert(SparseMatrixCSC{Float32}, A); tol=tol))
-LinearAlgebra.qr(A::SparseMatrixCSC{ComplexF16}; tol=_default_tol(A)) =
-    QRSparse{ComplexF16}(qr(convert(SparseMatrixCSC{ComplexF32}, A); tol=tol))
+LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{Float16, Float32}} =
+    QRSparse{Tv}(qr(convert(SparseMatrixCSC{Float64}, A); tol, ordering))
+LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{ComplexF16, ComplexF32}} =
+    QRSparse{Tv}(qr(convert(SparseMatrixCSC{ComplexF64}, A); tol, ordering))
 LinearAlgebra.qr(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}}};
-   tol=_default_tol(A)) where {T<:AbstractFloat} =
-    throw(ArgumentError(string("matrix type ", typeof(A), "not supported. ",
+   kwargs...) where {T<:AbstractFloat} =
+    throw(ArgumentError(string("matrix type ", typeof(A), " not supported. ",
     "Try qr(convert(SparseMatrixCSC{Float64/ComplexF64, Int}, A)) for ",
     "sparse floating point QR using SPQR or qr(Array(A)) for generic ",
     "dense QR.")))
-LinearAlgebra.qr(A::SparseMatrixCSC; tol=_default_tol(A)) = qr(Float64.(A); tol=tol)
+LinearAlgebra.qr(A::SparseMatrixCSC; kwargs...) =
+    qr(convert(SparseMatrixCSC{eltype(A) <: Complex ? ComplexF64 : Float64}, A); kwargs...)
+# SPQR needs the matrix in CSC storage, and that of A' is the sparse transpose of A
+LinearAlgebra.qr(A::AdjOrTrans{<:Any,<:SparseMatrixCSC}; kwargs...) = qr(copy(A); kwargs...)
 LinearAlgebra.qr(::SparseMatrixCSC, ::LinearAlgebra.PivotingStrategy) = error("Pivoting Strategies are not supported by `SparseMatrixCSC`s")
 LinearAlgebra.qr(A::FixedSparseCSC; tol=_default_tol(A), ordering=ORDERING_DEFAULT) =
     let B=A
@@ -321,10 +439,10 @@ function (*)(Q::QRSparseQ, b::AbstractVector)
     QQ = convert(AbstractQ{TQb}, Q)
     if size(Q.factors, 1) == length(b)
         bnew = copy_similar(b, TQb)
-    elseif size(Q.factors, 2) == length(b)
+    elseif _thinwidth(Q) == length(b)
         bnew = [b; zeros(TQb, size(Q.factors, 1) - length(b))]
     else
-        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+        throw(DimensionMismatch("vector must have length either $(size(Q.factors, 1)) or $(_thinwidth(Q))"))
     end
     lmul!(QQ, bnew)
 end
@@ -333,10 +451,10 @@ function (*)(Q::QRSparseQ, B::AbstractMatrix)
     QQ = convert(AbstractQ{TQB}, Q)
     if size(Q.factors, 1) == size(B, 1)
         Bnew = copy_similar(B, TQB)
-    elseif size(Q.factors, 2) == size(B, 1)
+    elseif _thinwidth(Q) == size(B, 1)
         Bnew = [B; zeros(TQB, size(Q.factors, 1) - size(B,1), size(B, 2))]
     else
-        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(size(Q.factors, 2))"))
+        throw(DimensionMismatch("first dimension of matrix must have size either $(size(Q.factors, 1)) or $(_thinwidth(Q))"))
     end
     lmul!(QQ, Bnew)
 end
@@ -347,22 +465,31 @@ function (*)(A::AbstractMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
     if size(A,2) == size(Q.factors, 1)
         AA = copy_similar(A, TAQ)
         return rmul!(AA, adjQQ)
-    elseif size(A,2) == size(Q.factors,2)
-        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - size(Q.factors, 2))], adjQQ)
+    elseif size(A,2) == _thinwidth(Q)
+        return rmul!([A zeros(TAQ, size(A, 1), size(Q.factors, 1) - _thinwidth(Q))], adjQQ)
     else
         throw(DimensionMismatch("matrix A has dimensions $(size(A)) but Q-matrix has dimensions $(size(adjQ))"))
     end
 end
 (*)(u::AdjointAbsVec, Q::AdjointQ{<:Any,<:QRSparseQ}) = (Q'u')'
 
-(*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
-(*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
+# Q is dense in general, so apply the reflectors to a dense copy of the operand rather
+# than materialize Q, as for LinearAlgebra's Q types in sparsematrix.jl.
+for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
+    @eval begin
+        (*)(Q::$Q, B::SparseQMatOperand) = Q * Matrix(B)
+        (*)(Q::$Q, b::SparseQVecOperand) = Q * Vector(b)
+        (*)(A::SparseQMatOperand, Q::$Q) = Matrix(A) * Q
+        (*)(a::SparseQVecOperand, Q::$Q) = Vector(a) * Q
+    end
+end
 
+# `getfield` rather than `F.rpivinv`: a recursive `getproperty` call is not inferred.
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :prow
-        return invperm(F.rpivinv)
+        return invperm(getfield(F, :rpivinv))
     elseif d === :pcol
-        return F.cpiv
+        return getfield(F, :cpiv)
     else
         getfield(F, d)
     end
@@ -376,14 +503,11 @@ end
 """
     copy(F::QRSparse)
 
-A shallow copy of QRSparse for use in multithreaded solve applications.
-Shares the factorization data but duplicates the workspace so that
-each copy can be used independently in a different thread.
+A copy of `F` for solving in parallel, one copy per task. The copy shares the factors and
+permutations, which no call modifies, and has its own lock, so its solves never wait for
+those of `F`.
 """
-function Base.copy(F::QRSparse)
-    QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv,
-             ReentrantLock(), similar(F._ldiv_workspace))
-end
+Base.copy(F::QRSparse) = QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv, ReentrantLock())
 
 function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     summary(io, F); println(io)
@@ -417,9 +541,90 @@ LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 # This definition is similar to the definition in factorization.jl except that
 # here we have to use \ instead of ldiv! because of limitations in SPQR
 
+"""
+    SPQR.AdjointQRSparse{Tv}
+
+The LQ factorization of a sparse matrix, returned by [`lq`](@ref SparseArrays.SPQR.lq)
+and by the adjoint of a [`QRSparse`](@ref SparseArrays.SPQR.QRSparse). It is an alias for
+`AdjointFactorization{Tv,<:QRSparse{Tv}}`, a lazy wrapper that shares the data of the QR
+factorization `F'` of `A'`.
+
+| Property | Description                                                 |
+|:---------|:------------------------------------------------------------|
+| `F.L`    | lower trapezoidal `SparseMatrixCSC`, a copy of `F'.R'`      |
+| `F.Q`    | orthogonal factor, the adjoint of `F'.Q`                    |
+| `F.prow` | row permutation `Vector`                                    |
+| `F.pcol` | column permutation `Vector`                                 |
+
+They satisfy `F.L * F.Q == A[F.prow, F.pcol]`. `F` supports `\\`, `ldiv!` and `rank`.
+"""
+const AdjointQRSparse{Tv} = AdjointFactorization{Tv,<:QRSparse{Tv}}
+
+"""
+    lq(A::SparseMatrixCSC; tol=_default_tol(A'), ordering=ORDERING_DEFAULT) -> AdjointQRSparse
+
+Compute the LQ factorization of a sparse matrix `A` as the adjoint of the sparse QR
+factorization of `A'`, that is `qr(A')'`, using SPQR. See [`qr`](@ref SparseArrays.SPQR.qr)
+for the keyword arguments and the sparse `Q`.
+
+The factorization `F` satisfies `A[F.prow, F.pcol] == F.L * F.Q`, where `F.L` is a lower
+triangular sparse matrix and `F.Q` the adjoint of the `Q` of the QR factorization. `F \\ b`
+solves the underdetermined system `A * x == b` for a wide `A` and returns the minimum-norm
+solution, as for dense `lq`. `F'` is the QR factorization of `A'`, and `lq(A')` reuses `qr(A)`
+without a copy.
+
+# Examples
+```jldoctest
+julia> A = sparse([1.0 0 1 0; 0 1 0 1]);
+
+julia> F = lq(A);
+
+julia> F.L * F.Q ≈ A[F.prow, F.pcol]
+true
+
+julia> F \\ [1.0, 2.0] ≈ Matrix(A) \\ [1.0, 2.0]
+true
+```
+"""
+LinearAlgebra.lq(A::SparseMatrixCSC; kwargs...) = adjoint(qr(copy(adjoint(A)); kwargs...))
+LinearAlgebra.lq(A::Adjoint{<:Any,<:SparseMatrixCSC}; kwargs...) = adjoint(qr(parent(A); kwargs...))
+LinearAlgebra.lq(A::Transpose{<:Any,<:SparseMatrixCSC}; kwargs...) = lq(copy(A); kwargs...)
+
+@inline function Base.getproperty(F::AdjointQRSparse, d::Symbol)
+    P = getfield(F, :parent)
+    d === :L && return copy(adjoint(getfield(P, :R)))
+    d === :Q && return adjoint(getfield(P, :Q))
+    d === :prow && return getfield(P, :cpiv)
+    d === :pcol && return invperm(getfield(P, :rpivinv))
+    return getfield(F, d)
+end
+Base.propertynames(F::AdjointQRSparse, private::Bool=false) =
+    private ? (:L, :Q, :prow, :pcol, :parent) : (:L, :Q, :prow, :pcol)
+
+function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::AdjointQRSparse)
+    summary(io, F); println(io)
+    println(io, "L factor:")
+    show(io, mime, F.L)
+    println(io, "\nQ factor:")
+    show(io, mime, F.Q)
+    println(io, "\nRow permutation:")
+    show(io, mime, F.prow)
+    println(io, "\nColumn permutation:")
+    show(io, mime, F.pcol)
+end
+
+LinearAlgebra.rank(F::AdjointQRSparse) = rank(parent(F))
+
+# Copy a right-hand side into an Array that one of the solves below accepts. A complex
+# right-hand side of a real factorization keeps its imaginary part and is solved by
+# reinterpretation as a real one.
+_rhs_eltype(::Type{T}, ::Type{<:Complex}) where {T<:LinearAlgebra.BlasReal} = Complex{T}
+_rhs_eltype(::Type{T}, ::Type) where {T} = T
+_rhs_array(F, B::AbstractVecOrMat) = convert(Array{_rhs_eltype(eltype(F), eltype(B))}, B)
+
 ## Two helper methods
-_ret_size(F::QRSparse, b::AbstractVector) = (size(F, 2),)
-_ret_size(F::QRSparse, B::AbstractMatrix) = (size(F, 2), size(B, 2))
+_ret_size(F::Union{QRSparse,AdjointQRSparse}, b::AbstractVector) = (size(F, 2),)
+_ret_size(F::Union{QRSparse,AdjointQRSparse}, B::AbstractMatrix) = (size(F, 2), size(B, 2))
 
 function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
 # |z1|z3|  reinterpret  |x1|x2|x3|x4|  transpose  |x1|y1|  reshape  |x1|y1|x3|y3|
@@ -437,27 +642,38 @@ function (\)(F::QRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.Bla
     return collect(reshape(reinterpret(Complex{T}, copy(transpose(reshape(x, (length(x) >> 1), 2)))), _ret_size(F, B)))
 end
 
-function _get_ldiv_workspace(F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
+"""
+    SPQR.SpqrWS(F::QRSparse)
+
+Scratch space for `ldiv!(x, F, b; workspace)`, which makes repeated solves allocation-free.
+Without it, `ldiv!` allocates its scratch space on each call. A workspace grows as needed,
+so it can be reused with any factorization of the same element type, but not by two calls
+at once.
+"""
+struct SpqrWS{Tv}
+    w::Vector{Tv}
+end
+SpqrWS(F::QRSparse{Tv}) where {Tv} = SpqrWS{Tv}(Tv[])
+SpqrWS(F::LinearAlgebra.AdjointFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
+SpqrWS(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
+
+function _get_ldiv_workspace(workspace, F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
     m, n = size(F)
     k = ndims(B) == 1 ? 1 : size(B, 2)
     wrows = max(m, n)
-
-    # Resize backing vector if needed
     wlen = wrows * k
-    if length(F._ldiv_workspace) != wlen
-        resize!(F._ldiv_workspace, wlen)
-    end
+    ws = workspace === nothing ? Vector{Tv}(undef, wlen) : workspace.w
+    length(ws) == wlen || resize!(ws, wlen)
 
     # Reshape into matrix. Note that we use ReshapedArray here instead of
     # reshape() to avoid allocations later when taking a view.
-    W = Base.ReshapedArray(F._ldiv_workspace, (wrows, k), ())
+    W = Base.ReshapedArray(ws, (wrows, k), ())
     return W
 end
 
 function (\)(F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
     X = similar(B, ntuple(i -> i == 1 ? size(F, 2) : size(B, 2), Val(ndims(B))))
-    # Note that we copy F here for thread-safety
-    return ldiv!(X, copy(F), B)
+    return ldiv!(X, F, B)
 end
 
 """
@@ -465,16 +681,17 @@ end
 
 Solve the least squares problem ``\\min\\|Ax - b\\|^2`` or the linear system of equations
 ``Ax=b`` when `F` is the sparse QR factorization of ``A``. A basic solution is returned
-when the problem is underdetermined.
+when the problem is underdetermined; `A \\ b` and `factorize(A) \\ b` instead return the
+minimum-norm solution through [`lq`](@ref SparseArrays.SPQR.lq), as for dense matrices.
 
 # Examples
 ```jldoctest
 julia> A = sparse([1,2,4], [1,1,1], [1.0,1.0,1.0], 4, 2)
 4×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
- 1.0   ⋅
- 1.0   ⋅
-  ⋅    ⋅
- 1.0   ⋅
+ 1.0  ⋅
+ 1.0  ⋅
+  ⋅   ⋅
+ 1.0  ⋅
 
 julia> qr(A)\\fill(1.0, 4)
 2-element Vector{Float64}:
@@ -482,16 +699,17 @@ julia> qr(A)\\fill(1.0, 4)
  0.0
 ```
 """
-(\)(F::QRSparse, B::StridedVecOrMat) = F\convert(AbstractArray{eltype(F)}, B)
+(\)(F::QRSparse, B::AbstractVecOrMat) = F\_rhs_array(F, B)
 
-function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T}) where {T}
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     if size(F, 1) != size(B, 1)
         throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
     end
     if size(F, 2) != size(X, 1)
         throw(DimensionMismatch("size(F) = $(size(F)) but size(X) = $(size(X))"))
     end
-    if ndims(B) > 1 && size(X, 2) != size(B, 2)
+    if size(X, 2) != size(B, 2)
         throw(DimensionMismatch("size(X) = $(size(X)) but size(B) = $(size(B))"))
     end
 
@@ -500,12 +718,12 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
     n = size(F, 2)
 
     @lock F._lock begin
-        W = _get_ldiv_workspace(F, B)
+        W = _get_ldiv_workspace(workspace, F, B)
 
         # Apply left permutation to B and store in W
         for j in axes(B, 2)
             for i in 1:length(F.rpivinv)
-                @inbounds W[F.rpivinv[i], j] = B[i, j]
+                W[F.rpivinv[i], j] = B[i, j]
             end
         end
 
@@ -536,24 +754,139 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
 
         # Apply right permutation: scatter solved rows into X using cpiv directly.
         # Zero X first so free variables (beyond rank) are zero in the basic solution.
-        # NB: cpiv == [] if SPQR was called with ORDERING_FIXED
         fill!(X, zero(T))
-        if length(F.cpiv) == 0
-            for j in axes(W, 2)
-                for i in 1:rnk
-                    @inbounds X[i, j] = W[i, j]
-                end
-            end
-        else
-            for j in axes(W, 2)
-                for i in 1:rnk
-                    @inbounds X[F.cpiv[i], j] = W[i, j]
-                end
+        for j in axes(W, 2)
+            for i in 1:rnk
+                X[F.cpiv[i], j] = W[i, j]
             end
         end
     end
 
     return X
+end
+
+function (\)(Fadj::AdjointQRSparse{T}, B::VecOrMat{Complex{T}}) where T<:LinearAlgebra.BlasReal
+    # See the QRSparse method above for the layout of the reinterpretation
+    require_one_based_indexing(Fadj, B)
+    c2r = reshape(copy(transpose(reinterpret(T, reshape(B, (1, length(B)))))), size(B, 1), 2*size(B, 2))
+    x = Fadj\c2r
+    return collect(reshape(reinterpret(Complex{T}, copy(transpose(reshape(x, (length(x) >> 1), 2)))), _ret_size(Fadj, B)))
+end
+
+function (\)(Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T}) where {T}
+    X = similar(B, ntuple(i -> i == 1 ? size(Fadj, 2) : size(B, 2), Val(ndims(B))))
+    return ldiv!(X, Fadj, B)
+end
+
+"""
+    (\\)(F::AdjointFactorization{<:Any,<:QRSparse}, B::StridedVecOrMat)
+
+Solve the underdetermined system ``A^*x=b`` when `F` is the sparse QR factorization of the
+tall matrix ``A``, i.e. `F = qr(A)` with `size(A, 1) >= size(A, 2)`. The minimum-norm
+solution is returned; when ``A`` is rank deficient, the equations corresponding to the
+dependent columns of ``A`` are dropped, mirroring the basic solution returned by
+`F \\ B`. Overdetermined systems are not supported here as they would require a
+factorization of ``A^*`` rather than of ``A``.
+
+# Examples
+```jldoctest
+julia> A = sparse([1,2,3,4,1,2,3,4], [1,1,1,1,2,2,2,2], [1.0,1.0,1.0,1.0,1.0,-1.0,1.0,-1.0])
+4×2 SparseMatrixCSC{Float64, Int64} with 8 stored entries:
+ 1.0   1.0
+ 1.0  -1.0
+ 1.0   1.0
+ 1.0  -1.0
+
+julia> x = qr(A)'\\[4.0, 0.0]
+4-element Vector{Float64}:
+ 1.0
+ 1.0
+ 1.0
+ 1.0
+
+julia> A'x
+2-element Vector{Float64}:
+ 4.0
+ 0.0
+```
+"""
+(\)(Fadj::AdjointQRSparse, B::AbstractVecOrMat) = Fadj\_rhs_array(Fadj, B)
+
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
+    F = parent(Fadj)
+    m, n = size(F)
+    # Solving A'x = b for a wide A would be an overdetermined problem requiring a
+    # least-squares solve with R', which the triangular solve below cannot provide
+    if m < n
+        throw(DimensionMismatch("overdetermined systems are not supported"))
+    end
+    if n != size(B, 1)
+        throw(DimensionMismatch("size(Fadj) = $(size(Fadj)) but size(B) = $(size(B))"))
+    end
+    if m != size(X, 1)
+        throw(DimensionMismatch("size(Fadj) = $(size(Fadj)) but size(X) = $(size(X))"))
+    end
+    if size(X, 2) != size(B, 2)
+        throw(DimensionMismatch("size(X) = $(size(X)) but size(B) = $(size(B))"))
+    end
+
+    rnk = rank(F)
+
+    # With A[prow, pcol] == Q*R we have A' == Pcol*R'*Q'*Prow, so x = Prow'*Q*(R' \ Pcol'*b)
+    @lock F._lock begin
+        W = _get_ldiv_workspace(workspace, F, B)
+
+        # Gather the column permutation of B into the leading n rows of W
+        for j in axes(W, 2)
+            for i in 1:n
+                W[i, j] = B[F.cpiv[i], j]
+            end
+        end
+
+        # Zero the free variables so that Q*W is the minimum-norm solution. When A is
+        # rank deficient this also drops the equations that the leading block of R
+        # cannot represent, which is the counterpart of the basic solution above.
+        for j in axes(W, 2)
+            for i in (rnk + 1):m
+                W[i, j] = zero(T)
+            end
+        end
+
+        # Solve R'*W = Pcol'*B by forward substitution. See the ldiv! above for why
+        # generic_trimatdiv! is called directly rather than through LowerTriangular.
+        W_rnk = @view(W[Base.OneTo(rnk), :])
+        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', adjoint,
+                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
+
+        # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W. W has
+        # exactly m rows, which is what Q acts on.
+        lmul!(F.Q, W)
+        for j in axes(W, 2)
+            for i in 1:m
+                X[i, j] = W[F.rpivinv[i], j]
+            end
+        end
+    end
+
+    return X
+end
+
+const TransposeQRSparse{Tv} = LinearAlgebra.TransposeFactorization{Tv,<:QRSparse{Tv}}
+
+# transpose(A) == conj(A'), so a transposed solve is a conjugated adjoint solve
+LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
+                    workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Real} =
+    ldiv!(X, parent(Ft)', B; workspace)
+LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
+                    workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Complex} =
+    conj!(ldiv!(X, parent(Ft)', conj(B); workspace))
+
+# In place, only for a square A, whose solution has the size of B.
+function LinearAlgebra.ldiv!(F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
+                             B::StridedVecOrMat{T}; workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
+    LinearAlgebra.checksquare(F)
+    return copyto!(B, ldiv!(similar(B), F, B; workspace))
 end
 
 end # module
