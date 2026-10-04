@@ -81,6 +81,16 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   corner cases: more element and index types, wrappers, promotion pairs, sizes, and the
   allocation, inference and dispatch checks beyond one per kernel.
 
+**Check more than the values, on inputs that can fail.** `S == D` against a dense
+reference passes when `S` is dense, has unsorted or repeated indices, or has the wrong
+element or index type. Write `@test mismatch(S, D) === nothing` instead: it checks those
+as well, takes `Ti` for the expected index type, and a failure prints what is wrong. Take
+inputs from `fixture(T, m, n)` and `fixturevec(T, n)` over `FIXTURE_SHAPES` rather than a
+square real `sprand`: they have an empty row and column, a stored zero, more rows than
+columns and the reverse, and complex values that differ from their conjugates, which is
+what it takes for a swapped dimension, a stored zero read as structural or a missing
+`conj` to change a result. They are of the types standard mode already compiles.
+
 **A new test is guarded.** That covers a regression test for an issue and any additional
 case for code the standard tests already exercise. An unguarded test is only for new
 code, and is one representative case; its variations are guarded.

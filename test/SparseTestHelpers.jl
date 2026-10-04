@@ -12,7 +12,8 @@ export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     NonCSCSparse, ConcatArray, AllBut, MockTropical, Variable, Expression, Meters,
     OneSided, Tagged, CustomType, UndefElt, Positive,
     check_trisolve, check_scalar_broadcast,
-    show_plain, show_contents
+    show_plain, show_contents,
+    mismatch, fixture, fixturevec, FIXTURE_SHAPES
 
 using Test
 using LinearAlgebra: LinearAlgebra
@@ -341,5 +342,80 @@ end
 show_plain(@nospecialize(X); displaysize=(24, 80)) =
     sprint(show, "text/plain", X; context=(:limit=>true, :displaysize=>displaysize))
 show_contents(@nospecialize(X); kwargs...) = last(split(show_plain(X; kwargs...), '\n'; limit=2))
+
+# What is wrong with the stored structure of `S`, as a message, or `nothing`: the buffers
+# must cover what the column pointers claim, and the indices of a column must be in range,
+# sorted and unique. A kernel that gets this wrong can still compare equal to dense.
+function structure_error(@nospecialize(S::AbstractSparseMatrixCSC))
+    m, n = size(S)
+    colptr, rowval, nzval = getcolptr(S), rowvals(S), nonzeros(S)
+    length(colptr) == n + 1 || return "colptr has length $(length(colptr)) for $n columns"
+    colptr[1] == 1 || return "colptr[1] is $(colptr[1])"
+    for j in 1:n
+        colptr[j] <= colptr[j+1] || return "colptr decreases at column $j"
+    end
+    stored = colptr[n+1] - 1
+    length(rowval) >= stored && length(nzval) >= stored ||
+        return "$stored stored entries, but $(length(rowval)) row indices and $(length(nzval)) values"
+    for j in 1:n, k in colptr[j]:colptr[j+1]-1
+        1 <= rowval[k] <= m || return "row index $(rowval[k]) in column $j is out of range"
+        k > colptr[j] && rowval[k-1] >= rowval[k] &&
+            return "the row indices of column $j are not sorted and unique"
+    end
+    return nothing
+end
+function structure_error(@nospecialize(x::AbstractSparseVector))
+    inds = nonzeroinds(x)
+    length(inds) == length(nonzeros(x)) ||
+        return "$(length(inds)) indices, but $(length(nonzeros(x))) values"
+    for k in eachindex(inds)
+        1 <= inds[k] <= length(x) || return "index $(inds[k]) is out of range"
+        k > 1 && inds[k-1] >= inds[k] && return "the indices are not sorted and unique"
+    end
+    return nothing
+end
+
+# The first way in which `S` is not a well-formed sparse result equal to the dense
+# reference `D`, as a message, or `nothing`. Comparing `S == D` checks the values only: a
+# result that is dense, has unsorted or repeated indices, or has the wrong element or index
+# type passes it. `Tv` is the expected element type, that of `D` unless given (`nothing`
+# skips the check); `Ti` the expected index type, checked when given; `approx` compares
+# with `≈`. Write `@test mismatch(S, D) === nothing`, so that a failure shows the message.
+function mismatch(@nospecialize(S), @nospecialize(D); Tv=eltype(D), Ti=nothing, approx::Bool=false)
+    S isa Union{AbstractSparseMatrixCSC,AbstractSparseVector} ||
+        return "the result is a $(typeof(S)), not a sparse array"
+    size(S) == size(D) || return "size $(size(S)), expected $(size(D))"
+    msg = structure_error(S)
+    msg === nothing || return msg
+    Tv === nothing || eltype(S) === Tv || return "eltype $(eltype(S)), expected $Tv"
+    Ti === nothing || SparseArrays.indtype(S) === Ti ||
+        return "index type $(SparseArrays.indtype(S)), expected $Ti"
+    A = Array(S)
+    (approx ? isapprox(A, D) : A == D || isequal(A, D)) ||
+        return "the values differ from the dense reference"
+    return nothing
+end
+
+# Fixtures for what a square random real matrix does not exercise. `fixture(T, m, n)` has
+# an empty row, an empty column and a stored zero, and for a complex `T` no entry equals
+# its conjugate, so that a swapped dimension, a stored zero taken for a structural one and
+# a missing or extra `conj` each change a result. The values are fixed, not random.
+const FIXTURE_SHAPES = ((5, 3), (3, 5), (4, 4))
+fixturevalue(::Type{T}, i, j) where {T<:Complex} = T(i + j, i == 2j ? 1 : i - 2j)
+fixturevalue(::Type{T}, i, j) where {T} = T(i + 3j)
+function fixture(::Type{T}, m::Integer, n::Integer) where {T}
+    I, J, V = Int[], Int[], T[]
+    for j in 1:n, i in 1:m
+        ((m > 2 && i == m - 1) || (n > 2 && j == 2) || (i + j) % 3 == 0) && continue
+        push!(I, i); push!(J, j)
+        push!(V, (i, j) == (1, 1) ? zero(T) : fixturevalue(T, i, j))
+    end
+    return SparseArrays.sparse(I, J, V, m, n)
+end
+# a sparse vector with gaps, an unstored last entry and a stored zero first
+function fixturevec(::Type{T}, n::Integer) where {T}
+    I = [i for i in 1:n-1 if i % 3 != 0]
+    return SparseArrays.sparsevec(I, T[i == 1 ? zero(T) : fixturevalue(T, i, 1) for i in I], n)
+end
 
 end # module
