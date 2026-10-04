@@ -446,6 +446,15 @@ julia> sparse(I, J, V, 2, 2, max)
   ⋅   5.0
 ```
 
+The positions can also be given as one vector of `CartesianIndex`es, as `findall` returns:
+
+```jldoctest perftips
+julia> sparse(CartesianIndex.(I, J), V)
+2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+ 3.0   ⋅
+  ⋅   5.0
+```
+
 ### Slice columns, not rows
 
 `A[:, j]` copies one contiguous range of the stored entries. `A[i, :]` has to search every column for
