@@ -802,7 +802,9 @@ end
             @test mismatch(kron(t(a), b_d), kron(t(a_d), b_d)) === nothing
             @test mismatch(kron(a_d, t(b)), kron(a_d, t(b_d))) === nothing
         end
-        @test kron!(spzeros(m*n, 5), a, y_d) == kron(a_d, y_d) && kron!(spzeros(m*n, 5), y_d, a) == kron(y_d, a_d)
+        Kd = kron(a_d, y_d)
+        @test mismatch(kron!(spzeros(eltype(Kd), size(Kd)...), a, y_d), Kd) === nothing
+        @test mismatch(kron!(spzeros(eltype(Kd), size(Kd)...), y_d, a), kron(y_d, a_d)) === nothing
         @static if COMPREHENSIVE
         # complex operands, which an adjoint conjugates
         ac = sprand(ComplexF64, m, 5, 0.4); ac_d = Matrix(ac)
