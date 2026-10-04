@@ -216,6 +216,17 @@ begin
         @test AW * B ≈ Matrix(AW) * B
         @test X * AW ≈ X * Matrix(AW)
     end
+    # For a real eltype the same parents are still wrong. LinearAlgebra names the wrong
+    # triangle and passes `transpose` for either wrapper, so the hooks cannot tell them from
+    # a mixed pair (JuliaLang/LinearAlgebra.jl#1738 fixes it). Once that is in these pass: make
+    # them `@test` and remove `_undoes_wrapper`, which LinearAlgebra then no longer reaches.
+    R = sparse([2.0 1.0; 3.0 2.0])
+    for (W, wr) in eachvalue((Adjoint, Transpose), (UpperTriangular, LowerTriangular))
+        RW = wr(W(W(R)))
+        @test_broken RW * [1.0, 1.0] ≈ Matrix(RW) * [1.0, 1.0]
+        @test_broken RW \ [1.0, 1.0] ≈ Matrix(RW) \ [1.0, 1.0]
+        @test_broken [1.0 1.0] * RW ≈ [1.0 1.0] * Matrix(RW)
+    end
     end
 end
 
