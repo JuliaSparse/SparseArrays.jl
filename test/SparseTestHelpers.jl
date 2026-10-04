@@ -10,7 +10,7 @@ export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     same_pattern, exact_equal, WrappedSparseVector, OpCount, mulcount, eqcount,
     opcount_sparse, CountedReads, hasunionlocal, quaternion_type, SimpleSMatrix,
     NonCSCSparse, ConcatArray, AllBut, MockTropical, Variable, Expression, Meters,
-    CustomType, UndefElt, Positive,
+    OneSided, Tagged, CustomType, UndefElt, Positive,
     check_trisolve, check_scalar_broadcast,
     show_plain, show_contents
 
@@ -269,6 +269,23 @@ struct Meters <: Number
 end
 Base.zero(::Type{Meters}) = Meters(0)
 Base.one(::Type{Meters}) = 1
+
+# An element type that equals a number from the left only, as an affine expression of an
+# optimization model does.
+struct OneSided
+    x::Int
+end
+Base.zero(::Type{OneSided}) = OneSided(0)
+Base.:(==)(a::OneSided, b::Number) = a.x == b
+Base.transpose(a::OneSided) = a
+
+# A number whose zero keeps the unit of a value, so that the type alone has none.
+struct Tagged <: Number
+    x::Int
+    unit::Symbol
+end
+Base.zero(a::Tagged) = Tagged(0, a.unit)
+Base.:(==)(a::Tagged, b::Tagged) = a.x == b.x && a.unit == b.unit
 
 # A non-numeric eltype with a `zero` and an order.
 struct CustomType
