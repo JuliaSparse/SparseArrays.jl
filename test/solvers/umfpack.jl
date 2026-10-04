@@ -140,8 +140,10 @@ end
         Af = lu(A0)
         umfpack_report(Af)
         test_ws_dup(Af, copy(Af))
-        test_ws_dup(Af, copy(parent(transpose(Af))))
-        test_ws_dup(Af, copy(parent(adjoint(Af))))
+        # a copied wrapper has a factorization of its own, as a copied factorization has
+        test_ws_dup(Af, parent(copy(transpose(Af))))
+        test_ws_dup(Af, parent(copy(adjoint(Af))))
+        @test copy(transpose(Af)) isa typeof(transpose(Af))
         umfpack_report(Af)
 
         Afcopy = copy(Af)
@@ -279,6 +281,7 @@ end
         umfpack_report(F)
         L, U, p, q, Rs = F.:(:)
         @test (Diagonal(Rs) * A)[p,q] ≈ L * U
+        @test (L, U, p, q, Rs) == (F.L, F.U, F.p, F.q, F.Rs)
         umfpack_report(F)
     end
     end
@@ -314,7 +317,8 @@ end
             L = sparse(fill(Tout(1), 1, 1))
             @test F.p == F.q == [1]
             @test F.Rs == [1.0]
-            @test F.L == F.U == L
+            @test mismatch(F.L, Matrix(L)) === nothing
+            @test mismatch(F.U, Matrix(L)) === nothing
             @test F.:(:) == (L, L, [1], [1], [1.0])
             umfpack_report(F)
         end
@@ -374,6 +378,8 @@ end
         luA, lufA = lu(A), lu(Array(A))
         umfpack_report(luA)
         @test ldiv!(copy(X), luA, B) ≈ ldiv!(copy(X), lufA, B)
+        # a vector right-hand side has a kernel of its own
+        @test ldiv!(X[:, 1], luA, B[:, 1]) ≈ ldiv!(copy(X), lufA, B)[:, 1]
         @static if COMPREHENSIVE
         @test ldiv!(copy(X), adjoint(luA), B) ≈ ldiv!(copy(X), adjoint(lufA), B)
         @test ldiv!(copy(X), transpose(luA), B) ≈ ldiv!(copy(X), transpose(lufA), B)
@@ -557,16 +563,30 @@ end
             @test lu(S; q=Int32[2, 1, 0]) \ b ≈ x
             end
             @test lu(S; q=3:-1:1) \ b ≈ x
+            # an ordering UMFPACK does not choose by itself, and an odd permutation
+            F = lu(S; q=[1, 3, 2])
+            @test F.q == [1, 3, 2] != lu(S).q
+            @test all(logabsdet(F) .≈ logabsdet(Matrix(A)))
             @test lu(S; control=UMFPACK.get_umfpack_control(Float64, Ti)) \ b ≈ x
         end
         @test lu(SparseMatrixCSC{ComplexF64,Ti}(A); q=[3, 2, 1]) \ complex(b) ≈ x
         @test_throws DimensionMismatch lu(SparseMatrixCSC{Float64,Ti}(A); q=[1, 2])
     end
 
-    @testset "non-square det and \\ throw DimensionMismatch" begin
-        F = lu(sparse([1.0 2 0; 0 1 3]))
+    @testset "non-square det and \\ throw DimensionMismatch, $Tv, $m×$n" for
+            Tv in (Float64, ComplexF64), (m, n) in FIXTURE_SHAPES[1:2]
+        A = fixture(Tv, m, n)
+        # the fixture is rank deficient, which UMFPACK reports and still factorizes
+        F = lu(A; check=false)
         @test_throws DimensionMismatch det(F)
-        @test_throws DimensionMismatch F \ [1.0, 2.0]
+        @test_throws DimensionMismatch F \ ones(m)
+        # each factor read by itself has the shape and the values it has in the tuple
+        L, U, p, q, Rs = F.:(:)
+        @test size(L) == (m, min(m, n)) && size(U) == (min(m, n), n)
+        @test mismatch(F.L, Matrix(L)) === nothing
+        @test mismatch(F.U, Matrix(U)) === nothing
+        @test (F.p, F.q, F.Rs) == (p, q, Rs)
+        @test L * U ≈ (Diagonal(Rs) * A)[p, q]
     end
 
     @testset "ldiv! DimensionMismatch names the sizes and leaves the output unchanged" begin
@@ -590,6 +610,15 @@ end
         @test ldiv!(zeros(Tv, 4), F, view(Tv.(collect(1.0:8.0)), 1:2:8)) ≈ Ad \ Tv.(1:2:8)
         # the ComplexF64 solve! has a strided branch of its own, which a standard run reaches only here
         @static COMPREHENSIVE || @test ldiv!(zeros(ComplexF64, 4), lu(SparseMatrixCSC{ComplexF64,Ti}(A)), view(complex(collect(1.0:8.0)), 1:2:8)) ≈ Ad \ Tv.(1:2:8)
+        # a matrix and a right-hand side that differ from their conjugates tell the transpose
+        # from the adjoint solve, and check the imaginary part of the determinant
+        Ac = SparseMatrixCSC{ComplexF64,Ti}(fixture(ComplexF64, 4, 4) + 5I)
+        Fc = lu(Ac)
+        bc = complex.(1.0:4.0, 4.0:-1.0:1.0)
+        @test transpose(Ac) * ldiv!(zeros(ComplexF64, 4), transpose(Fc), bc) ≈ bc
+        @test Ac' * ldiv!(zeros(ComplexF64, 4), Fc', bc) ≈ bc
+        @test det(Fc) ≈ det(Matrix(Ac))
+        @test all(logabsdet(Fc) .≈ logabsdet(Matrix(Ac)))
         M = Tv.(reshape(1.0:24.0, 8, 3))
         Y = zeros(Tv, 8, 3)
         ldiv!(view(Y, 1:2:8, :), transpose(F), view(M, 2:2:8, :))
@@ -668,6 +697,9 @@ end
     @test x ≈ y
     @test length(ws.Wi) == 100
     @test length(ws.W) == 500
+    # a smaller factorization does not shrink it
+    @test ldiv!(zeros(2), lu(sparse([4.0 1; 1 3])), [1.0, 2.0]; workspace = ws) ≈ [4.0 1; 1 3] \ [1.0, 2.0]
+    @test length(ws.Wi) == 100
     umfpack_report(A)
 end
 

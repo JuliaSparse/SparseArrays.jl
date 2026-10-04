@@ -23,7 +23,7 @@ const TRICASES = @static COMPREHENSIVE ? Iterators.product(TRANSFORMS, TRIANGLES
 iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
 
 @testset "multiplication of sparse matrix and triangular matrix" begin
-    _sparse_test_matrix(n, T) =  T == Int ? sparse(rand(0:4, n, n)) : sprandn(T, n, n, 0.6)
+    _sparse_test_matrix(n, T) =  T == Int ? sparse(rand(0:4, n, n)) : fixture(T, n, n)
     _triangular_test_matrix(n, TA, T) = T == Int ? TA(rand(0:9, n, n)) : TA(randn(T, n, n))
 
     function test_triangular_product(S, T)
@@ -66,41 +66,41 @@ end
 
 
 @testset "Multiplying with triangular sparse matrices #35609 #35610" begin
-    n = 10
-    A = sprand(n, n, 5/n)
+    # most of the diagonal is not stored, and one diagonal entry is a stored zero
+    A = fixture(Float64, 4, 4)
     U = UpperTriangular(A)
     L = LowerTriangular(A)
     AM = Matrix(A)
     UM = Matrix(U)
     LM = Matrix(L)
     Y = A * U
-    @test Y ≈ AM * UM
+    @test mismatch(Y, AM * UM; approx=true) === nothing
     @test typeof(Y) == typeof(A)
     @static if COMPREHENSIVE
     Y = A * L
-    @test Y ≈ AM * LM
+    @test mismatch(Y, AM * LM; approx=true) === nothing
     @test typeof(Y) == typeof(A)
     Y = U * A
-    @test Y ≈ UM * AM
+    @test mismatch(Y, UM * AM; approx=true) === nothing
     @test typeof(Y) == typeof(A)
     end
     Y = L * A
-    @test Y ≈ LM * AM
+    @test mismatch(Y, LM * AM; approx=true) === nothing
     @test typeof(Y) == typeof(A)
     Y = U * U
-    @test Y ≈ UM * UM
+    @test mismatch(parent(Y), UM * UM; approx=true) === nothing
     @test typeof(Y) == typeof(U)
     @static if COMPREHENSIVE
     Y = L * L
-    @test Y ≈ LM * LM
+    @test mismatch(parent(Y), LM * LM; approx=true) === nothing
     @test typeof(Y) == typeof(L)
     end
     Y = L * U
-    @test Y ≈ LM * UM
+    @test mismatch(Y, LM * UM; approx=true) === nothing
     @test typeof(Y) == typeof(A)
     @static if COMPREHENSIVE
     Y = U * L
-    @test Y ≈ UM * LM
+    @test mismatch(Y, UM * LM; approx=true) === nothing
     @test typeof(Y) == typeof(A)
     end
 end
@@ -186,6 +186,31 @@ begin
         @test_throws SingularException(1) A \ ones(2)
         A = UpperTriangular(sparse([1.0 0;0 0]))
         @test_throws SingularException(2) A \ ones(2)
+        # a column with stored entries but no stored diagonal: singular for a nonunit
+        # triangle, and for a unit one the last off-diagonal entry is not the diagonal
+        Au, Al = sparse([1, 1], [1, 2], [1.0, 2.0], 2, 2), sparse([2, 2], [1, 2], [2.0, 1.0], 2, 2)
+        @test_throws SingularException(2) UpperTriangular(Au) \ ones(2)
+        @test_throws SingularException(1) LowerTriangular(Al) \ ones(2)
+        @test UnitUpperTriangular(Au) \ ones(2) == [-1.0, 1.0]
+        @test UnitLowerTriangular(Al) \ ones(2) == [1.0, -1.0]
+    end
+    # a transpose of an adjoint is a conjugate, which the solve applies to the stored values
+    ad = copy(a)
+    for i in 1:n
+        ad[i, i] = 2 + im
+    end
+    @testset "triangular solver for conjugate matrices" for (tr, wr) in (@static COMPREHENSIVE ?
+        Iterators.product((ct, tc), TRIANGLES) : (Any[ct, UpperTriangular],))
+        AW = tr(wr(ad))
+        @test AW \ B ≈ Matrix(AW) \ B
+    end
+    @static if COMPREHENSIVE
+    # A wrapper applied twice by its constructor is the matrix itself, not its conjugate.
+    for W in (Adjoint, Transpose), wr in (UpperTriangular, LowerTriangular)
+        AW = wr(W(W(ad)))
+        @test_broken AW \ B ≈ Matrix(AW) \ B
+        @test_broken AW * B ≈ Matrix(AW) * B
+    end
     end
 end
 
@@ -265,7 +290,7 @@ end
     n = 7
     B = rand(n, 3)
     # `+ I` stores the diagonal, which the nonunit branch of the product kernel needs
-    _triangular_sparse_matrix(n, ULT, T) = T == Int ? ULT(sparse(rand(0:10, n, n))) : ULT(sprandn(T, n, n, 0.4) + I)
+    _triangular_sparse_matrix(n, ULT, T) = T == Int ? ULT(sparse(rand(0:10, n, n))) : ULT(fixture(T, n, n) + I)
     eltypecases = Any[(ComplexF64, adjoint, LowerTriangular)]
     @static COMPREHENSIVE && append!(eltypecases,
         Any[(Int, adjoint, UpperTriangular), (ComplexF64, transpose, UnitLowerTriangular)],
@@ -321,13 +346,13 @@ end
                 if tb == Int
                     x = sparse(rand(0:4, n))
                 else
-                    x = sprandn(tb, n, 0.6)
+                    x = fixturevec(tb, n)
                 end
                 @test T * x ≈ Array(T) * Array(x)
                 COMPREHENSIVE || ta == tb || continue # promotion does not depend on the transform
                 @test T' * x ≈ Array(T)' * Array(x)
                 @test transpose(T) * x ≈ transpose(Array(T)) * Array(x)
-                @test x' * T ≈ Array(x)' * Array(T)
+                @test mismatch((x' * T)', (Array(x)' * Array(T))'; approx=true) === nothing
                 @test x' * T' ≈ Array(x)' * Array(T)'
                 @test x' * transpose(T) ≈ Array(x)' * transpose(Array(T))
             end
@@ -610,6 +635,9 @@ end
         @test nonzeroinds(g) == [3, 7] && nonzeros(g) == [2.0, -2.0]
         @test (mat \ g)::Vector{Float64} ≈ mat \ Array(g)
     end
+
+    # a unit triangle does not divide, so an integer solve stays integer
+    @test (UnitUpperTriangular(sparse([1 2; 0 1])) \ sparsevec([1, 2]))::Vector{Int} == [-3, 2]
 
     @static if COMPREHENSIVE
     @testset "index type and eltype of the right-hand side" begin

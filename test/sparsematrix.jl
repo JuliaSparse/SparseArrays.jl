@@ -128,6 +128,8 @@ end
     A[1, 2] = 1; B[2, 1] = 1
     @test isequal(A, B') && isequal(A', B) && !isequal(A', B') && !isequal(A, B)
     @test !isequal(spzeros(2, 3)', spzeros(2, 3))
+    # the wrapped operand stores entries that the other one does not
+    @test spzeros(n, n) != B' && !isequal(spzeros(n, n), B') && B' != spzeros(n, n)
     # adjoint vs transpose of a complex matrix nests wrappers (`Adjoint{<:Any,<:Transpose}`)
     C = sparse([1, 2], [2, 3], [1.0im, 2.0], 3, 3)
     @test C' == transpose(conj(C)) && isequal(C', transpose(conj(C)))
@@ -363,42 +365,45 @@ end
 end
 
 @testset "unary functions" begin
-    A = sprand(5, 15, 0.5)
-    C = A + im*A
+    A = fixture(Float64, 3, 5)
+    C = fixture(ComplexF64, 3, 5)
     Afull = Array(A)
     Cfull = Array(C)
     # Test representatives of [unary functions that map zeros to zeros and may map nonzeros to zeros]
-    @test sin.(Afull) == Array(sin.(A))
+    @test mismatch(sin.(A), sin.(Afull)) === nothing
     @static if COMPREHENSIVE
-    @test tan.(Afull) == Array(tan.(A)) # should be redundant with sin test
-    @test ceil.(Afull) == Array(ceil.(A))
-    @test floor.(Afull) == Array(floor.(A)) # should be redundant with ceil test
-    @test real.(Afull) == Array(real.(A))
-    @test imag.(Afull) == Array(imag.(A))
-    @test conj.(Afull) == Array(conj.(A))
-    @test real.(Cfull) == Array(real.(C))
-    @test imag.(Cfull) == Array(imag.(C))
-    @test conj.(Cfull) == Array(conj.(C))
+    @test mismatch(tan.(A), tan.(Afull)) === nothing # should be redundant with sin test
+    @test mismatch(ceil.(A), ceil.(Afull)) === nothing
+    @test mismatch(floor.(A), floor.(Afull)) === nothing # should be redundant with ceil test
+    @test mismatch(real.(A), real.(Afull)) === nothing
+    @test mismatch(imag.(A), imag.(Afull)) === nothing
+    @test mismatch(conj.(A), conj.(Afull)) === nothing
+    @test mismatch(real.(C), real.(Cfull)) === nothing
+    @test mismatch(imag.(C), imag.(Cfull)) === nothing
+    @test mismatch(conj.(C), conj.(Cfull)) === nothing
     # Test representatives of [unary functions that map zeros to zeros and nonzeros to nonzeros]
-    @test expm1.(Afull) == Array(expm1.(A))
-    @test abs.(Afull) == Array(abs.(A))
-    @test abs2.(Afull) == Array(abs2.(A))
-    @test abs.(Cfull) == Array(abs.(C))
-    @test abs2.(Cfull) == Array(abs2.(C))
+    @test mismatch(expm1.(A), expm1.(Afull)) === nothing
+    @test mismatch(abs.(A), abs.(Afull)) === nothing
+    @test mismatch(abs2.(A), abs2.(Afull)) === nothing
+    @test mismatch(abs.(C), abs.(Cfull)) === nothing
+    @test mismatch(abs2.(C), abs2.(Cfull)) === nothing
     end
-    @test real(Cfull) == Array(real(C))
-    @test imag(Cfull) == Array(imag(C))
-    @test conj(Cfull) == Array(conj(C))
+    @test mismatch(real(C), real(Cfull)) === nothing
+    @test mismatch(imag(C), imag(Cfull)) === nothing
+    @test mismatch(conj(C), conj(Cfull)) === nothing
     # `real` and `conj` of a real matrix alias it, and its `imag` stores nothing
     @test real(A) === A
     @test conj(A) === A
     @test nnz(imag(A)) == 0 && size(imag(A)) == size(A)
+    # the negation owns its buffers
+    @test mismatch(-C, -Cfull) === nothing
+    @test getcolptr(-C) !== getcolptr(C) && rowvals(-C) !== rowvals(C)
     # Test representatives of [unary functions that map both zeros and nonzeros to nonzeros]
-    @test cos.(Afull) == Array(cos.(A))
+    @test mismatch(cos.(A), cos.(Afull)) === nothing
     # Test representatives of remaining vectorized-nonbroadcast unary functions
-    @test ceil.(Int, Afull) == Array(ceil.(Int, A))
+    @test mismatch(ceil.(Int, A), ceil.(Int, Afull)) === nothing
     @static if COMPREHENSIVE
-    @test floor.(Int, Afull) == Array(floor.(Int, A))
+    @test mismatch(floor.(Int, A), floor.(Int, Afull)) === nothing
     # Tests of real, imag, abs, and abs2 for SparseMatrixCSC{Int,X}s previously elsewhere
     for T in (Int, Float16, Float32, BigInt, BigFloat)
         R = rand(T[1:100;], 2, 2)
@@ -510,9 +515,11 @@ end
     @test SparseMatrixCSC{Float16}(transpose(A)) == transpose(SparseMatrixCSC{Float16}(A))
     @test SparseMatrixCSC{Float16, Int}(transpose(A)) == transpose(SparseMatrixCSC{Float16}(A))
     end
-    B = sprand(ComplexF64, 10, 10, 0.75)
-    @test SparseMatrixCSC{eltype(B)}(adjoint(B)) == adjoint(B)
-    @test SparseMatrixCSC{eltype(B), Int}(adjoint(B)) == adjoint(B)
+    B = fixture(ComplexF64, 4, 4)
+    @test mismatch(SparseMatrixCSC{eltype(B)}(adjoint(B)), Matrix(B)') === nothing
+    @test mismatch(SparseMatrixCSC{eltype(B), Int}(adjoint(B)), Matrix(B)'; Ti=Int) === nothing
+    # complex values that differ from their conjugates tell transpose from adjoint
+    @test mismatch(copy(transpose(B)), transpose(Matrix(B))) === nothing
     @static if COMPREHENSIVE
     @test SparseMatrixCSC{ComplexF16}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16}(B))
     @test SparseMatrixCSC{ComplexF16, Int8}(adjoint(B)) == adjoint(SparseMatrixCSC{ComplexF16, Int8}(B))
@@ -541,6 +548,8 @@ end
     @testset "common error checking of [c]transpose! methods (ftranspose!)" begin
         @test_throws DimensionMismatch transpose!(A[:, 1:(smalldim - 1)], A)
         @test_throws DimensionMismatch transpose!(A[1:(smalldim - 1), 1], A)
+        # the column count matches, and there are too many rows
+        @test_throws DimensionMismatch transpose!(spzeros(n + 1, m), A)
         @test_throws ArgumentError transpose!(A, A) # #812
         @test_throws ArgumentError adjoint!(A, A)
     end
@@ -575,23 +584,23 @@ end
             At = copy(transpose(A))
             # transpose[!]
             fullAt = Array(transpose(A))
-            @test copy(transpose(A)) == fullAt
-            @test transpose!(similar(At), A) == fullAt
+            @test mismatch(copy(transpose(A)), fullAt) === nothing
+            @test mismatch(transpose!(similar(At), A), fullAt) === nothing
             # adjoint[!]
             C = A + im*A/2
             fullCh = Array(C')
-            @test copy(C') == fullCh
-            @test adjoint!(similar(sparse(fullCh)), C) == fullCh
+            @test mismatch(copy(C'), fullCh) === nothing
+            @test mismatch(adjoint!(similar(sparse(fullCh)), C), fullCh) === nothing
             # permute[!]
             p = randperm(m)
             q = randperm(n)
             fullPAQ = Array(A)[p,q]
-            @test permute(A, p, q) == sparse(Array(A[p,q]))
-            @test permute!(similar(A), A, p, q) == fullPAQ
-            @test permute!(similar(A), A, p, q, similar(At)) == fullPAQ
-            @test permute!(copy(A), p, q) == fullPAQ
-            @test permute!(copy(A), p, q, similar(At)) == fullPAQ
-            @test permute!(copy(A), p, q, similar(At), similar(getcolptr(A))) == fullPAQ
+            @test mismatch(permute(A, p, q), Array(A[p,q])) === nothing
+            @test mismatch(permute!(similar(A), A, p, q), fullPAQ) === nothing
+            @test mismatch(permute!(similar(A), A, p, q, similar(At)), fullPAQ) === nothing
+            @test mismatch(permute!(copy(A), p, q), fullPAQ) === nothing
+            @test mismatch(permute!(copy(A), p, q, similar(At)), fullPAQ) === nothing
+            @test mismatch(permute!(copy(A), p, q, similar(At), similar(getcolptr(A))), fullPAQ) === nothing
         end
     end
 end
@@ -864,12 +873,12 @@ end
             B = copy(A)
             @test sort!(B; dims, kws...) === B
             @test B isa SparseMatrixCSC
-            @test Matrix(B) == expected
+            @test mismatch(B, expected) === nothing
             # sorting only moves the stored entries around
             @test nnz(B) == nnz(A)
             S = sort(A; dims, kws...)
             @test S isa SparseMatrixCSC
-            @test Matrix(S) == expected
+            @test mismatch(S, expected) === nothing
             @test A == sparse(M) # `sort` leaves its argument alone
         end
     end
@@ -879,7 +888,7 @@ end
         A = SparseMatrixCSC{Float64,Ti}(sprand(11, 7, 0.4))
         for dims in (1, 2)
             @test sort(A; dims) isa SparseMatrixCSC{Float64,Ti}
-            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+            @test mismatch(sort(A; dims), sort(Matrix(A); dims); Ti) === nothing
         end
     end
     end
@@ -888,8 +897,8 @@ end
         A = sprand(50, 50, 0.1)
         # `scratch` is forwarded to the underlying `sort!` and ignored by the search for
         # where the structural zeros belong (see #335)
-        @test Matrix(sort!(copy(A); dims=1, scratch=Vector{Float64}(undef, 50))) ==
-            sort(Matrix(A); dims=1)
+        @test mismatch(sort!(copy(A); dims=1, scratch=Vector{Float64}(undef, 50)),
+                       sort(Matrix(A); dims=1)) === nothing
         @test_throws MethodError sort!(copy(A); dims=1, banana=:blue)
         @test_throws ArgumentError sort!(copy(A); dims=3)
         @test_throws ArgumentError sort!(copy(A); dims=0)
@@ -923,7 +932,7 @@ end
         B = copy(A)
         nallocs = @allocations sort!(B; dims=1)
         @test nallocs < size(A, 2)
-        @test Matrix(B) == sort(Matrix(A); dims=1)
+        @test mismatch(B, sort(Matrix(A); dims=1)) === nothing
     end
 
     @testset "column views" begin
@@ -936,7 +945,7 @@ end
             @test nnz(B) == nnz(A)
             expected = copy(M)
             sort!(view(expected, :, j); kws...)
-            @test Matrix(B) == expected
+            @test mismatch(B, expected) === nothing
         end
     end
 
@@ -951,7 +960,7 @@ end
             S = sort(F; dims)
             @test S isa SparseMatrixCSC
             @test !_is_fixed(S)
-            @test Matrix(S) == sort(Matrix(A); dims)
+            @test mismatch(S, sort(Matrix(A); dims)) === nothing
             @test F == A
         end
         Z = fixed(spzeros(3, 3))
@@ -986,7 +995,7 @@ end
             A = spzeros(m, n)
             for dims in (1, 2)
                 B = sort!(copy(A); dims)
-                @test Matrix(B) == sort(Matrix(A); dims)
+                @test mismatch(B, sort(Matrix(A); dims)) === nothing
                 @test nnz(B) == 0
                 @test getcolptr(B) == getcolptr(A)
             end
@@ -995,7 +1004,7 @@ end
         # a single column/row that is entirely structural next to a populated one
         A = SparseMatrixCSC(4, 3, [1, 1, 5, 5], [1, 2, 3, 4], [1.0, -2.0, 0.0, 3.0])
         for dims in (1, 2)
-            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+            @test mismatch(sort(A; dims), sort(Matrix(A); dims)) === nothing
             @test nnz(sort(A; dims)) == nnz(A)
         end
     end
@@ -1004,21 +1013,21 @@ end
         # column 1 stores an explicit zero next to structural zeros
         A = SparseMatrixCSC(4, 2, [1, 3, 4], [1, 3, 2], [0.0, -1.0, 2.0])
         for dims in (1, 2)
-            @test Matrix(sort(A; dims)) == sort(Matrix(A); dims)
+            @test mismatch(sort(A; dims), sort(Matrix(A); dims)) === nothing
             @test nnz(sort(A; dims)) == nnz(A)
         end
     end
 end
 
 @testset "repeat tests" begin
-    A = sprand(6, 4, 0.5)
+    A = fixture(Float64, 5, 3)
     A_full = Matrix(A)
     for m = 0:3
         @test issparse(repeat(A, m))
-        @test repeat(A, m) == repeat(A_full, m)
+        @test mismatch(repeat(A, m), repeat(A_full, m)) === nothing
         for n = 0:3
             @test issparse(repeat(A, m, n))
-            @test repeat(A, m, n) == repeat(A_full, m, n)
+            @test mismatch(repeat(A, m, n), repeat(A_full, m, n)) === nothing
         end
     end
     @static if COMPREHENSIVE
@@ -1028,7 +1037,7 @@ end
     for m = 0:2, n = 0:3
         R = repeat(A32, m, n)
         @test R isa SparseMatrixCSC{ComplexF64,Int32}
-        @test R == repeat(A32_full, m, n)
+        @test mismatch(R, repeat(A32_full, m, n); Ti=Int32) === nothing
         @test repeat(A32, m) isa SparseMatrixCSC{ComplexF64,Int32}
     end
     end
@@ -1505,9 +1514,9 @@ end
     for (m, n) in ((12, 1), (1, 12), (2, 6), (6, 2), (3, 4))
         rA = copy(reshape(A32, m, n))
         @test rA isa SparseMatrixCSC{Float64,Ti}
-        @test rA == reshape(Matrix(A32), m, n)
+        @test mismatch(rA, reshape(Matrix(A32), m, n); Ti) === nothing
     end
-    @test copy(reshape(spzeros(4, 3), 6, 2)) == zeros(6, 2)
+    @test mismatch(copy(reshape(spzeros(4, 3), 6, 2)), zeros(6, 2)) === nothing
     # column boundaries past half of `typemax(Int)`, and a source whose last linear index
     # is `typemax(Int)` itself
     m = typemax(Int) ÷ 2 + 2
@@ -1584,7 +1593,7 @@ using Base: swaprows!, swapcols!
         Scopy = copy(S)
         Sdense = Array(S)
         f!(Scopy, i, j); f!(Sdense, i, j)
-        @test Scopy == Sdense
+        @test mismatch(Scopy, Sdense) === nothing
     end
 
     for (A, i, j) in (
@@ -1599,7 +1608,7 @@ using Base: swaprows!, swapcols!
         Scopy = copy(A)
         Sdense = Array(A)
         swaprows!(Scopy, i, j); swaprows!(Sdense, i, j)
-        @test Scopy == Sdense
+        @test mismatch(Scopy, Sdense) === nothing
     end
 
     # columns with the same number of stored entries (issue #390)
@@ -1625,6 +1634,10 @@ end
     # count should throw for sparse arrays for which zero(eltype) does not exist
     @test_throws MethodError count(SparseMatrixCSC(2, 2, Int[1, 2, 3], Int[1, 2], Any[true, true]))
     @test_throws MethodError count(SparseVector(2, Int[1], Any[true]))
+    # a stored zero is counted once by a predicate that holds at zero
+    A = fixture(Float64, 5, 3)
+    @test count(iszero, A) == count(iszero, Matrix(A))
+    @test count(iszero, view(A, :, 1:2)) == count(iszero, Matrix(A)[:, 1:2])
 end
 
 @testset "show" begin
@@ -1900,7 +1913,7 @@ end
                             ("fixed", SparseArrays.fixed(sparse([2,2,4], [1,2,5], [-19.0, 73, -7]))))
         w = collect(S)
         revS = reverse(S)
-        @test revS == reverse(w)
+        @test mismatch(revS, reverse(w)) === nothing
         @test nnz(revS) == nnz(S)
         if S isa SparseMatrixCSC
             S2 = copy(S)
@@ -1910,7 +1923,7 @@ end
         end
         for dims in 1:2
             revS = reverse(S; dims)
-            @test revS == reverse(w; dims)
+            @test mismatch(revS, reverse(w; dims)) === nothing
             @test nnz(revS) == nnz(S)
             if S isa SparseMatrixCSC
                 S2 = copy(S)
@@ -1920,7 +1933,7 @@ end
             end
         end
         revS = reverse(S, dims=(1,2))
-        @test revS == reverse(w, dims=(1,2))
+        @test mismatch(revS, reverse(w, dims=(1,2))) === nothing
         @test nnz(revS) == nnz(S)
         if S isa SparseMatrixCSC
             S2 = copy(S)

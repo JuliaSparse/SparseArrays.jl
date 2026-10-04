@@ -28,11 +28,11 @@ end
 @testset "SparseMatrixCSC from readonly" begin
 
     # test that SparseMatrixCSC from readonly does copy
-    A = sprandn(12, 11, 0.3)
+    A = fixture(Float64, 5, 3)
     B = SparseMatrixCSC(size(A)..., ReadOnly(getcolptr(A)), ReadOnly(rowvals(A)), nonzeros(A))
 
     @test typeof(B) == typeof(A)
-    @test A == B
+    @test mismatch(B, Array(A)) === nothing
 
     @test getcolptr(A) == getcolptr(B)
     @test getcolptr(A) !== getcolptr(B)
@@ -51,7 +51,9 @@ end
 end
 
 @testset "FixedSparseCSC" begin
-    A = sprandn(10, 10, 0.3)
+    # the stored zero makes a kernel that takes the destination for an ordinary matrix
+    # drop an entry
+    A = fixture(Float64, 5, 3)
 
     F = FixedSparseCSC(copy(A))
     Ft = FixedSparseCSC{eltype(A),eltype(rowvals(A))}(A)
@@ -72,7 +74,7 @@ end
     @static if COMPREHENSIVE
     @test_throws ArgumentError H .= F .+ 1
     end
-    G = sprandn(10, 10, 0.3)
+    G = sparse(ones(5, 3))
     @test_throws ArgumentError map!(identity, H, G)
     @test_throws ArgumentError H .= G .+ G
     @static if COMPREHENSIVE
@@ -85,14 +87,14 @@ end
     F .= false
     @test same_pattern(F, H, A)
     F .= A .+ A
-    @test F == A .+ A
+    @test mismatch(F, Array(A .+ A)) === nothing
     @test same_pattern(F, H, A)
     @static if COMPREHENSIVE
     F .= A .- A
-    @test F == A .- A
+    @test mismatch(F, Array(A .- A)) === nothing
     @test same_pattern(F, H, A)
     F .= H .* A
-    @test F == H .* A
+    @test mismatch(F, Array(H .* A)) === nothing
     @test same_pattern(F, H, A)
     end
 
@@ -123,7 +125,9 @@ end
     @test_throws ArgumentError G[2, 1] = 1.0
     @test_throws ArgumentError G[:, 1] .= 1.0
     @test_throws ArgumentError G[1:2, 1:2] = ones(2, 2)
-    @test_throws ArgumentError copyto!(G, sparse(ones(2, 2)))
+    # the entry outside the pattern lies above a stored one in its column, and is not to
+    # be written there
+    @test_throws ArgumentError copyto!(G, sparse([1], [2], [5.0], 2, 2))
     @test same_pattern(G, sparse(Diagonal([1.0, 2.0]))) && G == Diagonal([1.0, 2.0])
     G[1:2, 1:2] = [3 0; 0 4]
     G[:, 2] .= 0
@@ -141,25 +145,27 @@ end
     @test Diagonal([2.0, 3.0]) * G == [0 0; 0 18] && (@static COMPREHENSIVE ? Symmetric(G) * G == [0 0; 0 36] : true)
 end
 @testset "SparseMatrixCSC conversions" begin
-    A = sprandn(10, 10, 0.3)
+    A = fixture(Float64, 3, 5)
     F = fixed(copy(A))
     B = SparseMatrixCSC(F)
-    @test A == B
+    @test mismatch(B, Array(A)) === nothing && same_pattern(B, A) && !_is_fixed(B)
 
     # fixed(x...)
-    @test sparse(2I, 3, 3) == sparse(fixed(2I, 3, 3))
+    @test sparse(2I, 3, 5) == sparse(fixed(2I, 3, 5))
     @test SparseArrays._unsafe_unfix(A) == A
 end
 @testset "FixedSparseVector" begin
-    y = sparsevec([2, 5, 7], [1.5, -2.0, 0.25], 10)
-    x = FixedSparseVector(copy(y))
+    y = fixturevec(Float64, 10)
+    yvals = copy(nonzeros(y))
+    x = FixedSparseVector(y)
     @test same_pattern(x, y)
     @test typeof(FixedSparseVector{Float64,Int}(y)) == typeof(x)
     @test_throws ArgumentError map!(v -> v + 1, x, y)
-    @test_throws ArgumentError map!(identity, x, sparsevec([1, 5], [3.0, 4.0], 10))
+    @test_throws ArgumentError map!(identity, x, sparsevec([3, 5], [3.0, 4.0], 10))
     @test same_pattern(x, y)
     nonzeros(x) .= 0
-    @test same_pattern(x, y)
+    # a fixed vector made from `y` owns its buffers
+    @test same_pattern(x, y) && nonzeros(y) == yvals
     dropzeros!(x)
     @test same_pattern(x, y)
     z = x ./ 2
@@ -180,7 +186,7 @@ end
     w = fixed(sparsevec([1, 3], [1.0, 2.0], 4))
     @test_throws ArgumentError w[2] = 1.0
     @test_throws ArgumentError copyto!(w, sparsevec([2], [1.0], 4))
-    @test same_pattern(w, sparsevec([1, 3], [1.0, 2.0], 4))
+    @test same_pattern(w, sparsevec([1, 3], [1.0, 2.0], 4)) && nonzeros(w) == [1.0, 2.0]
     w .= sparsevec([3], [5.0], 4)
     @test w == [0, 0, 5, 0] && nnz(w) == 2
     r = real(fixed(sparsevec([1, 3], ComplexF64[1 + 2im, 3], 4)))
@@ -342,6 +348,7 @@ end
 end
 
 always_false(x...) = false
+below_diagonal(i, j, v) = i > j
 @testset "Test fkeep!" begin
     for a in [sprandn(10, 10, 0.99) + I, sprandn(10, 0.1) .+ 1]
         a = fixed(a)
@@ -351,6 +358,10 @@ always_false(x...) = false
         @test all(iszero, nonzeros(b))
 
     end
+    # a predicate that tells a row from a column, on a matrix that is not square
+    A = fixture(Float64, 5, 3)
+    F = fkeep!(below_diagonal, fixed(copy(A)))
+    @test mismatch(F, tril(Array(A), -1)) === nothing && same_pattern(F, A)
 end
 
 end # module

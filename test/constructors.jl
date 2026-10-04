@@ -29,13 +29,13 @@ end
 end
 
 @testset "conversion to AbstractMatrix/SparseMatrix of same eltype" begin
-    a = sprand(5, 5, 0.2)
-    @test AbstractMatrix{eltype(a)}(a) == a
-    @test SparseMatrixCSC{eltype(a)}(a) == a
-    @test SparseMatrixCSC{eltype(a), Int}(a) == a
-    @test SparseMatrixCSC{eltype(a)}(Array(a)) == a
+    a = fixture(Float64, 5, 3)
+    @test mismatch(AbstractMatrix{eltype(a)}(a), Array(a); Ti=Int) === nothing
+    @test mismatch(SparseMatrixCSC{eltype(a)}(a), Array(a); Ti=Int) === nothing
+    @test mismatch(SparseMatrixCSC{eltype(a), Int}(a), Array(a); Ti=Int) === nothing
+    @test mismatch(SparseMatrixCSC{eltype(a)}(Array(a)), Array(a); Ti=Int) === nothing
     # a different eltype converts, as `SparseMatrixCSC{Tv,Ti}(::AbstractMatrix)` does
-    @test SparseMatrixCSC{ComplexF64}(Array(a))::SparseMatrixCSC{ComplexF64,Int} == a
+    @test mismatch(SparseMatrixCSC{ComplexF64}(Array(a)), Array(a); Tv=ComplexF64, Ti=Int) === nothing
 @static if COMPREHENSIVE
     @test SparseMatrixCSC{Float32}(Array(a))::SparseMatrixCSC{Float32,Int} == SparseMatrixCSC{Float32,Int}(Array(a))
     @test SparseMatrixCSC{ComplexF64}(Array(a)')::SparseMatrixCSC{ComplexF64,Int} == a'
@@ -44,10 +44,10 @@ end
     @test collect(a) == a
     @test SparseMatrixCSC(a)::typeof(a) == a
     # an adjoint or transpose is materialized before the eltype conversion
-    @test SparseMatrixCSC{ComplexF64}(a')::SparseMatrixCSC{ComplexF64,Int} == a'
-    @test SparseMatrixCSC{ComplexF64}(transpose(a))::SparseMatrixCSC{ComplexF64,Int} == a'
+    @test mismatch(SparseMatrixCSC{ComplexF64}(a'), Array(a'); Tv=ComplexF64, Ti=Int) === nothing
+    @test mismatch(SparseMatrixCSC{ComplexF64}(transpose(a)), Array(a'); Tv=ComplexF64, Ti=Int) === nothing
     # wrappers and views convert through the sparse kernels, not element by element
-    c = sprand(ComplexF64, 5, 3, 0.4)
+    c = fixture(ComplexF64, 5, 3)
     for w in (transpose(c), (@static COMPREHENSIVE ? (a', view(c, :, 2:3), view(c, :, 1)', transpose(view(c, :, 1))) : ())...)
         @test which(copyto!, Tuple{Matrix{eltype(w)}, typeof(w)}).module == SparseArrays
         @test Matrix(w)::Matrix{eltype(w)} == collect(w)
@@ -81,7 +81,11 @@ end
 end
     # with combine
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], 1.0, 2, 2, +) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [1.0, 1.0, 1.0, 2.0], 2, 2)
+    # duplicates fold from the left in input order, which a commutative `combine` cannot show
+    @test nonzeros(sparse([1, 2, 1, 1], [3, 1, 3, 3], [1.0, 5.0, 2.0, 3.0], 2, 3, -)) == [5.0, -4.0]
 @static if COMPREHENSIVE
+    # duplicates of `Bool` values combine with `|`
+    @test mismatch(sparse([1, 1, 2], [1, 1, 3], [true, false, true], 2, 3), [true false false; false false true]; Ti=Int) === nothing
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], -1.0, 2, 2, *) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [-1.0, -1.0, -1.0, 1.0], 2, 2)
     @test sparse(sparse(Int32.(1:5), Int32.(1:5), trues(5))') isa SparseMatrixCSC{Bool,Int32}
 end
@@ -143,7 +147,7 @@ end
     VC = vec(C)
     @test VX == VSX
     @test VM == VSM1
-    @test VM == VSM2
+    @test mismatch(VSM2, VM; Ti=Int) === nothing
     @test size(VC) == (9,)
     @test nnz(VC) == 0
     @test nnz(VSX) == 5
@@ -182,13 +186,19 @@ end
 
     s = SymTridiagonal(rand(1), rand(0))
     @test sparse(s) == s
+
+    # with the diagonals all different, so that one taken for another changes the result
+    M = rand(3, 3)
+    for T in (Bidiagonal(M, :U), Bidiagonal(M, :L), Tridiagonal(M))
+        @test mismatch(sparse(T), Matrix(T); Ti=Int) === nothing
+    end
 end
 
 @testset "avoid allocation for zeros in diagonal" begin
     x = @static COMPREHENSIVE ? [1, 0, 0, 5, 0] : [1.0, 0.0, 0.0, 5.0, 0.0]
     d = Diagonal(x)
     s = sparse(d)
-    @test s == d
+    @test mismatch(s, Matrix(d); Ti=Int) === nothing
     @test nnz(s) == 2
 end
 
@@ -224,7 +234,11 @@ end
 end
 
 @testset "SparseMatrixCSC construction from UniformScaling" begin
-    @test SparseMatrixCSC{Float64,Int}(2I, 3, 3)::SparseMatrixCSC{Float64,Int} == sparse(2.0I, 3, 3)
+    # more columns than rows, so that the column pointers of the trailing empty columns are checked
+    S = SparseMatrixCSC{Float64,Int}(2I, 3, 5)
+    @test S::SparseMatrixCSC{Float64,Int} == sparse(2.0I, 3, 5)
+    @test S == Matrix(2.0I, 3, 5)
+    @test getcolptr(S) == [1, 2, 3, 4, 4, 4]
 end
 
 # linalg.jl compares the same call with `diagm` when COMPREHENSIVE
@@ -259,7 +273,7 @@ end
 @testset "sparsevec" begin
     x = @static COMPREHENSIVE ? 1 : 1.0
     local A = sparse(fill(x, 5, 5))
-    @test sparsevec(A) == fill(x, 25)
+    @test mismatch(sparsevec(A), fill(x, 25); Ti=Int) === nothing
     @test sparsevec([1:5;], x) == fill(x, 5)
     @test_throws ArgumentError sparsevec([1:5;], [1:4;])
 end
@@ -297,7 +311,7 @@ end
         # redo the same with sprand
         Random.seed!(s);
         a = sprand(m,n,p);
-        @test x == a
+        @test mismatch(a, x; Ti=Int) === nothing
     end
 end
 

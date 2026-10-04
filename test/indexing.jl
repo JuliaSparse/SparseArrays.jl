@@ -21,15 +21,18 @@ include("testhelpers.jl")
     ad116 = diagm(0 => diag(a116))
     sd116 = sparse(ad116)
 
-    for (aa116, ss116) in ((a116, s116), (@static COMPREHENSIVE ? ((ad116, sd116),) : ())...)
-        ij=11; i=3; j=2
+    # the fixture has more rows than columns, an empty row and column and a stored zero
+    f116 = fixture(Float64, 9, 7)
+
+    for (aa116, ss116) in ((a116, s116), (Matrix(f116), f116), (@static COMPREHENSIVE ? ((ad116, sd116),) : ())...)
+        ij=11; i=3; j=3
         @test ss116[ij] == aa116[ij]
         @test ss116[(i,j)] == aa116[i,j]
         @test ss116[i,j] == aa116[i,j]
         @test ss116[i-1,j] == aa116[i-1,j]
         ss116[i,j] = 0
         @test ss116[i,j] == 0
-        ss116 = sparse(aa116)
+        ss116[i,j] = aa116[i,j]
 
         @test ss116[:,:] == copy(ss116)
 
@@ -38,46 +41,48 @@ include("testhelpers.jl")
         end
 
         # range indexing
-        @test Array(ss116[i,:]) == aa116[i,:]
-        @test Array(ss116[:,j]) == aa116[:,j]
-        @test Array(ss116[i,1:2:end]) == aa116[i,1:2:end]
-        @test Array(ss116[1:2:end,j]) == aa116[1:2:end,j]
-        @test Array(ss116[i,end:-2:1]) == aa116[i,end:-2:1]
-        @test Array(ss116[end:-2:1,j]) == aa116[end:-2:1,j]
+        @test mismatch(ss116[i,:], aa116[i,:]) === nothing
+        @test mismatch(ss116[:,j], aa116[:,j]) === nothing
+        @test mismatch(ss116[i,1:2:end], aa116[i,1:2:end]) === nothing
+        @test mismatch(ss116[1:2:end,j], aa116[1:2:end,j]) === nothing
+        @test mismatch(ss116[i,end:-2:1], aa116[i,end:-2:1]) === nothing
+        @test mismatch(ss116[end:-2:1,j], aa116[end:-2:1,j]) === nothing
         # float-range indexing is not supported
+        # a linear range that starts and ends inside a column
+        @test mismatch(ss116[ij:end-ij], aa116[ij:end-ij]) === nothing
 
         # sorted vector indexing
-        @test Array(ss116[i,[3:2:end-3;]]) == aa116[i,[3:2:end-3;]]
-        @test Array(ss116[[3:2:end-3;],j]) == aa116[[3:2:end-3;],j]
-        @test Array(ss116[i,[end-3:-2:1;]]) == aa116[i,[end-3:-2:1;]]
-        @test Array(ss116[[end-3:-2:1;],j]) == aa116[[end-3:-2:1;],j]
+        @test mismatch(ss116[i,[3:2:end-3;]], aa116[i,[3:2:end-3;]]) === nothing
+        @test mismatch(ss116[[3:2:end-3;],j], aa116[[3:2:end-3;],j]) === nothing
+        @test mismatch(ss116[i,[end-3:-2:1;]], aa116[i,[end-3:-2:1;]]) === nothing
+        @test mismatch(ss116[[end-3:-2:1;],j], aa116[[end-3:-2:1;],j]) === nothing
 
         # unsorted vector indexing with repetition
         p = [4, 1, 2, 3, 2, 6]
-        @test Array(ss116[p,:]) == aa116[p,:]
-        @test Array(ss116[:,p]) == aa116[:,p]
-        @test Array(ss116[p,p]) == aa116[p,p]
+        @test mismatch(ss116[p,:], aa116[p,:]) === nothing
+        @test mismatch(ss116[:,p], aa116[:,p]) === nothing
+        @test mismatch(ss116[p,p], aa116[p,p]) === nothing
 
         # bool indexing
         li = bitrand(size(aa116,1))
         lj = bitrand(size(aa116,2))
-        @test Array(ss116[li,j]) == aa116[li,j]
+        @test mismatch(ss116[li,j], aa116[li,j]) === nothing
         @static if COMPREHENSIVE
-        @test Array(ss116[li,:]) == aa116[li,:]
-        @test Array(ss116[:,lj]) == aa116[:,lj]
+        @test mismatch(ss116[li,:], aa116[li,:]) === nothing
+        @test mismatch(ss116[:,lj], aa116[:,lj]) === nothing
         end
-        @test Array(ss116[i,lj]) == aa116[i,lj]
-        @test Array(ss116[li,lj]) == aa116[li,lj]
+        @test mismatch(ss116[i,lj], aa116[i,lj]) === nothing
+        @test mismatch(ss116[li,lj], aa116[li,lj]) === nothing
 
         # empty indices
         for empty in (1:0, Int[])
-            @test Array(ss116[empty,:]) == aa116[empty,:]
-            @test Array(ss116[:,empty]) == aa116[:,empty]
+            @test mismatch(ss116[empty,:], aa116[empty,:]) === nothing
+            @test mismatch(ss116[:,empty], aa116[:,empty]) === nothing
             @static if COMPREHENSIVE
-            @test Array(ss116[empty,lj]) == aa116[empty,lj]
-            @test Array(ss116[li,empty]) == aa116[li,empty]
+            @test mismatch(ss116[empty,lj], aa116[empty,lj]) === nothing
+            @test mismatch(ss116[li,empty], aa116[li,empty]) === nothing
             end
-            @test Array(ss116[empty,empty]) == aa116[empty,empty]
+            @test mismatch(ss116[empty,empty], aa116[empty,empty]) === nothing
         end
 
         # out of bounds indexing
@@ -102,18 +107,18 @@ include("testhelpers.jl")
     end
 
     # indexing by array of CartesianIndex (issue #30981)
-    S = sprand(10, 10, 0.4)
-    inds_sparse = S[findall(S .> 0.2)]
+    S = fixture(Float64, 5, 3)
+    inds_sparse = S[findall(S .> 6)]
     M = Matrix(S)
-    inds_dense = M[findall(M .> 0.2)]
-    @test Array(inds_sparse) == inds_dense
+    inds_dense = M[findall(M .> 6)]
+    @test mismatch(inds_sparse, inds_dense) === nothing
     inds_out = Array([CartesianIndex(1, 1), CartesianIndex(0, 1)])
     @test_throws BoundsError S[inds_out]
     pop!(inds_out); push!(inds_out, CartesianIndex(1, 0))
     @test_throws BoundsError S[inds_out]
-    pop!(inds_out); push!(inds_out, CartesianIndex(11, 1))
+    pop!(inds_out); push!(inds_out, CartesianIndex(6, 1))
     @test_throws BoundsError S[inds_out]
-    pop!(inds_out); push!(inds_out, CartesianIndex(1, 11))
+    pop!(inds_out); push!(inds_out, CartesianIndex(1, 4))
     @test_throws BoundsError S[inds_out]
 
     @testset "indices lowered by to_indices (issue #42), $T" for T in (Float64, ComplexF64)
@@ -130,6 +135,8 @@ include("testhelpers.jl")
                 @test B[I...] isa Union{T,SparseVector{T,Int},SparseMatrixCSC{T,Int}}
             end
             @test B[5] == B[CartesianIndex(5, 1)] == B[5, 1, 1] == Array(B)[5]
+            # a column conjugates under an adjoint, whichever forms the stride leaves to it
+            @test mismatch(B[c, 2], Array(B)[c, 2]) === nothing
             # masks of the wrong length throw as they do for dense arrays
             @test_throws BoundsError B[trues(7), 1]
             @test_throws BoundsError B[1, trues(7)]
@@ -153,12 +160,15 @@ include("testhelpers.jl")
     S1290 = @static COMPREHENSIVE ? SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[]) : spzeros(3, 3)
         S1290[1,1] = 1
         # more hits than stored entries, from a repeated index
-        @test S1290[[1,1]] == [1, 1]
+        @test mismatch(S1290[[1,1]], eltype(S1290)[1, 1]) === nothing
         S1290[5] = 2
         S1290[end] = 3
         @test S1290[end] == (S1290[1] + S1290[2,2])
         @test 6 == sum(diag(S1290))
-        @test Array(S1290)[[3,1],1] == Array(S1290[[3,1],1])
+        @test mismatch(S1290[[3,1],1], Array(S1290)[[3,1],1]) === nothing
+        @static if COMPREHENSIVE
+        @test S1290[[3,1],1] isa SparseVector{eltype(S1290),eltype(rowvals(S1290))}
+        end
 
         # check that indexing with an abstract array returns matrix
         # with same colptr and rowval eltypes as input. Tests PR 24548
@@ -246,7 +256,7 @@ end
         D = Matrix(A)
         A[2, 1:3] .= 5.0    # column 1 inserts before its last stored row is merged
         D[2, 1:3] .= 5.0
-        @test A == D && nnz(A) == 7
+        @test mismatch(A, D) === nothing && nnz(A) == 7
     end
 
     @testset "-0.0 handling in non-scalar setindex" begin
@@ -401,7 +411,9 @@ end
         FS = Array(S)
         FI = Array(I)
         @test sparse(FS[FI]) == S[I] == S[FI]
-        @test S[vec(FI)]::SparseVector == FS[vec(FI)]
+        @test mismatch(S[I], FS[FI]) === nothing
+        @test mismatch(S[FI], FS[FI]) === nothing
+        @test mismatch(S[vec(FI)], FS[vec(FI)]) === nothing
         @test sum(S[FI]) + sum(S[.!FI]) == sum(S)
         @static if COMPREHENSIVE
         @test count(!iszero, I) == count(I)
@@ -463,7 +475,7 @@ end
         for mask in (M, Ms)   # findall(vec(I)), and the column walk of a sparse mask
             A = copy(A0)
             A[mask] = x
-            @test A == D && nnz(A) == nnz(A0) + 2
+            @test mismatch(A, D) === nothing && nnz(A) == nnz(A0) + 2
         end
         # the value's length and the mask's shape are checked before anything is written
         A = copy(A0)
@@ -481,6 +493,13 @@ end
         # indices or values aliased with the storage are copied before the kernel writes
         A = sparse(reshape([2, 1], 2, 1)); A[nonzeros(A)] = [20, 10]
         @test A == [10; 20;;]
+        # the kernel moves the row indices and rewrites the column pointers as it inserts
+        A = sparse([3, 1], [2, 3], [2.0, 1.0], 3, 3); D = Matrix(A)
+        L = copy(rowvals(A)); A[rowvals(A)] = [10.0, 20.0]; D[L] = [10.0, 20.0]
+        @test mismatch(A, D) === nothing
+        A = sparse([0 0 1; 0 0 1]); D = Matrix(A)
+        x = copy(getcolptr(A)); A[[1, 5, 2, 3]] = getcolptr(A); D[[1, 5, 2, 3]] = x
+        @test mismatch(A, D) === nothing
         for A in (sparse(reshape([1, 2], 2, 1)), (@static COMPREHENSIVE ? (SparseArrays.fixed(sparse(reshape([1, 2], 2, 1))),) : ())...)
             A[trues(2, 1)] = view(nonzeros(A), 2:-1:1)
             @test A == [2; 1;;]
@@ -491,7 +510,7 @@ end
             @test which(SparseArrays._masklinearindices, (typeof(mask),)) !==
                   which(SparseArrays._masklinearindices, (Matrix{Bool},))
             A = spzeros(size(mask)); A[mask] = 1:count(mask)
-            @test A == setindex!(zeros(size(mask)), 1:count(mask), Matrix(mask)) && nnz(A) == count(mask)
+            @test mismatch(A, setindex!(zeros(size(mask)), 1:count(mask), Matrix(mask))) === nothing && nnz(A) == count(mask)
         end
     end
 
@@ -532,17 +551,25 @@ end
     A[:,2] .= 2
     @test nnz(A) == 19
 
-    # Test argument bounds checking for dropstored!(A, i, j)
-    @test_throws BoundsError SparseArrays.dropstored!(A, 0, 1)
-    @test_throws BoundsError SparseArrays.dropstored!(A, 1, 0)
-    @test_throws BoundsError SparseArrays.dropstored!(A, 1, 11)
-    @test_throws BoundsError SparseArrays.dropstored!(A, 11, 1)
+    # The bounds are those of each dimension: the last row and column are in range, and one
+    # past either is not, whichever dimension is longer.
+    for (m, n) in FIXTURE_SHAPES
+        B = fixture(Float64, m, n)
+        # Test argument bounds checking for dropstored!(A, i, j)
+        @test_throws BoundsError SparseArrays.dropstored!(B, 0, 1)
+        @test_throws BoundsError SparseArrays.dropstored!(B, 1, 0)
+        @test_throws BoundsError SparseArrays.dropstored!(B, 1, n + 1)
+        @test_throws BoundsError SparseArrays.dropstored!(B, m + 1, 1)
+        @test nnz(SparseArrays.dropstored!(copy(B), m, n)) == nnz(B) - 1
 
-    # Test argument bounds checking for dropstored!(A, I, J)
-    @test_throws BoundsError SparseArrays.dropstored!(A, 0:1, 1:1)
-    @test_throws BoundsError SparseArrays.dropstored!(A, 1:1, 0:1)
-    @test_throws BoundsError SparseArrays.dropstored!(A, 10:11, 1:1)
-    @test_throws BoundsError SparseArrays.dropstored!(A, 1:1, 10:11)
+        # Test argument bounds checking for dropstored!(A, I, J)
+        @test_throws BoundsError SparseArrays.dropstored!(B, 0:1, 1:1)
+        @test_throws BoundsError SparseArrays.dropstored!(B, 1:1, 0:1)
+        @test_throws BoundsError SparseArrays.dropstored!(B, m:m+1, 1:1)
+        @test_throws BoundsError SparseArrays.dropstored!(B, 1:1, n:n+1)
+        @test nnz(SparseArrays.dropstored!(copy(B), m:m, n:n)) == nnz(B) - 1
+        @test B == fixture(Float64, m, n)
+    end
 
     # Test behavior of dropstored!(A, i, j)
     # --> Test dropping a single stored entry
@@ -587,15 +614,15 @@ end
 @testset "test_getindex_algs" begin
     function test_getindex_algs(@nospecialize(S), @nospecialize(I), @nospecialize(J))
         D = Matrix(S)
-        @test S[I, J] == D[I, J]
+        @test mismatch(S[I, J], D[I, J]) === nothing
         sortedI = sort(I)
         expected = D[sortedI, J]
-        @test S[sortedI, J] == expected
+        @test mismatch(S[sortedI, J], expected) === nothing
         for alg in (SparseArrays.getindex_I_sorted_bsearch_A,
                     SparseArrays.getindex_I_sorted_bsearch_I,
                     SparseArrays.getindex_I_sorted_linear,
                     SparseArrays.getindex_I_sorted_nocache)
-            @test alg(S, sortedI, J) == expected
+            @test mismatch(alg(S, sortedI, J), expected) === nothing
         end
     end
 
@@ -648,10 +675,10 @@ end
         I = CountedReads(2:2:m-2)
         R = S[I, 1:n]
         @test I.reads[] < 20 * length(I)
-        @test R == Matrix(S)[I.parent, 1:n]
+        @test mismatch(R, Matrix(S)[I.parent, 1:n]) === nothing
         # a short I still binary-searches the columns
         T = sparse(repeat(1:4:m, 2), repeat(1:2; inner=m÷4), 1.0, m, 2)
-        @test T[[5, 5, 6, m-3], [2, 1]] == Matrix(T)[[5, 5, 6, m-3], [2, 1]]
+        @test mismatch(T[[5, 5, 6, m-3], [2, 1]], Matrix(T)[[5, 5, 6, m-3], [2, 1]]) === nothing
     end
 end
 
@@ -675,13 +702,17 @@ end
     A = SparseMatrixCSC{Float64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0, 0.0, 2.0, 3.0], 5, 3))
     M = Matrix(A)
     for j in 1:3, I in (1:5, 2:4, 3:3, 4:5, 2:1)
-        @test A[I, j]::SparseVector{Float64,Ti} == M[I, j]
+        @test mismatch(A[I, j], M[I, j]; Ti) === nothing
     end
-    @test A[1:5, 1]::SparseVector{Float64,Ti} == M[1:5, 1]
+    @test mismatch(A[1:5, 1], M[1:5, 1]; Ti) === nothing
+    # so do the results that have no stored entry to copy
+    @test mismatch(A[Int[], [1, 2]], M[Int[], [1, 2]]; Ti) === nothing
+    @test mismatch(A[[2, 1], Int[]], M[[2, 1], Int[]]; Ti) === nothing
+    @test mismatch(spzeros(Float64, Ti, 5, 3)[[2, 1], [1, 2]], zeros(2, 2); Ti) === nothing
     @test nnz(A[1:5, 1]) == 2 # stored zeros stay stored
     @static if COMPREHENSIVE
-    @test copy(view(A, :, 1))::SparseVector{Float64,Ti} == M[:, 1]
-    @test copy(view(A, 2:4, 1))::SparseVector{Float64,Ti} == M[2:4, 1]
+    @test mismatch(copy(view(A, :, 1)), M[:, 1]; Ti) === nothing
+    @test mismatch(copy(view(A, 2:4, 1)), M[2:4, 1]; Ti) === nothing
     end
 end
 end
@@ -730,7 +761,7 @@ _length_or_count_or_five(x) = length(x)
     A = copy(A0); A[:, :] = A
     @test A == A0
     A[:, 2] = sparse([1.0 0 2 0 0 3])   # 1×n into a column, #569
-    @test A[:, 2] == [1, 0, 2, 0, 0, 3]
+    @test mismatch(A[:, 2], [1.0, 0, 2, 0, 0, 3]) === nothing
     @static if COMPREHENSIVE
     K = SparseMatrixCSC{Float32,Int32}(A0); K[2:3, 2:3] = sparse([1.5 2; 3 4])
     @test K[2:3, 2:3] == [1.5 2; 3 4] && K isa SparseMatrixCSC{Float32,Int32}
@@ -746,6 +777,8 @@ end
     cases = @static COMPREHENSIVE ?
         unique([pairwise(Is, Js, 1:4); [(3, :, k) for k in 1:4]; [(:, 4, k) for k in 1:4]]) :
         push!(eachvalue(Is, Js, 1:4), (3, 4, 1))
+    # a destination with stored entries, a stored zero and an empty row and column to merge into
+    F = fixture(Float64, 5, 5)
     for case in cases
         I, J, k = case[1], case[2], case[3]     # destructuring compiles a method per tuple type
         V = sparse(ones(_length_or_count_or_five(I)*_length_or_count_or_five(J)))
@@ -756,7 +789,7 @@ end
             continue
         end
         X = (V, Array(V), M, Array(M))[k]
-        @test setindex!(spzeros(5, 5), X, I, J) == setindex!(zeros(5,5), k <= 2 ? V : M, I, J)
+        @test mismatch(setindex!(copy(F), X, I, J), setindex!(Matrix(F), k <= 2 ? V : M, I, J)) === nothing
     end
     @test setindex!(spzeros(5, 5), 1:25, :) == setindex!(zeros(5,5), 1:25, :) == reshape(1:25, 5, 5)
     @static if COMPREHENSIVE
@@ -766,11 +799,11 @@ end
     end
     for X in (1:20, sparse(1:20), (@static COMPREHENSIVE ?
             (reshape(sparse(1:20), 20, 1), (1:20) .+ spzeros(20, 1), collect(1:20), collect(reshape(1:20, 20, 1))) : ())...)
-        @test setindex!(spzeros(5, 5), X, 6:25) == setindex!(zeros(5,5), 1:20, 6:25)
-        @test setindex!(spzeros(5, 5), X, 21:-1:2) == setindex!(zeros(5,5), 1:20, 21:-1:2)
+        @test mismatch(setindex!(copy(F), X, 6:25), setindex!(Matrix(F), 1:20, 6:25)) === nothing
+        @test mismatch(setindex!(copy(F), X, 21:-1:2), setindex!(Matrix(F), 1:20, 21:-1:2)) === nothing
         b = trues(25)
         b[[6, 8, 13, 15, 23]] .= false
-        @test setindex!(spzeros(5, 5), X, b) == setindex!(zeros(5, 5), X, b)
+        @test mismatch(setindex!(copy(F), X, b), setindex!(Matrix(F), X, b)) === nothing
     end
     # of a repeated index the last write wins and the pattern stays valid, see #811
     for Tv in (@static COMPREHENSIVE ? (Float64, ComplexF64) : (Float64,))
@@ -781,7 +814,7 @@ end
                       sparse(Tv[iseven(i + j) for i in eachindex(I), j in eachindex(J)]))
                 A = setindex!(copy(S), V, I, J)
                 @test rowssorted(A)
-                @test A == Matrix(A) == setindex!(Matrix(S), V, I, J)
+                @test mismatch(A, setindex!(Matrix(S), V, I, J)) === nothing
             end
         end
         A = setindex!(copy(S), Tv[5, 6], [1, 1], 2)
@@ -790,7 +823,7 @@ end
             x = Tv.(eachindex(L))
             A = setindex!(copy(S), x, L)
             @test rowssorted(A)
-            @test A == Matrix(A) == setindex!(Matrix(S), x, L)
+            @test mismatch(A, setindex!(Matrix(S), x, L)) === nothing
         end
     end
 end
@@ -812,12 +845,12 @@ let
         p = [4, 1, 3]
         a116[p, p] .= -1
         s116[p, p] .= -1
-        @test a116 == s116
+        @test mismatch(s116, a116) === nothing
 
         p = [2, 1, 4]
         a116[p, p] = reshape(1:9, 3, 3)
         s116[p, p] = reshape(1:9, 3, 3)
-        @test a116 == s116
+        @test mismatch(s116, a116) === nothing
     end
 end
 
