@@ -472,7 +472,8 @@ end
 # convert SparseMatrixCSC to SparseVector
 function SparseVector{Tv,Ti}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti<:Integer}
     size(s, 2) == 1 || throw(ArgumentError("The input argument must have a single-column."))
-    SparseVector(size(s, 1), rowvals(s), nonzeros(s))
+    # the vector's pattern is writable, so it cannot share the read-only one of a fixed matrix
+    SparseVector(size(s, 1), _is_fixed(s) ? Vector(rowvals(s)) : rowvals(s), nonzeros(s))
 end
 
 SparseVector{Tv}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
@@ -1518,7 +1519,7 @@ end
 
 
 (/)(x::SparseVectorOrView, a::Number) =
-    @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), nonzeros(x) / a)
+    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) / a)
 # dot
 function dot(x::AbstractVector, y::SparseVectorOrView)
     require_one_based_indexing(x, y)
@@ -1815,6 +1816,7 @@ end
 
 function copy!(dst::AbstractCompressedVector, src::AbstractVector)
     length(dst) == length(src) || throw(ArgumentError("Sparse vector should have the same length as source for copy!"))
+    _is_fixed(dst) && return copyto!(dst, src)
     _dense2indval!(nonzeroinds(dst), nonzeros(dst), src)
     return dst
 end

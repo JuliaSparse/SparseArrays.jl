@@ -629,8 +629,8 @@ end
 ## Reshape
 
 function sparse_compute_reshaped_colptr_and_rowval!(colptrS::Vector{Ti}, rowvalS::Vector{Ti},
-                                                   mS::Int, nS::Int, colptrA::Vector{Ta},
-                                                   rowvalA::Vector{Ta}, mA::Int, nA::Int) where {Ti,Ta}
+                                                   mS::Int, nS::Int, colptrA::AbstractVector{Ta},
+                                                   rowvalA::AbstractVector{Ta}, mA::Int, nA::Int) where {Ti,Ta}
     lrowvalA = length(rowvalA)
     maxrowvalA = (lrowvalA > 0) ? maximum(rowvalA) : zero(Ta)
     ((length(colptrA) == (nA+1)) && (maximum(colptrA) <= (lrowvalA+1)) && (maxrowvalA <= mA)) || throw(BoundsError())
@@ -1091,6 +1091,7 @@ Checks compatibility of source argument `A` and destination argument `X`.
 """
 function _checkargs_sourcecompatdest_permute!(A::AbstractSparseMatrixCSC{Tv,Ti},
         X::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+    _is_fixed(X) && _readonly_error(getcolptr(X))
     if size(X, 1) != size(A, 1)
         throw(DimensionMismatch(string("destination argument `X`'s row count, ",
             "`size(X, 1) (= $(size(X, 1)))`, must match source argument `A`'s row count, `size(A, 1) (= $(size(A, 1)))`")))

@@ -1166,6 +1166,8 @@ function dropstored!(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     if !((1 <= i <= size(A, 1)) & (1 <= j <= size(A, 2)))
         throw(BoundsError(A, (i,j)))
     end
+    # a fixed pattern keeps the entry and stores a zero, as `dropstored!` of a fixed vector does
+    _is_fixed(A) && (A[i, j] = zero(eltype(A)); return A)
     coljfirstk = Int(getcolptr(A)[j])
     coljlastk = Int(getcolptr(A)[j+1] - 1)
     searchk = searchsortedfirst(view(rowvals(A), coljfirstk:coljlastk), i) + coljfirstk - 1
