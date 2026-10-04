@@ -414,7 +414,8 @@ end
 
 # AMD and COLAMD are the BSD-licensed ordering libraries of SuiteSparse, which every
 # build of Julia ships, with or without the GPL solvers.
-using .LibSuiteSparse: libcolamd, amd_order, amd_l_order
+using .LibSuiteSparse: amd_order, amd_l_order, colamd, colamd_l, colamd_recommended,
+    colamd_l_recommended, COLAMD_STATS
 
 # a block smaller than this is factored in its natural order: it cannot fill in much
 const _ORDERING_MIN_BLOCK = 16
@@ -425,22 +426,20 @@ const _ORDERING_DIAGONAL = 0.9
 # whether an entry of magnitude `a` may be the pivot of a column whose largest is `amax`
 @inline _acceptable(a, amax, tol::Float64) = !_iszero(a) && (tol == 1 ? a >= amax : a >= tol * amax)
 
-# COLAMD takes the row indices in a work array of the size it recommends and the column
-# pointers, both zero-based, and returns the column order in place of the pointers.
+# The entry points for the index type that matches `Int`. COLAMD takes the row indices
+# in a work array of the size it recommends and the column pointers, both zero-based, and
+# returns the column order in place of the pointers; a null pointer selects its default
+# knobs, and AMD's default control.
 @static if Int === Int64
-    _colamd_recommended(nz::Int, n::Int) =
-        @ccall libcolamd.colamd_l_recommended(nz::Int64, n::Int64, n::Int64)::Csize_t
+    _colamd_recommended(nz::Int, n::Int) = colamd_l_recommended(nz, n, n)
     _colamd!(n::Int, work::Vector{Int}, ptr::Vector{Int}, stats::Vector{Int}) =
-        @ccall libcolamd.colamd_l(n::Int64, n::Int64, length(work)::Int64, work::Ptr{Int64},
-                                  ptr::Ptr{Int64}, C_NULL::Ptr{Cdouble}, stats::Ptr{Int64})::Cint
+        colamd_l(n, n, length(work), work, ptr, C_NULL, stats)
     _amd!(n::Int, ptr::Vector{Int}, ind::Vector{Int}, perm::Vector{Int}) =
         amd_l_order(n, ptr, ind, perm, C_NULL, C_NULL)
 else
-    _colamd_recommended(nz::Int, n::Int) =
-        @ccall libcolamd.colamd_recommended(nz::Int32, n::Int32, n::Int32)::Csize_t
+    _colamd_recommended(nz::Int, n::Int) = colamd_recommended(nz, n, n)
     _colamd!(n::Int, work::Vector{Int}, ptr::Vector{Int}, stats::Vector{Int}) =
-        @ccall libcolamd.colamd(n::Int32, n::Int32, length(work)::Int32, work::Ptr{Int32},
-                                ptr::Ptr{Int32}, C_NULL::Ptr{Cdouble}, stats::Ptr{Int32})::Cint
+        colamd(n, n, length(work), work, ptr, C_NULL, stats)
     _amd!(n::Int, ptr::Vector{Int}, ind::Vector{Int}, perm::Vector{Int}) =
         amd_order(n, ptr, ind, perm, C_NULL, C_NULL)
 end
@@ -464,7 +463,7 @@ function _orderblocks!(p::Vector{Int}, q::Vector{Int}, A::AbstractSparseMatrixCS
     ptr = Int[]
     ind = Int[]
     perm = Int[]
-    stats = Vector{Int}(undef, 20)
+    stats = Vector{Int}(undef, COLAMD_STATS)
     @inbounds for b in 1:(length(bp) - 1)
         lo = bp[b]
         hi = bp[b + 1] - 1
