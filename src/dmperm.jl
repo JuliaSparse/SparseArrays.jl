@@ -2,8 +2,10 @@
 
 # Maximum matching and the Dulmage-Mendelsohn decomposition of the pattern of a sparse
 # matrix, after A. Pothen and C.-J. Fan, "Computing the block triangular form of a sparse
-# matrix", ACM Trans. Math. Softw. 16(4), 1990, pp. 303-324. Stored entries count as
-# nonzeros whatever their value.
+# matrix", ACM Trans. Math. Softw. 16(4), 1990, pp. 303-324, with the matching augmented
+# by the algorithm of J. E. Hopcroft and R. M. Karp, "An n^(5/2) algorithm for maximum
+# matchings in bipartite graphs", SIAM J. Comput. 2(4), 1973, pp. 225-231. Stored entries
+# count as nonzeros whatever their value.
 
 # the coarse part a row or column belongs to
 const _DM_SQUARE = 0
@@ -32,76 +34,114 @@ function _rowpattern(A::SparseMatrixCSCOrView)
     return rowptr, colind
 end
 
-# Search for an augmenting path from the unmatched column `c` by depth-first search along
-# alternating paths, visiting only rows not yet visited in this pass. Before descending
-# from a column its rows are scanned for an unmatched one (lookahead); `look` never moves
-# back, so that scan costs O(nnz) over the whole matching.
-function _augment!(A::SparseMatrixCSCOrView, c::Int, pass::Int, rowmatch::Vector{Int},
-                   colmatch::Vector{Int}, look::Vector{Int}, ptr::Vector{Int},
-                   visited::Vector{Int}, colstack::Vector{Int}, rowstack::Vector{Int})
+# One phase of the Hopcroft-Karp algorithm. A breadth-first search from the unmatched
+# columns along alternating paths gives each column it reaches its distance, `dist`, and
+# stops at the first layer, `limit`, that has an unmatched row next to it. Depth-first
+# searches from the unmatched columns then augment along a maximal set of vertex-disjoint
+# paths of that shortest length: they descend only to a column one layer further, and a
+# column they are done with leaves the layering. Returns whether the matching grew.
+function _hopcroftkarp!(A::SparseMatrixCSCOrView, unmatched::Vector{Int}, rowmatch::Vector{Int},
+                        colmatch::Vector{Int}, dist::Vector{Int}, ptr::Vector{Int},
+                        queue::Vector{Int}, rowstack::Vector{Int})
     rv = rowvals(A)
+    fill!(dist, -1)
+    tail = 0
+    @inbounds for c in unmatched
+        dist[c] = 0
+        tail += 1
+        queue[tail] = c
+    end
+    limit = typemax(Int)
     head = 1
-    @inbounds colstack[1] = c
-    @inbounds ptr[c] = first(nzrange(A, c))
-    @inbounds while head > 0
-        col = colstack[head]
-        stop = last(nzrange(A, col))
-        k = look[col]
-        row = 0
-        while k <= stop
-            i = rv[k]
-            k += 1
-            if rowmatch[i] == 0
-                row = i
-                break
+    @inbounds while head <= tail
+        col = queue[head]
+        head += 1
+        d = dist[col]
+        d >= limit && break
+        for k in nzrange(A, col)
+            c = rowmatch[rv[k]]
+            if c == 0
+                limit = d
+            elseif dist[c] < 0
+                dist[c] = d + 1
+                tail += 1
+                queue[tail] = c
             end
-        end
-        look[col] = k
-        if row != 0
-            for d in head:-1:1
-                cc = colstack[d]
-                rowmatch[row] = cc
-                colmatch[cc] = row
-                d > 1 && (row = rowstack[d - 1])
-            end
-            return true
-        end
-        k = ptr[col]
-        next = 0
-        while k <= stop
-            i = rv[k]
-            k += 1
-            if visited[i] != pass
-                visited[i] = pass
-                rowstack[head] = i
-                next = rowmatch[i]
-                break
-            end
-        end
-        ptr[col] = k
-        if next == 0
-            head -= 1
-        else
-            head += 1
-            colstack[head] = next
-            ptr[next] = first(nzrange(A, next))
         end
     end
-    return false
+    limit == typemax(Int) && return false
+    # the queue is free again, and holds the columns of the search path
+    @inbounds for root in unmatched
+        depth = 1
+        queue[1] = root
+        ptr[root] = first(nzrange(A, root))
+        while depth > 0
+            col = queue[depth]
+            d = dist[col]
+            stop = last(nzrange(A, col))
+            k = ptr[col]
+            row = 0
+            next = 0
+            while k <= stop
+                i = rv[k]
+                k += 1
+                c = rowmatch[i]
+                if c == 0
+                    if d == limit
+                        row = i
+                        break
+                    end
+                elseif d < limit && dist[c] == d + 1
+                    rowstack[depth] = i
+                    next = c
+                    break
+                end
+            end
+            ptr[col] = k
+            if row != 0
+                for t in depth:-1:1
+                    c = queue[t]
+                    dist[c] = -1
+                    rowmatch[row] = c
+                    colmatch[c] = row
+                    t > 1 && (row = rowstack[t - 1])
+                end
+                break
+            elseif next != 0
+                depth += 1
+                queue[depth] = next
+                ptr[next] = first(nzrange(A, next))
+            else
+                dist[col] = -1
+                depth -= 1
+            end
+        end
+    end
+    return true
 end
 
 # A maximum matching of the bipartite graph of `A`: `rowmatch[i]` is the column matched to
 # row `i` and `colmatch[j]` the row matched to column `j`, or 0. A cheap pass matches each
-# column to its first free row; passes of vertex-disjoint augmenting path searches then
-# run until one finds no path. O(n * nnz) in the worst case.
+# column to its diagonal entry or else to its first free row, which Pothen and Fan show
+# finds at least half of a maximum matching; Hopcroft-Karp phases then augment it, in
+# O(sqrt(n) * nnz) time in the worst case.
 function _maxmatching(A::SparseMatrixCSCOrView)
     m, n = size(A)
     rv = rowvals(A)
     rowmatch = zeros(Int, m)
     colmatch = zeros(Int, n)
-    look = Vector{Int}(undef, n)
     unmatched = Int[]
+    # a stored diagonal entry is matched first, which keeps what symmetry the pattern has
+    @inbounds for j in 1:min(m, n)
+        r = nzrange(A, j)
+        k = searchsortedfirst(rv, j, first(r), last(r), Forward)
+        if k <= last(r) && rv[k] == j
+            rowmatch[j] = j
+            colmatch[j] = j
+        end
+    end
     @inbounds for j in 1:n
+        colmatch[j] == 0 || continue
         r = nzrange(A, j)
         k = first(r)
         while k <= last(r) && rowmatch[rv[k]] != 0
@@ -110,31 +150,18 @@ function _maxmatching(A::SparseMatrixCSCOrView)
         if k <= last(r)
             rowmatch[rv[k]] = j
             colmatch[j] = rv[k]
-            k += 1
         else
             push!(unmatched, j)
         end
-        look[j] = k
     end
     isempty(unmatched) && return rowmatch, colmatch
+    dist = Vector{Int}(undef, n)
     ptr = Vector{Int}(undef, n)
-    visited = zeros(Int, m)
-    colstack = Vector{Int}(undef, n)
+    queue = Vector{Int}(undef, n)
     rowstack = Vector{Int}(undef, n)
-    pass = 0
-    while true
-        pass += 1
-        nleft = 0
-        @inbounds for t in eachindex(unmatched)
-            c = unmatched[t]
-            if !_augment!(A, c, pass, rowmatch, colmatch, look, ptr, visited, colstack, rowstack)
-                nleft += 1
-                unmatched[nleft] = c
-            end
-        end
-        found = nleft < length(unmatched)
-        resize!(unmatched, nleft)
-        (found && nleft > 0) || break
+    while _hopcroftkarp!(A, unmatched, rowmatch, colmatch, dist, ptr, queue, rowstack)
+        filter!(c -> @inbounds(colmatch[c]) == 0, unmatched)
+        isempty(unmatched) && break
     end
     return rowmatch, colmatch
 end
@@ -395,9 +422,9 @@ A square matrix is structurally nonsingular exactly when it has a square part on
 Its linear systems can then be solved one diagonal block at a time, from the last
 block to the first, which is what `\\` does for a sparse right-hand side.
 
-The algorithm is the one of Pothen and Fan [^PothenFan1990]: a maximum matching by
-depth-first search for augmenting paths, in O(`size(A, 2) * nnz(A)`) time in the worst
-case and usually close to O(`nnz(A)`), followed by searches that take O(`nnz(A)`).
+The algorithm is the one of Pothen and Fan [^PothenFan1990], with the maximum matching
+found by the Hopcroft-Karp algorithm in O(`sqrt(size(A, 2)) * nnz(A)`) time in the
+worst case and usually close to O(`nnz(A)`), followed by searches that take O(`nnz(A)`).
 
 [^PothenFan1990]: A. Pothen and C.-J. Fan, "Computing the block triangular form of a sparse matrix", ACM Transactions on Mathematical Software 16(4), 1990, pp. 303-324. [doi:10.1145/98267.98287](https://doi.org/10.1145/98267.98287)
 

@@ -42,8 +42,10 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
 - `linalg.jl` holds `dot`, `kron`, solves, norms and the LinearAlgebra wrappers.
 - `dmperm.jl` and `sparselu.jl` hold the solves written in Julia: the matching and
   block triangular form, and the sparse triangular solve and LU factorization behind
-  `\` with a sparse right-hand side. They need no SuiteSparse library, and their tests,
-  `test/dmperm.jl` and `test/sparselu.jl`, run on every build.
+  `\` with a sparse right-hand side. Of SuiteSparse they call only the ordering
+  libraries AMD and COLAMD, which are BSD-licensed and present on every build, GPL or
+  not, so they sit outside `src/solvers/`, and their tests, `test/dmperm.jl` and
+  `test/sparselu.jl`, run on every build.
 - The shared dispatch aliases live in `SparseArrays.jl`.
 - Test files are listed explicitly in `test/runtests.jl`.
 - Everything that depends on the GPL SuiteSparse libraries lives in `src/solvers/` and

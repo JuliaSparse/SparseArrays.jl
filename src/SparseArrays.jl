@@ -373,8 +373,6 @@ include("concatenation.jl")
 include("higherorderfns.jl")
 include("linalg.jl")
 include("matmul.jl")
-include("dmperm.jl")
-include("sparselu.jl")
 
 
 
@@ -386,6 +384,10 @@ end
 increment(A::AbstractArray{<:Integer}) = increment!(copy(A))
 
 include("solvers/LibSuiteSparse.jl")
+
+# the solves written in Julia; `sparselu.jl` calls the ordering libraries
+include("dmperm.jl")
+include("sparselu.jl")
 
 @static if Base.USE_GPL_LIBS
     include("solvers/umfpack.jl")

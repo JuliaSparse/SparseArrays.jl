@@ -49,7 +49,7 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   `sparsevector.jl` keeps the vector `axpy!` and `dot` tests. The `transpose`, `adjoint`
   and `permute` tests, including the in-place forms, live in `sparsematrix.jl`.
 - `dmperm.jl` and `sparselu.jl` cover the solves written in Julia, `dmperm`, `sprank`,
-  `SparseArrays.sparselu` and `\` with a sparse right-hand side. They use no SuiteSparse
+  `SparseArrays.sparselu` and `\` with a sparse right-hand side. They use no GPL
   library, so they are top-level suites and run on every build; the rectangular case,
   which goes through `qr`, is in `solvers/solvers.jl`.
 - Preserve issue references on regression tests.

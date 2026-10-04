@@ -59,6 +59,29 @@ end
     @test_throws SingularException sparselu(sparse(T[1 1; 1 1]))
 end
 
+@testset "sparselu: fill-reducing ordering" begin
+    # an arrow pointing the wrong way fills in completely in its natural order, and AMD,
+    # which `:auto` takes for a symmetric pattern, turns it around
+    n = 40
+    A = sparse([1:n; fill(1, n - 1); 2:n], [1:n; 2:n; fill(1, n - 1)], [fill(4.0, n); fill(1.0, 2n - 2)])
+    b = collect(1.0:n)
+    @test nnz(sparselu(A; ordering=:natural).L) == n * (n + 1) ÷ 2
+    for ordering in (:auto, :amd)
+        F = sparselu(A; ordering)
+        @test nnz(F.L) == 2n - 1
+        @test F.L * F.U ≈ A[F.p, F.q]
+        @test F \ b ≈ Matrix(A) \ b
+    end
+    # COLAMD on a grid
+    k = 12
+    T = sparse(SymTridiagonal(fill(2.0, k), fill(-1.0, k - 1)))
+    G = kron(T, sparse(I, k, k)) + kron(sparse(I, k, k), T)
+    F = sparselu(G; ordering=:colamd)
+    @test nnz(F.L) < 0.8 * nnz(sparselu(G; ordering=:natural).L)
+    @test F \ ones(k^2) ≈ Matrix(G) \ ones(k^2)
+    @test_throws ArgumentError sparselu(A; ordering=:metis)
+end
+
 @testset "sparse solves cost their reach" begin
     # a unit lower bidiagonal matrix and a right-hand side near the end: two columns apply
     for n in (20, 200)
@@ -107,6 +130,40 @@ end
     end
 end
 
+@testset "sparselu: orderings of large blocks" begin
+    rng = MersenneTwister(1990)
+    for _ in 1:40
+        n = rand(rng, 20:80)
+        T = rand(rng, STD_ELTYPES)
+        A = sprand(rng, T, n, n, 3 / n) + 4I
+        D = Matrix(A)
+        B = sprand(rng, T, n, 2, 0.1)
+        for ordering in (:auto, :colamd, :amd, :natural), tol in (1.0, 0.1)
+            F = sparselu(A; ordering, tol)
+            @test isperm(F.p) && isperm(F.q)
+            @test F.L * F.U ≈ A[F.p, F.q]
+            @test mismatch(F \ B, D \ Matrix(B); approx=true) === nothing
+        end
+    end
+    # `:auto` takes AMD when the diagonal entries are acceptable pivots, which depends on
+    # the tolerance, and COLAMD when they are not
+    pattern(d) = sparse([1:60; 2:60; 3:60; 1; 1; 2], [1:60; 1:59; 1:58; 60; 59; 60], [fill(d, 60); fill(1.0, 120)])
+    S = pattern(4.0)
+    @test sparselu(S).q == sparselu(S; ordering=:amd).q != sparselu(S; ordering=:colamd).q
+    W = pattern(0.5)
+    @test sparselu(W).q == sparselu(W; ordering=:amd).q
+    @test sparselu(W; tol=1).q == sparselu(W; ordering=:colamd, tol=1).q
+    W = pattern(0.05)
+    @test sparselu(W).q == sparselu(W; ordering=:colamd).q
+    @test sparselu(W) \ ones(60) ≈ Matrix(W) \ ones(60)
+    # the same orderings through the 32-bit index type of the matrix
+    A = SparseMatrixCSC{Float64,Int32}(sprand(rng, 50, 50, 0.1) + 4I)
+    for ordering in (:colamd, :amd)
+        F = sparselu(A; ordering)
+        @test F isa SparseLU{Float64,Int32} && F.L * F.U ≈ A[F.p, F.q]
+    end
+end
+
 @testset "sparselu: pruning changes the work, not the factors" begin
     # exact arithmetic, so that the order of the updates cannot show
     rng = MersenneTwister(1993)
@@ -142,8 +199,8 @@ end
     @test F.L * F.U ≈ A[F.p, F.q] && F \ [1.0, 2, 3] ≈ Matrix(A) \ [1.0, 2, 3]
     # the diagonal is kept when it is within `tol` of the largest entry
     A = sparse([1.0 2; 3 1e-3])
-    @test sparselu(sparse([1.0 0.5; 3 4]); tol=0.1).p == [1, 2]
-    @test sparselu(sparse([1.0 0.5; 3 4])).p == [2, 1]
+    @test sparselu(sparse([1.0 0.5; 3 4])).p == [1, 2]
+    @test sparselu(sparse([1.0 0.5; 3 4]); tol=1).p == [2, 1]
     @test_throws ArgumentError sparselu(A; tol=2)
     @test_throws DimensionMismatch sparselu(sprand(3, 4, 0.5))
     # numerically singular with a full structural rank, and a stored zero pivot

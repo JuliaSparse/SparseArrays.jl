@@ -59,14 +59,15 @@ size of `A`:
 * Diagonal or triangular: substitution over the entries that the nonzeros of each
   column of `B` reach in the graph of `A`.
 * Other square, Hermitian or not: [`SparseArrays.sparselu`](@ref), an LU
-  factorization written in Julia that does not need SuiteSparse. It permutes `A` to
-  block upper triangular form with [`dmperm`](@ref), factors the diagonal blocks, and
-  solves only the blocks that the nonzeros of each column of `B` reach.
+  factorization written in Julia that does not need the GPL-licensed solvers. It
+  permutes `A` to block upper triangular form with [`dmperm`](@ref), orders each
+  diagonal block with AMD or COLAMD to reduce fill, factors the blocks, and solves only
+  the blocks that the nonzeros of each column of `B` reach.
 * Rectangular: the dense solve above, converted to sparse.
 
 The solution is as sparse as `A` is reducible. When `A` has one irreducible block, as
 the matrix of a connected mesh does, every entry of the solution is stored, and
-`A \ Matrix(B)` is the better choice: `sparselu` applies no fill-reducing ordering.
+`A \ Matrix(B)` is the better choice.
 
 ```jldoctest
 julia> A = sparse([2.0 1 0 0; 1 2 0 0; 0 0 4 0; 0 0 1 5]);
