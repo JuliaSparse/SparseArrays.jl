@@ -91,6 +91,11 @@ columns and the reverse, and complex values that differ from their conjugates, w
 what it takes for a swapped dimension, a stored zero read as structural or a missing
 `conj` to change a result. They are of the types standard mode already compiles.
 
+**A testset owns its inputs.** Build them inside the testset: `A, Ad = fixturepair(T, m, n)`
+returns a fresh fixture and its dense copy. Do not keep arrays in module-level variables:
+any testset can write to them, and what a later testset then sees depends on which ran
+before it, which also changes when a testset is guarded.
+
 **A new test is guarded.** That covers a regression test for an issue and any additional
 case for code the standard tests already exercise. An unguarded test is only for new
 code, and is one representative case; its variations are guarded.

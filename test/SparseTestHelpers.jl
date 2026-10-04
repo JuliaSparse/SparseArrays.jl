@@ -13,7 +13,7 @@ export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     OneSided, Tagged, CustomType, UndefElt, Positive,
     check_trisolve, check_scalar_broadcast,
     show_plain, show_contents,
-    mismatch, fixture, fixturevec, FIXTURE_SHAPES
+    mismatch, fixture, fixturevec, fixturepair, FIXTURE_SHAPES
 
 using Test
 using LinearAlgebra: LinearAlgebra
@@ -417,5 +417,8 @@ function fixturevec(::Type{T}, n::Integer) where {T}
     I = [i for i in 1:n-1 if i % 3 != 0]
     return SparseArrays.sparsevec(I, T[i == 1 ? zero(T) : fixturevalue(T, i, 1) for i in I], n)
 end
+# a fixture and its dense copy, each call a fresh pair, so that a testset owns its inputs
+fixturepair(::Type{T}, m::Integer, n::Integer) where {T} = (A = fixture(T, m, n); (A, Matrix(A)))
+fixturepair(::Type{T}, n::Integer) where {T} = (x = fixturevec(T, n); (x, Vector(x)))
 
 end # module
