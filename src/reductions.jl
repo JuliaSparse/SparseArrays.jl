@@ -489,10 +489,11 @@ _mapreducerows!(pred::P, ::typeof(&), R::AbstractMatrix{Bool},
                 A::SparseMatrixCSCOrColumnSubset) where {P} = _mapreducerows!(!pred, |, R, A, !)
 
 # findmax/min and argmax/min methods
-# find first zero value in sparse matrix - return linear index in full matrix
-# non-structural zeros are identified by `iszero` in line with the sparse constructors.
+# find the first entry of the sparse matrix that is not stored - return its cartesian index
+# A stored zero is not one of them: it may be a `-0.0`, which `isless` tells from `zero(Tv)`,
+# so `_findr` compares it like any other stored value.
 function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=axes(A,1), cols=axes(A,2)) where {Tv,Ti}
-    rowval = rowvals(A); nzval = nonzeros(A)
+    rowval = rowvals(A)
     row = 0
     rowmin = rows[1]; rowmax = rows[end]
     allrows = (rows == axes(A,1))
@@ -504,7 +505,7 @@ function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=axes(A,1), cols=axes(A,2
             (r1 <= r2 ) && (r2 = searchsortedlast(view(rowval, r1:r2), rowmax) + r1 - 1)
         end
         row = rowmin
-        while (r1 <= r2) && (row == rowval[r1]) && _isnotzero(nzval[r1])
+        while (r1 <= r2) && (row == rowval[r1])
             r1 += 1
             row += 1
         end
@@ -532,6 +533,8 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
     zval = zero(Tv)
     szA = size(A)
 
+    # Dense finds the first of the entries that compare equal, so a stored value replaces the
+    # zero of an unstored entry it ties with when it comes before it.
     if region == 1 || region == (1,)
         (N == 0) && (return (fill(zval,1,n), fill(i1,1,n)))
         S = Vector{Tv}(undef, n); I = Vector{Ti}(undef, n)
@@ -543,7 +546,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
                 Sc = nzval[j]
             end
             for j = nzrange(A, i)
-                if op(nzval[j], Sc)
+                if op(nzval[j], Sc) || (rowval[j] < Ic[1] && !op(Sc, nzval[j]))
                     Sc = nzval[j]
                     Ic = CartesianIndex(rowval[j], i)
                 end
@@ -564,7 +567,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
         end
         @inbounds for i = 1 : n, j = nzrange(A, i)
             row = rowval[j]
-            if op(nzval[j], S[row])
+            if op(nzval[j], S[row]) || (i < I[row][2] && !op(S[row], nzval[j]))
                 S[row] = nzval[j]
                 I[row] = CartesianIndex(row, i)
             end
@@ -576,7 +579,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
         Sv = hasz ? zval : nzval[1]
         Iv::(Ti) = hasz ? _findz(A) : i1
         @inbounds for i = 1 : size(A, 2), j = nzrange(A, i)
-            if op(nzval[j], Sv)
+            if op(nzval[j], Sv) || (CartesianIndex(rowval[j], i) < Iv && !op(Sv, nzval[j]))
                 Sv = nzval[j]
                 Iv = CartesianIndex(rowval[j], i)
             end
