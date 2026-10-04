@@ -915,9 +915,9 @@ function lmul!(a::Number, x::SparseVectorOrView)
 end
 
 (*)(x::SparseVectorOrView, a::Number) =
-    @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), nonzeros(x) * a)
+    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) * a)
 (*)(a::Number, x::SparseVectorOrView) =
-    @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), a * nonzeros(x))
+    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), a * nonzeros(x))
 
 # * and mul!
 

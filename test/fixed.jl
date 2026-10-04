@@ -328,6 +328,19 @@ end
 end
 end
 
+@static if COMPREHENSIVE
+@testset "fixed arrays do not leak a MethodError from the read-only pattern" begin
+    A = sparse([4.0 1 0; 1 3 1; 0 1 5]); F = fixed(copy(A))
+    x = sparsevec([1, 3], [1.0, 2.0], 3); f = fixed(copy(x))
+    @test (f * 2)::FixedSparseVector == 2x && (2 * f)::FixedSparseVector == 2x && (f / 2)::FixedSparseVector == x / 2
+    @test SparseVector(fixed(A[:, 1:1]))::SparseVector == A[:, 1]
+    @test copy(reshape(F, 1, 9)) == reshape(A, 1, 9)
+    @test SparseArrays.dropstored!(F, 1, 1) === F && F[1, 1] == 0 && same_pattern(F, A)
+    @test copy!(f, [5.0, 0.0, 6.0]) === f && f == [5.0, 0.0, 6.0] && nonzeroinds(f) == [1, 3]
+    @test_throws ArgumentError permute!(fixed(copy(A)), A, [2, 1, 3], [1, 3, 2])
+end
+end
+
 always_false(x...) = false
 @testset "Test fkeep!" begin
     for a in [sprandn(10, 10, 0.99) + I, sprandn(10, 0.1) .+ 1]
