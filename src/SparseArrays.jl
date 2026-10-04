@@ -35,7 +35,7 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector, Abstract
     SparseMatrixCSC, SparseVector, blockdiag, droptol!, dropzeros!, dropzeros,
     issparse, nonzeros, nzrange, rowvals, sparse, sparsevec, spdiagm,
     sprand, sprandn, spzeros, nnz, indtype, permute, findnz,  fkeep!, ftranspose!,
-    sparse_hcat, sparse_vcat, sparse_hvcat, getcolptr, getrowval, getnzval
+    sparse_hcat, sparse_vcat, sparse_hvcat, getcolptr, getrowval, getnzval, dmperm, sprank
 
 public sparse!, spzeros!
 
@@ -151,6 +151,9 @@ const SparseVecOrMatMaybeAdjOrTrans = Union{SparseVecOrMat, AdjOrTrans{<:Any,<:S
 const SparseTriangular{Tv,Ti} = UpperOrLowerTriangular{Tv,<:SparseMatrixCSCOrView{Tv,Ti}}
 const SparseOrTri{Tv,Ti} = Union{SparseMatrixCSCOrView{Tv,Ti}, SparseTriangular{Tv,Ti}}
 const SparseMatrixCSCSymmHerm{Tv,Ti} = HermOrSym{Tv,<:SparseMatrixCSCOrView{Tv,Ti}}
+
+# right-hand sides for which a solve with a sparse matrix returns a sparse solution
+const SparseSolveRHS = Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, SparseVectorOrView}
 
 # dense operands of the sparse-dense kernels
 const DenseMatrixUnion = Union{StridedMatrix, BitMatrix}
@@ -370,6 +373,8 @@ include("concatenation.jl")
 include("higherorderfns.jl")
 include("linalg.jl")
 include("matmul.jl")
+include("dmperm.jl")
+include("sparselu.jl")
 
 
 

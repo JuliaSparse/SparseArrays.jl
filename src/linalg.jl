@@ -1398,6 +1398,50 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
     end
 end
 
+## `\` with a sparse right-hand side returns a sparse solution (kernels in sparselu.jl)
+
+# `A \ B` for a sparse `B`: substitution for a triangular `A`, `sparselu` for
+# any other square `A`. Each branch returns the same sparse type, so the result is
+# inferrable. A rectangular `A` goes through its dense-right-hand-side solve.
+function _sparse_rhs_solve(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCOrView)
+    require_one_based_indexing(A, B)
+    m, n = size(A)
+    size(B, 1) == m ||
+        throw(DimensionMismatch(lazy"the matrix has $m rows, but the right-hand side has $(size(B, 1))"))
+    T = _solve_eltype(eltype(A), eltype(B))
+    Ti = promote_type(indtype(A), _rhs_indtype(B))
+    if m == n
+        if istril(A)
+            return _sptrisolve(A, true, false, B, T, Ti)
+        elseif istriu(A)
+            return _sptrisolve(A, false, false, B, T, Ti)
+        end
+        return _lusolve(sparselu(A), B, T, Ti)
+    end
+    return convert(SparseMatrixCSC{T,Ti}, sparse(A \ Matrix(B)))
+end
+
+function \(A::AbstractSparseMatrixCSC, B::SparseSolveRHS)
+    return _rhs_shape(_sparse_rhs_solve(A, _rhs_matrix(B)), B)
+end
+for xformtype in (:Adjoint, :Transpose)
+    @eval function \(A::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::SparseSolveRHS)
+        return _rhs_shape(_sparse_rhs_solve(copy(A), _rhs_matrix(B)), B)
+    end
+end
+
+_tri_eltype(A::UnitUpperOrUnitLowerTriangular, B) =
+    LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))
+_tri_eltype(A, B) = _solve_eltype(eltype(A), eltype(B))
+
+function \(A::SparseTriangular, B::SparseSolveRHS)
+    Bm = _rhs_matrix(B)
+    X = _sptrisolve(parent(A), A isa LowerOrUnitLowerTriangular, A isa UnitUpperOrUnitLowerTriangular,
+                    Bm, _tri_eltype(A, Bm), promote_type(indtype(A), _rhs_indtype(Bm)))
+    return _rhs_shape(X, B)
+end
+\(A::SparseAdjOrTransTriangular, B::SparseSolveRHS) = _sptriangular(A) \ B
+
 _factorize_choice(F) = F
 _factorize_choice(H::Hermitian) = factorize(H)
 factorize(A::AbstractSparseMatrixCSC) = _sparse_factorize(_factorize_choice, A)
