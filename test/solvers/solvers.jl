@@ -36,6 +36,7 @@ end
     Random.seed!(1235)
     local A = sparse(reshape([1.0], 1, 1))
     @test cond(A, 1) == 1.0
+    @test cond(spzeros(0, 0), 1) === cond(zeros(0, 0), 1) && cond(spzeros(0, 0), Inf) === cond(zeros(0, 0), Inf)
     @test_throws ArgumentError cond(A,2)
     @test_throws ArgumentError cond(A,3)
     Arect = spzeros(10, 6)

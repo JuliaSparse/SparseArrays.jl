@@ -941,6 +941,8 @@ end
 
 # cond
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
+    # as for a dense matrix; the estimator of the inverse's norm needs at least one column
+    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(real(float(eltype(A))))
     if p == 1
         normAinv = opnormestinv(A)
         normA = opnorm(A, 1)
