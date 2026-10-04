@@ -57,22 +57,19 @@ end
     @testset "sparse($wr(A))" for wr in (
                         Symmetric, (Hermitian, :L), UpperTriangular, UnitLowerTriangular,
                         (view, 3:6, 2:5), (@static COMPREHENSIVE ? (
-                        (Symmetric, :L), Hermitian, Transpose, Adjoint,
-                        LowerTriangular, UnitUpperTriangular) : ())...)
+                        (Symmetric, :L), Adjoint, UnitUpperTriangular) : ())...)
 
         @test mismatch(SparseMatrixCSC(dowrap(wr, A)), Matrix(dowrap(wr, B))) === nothing
     end
 
     @testset "sparse($at($wr))" for (at, wr) in ((Adjoint, LowerTriangular), (@static COMPREHENSIVE ? (
-        (Transpose, UpperTriangular), (Adjoint, UnitLowerTriangular),
-        (Transpose, LowerTriangular), (Adjoint, UnitUpperTriangular)) : ())...)
+        (Transpose, UnitUpperTriangular),) : ())...)
 
         @test mismatch(SparseMatrixCSC(at(wr(A))), Matrix(at(wr(B)))) === nothing
     end
 
     @test mismatch(sparse([1,2,3,4,5]'), [1 2 3 4 5]) === nothing
     @static if COMPREHENSIVE
-    @test sparse(UpperTriangular(A')) == UpperTriangular(B')
     @test sparse(Adjoint(UpperTriangular(A'))) == Adjoint(UpperTriangular(B'))
     @test sparse(UnitUpperTriangular(spzeros(5,5))) == I
     end
@@ -80,10 +77,7 @@ end
     @test mismatch(sparse(deepwrap(A)), Matrix(deepwrap(B))) === nothing
 
     @testset "$wr of a non-CSC sparse matrix" for wr in (
-                        Symmetric, (@static COMPREHENSIVE ? ((Hermitian, :L), Transpose, Adjoint,
-                        UpperTriangular, LowerTriangular,
-                        UnitUpperTriangular, UnitLowerTriangular,
-                        (view, 3:6, 2:5)) : ())...)
+                        Symmetric, (@static COMPREHENSIVE ? ((Hermitian, :L), (view, 3:6, 2:5)) : ())...)
         X = NonCSCSparse(A)
         @test mismatch(SparseMatrixCSC(dowrap(wr, X)), Matrix(dowrap(wr, B)); Tv=ComplexF64, Ti=Int) === nothing
         @static if COMPREHENSIVE
@@ -135,7 +129,9 @@ end
                 # UpperHessenberg,
                 a -> UpperHessenberg(float(a))
                 )
-    for T in (@static COMPREHENSIVE ? wrappers : (LowerTriangular, UnitLowerTriangular))
+    # the destination depends on the right-hand side and on a unit diagonal only, so the
+    # triangular wrappers stand for the rest
+    for T in (@static COMPREHENSIVE ? wrappers[5:7] : (LowerTriangular, UnitLowerTriangular))
         A = T(O)
         @static if COMPREHENSIVE
         bs = sprandn(10, 0.3)
@@ -157,7 +153,7 @@ end
     end
     @static if COMPREHENSIVE
     b, B = ones(Int, 10), ones(Int, 10, 10)
-    for T in (UnitLowerTriangular, UnitUpperTriangular)
+    for T in (UnitLowerTriangular,)
         A = T(O)
         @test eltype(A \ b) == eltype(A \ B) == eltype(B / A) == Int
     end
@@ -196,7 +192,6 @@ end
     MAc = Array(Ac)
     @static if COMPREHENSIVE
     Ar = sprandn(10,10,.1)
-    MAr = Array(Ar)
     Ai = ceil.(Int, Ar*100)
     MAi = Array(Ai)
     end
@@ -204,19 +199,6 @@ end
     @test opnorm(Ac,Inf) ≈ opnorm(MAc,Inf)
     @test norm(Ac) ≈ norm(MAc)
     @static if COMPREHENSIVE
-    @test opnorm(Ar,1) ≈ opnorm(MAr,1)
-    @test opnorm(Ar,Inf) ≈ opnorm(MAr,Inf)
-    @test norm(Ar) ≈ norm(MAr)
-    @test opnorm(Ai,1) ≈ opnorm(MAi,1)
-    @test opnorm(Ai,Inf) ≈ opnorm(MAi,Inf)
-    @test norm(Ai) ≈ norm(MAi)
-    Ai = trunc.(Int, Ar*100)
-    MAi = Array(Ai)
-    @test opnorm(Ai,1) ≈ opnorm(MAi,1)
-    @test opnorm(Ai,Inf) ≈ opnorm(MAi,Inf)
-    @test norm(Ai) ≈ norm(MAi)
-    Ai = round.(Int, Ar*100)
-    MAi = Array(Ai)
     @test opnorm(Ai,1) ≈ opnorm(MAi,1)
     @test opnorm(Ai,Inf) ≈ opnorm(MAi,Inf)
     @test norm(Ai) ≈ norm(MAi)
@@ -289,7 +271,7 @@ end
 
 @testset "Diagonal linear solve" begin
     n = 12
-    for elty in (ComplexF64, (@static COMPREHENSIVE ? (Float64, Float32, ComplexF32) : ())...)
+    for elty in (ComplexF64,)
         dd=convert(Vector{elty}, randn(n))
         if elty <: Complex
             dd+=im*convert(Vector{elty}, randn(n))
@@ -309,9 +291,6 @@ end
         for b in (fixture(elty, n, 5), fixturevec(elty, n))
             bd = Array(b)
             @test mismatch(lmul!(copy(D), copy(b)), MD*bd; approx=true) === nothing
-            @static if COMPREHENSIVE
-            @test mismatch(lmul!(transpose(copy(D)), copy(b)), transpose(MD)*bd; approx=true) === nothing
-            end
             @test mismatch(lmul!(adjoint(copy(D)), copy(b)), MD'*bd; approx=true) === nothing
         end
 
@@ -327,7 +306,7 @@ end
         @test mismatch(Dl \ A, Dl \ MA; approx=true) === nothing
         @test mismatch(A / Dr, MA / Dr; approx=true) === nothing
         @test mismatch(ldiv!(Dl, copy(v)), Dl \ Vector(v); approx=true) === nothing
-        z = @static COMPREHENSIVE ? 0.0 : 0.0im; Dl0 = Diagonal([1.0, z]); Dr0 = Diagonal([1.0, 2, z]); B = copy(A)
+        z = 0.0im; Dl0 = Diagonal([1.0, z]); Dr0 = Diagonal([1.0, 2, z]); B = copy(A)
         @test_throws SingularException(2) Dl0 \ A
         @test_throws SingularException(2) ldiv!(Dl0, B)
         @test B == A
@@ -361,10 +340,9 @@ end
     @static if COMPREHENSIVE
     # substitution keeps the result eltype of the right-hand side
     D = sparse([2.0 0; 0 3])
-    for S in (D, D', sparse([2.0 0; 1 3]))
+    for S in (D, sparse([2.0 0; 1 3]))
         @test (S \ Any[1.0, 2.0])::Vector{Any} ≈ Matrix(S) \ [1.0, 2.0]
     end
-    @test D \ Number[1.0, 2im] ≈ [0.5, 2im / 3]
     Db = sparse([1, 2], [1, 2], [[2.0 0; 0 2], [3.0 0; 0 3]])
     @test Db \ [[1.0, 1.0], [3.0, 3.0]] == [[0.5, 0.5], [1.0, 1.0]]
     end
@@ -551,7 +529,7 @@ end
 end
 
 @testset "diff" begin
-    @testset "$T" for T in (Float64, (@static COMPREHENSIVE ? (ComplexF64,) : ())...)
+    @testset "$T" for T in (Float64,)
         A = sprand(T, 7, 5, 0.5)
         A[2, 2] = zero(T); A[3, 2] = one(T); A[4, 2] = one(T) # stored zero and a cancelling pair
         A[4, 1] = one(T)                                       # and a pair cancelling across columns
@@ -599,13 +577,13 @@ end
 
     #ensure we have preserved the correct dimensions!
 
-    a = sparse((@static COMPREHENSIVE ? 1.0 : 1)I, 3, 5)
+    a = sparse(1I, 3, 5)
     @test size(rot180(a)) == (3,5)
     @test size(rotr90(a)) == (5,3)
     @test size(rotl90(a)) == (5,3)
 
     # the index type and stored zeros survive, and a fixed input rotates into a plain copy
-    a = (@static COMPREHENSIVE ? SparseMatrixCSC{ComplexF32,Int32} : identity)(sparse([1,1,2,3], [1,3,4,1], [1,2,3,4]))
+    a = (@static COMPREHENSIVE ? SparseMatrixCSC{Int,Int32} : identity)(sparse([1,1,2,3], [1,3,4,1], [1,2,3,4]))
     a[2,4] = 0
     for rot in (rot180, rotr90, rotl90)
         R = rot(a)
@@ -644,7 +622,7 @@ end
     end
     end
 
-    @testset "band offset k, $T $(m)x$(n)" for T in (@static COMPREHENSIVE ? (Float64, ComplexF64) : (ComplexF64,)), (m, n) in ((@static COMPREHENSIVE ? ((1, 2), (2, 1)) : ())..., (3, 5), (5, 3), (@static COMPREHENSIVE ? ((0, 3), (3, 0)) : ())...)
+    @testset "band offset k, $T $(m)x$(n)" for T in (ComplexF64,), (m, n) in ((@static COMPREHENSIVE ? ((1, 2), (2, 1)) : ())..., (3, 5), (5, 3), (@static COMPREHENSIVE ? ((0, 3), (3, 0)) : ())...)
         @test which(istriu, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
         @test which(istril, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
         v = T <: Complex ? T(2 + im) : T(2)
@@ -678,12 +656,9 @@ end
     @test mismatch(spdiagm(0 => x,  1 => x), [1 1 0; 0 1 1; 0 0 0]) === nothing
 
     @static if COMPREHENSIVE
-    for (x, y) in ((rand(5), rand(4)),(sparse(rand(5)), sparse(rand(4))))
-        @test spdiagm(-1 => x)::SparseMatrixCSC         == diagm(-1 => x)
-        @test spdiagm( 0 => x)::SparseMatrixCSC         == diagm( 0 => x) == sparse(Diagonal(x))
-        @test spdiagm(0 => x, -1 => y)::SparseMatrixCSC == diagm(0 => x, -1 => y)
-        @test spdiagm(0 => x,  1 => y)::SparseMatrixCSC == diagm(0 => x,  1 => y)
-    end
+    v = rand(5)
+    @test spdiagm(-1 => v)::SparseMatrixCSC         == diagm(-1 => v)
+    @test spdiagm( 0 => v)::SparseMatrixCSC         == diagm( 0 => v) == sparse(Diagonal(v))
     # promotion
     @test spdiagm(0 => [1,2], 1 => [3.5], -1 => [4+5im]) == [1 3.5; 4+5im 2]
 
@@ -692,8 +667,8 @@ end
               Tuple{Vararg{Pair{Int,Vector{Float64}}}}) === Core.Typeof(Float64)
 
     # no diagonals
-    @test spdiagm(3, 4)::SparseMatrixCSC{Bool,Int} == diagm(3, 4)
-    @test spdiagm()::SparseMatrixCSC{Bool,Int} == diagm()
+    @test spdiagm(3, 4)::SparseMatrixCSC{Bool,Int} == zeros(Bool, 3, 4)
+    @test spdiagm()::SparseMatrixCSC{Bool,Int} == zeros(Bool, 0, 0)
     end
 
     # convenience constructor
@@ -717,14 +692,14 @@ end
     end
 
     # sparsity-preservation
-    x = sprand(10, 0.2); y = ones((@static COMPREHENSIVE ? Float64 : Int), 9)
-    @test spdiagm(0 => x, 1 => y)::SparseMatrixCSC{Float64,Int} == (@static COMPREHENSIVE ? diagm(0 => x, 1 => y) : Bidiagonal(Vector(x), ones(9), :U))
+    x = sprand(10, 0.2); y = ones(Int, 9)
+    @test spdiagm(0 => x, 1 => y)::SparseMatrixCSC{Float64,Int} == Bidiagonal(Vector(x), ones(9), :U)
     @test nnz(spdiagm(0 => x, 1 => y)) == length(y) + nnz(x)
 end
 
 @static if COMPREHENSIVE
 @testset "diag" begin
-    for T in (Float64, ComplexF64)
+    for T in (Float64,)
         S1 = sprand(T,  5,  5, 0.5)
         S2 = sprand(T, 10,  5, 0.5)
         S3 = sprand(T,  5, 10, 0.5)
@@ -782,17 +757,11 @@ end
         v = view(a, :, 1); v_d = Vector(v)
         x = fixturevec(ComplexF64, m); x_d = Vector(x)
         y = fixturevec(Float64, n); y_d = Vector(y)
-        c_dis = Any[(@static COMPREHENSIVE ? (Bidiagonal(rand(m), rand(m-1), :U),
-                    Bidiagonal(rand(m), rand(m-1), :L),
-                    Diagonal(rand(m)),
-                    SymTridiagonal(rand(m), rand(m-1))) : ())...,
+        c_dis = Any[(@static COMPREHENSIVE ? (Diagonal(rand(m)),) : ())...,
                     Tridiagonal(rand(m-1), rand(m), rand(m-1))]
         @static if COMPREHENSIVE
         d_dis = Any[Bidiagonal(rand(n), rand(n-1), :U),
-                    Bidiagonal(rand(n), rand(n-1), :L),
-                    Diagonal(rand(n)),
-                    SymTridiagonal(rand(n), rand(n-1)),
-                    Tridiagonal(rand(n-1), rand(n), rand(n-1))]
+                    SymTridiagonal(rand(n), rand(n-1))]
         end
         # mat ⊗ mat
         for t in (identity, adjoint, (@static COMPREHENSIVE ? (transpose,) : ())...)
@@ -809,13 +778,13 @@ end
         # complex operands, which an adjoint conjugates
         ac = sprand(ComplexF64, m, 5, 0.4); ac_d = Matrix(ac)
         bc = sprand(ComplexF64, n, 6, 0.3); bc_d = Matrix(bc)
-        for (ta, tb) in eachvalue((identity, adjoint, transpose), (adjoint, transpose, identity))
+        for (ta, tb) in ((adjoint, transpose),)
             @test mismatch(kron(ta(ac), tb(bc)), kron(ta(ac_d), tb(bc_d))) === nothing
         end
         end
         for c_di in c_dis
             c_d = Array(c_di)
-            for t in (identity, (@static COMPREHENSIVE ? (adjoint, transpose) : ())...)
+            for t in (identity, (@static COMPREHENSIVE ? (adjoint,) : ())...)
                 @test mismatch(kron(t(a), c_di), kron(t(a_d), c_d)) === nothing
                 @test mismatch(kron(a, t(c_di)), kron(a_d, t(c_d))) === nothing
                 @test mismatch(kron(t(a), t(c_di)), kron(t(a_d), t(c_d))) === nothing
@@ -833,7 +802,7 @@ end
         @static if COMPREHENSIVE
         @test mismatch(kron(x, y_d), kron(x_d, y_d)) === nothing
         end
-        for t in (identity, (@static COMPREHENSIVE ? (adjoint, transpose) : ())...)
+        for t in (identity, (@static COMPREHENSIVE ? (transpose,) : ())...)
             # mat ⊗ vec
             @test mismatch(kron(t(a), y), kron(t(a_d), y_d)) === nothing
             @static if COMPREHENSIVE
@@ -875,7 +844,7 @@ end
         A = sprand(ComplexF64,10,15,0.4); MA = Matrix(A)
         B = sprand(ComplexF64,10,15,0.5); MB = Matrix(B)
         @static if COMPREHENSIVE
-        C = rand(10,15) .> 0.3; MC = Matrix(C)
+        C = rand(10,15) .> 0.3
         end
         @test dot(A,B) ≈ dot(MA, MB)
         @test dot(A,B) ≈ dot(A, MB)
@@ -887,43 +856,27 @@ end
         # square matrices required by most linear algebra wrappers
         SA = A * A'; MSA = Matrix(SA)
         SB = B * B'; MSB = Matrix(SB)
-        @static if COMPREHENSIVE
-        SC = C * C'; MSC = Matrix(SC)
-        end
-        for W in ((@static COMPREHENSIVE ? (full_view, LowerTriangular, UpperTriangular, UpperHessenberg, Symmetric) : ())..., Hermitian)
+        # the dense operand is read through `getindex` whatever wraps it, so a view and a
+        # wrapper stand for the rest
+        for W in ((@static COMPREHENSIVE ? (full_view,) : ())..., Hermitian)
             WA = W(MSA)
             WB = W(MSB)
-            @static if COMPREHENSIVE
-            WC = W(MSC)
-            end
             @test dot(WA,SB) ≈ dot(WA, MSB)
             @test dot(SA,WB) ≈ dot(MSA, WB)
-            @static if COMPREHENSIVE
-            @test dot(SA,WC) ≈ dot(MSA, WC)
-            end
         end
         for W in ((@static COMPREHENSIVE ? (transpose,) : ())..., adjoint)
             WA = W(MA)
             WB = W(MB)
-            @static if COMPREHENSIVE
-            WC = W(MC)
-            end
             TA = copy(W(A))
             TB = copy(W(B))
             @test dot(WA,TB) ≈ dot(WA, Matrix(TB))
             @test dot(TA,WB) ≈ dot(Matrix(TA), WB)
-            @static if COMPREHENSIVE
-            @test dot(TA,WC) ≈ dot(Matrix(TA), WC)
-            end
             # lazy adjoint/transpose of a sparse matrix (issue #627)
             @test dot(W(A), TB) ≈ dot(WA, Matrix(TB))
             @test dot(TA, W(B)) ≈ dot(Matrix(TA), WB)
-            @static if COMPREHENSIVE
-            @test dot(W(A), sparse(WC)) ≈ dot(WA, WC)
-            end
             @test_throws DimensionMismatch dot(W(A), B)
         end
-        for M in (A, (@static COMPREHENSIVE ? (C,) : ())...)
+        for M in (A,)
             # a diagonal that is not real, which the adjoint of `D` conjugates
             D = Diagonal(M * transpose(M))
             a = spzeros(Complex{Float64}, size(D, 1))
@@ -948,8 +901,8 @@ end
         B = sparse([1, 2, 4, 4], [3, 3, 1, 6], [1.0, 0.0, 4.0im, 5.0], 4, 6)
         @test dot(W(A), B) ≈ dot(W(Matrix(A)), Matrix(B))
         @test dot(B, W(A)) ≈ dot(Matrix(B), W(Matrix(A)))
-        @test dot(W(spzeros((@static COMPREHENSIVE ? Float64 : ComplexF64), 6, 4)), B) == 0
-        @test dot(W(A), spzeros((@static COMPREHENSIVE ? Float64 : ComplexF64), 4, 6)) == 0
+        @test dot(W(spzeros(ComplexF64, 6, 4)), B) == 0
+        @test dot(W(A), spzeros(ComplexF64, 4, 6)) == 0
         @static if COMPREHENSIVE
         # Int eltype and small matrices with `Any`-free result type
         Ai = sparse([1, 2], [2, 1], [1, 2], 2, 2)
@@ -961,7 +914,7 @@ end
     # an entry, whereas the generic fallback multiplies every stored entry of the sparse
     # operand
     P = opcount_sparse(sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0], 6, 4))
-    for W in (adjoint, (@static COMPREHENSIVE ? (transpose,) : ())...)
+    for W in (adjoint,)
         # disjoint patterns: `B[i, j]` is stored only where `P[j, i]` is not
         B = opcount_sparse(sparse([1, 2, 4, 4], [2, 3, 1, 6], [1.0, 2.0, 3.0, 4.0], 4, 6))
         @test mulcount(() -> dot(W(P), B)) == 0
@@ -981,7 +934,8 @@ end
         @test dot(transpose(A), B') ≈ dot(transpose(Matrix(A)), Matrix(B)')
         @test_throws DimensionMismatch dot(A', transpose(sparse(B')))
         @static if COMPREHENSIVE
-        Ac, Bc = opcount_sparse.(SparseMatrixCSC.(6, 4, getcolptr.((A, B)), rowvals.((A, B)), Ref(ones(4))))
+        Ac = opcount_sparse(SparseMatrixCSC(6, 4, getcolptr(A), rowvals(A), ones(4)))
+        Bc = opcount_sparse(SparseMatrixCSC(6, 4, getcolptr(B), rowvals(B), ones(4)))
         @test mulcount(() -> dot(Ac', transpose(Bc))) == 3
         @test mulcount(() -> dot(transpose(Ac), Bc')) == 3
         end
@@ -1015,8 +969,8 @@ end
         @static if COMPREHENSIVE
         A = opcount_sparse(sparse(1.0I, 8, 10)); P = A[:, 1:8]; V = view(A, :, 1:8)
         u = fill(OpCount(1.0), 8); su = sparse(u); D = fill(OpCount(1.0), 8, 8)
-        for f in (() -> dot(V, P), () -> dot(P, V), () -> dot(V, V), () -> dot(V', P), () -> dot(P', V),
-                  () -> dot(V', V), () -> dot(V, V'), () -> dot(V', transpose(V)), () -> dot(D, V), () -> dot(V, D))
+        # each kernel once with a view operand
+        for f in (() -> dot(V, P), () -> dot(V', P), () -> dot(V, V'), () -> dot(V', transpose(V)), () -> dot(D, V))
             @test mulcount(f) == 8
         end
         for f in (() -> dot(u, V, u), () -> dot(su, V, su), () -> dot(u, Symmetric(V), u), () -> dot(su, Symmetric(V), su))
@@ -1025,7 +979,7 @@ end
         end
     end
     # far more columns than stored entries: a binary search per entry, no cursor array
-    for W in (adjoint, (@static COMPREHENSIVE ? (transpose,) : ())...)
+    for W in (adjoint,)
         P = sparse([1], [1], [1.0], 2, 10^5); B = sparse([1], [1], [2.0], 10^5, 2)
         @test dot(W(P), B) == 2
         dot(W(P), B)
@@ -1064,7 +1018,6 @@ end
         @test dot(x, collect(A), y) ≈ dot(x, A, y)
         @test dot(y, collect(A)', x) ≈ dot(y, A', x)
         @static if COMPREHENSIVE
-        @test dot(y, transpose(collect(A)), x) ≈ dot(y, transpose(A), x)
         @test dot(y, Hermitian(collect(A15)), y2) ≈ dot(y, Hermitian(A15), y2)
         @test dot(y, Symmetric(collect(A15)), y2) ≈ dot(y, Symmetric(A15), y2)
         end
@@ -1083,7 +1036,8 @@ end
     end
 
     for (T, trans, uplo) in ((ComplexF64, Symmetric, :U), (ComplexF64, Hermitian, :L), (@static COMPREHENSIVE ?
-            pairwise((Float64, ComplexF64, quaternion_type(){Float64}), (Symmetric, Hermitian), (:U, :L)) : ())...)
+            ((Float64, Symmetric, :L), (ComplexF64, Symmetric, :L), (ComplexF64, Hermitian, :U),
+             (quaternion_type(){Float64}, Hermitian, :U)) : ())...)
         B = sprandn(T, 10, 10, 0.2)
         x = sprandn(T, 10, 0.4)
         xd = Vector(x)

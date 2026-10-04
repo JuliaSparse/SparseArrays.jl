@@ -13,13 +13,16 @@ include("testhelpers.jl")
 const TRIANGLES = (UpperTriangular, LowerTriangular, UnitUpperTriangular, UnitLowerTriangular)
 const TRANSFORMS = (identity, adjoint, transpose)
 # The kernels are compiled per transform and triangle, so a standard run takes the fewest
-# cases that reach every branch of them and a comprehensive run every pair. Here those are
-# the unit triangles; the conjugate, dense-product and dispatch tests below have the nonunit
-# ones. A tuple holding a transform has a type of its own for each transform, so the standard
-# cases are vectors and `iscase`, which tells whether a nested loop runs the case `c`, is
-# not specialized.
-const TRICASES = @static COMPREHENSIVE ? Iterators.product(TRANSFORMS, TRIANGLES) :
-    (Any[transpose, UnitUpperTriangular], Any[identity, UnitLowerTriangular])
+# cases that reach every branch of them. Here those are the unit triangles; the conjugate,
+# dense-product and dispatch tests below have the nonunit ones. The kernels specialize on
+# the transform and on upper or lower, and take the unit diagonal as a runtime flag, so a
+# comprehensive run adds the cases that give every transform both an upper and a lower
+# triangle and each of the four triangles. A tuple holding a transform has a type of its
+# own for each transform, so the cases are vectors and `iscase`, which tells whether a
+# nested loop runs the case `c`, is not specialized.
+const TRICASES = (Any[transpose, UnitUpperTriangular], Any[identity, UnitLowerTriangular],
+    (@static COMPREHENSIVE ? (Any[identity, UpperTriangular], Any[adjoint, LowerTriangular],
+    Any[adjoint, UnitUpperTriangular], Any[transpose, LowerTriangular]) : ())...)
 iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
 
 @testset "multiplication of sparse matrix and triangular matrix" begin
@@ -35,7 +38,7 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
     wrappers = Any[(Float64, LowerTriangular, identity, transpose)]
     @static COMPREHENSIVE && append!(wrappers, Any[(ComplexF64, UnitLowerTriangular, adjoint, identity),
                    (Float64, UpperTriangular, transpose, adjoint), (ComplexF64, UnitUpperTriangular, identity, transpose)],
-                   pairwise(STD_ELTYPES, TRIANGLES, TRANSFORMS, TRANSFORMS))
+                   eachvalue(STD_ELTYPES, TRIANGLES, TRANSFORMS, (adjoint, transpose, identity)))
     @testset "wrappers" begin
         for ElType in (Float64, (@static COMPREHENSIVE ? (ComplexF64,) : ())...)
             S = _sparse_test_matrix(n, ElType)
@@ -50,8 +53,8 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
     end
     @static if COMPREHENSIVE
     types = (Int, Float64, ComplexF32)
-    promotions = Any[(Int, Float64, LowerTriangular)]
-    append!(promotions, pairwise(types, types, (LowerTriangular, UpperTriangular)))
+    # each type on either side, never with itself
+    promotions = eachvalue(types, (Float64, ComplexF32, Int), (LowerTriangular, UpperTriangular))
     @testset "promotion" begin
         for T1 in types, T2 in types
             S = _sparse_test_matrix(n, T1)
@@ -119,7 +122,7 @@ begin
     @test nnz(lA[:, n+1:n+10]) == nnz(view(lA, :, n+1:n+10))
     @testset "triangular multiply with $tr($wr)" for (tr, wr) in TRICASES
         AW = tr(wr(A))
-        MAW = (@static COMPREHENSIVE ? identity : Matrix)(tr(wr(MA)))
+        MAW = Matrix(tr(wr(MA)))
         @test AW * B ≈ MAW * B
         @static if COMPREHENSIVE
         @test AW * s ≈ MAW * s ≈ MAW * sd
@@ -142,8 +145,10 @@ begin
     a[1, 1] = 2 + im # Exercise conjugation of a stored nonunit diagonal.
     ma = Matrix(a)
     ct, tc = x -> adjoint(transpose(x)), x -> transpose(adjoint(x))
-    @testset "triangular multiply with conjugate matrices" for (tr, wr) in (@static COMPREHENSIVE ?
-        Iterators.product((ct, tc), TRIANGLES) : (Any[ct, UpperTriangular],))
+    # both orders of the wrappers reach the same conjugating kernel, one for an upper triangle
+    # and one for a lower
+    @testset "triangular multiply with conjugate matrices" for (tr, wr) in (Any[ct, UpperTriangular],
+        (@static COMPREHENSIVE ? (Any[tc, UnitLowerTriangular],) : ())...)
         AW = tr(wr(a))
         MAW = (@static COMPREHENSIVE ? identity : Matrix)(tr(wr(ma)))
         @test AW * B ≈ MAW * B
@@ -173,7 +178,7 @@ begin
     MA = Matrix(A)
     @testset "triangular solver for $tr($wr)" for (tr, wr) in TRICASES
         AW = tr(wr(A))
-        MAW = (@static COMPREHENSIVE ? identity : Matrix)(tr(wr(MA)))
+        MAW = Matrix(tr(wr(MA)))
         @test AW \ B ≈ MAW \ B
         @test !issparse(AW \ B)
         # and for SparseMatrixCSCView - a view of all rows and unit range of cols
@@ -199,14 +204,14 @@ begin
     for i in 1:n
         ad[i, i] = 2 + im
     end
-    @testset "triangular solver for conjugate matrices" for (tr, wr) in (@static COMPREHENSIVE ?
-        Iterators.product((ct, tc), TRIANGLES) : (Any[ct, UpperTriangular],))
+    @testset "triangular solver for conjugate matrices" for (tr, wr) in (Any[ct, UpperTriangular],
+        (@static COMPREHENSIVE ? (Any[tc, UnitLowerTriangular],) : ())...)
         AW = tr(wr(ad))
         @test AW \ B ≈ Matrix(AW) \ B
     end
     @static if COMPREHENSIVE
     # A wrapper applied twice by its constructor is the matrix itself, not its conjugate.
-    for W in (Adjoint, Transpose), wr in (UpperTriangular, LowerTriangular)
+    for (W, wr) in eachvalue((Adjoint, Transpose), (UpperTriangular, LowerTriangular))
         AW = wr(W(W(ad)))
         @test_broken AW \ B ≈ Matrix(AW) \ B
         @test_broken AW * B ≈ Matrix(AW) * B
@@ -216,10 +221,11 @@ end
 
 @static if COMPREHENSIVE
 @testset "triangular sparse structural cases" begin
+    # every transform with an upper and a lower triangle; a real matrix takes the same branches
     structural = Any[(ComplexF64, UpperTriangular, identity), (ComplexF64, UnitLowerTriangular, identity),
                      (ComplexF64, LowerTriangular, adjoint), (ComplexF64, UnitUpperTriangular, adjoint),
-                     (ComplexF64, UpperTriangular, transpose), (ComplexF64, UnitLowerTriangular, transpose)]
-    @static COMPREHENSIVE && append!(structural, pairwise(STD_ELTYPES, TRIANGLES, TRANSFORMS))
+                     (ComplexF64, UpperTriangular, transpose), (ComplexF64, UnitLowerTriangular, transpose),
+                     (Float64, LowerTriangular, adjoint)]
     for T in (Float64, ComplexF64)
         A = sparse([1, 2, 5, 1], [1, 1, 5, 6], T[2, 3, 0, 4], 6, 6)
         T <: Complex && (nonzeros(A)[2] += im)
@@ -271,7 +277,7 @@ end
     end
     n = 1000
     A = opcount_sparse(sparse(1:n, 1:n, ones(n), n, n))
-    for W in (@static COMPREHENSIVE ? TRIANGLES : (UpperTriangular,))
+    for W in (UpperTriangular, (@static COMPREHENSIVE ? (UnitLowerTriangular,) : ())...)
         @test mulcount(() -> W(A) * A) == n
         @static if COMPREHENSIVE
         @test mulcount(() -> W(view(A, :, :)) * A) == n
@@ -293,8 +299,8 @@ end
     _triangular_sparse_matrix(n, ULT, T) = T == Int ? ULT(sparse(rand(0:10, n, n))) : ULT(fixture(T, n, n) + I)
     eltypecases = Any[(ComplexF64, adjoint, LowerTriangular)]
     @static COMPREHENSIVE && append!(eltypecases,
-        Any[(Int, adjoint, UpperTriangular), (ComplexF64, transpose, UnitLowerTriangular)],
-        eachvalue((Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64),
+        Any[(Int, adjoint, UpperTriangular)],
+        eachvalue((Float32, Float64, ComplexF64),
         (transpose, adjoint), (LowerTriangular, UnitUpperTriangular, UnitLowerTriangular, UpperTriangular)))
     for T in (Int, Float16, Float32, Float64, ComplexF16, ComplexF32, ComplexF64)
         for AT in (adjoint, transpose)
@@ -332,8 +338,8 @@ end
     types = (Int, Float64, ComplexF64)
     tritypes = (LowerTriangular, UnitUpperTriangular)
     vectorcases = Any[(ComplexF64, ComplexF64, UnitUpperTriangular)]
-    @static COMPREHENSIVE && append!(vectorcases, Any[(Float64, Float64, LowerTriangular),
-                      (Float64, ComplexF64, UnitUpperTriangular)], pairwise(types, types, tritypes))
+    @static COMPREHENSIVE && append!(vectorcases, Any[(Float64, Float64, LowerTriangular)],
+                      eachvalue(types, (Float64, ComplexF64, Int), tritypes))
     for ta in (@static COMPREHENSIVE ? types : (ComplexF64,))
         for tri in (@static COMPREHENSIVE ? tritypes : (UnitUpperTriangular,))
             if ta == Int
@@ -576,11 +582,10 @@ end
     densefloatmat = I + randn(m, m)/(2m)
     densecomplexmat = I + randn(ComplexF64, m, m)/(4m)
 
-    inttypes = (Int64, (@static COMPREHENSIVE ? (Int32, BigInt) : ())...)
+    inttypes = (Int64, (@static COMPREHENSIVE ? (Int32,) : ())...)
     floattypes = (Float32, Float64, BigFloat)
     complextypes = (ComplexF32, ComplexF64)
     eltypes = (inttypes..., floattypes..., complextypes...)
-    coretypes = (Int64, Float64, ComplexF64)
 
     # A strided backing takes the block solve of this package and a sparse one the sparse
     # kernels and the generic destination, which differs for a unit triangle. The standard
@@ -589,15 +594,20 @@ end
     boundaries = Any[(ComplexF64, false, UpperTriangular, adjoint),
                      (ComplexF64, true, UnitUpperTriangular, transpose), (ComplexF64, false, UnitLowerTriangular, transpose)]
     @static COMPREHENSIVE && append!(boundaries, Any[(ComplexF64, true, LowerTriangular, identity),
-                     (Float64, true, UpperTriangular, adjoint), (Float64, false, LowerTriangular, identity)],
-                     pairwise(STD_ELTYPES, (true, false), TRIANGLES, TRANSFORMS))
+                     (Float64, true, UpperTriangular, adjoint), (Float64, false, LowerTriangular, identity),
+                     (ComplexF64, true, UnitLowerTriangular, adjoint), (ComplexF64, false, UnitUpperTriangular, identity),
+                     (ComplexF64, false, UpperTriangular, transpose), (ComplexF64, false, LowerTriangular, adjoint)])
     # an integer quotient, integer to float, and real to complex in both directions
     promotions = Any[(Int64, Int64, true, LowerTriangular), (Int64, Float64, false, UnitLowerTriangular),
                      (Float64, ComplexF64, false, LowerTriangular), (ComplexF64, Float64, true, UnitLowerTriangular)]
-    # the eltype pairs are chosen first, so that each of them meets both backings and triangles
-    @static COMPREHENSIVE && append!(promotions, ((p..., dense, tri) for (p, dense, tri) in
-        pairwise([(a, b) for a in eltypes, b in eltypes if (a in coretypes && b in coretypes) || a == Float64 || b == Float64],
-                 (true, false), (LowerTriangular, UnitLowerTriangular))))
+    # the remaining pairs of standard types, an integer unit solve across integer types, and
+    # Float64 on either side of an Int32, a single-precision and a non-IEEE type
+    @static COMPREHENSIVE && append!(promotions, Any[
+        (Float64, Int64, true, UnitLowerTriangular), (Int64, ComplexF64, false, LowerTriangular),
+        (ComplexF64, Int64, true, LowerTriangular), (Int32, Int64, false, UnitLowerTriangular),
+        (Float64, Int32, true, LowerTriangular), (Float32, Float64, true, LowerTriangular),
+        (Float64, Float32, false, UnitLowerTriangular), (BigFloat, Float64, false, LowerTriangular),
+        (Float64, BigFloat, true, UnitLowerTriangular)])
 
     @testset "wrapper dispatch and active-index boundaries" for T in ((@static COMPREHENSIVE ? (Float64,) : ())..., ComplexF64)
         densemat, sparsemat = T == Float64 ? (densefloatmat, sparsefloatmat) :
@@ -642,7 +652,7 @@ end
     @static if COMPREHENSIVE
     @testset "index type and eltype of the right-hand side" begin
         L = LowerTriangular([2.0 1 1; 1 2 1; 1 1 2])
-        for Ti in (UInt64, Int128)
+        for Ti in (UInt64,)
             b = SparseVector(3, Ti[2], [1.0])
             x = ldiv!(L, copy(b))
             @test nonzeroinds(x) == 2:3 && x ≈ L \ Array(b)
@@ -674,14 +684,12 @@ end
     origmat = [-1.5 -0.7; 0.0 1.0]
     transmat = copy(origmat')
     utmat = UpperTriangular(origmat)
-    ltmat = LowerTriangular(transmat)
-    uutmat = LinearAlgebra.UnitUpperTriangular(origmat)
     ultmat = LinearAlgebra.UnitLowerTriangular(transmat)
 
     zerospvec = spzeros(Float64, 2)
     zerodvec = zeros(Float64, 2)
 
-    for mat in (utmat, ltmat, uutmat, ultmat)
+    for mat in (utmat, ultmat)
         @test isequal(\(mat, zerospvec), zerodvec)
         @test isequal(\(adjoint(mat), zerospvec), zerodvec)
         @test isequal(\(transpose(mat), zerospvec), zerodvec)

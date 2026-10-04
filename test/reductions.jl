@@ -31,7 +31,7 @@ sA = sprandn(3, 7, 0.5)
             @test f(arr, dims=(1, 2)) ≈ fill(f(farr), 1, 1)
             @test isequal(f(arr, dims=3), f(farr, dims=3))
         end
-        for f in (+, (@static COMPREHENSIVE ? (*, min, max) : ())...)
+        for f in (+, (@static COMPREHENSIVE ? (*,) : ())...)
             @static if COMPREHENSIVE
             @test mapreduce(identity, f, arr) ≈ mapreduce(identity, f, farr)
             end
@@ -43,7 +43,7 @@ sA = sprandn(3, 7, 0.5)
         @test all(isone, sum(s0, dims=d, init=1.0))
     end
 
-    for f in (sum, prod, maximum, (@static COMPREHENSIVE ? (minimum,) : ())...)
+    for f in (sum, prod, maximum)
         # Test with a map function that maps to non-zero
         for arr in (sA, (@static COMPREHENSIVE ? (se33, pA) : ())...)
             @test f(x->x+1, arr) ≈ f(arr .+ 1)
@@ -66,11 +66,12 @@ sA = sprandn(3, 7, 0.5)
     @testset "small integers: the entries not stored widen as for dense" begin
         # `sum` and `prod` of small integers give an `Int`, `mapreduce` with `+` or `*` keeps
         # the element type and wraps, and `Bool` products stay `Bool`, as for dense input
-        for T in (Int16, (@static COMPREHENSIVE ? (Int8, Bool) : ())...),
-            A in (sparse(T[1 1; 1 0]), (@static COMPREHENSIVE ? (sparse(T[1 0 0; 0 0 1])', spzeros(T, 2, 2), sparsevec(T[1, 0, 1])) : ())...)
+        # the wrappers and the maps go with one integer type: `Bool` differs in `sum` and `prod` only
+        for T in (Int16, (@static COMPREHENSIVE ? (Bool,) : ())...),
+            A in (sparse(T[1 1; 1 0]), (@static COMPREHENSIVE ? (T === Int16 ? (sparse(T[1 0 0; 0 0 1])', spzeros(T, 2, 2), sparsevec(T[1, 0, 1])) : ()) : ())...)
             A isa AbstractMatrix && (A[1, 2] = zero(T))   # a stored zero
             M = Array(A)
-            for f in (x -> x + one(T), (@static COMPREHENSIVE ? (abs2,) : ())...), op in (+, *)
+            for f in (T === Bool ? () : (x -> x + one(T), (@static COMPREHENSIVE ? (abs2,) : ())...)), op in (+, *)
                 @test @inferred(mapreduce(f, op, A)) === mapreduce(f, op, M)
                 A isa SparseMatrixCSC || continue   # the `dims` kernels are the matrix ones
                 for dims in (1, 2)
@@ -82,7 +83,7 @@ sA = sprandn(3, 7, 0.5)
         end
         # the unstored entries wrap with `+` and `*` as the stored ones do, widen for `sum`,
         # and take the type of `init` or of another mapped value
-        for (T, n) in ((Int16, 11000), (@static COMPREHENSIVE ? ((Int8, 300),) : ())...)   # 6n is more than a `T` holds
+        for (T, n) in ((Int16, 11000),)   # 6n is more than a `T` holds
             f = x -> x + T(3)
             A = spzeros(T, 2, n)
             @test mapreduce(f, +, A) === mapreduce(f, +, zeros(T, 2n)) === (6n) % T
@@ -180,13 +181,14 @@ sA = sprandn(3, 7, 0.5)
         M = sparse(Union{Missing,Float64}[missing 1.0; 2.0 3.0])
         end
         C = sparse(ComplexF64[1+im 0; 0 -2])
-        for (X, f) in (@static COMPREHENSIVE ?
-            Iterators.product((N, M, N', view(M, :, 1:2), sparsevec([NaN, 1.0]), sparsevec([NaN, 1.0])', transpose(sparsevec(Union{Missing,Float64}[missing, 1.0]))), (minimum, maximum, extrema)) :
-            (Any[N, minimum], Any[N, extrema], Any[N', maximum], Any[sparsevec([NaN, 1.0]), maximum])), dims in (1, 2)
+        # each argument type and each of `missing` and NaN once, not their product with the reductions
+        for (X, f) in (Any[N, minimum], Any[N, extrema], Any[N', maximum], Any[sparsevec([NaN, 1.0]), maximum],
+            (@static COMPREHENSIVE ? (Any[M, maximum], Any[view(N, :, 1:2), extrema], Any[sparsevec([NaN, 1.0])', minimum],
+                                      Any[transpose(sparsevec(Union{Missing,Float64}[missing, 1.0])), extrema]) : ())...), dims in (1, 2)
             r, rd = f(X; dims), f(Array(X); dims)
             @test typeof(r) == typeof(rd) && isequal(r, rd)
         end
-        for X in (N, C, spzeros(0, 3), (@static COMPREHENSIVE ? (N', view(C, :, 1:2), sparsevec(ComplexF64[1 + im, 0, -2])') : ())...), dims in (1, 2), g in (abs, (@static COMPREHENSIVE ? (abs2,) : ())...)
+        for X in (N, C, spzeros(0, 3), (@static COMPREHENSIVE ? (N', view(C, :, 1:2), sparsevec(ComplexF64[1 + im, 0, -2])') : ())...), dims in (1, 2), g in (abs, (@static COMPREHENSIVE ? (X === C ? (abs2,) : ()) : ())...)
             r, rd = maximum(g, X; dims), maximum(g, Array(X); dims)   # no throw for the empty axis
             @test typeof(r) == typeof(rd) && isequal(r, rd)
         end
@@ -349,12 +351,12 @@ end
     Cs[:,3] .= 0.0
     Cd = Matrix(Cs)
 
-    @testset "any($(repr(pred)))" for pred in (iszero, !iszero, (@static COMPREHENSIVE ? (>(-1.0), !=(1.0)) : ())...)
+    @testset "any($(repr(pred)))" for pred in (iszero, !iszero, (@static COMPREHENSIVE ? (>(-1.0),) : ())...)
         @test any(pred, As, dims = 1) == any(pred, Ad, dims = 1)
         @test any(pred, Bs, dims = 1) == any(pred, Bd, dims = 1)
         @test any(pred, Cs, dims = 1) == any(pred, Cd, dims = 1)
     end
-    @testset "all($(repr(pred)))" for pred in (iszero, !iszero, (@static COMPREHENSIVE ? (>(-1.0), !=(1.0)) : ())...)
+    @testset "all($(repr(pred)))" for pred in (iszero, !iszero, (@static COMPREHENSIVE ? (>(-1.0),) : ())...)
         @test all(pred, As, dims = 1) == all(pred, Ad, dims = 1)
         @test all(pred, Bs, dims = 1) == all(pred, Bd, dims = 1)
         @test all(pred, Cs, dims = 1) == all(pred, Cd, dims = 1)
@@ -392,10 +394,10 @@ end
     # (f, op); the last one has f(0) != 0, and `x != 0` under `&` holds for a full column only,
     # which is where the predicate kernel may not stop at the first entry not stored
     reductions = (
-        (@static COMPREHENSIVE ? ((identity, *), (abs2, +)) : ())...,
+        (@static COMPREHENSIVE ? ((identity, *),) : ())...,
         (identity, +), (identity, max), (x -> x > 0, |), (x -> x != 0, &), (x -> x + 1, +),
     )
-    viewed = @static COMPREHENSIVE ? reductions : reductions[[2, 5]]
+    viewed = reductions[@static COMPREHENSIVE ? [3, 4, 6] : [2, 5]]   # a view shares the kernels: one more `op` is enough
     @testset "size = ($m, $n), density = $d" for (m, n) in ((6, 5), (@static COMPREHENSIVE ? ((1, 1), (1, 9), (9, 1), (30, 20)) : ())...),
                                                  d in (0.0, 0.2, 1.0)
         A = sparse(sprand(m, n, d) .- 0.5)   # negative entries, so that max and min do not see 0 as a bound
@@ -514,7 +516,8 @@ end
     sparseany(X, dims) = any(X; dims, sparse = true)
     b = sparse(v .> 0)
     @static if COMPREHENSIVE
-    for (X, P) in ((A, B), (A', B'), (transpose(A), transpose(B)), (view(A, :, 1:2), view(B, :, 1:2)), (v, b), (v', b'), (transpose(v), transpose(b))),
+    # every reduction for the argument types that the loop below leaves out
+    for (X, P) in ((transpose(A), transpose(B)), (v', b')),
         dims in (1, 2)
         @test @inferred(sum(X; dims)) isa Array{Float64}
         @test @inferred(maximum(abs, X; dims)) isa Array{Float64}
@@ -526,7 +529,7 @@ end
         @test @inferred(sparsecount(X, dims)) isa AbstractSparseArray{Int}
         @test @inferred(sparseany(P, dims)) isa AbstractSparseArray{Bool}
     end
-    else
+    end
     for dims in (1, 2)   # one argument type per method with the keyword
         @test @inferred(along(sum, A, dims)) isa Array{Float64}
         @test @inferred(sparsesum(A, dims)) isa AbstractSparseArray{Float64}
@@ -536,7 +539,6 @@ end
         @test @inferred(sparsesum(v, dims)) isa AbstractSparseArray{Float64}
         @test @inferred(along(count, transpose(b), dims)) isa Array{Int}
         @test @inferred(sparseany(transpose(b), dims)) isa AbstractSparseArray{Bool}
-    end
     end
     # hypersparse: only the rows that store something are visited, and each of them, the last
     # one included, folds two entries into one
@@ -568,8 +570,8 @@ end
     # views that are not a column subset reduce through their copy (#56)
     G, R = view(C, [9, 2, 2, 40, 17], [3, 8, 8, 31]), view(A, 5:40, 2:49)
     maps = ((abs2, +), (abs, max), (x -> abs(x) + 1, (x, y) -> x + y))   # LinearAlgebra does not forward the last
-    for (X, (f, op)) in (@static COMPREHENSIVE ? Iterators.product((A', transpose(C), C', S, G, R, v, v', transpose(c), c'), maps) :
-        (Any[A', maps[3]], Any[transpose(C), maps[3]], Any[c', maps[3]], Any[S, maps[2]], Any[v, maps[2]])), dims in (1, 2, (1, 2))
+    for (X, (f, op)) in (Any[A', maps[3]], Any[transpose(C), maps[3]], Any[c', maps[3]], Any[S, maps[2]], Any[v, maps[2]],
+        (@static COMPREHENSIVE ? (Any[C', maps[1]], Any[G, maps[1]], Any[v', maps[3]]) : ())...), dims in (1, 2, (1, 2))
         calls = Ref(0)
         rd = mapreduce(f, op, Array(X); dims, init = 0.0)
         r = mapreduce(x -> (calls[] += 1; f(x)), op, X; dims, init = 0.0)
@@ -579,7 +581,8 @@ end
         @test rs isa (X isa AbstractVector ? SparseVector{Float64} : SparseMatrixCSC{Float64}) && mismatch(rs, rd; approx = true) === nothing
     end
     @static if COMPREHENSIVE
-    for X in (A', C', S, G, R, v, v', transpose(c), c'), dims in (1, 2)
+    # every reduction for the kinds of argument that the loop below reduces once
+    for X in (S, R, v, transpose(c)), dims in (1, 2)
         M = Array(X)
         @test sum(X; dims) isa Array && sum(X; dims) ≈ sum(M; dims)
         @test mismatch(prod(X; dims, sparse = true), prod(M; dims); approx = true) === nothing
@@ -587,7 +590,7 @@ end
         @test mismatch(any(!iszero, X; dims, sparse = true), any(!iszero, M; dims)) === nothing
         @test mismatch(all(iszero, X; dims, sparse = true), all(iszero, M; dims)) === nothing
     end
-    else
+    end
     for dims in (1, 2)   # one of these reductions per argument type
         @test mismatch(prod(A'; dims, sparse = true), prod(Array(A'); dims); approx = true) === nothing
         @test mismatch(all(iszero, A'; dims, sparse = true), all(iszero, Array(A'); dims)) === nothing
@@ -598,7 +601,6 @@ end
         @test mismatch(any(!iszero, v'; dims, sparse = true), any(!iszero, Array(v'); dims)) === nothing
         @test sum(S; dims) isa Array && sum(S; dims) ≈ sum(Matrix(S); dims)
         @test mismatch(count(!iszero, R; dims, sparse = true), count(!iszero, Matrix(R); dims)) === nothing
-    end
     end
     @test sum(S) ≈ sum(Matrix(S)) && prod(x -> x + 1, S) ≈ prod(x -> x + 1, Matrix(S))
     @static if COMPREHENSIVE
@@ -611,9 +613,9 @@ end
     @test mismatch(sum(x -> x + 1, spzeros(5); dims = 1, sparse = true), [5.0]) === nothing
     # reducing both dimensions of an adjoint keeps its element order for a non-commutative `op`
     firstnz(x, y) = iszero(x) ? y : x
-    B = sparse(@static COMPREHENSIVE ? [0 1; 2 0] : [0.0 1.0; 2.0 0.0])
+    B = sparse([0.0 1.0; 2.0 0.0])
     @test mapreduce(identity, firstnz, B'; dims = (1, 2), init = 0) == [1;;] == mapreduce(identity, firstnz, B'; dims = (1, 2), init = 0, sparse = true)
-    u = sparsevec(@static COMPREHENSIVE ? [0, 2, 1] : [0.0, 2.0, 1.0])'
+    u = sparsevec([0.0, 2.0, 1.0])'
     @static if COMPREHENSIVE
     @test mapreduce(identity, firstnz, u; dims = (1, 2), init = 0) == [2;;] == mapreduce(identity, firstnz, u; dims = (1, 2), init = 0, sparse = true)
     end

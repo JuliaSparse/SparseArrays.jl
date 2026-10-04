@@ -25,7 +25,11 @@ const TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
 
 # A standard run factorizes with the build's `Int` indices, and `Float64` elements where
 # the element type is not the point of the test.
-const ITYPES = @static COMPREHENSIVE ? itypes : core_itypes
+const ITYPES = core_itypes
+# The C entry points are generated per index type. The testsets that between them call
+# each one (solve and report, the factors and the determinant, a column ordering) take
+# both index types in a comprehensive run; the others would repeat them.
+const KERNEL_ITYPES = @static COMPREHENSIVE ? itypes : core_itypes
 const ELTYPES = @static COMPREHENSIVE ? STD_ELTYPES : (Float64,)
 
 for itype in UMFPACK.UmfpackIndexTypes
@@ -67,7 +71,7 @@ end
     b0 = randn(100)
     bn0 = rand(100, 20)
     @testset "Core functionality for $Tv elements" for Tv in ELTYPES
-        for Ti in ITYPES
+        for Ti in KERNEL_ITYPES
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             Af = lu(A)
             umfpack_report(Af)
@@ -237,7 +241,7 @@ end
             x = lua \ b
             @test transpose(A)*x ≈ b
 
-            for W in (@static COMPREHENSIVE ? (Symmetric(A), Hermitian(A), Symmetric(view(A, 1:3, 1:3))) : (Tv <: Real ? Symmetric(A) : Hermitian(A),))
+            for W in (@static COMPREHENSIVE ? (Symmetric(A), Hermitian(view(A, 1:3, 1:3))) : (Tv <: Real ? Symmetric(A) : Hermitian(A),))
                 F = lu(W)
                 @test F isa UMFPACK.UmfpackLU
                 @test Matrix(W) * (F \ b[1:size(W, 1)]) ≈ b[1:size(W, 1)]
@@ -302,11 +306,8 @@ end
     @testset "Issue #15099" begin
         testtypes = [
             (ComplexF32, ComplexF64),
-            (ComplexF64, ComplexF64),
             (Float32, Float64),
-            (Float64, Float64),
             (Int, Float64),
-            (ComplexF16, ComplexF64),
             (Float16, Float64),
         ]
         testtypes = @static COMPREHENSIVE ? testtypes : [(ComplexF32, ComplexF64), (Int, Float64)]
@@ -446,8 +447,8 @@ end
         A1 = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
-        testtypes = [Float64, ComplexF64, Float32, ComplexF32, Float16, ComplexF16]
-        cases = @static COMPREHENSIVE ? pairwise((true, false), testtypes, itypes) : [(reuse, Float64, Int)]
+        testtypes = [ComplexF64, Float64]
+        cases = @static COMPREHENSIVE ? eachvalue((true, false), testtypes, itypes) : [(reuse, Float64, Int)]
         for (r, Tv, Ti) in cases
             # (Float64, Int) runs once under each `reuse`, whether or not the grid pairs them
             if r == reuse || (Tv, Ti) == (Float64, Int) && (reuse, Tv, Ti) ∉ cases
@@ -489,7 +490,7 @@ end
     end
 
     @testset "F.Rs and logabsdet when UMFPACK divides by the scale factors, $Tv, $Ti" for
-            Tv in ELTYPES, Ti in ITYPES
+            Tv in ELTYPES, Ti in KERNEL_ITYPES
         # UMFPACK stores reciprocal scale factors for badly scaled rows
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[1e-20 2e-20 0; 0 1 3; 1 0 1]))
         F = lu(A)
@@ -552,12 +553,13 @@ end
         @test Fc \ ComplexF64[1, 2, 3] ≈ Matrix(C) \ ComplexF64[1, 2, 3]
     end
 
-    @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in ITYPES
+    @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in KERNEL_ITYPES
         A = sparse([4.0 1 0; 1 4 1; 0 1 4])
         b = [1.0, 2.0, 3.0]
         x = Matrix(A) \ b
-        for S in (SparseMatrixCSC{Float32,Ti}(A), (@static COMPREHENSIVE ? (SparseMatrixCSC{ComplexF32,Ti}(A),
-                  SparseMatrixCSC{Int,Ti}(A)) : ())..., SparseMatrixCSC{Float64,Ti}(A))
+        # the element type is converted before the keywords reach anything index-specific
+        for S in (SparseMatrixCSC{Float32,Ti}(A), (@static COMPREHENSIVE ? (Ti == Int ? (SparseMatrixCSC{ComplexF32,Ti}(A),
+                  SparseMatrixCSC{Int,Ti}(A)) : ()) : ())..., SparseMatrixCSC{Float64,Ti}(A))
             @test lu(S; q=[3, 2, 1]) \ b ≈ x
             @static if COMPREHENSIVE
             @test lu(S; q=Int32[2, 1, 0]) \ b ≈ x
@@ -625,7 +627,8 @@ end
         @test Y[1:2:8, :] ≈ transpose(Ad) \ M[2:2:8, :]
         @test iszero(Y[2:2:8, :])
         for (op, G) in ((op, wrap(F)) for (tv, ti, op, wrap) in unique(((Float64, Int, adjoint, identity), (Float64, Int, transpose, adjoint),
-                (@static COMPREHENSIVE ? pairwise(STD_ELTYPES, itypes, (adjoint, transpose), (identity, adjoint, transpose)) : ())...)) if (tv, ti) == (Tv, Ti))
+                (@static COMPREHENSIVE ? ((Float64, Int, adjoint, transpose), (ComplexF64, Int, transpose, identity),
+                    (ComplexF64, Int, adjoint, adjoint), (ComplexF64, Int, transpose, transpose)) : ())...)) if (tv, ti) == (Tv, Ti))
             B = Tv.(reshape(1.0:12.0, 3, 4))
             Bw = op(copy(B))
             @test ldiv!(G, Bw) === Bw

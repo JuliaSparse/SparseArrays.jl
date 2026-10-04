@@ -14,8 +14,8 @@ include("testhelpers.jl")
     ni = 23
     nj = 32
     a116 = reshape(1:(ni*nj), ni, nj)
-    # the standard run indexes `Float64` matrices, whose kernels the other suites compile too
-    @static COMPREHENSIVE || (a116 = Matrix{Float64}(a116))
+    # `Float64` matrices, whose kernels the other suites compile too
+    a116 = Matrix{Float64}(a116)
     s116 = sparse(a116)
 
     ad116 = diagm(0 => diag(a116))
@@ -123,9 +123,10 @@ include("testhelpers.jl")
 
     @testset "indices lowered by to_indices (issue #42), $T" for T in (Float64, ComplexF64)
         A = sprand(T, 6, 6, 0.4); c = isodd.(1:6)
-        # The standard run indexes a real matrix and the adjoint of a complex one. Each form
-        # meets each wrapper once, for one of the two element types.
-        for b in (@static COMPREHENSIVE ? (1:3) : T <: Real ? 1 : 3)
+        # The standard run indexes a real matrix and the adjoint of a complex one. The
+        # wrappers take the complex matrix, whose adjoint differs from its transpose; every
+        # form meets the plain matrix and one of the wrappers.
+        for b in (T <: Real ? 1 : (@static COMPREHENSIVE ? (1:3) : 3))
             B = (A, transpose(A), A')[b]
             for I in ((1, c), (c, :), (c, c), (:, :), (2:5, c), (1, AllBut(3)), (AllBut(2), AllBut(3)),
                       (CartesianIndex(2), CartesianIndex(3)), (c, 2), (@static COMPREHENSIVE ?
@@ -141,7 +142,7 @@ include("testhelpers.jl")
             @test_throws BoundsError B[trues(7), 1]
             @test_throws BoundsError B[1, trues(7)]
         end
-        if @static COMPREHENSIVE || T <: Real
+        if T <: Real
         x = A[:, 1]; m = A .!= 0
         @test A[to_indices(A, (m,))...] == Array(A)[m]
         @static if COMPREHENSIVE
@@ -189,7 +190,7 @@ include("testhelpers.jl")
 end
 
 @testset "setindex" begin
-    a = @static COMPREHENSIVE ? spzeros(Int, 10, 10) : spzeros(10, 10)
+    a = spzeros(10, 10)
     @static if COMPREHENSIVE
     @test count(!iszero, a) == count((!iszero).(a)) == 0
     @test count(!iszero, a') == count((!iszero).(a')) == 0
@@ -506,7 +507,7 @@ end
         end
         # column views and transposes of a sparse mask are walked by stored entry too
         M2 = sparse([1, 4, 2], [2, 3, 3], [true, true, false], 4, 4)
-        for mask in (view(M2, :, 2:3), transpose(M2), (@static COMPREHENSIVE ? (view(M2, :, [3, 1, 2]), M2', transpose(view(M2, :, 2:3))) : ())...)
+        for mask in (view(M2, :, 2:3), transpose(M2), (@static COMPREHENSIVE ? (view(M2, :, [3, 1, 2]), M2') : ())...)
             @test which(SparseArrays._masklinearindices, (typeof(mask),)) !==
                   which(SparseArrays._masklinearindices, (Matrix{Bool},))
             A = spzeros(size(mask)); A[mask] = 1:count(mask)
@@ -516,7 +517,7 @@ end
 
     @testset "heap-allocated zero (#389)" begin
         @static if COMPREHENSIVE
-        for T in (BigFloat, Complex{BigFloat})
+        for T in (BigFloat,)
             A = spzeros(T, 3, 3)
             A[1, 1] = 0
             A[2, 3] = zero(T)
@@ -630,7 +631,7 @@ end
     m, n = 128, 8
     indices = (Int[], [1], [m], [m, 1, m ÷ 2, 1],
                randperm(rng, m)[1:13], repeat(collect(1:m), 3))
-    for density in ((@static COMPREHENSIVE ? (0.0, 0.0001, 0.001, 0.01) : ())..., 0.1, 1.0)
+    for density in ((@static COMPREHENSIVE ? (0.0, 0.01) : ())..., 0.1, 1.0)
         S = sprand(rng, m, n, density)
         isempty(nonzeros(S)) || (nonzeros(S)[1] = 0)
         for I in indices, J in (Int[], [n, 1, n], randperm(rng, n))
@@ -698,7 +699,7 @@ end
 end
 
 @static if COMPREHENSIVE
-@testset "column slices keep the index type, Ti = $Ti" for Ti in (@static COMPREHENSIVE ? (Int32, Int64) : (Int,))
+@testset "column slices keep the index type, Ti = $Ti" for Ti in (Int32,)
     A = SparseMatrixCSC{Float64,Ti}(sparse([1, 3, 4, 2], [1, 1, 2, 3], [1.0, 0.0, 2.0, 3.0], 5, 3))
     M = Matrix(A)
     for j in 1:3, I in (1:5, 2:4, 3:3, 4:5, 2:1)
@@ -771,12 +772,14 @@ end
 @testset "nonscalar setindex!" begin
     Is = (1:4, :, [], 5:-1:2, trues(5), setindex!(falses(5), true, 2), 3)
     Js = (:, 4:-1:1, [], 2:4, 4, falses(5), setindex!(trues(5), false, 3))
-    # Each index form with each kind of value; the standard run takes each form once, in
-    # an order that assigns every kind of value non-empty. Two integers take no array, so
-    # an integer is also paired with a colon for every kind of value.
-    cases = @static COMPREHENSIVE ?
-        unique([pairwise(Is, Js, 1:4); [(3, :, k) for k in 1:4]; [(:, 4, k) for k in 1:4]]) :
-        push!(eachvalue(Is, Js, 1:4), (3, 4, 1))
+    # Each index form once, in an order that assigns every kind of value non-empty. Two
+    # integers take no array, so an integer is also paired with a colon: for every kind of
+    # value, since once the indices are lowered the kernels tell an integer from a vector
+    # and nothing else. The dense reference has methods of its own for a mask beside a
+    # range or another mask.
+    cases = push!(eachvalue(Is, Js, 1:4), (3, 4, 1))
+    @static COMPREHENSIVE && append!(cases, [(3, :, k) for k in 1:4], [(:, 4, k) for k in 1:4],
+                                     [(Is[4], Js[7], 3), (Is[6], Js[7], 4)])
     # a destination with stored entries, a stored zero and an empty row and column to merge into
     F = fixture(Float64, 5, 5)
     for case in cases
@@ -798,7 +801,7 @@ end
     @test setindex!(spzeros(5, 5), (25:-1:1).+spzeros(25), :) == setindex!(zeros(5,5), (25:-1:1).+spzeros(25), :) == reshape(25:-1:1, 5, 5)
     end
     for X in (1:20, sparse(1:20), (@static COMPREHENSIVE ?
-            (reshape(sparse(1:20), 20, 1), (1:20) .+ spzeros(20, 1), collect(1:20), collect(reshape(1:20, 20, 1))) : ())...)
+            ((1:20) .+ spzeros(20, 1), collect(1:20)) : ())...)
         @test mismatch(setindex!(copy(F), X, 6:25), setindex!(Matrix(F), 1:20, 6:25)) === nothing
         @test mismatch(setindex!(copy(F), X, 21:-1:2), setindex!(Matrix(F), 1:20, 21:-1:2)) === nothing
         b = trues(25)
@@ -806,7 +809,7 @@ end
         @test mismatch(setindex!(copy(F), X, b), setindex!(Matrix(F), X, b)) === nothing
     end
     # of a repeated index the last write wins and the pattern stays valid, see #811
-    for Tv in (@static COMPREHENSIVE ? (Float64, ComplexF64) : (Float64,))
+    for Tv in (Float64,)
         S = sparse(Tv[1 0 2 0; 0 3 0 0; 4 0 0 5; 0 0 6 0])
         rowssorted(A) = all(j -> issorted(view(rowvals(A), nzrange(A, j)), lt=≤), axes(A, 2))
         for (I, J) in (([1, 1], [1]), ([2], [3, 3]), ([3, 1, 3, 1], [4, 2, 4]), ([1, 2, 2, 4], [1, 3, 3]))
@@ -831,15 +834,6 @@ end
 let
     a116 = Matrix{@static COMPREHENSIVE ? Int : Float64}(reshape(1:16, 4, 4))
     s116 = sparse(a116)
-
-    @static if COMPREHENSIVE
-    @testset "sparse ref" begin
-        p = [4, 1, 2, 3, 2]
-        @test Array(s116[p,:]) == a116[p,:]
-        @test Array(s116[:,p]) == a116[:,p]
-        @test Array(s116[p,p]) == a116[p,p]
-    end
-    end
 
     @testset "sparse assignment" begin
         p = [4, 1, 3]

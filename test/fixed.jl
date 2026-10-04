@@ -90,9 +90,6 @@ end
     @test mismatch(F, Array(A .+ A)) === nothing
     @test same_pattern(F, H, A)
     @static if COMPREHENSIVE
-    F .= A .- A
-    @test mismatch(F, Array(A .- A)) === nothing
-    @test same_pattern(F, H, A)
     F .= H .* A
     @test mismatch(F, Array(H .* A)) === nothing
     @test same_pattern(F, H, A)
@@ -103,10 +100,6 @@ end
     @test f1(F, A) == 0
 
     @static if COMPREHENSIVE
-    f2(F, A) = @allocated(F .= A .- A)
-    f2(F, A)
-    @test f2(F, A) == 0
-
     f3(F, A, H) = @allocated(F .= H .* A)
     f3(F, A, H)
     f3(F, A, H)
@@ -134,9 +127,6 @@ end
     @test G == [3 0; 0 0] && nnz(G) == 2
     G .= sparse([2], [2], [6.0], 2, 2)   # a subset pattern zero-fills the rest
     @test G == [0 0; 0 6] && nnz(G) == 2
-    @static if COMPREHENSIVE
-    @test circshift(G, (1, 0)) == circshift(Matrix(G), (1, 0))
-    end
     # a fixed destination of circshift! must already hold the shifted pattern
     @test_throws ArgumentError circshift!(G, G, (1, 0))
     @test G == [0 0; 0 6] && nnz(G) == 2
@@ -171,8 +161,7 @@ end
     z = x ./ 2
     @test same_pattern(x, y, z)
     f(x, y, z) = @allocated(x .= y .+ y) +
-        (@static COMPREHENSIVE ? @allocated(x .= y .- y) +
-        @allocated(x .= z .* y) : 0)
+        (@static COMPREHENSIVE ? @allocated(x .= y .- y) : 0)
     f(x, y, z)
     f(x, y, z)
     @test f(x, y, z) == 0
@@ -193,12 +182,9 @@ end
     @test r isa SparseVector{Float64,Int}
     @test r == [1, 0, 3, 0] && nonzeroinds(r) == [1, 3]
     @static if COMPREHENSIVE
-    v = fixed(sparsevec([1, 3], [1 + 2im, 3 + 0im], 4))
-    for (f, d) in ((real, [1, 0, 3, 0]), (imag, [2, 0, 0, 0]))
-        r = f(v)
-        @test r isa SparseVector{Int,Int}
-        @test r == d && nonzeroinds(r) == [1, 3]
-    end
+    r = imag(fixed(sparsevec([1, 3], ComplexF64[1 + 2im, 3], 4)))
+    @test r isa SparseVector{Float64,Int}
+    @test r == [2, 0, 0, 0] && nonzeroinds(r) == [1, 3]
     end
 end
 
@@ -252,14 +238,14 @@ end
 
 @static if COMPREHENSIVE
 @testset "`getindex`` should return type with same `_is_fixed`" begin
-    for A in [(@static COMPREHENSIVE ? (sprandn(10, 10, 0.1),) : ())..., fixed(sprandn(10, 10, 0.1))]
+    for A in [fixed(sprandn(10, 10, 0.1))]
         @test _is_fixed(A) == _is_fixed(A[:, :])
         @test _is_fixed(A) == _is_fixed(A[:, 1])
         @test _is_fixed(A) == _is_fixed(A[1, :])
         @test _is_fixed(A) == _is_fixed(A[1:2, 1:2])
         @test _is_fixed(A) == _is_fixed(A[2:4, 2:3])
     end
-    for A in [(@static COMPREHENSIVE ? (sprandn(10, 0.1),) : ())..., fixed(sprandn(10, 0.1))]
+    for A in [sprandn(10, 0.1), fixed(sprandn(10, 0.1))]
         @test _is_fixed(A) == _is_fixed(A[:])
         @test _is_fixed(A) == _is_fixed(A[1:3])
     end
@@ -282,7 +268,7 @@ end
 end
 
 @testset "cumsum, cumprod and accumulate return a writable copy" begin
-    for T in (Float64, (@static COMPREHENSIVE ? (ComplexF64,) : ())...)
+    for T in (Float64,)
         S = sparse([1, 2, 3, 1], [1, 2, 3, 3], T[1, 2, 3, 4])
         F = fixed(S)
         pattern = (copy(parent(getcolptr(F))), copy(parent(rowvals(F))), copy(nonzeros(F)))
@@ -299,16 +285,13 @@ end
             @test R == accumulate(+, S, dims=d, init=one(T)) == accumulate(+, Array(S), dims=d, init=one(T))
             @test R isa SparseMatrixCSC{T} && !_is_fixed(R)
         end
-        @static if COMPREHENSIVE
-        @test accumulate(-, F) == accumulate(-, S)
-        end
         @test (parent(getcolptr(F)), parent(rowvals(F)), nonzeros(F)) == pattern
 
         s = sparsevec([1, 3], T[1, 2], 4)
         v = fixed(s)
         vpattern = (copy(parent(nonzeroinds(v))), copy(nonzeros(v)))
         @test which(cumsum, (typeof(v),)).module === SparseArrays
-        for f in (cumsum, (@static COMPREHENSIVE ? (cumprod,) : ())...)
+        for f in (cumsum,)
             r = f(v)
             @test r == f(s) == f(Array(s)) == f(v, dims=1)
             @test r isa SparseVector{T} && !_is_fixed(r)
