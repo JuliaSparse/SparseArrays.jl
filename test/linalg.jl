@@ -37,6 +37,10 @@ include("testhelpers.jl")
         @test E1 == E2
         end
     end
+    # the buffers of a source may be longer than its stored entries
+    S = sparse([1 0 2; 0 3 0; 4 0 5.0])
+    P = copy(S); push!(rowvals(P), 1); push!(nonzeros(P), 99.0)
+    @test mismatch(circshift!(similar(S), P, (1, 1)), circshift(Matrix(S), (1, 1))) === nothing
 end
 end
 

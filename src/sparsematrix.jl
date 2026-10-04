@@ -1923,9 +1923,9 @@ rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), iden
 function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c)::Base.DimsInteger{2})
     # a fixed destination keeps its pattern, which `_copyto_fixed!` checks before writing
     _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r, c)))
-    nnz = length(nonzeros(X))
+    nz = nnz(X)
 
-    iszero(nnz) && return copy!(O, X)
+    iszero(nz) && return copy!(O, X)
 
     ##### column shift
     c = mod(c, size(X, 2))
@@ -1934,22 +1934,23 @@ function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c
     else
         ##### readjust output
         resize!(getcolptr(O), size(X, 2) + 1)
-        resize!(rowvals(O), nnz)
-        resize!(nonzeros(O), nnz)
-        getcolptr(O)[size(X, 2) + 1] = nnz + 1
+        resize!(rowvals(O), nz)
+        resize!(nonzeros(O), nz)
+        getcolptr(O)[size(X, 2) + 1] = nz + 1
 
         # exchange left and right blocks
         nleft = getcolptr(X)[size(X, 2) - c + 1] - 1
-        nright = nnz - nleft
+        nright = nz - nleft
         @inbounds for i=c+1:size(X, 2)
             getcolptr(O)[i] = getcolptr(X)[i-c] + nright
         end
         @inbounds for i=1:c
             getcolptr(O)[i] = getcolptr(X)[size(X, 2) - c + i] - nleft
         end
-        # rotate rowval and nzval by the right number of elements
-        circshift!(rowvals(O), rowvals(X), (nright,))
-        circshift!(nonzeros(O), nonzeros(X), (nright,))
+        # rotate rowval and nzval by the right number of elements; only the stored
+        # entries, as the buffers of X may be longer
+        circshift!(rowvals(O), view(rowvals(X), 1:nz), (nright,))
+        circshift!(nonzeros(O), view(nonzeros(X), 1:nz), (nright,))
     end
     ##### row shift
     r = mod(r, size(X, 1))
