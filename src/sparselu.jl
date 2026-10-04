@@ -358,10 +358,7 @@ function _gplu(B::AbstractSparseMatrixCSC, bp::Vector{Int}, ::Type{Tv}, tol::Flo
             end
             _iszero(amax) && throw(LinearAlgebra.SingularException(q[j]))
             if piv != j && pinv[j] == 0 && mark[j] == j
-                a = abs(x[j])
-                if !_iszero(a) && (tol == 1 ? a >= amax : a >= tol * amax)
-                    piv = j
-                end
+                _acceptable(abs(x[j]), amax, tol) && (piv = j)
             end
             pivot = x[piv]
             pinv[piv] = j
@@ -413,8 +410,109 @@ function _gplu(B::AbstractSparseMatrixCSC, bp::Vector{Int}, ::Type{Tv}, tol::Flo
     return Lp, Li, Lx, Up, Ui, Ux, pinv
 end
 
+## Fill-reducing ordering of the diagonal blocks
+
+# AMD and COLAMD are the BSD-licensed ordering libraries of SuiteSparse, which every
+# build of Julia ships, with or without the GPL solvers.
+using .LibSuiteSparse: libcolamd, amd_order, amd_l_order
+
+# a block smaller than this is factored in its natural order: it cannot fill in much
+const _ORDERING_MIN_BLOCK = 16
+# `:auto` orders a block with AMD when at least this fraction of its columns have a
+# diagonal entry that the pivot test accepts, and with COLAMD otherwise
+const _ORDERING_DIAGONAL = 0.9
+
+# whether an entry of magnitude `a` may be the pivot of a column whose largest is `amax`
+@inline _acceptable(a, amax, tol::Float64) = !_iszero(a) && (tol == 1 ? a >= amax : a >= tol * amax)
+
+# COLAMD takes the row indices in a work array of the size it recommends and the column
+# pointers, both zero-based, and returns the column order in place of the pointers.
+@static if Int === Int64
+    _colamd_recommended(nz::Int, n::Int) =
+        @ccall libcolamd.colamd_l_recommended(nz::Int64, n::Int64, n::Int64)::Csize_t
+    _colamd!(n::Int, work::Vector{Int}, ptr::Vector{Int}, stats::Vector{Int}) =
+        @ccall libcolamd.colamd_l(n::Int64, n::Int64, length(work)::Int64, work::Ptr{Int64},
+                                  ptr::Ptr{Int64}, C_NULL::Ptr{Cdouble}, stats::Ptr{Int64})::Cint
+    _amd!(n::Int, ptr::Vector{Int}, ind::Vector{Int}, perm::Vector{Int}) =
+        amd_l_order(n, ptr, ind, perm, C_NULL, C_NULL)
+else
+    _colamd_recommended(nz::Int, n::Int) =
+        @ccall libcolamd.colamd_recommended(nz::Int32, n::Int32, n::Int32)::Csize_t
+    _colamd!(n::Int, work::Vector{Int}, ptr::Vector{Int}, stats::Vector{Int}) =
+        @ccall libcolamd.colamd(n::Int32, n::Int32, length(work)::Int32, work::Ptr{Int32},
+                                ptr::Ptr{Int32}, C_NULL::Ptr{Cdouble}, stats::Ptr{Int32})::Cint
+    _amd!(n::Int, ptr::Vector{Int}, ind::Vector{Int}, perm::Vector{Int}) =
+        amd_order(n, ptr, ind, perm, C_NULL, C_NULL)
+end
+
+# Reorder the columns of every large diagonal block of A[p, q], whose blocks are
+# bp[b]:bp[b+1]-1, to reduce the fill of its factorization: with COLAMD, which orders
+# the columns for any row pivoting, or with AMD on the pattern of the block plus its
+# transpose, which suits pivots that stay on the diagonal; `:auto` takes AMD for a block
+# where most of the diagonal entries pass the pivot test with tolerance `tol` before any
+# elimination. The rows are moved with their columns, which keeps the matched diagonal.
+# A block whose ordering fails keeps its natural order.
+function _orderblocks!(p::Vector{Int}, q::Vector{Int}, A::AbstractSparseMatrixCSC,
+                       bp::Vector{Int}, ordering::Symbol, tol::Float64)
+    n = length(q)
+    rv = rowvals(A)
+    nz = nonzeros(A)
+    rowpos = Vector{Int}(undef, n)
+    @inbounds for t in 1:n
+        rowpos[p[t]] = t
+    end
+    ptr = Int[]
+    ind = Int[]
+    perm = Int[]
+    stats = Vector{Int}(undef, 20)
+    @inbounds for b in 1:(length(bp) - 1)
+        lo = bp[b]
+        hi = bp[b + 1] - 1
+        nblk = hi - lo + 1
+        nblk >= _ORDERING_MIN_BLOCK || continue
+        # the pattern of the block, zero-based, and its columns with a strong diagonal
+        resize!(ptr, nblk + 1)
+        empty!(ind)
+        strong = 0
+        for c in lo:hi
+            ptr[c - lo + 1] = length(ind)
+            r = nzrange(A, q[c])
+            isempty(r) && continue
+            amax = adiag = abs(zero(eltype(nz)))
+            for k in r
+                t = rowpos[rv[k]]
+                t >= lo || continue
+                push!(ind, t - lo)
+                a = abs(nz[k])
+                a > amax && (amax = a)
+                t == c && (adiag = a)
+            end
+            strong += _acceptable(adiag, amax, tol)
+        end
+        ptr[nblk + 1] = length(ind)
+        useamd = ordering === :amd || (ordering === :auto && strong >= _ORDERING_DIAGONAL * nblk)
+        if !useamd
+            len = Int(_colamd_recommended(length(ind), nblk))
+            len == 0 && continue
+            resize!(ind, len)
+            _colamd!(nblk, ind, ptr, stats) == 1 || continue
+            copyto!(resize!(perm, nblk), 1, ptr, 1, nblk)
+        else
+            resize!(perm, nblk)
+            0 <= _amd!(nblk, ptr, ind, perm) <= 1 || continue
+        end
+        for t in 1:nblk
+            ptr[t] = q[lo + perm[t]]
+            perm[t] = p[lo + perm[t]]
+        end
+        copyto!(q, lo, ptr, 1, nblk)
+        copyto!(p, lo, perm, 1, nblk)
+    end
+    return nothing
+end
+
 """
-    SparseArrays.sparselu(A; tol = 1.0, prune = true) -> F::SparseArrays.SparseLU
+    SparseArrays.sparselu(A; tol = 0.1, ordering = :auto, prune = true) -> F::SparseArrays.SparseLU
 
 Compute the LU factorization of the square sparse matrix `A`, in Julia, for any element
 type with a division. `F.L * F.U ≈ A[F.p, F.q]`; see [`SparseArrays.SparseLU`](@ref).
@@ -424,13 +522,23 @@ diagonal blocks are factored, so entries above them cause no fill. Each block is
 factored a column at a time with partial pivoting, by the left-looking algorithm of
 Gilbert and Peierls [^GilbertPeierls1988], in time proportional to the arithmetic,
 with the symmetric pruning of Eisenstat and Liu [^EisenstatLiu1993] to shorten its
-searches. Within a block the columns are taken in increasing order: no fill-reducing
-ordering is applied, so a large irreducible block can fill in heavily.
+searches.
+
+`ordering` chooses the order of the columns within a block, which decides how much the
+factors fill in: `:colamd`, a minimum degree ordering of the columns that bounds the
+fill for any row pivoting; `:amd`, a minimum degree ordering of the pattern of the
+block plus its transpose, which gives less fill when the pattern is nearly symmetric
+and the pivots stay on the diagonal; `:natural`, increasing order; or `:auto`, the
+default, which takes `:amd` for a block most of whose diagonal entries are acceptable
+pivots for `tol`, and `:colamd` otherwise. Blocks with fewer than $_ORDERING_MIN_BLOCK
+columns are always taken in increasing order. AMD and COLAMD are the SuiteSparse
+ordering libraries.
 
 A column's pivot is its diagonal entry in the permuted matrix when that is at least
-`tol` times the largest candidate in magnitude, and the largest candidate otherwise:
-`tol = 1` is partial pivoting, and a smaller `tol` trades stability for keeping the
-zero-free diagonal that `dmperm` provides. `prune = false` turns pruning off, which
+`tol` times the largest candidate in magnitude, and the largest candidate otherwise.
+`tol = 1` is partial pivoting; a smaller `tol` keeps more of the zero-free diagonal
+that `dmperm` provides, which is what the orderings assume, and bounds the entries of
+`L` by `1 / tol`. `prune = false` turns pruning off, which
 changes the work but not the pivots.
 
 Throws a `SingularException` when `A` is structurally or numerically singular.
@@ -457,14 +565,18 @@ julia> F \\ sparsevec([3], [10.0], 3)
   [3]  =  2.0
 ```
 """
-function sparselu(A::AbstractSparseMatrixCSC{TvA,Ti}; tol::Real = 1.0, prune::Bool = true) where {TvA,Ti}
+function sparselu(A::AbstractSparseMatrixCSC{TvA,Ti}; tol::Real = 0.1, ordering::Symbol = :auto,
+                  prune::Bool = true) where {TvA,Ti}
     require_one_based_indexing(A)
     n = checksquare(A)
     0 <= tol <= 1 || throw(ArgumentError(lazy"the pivot tolerance must be in [0, 1], got $tol"))
+    ordering in (:auto, :colamd, :amd, :natural) ||
+        throw(ArgumentError(lazy"the ordering must be :auto, :colamd, :amd or :natural, got :$ordering"))
     Tv = typeof(oneunit(TvA) / oneunit(TvA))
     p, q, bp, _, _, _, _, colmatch = _dmperm(A)
     unmatched = findfirst(iszero, colmatch)
     unmatched === nothing || throw(LinearAlgebra.SingularException(unmatched))
+    ordering === :natural || _orderblocks!(p, q, A, bp, ordering, Float64(tol))
     Lp, Li, Lx, Up, Ui, Ux, pinv = _gplu(permute(A, p, q), bp, Tv, Float64(tol), prune, q)
     pfinal = Vector{Ti}(undef, n)
     @inbounds for i in 1:n
