@@ -209,7 +209,8 @@ function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N
 end
 
 # (3) broadcast[!] entry points
-copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
+copy(bc::SpBroadcasted1) = _asksthezeros(bc) && _fillszeros(bc.f, bc.args[1]) ?
+    _densenonzero(bc, bc.f, bc.args[1]) : _noshapecheck_map(bc.f, bc.args[1])
 
 @inline function copyto!(C::SparseVecOrMat, bc::Broadcasted0{Nothing})
     isempty(C) && return _finishempty!(C)
@@ -1143,8 +1144,9 @@ end
 
 # broadcast entry points for combinations of sparse arrays and other (scalar) types
 @inline function copy(bc::Broadcasted{<:SparseVecOrMatStyle})
-    _isdensesum(bc) && return _densesum(bc)
+    _isdensesum(bc) && return _densebroadcast(bc)
     bcf = flatten(bc)
+    _asksthezeros(bc) && _fillszeros(bcf.f, bcf.args...) && return _densenonzero(bc, bcf.f, bcf.args...)
     return _copy(bcf.f, bcf.args...)
 end
 
@@ -1263,10 +1265,21 @@ broadcast(f::Tf, A::AbstractSparseMatrixCSC, ::Type{T}) where {Tf,T} = broadcast
 # A sum is the exception: a broadcast made only of `+` and `-` calls that has a scalar or a
 # dense vector or matrix among its arguments is dense, as `+` and `-` of a sparse and a dense
 # array are. The choice is made from the types alone, so the result type stays inferable.
+#
+# A broadcast over sparse arrays and banded structured matrices alone is dense when the
+# function is nonzero where every argument is zero, as in `cos.(A)`: no entry of that result is
+# a structural zero. That is a property of a value, so the result type is inferable only when
+# the compiler can evaluate the function at the zeros, which it does for the machine number
+# types. It cannot when the function depends on a value known only when it runs, so those
+# broadcasts are not asked and keep to the sparse result, whose type is inferable: one with a
+# scalar argument, and one of a function that carries a value, a closure over a variable or
+# a callable object with fields. Nor is a broadcast made only of `+`, `-` and `*` calls,
+# which is sparse, and inferable, for every element type.
 
 function copy(bc::Broadcasted{PromoteToSparse})
-    _isdensesum(bc) && return _densesum(bc)
+    _isdensesum(bc) && return _densebroadcast(bc)
     bcf = flatten(bc)
+    _asksthezeros(bc) && _fillszeros(bcf.f, bcf.args...) && return _densenonzero(bc, bcf.f, bcf.args...)
     if can_skip_sparsification(bcf.f, bcf.args...)
         return _copy(bcf.f, bcf.args...)
     elseif is_supported_sparse_broadcast(bcf.args...)
@@ -1286,16 +1299,50 @@ end
 end
 
 _isdensesum(bc::Broadcasted) = _issumtree(bc) && _anydensifying(bc.args...)
-function _densesum(bc::Broadcasted)
+function _densebroadcast(bc::Broadcasted)
     dbc = Broadcast.instantiate(_densifysparse(bc))
     return copy(convert(Broadcasted{Broadcast.DefaultArrayStyle{length(axes(dbc))}}, dbc))
 end
-_issumtree(bc::Broadcasted) = _issum(bc.f) && _allsumtrees(bc.args...)
-_issumtree(x) = true
-_issum(::Union{typeof(+),typeof(-)}) = true
-_issum(f) = false
-_allsumtrees() = true
-_allsumtrees(x, rest...) = _issumtree(x) && _allsumtrees(rest...)
+
+const SparseLike = Union{SparseVecOrMat,AdjOrTrans{<:Any,<:SparseVecOrMat},SparseViewOfColumns,BandedMatrix}
+_fillszeros(f::F, args::Vararg{SparseLike,N}) where {F,N} = !_preserveszeros(f, args...)
+_fillszeros(f, args...) = false
+# A function that throws at the zeros, or an element type without a zero, is left to the
+# sparse kernels, which evaluate the function there only if some entry is not stored.
+function _preserveszeros(f::F, args::Vararg{Any,N}) where {F,N}
+    try
+        return _iszero(f(_zeros_eltypes(args...)...))
+    catch
+        return true
+    end
+end
+
+# The sparse kernels evaluate the function once at the zeros and then at the stored entries
+# alone, and store every entry of the result in the order of a dense array, so its values are
+# the dense result. Dense broadcast gives another array type when the entries are `Bool`, and
+# may narrow the element type when it is not concrete: those results are left to it.
+function _densenonzero(bc::Broadcasted, f::F, args::Vararg{Any,N}) where {F,N}
+    T = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, args)...))
+    (isconcretetype(T) && T !== Bool) || return _densebroadcast(bc)
+    return _storedasdense(_copy(f, map(_sparsifystructured, args)...))
+end
+_storedasdense(C::Union{SparseVector,SparseMatrixCSC}) =
+    length(nonzeros(C)) == nnz(C) == length(C) ? reshape(nonzeros(C), size(C)) : Array(C)
+_storedasdense(C) = Array(C)
+
+_issumtree(bc) = _istreeof(Union{typeof(+),typeof(-)}, bc)
+_isarithmetic(bc) = _istreeof(Union{typeof(+),typeof(-),typeof(*)}, bc)
+_asksthezeros(bc::Broadcasted) = !_isarithmetic(bc) && _isstateless(bc)
+_isstateless(bc::Broadcasted) = _carriesnovalue(bc.f) && _allstateless(bc.args...)
+_isstateless(x) = true
+_allstateless() = true
+_allstateless(x, rest...) = _isstateless(x) && _allstateless(rest...)
+_carriesnovalue(::Type) = true
+_carriesnovalue(::F) where {F} = Base.issingletontype(F)
+_istreeof(::Type{T}, bc::Broadcasted) where {T} = bc.f isa T && _alltreesof(T, bc.args...)
+_istreeof(::Type, x) = true
+_alltreesof(::Type) = true
+_alltreesof(::Type{T}, x, rest...) where {T} = _istreeof(T, x) && _alltreesof(T, rest...)
 # the arguments that make a sum dense: a dense vector or matrix, and a scalar, which every
 # argument that is not a vector or a matrix is
 _anydensifying() = false
