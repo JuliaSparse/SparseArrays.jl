@@ -465,6 +465,16 @@ end
         @test mapreduce(h, op, A, B) === mapreduce(h, op, Matrix(A), Matrix(B))
         @test mapreduce(h, op, A, B; init = 1) === mapreduce(h, op, Matrix(A), Matrix(B); init = 1)
     end
+    # `init` widens the whole reduction, not one of two accumulators
+    a, b = sparse(fill(Int8(100), 4)), spzeros(Int8, 4)
+    for (X, Y) in ((a, b), (b, a), (a, a)), op in (+, *)
+        @test mapreduce(+, op, X, Y; init = 1) === mapreduce(+, op, Vector(X), Vector(Y); init = 1)
+    end
+    # an element type without a zero, for arrays that store every entry
+    c = SparseVector(2, [1, 2], Any[1, 2])
+    C = SparseMatrixCSC(2, 1, [1, 3], [1, 2], Any[1, 2])
+    @test mapreduce(+, +, c, c) === mapreduce(+, +, C, C) === 6
+    @test mapreduce(+, +, c, sparse([3, 4]); init = 0.5) === 10.5
 end
 end
 
