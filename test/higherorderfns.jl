@@ -295,7 +295,8 @@ end
             @static if COMPREHENSIVE
             @test mismatch(broadcast(*, X, Y), broadcast(*, fX, fY)) === nothing
             end
-            @test mismatch(broadcast(f, X, Y), broadcast(f, fX, fY)) === nothing
+            # not zero-preserving: dense, like the dense result
+            @test broadcast(f, X, Y)::typeof(broadcast(f, fX, fY)) == broadcast(f, fX, fY)
             # TODO strengthen this test, avoiding dependence on checking whether
             # check_broadcast_axes throws to determine whether sparse broadcast should throw
             retype === identity && try
@@ -340,10 +341,11 @@ end
     @test mismatch(sparse([1  0]) ./ [1], [1.0 0.0]) === nothing
     @test isequal(sparse([1 2; 1 0]) ./ [1 0], sparse([1.0 Inf; 1 NaN]))
 
-    @test mismatch(sparse([1]) .\ sparse([1; 0]), [1.0; 0.0]) === nothing
-    @test isequal(sparse([1; 0]) .\ sparse([1 2; 1 0]), sparse([1.0 2; Inf NaN]))
-    @test mismatch(sparse([1]) .\ sparse([1  0]), [1.0 0.0]) === nothing
-    @test isequal(sparse([1 0]) .\ sparse([1 2; 1 0]), sparse([1.0 Inf; 1 NaN]))
+    # 0 \ 0 is NaN, so the quotient of two sparse arrays is dense
+    @test (sparse([1]) .\ sparse([1; 0]))::Vector{Float64} == [1.0; 0.0]
+    @test isequal((sparse([1; 0]) .\ sparse([1 2; 1 0]))::Matrix{Float64}, [1.0 2; Inf NaN])
+    @test (sparse([1]) .\ sparse([1  0]))::Matrix{Float64} == [1.0 0.0]
+    @test isequal((sparse([1 0]) .\ sparse([1 2; 1 0]))::Matrix{Float64}, [1.0 Inf; 1 NaN])
     end
 
     # A dense argument has no structural zeros, so `f(0, 0)` (`NaN` for `/`) must not
@@ -450,7 +452,7 @@ end
             @static if COMPREHENSIVE
             @test mismatch(broadcast(*, X, Y, Z), broadcast(*, fX, fY, fZ)) === nothing
             end
-            @test mismatch(broadcast(f, X, Y, Z), broadcast(f, fX, fY, fZ)) === nothing
+            @test broadcast(f, X, Y, Z)::typeof(broadcast(f, fX, fY, fZ)) == broadcast(f, fX, fY, fZ)
             # TODO strengthen this test, avoiding dependence on checking whether
             # check_broadcast_axes throws to determine whether sparse broadcast should throw
             shapecheck && try
@@ -496,9 +498,12 @@ end
     intorfloat_notzeropres(xs...) = all(iszero, xs) ? Int(1) : zero(Float64)
     for fn in (intorfloat_zeropres, intorfloat_notzeropres)
         @test mismatch(map(fn, A), map(fn, fA); Tv=Real) === nothing
-        @test mismatch(broadcast(fn, A), broadcast(fn, fA); Tv=Real) === nothing
-        @test mismatch(broadcast(fn, A, B), broadcast(fn, fA, fB); Tv=Real) === nothing
-        @test mismatch(broadcast(fn, B, A), broadcast(fn, fB, fA); Tv=Real) === nothing
+        # the broadcast that is not zero-preserving is dense, and takes the dense eltype
+        check = fn === intorfloat_zeropres ? (S, D) -> mismatch(S, D; Tv=Real) === nothing :
+            (S, D) -> typeof(S) === typeof(D) && S == D
+        @test check(broadcast(fn, A), broadcast(fn, fA))
+        @test check(broadcast(fn, A, B), broadcast(fn, fA, fB))
+        @test check(broadcast(fn, B, A), broadcast(fn, fB, fA))
     end
     for fn in (intorfloat_zeropres,)
         @test mismatch(broadcast(fn, A, B, A), broadcast(fn, fA, fB, fA); Tv=Real) === nothing
@@ -632,7 +637,8 @@ end
                    (view(x, :), SparseVector), (view(x, 2:5), SparseVector))[@static COMPREHENSIVE ? [2, 3, 4, 6] : [2, 6]]
         fX = Array(X)
         @test (2 .* X)::T == 2 .* fX && nnz(2 .* X) <= nnz(copy(X))
-        @test cos.(X)::T == cos.(fX)
+        @test (X .^ 0)::T == fX .^ 0
+        @test cos.(X)::Array == cos.(fX)
         @test (X .+ 1)::Array == fX .+ 1
         @static if COMPREHENSIVE
         @test (X .* fX)::T == fX .* fX
@@ -831,6 +837,41 @@ end
     # a sparse destination keeps the result sparse
     x = copy(s); x .+= d; x .-= 1
     @test x::SparseVector == fs + d .- 1
+    end
+end
+
+@testset "broadcast over sparse arrays of a function that is not zero at zero is dense" begin
+    s, S = sparsevec([1, 3], [1.5, -2.0], 4), sparse([1, 3, 4], [1, 2, 2], [1.0, 2.0, -3.0], 4, 2)
+    fs, fS = Array(s), Array(S)
+    @test @inferred(broadcast(cos, S))::Matrix{Float64} == cos.(fS)
+    @test isequal(@inferred(broadcast(/, s, s))::Vector{Float64}, fs ./ fs)
+    # a zero-preserving function stays sparse, and so does any function of a scalar
+    @test @inferred(broadcast(sin, S))::SparseMatrixCSC == sin.(fS)
+    @test @inferred(broadcast(^, S, 0))::SparseMatrixCSC == fS .^ 0
+    plus(c) = x -> x + c
+    @test @inferred(broadcast(plus(1.0), S))::SparseMatrixCSC == fS .+ 1
+    @static if COMPREHENSIVE
+    # the result is the dense one, whatever its type
+    @test (S .== S)::BitMatrix == (fS .== fS)
+    fused(S, s) = exp.(S .* s)
+    @test @inferred(fused(S, s))::Matrix{Float64} == exp.(fS .* fs)
+    # wrappers, views and banded matrices count as sparse arguments
+    @test cos.(S')::Matrix{Float64} == cos.(fS')
+    @test cos.(view(S, :, [2, 1]))::Matrix{Float64} == cos.(fS[:, [2, 1]])
+    @test isequal((S[1:2, :] ./ Diagonal([1.0, 2.0]))::Matrix{Float64}, fS[1:2, :] ./ Diagonal([1.0, 2.0]))
+    # `map` and a sparse destination keep the result sparse
+    @test map(cos, S)::SparseMatrixCSC == cos.(fS)
+    @test broadcast!(cos, similar(S), S)::SparseMatrixCSC == cos.(fS)
+    # sums, differences and products are sparse and inferable for an element type whose
+    # zero the compiler cannot evaluate
+    B = sparse(BigFloat[1 0; 0 2])
+    @test @inferred(broadcast(*, B, B))::SparseMatrixCSC == Array(B) .* Array(B)
+    @test cos.(B)::Matrix{BigFloat} == cos.(Array(B))
+    # a function that throws at zero is left to the sparse kernels: only a matrix with a
+    # structural zero evaluates it there
+    shifted(x) = sqrt(x - 1)
+    @test shifted.(sparse([1.0 2.0; 5.0 10.0]))::SparseMatrixCSC == [0.0 1.0; 2.0 3.0]
+    @test_throws DomainError shifted.(S)
     end
 end
 

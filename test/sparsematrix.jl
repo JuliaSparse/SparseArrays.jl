@@ -363,7 +363,7 @@ end
     @test mismatch(-C, -Cfull) === nothing
     @test getcolptr(-C) !== getcolptr(C) && rowvals(-C) !== rowvals(C)
     # Test representatives of [unary functions that map both zeros and nonzeros to nonzeros]
-    @test mismatch(cos.(A), cos.(Afull)) === nothing
+    @test cos.(A)::Matrix{Float64} == cos.(Afull)
     # Test representatives of remaining vectorized-nonbroadcast unary functions
     @test mismatch(ceil.(Int, A), ceil.(Int, Afull)) === nothing
 end
