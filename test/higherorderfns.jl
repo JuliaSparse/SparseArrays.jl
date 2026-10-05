@@ -819,6 +819,11 @@ end
         @test broadcast(f, S', D')::Matrix{Float64} == f.(fS', D')
         @test broadcast(f, transpose(s), D')::Matrix{Float64} == f.(transpose(fs), D')
     end
+    # a view of columns picked by a vector is densified from its stored entries, not by
+    # indexing the view, which reads the column index once for each of its entries
+    T, J = sparse([1, 30, 50], [1, 2, 2], [1.0, 2.0, -3.0], 50, 2), CountedReads([2, 1])
+    @test (view(T, :, J) .+ ones(50, 2))::Matrix{Float64} == Array(T)[:, [2, 1]] .+ 1
+    @test J.reads[] < 50
     # a fused expression is dense when it is made of + and - alone
     fused(s, d) = s .+ d .- 1 .+ s .- (.-d)
     @test @inferred(fused(s, d))::Vector{Float64} == fs .+ d .- 1 .+ fs .+ d

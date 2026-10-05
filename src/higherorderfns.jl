@@ -1303,7 +1303,9 @@ _hasdenselike(x) = false
 # Densifying the sparse arguments costs O(nnz) each, where generic broadcast would look up
 # every entry of them by index.
 _densifysparse(bc::Broadcasted) = Broadcasted(bc.f, map(_densifysparse, bc.args))
-_densifysparse(S::Union{SparseVecOrMat,AdjOrTrans{<:Any,<:SparseVecOrMat},SparseViewOfColumns}) = Array(S)
+_densifysparse(S::Union{SparseVecOrMat,AdjOrTrans{<:Any,<:SparseVecOrMat}}) = Array(S)
+# `Array` of a view of columns picked by a vector is the generic copy: go through the sparse one
+_densifysparse(S::SparseViewOfColumns) = Array(copy(S))
 _densifysparse(x) = x
 
 _sparsifystructured(M::AbstractMatrix) = _isdenselike(M) ? _fullystored(M) : SparseMatrixCSC(M)
