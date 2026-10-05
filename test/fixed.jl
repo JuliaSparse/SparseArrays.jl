@@ -333,7 +333,7 @@ end
 always_false(x...) = false
 below_diagonal(i, j, v) = i > j
 @testset "Test fkeep!" begin
-    for a in [fixture(Float64, 4, 4) + I, fixturevec(Float64, 10) .+ 1]
+    for a in [fixture(Float64, 4, 4) + I, map(x -> x + 1, fixturevec(Float64, 10))]
         a = fixed(a)
         b = copy(a)
         fkeep!(always_false, b)

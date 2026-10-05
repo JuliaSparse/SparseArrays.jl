@@ -1143,6 +1143,7 @@ end
 
 # broadcast entry points for combinations of sparse arrays and other (scalar) types
 @inline function copy(bc::Broadcasted{<:SparseVecOrMatStyle})
+    _isdensesum(bc) && return _densesum(bc)
     bcf = flatten(bc)
     return _copy(bcf.f, bcf.args...)
 end
@@ -1259,15 +1260,12 @@ broadcast(f::Tf, A::AbstractSparseMatrixCSC, ::Type{T}) where {Tf,T} = broadcast
 # vectors/matrices, promote all structured matrices and dense vectors/matrices to sparse
 # and rebroadcast. otherwise, divert to generic AbstractArray broadcast code.
 #
-# A sum is the exception: a broadcast made only of `+` and `-` calls that has a dense vector
-# or matrix among its arguments is dense, as `+` and `-` of a sparse and a dense array are.
-# The choice is made from the types alone, so the result type stays inferable.
+# A sum is the exception: a broadcast made only of `+` and `-` calls that has a scalar or a
+# dense vector or matrix among its arguments is dense, as `+` and `-` of a sparse and a dense
+# array are. The choice is made from the types alone, so the result type stays inferable.
 
 function copy(bc::Broadcasted{PromoteToSparse})
-    if _isdensesum(bc)
-        dbc = Broadcast.instantiate(_densifysparse(bc))
-        return copy(convert(Broadcasted{Broadcast.DefaultArrayStyle{length(axes(dbc))}}, dbc))
-    end
+    _isdensesum(bc) && return _densesum(bc)
     bcf = flatten(bc)
     if can_skip_sparsification(bcf.f, bcf.args...)
         return _copy(bcf.f, bcf.args...)
@@ -1287,18 +1285,24 @@ end
     end
 end
 
-_isdensesum(bc::Broadcasted) = _issumtree(bc) && _anydenselike(bc.args...)
+_isdensesum(bc::Broadcasted) = _issumtree(bc) && _anydensifying(bc.args...)
+function _densesum(bc::Broadcasted)
+    dbc = Broadcast.instantiate(_densifysparse(bc))
+    return copy(convert(Broadcasted{Broadcast.DefaultArrayStyle{length(axes(dbc))}}, dbc))
+end
 _issumtree(bc::Broadcasted) = _issum(bc.f) && _allsumtrees(bc.args...)
 _issumtree(x) = true
 _issum(::Union{typeof(+),typeof(-)}) = true
 _issum(f) = false
 _allsumtrees() = true
 _allsumtrees(x, rest...) = _issumtree(x) && _allsumtrees(rest...)
-_anydenselike() = false
-_anydenselike(x, rest...) = _hasdenselike(x) || _anydenselike(rest...)
-_hasdenselike(bc::Broadcasted) = _anydenselike(bc.args...)
-_hasdenselike(x::AbstractVecOrMat) = _isdenselike(x)
-_hasdenselike(x) = false
+# the arguments that make a sum dense: a dense vector or matrix, and a scalar, which every
+# argument that is not a vector or a matrix is
+_anydensifying() = false
+_anydensifying(x, rest...) = _densifies(x) || _anydensifying(rest...)
+_densifies(bc::Broadcasted) = _anydensifying(bc.args...)
+_densifies(x::AbstractVecOrMat) = _isdenselike(x)
+_densifies(x) = true
 
 # Densifying the sparse arguments costs O(nnz) each, where generic broadcast would look up
 # every entry of them by index.

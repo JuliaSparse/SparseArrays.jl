@@ -632,7 +632,8 @@ end
                    (view(x, :), SparseVector), (view(x, 2:5), SparseVector))[@static COMPREHENSIVE ? [2, 3, 4, 6] : [2, 6]]
         fX = Array(X)
         @test (2 .* X)::T == 2 .* fX && nnz(2 .* X) <= nnz(copy(X))
-        @test (X .+ 1)::T == fX .+ 1
+        @test cos.(X)::T == cos.(fX)
+        @test (X .+ 1)::Array == fX .+ 1
         @static if COMPREHENSIVE
         @test (X .* fX)::T == fX .* fX
         end
@@ -796,15 +797,16 @@ end
     end
 end
 
-@testset "broadcast of + and - with a dense array is dense (#516)" begin
+@testset "broadcast of + and - with a dense array or a scalar is dense (#516)" begin
     s, S = sparsevec([1, 3], [1.5, -2.0], 4), sparse([1, 3, 4], [1, 2, 2], [1.0, 2.0, -3.0], 4, 2)
     d, D = [1.0, 0.0, 2.0, 0.0], [1.0 0.0; 0.0 2.0; 3.0 0.0; 0.0 0.0]
     fs, fS = Array(s), Array(S)
     @test @inferred(broadcast(+, s, d))::Vector{Float64} == fs + d
     @test @inferred(broadcast(-, D, S))::Matrix{Float64} == D - fS
-    # the other broadcasts with a dense array, and sums without one, stay sparse
+    @test @inferred(broadcast(+, s, 1))::Vector{Float64} == fs .+ 1
+    # the other broadcasts with a dense array or a scalar, and sums without one, stay sparse
     @test (S .* D)::SparseMatrixCSC == fS .* D
-    @test (s .+ 1)::SparseVector == fs .+ 1
+    @test (S .- S)::SparseMatrixCSC == fS .- fS
     @static if COMPREHENSIVE
     # the shapes broadcast expands, and views and wrappers on either side
     @test @inferred(broadcast(+, S, d))::Matrix{Float64} == fS .+ d
@@ -821,9 +823,14 @@ end
     @test @inferred(fused(s, d))::Vector{Float64} == fs .+ d .- 1 .+ fs .+ d
     scaled(s, d) = 2 .* s .+ d
     @test @inferred(scaled(s, d))::SparseVector == 2 .* fs .+ d
+    # a scalar on either side, wrapped or not, and in a sum of sparse arrays alone
+    @test @inferred(broadcast(-, 1, S))::Matrix{Float64} == 1 .- fS
+    @test (s .+ fill(1.0))::Vector{Float64} == fs .+ 1
+    @test (S .+ s .- Ref(2))::Matrix{Float64} == fS .+ fs .- 2
+    @test (.-s)::SparseVector == .-fs
     # a sparse destination keeps the result sparse
-    x = copy(s); x .+= d
-    @test x::SparseVector == fs + d
+    x = copy(s); x .+= d; x .-= 1
+    @test x::SparseVector == fs + d .- 1
     end
 end
 
