@@ -400,6 +400,84 @@ end
     end
 end
 
+# kept out of the testsets so that `@allocated` measures the call alone
+mapreduce2(f::F, op::G, X, Y) where {F,G} = mapreduce(f, op, X, Y)
+
+@testset "mapreduce of a binary function over two sparse arrays (#33), $T" for T in STD_ELTYPES
+    f, g = (x, y) -> abs2(x - 2y), (x, y) -> x - 2y + 1   # g(0, 0) != 0
+    x, xd = fixturepair(T, 6)
+    yd = reverse(xd); yd[3] = 2; y = sparse(yd)
+    A, Ad = fixturepair(T, 5, 3)
+    Bd = reverse(Ad, dims=1); Bd[2, 1] = 2; B = sparse(Bd)
+    for (X, Y) in ((x, y), (A, B))
+        @test which(mapreduce, (typeof(f), typeof(+), typeof(X), typeof(Y))).module === SparseArrays
+    end
+    cases = Any[(x, xd, y, yd), (A, Ad, B, Bd)]
+    @static if COMPREHENSIVE
+    Z, F = spzeros(T, 5, 3), sparse(fixturedense(T, 5, 3))
+    append!(cases, [
+        (view(A, :, 2), Ad[:, 2], view(B, :, 3), Bd[:, 3]),             # column views
+        (view(x, :), xd, y, yd),
+        (view(A, :, [3, 1, 1]), Ad[:, [3, 1, 1]], B, Bd),               # a column subset
+        (view(A, :, 2:3), Ad[:, 2:3], view(B, :, 1:2), Bd[:, 1:2]),
+        (Z, Matrix(Z), Z, Matrix(Z)), (Z, Matrix(Z), B, Bd),            # nothing stored
+        (F, Matrix(F), F, Matrix(F)), (A, Ad, F, Matrix(F)),            # every entry stored
+        (x, xd, sparse([0, 3, 0, 0, 1, 0]), [0, 3, 0, 0, 1, 0]),        # two element types
+        (spzeros(T, 1), zeros(T, 1), spzeros(T, 1), zeros(T, 1)),
+    ])
+    end
+    ops = (+, (@static COMPREHENSIVE ? (*, Base.add_sum, (a, b) -> a + b) : ())...)
+    for (X, Xd, Y, Yd) in cases, h in (f, g), op in ops
+        @test mapreduce(h, op, X, Y) ≈ mapreduce(h, op, Xd, Yd)
+        @static if COMPREHENSIVE
+        @test mapreduce(h, op, X, Y; init = one(T)) ≈ mapreduce(h, op, Xd, Yd; init = one(T))
+        end
+    end
+    @static if COMPREHENSIVE
+    if T <: Real
+        for (X, Xd, Y, Yd) in cases, h in (f, g), op in (max, min)
+            @test mapreduce(h, op, X, Y) === mapreduce(h, op, Xd, Yd)
+        end
+    end
+    @test @inferred(mapreduce(f, +, x, y)) isa real(T)
+    @test @inferred(mapreduce(g, +, A, B)) isa T
+    # `f` is not evaluated at an entry that is not stored when every entry is
+    full = sparse(fixturedense(T, 5, 3))
+    @test mapreduce((x, y) -> iszero(x) ? error() : x * y, +, full, full) ≈ sum(Matrix(full) .^ 2)
+    # no array of the mapped values, whatever the size
+    big1, big2 = sprand(T, 10^4, 0.1), sprand(T, 10^4, 0.1)
+    mapreduce2(f, +, x, y); mapreduce2(f, +, big1, big2)
+    @test @allocated(mapreduce2(f, +, big1, big2)) == @allocated(mapreduce2(f, +, x, y))
+    # left to Base's method
+    @test mapreduce(g, +, spzeros(T, 0, 3), spzeros(T, 0, 3)) === mapreduce(g, +, zeros(T, 0, 3), zeros(T, 0, 3))
+    @test_throws DimensionMismatch mapreduce(f, +, x, sparse(yd[1:5]))
+    @test_throws DimensionMismatch mapreduce(f, +, A, sparse(Bd[:, 1:2]))
+    @test mapreduce(g, +, A, B; dims = 1) ≈ mapreduce(g, +, Ad, Bd; dims = 1)
+    @test mapreduce(g, +, A, B; dims = 2, sparse = true) ≈ mapreduce(g, +, Ad, Bd; dims = 2)
+    end
+end
+
+@static if COMPREHENSIVE
+@testset "mapreduce of a binary function: small integers as for dense" begin
+    A = sparse(Int8[0 100 0; 3 0 -7])
+    B = sparse(Int8[0 100 5; 0 0 -7])
+    for h in (+, (x, y) -> x - y + Int8(1)), op in (+, *, Base.add_sum, Base.mul_prod, max)
+        @test mapreduce(h, op, A, B) === mapreduce(h, op, Matrix(A), Matrix(B))
+        @test mapreduce(h, op, A, B; init = 1) === mapreduce(h, op, Matrix(A), Matrix(B); init = 1)
+    end
+    # `init` widens the whole reduction, not one of two accumulators
+    a, b = sparse(fill(Int8(100), 4)), spzeros(Int8, 4)
+    for (X, Y) in ((a, b), (b, a), (a, a)), op in (+, *)
+        @test mapreduce(+, op, X, Y; init = 1) === mapreduce(+, op, Vector(X), Vector(Y); init = 1)
+    end
+    # an element type without a zero, for arrays that store every entry
+    c = SparseVector(2, [1, 2], Any[1, 2])
+    C = SparseMatrixCSC(2, 1, [1, 3], [1, 2], Any[1, 2])
+    @test mapreduce(+, +, c, c) === mapreduce(+, +, C, C) === 6
+    @test mapreduce(+, +, c, sparse([3, 4]); init = 0.5) === 10.5
+end
+end
+
 @testset "reductions along a dimension: dense by default, sparse with `sparse = true` (#43), column views (#377)" begin
     # (f, op); the last one has f(0) != 0, and `x != 0` under `&` holds for a full column only,
     # which is where the predicate kernel may not stop at the first entry not stored

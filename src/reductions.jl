@@ -141,6 +141,77 @@ for T in (:SparseMatrixCSCOrSubArray, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColu
     end
 end
 
+# `mapreduce` of a binary `f` over two sparse arrays of one shape (#33), without the array
+# `map(f, A, B)` that Base's method reduces. Like the reductions of one array it takes `op`
+# to be associative and commutative: the entries neither array stores are folded in last.
+# A reduction along a dimension, an empty array and a shape mismatch are left to Base's method.
+for T in (:SparseVectorOrView, :SparseMatrixCSCOrColumnSubset)
+    @eval function Base.mapreduce(f::F, op::G, A::$T, B::$T; dims=:, init=Base._InitialValue(), kw...) where {F,G}
+        (dims === (:) && isempty(kw) && size(A) == size(B) && !isempty(A)) ||
+            return reduce(op, map(f, A, B); dims, init, kw...)
+        return _mapreduce_binary(f, op, init, A, B)
+    end
+end
+
+# The merge feeds two accumulators in turn: a single chain of `op` is bound by its latency,
+# which is long for `max` and `min` of floats. A zero is taken only where an entry is not
+# stored, as an array that stores every entry need not have one.
+function _mapreduce_binary(f::F, op::G, init, A::AbstractArray{Ta}, B::AbstractArray{Tb}) where {F,G,Ta,Tb}
+    rf = Base.BottomRF(op)
+    Ai, Av, Bi, Bv = getrowval(A), getnzval(A), getrowval(B), getnzval(B)
+    v, w = init, Base._InitialValue()
+    stored = 0   # positions that either array stores
+    @inbounds for col in axes(A, 2)
+        ra, rb = getnzrange(A, col), getnzrange(B, col)
+        ia, ib = first(ra), first(rb)
+        ea, eb = last(ra), last(rb)
+        while ia <= ea && ib <= eb
+            x, ia, ib = _merge_step(f, Ai, Av, ia, Bi, Bv, ib)
+            v = rf(v, x)
+            stored += 1
+            (ia <= ea && ib <= eb) || break
+            x, ia, ib = _merge_step(f, Ai, Av, ia, Bi, Bv, ib)
+            v, w = _fold_second(rf, v, w, x, init)
+            stored += 1
+        end
+        stored += (ea - ia + 1) + (eb - ib + 1)
+        while ia < ea
+            v = rf(v, f(Av[ia], zero(Tb)))
+            v, w = _fold_second(rf, v, w, f(Av[ia+1], zero(Tb)), init)
+            ia += 2
+        end
+        ia == ea && (v = rf(v, f(Av[ia], zero(Tb))))
+        while ib < eb
+            v = rf(v, f(zero(Ta), Bv[ib]))
+            v, w = _fold_second(rf, v, w, f(zero(Ta), Bv[ib+1]), init)
+            ib += 2
+        end
+        ib == eb && (v = rf(v, f(zero(Ta), Bv[ib])))
+    end
+    w isa Base._InitialValue || (v = v isa Base._InitialValue ? w : op(v, w))
+    nzeros = prod(Int64.(size(A))) - stored
+    if v isa Base._InitialValue   # nothing stored and no `init`: seed with one unstored position
+        v = rf(v, f(zero(Ta), zero(Tb)))
+        nzeros -= 1
+    end
+    return _mapreducezeros(z -> f(z, zero(Tb)), op, Ta, nzeros, v)
+end
+# With an `init` there is one accumulator: `init` may have widened it, as for small integers,
+# and a second one seeded with a mapped value would not be.
+@inline _fold_second(rf, v, w, x, ::Base._InitialValue) = v, rf(w, x)
+@inline _fold_second(rf, v, w, x, init) = rf(v, x), w
+# `f` at the next position that `A` or `B` stores, and the indices past it
+Base.@propagate_inbounds function _merge_step(f::F, Ai, Av::AbstractVector{Ta}, ia, Bi, Bv::AbstractVector{Tb}, ib) where {F,Ta,Tb}
+    ja, jb = Ai[ia], Bi[ib]
+    if ja == jb
+        return f(Av[ia], Bv[ib]), ia + 1, ib + 1
+    elseif ja < jb
+        return f(Av[ia], zero(Tb)), ia + 1, ib
+    else
+        return f(zero(Ta), Bv[ib]), ia, ib + 1
+    end
+end
+
 # The slices are reduced the way Base's dense result is: seeded with `init` when given and
 # otherwise with `mapreduce_first` of their first element, with the entries a slice does not
 # store folded in through `_mapreducezeros`.
