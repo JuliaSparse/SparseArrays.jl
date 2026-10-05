@@ -576,10 +576,10 @@ end
         (@static COMPREHENSIVE || X === C) && @test mismatch(broadcast!(+, Z, D, X), broadcast(+, fD, X)) === nothing
         (@static COMPREHENSIVE || X === M) && @test mismatch(broadcast!(*, Z, s, B, X), broadcast(*, s, fB, X)) === nothing
         @static if COMPREHENSIVE
-        @test mismatch(broadcast(+, V, B, X)::SparseMatrixCSC, broadcast(+, fV, fB, X)) === nothing
+        @test broadcast(+, V, B, X)::Matrix == broadcast(+, fV, fB, X)
         @test mismatch(broadcast!(+, Z, V, B, X), broadcast(+, fV, fB, X)) === nothing
         end
-        (@static COMPREHENSIVE || X === C) && @test mismatch(broadcast(+, V, A, X)::SparseMatrixCSC, broadcast(+, fV, fA, X)) === nothing
+        (@static COMPREHENSIVE || X === C) && @test broadcast(+, V, A, X)::Matrix == broadcast(+, fV, fA, X)
         @static if COMPREHENSIVE
         @test mismatch(broadcast!(+, Z, V, A, X), broadcast(+, fV, fA, X)) === nothing
         end
@@ -589,7 +589,7 @@ end
         end
         # Issue #20954 combinations of sparse arrays and Adjoint/Transpose vectors
         if X isa Vector
-            @test mismatch(broadcast(+, A, X')::SparseMatrixCSC, broadcast(+, fA, X')) === nothing
+            @test broadcast(+, A, X')::Matrix == broadcast(+, fA, X')
             @static if COMPREHENSIVE
             @test mismatch(broadcast(*, V, X')::SparseMatrixCSC, broadcast(*, fV, X')) === nothing
             end
@@ -608,10 +608,10 @@ end
     Z = copy(A)
     C = collect(Float64, 1:N)
     M = reshape(collect(Float64, 1:N*N), N, N)
-    # views of dense arrays should not force a dense result
+    # views of dense arrays count as dense: a sum with one is dense, any other broadcast sparse
     for X in (view(M, :, :), view(M, 1:N, 1:N), view(M, collect(1:N), :), view(M, :, :)')[@static COMPREHENSIVE ? (2:4) : [2, 4]]
         fX = Array(X)
-        (@static COMPREHENSIVE || !(X isa Adjoint)) && @test mismatch(broadcast(+, A, X)::SparseMatrixCSC, broadcast(+, Array(A), fX)) === nothing
+        (@static COMPREHENSIVE || !(X isa Adjoint)) && @test broadcast(+, A, X)::Matrix == broadcast(+, Array(A), fX)
         (@static COMPREHENSIVE || X isa Adjoint) && @test mismatch(broadcast(*, A, X)::SparseMatrixCSC, broadcast(*, Array(A), fX)) === nothing
         (@static COMPREHENSIVE || !(X isa Adjoint)) && @test mismatch(broadcast!(*, Z, A, X), broadcast(*, Array(A), fX)) === nothing
         # the structural zeros of A must be preserved by a zero-preserving op
@@ -632,7 +632,8 @@ end
                    (view(x, :), SparseVector), (view(x, 2:5), SparseVector))[@static COMPREHENSIVE ? [2, 3, 4, 6] : [2, 6]]
         fX = Array(X)
         @test (2 .* X)::T == 2 .* fX && nnz(2 .* X) <= nnz(copy(X))
-        @test (X .+ 1)::T == fX .+ 1
+        @test cos.(X)::T == cos.(fX)
+        @test (X .+ 1)::Array == fX .+ 1
         @static if COMPREHENSIVE
         @test (X .* fX)::T == fX .* fX
         end
@@ -751,7 +752,7 @@ end
     @static if COMPREHENSIVE
     @test M .* v' == Array(M) .* v'
     end
-    @test M .+ v == Array(M) .+ v   # dense result: does grow to the bound
+    @test M .+ v .* 1 == Array(M) .+ v   # full sparse result: does grow to the bound
     M .* v; @static COMPREHENSIVE && M .* v' # warmup for @allocated
     # the bound would be 200 * 200 * (8 + 8) bytes = 640 KB
     @test @allocated(M .* v) < 2^16
@@ -793,6 +794,43 @@ end
                 @test @inferred(f(sa, Vector(sb)))::Vector == f(fa, fb)
             end
         end
+    end
+end
+
+@testset "broadcast of + and - with a dense array or a scalar is dense (#516)" begin
+    s, S = sparsevec([1, 3], [1.5, -2.0], 4), sparse([1, 3, 4], [1, 2, 2], [1.0, 2.0, -3.0], 4, 2)
+    d, D = [1.0, 0.0, 2.0, 0.0], [1.0 0.0; 0.0 2.0; 3.0 0.0; 0.0 0.0]
+    fs, fS = Array(s), Array(S)
+    @test @inferred(broadcast(+, s, d))::Vector{Float64} == fs + d
+    @test @inferred(broadcast(-, D, S))::Matrix{Float64} == D - fS
+    @test @inferred(broadcast(+, s, 1))::Vector{Float64} == fs .+ 1
+    # the other broadcasts with a dense array or a scalar, and sums without one, stay sparse
+    @test (S .* D)::SparseMatrixCSC == fS .* D
+    @test (S .- S)::SparseMatrixCSC == fS .- fS
+    @static if COMPREHENSIVE
+    # the shapes broadcast expands, and views and wrappers on either side
+    @test @inferred(broadcast(+, S, d))::Matrix{Float64} == fS .+ d
+    @test @inferred(broadcast(-, s, d'))::Matrix{Float64} == fs .- d'
+    @test (view(s, 2:4) .+ view(d, 2:4))::Vector{Float64} == fs[2:4] .+ d[2:4]
+    @test (D' .- S')::Matrix{Float64} == D' .- fS'
+    # a view of columns picked by a vector is densified from its stored entries, not by
+    # indexing the view, which reads the column index once for each of its entries
+    T, J = sparse([1, 30, 50], [1, 2, 2], [1.0, 2.0, -3.0], 50, 2), CountedReads([2, 1])
+    @test (view(T, :, J) .+ ones(50, 2))::Matrix{Float64} == Array(T)[:, [2, 1]] .+ 1
+    @test J.reads[] < 50
+    # a fused expression is dense only when it is made of + and - alone
+    fused(s, d) = s .+ d .- 1 .+ s .- (.-d)
+    @test @inferred(fused(s, d))::Vector{Float64} == fs .+ d .- 1 .+ fs .+ d
+    scaled(s, d) = 2 .* s .+ d
+    @test @inferred(scaled(s, d))::SparseVector == 2 .* fs .+ d
+    # a scalar on either side, wrapped or not, and in a sum of sparse arrays alone
+    @test @inferred(broadcast(-, 1, S))::Matrix{Float64} == 1 .- fS
+    @test (s .+ fill(1.0))::Vector{Float64} == fs .+ 1
+    @test (S .+ s .- Ref(2))::Matrix{Float64} == fS .+ fs .- 2
+    @test (.-s)::SparseVector == .-fs
+    # a sparse destination keeps the result sparse
+    x = copy(s); x .+= d; x .-= 1
+    @test x::SparseVector == fs + d .- 1
     end
 end
 

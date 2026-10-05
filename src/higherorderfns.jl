@@ -1143,6 +1143,7 @@ end
 
 # broadcast entry points for combinations of sparse arrays and other (scalar) types
 @inline function copy(bc::Broadcasted{<:SparseVecOrMatStyle})
+    _isdensesum(bc) && return _densesum(bc)
     bcf = flatten(bc)
     return _copy(bcf.f, bcf.args...)
 end
@@ -1258,8 +1259,13 @@ broadcast(f::Tf, A::AbstractSparseMatrixCSC, ::Type{T}) where {Tf,T} = broadcast
 # for combinations involving only scalars, sparse arrays, structured matrices, and dense
 # vectors/matrices, promote all structured matrices and dense vectors/matrices to sparse
 # and rebroadcast. otherwise, divert to generic AbstractArray broadcast code.
+#
+# A sum is the exception: a broadcast made only of `+` and `-` calls that has a scalar or a
+# dense vector or matrix among its arguments is dense, as `+` and `-` of a sparse and a dense
+# array are. The choice is made from the types alone, so the result type stays inferable.
 
 function copy(bc::Broadcasted{PromoteToSparse})
+    _isdensesum(bc) && return _densesum(bc)
     bcf = flatten(bc)
     if can_skip_sparsification(bcf.f, bcf.args...)
         return _copy(bcf.f, bcf.args...)
@@ -1278,6 +1284,33 @@ end
         copyto!(dest, copy(bc))
     end
 end
+
+_isdensesum(bc::Broadcasted) = _issumtree(bc) && _anydensifying(bc.args...)
+function _densesum(bc::Broadcasted)
+    dbc = Broadcast.instantiate(_densifysparse(bc))
+    return copy(convert(Broadcasted{Broadcast.DefaultArrayStyle{length(axes(dbc))}}, dbc))
+end
+_issumtree(bc::Broadcasted) = _issum(bc.f) && _allsumtrees(bc.args...)
+_issumtree(x) = true
+_issum(::Union{typeof(+),typeof(-)}) = true
+_issum(f) = false
+_allsumtrees() = true
+_allsumtrees(x, rest...) = _issumtree(x) && _allsumtrees(rest...)
+# the arguments that make a sum dense: a dense vector or matrix, and a scalar, which every
+# argument that is not a vector or a matrix is
+_anydensifying() = false
+_anydensifying(x, rest...) = _densifies(x) || _anydensifying(rest...)
+_densifies(bc::Broadcasted) = _anydensifying(bc.args...)
+_densifies(x::AbstractVecOrMat) = _isdenselike(x)
+_densifies(x) = true
+
+# Densifying the sparse arguments costs O(nnz) each, where generic broadcast would look up
+# every entry of them by index.
+_densifysparse(bc::Broadcasted) = Broadcasted(bc.f, map(_densifysparse, bc.args))
+_densifysparse(S::Union{SparseVecOrMat,AdjOrTrans{<:Any,<:SparseVecOrMat}}) = Array(S)
+# `Array` of a view of columns picked by a vector is the generic copy: go through the sparse one
+_densifysparse(S::SparseViewOfColumns) = Array(copy(S))
+_densifysparse(x) = x
 
 _sparsifystructured(M::AbstractMatrix) = _isdenselike(M) ? _fullystored(M) : SparseMatrixCSC(M)
 _sparsifystructured(V::AbstractVector) = _isdenselike(V) ? _fullystored(V) : SparseVector(V)

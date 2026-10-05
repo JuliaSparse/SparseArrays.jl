@@ -46,17 +46,18 @@ along(f::F, X, dims) where {F} = f(X; dims)
             @test f(x->x+1, arr) ≈ f(arr .+ 1)
         end
 
-        # case where f(0) would throw
-        @test f(x->sqrt(x-1), pA .+ 1) ≈ f(sqrt.(pA))
+        # case where f(0) would throw: a sparse matrix that stores every entry
+        pA1 = map(x -> x + 1, pA)
+        @test f(x->sqrt(x-1), pA1) ≈ f(sqrt.(pA))
         # `sum` still evaluates the map at the structural zero and throws here
         if (@static COMPREHENSIVE ? f !== sum : f === maximum)
-            @test f(x->sqrt(x-1), pA .+ 1, dims=1) ≈ f(sqrt.(pA), dims=1)
-            @test f(x->sqrt(x-1), pA .+ 1, dims=2) ≈ f(sqrt.(pA), dims=2)
+            @test f(x->sqrt(x-1), pA1, dims=1) ≈ f(sqrt.(pA), dims=1)
+            @test f(x->sqrt(x-1), pA1, dims=2) ≈ f(sqrt.(pA), dims=2)
             @static if COMPREHENSIVE
-            @test f(x->sqrt(x-1), pA .+ 1, dims=3) ≈ f(sqrt.(pA), dims=3)
+            @test f(x->sqrt(x-1), pA1, dims=3) ≈ f(sqrt.(pA), dims=3)
             end
-            @test f(x->sqrt(x-1), pA .+ 1; dims=1, sparse=true) ≈ f(sqrt.(pA), dims=1)
-            @test f(x->sqrt(x-1), pA .+ 1; dims=2, sparse=true) ≈ f(sqrt.(pA), dims=2)
+            @test f(x->sqrt(x-1), pA1; dims=1, sparse=true) ≈ f(sqrt.(pA), dims=1)
+            @test f(x->sqrt(x-1), pA1; dims=2, sparse=true) ≈ f(sqrt.(pA), dims=2)
         end
     end
 
