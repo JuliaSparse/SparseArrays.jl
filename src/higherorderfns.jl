@@ -1300,7 +1300,8 @@ end
 
 _isdensesum(bc::Broadcasted) = _issumtree(bc) && _anydensifying(bc.args...)
 function _densebroadcast(bc::Broadcasted)
-    dbc = Broadcast.instantiate(_densifysparse(bc))
+    # an empty result reads no entry, so the sparse arguments are left as they are
+    dbc = any(isempty, axes(bc)) ? bc : Broadcast.instantiate(_densifysparse(bc))
     return copy(convert(Broadcasted{Broadcast.DefaultArrayStyle{length(axes(dbc))}}, dbc))
 end
 

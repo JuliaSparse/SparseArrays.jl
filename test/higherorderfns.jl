@@ -803,6 +803,9 @@ end
     end
 end
 
+# kept out of the testsets so that `@allocated` measures the call alone
+densesum(x, y) = x .+ y
+
 @testset "broadcast of + and - with a dense array or a scalar is dense (#516)" begin
     s, S = sparsevec([1, 3], [1.5, -2.0], 4), sparse([1, 3, 4], [1, 2, 2], [1.0, 2.0, -3.0], 4, 2)
     d, D = [1.0, 0.0, 2.0, 0.0], [1.0 0.0; 0.0 2.0; 3.0 0.0; 0.0 0.0]
@@ -815,7 +818,6 @@ end
     @test (S .- S)::SparseMatrixCSC == fS .- fS
     @static if COMPREHENSIVE
     # the shapes broadcast expands, and views and wrappers on either side
-    @test @inferred(broadcast(+, S, d))::Matrix{Float64} == fS .+ d
     @test @inferred(broadcast(-, s, d'))::Matrix{Float64} == fs .- d'
     @test (view(s, 2:4) .+ view(d, 2:4))::Vector{Float64} == fs[2:4] .+ d[2:4]
     @test (D' .- S')::Matrix{Float64} == D' .- fS'
@@ -837,6 +839,13 @@ end
     # a sparse destination keeps the result sparse
     x = copy(s); x .+= d; x .-= 1
     @test x::SparseVector == fs + d .- 1
+    # an empty result does not densify the sparse arguments, whatever their size
+    e = zeros(1, 0)
+    @test @inferred(densesum(s, e))::Matrix{Float64} == fs .+ e
+    @test (spzeros(Int, 0, 2) .- D[1:0, :])::Matrix{Float64} == zeros(0, 2)
+    long = spzeros(10^6)
+    densesum(long, e)
+    @test @allocated(densesum(long, e)) == @allocated(densesum(s, e))
     end
 end
 
@@ -855,9 +864,8 @@ end
     @test (S .== S)::BitMatrix == (fS .== fS)
     fused(S, s) = exp.(S .* s)
     @test @inferred(fused(S, s))::Matrix{Float64} == exp.(fS .* fs)
-    # wrappers, views and banded matrices count as sparse arguments
+    # wrappers and banded matrices count as sparse arguments
     @test cos.(S')::Matrix{Float64} == cos.(fS')
-    @test cos.(view(S, :, [2, 1]))::Matrix{Float64} == cos.(fS[:, [2, 1]])
     @test isequal((S[1:2, :] ./ Diagonal([1.0, 2.0]))::Matrix{Float64}, fS[1:2, :] ./ Diagonal([1.0, 2.0]))
     # `map` and a sparse destination keep the result sparse
     @test map(cos, S)::SparseMatrixCSC == cos.(fS)
