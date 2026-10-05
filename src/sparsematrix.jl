@@ -217,8 +217,12 @@ julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
  5
 ```
 """
+getrowval(S::SparseMatrixCSC) = getfield(S, :rowval)
+getrowval(S::FixedSparseCSC) = getfield(S, :rowval)
+# A subtype implements `getrowval` or, as before it existed, `rowvals`; the other falls back
+# to it. One that implements neither recurses between the two.
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
-getrowval(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
+getrowval(S::SparseMatrixCSCColumnSubset) = getrowval(parent(S))
 getrowval(S::_SparseTriOrSymHerm) = getrowval(S.data)
 
 """
@@ -254,9 +258,11 @@ julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
  4.0
 ```
 """
-getnzval( S::AbstractSparseMatrixCSC) = nonzeros(S)
-getnzval( S::SparseMatrixCSCColumnSubset) = nonzeros(parent(S))
-getnzval( S::_SparseTriOrSymHerm) = getnzval(S.data)
+getnzval(S::SparseMatrixCSC) = getfield(S, :nzval)
+getnzval(S::FixedSparseCSC) = getfield(S, :nzval)
+getnzval(S::AbstractSparseMatrixCSC) = nonzeros(S)
+getnzval(S::SparseMatrixCSCColumnSubset) = getnzval(parent(S))
+getnzval(S::_SparseTriOrSymHerm) = getnzval(S.data)
 nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
 nzvalview(S::_SparseScatteredStorage) = nonzeros(S)
 # where the stored entries of `S` sit in `getnzval(S)`: a contiguous range for a column range
@@ -349,8 +355,7 @@ julia> nonzeros(view(A, :, 2:3))
  2
 ```
 """
-nonzeros(S::SparseMatrixCSC) = getfield(S, :nzval)
-nonzeros(S::FixedSparseCSC) = getfield(S, :nzval)
+nonzeros(S::AbstractSparseMatrixCSC) = getnzval(S)
 nonzeros(S::_SparseScatteredStorage) = view(getnzval(S), _storedinds(S))
 
 """
@@ -388,8 +393,7 @@ julia> rowvals(sparsevec([2, 5], [1.5, 2.5], 6))
  5
 ```
 """
-rowvals(S::SparseMatrixCSC) = getfield(S, :rowval)
-rowvals(S::FixedSparseCSC) = getfield(S, :rowval)
+rowvals(S::AbstractSparseMatrixCSC) = getrowval(S)
 rowvals(S::_SparseScatteredStorage) = view(getrowval(S), _storedinds(S))
 
 """
