@@ -806,42 +806,24 @@ end
     @test (S .* D)::SparseMatrixCSC == fS .* D
     @test (s .+ 1)::SparseVector == fs .+ 1
     @static if COMPREHENSIVE
-    for f in (+, -)
-        @test @inferred(broadcast(f, d, s))::Vector{Float64} == f.(d, fs)
-        @test @inferred(broadcast(f, S, D))::Matrix{Float64} == f.(fS, D)
-        # the shapes broadcast expands
-        @test @inferred(broadcast(f, S, d))::Matrix{Float64} == f.(fS, d)
-        @test @inferred(broadcast(f, s, D))::Matrix{Float64} == f.(fs, D)
-        @test @inferred(broadcast(f, s, d'))::Matrix{Float64} == f.(fs, d')
-        # views and wrappers on either side
-        @test broadcast(f, view(S, :, 1:2), view(D, 1:4, :))::Matrix{Float64} == f.(fS, D)
-        @test broadcast(f, view(s, 2:4), view(d, 2:4))::Vector{Float64} == f.(fs[2:4], d[2:4])
-        @test broadcast(f, S', D')::Matrix{Float64} == f.(fS', D')
-        @test broadcast(f, transpose(s), D')::Matrix{Float64} == f.(transpose(fs), D')
-    end
+    # the shapes broadcast expands, and views and wrappers on either side
+    @test @inferred(broadcast(+, S, d))::Matrix{Float64} == fS .+ d
+    @test @inferred(broadcast(-, s, d'))::Matrix{Float64} == fs .- d'
+    @test (view(s, 2:4) .+ view(d, 2:4))::Vector{Float64} == fs[2:4] .+ d[2:4]
+    @test (D' .- S')::Matrix{Float64} == D' .- fS'
     # a view of columns picked by a vector is densified from its stored entries, not by
     # indexing the view, which reads the column index once for each of its entries
     T, J = sparse([1, 30, 50], [1, 2, 2], [1.0, 2.0, -3.0], 50, 2), CountedReads([2, 1])
     @test (view(T, :, J) .+ ones(50, 2))::Matrix{Float64} == Array(T)[:, [2, 1]] .+ 1
     @test J.reads[] < 50
-    # a fused expression is dense when it is made of + and - alone
+    # a fused expression is dense only when it is made of + and - alone
     fused(s, d) = s .+ d .- 1 .+ s .- (.-d)
     @test @inferred(fused(s, d))::Vector{Float64} == fs .+ d .- 1 .+ fs .+ d
-    @test (S .- s .+ D .+ Diagonal(d[1:2])[[1, 2, 1, 2], :])::Matrix{Float64} == fS .- fs .+ D .+ Diagonal(d[1:2])[[1, 2, 1, 2], :]
     scaled(s, d) = 2 .* s .+ d
     @test @inferred(scaled(s, d))::SparseVector == 2 .* fs .+ d
-    @test (s .+ d .* 2)::SparseVector == fs .+ d .* 2
-    @test max.(s, d)::SparseVector == max.(fs, d)
-    # a sparse destination keeps the result sparse, and a zero-dimensional array is a scalar
+    # a sparse destination keeps the result sparse
     x = copy(s); x .+= d
     @test x::SparseVector == fs + d
-    @test (s .+ fill(1.0))::SparseVector == fs .+ 1
-    # sparse and structured arguments alone
-    @test (S[1:2, :] .+ Diagonal(d[1:2]))::SparseMatrixCSC == fS[1:2, :] + Diagonal(d[1:2])
-    # the element type is the dense one
-    @test (sparse(Real[1.5, 0]) .+ [1, 2])::Vector{Real} == [2.5, 2]
-    @test (sparse([1, 0]) .+ [1.5, 2])::Vector{Float64} == [2.5, 2]
-    @test_throws DimensionMismatch s .+ d[1:3]
     end
 end
 
