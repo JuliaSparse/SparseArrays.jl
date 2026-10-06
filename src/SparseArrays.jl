@@ -111,9 +111,9 @@ this package call on it. To support code that calls [`rowvals`](@ref) and
 [`nonzeros`](@ref), it also defines `rowvals(A) = getrowval(A)` and
 `nonzeros(A) = getnzval(A)`.
 
-Subtypes written before the `get*` methods existed implement `rowvals` and `nonzeros`
-only, and `getrowval` and `getnzval` fall back to those. This remains supported, but is
-planned to stop being supported in SparseArrays 2.0.
+Subtypes written while `rowvals` and `nonzeros` were the only exported accessors implement
+those in place of `getrowval` and `getnzval`, which fall back to them. This remains
+supported, but is planned to stop being supported in SparseArrays 2.0.
 """
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 

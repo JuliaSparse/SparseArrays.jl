@@ -219,7 +219,7 @@ julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
 """
 getrowval(S::SparseMatrixCSC) = getfield(S, :rowval)
 getrowval(S::FixedSparseCSC) = getfield(S, :rowval)
-# a subtype written before `getrowval` existed implements `rowvals` instead
+# a subtype may implement the longer-exported `rowvals` instead
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
 getrowval(S::SparseMatrixCSCColumnSubset) = getrowval(parent(S))
 getrowval(S::_SparseTriOrSymHerm) = getrowval(S.data)
@@ -259,7 +259,7 @@ julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
 """
 getnzval(S::SparseMatrixCSC) = getfield(S, :nzval)
 getnzval(S::FixedSparseCSC) = getfield(S, :nzval)
-# a subtype written before `getnzval` existed implements `nonzeros` instead
+# a subtype may implement the longer-exported `nonzeros` instead
 getnzval(S::AbstractSparseMatrixCSC) = nonzeros(S)
 getnzval(S::SparseMatrixCSCColumnSubset) = getnzval(parent(S))
 getnzval(S::_SparseTriOrSymHerm) = getnzval(S.data)

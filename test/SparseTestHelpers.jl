@@ -213,8 +213,9 @@ end
 Base.size(S::NonCSCSparse) = size(S.A)
 Base.getindex(S::NonCSCSparse, i::Int, j::Int) = S.A[i, j]
 
-# A CSC matrix type from another package written before the `get*` accessors existed: it
-# implements `size`, `getcolptr`, `rowvals` and `nonzeros` only.
+# A CSC matrix type from another package that implements `rowvals` and `nonzeros` rather
+# than `getrowval` and `getnzval`. It needs `getcolptr` as every subtype does: no exported
+# accessor gives the column pointers.
 struct LegacyCSC{Tv,Ti} <: AbstractSparseMatrixCSC{Tv,Ti}
     A::SparseMatrixCSC{Tv,Ti}
 end
