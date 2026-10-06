@@ -221,8 +221,8 @@ struct LegacyCSC{Tv,Ti} <: AbstractSparseMatrixCSC{Tv,Ti}
 end
 Base.size(S::LegacyCSC) = size(S.A)
 SparseArrays.getcolptr(S::LegacyCSC) = getcolptr(S.A)
-SparseArrays.rowvals(S::LegacyCSC) = rowvals(S.A)
-SparseArrays.nonzeros(S::LegacyCSC) = nonzeros(S.A)
+SparseArrays.rowvals(S::LegacyCSC) = getrowval(S.A)
+SparseArrays.nonzeros(S::LegacyCSC) = getnzval(S.A)
 
 # An array type from another package that owns the `vcat`/`hcat`/`hvcat` of its own
 # arrays with anything.
