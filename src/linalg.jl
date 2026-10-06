@@ -537,8 +537,8 @@ end
 # `length(d)` matches the scaled dimension and that `size(C) == size(A)`.
 function _scalecols!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
     copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
+    Cnzval = getnzval(C)
+    Anzval = getnzval(A)
     resize!(Cnzval, length(Anzval))
     @inbounds for col in axes(A, 2)
         dcol = d[col]
@@ -551,9 +551,9 @@ end
 
 function _scalerows!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
     copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
+    Cnzval = getnzval(C)
+    Anzval = getnzval(A)
+    Arowval = getrowval(A)
     resize!(Cnzval, length(Anzval))
     @inbounds for col in axes(A, 2), p in nzrange(A, col)
         Cnzval[p] = op(d[Arowval[p]], Anzval[p])
@@ -617,7 +617,7 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     end
     @inbounds for col = max(k+1,1) : n
         for c1 in nzrange(S, col)
-            rowvals(S)[c1] > col - k && break
+            getrowval(S)[c1] > col - k && break
             nnz += 1
         end
         colptr[col+1] = nnz+1
@@ -627,8 +627,8 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     @inbounds for col = max(k+1,1) : n
         c1 = Int(getcolptr(S)[col])
         for c2 in colptr[col]:colptr[col+1]-1
-            rowval[c2] = rowvals(S)[c1]
-            nzval[c2] = nonzeros(S)[c1]
+            rowval[c2] = getrowval(S)[c1]
+            nzval[c2] = getnzval(S)[c1]
             c1 += 1
         end
     end
@@ -643,7 +643,7 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     @inbounds for col = 1 : min(n, m+k)
         l1 = getcolptr(S)[col+1]-1
         for c1 = 0 : (l1 - getcolptr(S)[col])
-            rowvals(S)[l1 - c1] < col - k && break
+            getrowval(S)[l1 - c1] < col - k && break
             nnz += 1
         end
         colptr[col+1] = nnz+1
@@ -657,8 +657,8 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
         c1 = getcolptr(S)[col+1]-1
         l2 = colptr[col+1]-1
         for c2 = 0 : l2 - colptr[col]
-            rowval[l2 - c2] = rowvals(S)[c1]
-            nzval[l2 - c2] = nonzeros(S)[c1]
+            rowval[l2 - c2] = getrowval(S)[c1]
+            nzval[l2 - c2] = getnzval(S)[c1]
             c1 -= 1
         end
     end
@@ -706,7 +706,7 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     numnz = 0
     @inbounds colptr[1] = 1
     @inbounds for col = 1 : n
-        numnz = _sparse_diff1_column!(rowval, nzval, numnz, rowvals(S), nonzeros(S), nzrange(S, col), m)
+        numnz = _sparse_diff1_column!(rowval, nzval, numnz, getrowval(S), getnzval(S), nzrange(S, col), m)
         colptr[col+1] = numnz+1
     end
     deleteat!(rowval, numnz+1:length(rowval))
@@ -724,8 +724,8 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     z = zero(Tv)
 
     colptr_a = getcolptr(a)
-    rowval_a = rowvals(a)
-    nzval_a = nonzeros(a)
+    rowval_a = getrowval(a)
+    nzval_a = getnzval(a)
 
     @inbounds begin
         ptrS = 1
@@ -870,7 +870,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             @inbounds for j in axes(A,2)
                 colSum::Tsum = 0
                 for i in nzrange(A, j)
-                    colSum += abs(nonzeros(A)[i])
+                    colSum += abs(getnzval(A)[i])
                 end
                 nA = max(nA, colSum)
             end
@@ -879,8 +879,8 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             return convert(Tnorm, opnorm2est(A))
         elseif p==Inf
             rowSum = zeros(Tsum,m)
-            @inbounds for i in axes(nonzeros(A),1)
-                rowSum[rowvals(A)[i]] += abs(nonzeros(A)[i])
+            @inbounds for i in axes(getnzval(A),1)
+                rowSum[getrowval(A)[i]] += abs(getnzval(A)[i])
             end
             return convert(Tnorm, maximum(rowSum))
         end
@@ -1146,8 +1146,8 @@ const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMa
     mC, nC = mA*mB, nA*nB
     @boundscheck size(C) == (mC, nC) || throw(DimensionMismatch("target matrix needs to have size ($mC, $nC)," *
         " but has size $(size(C))"))
-    rowvalC = rowvals(C)
-    nzvalC = nonzeros(C)
+    rowvalC = getrowval(C)
+    nzvalC = getnzval(C)
     colptrC = getcolptr(C)
 
     nnzC = nnz(A)*nnz(B)
@@ -1166,8 +1166,8 @@ const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMa
             for ptrA = nzrange(A, j)
                 ptrB = startB
                 for ptr = ptr_range
-                    rowvalC[ptr] = (rowvals(A)[ptrA]-1)*mB + rowvals(B)[ptrB]
-                    nzvalC[ptr] = nonzeros(A)[ptrA] * nonzeros(B)[ptrB]
+                    rowvalC[ptr] = (getrowval(A)[ptrA]-1)*mB + getrowval(B)[ptrB]
+                    nzvalC[ptr] = getnzval(A)[ptrA] * getnzval(B)[ptrB]
                     ptrB += 1
                 end
                 ptr_range = ptr_range .+ lB
@@ -1254,9 +1254,9 @@ function copyinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC; copy_
         resize!(getcolptr(C), length(getcolptr(A)))
         copyto!(getcolptr(C), getcolptr(A))
     end
-    if copy_rows && rowvals(C) !== rowvals(A)
-        resize!(rowvals(C), length(rowvals(A)))
-        copyto!(rowvals(C), rowvals(A))
+    if copy_rows && getrowval(C) !== getrowval(A)
+        resize!(getrowval(C), length(getrowval(A)))
+        copyto!(getrowval(C), getrowval(A))
     end
 end
 
@@ -1271,7 +1271,7 @@ If `row_exists` is `false`, the `row_ind` is the index where the value should be
 """
 @inline function rowcheck_index(A::AbstractSparseMatrixCSC, row::Integer, col::Integer)
     nzinds = nzrange(A, col)
-    rows_col = @view rowvals(A)[nzinds]
+    rows_col = @view getrowval(A)[nzinds]
     # faster implementation of row ∈ rows_col and obtaining the index,
     # assuming that rows_col is sorted
     row_ind_col = searchsortedfirst(rows_col, row)
@@ -1321,13 +1321,13 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     for col in axes(A,2)
         n_extra = 0
         for ind in @inbounds nzrange(A, col)
-            row = @inbounds rowvals(A)[ind]
+            row = @inbounds getrowval(A)[ind]
             row_exists, ind = rowcheck_index(C, row, col)
             if !row_exists
                 _is_fixed(C) && throw(ArgumentError(lazy"cannot store entry ($row, $col) in a fixed sparse matrix whose pattern lacks it"))
                 n_extra += 1
-                insert!(rowvals(C), ind, row)
-                insert!(nonzeros(C), ind, zero(eltype(C)))
+                insert!(getrowval(C), ind, row)
+                insert!(getnzval(C), ind, zero(eltype(C)))
                 C_colptr[col+1] += 1
             end
         end

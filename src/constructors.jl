@@ -10,8 +10,8 @@ SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv,
 SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = copy(S)
 function SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC) where {Tv,Ti}
     eltypeTicolptr = Vector{Ti}(getcolptr(S))
-    eltypeTirowval = Vector{Ti}(rowvals(S))
-    eltypeTvnzval = Vector{Tv}(nonzeros(S))
+    eltypeTirowval = Vector{Ti}(getrowval(S))
+    eltypeTvnzval = Vector{Tv}(getnzval(S))
     return SparseMatrixCSC(size(S, 1), size(S, 2), eltypeTicolptr, eltypeTirowval, eltypeTvnzval)
 end
 
@@ -249,10 +249,10 @@ convert(T::Type{<:LowerTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
 convert(T::Type{<:UpperTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
     istriu(m) ? T(m) : throw(ArgumentError("matrix cannot be represented as UpperTriangular"))
 
-float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
-complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
-float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
-complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
+float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
+complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
+float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
+complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
 
 """
     sparse(A::Union{AbstractVector, AbstractMatrix})

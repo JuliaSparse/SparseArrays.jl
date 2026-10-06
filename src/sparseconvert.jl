@@ -297,10 +297,10 @@ end
 # they report as aliased.
 _sparseroot(x::Union{AbstractSparseVector,AbstractSparseMatrixCSC}) = x
 _sparseroot(x::Union{SubArray,Adjoint,Transpose}) = _sparseroot(parent(x))
-_storagebuffers(S::AbstractSparseMatrixCSC) = (getcolptr(S), rowvals(S), nonzeros(S))
+_storagebuffers(S::AbstractSparseMatrixCSC) = (getcolptr(S), getrowval(S), getnzval(S))
 _storagebuffers(x::AbstractSparseVector) = (nonzeroinds(x), nonzeros(x))
 _unaliasedcopy(S::AbstractSparseMatrixCSC) =
-    SparseMatrixCSC(size(S)..., collect(getcolptr(S)), collect(rowvals(S)), collect(nonzeros(S)))
+    SparseMatrixCSC(size(S)..., collect(getcolptr(S)), collect(getrowval(S)), collect(getnzval(S)))
 _unaliasedcopy(x::AbstractSparseVector) = SparseVector(length(x), collect(nonzeroinds(x)), collect(nonzeros(x)))
 _rewrap(::Union{AbstractSparseVector,AbstractSparseMatrixCSC}, R) = R
 _rewrap(x::SubArray, R) = view(_rewrap(parent(x), R), parentindices(x)...)
@@ -342,7 +342,7 @@ function _sparse_copyto!(dest::AbstractArray, src::AdjOrTrans{<:Any,<:AbstractSp
     _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
     isrc = _dense_copy_prelude!(dest, src, () -> op(zero(eltype(P))))
     @inbounds for col in axes(P, 2), ptr in nzrange(P, col)
-        dest[isrc[col, rowvals(P)[ptr]]] = op(nonzeros(P)[ptr])
+        dest[isrc[col, getrowval(P)[ptr]]] = op(getnzval(P)[ptr])
     end
     return dest
 end

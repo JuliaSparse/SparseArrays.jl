@@ -37,7 +37,7 @@ function _vcat_csc(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where 
             col_length = colptrXi[c + 1] - colptrXi[c]
             ptr_Xi = colptrXi[c]
 
-            ptr_res = stuffcol!(rowval, nzval, ptr_res, rowvals(X[i]), nonzeros(X[i]), ptr_Xi,
+            ptr_res = stuffcol!(rowval, nzval, ptr_res, getrowval(X[i]), getnzval(X[i]), ptr_Xi,
                                 col_length, mX_sofar)
             mX_sofar += mX[i]
         end
@@ -80,12 +80,12 @@ function hcat(X::AbstractSparseMatrixCSC...)
     @inbounds for i = 1 : num
         XI = X[i]
         colptr[(1 : nX[i] + 1) .+ nX_sofar] = getcolptr(XI) .+ nnz_sofar
-        if nnzX[i] == length(rowvals(XI))
-            rowval[(1 : nnzX[i]) .+ nnz_sofar] = rowvals(XI)
-            nzval[(1 : nnzX[i]) .+ nnz_sofar] = nonzeros(XI)
+        if nnzX[i] == length(getrowval(XI))
+            rowval[(1 : nnzX[i]) .+ nnz_sofar] = getrowval(XI)
+            nzval[(1 : nnzX[i]) .+ nnz_sofar] = getnzval(XI)
         else
-            rowval[(1 : nnzX[i]) .+ nnz_sofar] = rowvals(XI)[1:nnzX[i]]
-            nzval[(1 : nnzX[i]) .+ nnz_sofar] = nonzeros(XI)[1:nnzX[i]]
+            rowval[(1 : nnzX[i]) .+ nnz_sofar] = getrowval(XI)[1:nnzX[i]]
+            nzval[(1 : nnzX[i]) .+ nnz_sofar] = getnzval(XI)[1:nnzX[i]]
         end
         nnz_sofar += nnzX[i]
         nX_sofar += nX[i]
@@ -100,8 +100,8 @@ end
 function Base.repeat(A::AbstractSparseMatrixCSC, m)
     nnz_new = nnz(A) * m
     colptr = similar(getcolptr(A), length(getcolptr(A)))
-    rowval = similar(rowvals(A), nnz_new)
-    nzval = similar(nonzeros(A), nnz_new)
+    rowval = similar(getrowval(A), nnz_new)
+    nzval = similar(getnzval(A), nnz_new)
 
     colptr[1] = 1
     for c = 1 : size(A, 2)
@@ -110,7 +110,7 @@ function Base.repeat(A::AbstractSparseMatrixCSC, m)
         col_length = getcolptr(A)[c + 1] - ptr_source
         for index_repetition = 0 : (m - 1)
             row_offset = index_repetition * size(A, 1)
-            ptr_res = stuffcol!(rowval, nzval, ptr_res, rowvals(A), nonzeros(A), ptr_source,
+            ptr_res = stuffcol!(rowval, nzval, ptr_res, getrowval(A), getnzval(A), ptr_source,
                                 col_length, row_offset)
         end
         colptr[c + 1] = ptr_res
@@ -130,8 +130,8 @@ function Base.repeat(A::AbstractSparseMatrixCSC, m, n)
     for k = 0 : (n - 1), c = 1 : nB
         colptr[k * nB + c + 1] = colptrB[c + 1] + k * nnzB
     end
-    rowval = repeat(rowvals(B), n)
-    nzval = repeat(nonzeros(B), n)
+    rowval = repeat(getrowval(B), n)
+    nzval = repeat(getnzval(B), n)
     SparseMatrixCSC(size(B, 1), nB * n, colptr, rowval, nzval)
 end
 
@@ -159,8 +159,8 @@ function blockdiag(X::AbstractSparseMatrixCSC{Tv, Ti}...) where {Tv, Ti <: Integ
 end
 
 function blockdiag(X::AbstractSparseMatrixCSC...)
-    Tv = promote_type(map(x->eltype(nonzeros(x)), X)...)
-    Ti = promote_type(map(x->eltype(rowvals(x)), X)...)
+    Tv = promote_type(map(x->eltype(getnzval(x)), X)...)
+    Ti = promote_type(map(x->eltype(getrowval(x)), X)...)
     _blockdiag(Tv, Ti, X...)
 end
 
@@ -182,8 +182,8 @@ function _blockdiag(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where
     mX_sofar = 0
     for i = 1 : num
         colptr[(1 : nX[i] + 1) .+ nX_sofar] = getcolptr(X[i]) .+ nnz_sofar
-        rowval[(1 : nnzX[i]) .+ nnz_sofar] = rowvals(X[i]) .+ mX_sofar
-        nzval[(1 : nnzX[i]) .+ nnz_sofar] = nonzeros(X[i])
+        rowval[(1 : nnzX[i]) .+ nnz_sofar] = getrowval(X[i]) .+ mX_sofar
+        nzval[(1 : nnzX[i]) .+ nnz_sofar] = getnzval(X[i])
         nnz_sofar += nnzX[i]
         nX_sofar += nX[i]
         mX_sofar += mX[i]
@@ -493,7 +493,7 @@ end
 # `c` is a column of `B` and `p` stays within the `nnz` of all the blocks, by the shape
 # checks in `_hvcat_csc`
 function _hvcat_copycol!(rowval, nzval, p, B, c, i0)
-    cp, rv, nz = getcolptr(B), rowvals(B), nonzeros(B)
+    cp, rv, nz = getcolptr(B), getrowval(B), getnzval(B)
     @inbounds for q in cp[c]:(cp[c + 1] - 1)
         rowval[p] = rv[q] + i0
         nzval[p] = nz[q]

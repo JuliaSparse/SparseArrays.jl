@@ -9,7 +9,7 @@ module SparseTestHelpers
 export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     same_pattern, exact_equal, WrappedSparseVector, OpCount, mulcount, eqcount,
     opcount_sparse, CountedReads, hasunionlocal, quaternion_type, SimpleSMatrix,
-    NonCSCSparse, GetCSC, ConcatArray, AllBut, MockTropical, Variable, Expression, Meters,
+    NonCSCSparse, LegacyCSC, ConcatArray, AllBut, MockTropical, Variable, Expression, Meters,
     OneSided, Tagged, CustomType, UndefElt, Positive,
     check_trisolve, check_scalar_broadcast,
     show_plain, show_contents,
@@ -213,14 +213,15 @@ end
 Base.size(S::NonCSCSparse) = size(S.A)
 Base.getindex(S::NonCSCSparse, i::Int, j::Int) = S.A[i, j]
 
-# A CSC matrix type from another package implementing only `size` and the `get*` accessors.
-struct GetCSC{Tv,Ti} <: AbstractSparseMatrixCSC{Tv,Ti}
+# A CSC matrix type from another package written before the `get*` accessors existed: it
+# implements `size`, `getcolptr`, `rowvals` and `nonzeros` only.
+struct LegacyCSC{Tv,Ti} <: AbstractSparseMatrixCSC{Tv,Ti}
     A::SparseMatrixCSC{Tv,Ti}
 end
-Base.size(S::GetCSC) = size(S.A)
-SparseArrays.getcolptr(S::GetCSC) = getcolptr(S.A)
-SparseArrays.getrowval(S::GetCSC) = SparseArrays.getrowval(S.A)
-SparseArrays.getnzval(S::GetCSC) = SparseArrays.getnzval(S.A)
+Base.size(S::LegacyCSC) = size(S.A)
+SparseArrays.getcolptr(S::LegacyCSC) = getcolptr(S.A)
+SparseArrays.rowvals(S::LegacyCSC) = rowvals(S.A)
+SparseArrays.nonzeros(S::LegacyCSC) = nonzeros(S.A)
 
 # An array type from another package that owns the `vcat`/`hcat`/`hvcat` of its own
 # arrays with anything.

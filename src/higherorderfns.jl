@@ -14,7 +14,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       SparseVectorOrView, AdjOrTransSparseVectorOrView, SparseVecOrMat, SparseMatrixCSCOrView,
                       SparseMatrixCSCColumnSubset, SparseColumnView, SparseVectorView, SparseVectorPartialView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros, ftranspose,
-                      nonzeroinds, nonzeros, rowvals, getcolptr, widelength,
+                      nonzeroinds, nonzeros, rowvals, getcolptr, getrowval, getnzval, widelength,
                       _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, @if_move_fixed
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
@@ -127,8 +127,8 @@ Base.@propagate_inbounds colrange(A::AbstractSparseMatrixCSC, j) = nzrange(A, j)
 @inline colstartind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j]
 @inline colboundind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j + 1]
 @inline storedinds(A::AbstractCompressedVector) = nonzeroinds(A)
-@inline storedinds(A::AbstractSparseMatrixCSC) = rowvals(A)
-@inline storedvals(A::SparseVecOrMat) = nonzeros(A)
+@inline storedinds(A::AbstractSparseMatrixCSC) = getrowval(A)
+@inline storedvals(A::SparseVecOrMat) = getnzval(A)
 @inline setcolptr!(A::AbstractCompressedVector, j, val) = val
 @inline setcolptr!(A::AbstractSparseMatrixCSC, j, val) = getcolptr(A)[j] = val
 function trimstorage!(A::SparseVecOrMat, maxstored)
@@ -288,7 +288,7 @@ not that value is zero, so that `f.(A)` keeps its stored zeros like `2A` and `fl
 """
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     _is_fixed(C) && _checkfixedpattern(C, A)
-    spaceC::Int = length(nonzeros(C))
+    spaceC::Int = length(getnzval(C))
     Ck = 1
     @inbounds for j in columns(C)
         setcolptr!(C, j, Ck)
@@ -333,7 +333,7 @@ end
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
     _is_fixed(C) && _checkfixedpattern(C, A, B)
     isfixed = _is_fixed(C, A, B)
-    spaceC::Int = length(nonzeros(C))
+    spaceC::Int = length(getnzval(C))
     W = promote_type(Int, _promote_indtype(A, B))
     rowsentinelA = W(numrows(C)) + one(W)
     rowsentinelB = W(numrows(C)) + one(W)
@@ -413,7 +413,7 @@ end
 # (6) _map_zeropres!/_map_notzeropres! for more than two sparse matrices / vectors
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     _is_fixed(C) && _checkfixedpattern(C, As...)
-    spaceC::Int = length(nonzeros(C))
+    spaceC::Int = length(getnzval(C))
     isfixed = _is_fixed(C, As...)
     W = promote_type(Int, _promote_indtype(As...))
     rowsentinel = W(numrows(C)) + one(W)
@@ -542,7 +542,7 @@ end
 # (7) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a single (input) sparse vector/matrix
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
-    spaceC::Int = length(nonzeros(C))
+    spaceC::Int = length(getnzval(C))
     # C and A cannot have the same shape, as we directed that case to map in broadcast's
     # entry point; here we need efficiently handle only heterogeneous C-A combinations where
     # one or both of C and A has at least one singleton dimension. As in the single-input
@@ -625,7 +625,7 @@ end
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
     isfixed = _is_fixed(A, B)
-    spaceC::Int = length(nonzeros(C))
+    spaceC::Int = length(getnzval(C))
     W = promote_type(Int, _promote_indtype(A, B))
     rowsentinelA = W(numrows(C)) + one(W)
     rowsentinelB = W(numrows(C)) + one(W)
@@ -995,7 +995,7 @@ end
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     isempty(C) && return _finishempty!(C)
     isfixed = _is_fixed(As...)
-    spaceC::Int = length(nonzeros(C))
+    spaceC::Int = length(getnzval(C))
     expandsverts = _expandsvert_all(C, As)
     expandshorzs = _expandshorz_all(C, As)
     W = promote_type(Int, _promote_indtype(As...))
@@ -1328,7 +1328,7 @@ function _densenonzero(bc::Broadcasted, f::F, args::Vararg{Any,N}) where {F,N}
     return _storedasdense(_copy(f, map(_sparsifystructured, args)...))
 end
 _storedasdense(C::Union{SparseVector,SparseMatrixCSC}) =
-    length(nonzeros(C)) == nnz(C) == length(C) ? reshape(nonzeros(C), size(C)) : Array(C)
+    length(getnzval(C)) == nnz(C) == length(C) ? reshape(getnzval(C), size(C)) : Array(C)
 _storedasdense(C) = Array(C)
 
 _issumtree(bc) = _istreeof(Union{typeof(+),typeof(-)}, bc)
@@ -1375,7 +1375,7 @@ _isdenselike(x) = false
 
 function _fullystored(A::AbstractVecOrMat)
     S = _densestructure!(spzeros(eltype(A), size(A)...))
-    copyto!(nonzeros(S), A)
+    copyto!(getnzval(S), A)
     return S
 end
 

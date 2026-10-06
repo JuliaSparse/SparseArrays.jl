@@ -95,8 +95,9 @@ coverage job; run it locally before a PR that touches a kernel.
   so compare only the buffers you write.
 - **Never infer structure from `nnz`.** Stored zeros are the recurring correctness
   trap; walk the column.
-- **Write through the storage accessors.** Use `nonzeros`, `rowvals`, `getcolptr`,
-  `nzrange` and `parent`, never fields, and never indexed `setindex!` on a result whose
+- **Write through the storage accessors.** Use `getnzval`, `getrowval`, `getcolptr`,
+  `nzrange` and `parent` on a matrix (`nonzeros` and `nonzeroinds` on a vector), never
+  fields, and never indexed `setindex!` on a result whose
   pattern you already know. Do not materialize with `findnz`.
 - **Follow dense semantics** when sparse behaviour is in doubt: shape rules,
   promotion, unaliasing. Sweep sparse against dense locally; commit only the

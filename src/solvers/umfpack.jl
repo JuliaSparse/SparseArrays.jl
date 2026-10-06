@@ -13,7 +13,7 @@ import LinearAlgebra: Factorization, AdjointFactorization, TransposeFactorizatio
     checksquare, det, logabsdet, lu, lu!, ldiv!
 
 using SparseArrays
-using SparseArrays: getcolptr, AbstractSparseMatrixCSC
+using SparseArrays: getcolptr, getrowval, getnzval, AbstractSparseMatrixCSC
 import SparseArrays: nnz
 
 import Serialization: AbstractSerializer, deserialize, serialize
@@ -295,8 +295,8 @@ function UmfpackLU(S::AbstractSparseMatrixCSC{Tv, Ti};
     return UmfpackLU(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL),
                     size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
-                    zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
-                    copy(nonzeros(S)), 0,
+                    zerobased ? copy(getrowval(S)) : decrement(getrowval(S)),
+                    copy(getnzval(S)), 0,
                     copy(control), Vector{Float64}(undef, UMFPACK_INFO),
                     ReentrantLock()
     )
@@ -487,8 +487,8 @@ julia> F \\ ones(2)
 function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
   check::Bool=true, reuse_symbolic::Bool=true, q=nothing) where {Tv, Ti}
     zerobased = getcolptr(S)[1] == 0
-    if max(size(S)..., length(nonzeros(S))) >= typemax(Ti)
-        throw(ArgumentError("matrix of size $(size(S)) with $(length(nonzeros(S))) stored entries does not fit the $Ti indices of $(typeof(F)); use lu(S) instead"))
+    if max(size(S)..., length(getnzval(S))) >= typemax(Ti)
+        throw(ArgumentError("matrix of size $(size(S)) with $(length(getnzval(S))) stored entries does not fit the $Ti indices of $(typeof(F)); use lu(S) instead"))
     end
     if Tv <: Real && !(eltype(S) <: Real)
         throw(ArgumentError("cannot refactorize the real $(typeof(F)) with a matrix of eltype $(eltype(S)); use lu(S) instead"))
@@ -504,15 +504,15 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
         F.colptr .= getcolptr(S) .- one(Ti)
     end
 
-    resize!(F.rowval, length(rowvals(S)))
+    resize!(F.rowval, length(getrowval(S)))
     if zerobased
-        F.rowval .= rowvals(S)
+        F.rowval .= getrowval(S)
     else
-        F.rowval .= rowvals(S) .- one(Ti)
+        F.rowval .= getrowval(S) .- one(Ti)
     end
 
-    resize!(F.nzval, length(nonzeros(S)))
-    F.nzval .= nonzeros(S)
+    resize!(F.nzval, length(getnzval(S)))
+    F.nzval .= getnzval(S)
 
     return lu!(F; reuse_symbolic, check, q)
 end
