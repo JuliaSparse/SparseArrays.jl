@@ -19,7 +19,7 @@ using Test
 using LinearAlgebra: LinearAlgebra
 using SparseArrays: SparseArrays, SparseMatrixCSC, SparseVector, AbstractSparseMatrix,
     AbstractSparseMatrixCSC, AbstractSparseVector, FixedSparseCSC, FixedSparseVector,
-    getcolptr, rowvals, nonzeros, nonzeroinds
+    getcolptr, getrowval, getnzval, rowvals, nonzeros, nonzeroinds
 
 # Field access on the sparse types is an error under test, so that kernels and tests go
 # through the accessors. `ReadOnly` has a `getproperty` of its own and stays out.
@@ -214,8 +214,7 @@ Base.size(S::NonCSCSparse) = size(S.A)
 Base.getindex(S::NonCSCSparse, i::Int, j::Int) = S.A[i, j]
 
 # A CSC matrix type from another package that implements `rowvals` and `nonzeros` rather
-# than `getrowval` and `getnzval`. It needs `getcolptr` as every subtype does: no exported
-# accessor gives the column pointers.
+# than `getrowval` and `getnzval`. It needs `getcolptr` as every subtype does.
 struct LegacyCSC{Tv,Ti} <: AbstractSparseMatrixCSC{Tv,Ti}
     A::SparseMatrixCSC{Tv,Ti}
 end
