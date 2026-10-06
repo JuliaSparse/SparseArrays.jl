@@ -107,6 +107,9 @@ Base.isequal(a::OpCount, b::OpCount) = (EQCOUNT[] += 1; isequal(a.x, b.x))
 Base.:+(a::OpCount, b::OpCount) = OpCount(a.x + b.x)
 Base.:-(a::OpCount, b::OpCount) = OpCount(a.x - b.x)
 Base.:-(a::OpCount) = OpCount(-a.x)
+Base.:/(a::OpCount, b::OpCount) = OpCount(a.x / b.x)
+Base.abs(a::OpCount) = OpCount(abs(a.x))
+Base.isless(a::OpCount, b::OpCount) = isless(a.x, b.x)
 Base.zero(::Type{OpCount{T}}) where {T} = OpCount(zero(T))
 Base.zero(a::OpCount) = zero(typeof(a))
 Base.one(::Type{OpCount{T}}) where {T} = OpCount(one(T))
@@ -314,7 +317,9 @@ function check_trisolve(@nospecialize(mat), @nospecialize(spvec))
     if !(mat isa Union{LinearAlgebra.UnitLowerTriangular,LinearAlgebra.UnitUpperTriangular})
         T = typeof(zero(T)/one(eltype(mat)))
     end
-    @test (mat \ spvec)::Vector{T} ≈ mat \ fspvec
+    # a sparse triangle gives a sparse solution, a dense one a dense solution
+    R = SparseArrays.issparse(mat) ? SparseArrays.SparseVector{T,SparseArrays.indtype(spvec)} : Vector{T}
+    @test (mat \ spvec)::R ≈ mat \ fspvec
     if eltype(spvec) == T
         @test LinearAlgebra.ldiv!(mat, copy(spvec)) ≈ LinearAlgebra.ldiv!(mat, copy(fspvec))
     end

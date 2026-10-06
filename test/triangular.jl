@@ -670,7 +670,7 @@ end
     end
 
     # a unit triangle does not divide, so an integer solve stays integer
-    @test (UnitUpperTriangular(sparse([1 2; 0 1])) \ sparsevec([1, 2]))::Vector{Int} == [-3, 2]
+    @test (UnitUpperTriangular(sparse([1 2; 0 1])) \ sparsevec([1, 2]))::SparseVector{Int,Int} == [-3, 2]
 
     @static if COMPREHENSIVE
     @testset "index type and eltype of the right-hand side" begin

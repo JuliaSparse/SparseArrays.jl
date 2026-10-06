@@ -40,6 +40,12 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
 - `sparsevector.jl` holds everything for vectors except products (`matmul.jl`) and
   concatenation (`concatenation.jl`), which cover matrices and vectors together.
 - `linalg.jl` holds `dot`, `kron`, solves, norms and the LinearAlgebra wrappers.
+- `dmperm.jl` and `sparselu.jl` hold the solves written in Julia: the matching and
+  block triangular form, and the sparse triangular solve and LU factorization behind
+  `\` with a sparse right-hand side. Of SuiteSparse they call only the ordering
+  libraries AMD and COLAMD, which are BSD-licensed and present on every build, GPL or
+  not, so they sit outside `src/solvers/`, and their tests, `test/dmperm.jl` and
+  `test/sparselu.jl`, run on every build.
 - The shared dispatch aliases live in `SparseArrays.jl`.
 - Test files are listed explicitly in `test/runtests.jl`.
 - Everything that depends on the GPL SuiteSparse libraries lives in `src/solvers/` and
@@ -47,7 +53,8 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
   `@static`: where `SparseArrays.jl` includes the solvers and where `test/runtests.jl`
   lists their suites. Code outside `src/solvers/` reaches a solver only through the
   generic LinearAlgebra functions (`lu`, `qr`, `cholesky`, `\`), never by naming a
-  solver module. A test that factorizes or solves with a sparse matrix goes in
+  solver module. A test that factorizes or solves with a sparse matrix through
+  those libraries, which is any solve with a dense right-hand side, goes in
   `test/solvers/`, whatever feature it is about; the other suites must pass on a build
   without GPL libraries. `.ci/check-gpl-usage.jl`, run by the `code-checks` CI job, fails
   on solver names outside those directories.
@@ -109,7 +116,8 @@ coverage job; run it locally before a PR that touches a kernel.
   where a wider signature would capture structured LinearAlgebra types. Views of
   sparse arrays are first-class: define methods on the view aliases too.
 - **Products and solves follow the dense factor.** Sparse times dense returns dense,
-  sparse times a banded structured type stays sparse, solves return dense.
+  sparse times a banded structured type stays sparse, and a solve returns dense unless
+  both the matrix and the right-hand side are sparse, when it returns sparse.
 - **Prefer explicit helpers over `invoke`** for fallbacks; tooling cannot model
   `invoke` chains.
 - **Errors name the type and the reason**, and the working alternative when there is

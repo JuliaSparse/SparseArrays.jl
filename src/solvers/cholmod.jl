@@ -23,7 +23,8 @@ import LinearAlgebra: (\), AdjointFactorization, TransposeFactorization,
                  lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
-using SparseArrays: getcolptr, AbstractSparseVecOrMat, FixedSparseCSC, _unsafe_unfix
+using SparseArrays: getcolptr, AbstractSparseVecOrMat, FixedSparseCSC, _unsafe_unfix,
+    SparseMatrixCSCOrView
 export
     Dense,
     Factor,
@@ -32,7 +33,7 @@ export
 public rcond
 
 import SparseArrays: AbstractSparseMatrix, SparseMatrixCSC, indtype, sparse, spzeros, nnz,
-    sparsevec
+    sparsevec, _hermitian_rhs_solve
 
 import ..increment, ..increment!
 
@@ -2176,6 +2177,22 @@ function \(A::RealHermSymComplexHermSSL{Ti}, B::StridedVecOrMatMaybeAdjOrTrans) 
     else
         return convert(AbstractArray{T}, \(lu(SparseMatrixCSC{eltype(A), Ti}(A)), B))
     end
+end
+
+# `A \ B` for a Hermitian `A` and a sparse `B`, called once `A` is known to be Hermitian.
+# `nothing` sends the caller to its own LU factorization: when `A` is not positive
+# definite, when the values of `B` are not ones CHOLMOD works in or are more precise than
+# the factorization would be, or when `B` has more entries than the index type of `A` can
+# count.
+function _hermitian_rhs_solve(A::SparseMatrixCSC{Tv,Ti}, B::SparseMatrixCSCOrView) where {Tv<:VTypes, Ti<:ITypes}
+    T = promote_type(Tv, eltype(B))
+    T <: VTypes && real(T) === real(Tv) || return nothing
+    Bm = SparseMatrixCSC(B)
+    nnz(Bm) < typemax(Ti) && size(Bm, 2) < typemax(Ti) || return nothing
+    F = cholesky(Hermitian(A); check = false)
+    issuccess(F) || return nothing
+    # the right-hand side must not be marked as symmetric
+    return SparseMatrixCSC(spsolve(CHOLMOD_A, F, Sparse{T,Ti}(Bm, 0)))
 end
 
 \(::RealHermSymComplexHermSSL, ::Union{AbstractSparseVecOrMat, AdjOrTrans{<:Any,<:AbstractSparseVecOrMat}}) =

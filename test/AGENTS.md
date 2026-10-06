@@ -32,7 +32,8 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   `juliac --trim=safe` and runs. It covers the concatenation hooks SparseArrays adds to
   Base for dense arrays, which Julia's own trim test reaches, and the main sparse
   operations: construction, indexing, broadcast and `map`, reductions, search, norms,
-  products and `mul!`, triangular solves, structural functions, `SparseVector`, views,
+  products and `mul!`, triangular solves, solves with a sparse right-hand side,
+  structural functions, `SparseVector`, views,
   the LinearAlgebra wrappers, `FixedSparseCSC`, and the solvers through the generic
   LinearAlgebra functions, over Int, Bool, Float32, Float64 and complex eltypes and
   Int32 indices. `show` is left out, because Base's array printing does not trim. A
@@ -47,6 +48,10 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   matrices: scaling, the BLAS-2 grid and products with LinearAlgebra's Q types, while
   `sparsevector.jl` keeps the vector `axpy!` and `dot` tests. The `transpose`, `adjoint`
   and `permute` tests, including the in-place forms, live in `sparsematrix.jl`.
+- `dmperm.jl` and `sparselu.jl` cover the solves written in Julia, `dmperm`, `sprank`,
+  `SparseArrays.sparselu` and `\` with a sparse right-hand side. They use no GPL
+  library, so they are top-level suites and run on every build; the rectangular case,
+  which goes through `qr`, is in `solvers/solvers.jl`.
 - Preserve issue references on regression tests.
 - `ambiguous.jl`, the Aqua ambiguity check, and `aqua.jl`, the other Aqua checks, are in
   the inventory but skipped unless a selector names them; CI runs each as its own step of
