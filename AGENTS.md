@@ -6,7 +6,7 @@ project's merged pull requests. Follow it unless a maintainer says otherwise.
 ## What this repo is
 
 A Julia stdlib providing `SparseMatrixCSC`, `SparseVector`, sparse broadcast and
-linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) under
+linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, SPQR) under
 `src/solvers/`. Three directories carry their own `AGENTS.md`, which applies on top of
 this one; read it before working there:
 
@@ -41,6 +41,10 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
   concatenation (`concatenation.jl`), which cover matrices and vectors together.
 - `linalg.jl` holds `dot`, `kron`, solves, norms and the LinearAlgebra wrappers.
 - The shared dispatch aliases live in `SparseArrays.jl`.
+- `src/supernodal/` is the pure-Julia supernodal sparse LU behind `lu`, a submodule whose
+  matching and analysis are ported from LinearSolve.jl. It needs no GPL library (its AMD
+  and COLAMD orderings are BSD), so it and its suite, `test/supernodal.jl`, stay outside the
+  solver directories.
 - Test files are listed explicitly in `test/runtests.jl`.
 - Everything that depends on the GPL SuiteSparse libraries lives in `src/solvers/` and
   `test/solvers/`, and nowhere else. `Base.USE_GPL_LIBS` is checked once per tree, with

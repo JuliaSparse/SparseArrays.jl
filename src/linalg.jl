@@ -1338,6 +1338,75 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     C
 end
 
+"""
+    lu(A::AbstractSparseMatrixCSC; check = true, q = nothing) -> F
+
+Compute the LU factorization of a sparse matrix `A`.
+
+`F` is a `SparseArrays.Supernodal.SupernodalLU`, computed in pure Julia for any
+floating-point element type; other element types are converted with `float`. The
+factorization is a left-looking supernodal LU with threshold partial pivoting over all rows,
+after SuperLU[^DEGLL99]. A square `A` with a nearly symmetric pattern is ordered by AMD on
+the pattern of `A + Aᵀ`, after a maximum-weight matching with row and column scaling, as in
+PARDISO[^SG04], when much of its diagonal is missing or when its rows are permuted away
+from a symmetric pattern; any other `A` is ordered by COLAMD.
+
+`q` is a column ordering to use instead of the fill-reducing one, a permutation of `1:n` or
+`0:n-1`; the factorization still postorders it by its elimination tree, so `F.q` can differ
+from it. The keyword `control` is accepted for compatibility with earlier versions of
+SparseArrays and ignored.
+
+When `check = true`, a `SingularException` is thrown if the factorization fails, when a
+pivot is zero or not finite. When `check = false`, responsibility for checking the
+factorization's validity (via [`issuccess`](@ref)) lies with the user; the factors of a
+singular or rank-deficient `A` have zeros on the diagonal of `U`.
+
+The components of `F` are
+
+| Component | Description                         |
+|:----------|:------------------------------------|
+| `L`       | `L` (unit lower triangular, m×min(m, n)) part of `LU` |
+| `U`       | `U` (upper triangular, min(m, n)×n) part of `LU` |
+| `p`       | row permutation `Vector`            |
+| `q`       | column permutation `Vector`         |
+| `Rs`      | `Vector` of row scaling factors     |
+
+and they satisfy `F.L * F.U ≈ (F.Rs .* A)[F.p, F.q]`. `F` supports [`issuccess`](@ref),
+`nnz`, `copy` and refactorization with [`lu!`](@ref), and for a square `A` also `\\`,
+`ldiv!`, `adjoint`, `transpose`, [`det`](@ref) and `logabsdet`. Calls with `F` take an internal lock; to solve with
+the same factorization from several tasks at once, give each task its own `copy(F)`.
+
+[^DEGLL99]: Demmel, James W., Eisenstat, Stanley C., Gilbert, John R., Li, Xiaoye S. and Liu, Joseph W. H. (1999). A supernodal approach to sparse partial pivoting. SIAM Journal on Matrix Analysis and Applications, 20(3), 720–755. [doi:10.1137/S0895479895291765](https://doi.org/10.1137/S0895479895291765)
+
+[^SG04]: Schenk, Olaf and Gärtner, Klaus (2004). Solving unsymmetric sparse systems of linear equations with PARDISO. Future Generation Computer Systems, 20(3), 475–487. [doi:10.1016/j.future.2003.07.011](https://doi.org/10.1016/j.future.2003.07.011)
+
+# Examples
+```jldoctest
+julia> A = sparse([4.0 1.0 0.0; 1.0 4.0 1.0; 0.0 1.0 4.0]);
+
+julia> F = lu(A);
+
+julia> F.L * F.U ≈ (F.Rs .* A)[F.p, F.q]
+true
+
+julia> F \\ [5.0, 6.0, 5.0]
+3-element Vector{Float64}:
+ 1.0
+ 1.0
+ 1.0
+```
+"""
+lu(A::AbstractSparseMatrixCSC; check::Bool = true, q = nothing, control = nothing) =
+    Supernodal.supernodal_lu(A; check, q)
+lu(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}; kws...) = lu(copy(A); kws...)
+lu(A::HermOrSym{<:Any,<:Union{AbstractSparseMatrixCSC,SubArray{<:Any,2,<:AbstractSparseMatrixCSC}}}; kws...) =
+    lu(sparse(A); kws...)
+
+LinearAlgebra._lu(A::AbstractSparseMatrixCSC; kwargs...) = lu(A; kwargs...)
+LinearAlgebra._lu(::AbstractSparseMatrixCSC, ::LinearAlgebra.PivotingStrategy; kwargs...) =
+    error("Pivoting Strategies are not supported by `SparseMatrixCSC`s")
+
+
 # For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
 # LinearAlgebra's generic `factorize(::HermOrSym)`, a dense Bunch-Kaufman in
 # `Rational{BigInt}`, so they take the `lu` branch instead, which converts to floating
@@ -1372,8 +1441,8 @@ end
 _solve_factor(F) = F
 _solve_factor(D::Diagonal) = Diagonal(Vector(diag(D)))
 _sparse_solve(op, F, B) = \(op(_solve_factor(F)), B)
-# the sparse LU works in double precision, so its solution is converted to the eltype that
-# dense `\` gives
+# the sparse LU factorizes `float(A)`, so its solution is converted to the eltype that dense
+# `\` gives
 _sparse_lusolve(op, F, A, B) =
     convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, _sparse_solve(op, F, B))
 

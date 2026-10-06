@@ -2418,8 +2418,7 @@ This is much cheaper than a norm-based estimate such as `cond(A, 1)`, but also
 much cruder. For positive definite `A` it is exact when `A` is diagonal, and
 otherwise an upper bound on `1 / cond(A, 2)`, so it can report a matrix as far
 better conditioned than it is. Use it to detect a badly conditioned or singular
-factorization, not to measure conditioning accurately. The LU counterpart is
-[`UMFPACK.rcond`](@ref SparseArrays.UMFPACK.rcond).
+factorization, not to measure conditioning accurately.
 
 Returns `0` if the matrix is singular or the factor has a zero or `NaN` on its
 diagonal, and `1` if the matrix is 1-by-1. `NaN` is never returned.

@@ -1,7 +1,7 @@
 [general]
 library_name = "SuiteSparse"
 prologue_file_path = "./prologue.jl"
-library_names = {"SuiteSparse_config.h" = "libsuitesparseconfig", "SuiteSparseQR_C.h" = "libspqr", "umfpack.h" = "libumfpack", "cholmod.h" = "libcholmod", "/amd.h" = "libamd", "/colamd.h" = "libcolamd"}
+library_names = {"SuiteSparse_config.h" = "libsuitesparseconfig", "SuiteSparseQR_C.h" = "libspqr", "cholmod.h" = "libcholmod", "/amd.h" = "libamd", "/colamd.h" = "libcolamd"}
 
 use_julia_native_enum_type = true
 use_deterministic_symbol = true
@@ -10,10 +10,6 @@ skip_static_functions = true
 
 output_ignorelist = [
     # Clang.jl cannot handle these macro correctly, skip for now.
-    "UMFPACK_COPYRIGHT",
-    "UMFPACK_LICENSE_PART1",
-    "UMFPACK_LICENSE_PART2",
-    "UMFPACK_LICENSE_PART3",
     "SuiteSparse_long",
     "SuiteSparse_long_max",
     "SuiteSparse_long_id",
@@ -53,7 +49,6 @@ output_ignorelist = [
     "SUITESPARSE_BLAS_[A-Z0-9]+",
     "SUITESPARSE_BLAS_DNRM2",
     "SUITESPARSE_BLAS_DZNRM2",
-    "UMFPACK_VERSION",
     # complex-type placeholders, defined as `void` for C
     "SUITESPARSE_COMPLEX_FLOAT",
     "SUITESPARSE_COMPLEX_DOUBLE",
@@ -74,8 +69,6 @@ functionlike_macro_includelist = [
     "SPQR__VERCODE",
     "AMD_VERSION_CODE",
     "AMD__VERCODE",
-    "UMFPACK_VER_CODE",
-    "UMFPACK__VERCODE",
     "COLAMD_VERSION_CODE",
     "COLAMD__VERCODE",
     "KLU_VERSION_CODE",

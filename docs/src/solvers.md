@@ -8,12 +8,13 @@ EditURL = "https://github.com/JuliaSparse/SparseArrays.jl/blob/main/docs/src/sol
 DocTestSetup = :(using LinearAlgebra, SparseArrays)
 ```
 
-Sparse factorizations call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse):
+Sparse factorizations call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
+except the LU factorization, which is pure Julia:
 
 | Function | Returns | Library |
 |:---------|:--------|:--------|
 | [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky), [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt) | [`CHOLMOD.Factor`](@ref SparseArrays.CHOLMOD.Factor) | CHOLMOD |
-| [`lu`](@ref SparseArrays.UMFPACK.lu) | [`UMFPACK.UmfpackLU`](@ref SparseArrays.UMFPACK.UmfpackLU) | UMFPACK |
+| [`lu`](@ref SparseArrays.lu(::SparseArrays.AbstractSparseMatrixCSC)) | `Supernodal.SupernodalLU` | pure Julia |
 | [`qr`](@ref SparseArrays.SPQR.qr) | [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | SPQR |
 | [`lq`](@ref SparseArrays.SPQR.lq) | [`SPQR.AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse), the adjoint of `qr(A')` | SPQR |
 
@@ -25,9 +26,9 @@ factorization.
 
 * Diagonal or triangular: substitution, no factorization.
 * Hermitian (symmetric, if real): [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky). If
-  that fails, `\` uses [`lu`](@ref SparseArrays.UMFPACK.lu) and `factorize` uses
+  that fails, `\` uses [`lu`](@ref SparseArrays.lu(::SparseArrays.AbstractSparseMatrixCSC)) and `factorize` uses
   [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt).
-* Other square: [`lu`](@ref SparseArrays.UMFPACK.lu).
+* Other square: [`lu`](@ref SparseArrays.lu(::SparseArrays.AbstractSparseMatrixCSC)).
 * Tall: [`qr`](@ref SparseArrays.SPQR.qr), giving the least squares solution.
 * Wide: [`lq`](@ref SparseArrays.SPQR.lq), giving the minimum-norm solution, as dense `\`
   does. `qr(A) \ b` instead returns a basic solution, with the free variables zero.
@@ -53,9 +54,10 @@ true
 To solve several systems with one matrix, factorize once. `F \ B` takes a vector or a
 matrix of right-hand sides, and `ldiv!(x, F, b)` writes into `x`.
 
-`ldiv!` allocates scratch space on each call. To avoid that in a loop, create a workspace
-once and pass it with the `workspace` keyword:
-[`UMFPACK.UmfpackWS(F)`](@ref SparseArrays.UMFPACK.UmfpackWS) for `lu`,
+`lu` keeps its scratch space in `F`, so `ldiv!` with it does not allocate for a right-hand
+side of its element type. The other factorizations allocate scratch space on each
+`ldiv!` call. To avoid that in a loop, create a workspace once and pass it with the
+`workspace` keyword:
 [`CHOLMOD.CholmodWS(F)`](@ref SparseArrays.CHOLMOD.CholmodWS) for `cholesky` and `ldlt`,
 and [`SPQR.SpqrWS(F)`](@ref SparseArrays.SPQR.SpqrWS) for `qr`. This works with `F`, `F'`
 and `transpose(F)`, and in `ldiv!(F, b)`. A workspace grows as needed and can be reused,
@@ -86,13 +88,13 @@ permuted `A`. Using `F.L` as if it were a factor of `A` gives wrong answers. Sol
 
 | Factorization | Factors | Relation |
 |:--------------|:--------|:---------|
-| `lu` | `L`, `U`, `p`, `q`, `Rs` (row scaling) | `F.L * F.U == (F.Rs .* A)[F.p, F.q]` |
+| `lu` | `L`, `U`, `p`, `q`, `Rs` (row scaling) | `F.L * F.U ≈ (F.Rs .* A)[F.p, F.q]` |
 | `cholesky` | `L`, `p` | `L * L' == A[F.p, F.p]` with `L = sparse(F.L)` |
 | `ldlt` | `LD`, `p` | `L * D * L' == A[F.p, F.p]`, with `D` on the diagonal of `sparse(F.LD)` and the unit triangular `L` below it |
 | `qr` | `Q`, `R`, `prow`, `pcol` | `F.Q * F.R == A[F.prow, F.pcol]` |
 | `lq` | `L`, `Q`, `prow`, `pcol` | `F.L * F.Q == A[F.prow, F.pcol]` |
 
-`F.:(:)` returns all five `lu` factors at once. The CHOLMOD factors are lazy: they support
+The CHOLMOD factors are lazy: they support
 solves, and `sparse(F.L)` for `cholesky` or `sparse(F.LD)` for `ldlt` materializes them. `F.PtL` (`P' * L`) and `F.UP`
 (`L' * P`) include the permutation, and `ldlt` adds `F.D`, `F.DU`, `F.PtLD` and `F.DUP`.
 The `Q` of `qr` is square and is never formed: products with it return dense arrays.
@@ -119,6 +121,11 @@ A failed factorization throws a `PosDefException` (`cholesky`), a `ZeroPivotExce
 (`ldlt`) or a `SingularException` (`lu`). With `check = false` it returns anyway, and
 `issuccess(F)` tells whether it can be used.
 
+`lu` fails when a pivot is zero or not finite. For a rectangular `A` that means it does not
+have full rank; its factors are still exact, with zeros on the diagonal of `U` or, for a
+wide `A`, fewer pivots than rows. A solve with a factorization that did not succeed throws
+a `SingularException`.
+
 ```jldoctest
 julia> N = sparse([1.0 2; 2 1]);
 
@@ -130,7 +137,6 @@ julia> issuccess(cholesky(N; check = false)), issuccess(ldlt(N; check = false))
 SparseArrays.CHOLMOD.Factor
 SparseArrays.CHOLMOD.Sparse
 SparseArrays.CHOLMOD.Dense
-SparseArrays.UMFPACK.UmfpackLU
 SparseArrays.SPQR.QRSparse
 SparseArrays.SPQR.AdjointQRSparse
 SparseArrays.CHOLMOD.cholesky
@@ -147,15 +153,12 @@ SparseArrays.SPQR.qr
 SparseArrays.SPQR.lq
 Base.:\(::SparseArrays.SPQR.QRSparse, ::AbstractVecOrMat)
 Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::AbstractVecOrMat)
-SparseArrays.UMFPACK.lu
-SparseArrays.UMFPACK.lu!
-SparseArrays.UMFPACK.rcond
-SparseArrays.UMFPACK.UmfpackWS
+SparseArrays.lu(::SparseArrays.AbstractSparseMatrixCSC)
+SparseArrays.Supernodal.lu!(::SparseArrays.Supernodal.SupernodalLU, ::SparseArrays.AbstractSparseMatrixCSC)
 SparseArrays.CHOLMOD.CholmodWS
 SparseArrays.SPQR.SpqrWS
 SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
 SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
-Base.copy(::SparseArrays.UMFPACK.UmfpackLU{Tv,Ti}) where {Tv,Ti}
 Base.copy(::SparseArrays.SPQR.QRSparse)
 SparseArrays.LibSuiteSparse.init_suitesparse
 ```
@@ -171,16 +174,17 @@ theirs.
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
+| `Supernodal.SupernodalLU` | independent copy of the factors and workspaces | `\`, `ldiv!`, `det`, `lu!`, the factor properties |
 | `SPQR.QRSparse` | shares the factors and permutations, which no call modifies; new lock | `\` and `ldiv!`, with `F` or `F'` |
 | `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
 
-The copies of an `UmfpackLU` or a `QRSparse` are cheap, since they share the factors:
+The copies of a `QRSparse` are cheap, since they share the factors; a copy of a
+`SupernodalLU` duplicates the factors' memory:
 
 ```julia
 using LinearAlgebra, SparseArrays
 
-F = lu(A)                       # or qr(A)
+F = qr(A)                       # or lu(A)
 X = similar(B)
 Threads.@threads for j in axes(B, 2)
     Fj = copy(F)                # shared factors, own lock
@@ -189,9 +193,7 @@ end
 ```
 
 A loop that performs many solves per task should make the copy once per task rather than
-once per right-hand side. Because the copies of an `UmfpackLU` share its factors, do not
-call [`lu!`](@ref) on the original or on any copy while another task is solving with one
-of them: refactorization frees the numeric object they all point to.
+once per right-hand side.
 
 For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`
 and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
@@ -230,26 +232,9 @@ julia> issuccess(cholesky(B; check = false)), issuccess(cholesky(B; shift = 1.0)
 
 ### `lu`
 
-- `q`: an initial column ordering, which UMFPACK may still refine. `F.q` is the final one.
-- `control`: UMFPACK's `Control` array. Get the defaults with
-  `SparseArrays.UMFPACK.get_umfpack_control(Tv, Ti)` for the element and index types of
-  `A`, and index it with the one-based constants `SparseArrays.UMFPACK.JL_UMFPACK_*`,
-  such as `JL_UMFPACK_PIVOT_TOLERANCE` or `JL_UMFPACK_ORDERING`. The UMFPACK user guide
-  describes each entry. The factorization keeps a copy, which later solves and
-  [`lu!`](@ref SparseArrays.UMFPACK.lu!) use.
-
-Unlike UMFPACK itself, SparseArrays turns iterative refinement off by default. To turn it
-back on, for example for an ill-conditioned matrix:
-
-```julia
-control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int)
-control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2  # UMFPACK's default
-F = lu(A; control)
-```
-
-`SparseArrays.UMFPACK.show_umf_ctrl(F)` prints the settings of `F`, and
-`SparseArrays.UMFPACK.show_umf_info(F)` prints UMFPACK's statistics for it, such as
-fill-in, flop count and a condition estimate.
+- `q`: a column ordering, a permutation of `1:n` or `0:n-1`, to use instead of AMD or
+  COLAMD. It is still postordered by its elimination tree; `F.q` is the final one.
+- `control`: accepted for compatibility with earlier versions of SparseArrays, and ignored.
 
 ### `qr`
 
@@ -275,8 +260,8 @@ julia> rank(qr(A)), rank(qr(A; tol = 1e-8))
 
 By default the solvers use the SuiteSparse libraries bundled with Julia. To use another
 build, such as one with GPU support, point SparseArrays at a directory holding all of
-`libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod`,
-`libspqr` and `libumfpack`, with the bundled file names and the same major SuiteSparse
+`libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod` and
+`libspqr`, with the bundled file names and the same major SuiteSparse
 version. Either call `SparseArrays.LibSuiteSparse.set_libdir!(dir)` before the first
 solver call, or set `JULIA_SUITESPARSE_LIBDIR` before starting Julia; `set_libdir!` wins.
 Packages that call `SuiteSparse_jll` directly are not affected.

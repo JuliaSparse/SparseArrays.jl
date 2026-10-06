@@ -26,7 +26,7 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   when it fits. A helper that a second suite needs goes there as well. `ambiguous.jl`
   and `aqua.jl` alone do not include `testhelpers.jl`.
 - Test files are named after the source area they cover. `solvers/` mirrors
-  `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
+  `src/solvers/`: its suites are `solvers/cholmod`, `solvers/spqr`,
   `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
 - `trim/` is not a suite: it is a small app that the `trim` CI job builds with
   `juliac --trim=safe` and runs. It covers the concatenation hooks SparseArrays adds to

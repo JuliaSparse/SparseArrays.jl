@@ -66,11 +66,9 @@ const libcholmod = LazyLibrary(SuiteSparseLibPath(:libcholmod);
     dependencies = [libsuitesparseconfig, libamd, libcamd, libccolamd, libcolamd, _system_deps...])
 const libspqr    = LazyLibrary(SuiteSparseLibPath(:libspqr);
     dependencies = [libsuitesparseconfig, libcholmod, _system_deps...])
-const libumfpack = LazyLibrary(SuiteSparseLibPath(:libumfpack);
-    dependencies = [libsuitesparseconfig, libamd, libcholmod, _system_deps...])
 
 const SUITESPARSE_LIBRARIES = (; libsuitesparseconfig, libamd, libcamd, libcolamd, libccolamd,
-                                 libcholmod, libspqr, libumfpack)
+                                 libcholmod, libspqr)
 
 _isloaded(lib::LazyLibrary) = (@atomic :acquire lib.handle) != C_NULL
 
@@ -91,8 +89,8 @@ end
 
 Load the SuiteSparse libraries from `dir` instead of the copies bundled with Julia, or
 restore the bundled copies with `nothing`. `dir` must contain the whole set of libraries
-(`libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod`,
-`libspqr` and `libumfpack`) under the same file names as the bundled ones, built from
+(`libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod` and
+`libspqr`) under the same file names as the bundled ones, built from
 the same major SuiteSparse version.
 
 The libraries are loaded on first use, so this must be called before the first solver
@@ -201,7 +199,7 @@ const init_suitesparse = Base.OncePerProcess{Nothing}() do
 end
 
 # exports
-const PREFIXES = ["cholmod_", "CHOLMOD_", "umfpack_"]
+const PREFIXES = ["cholmod_", "CHOLMOD_"]
 for name in names(@__MODULE__; all=true), prefix in PREFIXES
     if startswith(string(name), prefix)
         @eval export $name

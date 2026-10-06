@@ -381,9 +381,9 @@ end
 increment(A::AbstractArray{<:Integer}) = increment!(copy(A))
 
 include("solvers/LibSuiteSparse.jl")
+include("supernodal/Supernodal.jl")
 
 @static if Base.USE_GPL_LIBS
-    include("solvers/umfpack.jl")
     include("solvers/cholmod.jl")
     include("solvers/spqr.jl")
 end
