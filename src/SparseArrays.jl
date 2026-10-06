@@ -107,9 +107,8 @@ Supertype for matrix with compressed sparse column (CSC).
 
 A subtype exposes its storage by implementing `size`, [`getcolptr`](@ref),
 [`getrowval`](@ref) and [`getnzval`](@ref), which are the only accessors the methods of
-this package call on it. To support code that calls [`rowvals`](@ref) and
-[`nonzeros`](@ref), it also defines `rowvals(A) = getrowval(A)` and
-`nonzeros(A) = getnzval(A)`.
+this package call on it. [`rowvals`](@ref) and [`nonzeros`](@ref) are not defined for
+such a subtype.
 
 Subtypes written while `rowvals` and `nonzeros` were the only exported accessors implement
 those in place of `getrowval` and `getnzval`, which fall back to them. This remains
