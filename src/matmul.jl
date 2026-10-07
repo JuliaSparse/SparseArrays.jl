@@ -536,10 +536,8 @@ prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < 
 ## triangular multiplication
 LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat) =
     _trimatmul!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
-function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
-    same = _undoes_wrapper(tfun, xA)
-    return _trimatmul!(C, (uploc == 'U') != same, isunitc == 'U', same ? identity : conj, parent(xA), B)
-end
+LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
+    _trimatmul!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
 
 # C = M * B for a triangle M of `f(A)`, computed column by column of A; C may be B.
 # `F` keeps the method specialized on the forwarded `f`.
@@ -609,10 +607,8 @@ end
 
 LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, tfun::Function, A::AbstractMatrix, B::SparseMatrixCSCOrView) =
     _mattrimul!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
-function LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, tfun::Function, A::AbstractMatrix, xB::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView})
-    same = _undoes_wrapper(tfun, xB)
-    return _mattrimul!(C, (uploc == 'U') != same, isunitc == 'U', same ? identity : conj, A, parent(xB))
-end
+LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, ::Function, A::AbstractMatrix, xB::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}) =
+    _mattrimul!(C, uploc == 'U', isunitc == 'U', conj, A, parent(xB))
 
 # C = X * M, where M is the `upper` or lower triangle of B, elementwise `f` of it for
 # `identity` and `conj`, or the `transpose`/`adjoint` `f` of it. The first kind gathers

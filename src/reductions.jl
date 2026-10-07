@@ -142,21 +142,84 @@ for T in (:SparseMatrixCSCOrSubArray, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColu
 end
 
 # `mapreduce` of a binary `f` over two sparse arrays of one shape (#33), without the array
-# `map(f, A, B)` that Base's method reduces. Like the reductions of one array it takes `op`
-# to be associative and commutative: the entries neither array stores are folded in last.
+# `map(f, A, B)` that Base's method reduces. `op` is taken to be associative, and to be
+# commutative only where it is known to be, so the mapped values keep the order of the elements.
 # A reduction along a dimension, an empty array and a shape mismatch are left to Base's method.
 for T in (:SparseVectorOrView, :SparseMatrixCSCOrColumnSubset)
     @eval function Base.mapreduce(f::F, op::G, A::$T, B::$T; dims=:, init=Base._InitialValue(), kw...) where {F,G}
         (dims === (:) && isempty(kw) && size(A) == size(B) && !isempty(A)) ||
             return reduce(op, map(f, A, B); dims, init, kw...)
-        return _mapreduce_binary(f, op, init, A, B)
+        return _commutes(f, op, eltype(A), eltype(B)) ? _mapreduce_unordered(f, op, init, A, B) :
+                                                         _mapreduce_ordered(f, op, init, A, B)
     end
 end
+# A product commutes when its factors are real or complex numbers, which is asked of inference:
+# the answer picks between two kernels that agree for such factors.
+_commutes(f, ::Union{typeof(+),typeof(Base.add_sum),typeof(max),typeof(min)}, ::Type, ::Type) = true
+_commutes(f::F, ::Union{typeof(*),typeof(Base.mul_prod)}, ::Type{Ta}, ::Type{Tb}) where {F,Ta,Tb} =
+    Base.promote_op(f, Ta, Tb) <: Union{Real,Complex}
+_commutes(f, op, ::Type, ::Type) = false
 
-# The merge feeds two accumulators in turn: a single chain of `op` is bound by its latency,
-# which is long for `max` and `min` of floats. A zero is taken only where an entry is not
-# stored, as an array that stores every entry need not have one.
-function _mapreduce_binary(f::F, op::G, init, A::AbstractArray{Ta}, B::AbstractArray{Tb}) where {F,G,Ta,Tb}
+# An `op` not known to commute is folded over the positions in their order. A zero is taken
+# only where an entry is not stored, as an array that stores every entry need not have one.
+function _mapreduce_ordered(f::F, op::G, init, A::AbstractArray{Ta}, B::AbstractArray{Tb}) where {F,G,Ta,Tb}
+    rf = Base.BottomRF(op)
+    Ai, Av, Bi, Bv = getrowval(A), getnzval(A), getrowval(B), getnzval(B)
+    m = size(A, 1)
+    v = init
+    unstored = Int64(0)   # positions that neither array stores, since the last one folded
+    @inbounds for col in axes(A, 2)
+        ra, rb = getnzrange(A, col), getnzrange(B, col)
+        ia, ib = first(ra), first(rb)
+        ea, eb = last(ra), last(rb)
+        prev = 0
+        while ia <= ea && ib <= eb
+            row = Int(min(Ai[ia], Bi[ib]))
+            x, ia, ib = _merge_step(f, Ai, Av, ia, Bi, Bv, ib)
+            v = rf(_foldunstored(f, rf, v, Ta, Tb, unstored + (row - prev - 1)), x)
+            unstored, prev = Int64(0), row
+        end
+        while ia <= ea
+            row = Int(Ai[ia])
+            v = rf(_foldunstored(f, rf, v, Ta, Tb, unstored + (row - prev - 1)), f(Av[ia], zero(Tb)))
+            unstored, prev = Int64(0), row
+            ia += 1
+        end
+        while ib <= eb
+            row = Int(Bi[ib])
+            v = rf(_foldunstored(f, rf, v, Ta, Tb, unstored + (row - prev - 1)), f(zero(Ta), Bv[ib]))
+            unstored, prev = Int64(0), row
+            ib += 1
+        end
+        unstored += m - prev
+    end
+    v = _foldunstored(f, rf, v, Ta, Tb, unstored)
+    v isa Base._InitialValue && throw(ArgumentError("reducing over an empty collection is not allowed"))
+    return v
+end
+# `v` folded with `f` at `n` consecutive positions that neither array stores. The mapped values
+# there are all one value, so regrouping them, which an associative `op` allows, folds the
+# run in O(log(n)) calls of `op`.
+@inline function _foldunstored(f::F, rf, v, ::Type{Ta}, ::Type{Tb}, n) where {F,Ta,Tb}
+    n == 0 && return v
+    z = f(zero(Ta), zero(Tb))
+    v = rf(v, z)
+    n == 1 && return v
+    op = rf.rf
+    p = r = _widen(Base.reduce_first(op, z), v)
+    n -= 2
+    while n > 0
+        isodd(n) && (r = op(r, p))
+        n >>= 1
+        n > 0 && (p = op(p, p))
+    end
+    return op(v, r)
+end
+
+# Where `op` commutes the merge feeds two accumulators in turn, as a single chain of `op` is
+# bound by its latency, which is long for `max` and `min` of floats, and the positions
+# neither array stores are folded in last.
+function _mapreduce_unordered(f::F, op::G, init, A::AbstractArray{Ta}, B::AbstractArray{Tb}) where {F,G,Ta,Tb}
     rf = Base.BottomRF(op)
     Ai, Av, Bi, Bv = getrowval(A), getnzval(A), getrowval(B), getnzval(B)
     v, w = init, Base._InitialValue()

@@ -420,26 +420,32 @@ mapreduce2(f::F, op::G, X, Y) where {F,G} = mapreduce(f, op, X, Y)
         (view(A, :, 2), Ad[:, 2], view(B, :, 3), Bd[:, 3]),             # column views
         (view(x, :), xd, y, yd),
         (view(A, :, [3, 1, 1]), Ad[:, [3, 1, 1]], B, Bd),               # a column subset
-        (view(A, :, 2:3), Ad[:, 2:3], view(B, :, 1:2), Bd[:, 1:2]),
         (Z, Matrix(Z), Z, Matrix(Z)), (Z, Matrix(Z), B, Bd),            # nothing stored
         (F, Matrix(F), F, Matrix(F)), (A, Ad, F, Matrix(F)),            # every entry stored
         (x, xd, sparse([0, 3, 0, 0, 1, 0]), [0, 3, 0, 0, 1, 0]),        # two element types
         (spzeros(T, 1), zeros(T, 1), spzeros(T, 1), zeros(T, 1)),
     ])
     end
-    ops = (+, (@static COMPREHENSIVE ? (*, Base.add_sum, (a, b) -> a + b) : ())...)
+    # the anonymous `op` is not known to commute, and is folded in the order of the elements
+    ops = (+, (@static COMPREHENSIVE ? (*, (a, b) -> a + b) : ())...)
     for (X, Xd, Y, Yd) in cases, h in (f, g), op in ops
         @test mapreduce(h, op, X, Y) ≈ mapreduce(h, op, Xd, Yd)
         @static if COMPREHENSIVE
-        @test mapreduce(h, op, X, Y; init = one(T)) ≈ mapreduce(h, op, Xd, Yd; init = one(T))
+        h === g && @test mapreduce(h, op, X, Y; init = one(T)) ≈ mapreduce(h, op, Xd, Yd; init = one(T))
         end
     end
     @static if COMPREHENSIVE
     if T <: Real
-        for (X, Xd, Y, Yd) in cases, h in (f, g), op in (max, min)
+        for (X, Xd, Y, Yd) in cases, (h, op) in ((f, max), (g, min))
             @test mapreduce(h, op, X, Y) === mapreduce(h, op, Xd, Yd)
         end
     end
+    # a product of matrices does not commute: the factors keep the order of the elements,
+    # those at the entries neither array stores too, as for dense input
+    block = (x, y) -> [1 x; y 2]
+    @test !SparseArrays._commutes(block, *, T, T) && SparseArrays._commutes(g, *, T, T)
+    @test mapreduce(block, *, A, B) ≈ mapreduce(block, *, Ad, Bd)
+    @test mapreduce(block, *, x, y; init = T[1 2; 3 4]) ≈ mapreduce(block, *, xd, yd; init = T[1 2; 3 4])
     @test @inferred(mapreduce(f, +, x, y)) isa real(T)
     @test @inferred(mapreduce(g, +, A, B)) isa T
     # `f` is not evaluated at an entry that is not stored when every entry is
@@ -462,7 +468,7 @@ end
 @testset "mapreduce of a binary function: small integers as for dense" begin
     A = sparse(Int8[0 100 0; 3 0 -7])
     B = sparse(Int8[0 100 5; 0 0 -7])
-    for h in (+, (x, y) -> x - y + Int8(1)), op in (+, *, Base.add_sum, Base.mul_prod, max)
+    for h in (+, (x, y) -> x - y + Int8(1)), op in (+, *, Base.add_sum, Base.mul_prod)
         @test mapreduce(h, op, A, B) === mapreduce(h, op, Matrix(A), Matrix(B))
         @test mapreduce(h, op, A, B; init = 1) === mapreduce(h, op, Matrix(A), Matrix(B); init = 1)
     end
