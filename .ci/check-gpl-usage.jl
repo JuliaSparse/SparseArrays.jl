@@ -10,10 +10,13 @@
 
 const roots = ("src", "test")
 const solver_dir = "solvers"
-const solver_names = r"\b(CHOLMOD|UMFPACK|SPQR|LibSuiteSparse|SuiteSparse_jll|UmfpackLU|QRSparse|libcholmod|libumfpack|libspqr|libsuitesparseconfig)\b"
-const sparse_factorization = r"\b(lu|qr|cholesky|ldlt|factorize)!?\(\s*(sparse|sprand|sprandn|spdiagm|spzeros|SparseMatrixCSC|SparseVector)\b"
-# `src/SparseArrays.jl` is the one place outside `src/solvers/` that loads the solvers.
-const allowed = r"^\s*(include\(\"solvers/|(using|import) \.LibSuiteSparse\b)"
+const solver_names = r"\b(CHOLMOD|SPQR|LibSuiteSparse|SuiteSparse_jll|QRSparse|libcholmod|libspqr|libsuitesparseconfig)\b"
+# `lu` is left out: a square sparse `lu` is the pure-Julia supernodal LU.
+const sparse_factorization = r"\b(qr|cholesky|ldlt|factorize)!?\(\s*(sparse|sprand|sprandn|spdiagm|spzeros|SparseMatrixCSC|SparseVector)\b"
+# `src/SparseArrays.jl` is the one place outside `src/solvers/` that loads the solvers. The
+# supernodal LU imports AMD and COLAMD, which are BSD-licensed and ship on builds without GPL
+# libraries.
+const allowed = r"^\s*(include\(\"solvers/|(using|import) \.LibSuiteSparse\b|using \.\.LibSuiteSparse: amd_order, amd_l_order, colamd, colamd_l, colamd_recommended,$|\s+colamd_l_recommended, init_suitesparse, COLAMD_STATS, COLAMD_STATUS$)"
 
 const is_gha = something(tryparse(Bool, get(ENV, "GITHUB_ACTIONS", "false")), false)
 

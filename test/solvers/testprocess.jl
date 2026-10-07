@@ -26,7 +26,7 @@ const THREADS_CASES_ENV = "SPARSEARRAYS_TEST_THREADS_CASES"
 threadsprocess(cases; threads) =
     testprocess("include($(repr(joinpath(@__DIR__, "threads_child.jl"))))"; threads,
                 env=[THREADS_CASES_ENV => join((join(case, ',') for case in cases), ';')])
-# The shared-factor cases of the standard suite: UMFPACK and CHOLMOD once each. A child
+# The shared-factor cases of the standard suite: LU and CHOLMOD once each. A child
 # compiles everything it runs from scratch, which is its whole cost, so each case is a
 # second or two; the iteration counts are nearly free.
 threads_standard_cases() = Any[(lu, Float64, Int), (cholesky, Float64, Int)]

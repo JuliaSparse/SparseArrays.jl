@@ -1,6 +1,6 @@
 # AGENTS.md for `src/solvers/`
 
-Rules for the SuiteSparse solver layer (CHOLMOD, UMFPACK, SPQR), in addition to the
+Rules for the SuiteSparse solver layer (CHOLMOD, SPQR), in addition to the
 top-level `AGENTS.md`. This directory and `test/solvers/` hold everything that depends
 on the GPL libraries; see the Layout section there.
 

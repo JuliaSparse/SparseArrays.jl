@@ -33,9 +33,6 @@ amd_h = joinpath(include_dir, "amd.h")
 colamd_h = joinpath(include_dir, "colamd.h")
 @assert isfile(colamd_h)
 
-umfpack_h = joinpath(include_dir, "umfpack.h")
-@assert isfile(umfpack_h)
-
 # load common option
 options = load_options(joinpath(@__DIR__, "generator.toml"))
 
@@ -47,7 +44,7 @@ options["general"]["output_file_path"] = joinpath(@__DIR__, "..", "src/solvers/w
 args = get_default_args()
 push!(args, "-I$include_dir")
 
-header_files = [config_h, cholmod_h, SuiteSparseQR_C_h, amd_h, colamd_h, umfpack_h]
+header_files = [config_h, cholmod_h, SuiteSparseQR_C_h, amd_h, colamd_h]
 
 ctx = create_context(header_files, args, options)
 

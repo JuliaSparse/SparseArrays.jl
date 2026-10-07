@@ -111,7 +111,7 @@ end
     tall = sparse([2.0 0; 1 3; 0 1])
     wide = sparse([2.0 1 0; 0 3 1])
     b = [1.0, 2, 3]
-    for (A, F) in ((square, SparseArrays.UMFPACK.UmfpackLU), (herm, SparseArrays.CHOLMOD.Factor),
+    for (A, F) in ((square, SparseArrays.Supernodal.SupernodalLU), (herm, SparseArrays.CHOLMOD.Factor),
                    (tall, SparseArrays.SPQR.QRSparse), (wide, SparseArrays.SPQR.AdjointQRSparse))
         @test factorize(A) isa F
         rhs = b[1:size(A, 1)]
@@ -152,7 +152,7 @@ end
           (sparse(Complex{Int}[4 1+im 0; 1-im 4 1+im; 0 1-im 4]), ComplexF64))
     for (A, T) in (@static COMPREHENSIVE ? As : As[1:1])
         @test ishermitian(A)
-        @test factorize(A) isa SparseArrays.UMFPACK.UmfpackLU{T}
+        @test factorize(A) isa SparseArrays.Supernodal.SupernodalLU{T}
     end
     for ((A, T), wrap, dense) in (@static COMPREHENSIVE ?
             ((As[1], identity, true), (As[2], transpose, true), (As[2], adjoint, false)) : ((As[1], identity, true),))
@@ -211,10 +211,8 @@ end
 
 @testset "LibSuiteSparse names are not imported into SparseArrays" begin
     @test isdefined(SparseArrays.LibSuiteSparse, :cholmod_l_start)
-    @test isdefined(SparseArrays.LibSuiteSparse, :umfpack_dl_symbolic)
     @test isdefined(SparseArrays.LibSuiteSparse, :CHOLMOD_OK)
     @test !isdefined(SparseArrays, :cholmod_l_start)
-    @test !isdefined(SparseArrays, :umfpack_dl_symbolic)
     @test !isdefined(SparseArrays, :CHOLMOD_OK)
 end
 
@@ -250,13 +248,11 @@ end
 
 
 @testset "ldiv! with and without a workspace, $name" for (name, fact, M) in (
-        ("lu", lu, sparse([4.0 1 0; 1 4 1; 0 1 4] + im * [0 1 0; 0 0 1; 1 0 0])),
         ("cholesky", cholesky, sparse(ComplexF64[4 1+im 0; 1-im 4 1; 0 1 4])),
         ("qr", qr, sparse([4.0 1 0; 1 4 1; 0 1 4] + im * [0 1 0; 0 0 1; 1 0 0])))
     F = fact(M)
     b = ComplexF64[1, 2, 3]
-    ws = fact === lu ? SparseArrays.UMFPACK.UmfpackWS(F) :
-         fact === cholesky ? SparseArrays.CHOLMOD.CholmodWS(F) : SparseArrays.SPQR.SpqrWS(F)
+    ws = fact === cholesky ? SparseArrays.CHOLMOD.CholmodWS(F) : SparseArrays.SPQR.SpqrWS(F)
     # the adjoint of a Cholesky factorization solves the same system as the factorization,
     # so its transpose is the wrapper that takes a path of its own
     for wrap in (identity, (@static COMPREHENSIVE ? (adjoint, transpose) : fact === cholesky ? (transpose,) : (adjoint,))...)
