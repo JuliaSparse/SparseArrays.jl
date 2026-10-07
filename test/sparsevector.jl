@@ -1091,8 +1091,7 @@ end
         spresvec = op.(spvec)
         @test spresvec == op.(densevec)
         resvaltype = typeof(op(zero(eltype(spvec))))
-        resindtype = SparseArrays.indtype(spvec)
-        @test isa(spresvec, SparseVector{resvaltype,resindtype})
+        @test isa(spresvec, Vector{resvaltype})
     end
 end
 end

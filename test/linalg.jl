@@ -41,6 +41,19 @@ include("testhelpers.jl")
     S = sparse([1 0 2; 0 3 0; 4 0 5.0])
     P = copy(S); push!(rowvals(P), 1); push!(nonzeros(P), 99.0)
     @test mismatch(circshift!(similar(S), P, (1, 1)), circshift(Matrix(S), (1, 1))) === nothing
+    # a destination of another size is rejected before it is written to
+    for O in (sparse([1.0 0 2; 0 3 0]), sparse([1.0 0; 0 3; 4 0]), sparse(1.0I, 4, 4)), s in ((1, 1), (1, 0))
+        O0 = copy(O)
+        @test_throws DimensionMismatch circshift!(O, S, s)
+        @test same_pattern(O, O0) && nonzeros(O) == nonzeros(O0)
+    end
+    # and so is one that shares a buffer with the source while columns move: itself, or
+    # another matrix over the same row indices
+    for O in (S, SparseMatrixCSC(3, 3, copy(getcolptr(S)), rowvals(S), copy(nonzeros(S))))
+        @test_throws ArgumentError circshift!(O, S, (0, 1))
+        @test mismatch(O, [1 0 2; 0 3 0; 4 0 5.0]) === nothing
+    end
+    @test mismatch(circshift!(S, S, (1, 0)), [4 0 5.0; 1 0 2; 0 3 0]) === nothing
 end
 end
 

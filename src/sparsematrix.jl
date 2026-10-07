@@ -1977,6 +1977,8 @@ rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), iden
 ## circular shift
 
 function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c)::Base.DimsInteger{2})
+    size(O) == size(X) || throw(DimensionMismatch(LazyString("cannot shift a matrix of size ",
+        size(X), " into a ", nameof(typeof(O)), " of size ", size(O))))
     # a fixed destination keeps its pattern, which `_copyto_fixed!` checks before writing
     _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r, c)))
     nz = nnz(X)
@@ -1988,6 +1990,12 @@ function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c
     if iszero(c)
         copy!(O, X)
     else
+        # The columns are moved by reading X while writing O. The views of X's buffers below
+        # would hide a shared buffer from the check that `circshift!` of a vector makes.
+        (Base.mightalias(getcolptr(O), getcolptr(X)) || Base.mightalias(rowvals(O), rowvals(X)) ||
+            Base.mightalias(nonzeros(O), nonzeros(X))) &&
+            throw(ArgumentError(LazyString("cannot shift the columns of a ", nameof(typeof(X)),
+                " into a destination that shares its buffers; use `circshift` or a separate destination")))
         ##### readjust output
         resize!(getcolptr(O), size(X, 2) + 1)
         resize!(rowvals(O), nz)

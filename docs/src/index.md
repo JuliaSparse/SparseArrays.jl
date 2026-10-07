@@ -194,6 +194,14 @@ julia> findall(!iszero, R)
  5
 ```
 
+The positions can also be given to [`sparse`](@ref) as one vector of `CartesianIndex`es, as
+`findall` returns them:
+
+```jldoctest sparse_function
+julia> sparse(findall(!iszero, S), [1, 2, 3, -5]) == S
+true
+```
+
 Another way to create a sparse array is to convert a dense array into a sparse array using
 the [`sparse`](@ref) function:
 
@@ -239,8 +247,8 @@ views of a subset of their columns, and sparse vectors, for which the result is 
 ### [Broadcasting and `map`](@id man-sparse-broadcast)
 
 [`broadcast`](@ref) (including dot syntax such as `A .* B`) and [`map`](@ref) over sparse vectors
-and matrices return a sparse result. To decide which entries to store, the function is first
-evaluated once on the zeros of the arguments' element types. If `f(0, 0, ...)` is zero, as for
+and matrices return a sparse result when the function maps zeros to zero. To decide which entries to
+store, the function is first evaluated once on the zeros of the arguments' element types. If `f(0, 0, ...)` is zero, as for
 `A .* B`, `abs.(A)` or `2 .* A`, only positions where some argument has a stored entry are visited.
 With a single sparse argument the result has exactly that argument's stored entries, so `2 .* A`,
 `abs.(A)` and `Float64.(A)` keep the stored zeros of `A`, just as `2A`, `-A` and `float(A)` do:
@@ -280,21 +288,41 @@ julia> A .+ B
 The entry `A[3, 3] + B[3, 3]` cancels to zero and is dropped rather than stored, and so is the
 stored zero `A[1, 2]`, because `A[1, 2] + B[1, 2]` computes to zero.
 
-If `f(0, 0, ...)` is not zero, as for `A .+ 1`, `cos.(A)` or `A ./ B` (where `0/0` is `NaN`), the
-result is still a sparse array, but every entry is stored, including any that happen to compute to
-zero. Such a result needs more memory than the equivalent `Array`, so convert to dense first
-when this is intended:
+If `f(0, 0, ...)` is not zero, as for `cos.(A)`, `iszero.(A)` or `A ./ B` (where `0/0` is `NaN`), no
+entry of the result is a structural zero, and a broadcast over sparse arrays alone returns the
+`Array` that the same broadcast over dense arrays would:
+
+```jldoctest sparsebroadcast
+julia> iszero.(A)
+3×3 BitMatrix:
+ 0  1  1
+ 1  0  1
+ 1  1  0
+```
+
+Whether such a result is sparse depends on a value, `f(0, 0, ...)`, so its type can be inferred only
+when the compiler can evaluate `f` there. It does for the standard number types such as `Float64`,
+`Int` and `ComplexF64`, but not for a `BigFloat`. A broadcast made only of `+`, `-` and `*` is
+always sparse, and always inferable.
+
+With a scalar among the arguments, as in `A .^ 0` or `2 .* A .+ 1`, or with a function that
+carries a value of its own, such as the closure in `c = 1; (x -> x + c).(A)`, the result is still a
+sparse array, but every entry is stored, including any that happen to compute to zero. Such a result needs
+more memory than the equivalent `Array`, so convert to dense first when this is intended. Sums are
+the exception: a broadcast made only of `+` and `-` that has a scalar among its arguments returns an
+`Array`:
 
 ```jldoctest sparsebroadcast
 julia> A .+ 2
-3×3 SparseMatrixCSC{Int64, Int64} with 9 stored entries:
+3×3 Matrix{Int64}:
  3  2  2
  2  0  2
  2  2  5
 ```
 
-`map` follows the same rules, but requires all arguments to have the same shape and throws a
-`DimensionMismatch` otherwise, whereas `broadcast` expands singleton dimensions. A sparse vector
+`map` over sparse arrays always returns a sparse array, with every entry stored when `f(0, 0, ...)`
+is not zero. It requires all arguments to have the same shape and throws a `DimensionMismatch`
+otherwise, whereas `broadcast` expands singleton dimensions. A sparse vector
 behaves as a one-column matrix, and combining it with a sparse matrix or with the adjoint or
 transpose of a sparse vector gives a `SparseMatrixCSC`:
 
@@ -314,10 +342,14 @@ julia> v .* v'
  2  ⋅  4
 ```
 
-Scalars (and `Ref`s) are folded into the function before the rules above are applied. Broadcasting
+In any other broadcast, scalars (and `Ref`s) are folded into the function before the rules above
+are applied, so `2 .* A` is sparse and `2 .* A .+ 1` is sparse with every entry stored. Broadcasting
 a sparse array with a `Vector`, a `Matrix`, the adjoint or transpose of any of these, or a
 `Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix first converts those arguments to
-sparse, so the result is sparse as well, even when it is full, as in `A .+ ones(3, 3)`. A view of
+sparse, so the result is sparse as well, as in `A .* ones(3, 3)`. Sums are again the exception: a
+broadcast made only of `+` and `-` that has a `Vector` or a `Matrix` (or a view, adjoint or
+transpose of one) among its arguments returns an `Array`, as `A + ones(3, 3)` does, so
+`A .+ ones(3, 3)` and `A .- v .+ ones(3)` are dense while `2 .* A .+ ones(3, 3)` is sparse. A view of
 whole columns of a sparse matrix, such as `@view A[:, 2:3]` or `@view A[:, j]`, or of a range of a
 sparse vector is copied to a sparse array in time proportional to its stored entries, so
 broadcasting over it is sparse too, even with no other sparse argument. Any other argument, such as
@@ -516,8 +548,7 @@ julia> copy(A')
 ### Keep results sparse and free of stored zeros
 
 A result stays sparse only if the operation maps zeros to zeros. `A .+ 1` and `exp.(A)` return a
-`SparseMatrixCSC` in which every entry is stored, which is slower and larger than a `Matrix`; apply such
-functions to `nonzeros(A)` instead when only the stored entries are meant. Assigning zero to a stored entry,
+`Matrix`; apply such functions to `nonzeros(A)` instead when only the stored entries are meant. Assigning zero to a stored entry,
 and cancellation in a matrix product, leave explicitly stored zeros behind. They are harmless for correctness but
 are visited by every kernel. [`dropzeros!`](@ref) removes them, [`droptol!`](@ref) removes entries of small
 magnitude, and [`fkeep!`](@ref) keeps the entries for which a predicate of `(i, j, v)` is true, all in place.
