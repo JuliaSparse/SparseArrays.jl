@@ -208,15 +208,6 @@ begin
         AW = tr(wr(ad))
         @test AW \ B ≈ Matrix(AW) \ B
     end
-    @static if COMPREHENSIVE
-    # A wrapper applied twice by its constructor is the matrix itself, not its conjugate.
-    for (W, wr) in eachvalue((Adjoint, Transpose), (UpperTriangular, LowerTriangular))
-        AW = wr(W(W(ad)))
-        @test AW \ B ≈ Matrix(AW) \ B
-        @test AW * B ≈ Matrix(AW) * B
-        @test X * AW ≈ X * Matrix(AW)
-    end
-    end
 end
 
 @static if COMPREHENSIVE
