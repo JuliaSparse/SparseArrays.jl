@@ -183,28 +183,6 @@ const _SparseTriOrSymHerm{Tv,Ti} = Union{UpperTriangular{Tv,<:SparseMatrixCSCOrV
                                         LowerTriangular{Tv,<:SparseMatrixCSCOrView{Tv,Ti}},
                                         SparseMatrixCSCSymmHerm{Tv,Ti}}
 const _SparseScatteredStorage{Tv,Ti} = Union{SparseMatrixCSCColumnSubset{Tv,Ti}, _SparseTriOrSymHerm{Tv,Ti}}
-# The legacy interface of `AbstractSparseMatrixCSC`: a subtype that implements `rowvals` and
-# `nonzeros` in place of `getrowval` and `getnzval`. Kernels reach these fallbacks once per
-# entry and `Base.depwarn` walks the backtrace on every call, so it is skipped when warnings
-# are off and made once per type and accessor when they are on.
-const _legacy_accessor_warned = Set{Tuple{Core.TypeName,Symbol}}()
-const _legacy_accessor_lock = ReentrantLock()
-@inline _depwarn_legacy_accessor(S, get::Symbol, legacy::Symbol) =
-    Base.JLOptions().depwarn == 0 ? nothing : _depwarn_legacy_accessor_on(S, get, legacy)
-@noinline function _depwarn_legacy_accessor_on(S, get::Symbol, legacy::Symbol)
-    if Base.JLOptions().depwarn == 1
-        key = (Base.typename(typeof(S)), get)
-        seen = @lock _legacy_accessor_lock (key in _legacy_accessor_warned ||
-            (push!(_legacy_accessor_warned, key); false))
-        seen && return nothing
-    end
-    T = nameof(typeof(S))
-    Base.depwarn("implementing `$legacy(::$T)` as a storage accessor of a subtype of " *
-        "`AbstractSparseMatrixCSC` is deprecated, implement `SparseArrays.$get(::$T)` instead.",
-        get)
-    return nothing
-end
-
 """
     getrowval(A)
 
@@ -218,9 +196,6 @@ nonzero values. See also [`getnzval`](@ref) and [`nzrange`](@ref).
 For a `SparseMatrixCSC` or a `SparseVector`, `getrowval` is equivalent to
 [`rowvals`](@ref). For a column view or a triangular or symmetric wrapper of a sparse matrix it
 returns the parent's vector, of which `rowvals(A)` is the part belonging to `A`.
-
-A subtype of [`AbstractSparseMatrixCSC`](@ref) implements `getrowval`. Calling it on a subtype
-that implements only `rowvals` is deprecated.
 
 # Examples
 ```jldoctest
@@ -244,7 +219,8 @@ julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
 """
 getrowval(S::SparseMatrixCSC) = getfield(S, :rowval)
 getrowval(S::FixedSparseCSC) = getfield(S, :rowval)
-getrowval(S::AbstractSparseMatrixCSC) = (_depwarn_legacy_accessor(S, :getrowval, :rowvals); rowvals(S))
+# a subtype may implement the longer-exported `rowvals` instead
+getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
 getrowval(S::SparseMatrixCSCColumnSubset) = getrowval(parent(S))
 getrowval(S::_SparseTriOrSymHerm) = getrowval(S.data)
 
@@ -260,9 +236,6 @@ will mutate `A` as well. See also [`getrowval`](@ref) and [`nzrange`](@ref).
 For a `SparseMatrixCSC` or a `SparseVector`, `getnzval` is equivalent to
 [`nonzeros`](@ref). For a column view or a triangular or symmetric wrapper of a sparse matrix it
 returns the parent's vector, of which `nonzeros(A)` is the part belonging to `A`.
-
-A subtype of [`AbstractSparseMatrixCSC`](@ref) implements `getnzval`. Calling it on a subtype
-that implements only `nonzeros` is deprecated.
 
 # Examples
 ```jldoctest
@@ -286,7 +259,8 @@ julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
 """
 getnzval(S::SparseMatrixCSC) = getfield(S, :nzval)
 getnzval(S::FixedSparseCSC) = getfield(S, :nzval)
-getnzval(S::AbstractSparseMatrixCSC) = (_depwarn_legacy_accessor(S, :getnzval, :nonzeros); nonzeros(S))
+# a subtype may implement the longer-exported `nonzeros` instead
+getnzval(S::AbstractSparseMatrixCSC) = nonzeros(S)
 getnzval(S::SparseMatrixCSCColumnSubset) = getnzval(parent(S))
 getnzval(S::_SparseTriOrSymHerm) = getnzval(S.data)
 nzvalview(S::AbstractSparseMatrixCSC) = view(getnzval(S), 1:nnz(S))
