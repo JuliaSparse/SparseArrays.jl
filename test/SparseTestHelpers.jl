@@ -9,7 +9,7 @@ module SparseTestHelpers
 export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     same_pattern, exact_equal, WrappedSparseVector, OpCount, mulcount, eqcount,
     opcount_sparse, CountedReads, hasunionlocal, quaternion_type, SimpleSMatrix,
-    NonCSCSparse, ConcatArray, AllBut, MockTropical, Variable, Expression, Meters,
+    NonCSCSparse, LegacyCSC, ConcatArray, AllBut, MockTropical, Variable, Expression, Meters,
     OneSided, Tagged, CustomType, UndefElt, Positive,
     check_trisolve, check_scalar_broadcast,
     show_plain, show_contents,
@@ -19,7 +19,7 @@ using Test
 using LinearAlgebra: LinearAlgebra
 using SparseArrays: SparseArrays, SparseMatrixCSC, SparseVector, AbstractSparseMatrix,
     AbstractSparseMatrixCSC, AbstractSparseVector, FixedSparseCSC, FixedSparseVector,
-    getcolptr, rowvals, nonzeros, nonzeroinds
+    getcolptr, getrowval, getnzval, rowvals, nonzeros, nonzeroinds
 
 # Field access on the sparse types is an error under test, so that kernels and tests go
 # through the accessors. `ReadOnly` has a `getproperty` of its own and stays out.
@@ -212,6 +212,16 @@ struct NonCSCSparse{Tv,Ti} <: AbstractSparseMatrix{Tv,Ti}
 end
 Base.size(S::NonCSCSparse) = size(S.A)
 Base.getindex(S::NonCSCSparse, i::Int, j::Int) = S.A[i, j]
+
+# A CSC matrix type from another package that implements `rowvals` and `nonzeros` rather
+# than `getrowval` and `getnzval`. It needs `getcolptr` as every subtype does.
+struct LegacyCSC{Tv,Ti} <: AbstractSparseMatrixCSC{Tv,Ti}
+    A::SparseMatrixCSC{Tv,Ti}
+end
+Base.size(S::LegacyCSC) = size(S.A)
+SparseArrays.getcolptr(S::LegacyCSC) = getcolptr(S.A)
+SparseArrays.rowvals(S::LegacyCSC) = getrowval(S.A)
+SparseArrays.nonzeros(S::LegacyCSC) = getnzval(S.A)
 
 # An array type from another package that owns the `vcat`/`hcat`/`hvcat` of its own
 # arrays with anything.

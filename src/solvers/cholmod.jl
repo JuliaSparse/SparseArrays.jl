@@ -23,7 +23,7 @@ import LinearAlgebra: (\), AdjointFactorization, TransposeFactorization,
                  lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
-using SparseArrays: getcolptr, AbstractSparseVecOrMat, FixedSparseCSC, _unsafe_unfix
+using SparseArrays: getcolptr, getrowval, getnzval, AbstractSparseVecOrMat, FixedSparseCSC, _unsafe_unfix
 export
     Dense,
     Factor,
@@ -1106,11 +1106,11 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC{<:Any}, stype::Integer) where {Tv<:VT
     if length(getcolptr(A)) <= size(A, 2)
         throw(ArgumentError("length of colptr must be at least size(A,2) + 1 = $(size(A, 2) + 1) but was $(length(getcolptr(A)))"))
     end
-    if nnz(A) > length(rowvals(A))
-        throw(ArgumentError("length of rowval is $(length(rowvals(A))) but value of colptr requires length to be at least $(nnz(A))"))
+    if nnz(A) > length(getrowval(A))
+        throw(ArgumentError("length of rowval is $(length(getrowval(A))) but value of colptr requires length to be at least $(nnz(A))"))
     end
-    if nnz(A) > length(nonzeros(A))
-        throw(ArgumentError("length of nzval is $(length(nonzeros(A))) but value of colptr requires length to be at least $(nnz(A))"))
+    if nnz(A) > length(getnzval(A))
+        throw(ArgumentError("length of nzval is $(length(getnzval(A))) but value of colptr requires length to be at least $(nnz(A))"))
     end
 
     o = allocate_sparse(size(A, 1), size(A, 2), nnz(A), true, true, stype, Tv, Ti)
@@ -1119,7 +1119,7 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC{<:Any}, stype::Integer) where {Tv<:VT
         unsafe_store!(s.p, getcolptr(A)[i] - 1, i)
     end
     for i = 1:nnz(A)
-        unsafe_store!(s.i, rowvals(A)[i] - 1, i)
+        unsafe_store!(s.i, getrowval(A)[i] - 1, i)
     end
     if Tv <: Complex && stype != 0
         # Need to remove any non real elements in the diagonal because, in contrast to
@@ -1127,15 +1127,15 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC{<:Any}, stype::Integer) where {Tv<:VT
         # present CHOLMOD will fail with a non-positive definite/zero pivot error.
         for j = axes(A, 2)
             for ip = nzrange(A, j)
-                v = nonzeros(A)[ip]
-                unsafe_store!(Ptr{Tv}(s.x), rowvals(A)[ip] == j ? Complex(real(v)) : v, ip)
+                v = getnzval(A)[ip]
+                unsafe_store!(Ptr{Tv}(s.x), getrowval(A)[ip] == j ? Complex(real(v)) : v, ip)
             end
         end
-    elseif Tv == eltype(nonzeros(A))
-        unsafe_copyto!(Ptr{Tv}(s.x), pointer(nonzeros(A)), nnz(A))
+    elseif Tv == eltype(getnzval(A))
+        unsafe_copyto!(Ptr{Tv}(s.x), pointer(getnzval(A)), nnz(A))
     else
         for i = 1:nnz(A)
-            unsafe_store!(Ptr{Tv}(s.x), nonzeros(A)[i], i)
+            unsafe_store!(Ptr{Tv}(s.x), getnzval(A)[i], i)
         end
     end
     check_sparse(o)
@@ -1574,9 +1574,9 @@ function getLd!(S::SparseMatrixCSC)
         while k >= getcolptr(S)[col+1]
             col += 1
         end
-        if rowvals(S)[k] == col
-            d[col] = nonzeros(S)[k]
-            nonzeros(S)[k] = 1
+        if getrowval(S)[k] == col
+            d[col] = getnzval(S)[k]
+            getnzval(S)[k] = 1
         end
     end
     S, d

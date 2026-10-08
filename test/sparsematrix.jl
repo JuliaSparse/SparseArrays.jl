@@ -185,6 +185,20 @@ end
     @test isone(SparseMatrixCSC(2, 2, [1, 3, 4], [1, 2, 2], [1, 0, 1]))  # stored zero off-diagonal is fine
 end
 
+@testset "a subtype implementing rowvals and nonzeros but not the get* accessors" begin
+    S = sparse([1.0 0 2; 0 3 0; 4 0 5])
+    A = LegacyCSC(S)
+    @test SparseArrays.getrowval(A) === rowvals(S) && SparseArrays.getnzval(A) === nonzeros(S)
+    @test nonzeros(view(A, :, 2:3)) == nonzeros(view(S, :, 2:3))
+    @test A[2, 2] == 3
+    @test copy(A) == S
+    x = [1.0, 2, 3]
+    @test A * x == S * x
+    @test A' * x == S' * x
+    @test A * S == S * A == A * A == S * S
+    @test A * Matrix(S) == S * Matrix(S)
+end
+
 @static if COMPREHENSIVE
 @testset "indtype" begin
     Ti = @static COMPREHENSIVE ? Int8 : Int

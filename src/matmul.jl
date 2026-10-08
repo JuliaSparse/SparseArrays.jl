@@ -367,9 +367,9 @@ function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
         throw(DimensionMismatch("incompatible sizes"))
     T = promote_op(matprod, eltype(Da), promote_op(matprod, eltype(A), eltype(Db)))
     dest = similar(A, T)
-    vals_dest = nonzeros(dest)
-    rows = rowvals(A)
-    vals = nonzeros(A)
+    vals_dest = getnzval(dest)
+    rows = getrowval(A)
+    vals = getnzval(A)
     da, db = map(parent, (Da, Db))
     @inbounds for col in axes(A,2)
         dbcol = db[col]
@@ -725,13 +725,13 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     lb = length(b)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(nonzeros(C), beta); return C)
+    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(getnzval(C), beta); return C)
     beta_is_zero = iszero(beta)
-    rows_match = rowvals(C) == rowvals(A)
+    rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
     identical_nzinds = rows_match && cols_match
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
+    Cnzval = getnzval(C)
+    Anzval = getnzval(A)
     if identical_nzinds || (beta_is_zero && !_is_fixed(C))
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
@@ -760,7 +760,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
         mergeinds!(C, A)
         beta_is_zero && fill!(Cnzval, zero(eltype(C)))
         for col in axes(C,2), p in @inbounds nzrange(C, col)
-            row = @inbounds rowvals(C)[p]
+            row = @inbounds getrowval(C)[p]
             # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
@@ -822,14 +822,14 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     lb = length(b)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(nonzeros(C), beta); return C)
+    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(getnzval(C), beta); return C)
     beta_is_zero = iszero(beta)
-    rows_match = rowvals(C) == rowvals(A)
+    rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
     identical_nzinds = rows_match && cols_match
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
+    Cnzval = getnzval(C)
+    Anzval = getnzval(A)
+    Arowval = getrowval(A)
     if identical_nzinds || (beta_is_zero && !_is_fixed(C))
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
@@ -858,7 +858,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
         mergeinds!(C, A)
         beta_is_zero && fill!(Cnzval, zero(eltype(C)))
         for col in axes(C,2), p in nzrange(C, col)
-            row = rowvals(C)[p]
+            row = getrowval(C)[p]
             # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
@@ -878,26 +878,26 @@ end
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     copyinds!(C, A)
-    resize!(nonzeros(C), length(nonzeros(A)))
-    mul!(nonzeros(C), nonzeros(A), b)
+    resize!(getnzval(C), length(getnzval(A)))
+    mul!(getnzval(C), getnzval(A), b)
     C
 end
 
 function mul!(C::AbstractSparseMatrixCSC, b::Number, A::AbstractSparseMatrixCSC)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     copyinds!(C, A)
-    resize!(nonzeros(C), length(nonzeros(A)))
-    mul!(nonzeros(C), b, nonzeros(A))
+    resize!(getnzval(C), length(getnzval(A)))
+    mul!(getnzval(C), b, getnzval(A))
     C
 end
 
 function rmul!(A::AbstractSparseMatrixCSC, b::Number)
-    rmul!(nonzeros(A), b)
+    rmul!(getnzval(A), b)
     return A
 end
 
 function lmul!(b::Number, A::AbstractSparseMatrixCSC)
-    lmul!(b, nonzeros(A))
+    lmul!(b, getnzval(A))
     return A
 end
 
@@ -1083,8 +1083,8 @@ function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::Abstr
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Arowval = rowvals(A)
-    Anzval = nonzeros(A)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
 
     @inbounds for i = 1:length(xnzind)
         v = xnzval[i]
@@ -1113,8 +1113,8 @@ function _spAt_or_Ac_mul_spvec!(tfun::F,
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Arowval = rowvals(A)
-    Anzval = nonzeros(A)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
     mx = length(xnzind)
 
     for j = 1:n
@@ -1148,8 +1148,8 @@ function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Arowval = rowvals(A)
-    Anzval = nonzeros(A)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
     mx = length(xnzind)
 
     ynzind = Vector{Ti}(undef, n)

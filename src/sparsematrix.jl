@@ -85,8 +85,8 @@ Get a writable copy of x. See `_unsafe_unfix(x)`
 """
 SparseMatrixCSC(x::FixedSparseCSC) = SparseMatrixCSC(size(x, 1), size(x, 2),
     copy(parent(getcolptr(x))),
-    copy(parent(rowvals(x))),
-    copy(nonzeros(x)))
+    copy(parent(getrowval(x))),
+    copy(getnzval(x)))
 
 function sparse_check_Ti(m::Integer, n::Integer, Ti::Type)
         @noinline throwTi(str, lbl, k) =
@@ -124,7 +124,7 @@ end
 size(S::SparseMatrixCSC) = (getfield(S, :m), getfield(S, :n))
 size(S::FixedSparseCSC) = (getfield(S, :m), getfield(S, :n))
 
-_goodbuffers(S::AbstractSparseMatrixCSC) = _goodbuffers(size(S)..., getcolptr(S), getrowval(S), nonzeros(S))
+_goodbuffers(S::AbstractSparseMatrixCSC) = _goodbuffers(size(S)..., getcolptr(S), getrowval(S), getnzval(S))
 _checkbuffers(S::AbstractSparseMatrixCSC) = (@assert _goodbuffers(S); S)
 _checkbuffers(S::Union{Adjoint, Transpose}) = (_checkbuffers(parent(S)); S)
 
@@ -217,8 +217,11 @@ julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
  5
 ```
 """
+getrowval(S::SparseMatrixCSC) = getfield(S, :rowval)
+getrowval(S::FixedSparseCSC) = getfield(S, :rowval)
+# a subtype may implement the longer-exported `rowvals` instead
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
-getrowval(S::SparseMatrixCSCColumnSubset) = rowvals(parent(S))
+getrowval(S::SparseMatrixCSCColumnSubset) = getrowval(parent(S))
 getrowval(S::_SparseTriOrSymHerm) = getrowval(S.data)
 
 """
@@ -254,10 +257,13 @@ julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
  4.0
 ```
 """
-getnzval( S::AbstractSparseMatrixCSC) = nonzeros(S)
-getnzval( S::SparseMatrixCSCColumnSubset) = nonzeros(parent(S))
-getnzval( S::_SparseTriOrSymHerm) = getnzval(S.data)
-nzvalview(S::AbstractSparseMatrixCSC) = view(nonzeros(S), 1:nnz(S))
+getnzval(S::SparseMatrixCSC) = getfield(S, :nzval)
+getnzval(S::FixedSparseCSC) = getfield(S, :nzval)
+# a subtype may implement the longer-exported `nonzeros` instead
+getnzval(S::AbstractSparseMatrixCSC) = nonzeros(S)
+getnzval(S::SparseMatrixCSCColumnSubset) = getnzval(parent(S))
+getnzval(S::_SparseTriOrSymHerm) = getnzval(S.data)
+nzvalview(S::AbstractSparseMatrixCSC) = view(getnzval(S), 1:nnz(S))
 nzvalview(S::_SparseScatteredStorage) = nonzeros(S)
 # where the stored entries of `S` sit in `getnzval(S)`: a contiguous range for a column range
 _storedinds(S::AbstractSparseMatrixCSC) = 1:nnz(S)
@@ -349,8 +355,8 @@ julia> nonzeros(view(A, :, 2:3))
  2
 ```
 """
-nonzeros(S::SparseMatrixCSC) = getfield(S, :nzval)
-nonzeros(S::FixedSparseCSC) = getfield(S, :nzval)
+nonzeros(S::SparseMatrixCSC) = getnzval(S)
+nonzeros(S::FixedSparseCSC) = getnzval(S)
 nonzeros(S::_SparseScatteredStorage) = view(getnzval(S), _storedinds(S))
 
 """
@@ -388,8 +394,8 @@ julia> rowvals(sparsevec([2, 5], [1.5, 2.5], 6))
  5
 ```
 """
-rowvals(S::SparseMatrixCSC) = getfield(S, :rowval)
-rowvals(S::FixedSparseCSC) = getfield(S, :rowval)
+rowvals(S::SparseMatrixCSC) = getrowval(S)
+rowvals(S::FixedSparseCSC) = getrowval(S)
 rowvals(S::_SparseScatteredStorage) = view(getrowval(S), _storedinds(S))
 
 """
@@ -457,7 +463,7 @@ indtype(S::SparseMatrixCSCColumnSubset{<:Any,Ti}) where {Ti} = Ti
 
 function Base.isstored(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     @boundscheck checkbounds(A, i, j)
-    rows = rowvals(A)
+    rows = getrowval(A)
     @inbounds for istored in nzrange(A, j) # could do binary search if the row indices are sorted?
         i == rows[istored] && return true
     end
@@ -466,7 +472,7 @@ end
 
 function Base.isstored(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Integer, j::Integer)
     @boundscheck checkbounds(A, i, j)
-    cols = rowvals(parent(A))
+    cols = getrowval(parent(A))
     @inbounds for istored in nzrange(parent(A), i)
         j == cols[istored] && return true
     end
@@ -562,8 +568,8 @@ function Base.show(io::IO, _S::SparseMatrixCSCMaybeAdjOrTrans)
     _checkbuffers(_S)
     # can't use `findnz`, because that expects all values not to be #undef
     S = _S isa Adjoint || _S isa Transpose ? parent(_S) : _S
-    I = rowvals(S)
-    K = nonzeros(S)
+    I = getrowval(S)
+    K = getnzval(S)
     m, n = size(S)
     if _S isa Adjoint
         print(io, "adjoint(")
@@ -728,42 +734,42 @@ function copy(ra::ReshapedArray{<:Any,2,<:AbstractSparseMatrixCSC})
     mA,nA = size(a)
     numnz = nnz(a)
     colptr = similar(getcolptr(a), nS+1)
-    rowval = similar(rowvals(a))
-    nzval = copy(nonzeros(a))
+    rowval = similar(getrowval(a))
+    nzval = copy(getnzval(a))
 
-    sparse_compute_reshaped_colptr_and_rowval!(colptr, rowval, mS, nS, getcolptr(a), rowvals(a), mA, nA)
+    sparse_compute_reshaped_colptr_and_rowval!(colptr, rowval, mS, nS, getcolptr(a), getrowval(a), mA, nA)
 
     return SparseMatrixCSC(mS, nS, colptr, rowval, nzval)
 end
 
 ## Alias detection and prevention
 using Base: dataids, unaliascopy
-Base.dataids(S::AbstractSparseMatrixCSC) = _is_fixed(S) ? dataids(nonzeros(S)) : (dataids(getcolptr(S))..., dataids(rowvals(S))..., dataids(nonzeros(S))...)
+Base.dataids(S::AbstractSparseMatrixCSC) = _is_fixed(S) ? dataids(getnzval(S)) : (dataids(getcolptr(S))..., dataids(getrowval(S))..., dataids(getnzval(S))...)
 Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2),
     _is_fixed(S) ? getcolptr(S) : unaliascopy(getcolptr(S)),
-    _is_fixed(S) ? rowvals(S) : unaliascopy(rowvals(S)),
-    unaliascopy(nonzeros(S)))
+    _is_fixed(S) ? getrowval(S) : unaliascopy(getrowval(S)),
+    unaliascopy(getnzval(S)))
 
 ## Constructors
 
 copy(S::AbstractSparseMatrixCSC) =
-    SparseMatrixCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(rowvals(S)), copy(nonzeros(S)))
+    SparseMatrixCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(getrowval(S)), copy(getnzval(S)))
 copy(S::FixedSparseCSC) =
-    FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), copy(nonzeros(S)))
+    FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), copy(getnzval(S)))
 function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     _is_fixed(A) && return _copyto_fixed!(A, B)
     # If the two matrices have the same length then all the
     # elements in A will be overwritten.
     if widelength(A) == widelength(B)
-        resize!(nonzeros(A), length(nonzeros(B)))
-        resize!(rowvals(A), length(rowvals(B)))
+        resize!(getnzval(A), length(getnzval(B)))
+        resize!(getrowval(A), length(getrowval(B)))
         if size(A) == size(B)
             # Simple case: we can simply copy the internal fields of B to A.
             copyto!(getcolptr(A), getcolptr(B))
-            copyto!(rowvals(A), rowvals(B))
+            copyto!(getrowval(A), getrowval(B))
         else
             # This is like a "reshape B into A".
-            sparse_compute_reshaped_colptr_and_rowval!(getcolptr(A), rowvals(A), size(A, 1), size(A, 2), getcolptr(B), rowvals(B), size(B, 1), size(B, 2))
+            sparse_compute_reshaped_colptr_and_rowval!(getcolptr(A), getrowval(A), size(A, 1), size(A, 2), getcolptr(B), getrowval(B), size(B, 1), size(B, 2))
         end
     else
         widelength(A) >= widelength(B) || throw(BoundsError())
@@ -775,28 +781,28 @@ function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
         lastmodcolA = Int(div(lB - 1, size(A, 1))) + 1
         lastmodrowA = Int(mod(lB - 1, size(A, 1))) + 1
         lastmodptrA = Int(getcolptr(A)[lastmodcolA])
-        while lastmodptrA < getcolptr(A)[lastmodcolA+1] && rowvals(A)[lastmodptrA] <= lastmodrowA
+        while lastmodptrA < getcolptr(A)[lastmodcolA+1] && getrowval(A)[lastmodptrA] <= lastmodrowA
             lastmodptrA += 1
         end
         lastmodptrA -= 1
         if lastmodptrA >= nnzB
             # A will have fewer non-zero elements; unmodified elements are kept at the end.
-            deleteat!(rowvals(A), nnzB+1:lastmodptrA)
-            deleteat!(nonzeros(A), nnzB+1:lastmodptrA)
+            deleteat!(getrowval(A), nnzB+1:lastmodptrA)
+            deleteat!(getnzval(A), nnzB+1:lastmodptrA)
         else
             # A will have more non-zero elements; unmodified elements are kept at the end.
-            resize!(rowvals(A), nnzB + nnzA - lastmodptrA)
-            resize!(nonzeros(A), nnzB + nnzA - lastmodptrA)
-            copyto!(rowvals(A), nnzB+1, rowvals(A), lastmodptrA+1, nnzA-lastmodptrA)
-            copyto!(nonzeros(A), nnzB+1, nonzeros(A), lastmodptrA+1, nnzA-lastmodptrA)
+            resize!(getrowval(A), nnzB + nnzA - lastmodptrA)
+            resize!(getnzval(A), nnzB + nnzA - lastmodptrA)
+            copyto!(getrowval(A), nnzB+1, getrowval(A), lastmodptrA+1, nnzA-lastmodptrA)
+            copyto!(getnzval(A), nnzB+1, getnzval(A), lastmodptrA+1, nnzA-lastmodptrA)
         end
         # Adjust colptr accordingly.
         @inbounds for i in 2:length(getcolptr(A))
             getcolptr(A)[i] += nnzB - lastmodptrA
         end
-        sparse_compute_reshaped_colptr_and_rowval!(getcolptr(A), rowvals(A), size(A, 1), lastmodcolA-1, getcolptr(B), rowvals(B), size(B, 1), size(B, 2))
+        sparse_compute_reshaped_colptr_and_rowval!(getcolptr(A), getrowval(A), size(A, 1), lastmodcolA-1, getcolptr(B), getrowval(B), size(B, 1), size(B, 2))
     end
-    copyto!(nonzeros(A), nonzeros(B))
+    copyto!(getnzval(A), getnzval(B))
     return _checkbuffers(A)
 end
 
@@ -815,9 +821,9 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
     rows, cols = Rsrc.indices
     lin = LinearIndices(Base.IdentityUnitRange.(Rsrc.indices))
     @inbounds for col in cols, ptr in nzrange(src′, col)
-        row = rowvals(src′)[ptr]
+        row = getrowval(src′)[ptr]
         if row in rows
-            val = nonzeros(src′)[ptr]
+            val = getnzval(src′)[ptr]
             I = Rdest[lin[row, col]]
             dest[I] = val
         end
@@ -830,15 +836,15 @@ end
 # parent method for similar that preserves stored-entry structure (for when new and old dims match)
 function _sparsesimilar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}) where {TvNew,TiNew}
     newcolptr = copyto!(similar(getcolptr(S), TiNew), getcolptr(S))
-    newrowval = copyto!(similar(rowvals(S), TiNew), rowvals(S))
-    return SparseMatrixCSC(size(S, 1), size(S, 2), newcolptr, newrowval, similar(nonzeros(S), TvNew))
+    newrowval = copyto!(similar(getrowval(S), TiNew), getrowval(S))
+    return SparseMatrixCSC(size(S, 1), size(S, 2), newcolptr, newrowval, similar(getnzval(S), TvNew))
 end
 # parent methods for similar that preserves only storage space (for when new dims are 2-d)
 _sparsesimilar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, dims::Dims{2}) where {TvNew,TiNew} =
-    sizehint!(spzeros(TvNew, TiNew, dims...), length(nonzeros(S)))
+    sizehint!(spzeros(TvNew, TiNew, dims...), length(getnzval(S)))
 # parent method for similar that allocates an empty sparse vector (for when new dims are 1-d)
 _sparsesimilar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, dims::Dims{1}) where {TvNew,TiNew} =
-    SparseVector(dims..., similar(rowvals(S), TiNew, 0), similar(nonzeros(S), TvNew, 0))
+    SparseVector(dims..., similar(getrowval(S), TiNew, 0), similar(getnzval(S), TvNew, 0))
 
 # The following methods hook into the AbstractArray similar hierarchy. The first method
 # covers similar(A[, Tv]) calls, which preserve stored-entry structure, and the latter
@@ -882,7 +888,7 @@ similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, m::Integer, n:
 function Base.sizehint!(S::SparseMatrixCSC, n::Integer)
     nhint = min(n, widelength(S))
     sizehint!(getrowval(S), nhint)
-    sizehint!(nonzeros(S),  nhint)
+    sizehint!(getnzval(S),  nhint)
     return S
 end
 
@@ -924,7 +930,7 @@ function _computecolptrs_halfperm!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::Abstrac
     # Compute `transpose(A[:,q])`'s column counts. Store shifted forward one position in getcolptr(X).
     fill!(getcolptr(X), 0)
     @inbounds for k in 1:nnz(A)
-        getcolptr(X)[rowvals(A)[k] + 1] += 1
+        getcolptr(X)[getrowval(A)[k] + 1] += 1
     end
     # Compute `transpose(A[:,q])`'s column pointers. Store shifted forward one position in getcolptr(X).
     getcolptr(X)[1] = 1
@@ -943,15 +949,15 @@ respectively. Simultaneously fixes the one-position-forward shift in `getcolptr(
 """
 @noinline function _distributevals_halfperm!(X::AbstractSparseMatrixCSC{Tv,Ti},
         A::AbstractSparseMatrixCSC{TvA,Ti}, q::AbstractVector{<:Integer}, f::F) where {Tv,TvA,Ti,F<:Function}
-    resize!(nonzeros(X), nnz(A))
-    resize!(rowvals(X), nnz(A))
+    resize!(getnzval(X), nnz(A))
+    resize!(getrowval(X), nnz(A))
     @inbounds for Xi in axes(A,2)
         Aj = q[Xi]
         for Ak in nzrange(A, Aj)
-            Ai = rowvals(A)[Ak]
+            Ai = getrowval(A)[Ak]
             Xk = getcolptr(X)[Ai + 1]
-            rowvals(X)[Xk] = Xi
-            nonzeros(X)[Xk] = f(nonzeros(A)[Ak])
+            getrowval(X)[Xk] = Xi
+            getnzval(X)[Xk] = f(getnzval(A)[Ak])
             getcolptr(X)[Ai + 1] += 1
         end
     end
@@ -1154,13 +1160,13 @@ function _checkargs_sourcecompatdest_permute!(A::AbstractSparseMatrixCSC{Tv,Ti},
     elseif size(X, 2) != size(A, 2)
         throw(DimensionMismatch(string("destination argument `X`'s column count, ",
             "`size(X, 2) (= $(size(X, 2)))`, must match source argument `A`'s column count, `size(A, 2) (= $(size(A, 2)))`")))
-    elseif length(rowvals(X)) < nnz(A)
+    elseif length(getrowval(X)) < nnz(A)
         throw(ArgumentError(string("the length of destination argument `X`'s `rowval` ",
-            "array, `length(rowvals(X)) (= $(length(rowvals(X))))`, must be greater than or ",
+            "array, `length(rowvals(X)) (= $(length(getrowval(X))))`, must be greater than or ",
             "equal to source argument `A`'s allocated entry count, `nnz(A) (= $(nnz(A)))`")))
-    elseif length(nonzeros(X)) < nnz(A)
+    elseif length(getnzval(X)) < nnz(A)
         throw(ArgumentError(string("the length of destination argument `X`'s `nzval` ",
-            "array, `length(nonzeros(X)) (= $(length(nonzeros(X))))`, must be greater than or ",
+            "array, `length(nonzeros(X)) (= $(length(getnzval(X))))`, must be greater than or ",
             "equal to source argument `A`'s allocated entry count, `nnz(A) (= $(nnz(A)))`")))
     end
 end
@@ -1176,13 +1182,13 @@ function _checkargs_sourcecompatworkmat_permute!(A::AbstractSparseMatrixCSC{Tv,T
     elseif size(C, 1) != size(A, 2)
         throw(DimensionMismatch(string("intermediate result argument `C`'s row count, ",
             "`size(C, 1) (= $(size(C, 1)))`, must match source argument `A`'s column count, `size(A, 2) (= $(size(A, 2)))`")))
-    elseif length(rowvals(C)) < nnz(A)
+    elseif length(getrowval(C)) < nnz(A)
         throw(ArgumentError(string("the length of intermediate result argument `C`'s ",
-            "`rowval` array, `length(rowvals(C)) (= $(length(rowvals(C))))`, must be greater than ",
+            "`rowval` array, `length(rowvals(C)) (= $(length(getrowval(C))))`, must be greater than ",
             "or equal to source argument `A`'s allocated entry count, `nnz(A) (= $(nnz(A)))`")))
-    elseif length(nonzeros(C)) < nnz(A)
+    elseif length(getnzval(C)) < nnz(A)
         throw(ArgumentError(string("the length of intermediate result argument `C`'s ",
-            "`rowval` array, `length(nonzeros(C)) (= $(length(nonzeros(C))))`, must be greater than ",
+            "`rowval` array, `length(nonzeros(C)) (= $(length(getnzval(C))))`, must be greater than ",
             "or equal to source argument `A`'s allocated entry count, `nnz(A)` (= $(nnz(A)))")))
     end
 end
@@ -1373,7 +1379,7 @@ function _sortcolumns!(A::AbstractSparseMatrixCSC; scratch=nothing, kws...)
         sort!(view(A, :, j); scratch, kws...)
     end
     # with no columns there is nothing to sort, but the keywords are still validated
-    size(A, 2) == 0 && sort!(view(nonzeros(A), 1:0); scratch, kws...)
+    size(A, 2) == 0 && sort!(view(getnzval(A), 1:0); scratch, kws...)
     return A
 end
 
@@ -1395,8 +1401,8 @@ Base.sort(A::AbstractSparseMatrixCSC; kws...) =
 function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     An = size(A, 2)
     Acolptr = getcolptr(A)
-    Arowval = rowvals(A)
-    Anzval = nonzeros(A)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
 
     # Sweep through columns, rewriting kept elements in their new positions
     # and updating the column pointers accordingly as we go.
@@ -1529,9 +1535,9 @@ function findall(p::Function, S::AbstractSparseMatrixCSC)
 
     count = 0
     @inbounds for col = 1 : size(S, 2), k = nzrange(S, col)
-        if p(nonzeros(S)[k])
+        if p(getnzval(S)[k])
             count += 1
-            inds[count] = CartesianIndex(rowvals(S)[k], col)
+            inds[count] = CartesianIndex(getrowval(S)[k], col)
         end
     end
 
@@ -1550,9 +1556,9 @@ function findnz(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
     count = 1
     @inbounds for col = 1 : size(S, 2), k = nzrange(S, col)
-        I[count] = rowvals(S)[k]
+        I[count] = getrowval(S)[k]
         J[count] = col
-        V[count] = nonzeros(S)[k]
+        V[count] = getnzval(S)[k]
         count += 1
     end
 
@@ -1603,7 +1609,7 @@ function Base.isone(A::AbstractSparseMatrixCSC)
     for j in axes(A,2)
         founddiag = false
         for k in nzrange(A, j)
-            i, x = rowvals(A)[k], nonzeros(A)[k]
+            i, x = getrowval(A)[k], getnzval(A)[k]
             if i == j
                 isone(x) || return false
                 founddiag = true
@@ -1623,17 +1629,17 @@ function conj!(A::AbstractSparseMatrixCSC)
     return A
 end
 function (-)(A::AbstractSparseMatrixCSC)
-    nzval = similar(nonzeros(A), typeof(-zero(eltype(A))))
+    nzval = similar(getnzval(A), typeof(-zero(eltype(A))))
     map!(-, view(nzval, 1:nnz(A)), nzvalview(A))
-    _is_fixed(A) && return FixedSparseCSC(size(A, 1), size(A, 2), getcolptr(A), rowvals(A), nzval)
-    return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
+    _is_fixed(A) && return FixedSparseCSC(size(A, 1), size(A, 2), getcolptr(A), getrowval(A), nzval)
+    return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(getrowval(A)), nzval)
 end
 
 # the rest of real, conj, imag are handled correctly via AbstractArray methods
 function conj(A::AbstractSparseMatrixCSC{<:Complex})
-    nzval = similar(nonzeros(A))
+    nzval = similar(getnzval(A))
     map!(conj, view(nzval, 1:nnz(A)), nzvalview(A))
-    return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
+    return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(getrowval(A)), nzval)
 end
 imag(A::SparseMatrixCSCOrView{Tv,Ti}) where {Tv<:Real,Ti} = spzeros(Tv, Ti, size(A, 1), size(A, 2))
 
@@ -1658,9 +1664,9 @@ function _sparsedensesum(f::F, A::SparseMatrixCSCOrView, B::AbstractMatrix) wher
     # a structurally dense matrix needs no zero, so its eltype need not have one
     length(A) > nnz(A) || return f.(Array(A), B)
     C = f.(Ref(zero(eltype(A))), B)
-    rowinds, nzvals = rowvals(A), nonzeros(A)
+    rowinds, nzvals = getrowval(A), getnzval(A)
     for j in axes(A, 2)
-        @inbounds for k in nzrange(A, j)
+        @inbounds for k in getnzrange(A, j)
             i = rowinds[k]
             C = _setindexwiden!(C, f(nzvals[k], B[i, j]), i, j)
         end
@@ -1711,8 +1717,8 @@ function nzeq(eq::F, A::AbstractSparseMatrixCSC, B::AbstractMatrix) where {F}
     anymissing = false
     @inbounds for j in axes(A,2)
         for k in nzrange(A, j)
-            i = rowvals(A)[k]
-            val = nonzeros(A)[k]
+            i = getrowval(A)[k]
+            val = getnzval(A)[k]
             c = eq(val, B[i,j])
             c === false && return false
             anymissing |= ismissing(c)
@@ -1867,13 +1873,13 @@ function istriu(A::SparseMatrixCSCOrView, k::Integer=0)
     m, n = size(A)
     k <= 1-m && return true
     k >= n && return iszero(A)
-    rowval = rowvals(A)
-    nzval  = nonzeros(A)
+    rowval = getrowval(A)
+    nzval  = getnzval(A)
 
     # Compare before adding k to avoid overflowing the last column of the band.
     lastcol = k >= n-m+1 ? n : m-1+k
     for col = 1:lastcol
-        for i in reverse(nzrange(A, col))
+        for i in reverse(getnzrange(A, col))
             if rowval[i] <= col - k
                 # rows preceeding the index would also lie above the band
                 break
@@ -1890,12 +1896,12 @@ function istril(A::SparseMatrixCSCOrView, k::Integer=0)
     m, n = size(A)
     k >= n-1 && return true
     k <= -m && return iszero(A)
-    rowval = rowvals(A)
-    nzval  = nonzeros(A)
+    rowval = getrowval(A)
+    nzval  = getnzval(A)
 
     # column j has entries above the band only when j - k > 1
     for col = max(1, k+2):n
-        for i = nzrange(A, col)
+        for i = getnzrange(A, col)
             if rowval[i] >= col - k
                 # subsequent rows would also lie below the band
                 break
@@ -1910,10 +1916,10 @@ end
 
 function isdiag(A::SparseMatrixCSCOrView)
     m, n = size(A)
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     @inbounds for col in 1:n
-        for k in nzrange(A, col)
+        for k in getnzrange(A, col)
             if rowval[k] != col && _isnotzero(nzval[k])
                 return false
             end
@@ -1931,13 +1937,13 @@ function diag(A::SparseMatrixCSCOrView{Tv,Ti}, d::Integer=0) where {Tv,Ti}
     val = Vector{Tv}()
     for i in 1:l
         r += 1; c += 1
-        r1 = Int(first(nzrange(A, c)))
-        r2 = Int(last(nzrange(A, c)))
+        r1 = Int(first(getnzrange(A, c)))
+        r2 = Int(last(getnzrange(A, c)))
         r1 > r2 && continue
-        r1 += searchsortedfirst(view(rowvals(A), r1:r2), r) - 1
-        ((r1 > r2) || (rowvals(A)[r1] != r)) && continue
+        r1 += searchsortedfirst(view(getrowval(A), r1:r2), r) - 1
+        ((r1 > r2) || (getrowval(A)[r1] != r)) && continue
         push!(ind, i)
-        push!(val, nonzeros(A)[r1])
+        push!(val, getnzval(A)[r1])
     end
     return SparseVector{Tv,Ti}(l, ind, val)
 end
@@ -1957,7 +1963,7 @@ end
 # zeros are kept. rot180 copies the buffers itself, since `copy` of a fixed input shares
 # the pattern and the buffers may hold unused capacity beyond nnz
 rot180(A::AbstractSparseMatrixCSC) = _reverse!(SparseMatrixCSC(size(A)..., Vector(getcolptr(A)),
-    Vector(view(rowvals(A), 1:nnz(A))), Vector(view(nonzeros(A), 1:nnz(A)))), Colon())
+    Vector(view(getrowval(A), 1:nnz(A))), Vector(view(getnzval(A), 1:nnz(A)))), Colon())
 rotr90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 2)
 rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 1)
 
@@ -1992,14 +1998,14 @@ function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c
     else
         # The columns are moved by reading X while writing O. The views of X's buffers below
         # would hide a shared buffer from the check that `circshift!` of a vector makes.
-        (Base.mightalias(getcolptr(O), getcolptr(X)) || Base.mightalias(rowvals(O), rowvals(X)) ||
-            Base.mightalias(nonzeros(O), nonzeros(X))) &&
+        (Base.mightalias(getcolptr(O), getcolptr(X)) || Base.mightalias(getrowval(O), getrowval(X)) ||
+            Base.mightalias(getnzval(O), getnzval(X))) &&
             throw(ArgumentError(LazyString("cannot shift the columns of a ", nameof(typeof(X)),
                 " into a destination that shares its buffers; use `circshift` or a separate destination")))
         ##### readjust output
         resize!(getcolptr(O), size(X, 2) + 1)
-        resize!(rowvals(O), nz)
-        resize!(nonzeros(O), nz)
+        resize!(getrowval(O), nz)
+        resize!(getnzval(O), nz)
         getcolptr(O)[size(X, 2) + 1] = nz + 1
 
         # exchange left and right blocks
@@ -2013,14 +2019,14 @@ function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c
         end
         # rotate rowval and nzval by the right number of elements; only the stored
         # entries, as the buffers of X may be longer
-        circshift!(rowvals(O), view(rowvals(X), 1:nz), (nright,))
-        circshift!(nonzeros(O), view(nonzeros(X), 1:nz), (nright,))
+        circshift!(getrowval(O), view(getrowval(X), 1:nz), (nright,))
+        circshift!(getnzval(O), view(getnzval(X), 1:nz), (nright,))
     end
     ##### row shift
     r = mod(r, size(X, 1))
     iszero(r) && return O
     @inbounds for i in axes(O, 2)
-        subvector_shifter!(rowvals(O), nonzeros(O), first(nzrange(O, i)), last(nzrange(O, i)), size(O, 1), r)
+        subvector_shifter!(getrowval(O), getnzval(O), first(nzrange(O, i)), last(nzrange(O, i)), size(O, 1), r)
     end
     return _checkbuffers(O)
 end
@@ -2068,8 +2074,8 @@ function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
         reverse!(@view arr[(last(irow)+1):(first(jrow)-1)])
         reverse!(@view arr[first(irow):last(jrow)])
     end
-    rangeexchange!(rowvals(A), irow, jrow)
-    rangeexchange!(nonzeros(A), irow, jrow)
+    rangeexchange!(getrowval(A), irow, jrow)
+    rangeexchange!(getnzval(A), irow, jrow)
 
     if length(irow) != length(jrow)
         @inbounds colptr[i+1:j] .+= length(jrow) - length(irow)
@@ -2081,8 +2087,8 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
     # For simplicity, let i denote the smaller of the two rows
     j < i && @swap(i, j)
 
-    rows = rowvals(A)
-    vals = nonzeros(A)
+    rows = getrowval(A)
+    vals = getnzval(A)
     for col in axes(A,2)
         rr = nzrange(A, col)
         iidx = searchsortedfirst(@view(rows[rr]), i)
@@ -2134,7 +2140,7 @@ _reversedims(dims::Tuple{Integer,Integer}) =
     dims == (1, 2) || dims == (2, 1) ? Colon() : throw(ArgumentError(lazy"invalid dimension $dims in reverse"))
 
 function _reverse!(S::AbstractSparseMatrixCSC, ::Colon)
-    rowinds, nzval, colptr = rowvals(S), nonzeros(S), getcolptr(S)
+    rowinds, nzval, colptr = getrowval(S), getnzval(S), getcolptr(S)
     rowinds .= (size(S, 1) + 1) .- rowinds
     reverse!(rowinds)
     colptr .= (nnz(S) + 2) .- colptr
@@ -2143,7 +2149,7 @@ function _reverse!(S::AbstractSparseMatrixCSC, ::Colon)
     return S
 end
 function _reverse!(S::AbstractSparseMatrixCSC, dims::Int)
-    rowinds, nzval, colptr = rowvals(S), nonzeros(S), getcolptr(S)
+    rowinds, nzval, colptr = getrowval(S), getnzval(S), getcolptr(S)
     m = size(S, 1)
     for j in axes(S, 2)
         lo, hi = Int(colptr[j]), Int(colptr[j + 1]) - 1
@@ -2170,7 +2176,7 @@ end
 # onto its mirror column with the same row set (dims=2), the rows of each column onto
 # themselves mirrored (dims=1), or both at once (dims=:). Then only the values move.
 function _reversalkeepspattern(S::AbstractSparseMatrixCSC, dims)
-    rowinds = rowvals(S)
+    rowinds = getrowval(S)
     m, n = size(S)
     for j in axes(S, 2)
         r = nzrange(S, j)
@@ -2184,9 +2190,9 @@ function _reversalkeepspattern(S::AbstractSparseMatrixCSC, dims)
     end
     return true
 end
-_reversevals!(S::AbstractSparseMatrixCSC, ::Colon) = (reverse!(nonzeros(S)); S)
+_reversevals!(S::AbstractSparseMatrixCSC, ::Colon) = (reverse!(getnzval(S)); S)
 function _reversevals!(S::AbstractSparseMatrixCSC, dims::Int)
-    nzval = nonzeros(S)
+    nzval = getnzval(S)
     for j in axes(S, 2)
         r = nzrange(S, j)
         reverse!(nzval, Int(first(r)), Int(last(r)))
@@ -2204,8 +2210,8 @@ function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
     m1,n1 = size(M)
     (m1 < m || n1 < n) && throw(DimensionMismatch("dest of size ($m1,$n1) should have at least the same number of rows and columns than src of size ($m,$n)"))
 
-    rv = rowvals(S)
-    nz = nonzeros(S)
+    rv = getrowval(S)
+    nz = getnzval(S)
     @inbounds for col in axes(S,2)
         trirange = uplo == 'U' ? (1:min(col, size(S,1))) : (col:size(S,1))
         fill!(view(M, trirange, col), zero(eltype(S)))

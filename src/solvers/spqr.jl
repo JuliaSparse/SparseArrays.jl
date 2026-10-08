@@ -29,8 +29,8 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix,
-    SparseQMatOperand, SparseQVecOperand
+using ..SparseArrays: getcolptr, getrowval, getnzval, FixedSparseCSC, AbstractSparseMatrixCSC,
+    _unsafe_unfix, SparseQMatOperand, SparseQVecOperand
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -240,8 +240,8 @@ function _fixed_pivots(R::SparseMatrixCSC{Tv, Ti}) where {Tv, Ti}
     k = 0
     for j in axes(R, 2)
         r = nzrange(R, j)
-        if !isempty(r) && rowvals(R)[last(r)] > k
-            k = rowvals(R)[last(r)]
+        if !isempty(r) && getrowval(R)[last(r)] > k
+            k = getrowval(R)[last(r)]
             push!(live, j)
         else
             push!(dead, j)
@@ -339,8 +339,8 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
     R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                 size(R_, 2),
                                 getcolptr(R_),
-                                rowvals(R_),
-                                nonzeros(R_))
+                                getrowval(R_),
+                                getnzval(R_))
     if isempty(p)
         p, R = _fixed_pivots(R)
     end
@@ -526,7 +526,7 @@ end
 
 Return the rank of the QR factorization
 """
-LinearAlgebra.rank(F::QRSparse) = reduce(max, view(rowvals(F.R), 1:nnz(F.R)), init = eltype(rowvals(F.R))(0))
+LinearAlgebra.rank(F::QRSparse) = reduce(max, view(getrowval(F.R), 1:nnz(F.R)), init = eltype(getrowval(F.R))(0))
 
 """
     rank(S::SparseMatrixCSC{Tv,Ti}; [tol::Real]) -> Ti

@@ -90,7 +90,7 @@ nonzeros(x::FixedSparseVector) = getfield(x, :nzval)
 function nonzeros(x::SparseColumnView)
     rowidx, colidx = parentindices(x)
     A = parent(x)
-    @inbounds y = view(nonzeros(A), nzrange(A, colidx))
+    @inbounds y = view(getnzval(A), nzrange(A, colidx))
     return y
 end
 nonzeros(x::SparseVectorView) = nonzeros(parent(x))
@@ -106,7 +106,7 @@ nonzeroinds(x::FixedSparseVector) = getfield(x, :nzind)
 function nonzeroinds(x::SparseColumnView)
     rowidx, colidx = parentindices(x)
     A = parent(x)
-    @inbounds y = view(rowvals(A), nzrange(A, colidx))
+    @inbounds y = view(getrowval(A), nzrange(A, colidx))
     return y
 end
 nonzeroinds(x::SparseVectorView) = nonzeroinds(parent(x))
@@ -474,7 +474,7 @@ end
 function SparseVector{Tv,Ti}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti<:Integer}
     size(s, 2) == 1 || throw(ArgumentError("The input argument must have a single-column."))
     # the vector's pattern is writable, so it cannot share the read-only one of a fixed matrix
-    SparseVector(size(s, 1), _is_fixed(s) ? Vector(rowvals(s)) : rowvals(s), nonzeros(s))
+    SparseVector(size(s, 1), _is_fixed(s) ? Vector(getrowval(s)) : getrowval(s), getnzval(s))
 end
 
 SparseVector{Tv}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
@@ -605,16 +605,16 @@ function copyto!(A::AbstractCompressedVector, B::AbstractSparseMatrixCSC)
     prep_sparsevec_copy_dest!(A, length(B), nnz(B))
 
     ptr = 1
-    @assert length(nonzeroinds(A)) >= length(rowvals(B))
-    maximum(getcolptr(B))-1 <= length(rowvals(B)) || throw(BoundsError())
+    @assert length(nonzeroinds(A)) >= length(getrowval(B))
+    maximum(getcolptr(B))-1 <= length(getrowval(B)) || throw(BoundsError())
     @inbounds for col=1:length(getcolptr(B))-1
         offsetA = (col - 1) * size(B, 1)
         while ptr <= getcolptr(B)[col+1]-1
-            nonzeroinds(A)[ptr] = rowvals(B)[ptr] + offsetA
+            nonzeroinds(A)[ptr] = getrowval(B)[ptr] + offsetA
             ptr += 1
         end
     end
-    copyto!(nonzeros(A), nonzeros(B))
+    copyto!(nonzeros(A), getnzval(B))
     return A
 end
 
@@ -666,12 +666,12 @@ function copyto!(dest::SparseColumnView{Tv,Ti}, src::AbstractVector) where {Tv,T
     newinds, newvals = _splice_source(src, Ti, Tv)
     rng = nzrange(A, col)
     k1 = first(rng)
-    k2 = searchsortedlast(view(rowvals(A), rng), lB) + k1 - 1   # last entry with row <= lB
+    k2 = searchsortedlast(view(getrowval(A), rng), lB) + k1 - 1   # last entry with row <= lB
     colptr = getcolptr(A)
     if isbitstype(Ti) && widen(colptr[end]) + length(newinds) - (k2 - k1 + 1) > typemax(Ti)
         throw(ArgumentError("the stored entries of the result cannot be counted by the index type $Ti"))
     end
-    delta = _splice_entries!(A, rowvals(A), nonzeros(A), k1, k2, newinds, newvals)
+    delta = _splice_entries!(A, getrowval(A), getnzval(A), k1, k2, newinds, newvals)
     if delta != 0
         @inbounds for c in col+1:length(colptr)
             colptr[c] += delta
@@ -1841,14 +1841,14 @@ function _densestructure!(A::AbstractSparseMatrixCSC)
     _checkdensifiable(A)
     _is_fixed(A) && return A
     m, n = size(A)
-    resize!(rowvals(A), m * n)
-    resize!(nonzeros(A), m * n)
+    resize!(getrowval(A), m * n)
+    resize!(getnzval(A), m * n)
     colptr = resize!(getcolptr(A), n + 1)
     @inbounds for j in 0:n
         colptr[j + 1] = j * m + 1
     end
     for j in 0:n-1
-        copyto!(rowvals(A), j * m + 1, 1:m)
+        copyto!(getrowval(A), j * m + 1, 1:m)
     end
     return A
 end
@@ -1860,7 +1860,7 @@ function fill!(A::SparseVecOrMat, x)
         _densifiable(A) || throw(ArgumentError("cannot fill! a $(nameof(typeof(A))) with a nonzero value, its sparsity pattern is read-only; fillstored!(A, x) sets the stored entries"))
         _densestructure!(A)
     end
-    fill!(nonzeros(A), xT)
+    fill!(getnzval(A), xT)
     return A
 end
 

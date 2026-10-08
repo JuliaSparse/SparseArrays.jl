@@ -334,8 +334,8 @@ function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,T
         R = spzeros(Tr, Ti, 1, 1)
         v = isempty(A) ? _reduced_empty(f, op, init, T) : _seed(identity, op, init, mapreduce(f, op, A))
         if nnz(A) > 0 || !isequal(v, zero(Tr))
-            push!(rowvals(R), 1)
-            push!(nonzeros(R), v)
+            push!(getrowval(R), 1)
+            push!(getnzval(R), v)
             getcolptr(R)[2] = 2
         end
         return R
@@ -358,7 +358,7 @@ function _mapreducerows_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrix
     # needed and f(0) is not evaluated, since it might throw
     zunstored = nnz(A) == m*n && m > 0 ? z : _reduce_unstored(f, op, init, T, m)
     store_unstored = !isequal(zunstored, z)
-    Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
+    Rcolptr, Rrowval, Rnzval = getcolptr(R), getrowval(R), getnzval(R)
     nstored = store_unstored ? n : count(col -> !isempty(getnzrange(A, col)), 1:n)
     resize!(Rrowval, nstored)
     fill!(Rrowval, 1)
@@ -395,7 +395,7 @@ function _mapreducecols_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrix
     nz = length(rows)
     zunstored = nz == m*n && n > 0 ? z : _reduce_unstored(f, op, init, T, n)
     store_unstored = !isequal(zunstored, z)
-    Rcolptr, Rrowval, Rnzval = getcolptr(R), rowvals(R), nonzeros(R)
+    Rcolptr, Rrowval, Rnzval = getcolptr(R), getrowval(R), getnzval(R)
     if store_unstored || 8 * nz >= m
         W = Vector{Tr}(undef, m)
         cnt = zeros(Int, m)   # stored entries seen in each row
@@ -627,7 +627,7 @@ _mapreducerows!(pred::P, ::typeof(&), R::AbstractMatrix{Bool},
 # A stored zero is not one of them: it may be a `-0.0`, which `isless` tells from `zero(Tv)`,
 # so `_findr` compares it like any other stored value.
 function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=axes(A,1), cols=axes(A,2)) where {Tv,Ti}
-    rowval = rowvals(A)
+    rowval = getrowval(A)
     row = 0
     rowmin = rows[1]; rowmax = rows[end]
     allrows = (rows == axes(A,1))
@@ -663,7 +663,7 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
         end
     end
 
-    colptr = getcolptr(A); rowval = rowvals(A); nzval = nonzeros(A); m = size(A, 1); n = size(A, 2)
+    colptr = getcolptr(A); rowval = getrowval(A); nzval = getnzval(A); m = size(A, 1); n = size(A, 2)
     zval = zero(Tv)
     szA = size(A)
 

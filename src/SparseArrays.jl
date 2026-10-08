@@ -104,6 +104,15 @@ const AbstractSparseMatrix{Tv,Ti} = AbstractSparseArray{Tv,Ti,2}
     AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
 
 Supertype for matrix with compressed sparse column (CSC).
+
+A subtype exposes its storage by implementing `size`, [`getcolptr`](@ref),
+[`getrowval`](@ref) and [`getnzval`](@ref), which are the only accessors the methods of
+this package call on it. [`rowvals`](@ref) and [`nonzeros`](@ref) are not defined for
+such a subtype.
+
+Subtypes written while `rowvals` and `nonzeros` were the only exported accessors implement
+those in place of `getrowval` and `getnzval`, which fall back to them. This remains
+supported, but is planned to stop being supported in SparseArrays 2.0.
 """
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
