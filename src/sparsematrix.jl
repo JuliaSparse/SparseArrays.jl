@@ -1536,15 +1536,16 @@ function findall(p::Function, S::AbstractSparseMatrixCSC)
     numnz = nnz(S)
     inds = Vector{CartesianIndex{2}}(undef, numnz)
 
-    count = 0
+    # Store every index and advance only past a match: a branch on `p` is mispredicted
+    # whenever the matches are irregular. `inds` holds `numnz` entries, so the store is
+    # in bounds.
+    count = 1
     @inbounds for col = 1 : size(S, 2), k = nzrange(S, col)
-        if p(getnzval(S)[k])
-            count += 1
-            inds[count] = CartesianIndex(getrowval(S)[k], col)
-        end
+        inds[count] = CartesianIndex(getrowval(S)[k], col)
+        count += p(getnzval(S)[k])::Bool
     end
 
-    resize!(inds, count)
+    resize!(inds, count - 1)
 
     return inds
 end

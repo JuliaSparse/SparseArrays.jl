@@ -740,15 +740,16 @@ function findall(p::F, x::SparseVectorOrView) where {F<:Function}
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
 
-    count = 0
+    # Store every index and advance only past a match: a branch on `p` is mispredicted
+    # whenever the matches are irregular. `I` holds `numnz` entries, so the store is in
+    # bounds.
+    count = 1
     @inbounds for i = 1 : numnz
-        if p(nzval[i])
-            count += 1
-            I[count] = nzind[i]
-        end
+        I[count] = nzind[i]
+        count += p(nzval[i])::Bool
     end
 
-    resize!(I, count)
+    resize!(I, count - 1)
 
     return I
 end
