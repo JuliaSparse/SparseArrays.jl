@@ -1605,9 +1605,6 @@ end
 
 
 abstract type SparseIndexIterate end
-@inline getcolptr(x::SparseIndexIterate) = getcolptr(x.m)
-@inline getrowval(x::SparseIndexIterate) = getrowval(x.m)
-@inline getnzval(x::SparseIndexIterate) = getnzval(x.m)
 @inline nonzeroinds(x::SparseIndexIterate) = nonzeroinds(x.m)
 @inline nonzeros(x::SparseIndexIterate) = nonzeros(x.m)
 @inline nnz(x::SparseIndexIterate) = nnz(x.m)
