@@ -24,7 +24,7 @@ const TRANSFORM_PAIRS = ((identity, identity), (adjoint, transpose), (transpose,
 end
 end
 
-@testset "diagonal - sparse vector mutliplication" begin
+@testset "diagonal - sparse vector multiplication" begin
     for n in (10, (@static COMPREHENSIVE ? (7,) : ())...)
         b = fixturevec(Float64, n)
         A = Diagonal(fixturedense(Float64, n))
