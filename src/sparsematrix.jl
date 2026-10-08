@@ -1620,14 +1620,23 @@ struct IterateNZCSC{T<: AbstractSparseMatrixCSC} <: SparseIndexIterate
 end
 
 Base.eltype(::IterateNZCSC{T}) where {Ti, Tv, T <: AbstractSparseMatrixCSC{Tv, Ti}} = Tuple{Ti, Ti, Tv}
-Base.iterate(x::IterateNZCSC, state=(1, 0)) = @inbounds let (j, ind) = state
-    ind += 1
-    while (j < size(x, 2)) && (ind > getcolptr(x)[j + 1] - 1)
-        j += 1
+# The state is the column, the last index returned and the index that ends the column,
+# so the column pointers are read only when a column is exhausted.
+@inline function Base.iterate(x::IterateNZCSC, (j, k, stop)=(0, 0, 1))
+    A = x.m
+    k += 1
+    @inbounds begin
+        if k >= stop
+            colptr = getcolptr(A)
+            k >= colptr[size(A, 2) + 1] && return nothing
+            while true
+                j += 1
+                stop = Int(colptr[j + 1])
+                k < stop && break
+            end
+        end
+        return (getrowval(A)[k], j, getnzval(A)[k]), (j, k, stop)
     end
-    (j > size(x, 2) || ind > getcolptr(x)[end] - 1) && return nothing
-
-    (getrowval(x)[ind], j, getnzval(x)[ind]), (j, ind)
 end
 
 iternz(S::AbstractSparseMatrixCSC) = IterateNZCSC(S)
