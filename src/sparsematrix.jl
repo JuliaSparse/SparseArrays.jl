@@ -1619,7 +1619,7 @@ end
 Base.eltype(::IterateNZCSC{T}) where {Ti, Tv, T <: AbstractSparseMatrixCSC{Tv, Ti}} = Tuple{Ti, Ti, Tv}
 # The state is the column, the last index returned and the index that ends the column,
 # so the column pointers are read only when a column is exhausted.
-@inline function Base.iterate(x::IterateNZCSC, (j, k, stop)=(0, 0, 1))
+@inline function Base.iterate(x::IterateNZCSC{<:AbstractSparseMatrixCSC{Tv,Ti}}, (j, k, stop)=(0, 0, 1)) where {Tv,Ti}
     A = x.m
     k += 1
     @inbounds begin
@@ -1632,7 +1632,7 @@ Base.eltype(::IterateNZCSC{T}) where {Ti, Tv, T <: AbstractSparseMatrixCSC{Tv, T
                 k < stop && break
             end
         end
-        return (getrowval(A)[k], j, getnzval(A)[k]), (j, k, stop)
+        return (getrowval(A)[k], convert(Ti, j), getnzval(A)[k]), (j, k, stop)
     end
 end
 

@@ -47,6 +47,12 @@ end
         A = sprandn(100, 100, 1 / i)
         @test collect(SparseArrays.iternz(A)) == collect(zip(findnz(A)...))
     end
+    @static if COMPREHENSIVE
+        A = sparse(Int32[1, 3], Int32[2, 2], [1.0, 2.0], 3, 4)
+        @test typeof(first(SparseArrays.iternz(A))) == eltype(SparseArrays.iternz(A)) == Tuple{Int32, Int32, Float64}
+        x = sparsevec(Int32[2, 5], [1.0, 2.0], 6)
+        @test typeof(first(SparseArrays.iternz(x))) == eltype(SparseArrays.iternz(x)) == Tuple{Int32, Float64}
+    end
 end
 
 @testset "findnz for adjoint/transpose (issue #632)" begin
