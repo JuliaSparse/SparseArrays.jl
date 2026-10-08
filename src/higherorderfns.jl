@@ -176,7 +176,7 @@ map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) 
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _unaliasargs(C, A, Bs...)...))
 
 # the kernels below write C while reading the inputs, so copy any input aliasing C (#26)
-_unaliasargs(C, As...) = map(A -> _unaliasarg(C, A), As)
+_unaliasargs(C, As::Vararg{Any,N}) where {N} = map(A -> _unaliasarg(C, A), As)
 _unaliasarg(C, A) = Base.unalias(C, A)
 # Empty buffers share one `Memory` and report as aliased, so an empty buffer of A aliases C
 # only when it is a buffer of C itself.

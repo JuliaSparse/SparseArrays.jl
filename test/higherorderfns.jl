@@ -983,6 +983,15 @@ end
         A = spzeros(size(A)...)
         @test broadcast!(cos, A, A) == ones(size(A))
     end
+    # nor does unaliasing several inputs allocate
+    for (A, B) in ((sparsevec([2, 5], [1.0, 2.0], 10), sparsevec([3, 5], [1.0, 2.0], 10)),
+                   (sparse([1, 3], [2, 4], [1.0, 2.0], 10, 12), sparse([1, 4], [2, 5], [1.0, 2.0], 10, 12)))
+        X = similar(A)
+        map!(+, X, A, B); map!(+, X, A, B, A)
+        @test @allocated(map!(+, X, A, B)) == 0
+        @test @allocated(map!(+, X, A, B, A)) == 0
+        @test X == Array(A) + Array(B) + Array(A)
+    end
     end
 end
 
