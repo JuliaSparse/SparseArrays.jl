@@ -610,6 +610,7 @@ Base.similar(::SparseArrays.AbstractSparseMatrixCSC, ::Type)
 SparseArrays.issparse
 SparseArrays.nnz
 SparseArrays.findnz
+SparseArrays.iternz
 SparseArrays.spzeros
 SparseArrays.spzeros!
 SparseArrays.spdiagm
