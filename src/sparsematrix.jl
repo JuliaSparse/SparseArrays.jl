@@ -1605,18 +1605,14 @@ end
 
 
 abstract type SparseIndexIterate end
-@inline nonzeroinds(x::SparseIndexIterate) = nonzeroinds(x.m)
-@inline nonzeros(x::SparseIndexIterate) = nonzeros(x.m)
-@inline nnz(x::SparseIndexIterate) = nnz(x.m)
 
-Base.length(x::SparseIndexIterate) = nnz(x.m)
-Base.size(x::SparseIndexIterate) = size(x.m)
-Base.size(x::SparseIndexIterate, i) = size(x.m)[i]
-struct IterateNZCSC{T<: AbstractSparseMatrixCSC} <: SparseIndexIterate
+struct IterateNZCSC{T<:SparseMatrixCSCOrColumnSubset} <: SparseIndexIterate
     m::T
 end
 
-Base.eltype(::IterateNZCSC{T}) where {Ti, Tv, T <: AbstractSparseMatrixCSC{Tv, Ti}} = Tuple{Ti, Ti, Tv}
+Base.length(x::IterateNZCSC) = nnz(x.m)
+Base.eltype(::Type{<:IterateNZCSC{<:SparseMatrixCSCOrColumnSubset{Tv,Ti}}}) where {Tv,Ti} = Tuple{Ti,Ti,Tv}
+
 # The state is the column, the last index returned and the index that ends the column,
 # so the column pointers are read only when a column is exhausted.
 @inline function Base.iterate(x::IterateNZCSC{<:AbstractSparseMatrixCSC{Tv,Ti}}, (j, k, stop)=(0, 0, 1)) where {Tv,Ti}
@@ -1635,8 +1631,27 @@ Base.eltype(::IterateNZCSC{T}) where {Ti, Tv, T <: AbstractSparseMatrixCSC{Tv, T
         return (getrowval(A)[k], convert(Ti, j), getnzval(A)[k]), (j, k, stop)
     end
 end
+# The columns of a view need not be adjacent in the parent's storage, so each one is
+# looked up with `getnzrange`.
+@inline function Base.iterate(x::IterateNZCSC{<:SparseMatrixCSCColumnSubset{Tv,Ti}}, (j, k, stop)=(0, 0, 1)) where {Tv,Ti}
+    A = x.m
+    k += 1
+    @inbounds begin
+        if k >= stop
+            n = size(A, 2)
+            while true
+                j += 1
+                j > n && return nothing
+                r = getnzrange(A, j)
+                k, stop = Int(first(r)), Int(last(r)) + 1
+                k < stop && break
+            end
+        end
+        return (getrowval(A)[k], convert(Ti, j), getnzval(A)[k]), (j, k, stop)
+    end
+end
 
-iternz(S::AbstractSparseMatrixCSC) = IterateNZCSC(S)
+iternz(S::SparseMatrixCSCOrColumnSubset) = IterateNZCSC(S)
 
 Base.iszero(A::AbstractSparseMatrixCSC) = iszero(nzvalview(A))
 

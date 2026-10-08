@@ -832,22 +832,31 @@ _sparse_findnextnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findne
 _sparse_findprevnz(v::SparseVectorOrView, i::CartesianIndex{1}) = _sparse_findprevnz(v, i[1])
 
 
-struct IterateSparseVec{T<: AbstractSparseVector} <: SparseIndexIterate
-    m::T
+# Holds the index and value storage, so that a view looks its storage up once. `offset`
+# shifts the parent's indices to those of a view that starts after its first index.
+struct IterateSparseVec{Tv,Ti,I<:AbstractVector{Ti},V<:AbstractVector{Tv}} <: SparseIndexIterate
+    nzind::I
+    nzval::V
+    offset::Ti
 end
 
-Base.eltype(::IterateSparseVec{T}) where {Ti, Tv, T <: AbstractSparseVector{Tv, Ti}} = Tuple{Ti, Tv}
+Base.length(x::IterateSparseVec) = length(x.nzval)
+Base.eltype(::Type{<:IterateSparseVec{Tv,Ti}}) where {Tv,Ti} = Tuple{Ti,Tv}
 
-Base.iterate(x::IterateSparseVec, state=0) = @inbounds begin
-    state += 1
-    if state > nnz(x)
-        nothing
-    else
-        (nonzeroinds(x)[state], nonzeros(x)[state]), state
-    end
+@inline function Base.iterate(x::IterateSparseVec, k=1)
+    k > length(x) && return nothing
+    return @inbounds((x.nzind[k] - x.offset, x.nzval[k])), k + 1
 end
 
-iternz(S::AbstractSparseVector) = IterateSparseVec(S)
+iternz(x::Union{AbstractSparseVector{Tv,Ti},SparseVectorOrView{Tv,Ti}}) where {Tv,Ti} =
+    IterateSparseVec(nonzeroinds(x), nonzeros(x), zero(Ti))
+function iternz(x::SparseVectorPartialView{Tv,Ti}) where {Tv,Ti}
+    p = parent(x)
+    first_idx, last_idx = _partialview_end_indices(x)
+    r = first_idx:last_idx
+    offset = isempty(r) ? zero(Ti) : Ti(first(parentindices(x)[1]) - 1)
+    return IterateSparseVec(view(nonzeroinds(p), r), view(nonzeros(p), r), offset)
+end
 
 
 ### Generic functions operating on AbstractSparseVector

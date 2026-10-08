@@ -47,8 +47,18 @@ end
         A = sprandn(100, 100, 1 / i)
         @test collect(SparseArrays.iternz(A)) == collect(zip(findnz(A)...))
     end
+    A = sprandn(20, 30, 0.2)
+    V = view(A, :, 4:17)
+    @test collect(SparseArrays.iternz(V)) == collect(zip(findnz(sparse(V))...))
+    @test length(SparseArrays.iternz(V)) == nnz(V)
     @static if COMPREHENSIVE
+        for cols in (5:4, 31:30, [9, 2, 2, 30], Int[], 2:3:29, :)
+            V = view(A, :, cols)
+            @test collect(SparseArrays.iternz(V)) == collect(zip(findnz(sparse(V))...))
+            @test length(SparseArrays.iternz(V)) == nnz(V)
+        end
         A = sparse(Int32[1, 3], Int32[2, 2], [1.0, 2.0], 3, 4)
+        @test typeof(first(SparseArrays.iternz(view(A, :, 2:3)))) == Tuple{Int32, Int32, Float64}
         @test typeof(first(SparseArrays.iternz(A))) == eltype(SparseArrays.iternz(A)) == Tuple{Int32, Int32, Float64}
         x = sparsevec(Int32[2, 5], [1.0, 2.0], 6)
         @test typeof(first(SparseArrays.iternz(x))) == eltype(SparseArrays.iternz(x)) == Tuple{Int32, Float64}

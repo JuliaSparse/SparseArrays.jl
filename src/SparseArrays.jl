@@ -322,7 +322,10 @@ function findnz end
     iternz(A::AbstractSparseMatrixCSC)
     iternz(x::AbstractSparseVector)
 
-Return an iterator over the stored entries of a sparse matrix or vector.
+Return an iterator over the stored entries of a sparse matrix or vector. `A` may also be
+a view of all rows and some columns of a sparse matrix, and `x` a view of a column of a
+sparse matrix or of a unit range of a sparse vector; the indices are then those of the
+view.
 
 For a matrix, each element is a tuple `(i, j, v)` holding the row index, the column index
 and the value of one stored entry. For a vector, each element is a tuple `(i, v)` holding
