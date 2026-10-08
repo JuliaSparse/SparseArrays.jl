@@ -15,7 +15,8 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       SparseMatrixCSCColumnSubset, SparseColumnView, SparseVectorView, SparseVectorPartialView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros, ftranspose,
                       nonzeroinds, nonzeros, rowvals, getcolptr, getrowval, getnzval, widelength,
-                      _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, @if_move_fixed
+                      _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, @if_move_fixed,
+                      ReadOnly, _storagebuffers
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, BandedMatrix, wrapperop
@@ -175,7 +176,17 @@ map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) 
     (_checksameshape(C, A, Bs...); _noshapecheck_map!(f, C, _unaliasargs(C, A, Bs...)...))
 
 # the kernels below write C while reading the inputs, so copy any input aliasing C (#26)
-_unaliasargs(C, As...) = map(A -> Base.unalias(C, A), As)
+_unaliasargs(C, As...) = map(A -> _unaliasarg(C, A), As)
+_unaliasarg(C, A) = Base.unalias(C, A)
+# Empty buffers share one `Memory` and report as aliased, so an empty buffer of A aliases C
+# only when it is a buffer of C itself.
+function _unaliasarg(C::SparseVecOrMat, A::SparseVecOrMat)
+    Cbuffers = _storagebuffers(C)
+    aliased = any(_storagebuffers(A)) do b
+        b isa ReadOnly ? false : isempty(b) ? any(c -> c === b, Cbuffers) : Base.mightalias(C, b)
+    end
+    return aliased ? Base.unaliascopy(A) : A
+end
 
  _noshapecheck_map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
     # Avoid calculating f(zero) unless necessary as it may fail.
@@ -1170,7 +1181,7 @@ end
         return copyto!(dest, A)
     end
     bcf = flatten(bc)
-    As = map(arg->Base.unalias(dest, arg), bcf.args)
+    As = map(arg->_unaliasarg(dest, arg), bcf.args)
     return _copyto!(bcf.f, dest, As...)
 end
 
