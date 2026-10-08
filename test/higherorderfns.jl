@@ -967,6 +967,32 @@ end
     @test map!(+, S0, S1, S2, S0) == S1 + S2 + C
     S0 = copy(C); D = Diagonal(collect(Float64, 1:10))
     @test map!(+, S0, D, S0) == D + C
+
+    @static if COMPREHENSIVE
+    # an input without stored entries does not alias the destination (#1012), unless it is
+    # the destination
+    for A in (sparsevec(Int[], Float64[], 10), spzeros(10, 12))
+        X = similar(A)
+        map!(sin, X, A); broadcast!(sin, X, A)
+        @test @allocated(map!(sin, X, A)) == 0
+        @test @allocated(broadcast!(sin, X, A)) == 0
+        @test map!(cos, X, A) == cos.(Array(A))
+        @test map!(cos, A, A) == ones(size(A))
+        A = spzeros(size(A)...)
+        @test broadcast!(+, A, A, A .+ 1) == ones(size(A))
+        A = spzeros(size(A)...)
+        @test broadcast!(cos, A, A) == ones(size(A))
+    end
+    # nor does unaliasing several inputs allocate
+    for (A, B) in ((sparsevec([2, 5], [1.0, 2.0], 10), sparsevec([3, 5], [1.0, 2.0], 10)),
+                   (sparse([1, 3], [2, 4], [1.0, 2.0], 10, 12), sparse([1, 4], [2, 5], [1.0, 2.0], 10, 12)))
+        X = similar(A)
+        map!(+, X, A, B); map!(+, X, A, B, A)
+        @test @allocated(map!(+, X, A, B)) == 0
+        @test @allocated(map!(+, X, A, B, A)) == 0
+        @test X == Array(A) + Array(B) + Array(A)
+    end
+    end
 end
 
 @testset "1-dimensional 'opt-out' (non) sparse broadcasting" begin
