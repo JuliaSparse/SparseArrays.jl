@@ -319,9 +319,41 @@ julia> findnz(A)
 function findnz end
 
 """
-    iternz(A::AbstractSparseArray)
+    iternz(A::AbstractSparseMatrixCSC)
+    iternz(x::AbstractSparseVector)
 
-Equivalent to `zip(findnz(A)...)` but does not allocated
+Return an iterator over the stored entries of a sparse matrix or vector.
+
+For a matrix, each element is a tuple `(i, j, v)` holding the row index, the column index
+and the value of one stored entry. For a vector, each element is a tuple `(i, v)` holding
+the index and the value. The entries are visited in storage order, the same order as
+[`findnz`](@ref) returns them, and stored zeros are included.
+
+`iternz(A)` yields the same elements as `zip(findnz(A)...)`, but does not allocate the
+index and value arrays. Do not change the stored entries of the array while iterating
+over it.
+
+# Examples
+```jldoctest
+julia> A = sparse([1 2 0; 0 0 3; 0 4 0])
+3×3 SparseMatrixCSC{Int64, Int64} with 4 stored entries:
+ 1  2  ⋅
+ ⋅  ⋅  3
+ ⋅  4  ⋅
+
+julia> collect(SparseArrays.iternz(A))
+4-element Vector{Tuple{Int64, Int64, Int64}}:
+ (1, 1, 1)
+ (1, 2, 2)
+ (3, 2, 4)
+ (2, 3, 3)
+
+julia> x = sparsevec([2, 5], [1.5, 2.5], 6);
+
+julia> collect(SparseArrays.iternz(x))
+2-element Vector{Tuple{Int64, Float64}}:
+ (2, 1.5)
+ (5, 2.5)
 ```
 """
 function iternz end
