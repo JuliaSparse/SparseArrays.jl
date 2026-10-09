@@ -416,7 +416,7 @@ end
 end
 
 @RCI @propagate_inbounds setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
-    setindex!(x, convert(Tv, v), convert(Ti, i))
+    (_checkscalarindex(i); setindex!(x, convert(Tv, v), convert(Ti, i)))
 
 function setindex!(x::AbstractCompressedVector, v::AbstractVector, I::AbstractUnitRange{<:Integer})
     checkbounds(x, I)
@@ -1111,6 +1111,7 @@ function _spgetindex(m::Int, nzind::AbstractVector{Ti}, nzval::AbstractVector{Tv
 end
 
 @RCI @propagate_inbounds function getindex(x::AbstractSparseVector, i::Integer)
+    _checkscalarindex(i)
     @boundscheck checkbounds(x, i)
     _spgetindex(nnz(x), nonzeroinds(x), nonzeros(x), i)
 end
@@ -1160,6 +1161,7 @@ end
 function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
     y = _unsafe_unfix(x)
     S = SparseMatrixCSC(length(y), 1, Ti[1,length(nonzeroinds(y))+1], nonzeroinds(y), nonzeros(y))
+    ndims(I) == 2 || return S[I]   # a dense array
     return @if_move_fixed x S[I]
 end
 

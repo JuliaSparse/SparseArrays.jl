@@ -611,6 +611,19 @@ end
     @test nnz(A) == 50
     SparseArrays.dropstored!(A, :, :)
     @test nnz(A) == 0
+    @static if COMPREHENSIVE
+        # a mask selects rows, it is not a vector of the indices 0 and 1
+        A = sparse(1.0I, 3, 3)
+        SparseArrays.dropstored!(A, [true, false, true], [1, 3])
+        @test nnz(A) == 1 && A[2, 2] == 1
+        @test_throws BoundsError SparseArrays.dropstored!(A, [true, true], [1])
+        # the bounds are checked even when nothing is stored
+        @test_throws BoundsError SparseArrays.dropstored!(spzeros(2, 2), [5], [1])
+        # a fixed pattern keeps the entries, as the scalar method does
+        F = SparseArrays.fixed(sparse([1.0 0; 0 2.0]))
+        SparseArrays.dropstored!(F, [1, 2], [1])
+        @test nnz(F) == 2 && F == [0 0; 0 2.0]
+    end
 end
 
 @testset "test_getindex_algs" begin
@@ -847,6 +860,128 @@ let
         s116[p, p] = reshape(1:9, 3, 3)
         @test mismatch(s116, a116) === nothing
     end
+end
+
+@static if COMPREHENSIVE
+# same pattern and stored values, so nothing was written
+unchanged(S, S0) = same_pattern(S, S0) && nonzeros(S) == nonzeros(S0)
+
+@testset "index kinds follow dense" begin
+    A = sparse([1.0 2 0; 0 3 4]); D = Array(A)
+    @testset "index arrays that are not vectors or matrices" begin
+        I3 = reshape([1, 3, 4, 6, 1, 3, 4, 6], 2, 2, 2)
+        @test A[I3] == D[I3] && A[I3] isa Array{Float64,3}
+        @test A[fill(2)] == D[fill(2)] && A[fill(2)] isa Array{Float64,0}
+        x = sparse([1, 2, 3])
+        @test x[ones(Int, 2, 2, 2)] == [1, 2, 3][ones(Int, 2, 2, 2)]
+        @test x[fill(3)] == fill(3)
+        @test_throws BoundsError A[reshape([1, 7], 1, 1, 2)]
+        @test_throws BoundsError A[fill(0)]
+        @test_throws BoundsError x[fill(4)]
+        # the result is dense, so its length need not fit the index type
+        A8 = sparse(Int8[1, 12], Int8[1, 12], [1.0, 2.0], 12, 12)
+        I8 = reshape(collect(1:144), 12, 12, 1)
+        @test A8[I8] == Matrix(A8)[I8]
+        # a stored entry is copied; only an unstored one needs a `zero`
+        As = SparseMatrixCSC(1, 1, [1, 2], [1], ["a"])
+        @test As[fill(1)] == fill("a")
+        @test As[ones(Int, 1, 1, 1)] == fill("a", 1, 1, 1)
+        @test size(As[Array{Int}(undef, 0, 2, 2)]) == (0, 2, 2)
+    end
+    @testset "a Bool is a mask, not an index" begin
+        @test A[false:true, 2] == D[false:true, 2] == [3.0]
+        @test isempty(sparse(fill(5.0, 1, 1))[false:false, 1])
+        @test_throws ArgumentError setindex!(copy(A), 7.0, true, 1)
+        @test_throws ArgumentError setindex!(copy(A), 7.0, 1, true)
+        @test_throws ArgumentError sparse([1, 2, 3])[true]
+        @test_throws ArgumentError setindex!(sparse([1, 2, 3]), 1, true)
+    end
+    @testset "ranges and CartesianIndex{1}" begin
+        @test A[StepRangeLen(1, 1, 1), :] == D[StepRangeLen(1, 1, 1), :]
+        @test A[StepRangeLen(2, -1, 2), :] == D[StepRangeLen(2, -1, 2), :]
+        @test A[StepRangeLen(1, 0, 3), :] == D[StepRangeLen(1, 0, 3), :]
+        @test A[[CartesianIndex(1)], [1, 2]] == D[[CartesianIndex(1)], [1, 2]]
+        @test A[[CartesianIndex(2)], 3] == D[[CartesianIndex(2)], 3]
+    end
+    @testset "masks of the wrong length" begin
+        for (I, J) in (([true], 1), ([true, false, false], 1), (1, [true, false]),
+                       ([true], [true, false, true]), ([1, 2], [true, false]), ([true], [1]))
+            S = copy(A)
+            @test_throws BoundsError S[I, J] = fill(9.0, count(!iszero, I), count(!iszero, J))
+            @test unchanged(S, A)
+            M = copy(D)
+            @test_throws BoundsError M[I, J] = sparse(fill(9.0, count(!iszero, I), count(!iszero, J)))
+            @test M == D
+        end
+    end
+end
+
+@testset "setindex! leaves the matrix unchanged when it throws" begin
+    @testset "a value that does not convert" begin
+        S0 = sparse([1 0 0; 0 2 0; 0 0 3])
+        for (L, x) in (([2, 4, 6], [7.0, 8.0, 8.5]), ([1, 5], [7.0, 8.5]), ([9, 2, 2], [7.0, 1.0, 8.5]))
+            S = copy(S0)
+            @test_throws InexactError S[L] = x
+            @test unchanged(S, S0)
+        end
+    end
+    @testset "more stored entries than Ti counts" begin
+        mk() = SparseMatrixCSC{Float64,Int8}(sparse(1.0I, 12, 12))
+        S = mk()
+        @test_throws ArgumentError fill!(view(S, :, :), 1.0)
+        @test unchanged(S, mk())
+        @test_throws ArgumentError S[1:144] = ones(144)
+        @test unchanged(S, mk())
+        @test_throws ArgumentError S[:, :] = ones(12, 12)
+        @test unchanged(S, mk())
+        # the count of what would be stored is exact: 122 entries fit, though the
+        # stored entries and the assigned ones together number more than 127
+        E = Matrix(mk()); E[1:10, :] .= 1.0
+        S = mk(); fill!(view(S, 1:10, :), 1.0)
+        @test S == E && nnz(S) == 122
+        S = mk(); S[1:10, :] = ones(10, 12)
+        @test S == E && nnz(S) == 122
+        S = mk(); S[findall(!iszero, vec(E))] = ones(122)
+        @test S == E && nnz(S) == 122
+    end
+    @testset "an index vector that is the matrix's own storage" begin
+        S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
+        E[[1, 2, 3, 4], 2] = [10.0, 20, 30, 40]
+        S[rowvals(S), 2] = [10.0, 20, 30, 40]
+        @test S == E
+        S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
+        E[2, [1, 2, 3, 4]] = [10.0, 20, 30, 40]
+        S[2, rowvals(S)] = [10.0, 20, 30, 40]
+        @test S == E
+    end
+    @testset "decreasing ranges through a view" begin
+        S = sparse([1.0 2 0; 0 3 4; 5 0 6]); E = Matrix(S)
+        S[3:-1:1, 1] .= 0.0; E[3:-1:1, 1] .= 0.0
+        @test S == E
+        S[:, 3:-2:1] .= 2.0; E[:, 3:-2:1] .= 2.0
+        @test S == E
+        fill!(view(S, 3:-1:2, 3:-1:1), 7.0); fill!(view(E, 3:-1:2, 3:-1:1), 7.0)
+        @test S == E
+    end
+    @testset "fixed pattern" begin
+        F0 = SparseArrays.fixed(sparse([1.0 0 0; 0 2 0; 0 0 3]))
+        F = copy(F0)
+        @test_throws ArgumentError F[1:2, 1] = [7.0, 8.0]
+        @test unchanged(F, F0)
+        @test_throws ArgumentError fill!(view(F, 1:2, 1), 9.0)
+        @test unchanged(F, F0)
+        F[1:2, 1:2] = [7.0 0; 0 8.0]
+        @test F == [7.0 0 0; 0 8 0; 0 0 3] && same_pattern(F, F0)
+        fill!(view(F, [1, 3], [1, 3]), 0.0)
+        @test F == [0.0 0 0; 0 8 0; 0 0 0] && same_pattern(F, F0)
+        G0 = SparseArrays.fixed(sparse([1 0 0; 0 2 0; 0 0 3]))
+        G = copy(G0)
+        @test_throws InexactError G[[1, 5]] = [7.0, 8.5]
+        @test unchanged(G, G0)
+        @test_throws InexactError G[1:1, 1:2] = [7.0 0.5]
+        @test unchanged(G, G0)
+    end
+end
 end
 
 end # module
