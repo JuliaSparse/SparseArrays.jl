@@ -522,6 +522,19 @@ end
         @test typeof(findall(b)) === Vector{Int}
         @test findall(p -> false, x) == Int[]
     end
+    @static if COMPREHENSIVE
+        # matches at irregular positions, none, and every stored entry
+        y = SparseVector(9, [1, 3, 4, 6, 8, 9], [3.0, -1.0, 2.0, -4.0, 7.0, 5.0])
+        for p in (>(0), >(9), !iszero)
+            @test findall(p, y) == findall(p, Vector(y))
+        end
+        @test_throws TypeError findall(x -> 1, y)
+        # an index beyond `typemax(Int)` is converted only when its entry matches
+        n = big(typemax(Int)) + 10
+        z = SparseVector(n, BigInt[1, n], [1.0, -1.0])
+        @test findall(>(0), z) == [1]
+        @test_throws InexactError findall(<(0), z)
+    end
 end
 
 @testset "iteratenz (vector)" begin

@@ -377,6 +377,14 @@ end
     # Not all stored entries are true
     @test findall(sparse([true false])) == [CartesianIndex(1, 1)]
     @test findall(x -> x > 1, sparse([1 2])) == [CartesianIndex(1, 2)]
+    @static if COMPREHENSIVE
+        # matches at irregular positions, none, and every stored entry
+        B = sparse([1, 3, 2, 3, 1, 4], [1, 1, 2, 3, 5, 5], [3.0, -1.0, 2.0, -4.0, 7.0, 5.0], 4, 5)
+        for p in (>(0), >(9), !iszero)
+            @test findall(p, B) == findall(p, Array(B))
+        end
+        @test_throws TypeError findall(x -> 1, B)
+    end
 end
 
 @testset "access to undefined error types that initially allocate elements as #undef" begin
