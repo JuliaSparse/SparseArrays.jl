@@ -401,6 +401,43 @@ julia> C
   ⋅  ⋅  0
 ```
 
+## [Requirements on the element type](@id man-sparse-eltype)
+
+A sparse array can store values of any type `T`. Building one from indices and values,
+copying, slicing, concatenating and permuting it, and reading a stored entry call nothing
+on the elements. Everything else rests on three things:
+
+- **`zero(T)`** is the value of an entry that is not stored. It is called on the type, not
+  on a value, by whatever has to produce such an entry: indexing, `setindex!`,
+  `Matrix(A)`, a product with a dense array or a sparse vector, `A + B`, `map`,
+  broadcasting and the reductions.
+- **`iszero(x)`** decides whether a value has to be stored. [`sparse`](@ref) of a dense
+  array, [`dropzeros!`](@ref), `A + B`, `map` and broadcasting call it. It falls back to
+  `x == zero(x)`, so a type that defines `zero` of a value and `==` need not define it.
+- **The arithmetic of the operation itself**: `+` and `*` for a product, `isless` for
+  `maximum`, `minimum` and `sort`, and so on. As with dense arrays, `A'` and
+  `transpose(A)` apply `adjoint` and `transpose` to the elements.
+
+The sparse kernels skip the entries that are not stored, so they assume that `zero(T)`
+behaves as a zero: `x + zero(T) == x`, and a product with `zero(T)` is zero. `map` and
+broadcasting do not assume this of an arbitrary function, and evaluate it on `zero(T)`, as
+described in [Broadcasting and `map`](@ref man-sparse-broadcast).
+
+A type that defines `zero`, `+` and `*` is enough for most of the package, and every
+`Number` qualifies. Some limits apply to the other element types:
+
+- Multiplying two sparse matrices needs only `*` and `+`. It is the one arithmetic
+  operation that works without `zero(T)`.
+- An element type whose zero depends on the value, such as `Matrix{Float64}`, whose size
+  is not part of its type, has no `zero(T)`. A sparse matrix of them can be stored and
+  multiplied by another, but not indexed at an entry that is not stored.
+- `c * A`, `A * c` and `A / c` are defined for a scalar `c` that is a `Number`. For any
+  other element type, use `map` or broadcasting.
+- The [sparse factorizations](@ref stdlib-sparse-linalg) `lu`, `qr`, `cholesky` and `ldlt`
+  call SuiteSparse, which works in real and complex floating point. A matrix of integers
+  or rationals is converted to `Float64` first; a matrix of another element type, such
+  as `BigFloat`, is rejected.
+
 ## [Performance tips](@id man-sparse-performance)
 
 Sparse code is fast when its cost is proportional to the number of stored entries, and the
