@@ -474,11 +474,10 @@ end
                 F = lu(A)
                 umfpack_report(F)
                 if reuse
+                    # rejected before F is written to, so F still factorizes A
                     @test_throws ArgumentError lu!(F, D; reuse_symbolic=reuse)
-                    # the stale numeric factorization of A has been dropped, so
-                    # anything needing it refactors D against A's symbolic and fails again
-                    @test_throws ArgumentError umfpack_report(F)
-                    @test_throws ArgumentError F\b
+                    umfpack_report(F)
+                    @test F\b ≈ Matrix(A)\b
                 else
                     lu!(F, D; reuse_symbolic=reuse)
                     umfpack_report(F)
@@ -551,6 +550,31 @@ end
         Fc = lu(SparseMatrixCSC{ComplexF64,Ti}(A))
         lu!(Fc, sparse([4 1 0; 1 3 0; 0 0 1]))
         @test Fc \ ComplexF64[1, 2, 3] ≈ Matrix(C) \ ComplexF64[1, 2, 3]
+    end
+
+    @static if COMPREHENSIVE
+    @testset "lu!(F, S) does not reuse the symbolic factors of another size, $Ti" for Ti in ITYPES
+        F = lu(SparseMatrixCSC{Float64,Ti}(sparse([4.0 1; 1 3])))
+        C = sparse([4.0 1 0; 1 3 0; 0 0 7])
+        lu!(F, C)
+        @test size(F.L) == (3, 3)
+        @test F \ [1.0, 2.0, 3.0] ≈ Matrix(C) \ [1.0, 2.0, 3.0]
+        @test det(F) ≈ det(Matrix(C))
+    end
+
+    @testset "factors are read under the lock, $Ti" for Ti in ITYPES
+        A = SparseMatrixCSC{Float64,Ti}(sparse([4.0 1; 1 3]))
+        F = lu(A)
+        for f in (F -> F.L, F -> F.:(:), logabsdet, F -> lu!(F, A))
+            lock(F.lock)
+            t = @async f(F)
+            yield()
+            @test !istaskdone(t)
+            unlock(F.lock)
+            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+        end
+        @test F \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
+    end
     end
 
     @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in KERNEL_ITYPES

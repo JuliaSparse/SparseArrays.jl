@@ -428,7 +428,7 @@ end
     end
 
     AA = CHOLMOD.eye(3, Tv)
-    unsafe_store!(convert(Ptr{Csize_t}, pointer(AA)), 2, 1) # change size, but not stride, of Dense
+    unsafe_store!(convert(Ptr{Csize_t}, CHOLMOD.structpointer(AA)), 2, 1) # change size, but not stride, of Dense
     @test convert(Matrix, AA) == Matrix(I, 2, 3)
 end
 
@@ -1492,6 +1492,67 @@ end
     C = SparseMatrixCSC{Tv,Ti}(B*B' + 20I)
     @test CHOLMOD.rcond(cholesky(C)) >= 1/cond(Matrix{Float64}(C), 2) - sqrt(eps(Tv))
     end
+end
+
+@static if COMPREHENSIVE
+@testset "CHOLMOD.Dense is strided over its data" begin
+    M = Tv[1 2; 3 4]
+    D = CHOLMOD.Dense(M)
+    @test pointer(D) isa Ptr{Tv}
+    @test strides(D) == (1, 2)
+    @test D * Tv[1, 1] == M * Tv[1, 1]
+    @test D * D == M * M
+    # a `Dense` destination receives the solution in its data
+    A = SparseMatrixCSC{Tv,Ti}(Tv[4 1 0; 1 3 1; 0 1 2])
+    b = Tv[1, 2, 3]
+    X = CHOLMOD.Dense(Base.zeros(Tv, 3))
+    @test ldiv!(X, cholesky(A), CHOLMOD.Dense(b)) === X
+    @test Vector(X) ≈ Matrix(A) \ b
+    @test CHOLMOD.check_dense(X)
+end
+
+@testset "sparse right-hand side on a failed factorization throws" begin
+    A = SparseMatrixCSC{Tv,Ti}(Tv[2 0 0; 0 -3 0; 0 0 5])
+    b = sparse(Tv[1, 2, 3])
+    F = cholesky(A; check=false)
+    @test !issuccess(F)
+    @test_throws PosDefException F \ b
+    @test_throws PosDefException F' \ b
+    @test_throws PosDefException F \ sparse(Tv[1 0; 0 1; 1 1])
+    G = ldlt(SparseMatrixCSC{Tv,Ti}(Tv[0 0; 0 1]); check=false)
+    @test !issuccess(G)
+    @test_throws ZeroPivotException G \ sparse(Tv[1, 2])
+end
+
+@testset "low-rank updates reject a V with the wrong number of rows" begin
+    F = cholesky(SparseMatrixCSC{Tv,Ti}(Tv[4 0 0; 0 4 0; 0 0 4]))
+    for V in (Base.ones(Tv, 5, 1), Base.ones(Tv, 2, 1), sparse(Base.ones(Tv, 5, 1)), Base.ones(Tv, 5))
+        @test_throws DimensionMismatch CHOLMOD.lowrankupdate(F, V)
+        @test_throws DimensionMismatch CHOLMOD.lowrankdowndate(F, V)
+        G = copy(F)
+        @test_throws DimensionMismatch CHOLMOD.lowrankupdate!(G, V)
+        @test_throws DimensionMismatch CHOLMOD.lowrankdowndate!(G, V)
+        @test sparse(G) == sparse(F)
+    end
+end
+
+@testset "diag of a symbolic factorization throws" begin
+    F = CHOLMOD.symbolic(CHOLMOD.Sparse(SparseMatrixCSC{Tv,Ti}(Tv[4 1; 1 3])))
+    @test_throws ArgumentError diag(F)
+end
+
+@testset "copy takes the lock of the source" begin
+    A = SparseMatrixCSC{Tv,Ti}(Tv[4 1 0; 1 3 1; 0 1 2])
+    b = Tv[1, 2, 3]
+    F = cholesky(A)
+    lock(F.lock)
+    t = @async copy(F)
+    yield()
+    @test !istaskdone(t)
+    unlock(F.lock)
+    @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+    @test fetch(t) \ b ≈ Matrix(A) \ b
+end
 end
 
 end # module

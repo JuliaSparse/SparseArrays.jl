@@ -155,7 +155,7 @@ SparseArrays.CHOLMOD.CholmodWS
 SparseArrays.SPQR.SpqrWS
 SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
 SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
-Base.copy(::SparseArrays.UMFPACK.UmfpackLU{Tv,Ti}) where {Tv,Ti}
+Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
 Base.copy(::SparseArrays.SPQR.QRSparse)
 SparseArrays.LibSuiteSparse.init_suitesparse
 ```
@@ -171,9 +171,9 @@ theirs.
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
+| `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `logabsdet`, `lu!`, `copy` and the factors `F.L`, `F.U`, `F.p`, `F.q`, `F.Rs` |
 | `SPQR.QRSparse` | independent copy of the factors and permutations; new lock | `\` and `ldiv!`, with `F` or `F'` |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
+| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!`, `copy` and the in-place low-rank updates |
 
 An independent copy is unaffected by anything done to the original, and the original by
 anything done to the copy. `deepcopy(F)` returns `copy(F)` for all three types, and `copy`
@@ -193,8 +193,8 @@ Threads.@threads for cols in collect(Iterators.partition(axes(B, 2), cld(size(B,
 end
 ```
 
-For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`
-and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
+For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`,
+`copy` and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
 `Factor` is not safe to share between tasks when any of them may refactorize or update it.
 Use a separate `copy(F)` per task in that case; note that this duplicates the factor's
 memory.
