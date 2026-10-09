@@ -374,7 +374,12 @@ _catdense(x) = x
 # of the first, now sparse, array; a number among them takes the `cat` path as in Base
 _sparse_typed_hcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_hcat(T, X...)
 _sparse_typed_hcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(2), T, X...)
-_sparse_typed_vcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_vcat(T, X...)
+_sparse_typed_vcat(::Type{T}, X::AbstractVector...) where {T} = Base.typed_vcat(T, X...)
+_sparse_typed_vcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_vcat(T, map(_introws, X)...)
+# Base stacks vectors on matrices with `size(x, 1)::Int`, and the length of a sparse vector
+# is of its index type; as a one-column matrix it has `Int` dimensions
+_introws(x::AbstractCompressedVector) = size(x, 1) isa Int ? x : SparseMatrixCSC(x)
+_introws(x) = x
 _sparse_typed_vcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(1), T, X...)
 
 # `Vararg{_SparseConcatGroup,N}` makes Julia compile `cat_internal` for each argument
