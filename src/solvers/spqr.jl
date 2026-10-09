@@ -128,6 +128,12 @@ QRSparseQ{T}(Q::QRSparseQ) where {T} =
     QRSparseQ(convert(SparseMatrixCSC{T}, Q.factors), convert(Vector{T}, Q.τ), Q.n)
 Base.convert(::Type{AbstractQ{T}}, Q::QRSparseQ) where {T} = QRSparseQ{T}(Q)
 
+# The sparse Q is stored as Householder reflectors and its entries are dense, so it and
+# its adjoint, the Q of `lq`, are displayed by their size and type only, not with their
+# entries like the dense `AbstractQ`s.
+Base.show(io::IO, ::MIME"text/plain", Q::Union{QRSparseQ, AdjointQ{<:Any, <:QRSparseQ}}) =
+    print(io, Base.dims2string(size(Q)), ' ', typeof(Q))
+
 # Struct for storing sparse QR from SPQR such that
 # A[invperm(rpivinv), cpiv] = (I - factors[:,1]*τ[1]*factors[:,1]')*...*(I - factors[:,k]*τ[k]*factors[:,k]')*R
 # with k = size(factors, 2).
@@ -276,7 +282,7 @@ which case the columns that SPQR finds dependent are moved to the end.
     types wider than `Float64` throw an `ArgumentError`.
 
 # Examples
-```jldoctest; filter = r"(?<=QRSparseQ[{]Float64, Int64[}]).*?(?=R factor:)"s
+```jldoctest
 julia> A = sparse([1,2,3,4], [1,1,2,2], [1.0,1.0,1.0,1.0])
 4×2 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
  1.0   ⋅
@@ -287,11 +293,7 @@ julia> A = sparse([1,2,3,4], [1,1,2,2], [1.0,1.0,1.0,1.0])
 julia> qr(A)
 SparseArrays.SPQR.QRSparse{Float64, Int64}
 Q factor:
-4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}:
- -0.707107   0.0        0.0       -0.707107
-  0.0       -0.707107  -0.707107   0.0
-  0.0       -0.707107   0.707107   0.0
- -0.707107   0.0        0.0        0.707107
+4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
  -1.41421      ⋅
