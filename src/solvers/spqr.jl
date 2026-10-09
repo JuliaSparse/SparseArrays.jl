@@ -128,9 +128,6 @@ QRSparseQ{T}(Q::QRSparseQ) where {T} =
     QRSparseQ(convert(SparseMatrixCSC{T}, Q.factors), convert(Vector{T}, Q.τ), Q.n)
 Base.convert(::Type{AbstractQ{T}}, Q::QRSparseQ) where {T} = QRSparseQ{T}(Q)
 
-# The sparse Q is stored as Householder reflectors and its entries are dense, so it and
-# its adjoint, the Q of `lq`, are displayed by their size and type only, not with their
-# entries like the dense `AbstractQ`s.
 Base.show(io::IO, ::MIME"text/plain", Q::Union{QRSparseQ, AdjointQ{<:Any, <:QRSparseQ}}) =
     print(io, Base.dims2string(size(Q)), ' ', typeof(Q))
 

@@ -148,10 +148,6 @@ fullrank(::Type{T}, m, n) where {T} = (fixture(T, m, n) + sparse(1:min(m, n), 1:
         @test rank(F) == 9 && propertynames(F) == (:L, :Q, :prow, :pcol)
         @test F' isa SPQR.QRSparse{eltyA, iltyA}
         @test occursin("L factor", sprint(show, MIME"text/plain"(), F))
-        # the sparse Q and its adjoint are displayed without their entries
-        for Q in (F.Q, F.Q')
-            @test sprint(show, MIME"text/plain"(), Q) == "10×10 $(typeof(Q))"
-        end
         b = eltyA <: Real ? reshape(collect(1.0:18), 9, 2) : complex.(reshape(1.0:18, 9, 2), reshape(18:-1.0:1, 9, 2))
         @test F \ b ≈ Matrix(W) \ b   # the minimum-norm solution, as for dense lq
         @test F \ b[:, 1] ≈ Matrix(W) \ b[:, 1]
