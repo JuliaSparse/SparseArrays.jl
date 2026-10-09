@@ -8,7 +8,7 @@ module HigherOrderFnsTests
 
 using Test
 using SparseArrays
-using SparseArrays: getcolptr, nonzeroinds
+using SparseArrays: getcolptr, nonzeroinds, fixed, move_fixed
 using LinearAlgebra
 include("testhelpers.jl")
 # A standard run maps and broadcasts over `Float64`/`Int` arrays only. A comprehensive run
@@ -991,6 +991,15 @@ end
         @test @allocated(map!(+, X, A, B)) == 0
         @test @allocated(map!(+, X, A, B, A)) == 0
         @test X == Array(A) + Array(B) + Array(A)
+    end
+    # a fixed input whose read-only pattern is that of the writable destination
+    for (S, B) in ((sparse([1.0 0; 0 2.0]), sparse([0 5.0; 5.0 0])), (sparsevec([1], [1.0], 3), sparsevec([2], [5.0], 3)))
+        expected = Array(S) + Array(B)
+        for f! in ((S, F, B) -> map!(+, S, F, B), (S, F, B) -> broadcast!(+, S, F, B), (S, F, B) -> map!(+, S, B, copy(F)))
+            T = copy(S)
+            @test f!(T, move_fixed(T), B) == expected
+        end
+        @test (T = copy(S); T .= fixed(T) .+ B; T == expected)
     end
     end
 end

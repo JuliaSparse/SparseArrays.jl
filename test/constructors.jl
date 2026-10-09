@@ -214,6 +214,19 @@ end
     A = sparse([1, 3, 5, 2], [1, 2, 2, 5], [true, false, true, true], 5, 5)  # a stored `false`
     @test complex(A) == complex(Array(A))
 end
+
+@testset "float and complex do not share their pattern with the argument" begin
+    for f in (float, complex)
+        A = sparse([1 0 2; 0 3 0]); A0 = copy(A)
+        B = f(A)
+        @test getcolptr(B) !== getcolptr(A) && rowvals(B) !== rowvals(A)
+        tril!(B); B[2, 1] = 5
+        @test exact_equal(A, A0)
+    end
+    # as for a dense array, there is nothing to convert when the eltype is already there
+    A = sparse([1.0 0 2; 0 3 0])
+    @test nonzeros(float(A)) === nonzeros(A) && getcolptr(float(A)) === getcolptr(A) && rowvals(float(A)) === rowvals(A)
+end
 end
 
 @testset "one(A::SparseMatrixCSC)" begin

@@ -143,6 +143,58 @@ end
     # fixed(x...)
     @test sparse(2I, 3, 5) == sparse(fixed(2I, 3, 5))
     @test SparseArrays._unsafe_unfix(A) == A
+
+    @static if COMPREHENSIVE
+    # every constructor of a plain matrix returns one, which shares nothing with `F`
+    for T in (SparseMatrixCSC, SparseMatrixCSC{Float64}, SparseMatrixCSC{Float64,Int}, SparseMatrixCSC{ComplexF64})
+        B = T(F)
+        @test B isa SparseMatrixCSC && !_is_fixed(B) && B == A
+        B[3, 1] = 1; nonzeros(B) .= 0
+        @test exact_equal(SparseMatrixCSC(F), A)
+        @test convert(T, F) isa SparseMatrixCSC
+    end
+    # the structure-preserving forms of `similar` stay fixed, the others are writable
+    @test similar(F, Float32, Int) isa FixedSparseCSC{Float32,Int} && same_pattern(similar(F, Float32, Int), F)
+    @test similar(F, Float32, Int, 3, 5) isa SparseMatrixCSC{Float32,Int}
+    end
+end
+
+@testset "fixed and FixedSparseCSC copy a writable array" begin
+    A = fixture(Float64, 3, 5); A0 = copy(A)
+    x = sparsevec([1, 3], [1.0, 2.0], 4); x0 = copy(x)
+    cases = (@static COMPREHENSIVE ? (fixed, FixedSparseCSC, FixedSparseCSC{Float64,Int}) : (fixed,))
+    for T in cases
+        F = T(A)
+        @test _is_fixed(F) && F == A0 && same_pattern(F, A0)
+        A[2, 1] = 7.0; SparseArrays.dropstored!(A, 1, 1); nonzeros(A) .= 3.0
+        @test F == A0 && same_pattern(F, A0)
+        nonzeros(F) .= 4.0
+        @test all(==(3.0), nonzeros(A))
+        A = copy(A0)
+    end
+    f = fixed(x)
+    x[2] = 7.0
+    @test f == x0 && nonzeroinds(f) == [1, 3]
+    # `move_fixed` reuses the buffers, and a fixed array shares its pattern with its copy
+    M = move_fixed(A)
+    @test getcolptr(M) == getcolptr(A) && parent(getcolptr(M)) === getcolptr(A) && nonzeros(M) === nonzeros(A)
+    @static if COMPREHENSIVE
+    G = fixed(M)
+    @test getcolptr(G) === getcolptr(M) && rowvals(G) === rowvals(M) && nonzeros(G) !== nonzeros(M)
+    end
+end
+
+@static if COMPREHENSIVE
+@testset "copying a fixed array onto itself" begin
+    A = sparse([1, 2], [1, 2], [1.0, 2.0]); x = sparsevec([1, 3], [1.0, 2.0], 4)
+    for (F, expected) in ((fixed(A), copy(A)), (fixed(x), copy(x)))
+        @test copyto!(F, F) === F && F == expected
+        @test copy!(F, F) === F && F == expected
+        @test (F .= F) === F && F == expected
+        # a writable array on the same buffers
+        @test copyto!(F, SparseArrays._unsafe_unfix(F)) === F && F == expected
+    end
+end
 end
 @testset "FixedSparseVector" begin
     y = fixturevec(Float64, 10)

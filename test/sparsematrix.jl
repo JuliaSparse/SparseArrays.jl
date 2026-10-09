@@ -570,6 +570,39 @@ end
         @test_throws ArgumentError permute!(A, (r = copy(p); r[2] = m + 1; r), q)
         @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = r[1]; r))
         @test_throws ArgumentError permute!(A, p, (r = copy(q); r[2] = n + 1; r))
+        @static if COMPREHENSIVE
+        # an invalid permutation leaves the destination as it was, whether or not `q` is
+        # longer than the column pointers of the workspace
+        for B in (A, A[1:2, :])
+            Y = copy(B); Y0 = copy(Y); pB = randperm(size(B, 1)); D = similar(copy(transpose(B)))
+            for (pbad, qbad) in ((pB, (r = copy(q); r[2] = r[1]; r)), ((r = copy(pB); r[2] = r[1]; r), q))
+                @test_throws ArgumentError permute!(Y, B, pbad, qbad)
+                @test exact_equal(Y, Y0)
+                @test_throws ArgumentError permute!(Y, B, pbad, qbad, D)
+                @test exact_equal(Y, Y0)
+            end
+            @test mismatch(permute!(Y, B, pB, q, D), Array(B)[pB, q]) === nothing
+        end
+        end
+    end
+    @static if COMPREHENSIVE
+    @testset "common error checking of permute[!] methods / aliasing" begin
+        B = copy(A); B0 = copy(B)
+        @test_throws ArgumentError permute!(B, B, p, q)
+        @test_throws ArgumentError permute!(B, B, p, q, C)
+        @test_throws ArgumentError permute!(X, B, p, q, X)
+        @test_throws ArgumentError permute!(X, B, p, q, B)
+        @test_throws ArgumentError permute!(B, p, q, B)
+        @test_throws ArgumentError permute!(B, p, q, B, similar(getcolptr(B)))
+        @test_throws ArgumentError permute!(B, p, q, C, getcolptr(B))
+        # sharing one buffer is enough
+        @test_throws ArgumentError permute!(SparseMatrixCSC(m, n, copy(getcolptr(B)), copy(rowvals(B)), nonzeros(B)), B, p, q)
+        @test exact_equal(B, B0)
+        # matrices without stored entries have empty buffers, which do not alias
+        E = spzeros(m, n)
+        @test permute!(spzeros(m, n), E, p, q) == E
+        @test permute!(E, p, q, spzeros(n, m)) == spzeros(m, n)
+    end
     end
     @testset "overall functionality of [c]transpose[!] and permute[!]" begin
         for (m, n) in ((@static COMPREHENSIVE ? ((smalldim, smalldim),) : ())..., (smalldim, largedim), (@static COMPREHENSIVE ? ((largedim, smalldim),) : ())...)

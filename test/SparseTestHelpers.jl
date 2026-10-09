@@ -75,11 +75,14 @@ same_pattern(@nospecialize(x::AbstractSparseVector), @nospecialize(y::AbstractSp
     length(x) == length(y) && nonzeroinds(x) == nonzeroinds(y)
 same_pattern(A, B, C...) = same_pattern(A, B) && same_pattern(B, C...)
 
-# Whether two sparse vectors agree in eltype, index type, pattern and stored values,
-# stored zeros included.
+# Whether two sparse vectors, or two sparse matrices, agree in eltype, index type, pattern
+# and stored values, stored zeros included.
 exact_equal(@nospecialize(x::AbstractSparseVector), @nospecialize(y::AbstractSparseVector)) =
     eltype(x) == eltype(y) && eltype(nonzeroinds(x)) == eltype(nonzeroinds(y)) &&
     same_pattern(x, y) && nonzeros(x) == nonzeros(y)
+exact_equal(@nospecialize(A::AbstractSparseMatrixCSC), @nospecialize(B::AbstractSparseMatrixCSC)) =
+    eltype(A) == eltype(B) && eltype(rowvals(A)) == eltype(rowvals(B)) &&
+    same_pattern(A, B) && nonzeros(A) == nonzeros(B)
 
 # An `AbstractSparseVector` that is not an `AbstractCompressedVector`, so that the generic
 # sparse-vector paths are reached rather than the compressed-vector specializations.

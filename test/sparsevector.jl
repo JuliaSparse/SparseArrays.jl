@@ -737,6 +737,13 @@ end
     # a fixed vector stays fixed and shares its pattern
     cf = complex(fixed(af))
     @test cf isa SparseArrays.FixedSparseVector{ComplexF64,Int} && cf == acp
+    @static if COMPREHENSIVE
+    # a writable result does not share its pattern with the argument
+    for f in (float, complex)
+        x = sparsevec([1], [1], 5); y = f(x); y[3] = 2
+        @test exact_equal(x, sparsevec([1], [1], 5))
+    end
+    end
 end
 
 @testset "Type conversion" begin
@@ -745,6 +752,15 @@ end
     let x = convert(SparseVector, sparse([2, 5, 6], [1, 1, 1], [1.25, -0.75, 3.5], 8, 1))
         @test isa(x, SparseVector{Float64,Int})
         @test exact_equal(x, spv_x1)
+    end
+    @static if COMPREHENSIVE
+    # the vector made from a one-column matrix shares no buffer with it
+    let S = sparse([2, 5, 6], [1, 1, 1], [1.25, -0.75, 3.5], 8, 1), S0 = copy(S)
+        for x in (SparseVector(S), convert(SparseVector, S))
+            SparseArrays.dropstored!(x, 2); x[1] = 4.0; nonzeros(x) .= 0
+            @test exact_equal(S, S0)
+        end
+    end
     end
 
     let x = spv_x1, xf = x1_full
