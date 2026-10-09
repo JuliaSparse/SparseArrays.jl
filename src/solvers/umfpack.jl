@@ -570,14 +570,18 @@ function lu!(F::UmfpackLU{Tv, Ti}; check::Bool=true, reuse_symbolic::Bool=true,
 end
 
 # The factors are read from the C numeric object, under the lock that `lu!` replaces it
-# under.
+# under. The locked read is a function of its own, because with the `try` of `@lock` in the
+# body of `getproperty` a field access infers as a union. Inference propagates a constant
+# name into `getproperty` unasked, but into the functions below only when told to.
 @inline function getproperty(lu::UmfpackLU, d::Symbol)
     if d === :L || d === :U || d === :p || d === :q || d === :Rs || d === :(:)
-        return @lock getfield(lu, :lock) _factor_property(lu, d)
+        return _locked_factor_property(lu, d)
     else
         return getfield(lu, d)
     end
 end
+Base.@constprop :aggressive _locked_factor_property(lu::UmfpackLU, d::Symbol) =
+    @lock getfield(lu, :lock) _factor_property(lu, d)
 
 size(F::UmfpackLU) = (F.m, F.n)
 function size(F::UmfpackLU, dim::Integer)
@@ -869,7 +873,7 @@ for itype in UmfpackIndexTypes
             end
             (lnz[], unz[], n_row[], n_col[], nz_diag[])
         end
-        function _factor_property(lu::UmfpackLU{Float64, $itype}, d::Symbol)
+        Base.@constprop :aggressive function _factor_property(lu::UmfpackLU{Float64, $itype}, d::Symbol)
             if d === :L
                 umfpack_numeric!(lu)        # ensure the numeric decomposition exists
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
@@ -957,7 +961,7 @@ for itype in UmfpackIndexTypes
                 return getfield(lu, d)
             end
         end
-        function _factor_property(lu::UmfpackLU{ComplexF64, $itype}, d::Symbol)
+        Base.@constprop :aggressive function _factor_property(lu::UmfpackLU{ComplexF64, $itype}, d::Symbol)
             if d === :L
                 umfpack_numeric!(lu)        # ensure the numeric decomposition exists
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
