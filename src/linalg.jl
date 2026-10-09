@@ -52,21 +52,21 @@ function _dot_walk(f::F, A::SparseMatrixCSCOrColumnSubset{T1,S1}, B::SparseMatri
         ia, ia_nxt = _colbounds(A, j)
         ib, ib_nxt = _colbounds(B, j)
         if ia < ia_nxt && ib < ib_nxt
-            ra = rowvals(A)[ia]; rb = rowvals(B)[ib]
+            ra = getrowval(A)[ia]; rb = getrowval(B)[ib]
             while true
                 if ra < rb
                     ia += oneunit(S1)
                     ia < ia_nxt || break
-                    ra = rowvals(A)[ia]
+                    ra = getrowval(A)[ia]
                 elseif ra > rb
                     ib += oneunit(S2)
                     ib < ib_nxt || break
-                    rb = rowvals(B)[ib]
+                    rb = getrowval(B)[ib]
                 else # ra == rb
-                    r += f(nonzeros(A)[ia], nonzeros(B)[ib])
+                    r += f(getnzval(A)[ia], getnzval(B)[ib])
                     ia += oneunit(S1); ib += oneunit(S2)
                     ia < ia_nxt && ib < ib_nxt || break
-                    ra = rowvals(A)[ia]; rb = rowvals(B)[ib]
+                    ra = getrowval(A)[ia]; rb = getrowval(B)[ib]
                 end
             end
         end
@@ -87,7 +87,7 @@ function dot(x::AbstractVector{T1}, A::SparseMatrixCSCOrColumnSubset{T2}, y::Abs
 
     @inbounds @simd for col in axes(A,2)
         ycol = y[col]
-        for j in nzrange(A, col)
+        for j in getnzrange(A, col)
             row = rowvals[j]
             val = nzvals[j]
             s += dot(x[row], val, ycol)
@@ -108,8 +108,8 @@ function dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abstr
     Arowval = getrowval(A)
     Anzval = getnzval(A)
     for (yi, yv) in zip(ynzind, ynzval)
-        A_ptr_lo = Int(first(nzrange(A, yi)))
-        A_ptr_hi = Int(last(nzrange(A, yi)))
+        A_ptr_lo = Int(first(getnzrange(A, yi)))
+        A_ptr_hi = Int(last(getnzrange(A, yi)))
         if A_ptr_lo <= A_ptr_hi
             r += _spdot((xv, av) -> dot(xv, av, yv), 1, length(xnzind), xnzind, xnzval,
                                             A_ptr_lo, A_ptr_hi, Arowval, Anzval)
@@ -127,10 +127,10 @@ function dot(A::Union{DenseMatrixUnion,MatrixWrappersOrView{<:Any,<:Union{DenseM
     if m * n == 0
         return s
     end
-    rows = rowvals(B)
-    vals = nonzeros(B)
+    rows = getrowval(B)
+    vals = getnzval(B)
     @inbounds for j in axes(A,2)
-        for ridx in nzrange(B, j)
+        for ridx in getnzrange(B, j)
             i = rows[ridx]
             v = vals[ridx]
             s += dot(A[i,j], v)
@@ -184,12 +184,12 @@ _colstops(Y::AbstractSparseMatrixCSC) = (getcolptr(Y), 1)
 _colstops(Y::SparseMatrixCSCColumnSubset) = ([last(_colbounds(Y, i)) for i in axes(Y, 2)], 0)
 
 function _dot_transposed_walk(f::F, X::SparseMatrixCSCOrColumnSubset, Y::SparseMatrixCSCOrColumnSubset, r) where F
-    Xrows, Xvals = rowvals(X), nonzeros(X)
-    Yrows, Yvals = rowvals(Y), nonzeros(Y)
+    Xrows, Xvals = getrowval(X), getnzval(X)
+    Yrows, Yvals = getrowval(Y), getnzval(Y)
     if size(Y, 2) + nnz(Y) > 32 * nnz(X)
-        @inbounds for j in axes(X, 2), k in nzrange(X, j)
+        @inbounds for j in axes(X, 2), k in getnzrange(X, j)
             i = Xrows[k]
-            rng = nzrange(Y, i)
+            rng = getnzrange(Y, i)
             p = searchsortedfirst(view(Yrows, rng), j) + first(rng) - 1
             if p <= last(rng) && Yrows[p] == j
                 r += f(Xvals[k], Yvals[p])
@@ -199,7 +199,7 @@ function _dot_transposed_walk(f::F, X::SparseMatrixCSCOrColumnSubset, Y::SparseM
     end
     cursor = _colstarts(Y)   # cursor[i] indexes into column i of Y
     pends, off = _colstops(Y)
-    @inbounds for j in axes(X, 2), k in nzrange(X, j)
+    @inbounds for j in axes(X, 2), k in getnzrange(X, j)
         i = Xrows[k]
         p = cursor[i]
         pend = pends[i+off]
@@ -340,219 +340,75 @@ end
 _uconvert_copyto!(c, b, oA) = (c .= Ref(oA) .\ b)
 _uconvert_copyto!(c::AbstractArray{T}, b::AbstractArray{T}, _) where {T} = copyto!(c, b)
 
-function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat)
-    mA, nA = size(A)
-    nrowB, ncolB = size(B, 1), size(B, 2)
-    if nA != nrowB
-        throw(DimensionMismatch("second dimension of left hand side A, $nA, and first dimension of right hand side B, $nrowB, must be equal"))
-    end
-    if size(C) != size(B)
-        throw(DimensionMismatch("size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
-    end
+LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat) =
+    _trimatdiv!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
+LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
+    _trimatdiv!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
+
+# C = M \ B for a triangle M of `f(A)`, solved column by column of A; C may be B.
+# `F` keeps the method specialized on the forwarded `f`.
+function _trimatdiv!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
+    n = size(A, 2)
+    size(B, 1) == n ||
+        throw(DimensionMismatch(lazy"second dimension of left hand side A, $n, and first dimension of right hand side B, $(size(B, 1)), must be equal"))
+    size(C) == size(B) ||
+        throw(DimensionMismatch(lazy"size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
     C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
-    aa = getnzval(A)
-    ja = getrowval(A)
-    ia = getcolptr(A)
-    unit = isunitc == 'U'
-
-    if uploc == 'L'
-        if tfun === identity
-            # forward substitution for LowerTriangular CSC matrices
-            for k in axes(B,2)
-                for j in axes(B,1)
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - one(eltype(ia))
-
-                    # find diagonal element
-                    ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
-                    jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
-
-                    cj = C[j,k]
-                    # check for zero pivot and divide with pivot
-                    if jai == j
-                        if !unit
-                            cj /= LinearAlgebra._ustrip(aa[ii])
-                            C[j,k] = cj
-                        end
-                        ii += 1
-                    elseif !unit
-                        throw(LinearAlgebra.SingularException(j))
-                    end
-
-                    # update remaining part
-                    for i = ii:i2
-                        C[ja[i],k] -= cj * LinearAlgebra._ustrip(aa[i])
-                    end
-                end
-            end
-        else # tfun in (adjoint, transpose)
-            # backward substitution for adjoint and transpose of LowerTriangular CSC matrices
-            for k in axes(B,2)
-                for j in reverse(axes(B,1))
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    akku = B[j,k]
-                    done = false
-
-                    # loop through column j of A - only structural non-zeros
-                    for ii = i2:-1:i1
-                        jai = ja[ii]
-                        if jai > j
-                            akku -= C[jai,k] * tfun(aa[ii])
-                        elseif jai == j
-                            akku /= unit ? oneunit(eltype(A)) : tfun(aa[ii])
-                            done = true
-                            break
-                        else
-                            break
-                        end
-                    end
-                    if !done && !unit
-                        throw(LinearAlgebra.SingularException(j))
-                    end
-                    C[j,k] = akku
-                end
-            end
-        end
-    else # uploc == 'U'
-        if tfun === identity
-            # backward substitution for UpperTriangular CSC matrices
-            for k in axes(B,2)
-                for j in reverse(axes(B,1))
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - one(eltype(ia))
-
-                    # find diagonal element
-                    ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
-                    jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
-
-                    cj = C[j,k]
-                    # check for zero pivot and divide with pivot
-                    if jai == j
-                        if !unit
-                            cj /= LinearAlgebra._ustrip(aa[ii])
-                            C[j,k] = cj
-                        end
-                        ii -= 1
-                    elseif !unit
-                        throw(LinearAlgebra.SingularException(j))
-                    end
-
-                    # update remaining part
-                    for i = ii:-1:i1
-                        C[ja[i],k] -= cj * LinearAlgebra._ustrip(aa[i])
-                    end
-                end
-            end
-        else # tfun in  (adjoint, transpose)
-            # forward substitution for adjoint and transpose of UpperTriangular CSC matrices
-            for k in axes(B,2)
-                for j in axes(B,1)
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    akku = B[j,k]
-                    done = false
-
-                    # loop through column j of A - only structural non-zeros
-                    for ii = i1:i2
-                        jai = ja[ii]
-                        if jai < j
-                            akku -= C[jai,k] * tfun(aa[ii])
-                        elseif jai == j
-                            akku /= unit ? oneunit(eltype(A)) : tfun(aa[ii])
-                            done = true
-                            break
-                        else
-                            break
-                        end
-                    end
-                    if !done && !unit
-                        throw(LinearAlgebra.SingularException(j))
-                    end
-                    C[j,k] = akku
-                end
-            end
-        end
-    end
-    C
+    return upper ? _trimatdiv!(C, Val(true), unit, f, A, B) : _trimatdiv!(C, Val(false), unit, f, A, B)
 end
-function LinearAlgebra.generic_trimatdiv!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
-    A = parent(xA)
-    mA, nA = size(A)
-    nrowB, ncolB = size(B, 1), size(B, 2)
-    if nA != nrowB
-        throw(DimensionMismatch("second dimension of left hand side A, $nA, and first dimension of right hand side B, $nrowB, must be equal"))
-    end
-    if size(C) != size(B)
-        throw(DimensionMismatch("size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
-    end
-    C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
-
+function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
+    n = size(A, 2)
     aa = getnzval(A)
     ja = getrowval(A)
     ia = getcolptr(A)
-    unit = isunitc == 'U'
-
-    if uploc == 'L'
-        # forward substitution for LowerTriangular CSC matrices
-        for k in axes(B,2)
-            for j in axes(B,1)
-                i1 = ia[j]
-                i2 = ia[j + 1] - one(eltype(ia))
-
-                # find diagonal element
-                ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
-                jai = ii > i2 ? zero(eltype(ja)) : ja[ii]
-
-                cj = C[j,k]
-                # check for zero pivot and divide with pivot
-                if jai == j
-                    if !unit
-                        cj /= LinearAlgebra._ustrip(conj(aa[ii]))
-                        C[j,k] = cj
-                    end
-                    ii += 1
-                elseif !unit
-                    throw(LinearAlgebra.SingularException(j))
-                end
-
-                # update remaining part
-                for i = ii:i2
-                    C[ja[i],k] -= cj * LinearAlgebra._ustrip(conj(aa[i]))
-                end
-            end
-        end
-    else # uploc == 'U'
-        # backward substitution for UpperTriangular CSC matrices
-        for k in axes(B,2)
-            for j in reverse(axes(B,1))
-                i1 = ia[j]
-                i2 = ia[j + 1] - one(eltype(ia))
-
-                # find diagonal element
+    direct = f === identity || f === conj
+    for k in axes(B, 2), j in (upper == direct ? (n:-1:1) : (1:n))
+        i1 = Int(ia[j])
+        i2 = Int(ia[j + 1]) - 1
+        if direct
+            if upper
                 ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
-                jai = ii < i1 ? zero(eltype(ja)) : ja[ii]
-
-                cj = C[j,k]
-                # check for zero pivot and divide with pivot
-                if jai == j
-                    if !unit
-                        cj /= LinearAlgebra._ustrip(conj(aa[ii]))
-                        C[j,k] = cj
-                    end
-                    ii -= 1
-                elseif !unit
-                    throw(LinearAlgebra.SingularException(j))
+                hasdiag = ii >= i1 && ja[ii] == j
+            else
+                ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
+                hasdiag = ii <= i2 && ja[ii] == j
+            end
+            cj = C[j,k]
+            if hasdiag
+                if !unit
+                    cj /= LinearAlgebra._ustrip(f(aa[ii]))
+                    C[j,k] = cj
                 end
-
-                # update remaining part
-                for i = ii:-1:i1
-                    C[ja[i],k] -= cj * LinearAlgebra._ustrip(conj(aa[i]))
+                ii += upper ? -1 : 1
+            elseif !unit
+                throw(LinearAlgebra.SingularException(j))
+            end
+            for i in (upper ? (ii:-1:i1) : (ii:i2))
+                C[ja[i],k] -= cj * LinearAlgebra._ustrip(f(aa[i]))
+            end
+        else
+            akku = C[j,k]
+            done = false
+            for ii in (upper ? (i1:i2) : (i2:-1:i1))
+                jai = Int(ja[ii])
+                d = upper ? j - jai : jai - j
+                if d > 0
+                    akku -= C[jai,k] * f(aa[ii])
+                elseif d == 0
+                    akku /= unit ? oneunit(eltype(A)) : f(aa[ii])
+                    done = true
+                    break
+                else
+                    break
                 end
             end
+            if !done && !unit
+                throw(LinearAlgebra.SingularException(j))
+            end
+            C[j,k] = akku
         end
     end
-    C
+    return C
 end
 
 matop_dest(::typeof(\), A, b::AbstractSparseVector) =
@@ -649,8 +505,8 @@ function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abst
     end
     # diagonal
     @inbounds for i in axes(A,1)
-        r1 = Int(first(nzrange(A, i)))
-        r2 = Int(last(nzrange(A, i)))
+        r1 = Int(first(getnzrange(A, i)))
+        r2 = Int(last(getnzrange(A, i)))
         r1 > r2 && continue
         r1 += searchsortedfirst(view(Arowval, r1:r2), i) - 1
         ((r1 > r2) || (Arowval[r1] != i)) && continue
@@ -662,39 +518,81 @@ end
 
 \(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::Vector) = copy(A) \ B
 
-function rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal)
-    dd = D.diag
-    if (k = length(dd)) ≠ size(A, 2)
-        throw(DimensionMismatch("size(A, 2)=$(size(A, 2)) should be size(D, 1)=$k"))
-    end
-    nonz = nonzeros(A)
-    @inbounds for j in 1:k
-        ddj = dd[j]
-        if iszero(ddj)
-            throw(LinearAlgebra.SingularException(j))
+## diagonal scaling
+
+# Scale the stored entries of `A` into `C`, which either is `A` or takes its pattern:
+# `C[i, j] = op(A[i, j], d[j])` columnwise, `C[i, j] = op(d[i], A[i, j])` rowwise. The
+# argument order of `op` is kept for non-commutative eltypes. The callers check that
+# `length(d)` matches the scaled dimension and that `size(C) == size(A)`.
+function _scalecols!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
+    copyinds!(C, A)
+    Cnzval = getnzval(C)
+    Anzval = getnzval(A)
+    resize!(Cnzval, length(Anzval))
+    @inbounds for col in axes(A, 2)
+        dcol = d[col]
+        for p in nzrange(A, col)
+            Cnzval[p] = op(Anzval[p], dcol)
         end
-        for i in nzrange(A, j)
-            nonz[i] /= ddj
-        end
     end
-    A
+    return C
 end
 
-function ldiv!(D::Diagonal, A::Union{AbstractSparseMatrixCSC, AbstractSparseVector})
-    # require_one_based_indexing(A)
-    if size(A, 1) != length(D.diag)
-        throw(DimensionMismatch("diagonal matrix is $(length(D.diag)) by $(length(D.diag)) but right hand side has $(size(A, 1)) rows"))
+function _scalerows!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
+    copyinds!(C, A)
+    Cnzval = getnzval(C)
+    Anzval = getnzval(A)
+    Arowval = getrowval(A)
+    resize!(Cnzval, length(Anzval))
+    @inbounds for col in axes(A, 2), p in nzrange(A, col)
+        Cnzval[p] = op(d[Arowval[p]], Anzval[p])
     end
-    nonz = nonzeros(A)
-    Arowval = rowvals(A)
-    b = D.diag
-    @inbounds for i=axes(b,1)
-        iszero(b[i]) && throw(SingularException(i))
+    return C
+end
+
+function _scalerows!(x::AbstractSparseVector, d::AbstractVector, op::F) where {F}
+    xnzval = nonzeros(x)
+    xnzind = nonzeroinds(x)
+    @inbounds for p in eachindex(xnzind, xnzval)
+        xnzval[p] = op(d[xnzind[p]], xnzval[p])
     end
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-        nonz[p] = b[Arowval[p]] \ nonz[p]
-    end
-    A
+    return x
+end
+
+function _checkscaledims(C, A, D::Diagonal, dim::Int)
+    n = size(A, dim)
+    k = length(D.diag)
+    n == k || throw(DimensionMismatch("A has size $(size(A)) but D has size ($k, $k)"))
+    size(C) == size(A) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
+    return nothing
+end
+
+function _checknonsingular(D::Diagonal)
+    i = findfirst(iszero, D.diag)
+    isnothing(i) || throw(SingularException(i))
+    return nothing
+end
+
+function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
+    _checkscaledims(C, A, D, 2)
+    _checknonsingular(D)
+    return _scalecols!(C, A, D.diag, /)
+end
+
+rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal) = LinearAlgebra._rdiv!(A, A, D)
+
+function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
+    _checkscaledims(C, A, D, 1)
+    _checknonsingular(D)
+    return _scalerows!(C, A, D.diag, \)
+end
+
+ldiv!(D::Diagonal, A::AbstractSparseMatrixCSC) = ldiv!(A, D, A)
+
+function ldiv!(D::Diagonal, x::AbstractSparseVector)
+    _checkscaledims(x, x, D, 1)
+    _checknonsingular(D)
+    return _scalerows!(x, D.diag, \)
 end
 
 ## triu, tril
@@ -708,7 +606,7 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     end
     @inbounds for col = max(k+1,1) : n
         for c1 in nzrange(S, col)
-            rowvals(S)[c1] > col - k && break
+            getrowval(S)[c1] > col - k && break
             nnz += 1
         end
         colptr[col+1] = nnz+1
@@ -716,10 +614,10 @@ function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     rowval = Vector{Ti}(undef, nnz)
     nzval = Vector{Tv}(undef, nnz)
     @inbounds for col = max(k+1,1) : n
-        c1 = getcolptr(S)[col]
+        c1 = Int(getcolptr(S)[col])
         for c2 in colptr[col]:colptr[col+1]-1
-            rowval[c2] = rowvals(S)[c1]
-            nzval[c2] = nonzeros(S)[c1]
+            rowval[c2] = getrowval(S)[c1]
+            nzval[c2] = getnzval(S)[c1]
             c1 += 1
         end
     end
@@ -734,7 +632,7 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     @inbounds for col = 1 : min(n, m+k)
         l1 = getcolptr(S)[col+1]-1
         for c1 = 0 : (l1 - getcolptr(S)[col])
-            rowvals(S)[l1 - c1] < col - k && break
+            getrowval(S)[l1 - c1] < col - k && break
             nnz += 1
         end
         colptr[col+1] = nnz+1
@@ -748,8 +646,8 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
         c1 = getcolptr(S)[col+1]-1
         l2 = colptr[col+1]-1
         for c2 = 0 : l2 - colptr[col]
-            rowval[l2 - c2] = rowvals(S)[c1]
-            nzval[l2 - c2] = nonzeros(S)[c1]
+            rowval[l2 - c2] = getrowval(S)[c1]
+            nzval[l2 - c2] = getnzval(S)[c1]
             c1 -= 1
         end
     end
@@ -757,6 +655,35 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
 end
 
 ## diff
+
+# Append the first difference along one stored column (rows `rowval_a[rng]`, values
+# `nzval_a[rng]`, length `m`) to `rowval`/`nzval` after entry `numnz`, and return the
+# new count. Each stored entry `(i, v)` contributes `+v` at `i-1` and `-v` at `i`; the
+# two contributions at the same row of consecutive stored entries merge in place.
+function _sparse_diff1_column!(rowval, nzval, numnz, rowval_a, nzval_a, rng, m)
+    last_row = 0
+    @inbounds for k in rng
+        row = rowval_a[k]
+        val = nzval_a[k]
+        if row > 1
+            if row == last_row + 1
+                nzval[numnz] += val
+                iszero(nzval[numnz]) && (numnz -= 1)
+            else
+                numnz += 1
+                rowval[numnz] = row - 1
+                nzval[numnz] = val
+            end
+        end
+        if row < m
+            numnz += 1
+            rowval[numnz] = row
+            nzval[numnz] = -val
+        end
+        last_row = row
+    end
+    return numnz
+end
 
 function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     m,n = size(S)
@@ -768,29 +695,7 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     numnz = 0
     @inbounds colptr[1] = 1
     @inbounds for col = 1 : n
-        last_row = 0
-        last_val = 0
-        for k in nzrange(S, col)
-            row = rowvals(S)[k]
-            val = nonzeros(S)[k]
-            if row > 1
-                if row == last_row + 1
-                    nzval[numnz] += val
-                    nzval[numnz]==zero(Tv) && (numnz -= 1)
-                else
-                    numnz += 1
-                    rowval[numnz] = row - 1
-                    nzval[numnz] = val
-                end
-            end
-            if row < m
-                numnz += 1
-                rowval[numnz] = row
-                nzval[numnz] = -val
-            end
-            last_row = row
-            last_val = val
-        end
+        numnz = _sparse_diff1_column!(rowval, nzval, numnz, getrowval(S), getnzval(S), nzrange(S, col), m)
         colptr[col+1] = numnz+1
     end
     deleteat!(rowval, numnz+1:length(rowval))
@@ -808,8 +713,8 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     z = zero(Tv)
 
     colptr_a = getcolptr(a)
-    rowval_a = rowvals(a)
-    nzval_a = nonzeros(a)
+    rowval_a = getrowval(a)
+    nzval_a = getnzval(a)
 
     @inbounds begin
         ptrS = 1
@@ -889,10 +794,36 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     return SparseMatrixCSC(m, n-1, colptr, rowval, nzval)
 end
 
-diff(a::AbstractSparseMatrixCSC; dims::Integer) = dims==1 ? sparse_diff1(a) : sparse_diff2(a)
+function diff(a::AbstractSparseMatrixCSC; dims::Integer)
+    1 <= dims <= 2 || throw(ArgumentError("dimension $dims out of range (1:2)"))
+    return dims == 1 ? sparse_diff1(a) : sparse_diff2(a)
+end
+
+function _sparse_diff(x, dims)
+    dims == 1 || throw(ArgumentError("dimension $dims out of range (1:1)"))
+    n = length(x)
+    nzind_x = nonzeroinds(x)
+    nzval_x = nonzeros(x)
+    Ti, Tv = eltype(nzind_x), eltype(nzval_x)
+    n > 1 || return SparseVector(0, Ti[], Tv[])
+    numnz = 2 * length(nzind_x) # upper bound; will shrink later
+    nzind = Vector{Ti}(undef, numnz)
+    nzval = Vector{Tv}(undef, numnz)
+    numnz = _sparse_diff1_column!(nzind, nzval, 0, nzind_x, nzval_x, eachindex(nzind_x), n)
+    deleteat!(nzind, numnz+1:length(nzind))
+    deleteat!(nzval, numnz+1:length(nzval))
+    return SparseVector(n-1, nzind, nzval)
+end
+diff(x::AbstractSparseVector; dims::Integer=1) = _sparse_diff(x, dims)
+diff(x::Union{SparseColumnView, SparseVectorView}; dims::Integer=1) = _sparse_diff(x, dims)
 
 ## norm and rank
-norm(A::AbstractSparseMatrixCSC, p::Real=2) = norm(view(nonzeros(A), 1:nnz(A)), p)
+function norm(A::SparseMatrixCSCOrView, p::Real=2)
+    v = nzvalview(A)
+    r = norm(v, p)
+    # an implicit zero makes a norm with p < 0 zero, but `min` keeps a stored NaN
+    return p < 0 && length(v) < length(A) ? min(r, zero(r)) : r
+end
 
 """
     opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
@@ -928,7 +859,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             @inbounds for j in axes(A,2)
                 colSum::Tsum = 0
                 for i in nzrange(A, j)
-                    colSum += abs(nonzeros(A)[i])
+                    colSum += abs(getnzval(A)[i])
                 end
                 nA = max(nA, colSum)
             end
@@ -937,8 +868,8 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             return convert(Tnorm, opnorm2est(A))
         elseif p==Inf
             rowSum = zeros(Tsum,m)
-            @inbounds for i in axes(nonzeros(A),1)
-                rowSum[rowvals(A)[i]] += abs(nonzeros(A)[i])
+            @inbounds for i in axes(getnzval(A),1)
+                rowSum[getrowval(A)[i]] += abs(getnzval(A)[i])
             end
             return convert(Tnorm, maximum(rowSum))
         end
@@ -1000,7 +931,9 @@ function _leading_ritz(α::Vector{Float64}, β::Vector{Float64}, k::Integer)
         ev[2i] = β[i]
     end
     ev[2k-1] = α[k]
-    F = eigen(SymTridiagonal(zeros(2k), ev), 2k:2k)
+    # one eigenpair needs no sorting; LinearAlgebra's `sorteig!` does not specialize on
+    # `sortby`, so `juliac --trim` cannot resolve its sorting calls
+    F = eigen(SymTridiagonal(zeros(2k), ev), 2k:2k; sortby = nothing)
     return F.values[1], sqrt(2) * abs(F.vectors[2k, 1])
 end
 
@@ -1008,6 +941,8 @@ end
 
 # cond
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
+    # as for a dense matrix; the estimator of the inverse's norm needs at least one column
+    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(real(float(eltype(A))))
     if p == 1
         normAinv = opnormestinv(A)
         normA = opnorm(A, 1)
@@ -1200,8 +1135,8 @@ const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMa
     mC, nC = mA*mB, nA*nB
     @boundscheck size(C) == (mC, nC) || throw(DimensionMismatch("target matrix needs to have size ($mC, $nC)," *
         " but has size $(size(C))"))
-    rowvalC = rowvals(C)
-    nzvalC = nonzeros(C)
+    rowvalC = getrowval(C)
+    nzvalC = getnzval(C)
     colptrC = getcolptr(C)
 
     nnzC = nnz(A)*nnz(B)
@@ -1220,8 +1155,8 @@ const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMa
             for ptrA = nzrange(A, j)
                 ptrB = startB
                 for ptr = ptr_range
-                    rowvalC[ptr] = (rowvals(A)[ptrA]-1)*mB + rowvals(B)[ptrB]
-                    nzvalC[ptr] = nonzeros(A)[ptrA] * nonzeros(B)[ptrB]
+                    rowvalC[ptr] = (getrowval(A)[ptrA]-1)*mB + getrowval(B)[ptrB]
+                    nzvalC[ptr] = getnzval(A)[ptrA] * getnzval(B)[ptrB]
                     ptrB += 1
                 end
                 ptr_range = ptr_range .+ lB
@@ -1248,10 +1183,9 @@ end
     end
     return z
 end
-kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseKronGroup) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
-kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+# `sparse` of the dense operand, as in `kron`: a dense vector has no conversion to a matrix
+kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseKronGroup) = kron!(C, A, sparse(B))
+kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) = kron!(C, sparse(A), B)
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
     kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
 kron!(C::SparseMatrixCSC, A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) =
@@ -1309,9 +1243,9 @@ function copyinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC; copy_
         resize!(getcolptr(C), length(getcolptr(A)))
         copyto!(getcolptr(C), getcolptr(A))
     end
-    if copy_rows && rowvals(C) !== rowvals(A)
-        resize!(rowvals(C), length(rowvals(A)))
-        copyto!(rowvals(C), rowvals(A))
+    if copy_rows && getrowval(C) !== getrowval(A)
+        resize!(getrowval(C), length(getrowval(A)))
+        copyto!(getrowval(C), getrowval(A))
     end
 end
 
@@ -1326,7 +1260,7 @@ If `row_exists` is `false`, the `row_ind` is the index where the value should be
 """
 @inline function rowcheck_index(A::AbstractSparseMatrixCSC, row::Integer, col::Integer)
     nzinds = nzrange(A, col)
-    rows_col = @view rowvals(A)[nzinds]
+    rows_col = @view getrowval(A)[nzinds]
     # faster implementation of row ∈ rows_col and obtaining the index,
     # assuming that rows_col is sorted
     row_ind_col = searchsortedfirst(rows_col, row)
@@ -1350,9 +1284,9 @@ julia> A[4:4:8] .= 1;
 
 julia> A
 3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
-  ⋅   1.0   ⋅
-  ⋅    ⋅   1.0
-  ⋅    ⋅    ⋅
+ ⋅  1.0   ⋅
+ ⋅   ⋅   1.0
+ ⋅   ⋅    ⋅
 
 julia> C = spzeros(3,3);
 
@@ -1360,9 +1294,9 @@ julia> C[2:4:6] .= 2;
 
 julia> C
 3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
-  ⋅    ⋅    ⋅
- 2.0   ⋅    ⋅
-  ⋅   2.0   ⋅
+  ⋅    ⋅   ⋅
+ 2.0   ⋅   ⋅
+  ⋅   2.0  ⋅
 
 julia> SparseArrays.mergeinds!(C, A)
 3×3 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
@@ -1376,13 +1310,13 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     for col in axes(A,2)
         n_extra = 0
         for ind in @inbounds nzrange(A, col)
-            row = @inbounds rowvals(A)[ind]
+            row = @inbounds getrowval(A)[ind]
             row_exists, ind = rowcheck_index(C, row, col)
             if !row_exists
                 _is_fixed(C) && throw(ArgumentError(lazy"cannot store entry ($row, $col) in a fixed sparse matrix whose pattern lacks it"))
                 n_extra += 1
-                insert!(rowvals(C), ind, row)
-                insert!(nonzeros(C), ind, zero(eltype(C)))
+                insert!(getrowval(C), ind, row)
+                insert!(getnzval(C), ind, zero(eltype(C)))
                 C_colptr[col+1] += 1
             end
         end
@@ -1393,120 +1327,69 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     C
 end
 
-function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
+# For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
+# LinearAlgebra's generic `factorize(::HermOrSym)`, a dense Bunch-Kaufman in
+# `Rational{BigInt}`, so they take the `lu` branch instead, which converts to floating
+# point like dense `\` does. Every other eltype keeps its path: floating point goes to
+# the sparse Cholesky/LDLt, and `Rational` stays exact through the generic factorization.
+_hermitian_solve(A::AbstractSparseMatrixCSC) =
+    !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
+
+# `\` and `factorize` choose the same method from the structure of `A`; `f` (or `flu`, for
+# the LU factorization) is applied in each branch so that the result stays inferrable. A
+# Hermitian matrix is only wrapped, because `\` and `factorize` finish it differently.
+function _sparse_factorize(f, A::AbstractSparseMatrixCSC, flu = f)
     m, n = size(A)
-    b    = D.diag
-    lb = length(b)
-    m==lb || throw(DimensionMismatch("D has size ($lb, $lb) but A has size ($m, $n)"))
-    szC = size(C)
-    size(A) == szC || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $szC"))
-    copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
-    resize!(Cnzval, length(Anzval))
-    for col in axes(A,2), p in nzrange(A, col)
-        @inbounds Cnzval[p] = b[Arowval[p]] \ Anzval[p]
+    if m == n
+        if istril(A)
+            return istriu(A) ? f(Diagonal(diag(A))) : f(LowerTriangular(A))
+        elseif istriu(A)
+            return f(UpperTriangular(A))
+        elseif _hermitian_solve(A)
+            return f(Hermitian(A))
+        end
+        return flu(lu(A))
+    elseif m > n
+        return f(qr(A))
+    else
+        # A is wide, so the LQ factorization gives the minimum-norm solution
+        return f(lq(A))
     end
-    C
 end
 
-function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
-    m, n = size(A)
-    b    = D.diag
-    lb = length(b)
-    n == lb || throw(DimensionMismatch("A has size ($m, $n) but D has size ($lb, $lb)"))
-    szC = size(C)
-    size(A) == szC || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $szC"))
-    copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    resize!(Cnzval, length(Anzval))
-    for col in axes(A,2), p in nzrange(A, col)
-        @inbounds Cnzval[p] = Anzval[p] / b[col]
-    end
-    C
-end
+# the solution is dense, so a diagonal is densified for the solve
+_solve_factor(F) = F
+_solve_factor(D::Diagonal) = Diagonal(Vector(diag(D)))
+_sparse_solve(op, F, B) = \(op(_solve_factor(F)), B)
+# the sparse LU works in double precision, so its solution is converted to the eltype that
+# dense `\` gives
+_sparse_lusolve(op, F, A, B) =
+    convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, _sparse_solve(op, F, B))
 
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
-    m, n = size(A)
-    if m == n
-        if istril(A)
-            if istriu(A)
-                return \(Diagonal(Vector(diag(A))), B)
-            else
-                return \(LowerTriangular(A), B)
-            end
-        elseif istriu(A)
-            return \(UpperTriangular(A), B)
-        end
-        if ishermitian(A)
-            return \(Hermitian(A), B)
-        end
-        return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
-    elseif m > n
-        return \(qr(A), B)
-    else
-        # A is wide, so the LQ factorization gives the minimum-norm solution
-        return \(lq(A), B)
-    end
+    return _sparse_factorize(F -> _sparse_solve(identity, F, B), A,
+                             F -> _sparse_lusolve(identity, F, A, B))
 end
 for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
-    @eval begin
-        function \(xformA::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::AbstractVecOrMat)
-            A = parent(xformA)
-            require_one_based_indexing(A, B)
-            m, n = size(A)
-            if m == n
-                if istril(A)
-                    if istriu(A)
-                        return \(Diagonal(($xformop.(diag(A)))), B)
-                    else
-                        return \(UpperTriangular($xformop(A)), B)
-                    end
-                elseif istriu(A)
-                    return \(LowerTriangular($xformop(A)), B)
-                end
-                if ishermitian(A)
-                    return \($xformop(Hermitian(A)), B)
-                end
-                return \($xformop(lu(A)), B)
-            elseif m > n
-                # A' is wide, so solve the underdetermined system with the
-                # factorization of A itself, which gives the minimum-norm solution
-                return \($xformop(qr(A)), B)
-            else
-                # A' is tall, so the least squares solve needs a factorization of A'
-                return \(qr($xformop(A)), B)
-            end
+    @eval function \(xformA::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::AbstractVecOrMat)
+        A = parent(xformA)
+        require_one_based_indexing(A, B)
+        m, n = size(A)
+        if m < n
+            # A' is tall, so the least squares solve needs a factorization of A' itself
+            return _sparse_solve(identity, qr($xformop(A)), B)
         end
+        # Otherwise the transformed choice for A serves. For a wide A' that is the
+        # factorization of A, which gives the minimum-norm solution.
+        return _sparse_factorize(F -> _sparse_solve($xformop, F, B), A,
+                                 F -> _sparse_lusolve($xformop, F, A, B))
     end
 end
 
-function factorize(A::AbstractSparseMatrixCSC)
-    m, n = size(A)
-    if m == n
-        if istril(A)
-            if istriu(A)
-                return Diagonal(A)
-            else
-                return LowerTriangular(A)
-            end
-        elseif istriu(A)
-            return UpperTriangular(A)
-        end
-        if ishermitian(A)
-            return factorize(Hermitian(A))
-        end
-        return lu(A)
-    elseif m > n
-        return qr(A)
-    else
-        # A is wide, so solving with the LQ factorization gives the minimum-norm solution
-        return lq(A)
-    end
-end
+_factorize_choice(F) = F
+_factorize_choice(H::Hermitian) = factorize(H)
+factorize(A::AbstractSparseMatrixCSC) = _sparse_factorize(_factorize_choice, A)
 
 function factorize(A::RealHermSymComplexHerm{<:Union{Float32,Float64},<:AbstractSparseMatrixCSC})
     F = cholesky(A; check = false)

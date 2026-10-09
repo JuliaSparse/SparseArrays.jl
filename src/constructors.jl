@@ -10,8 +10,8 @@ SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv,
 SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = copy(S)
 function SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC) where {Tv,Ti}
     eltypeTicolptr = Vector{Ti}(getcolptr(S))
-    eltypeTirowval = Vector{Ti}(rowvals(S))
-    eltypeTvnzval = Vector{Tv}(nonzeros(S))
+    eltypeTirowval = Vector{Ti}(getrowval(S))
+    eltypeTvnzval = Vector{Tv}(getnzval(S))
     return SparseMatrixCSC(size(S, 1), size(S, 2), eltypeTicolptr, eltypeTirowval, eltypeTvnzval)
 end
 
@@ -141,7 +141,7 @@ function SparseMatrixCSC{Tv,Ti}(D::Diagonal) where {Tv,Ti}
 end
 
 SparseMatrixCSC(M::AbstractMatrix{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
-SparseMatrixCSC{Tv}(M::AbstractMatrix{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
+SparseMatrixCSC{Tv}(M::AbstractMatrix) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
 function SparseMatrixCSC{Tv,Ti}(M::AbstractMatrix) where {Tv,Ti}
     require_one_based_indexing(M)
     I = Ti[]
@@ -249,8 +249,10 @@ convert(T::Type{<:LowerTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
 convert(T::Type{<:UpperTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
     istriu(m) ? T(m) : throw(ArgumentError("matrix cannot be represented as UpperTriangular"))
 
-float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
-complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
+float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
+complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
+float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
+complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
 
 """
     sparse(A::Union{AbstractVector, AbstractMatrix})
@@ -300,6 +302,7 @@ sparse(D::Diagonal) = SparseMatrixCSC(D)
 
 """
     sparse(I, J, V,[ m, n, combine])
+    sparse(IJ, V,[ m, n, combine])
 
 Create a sparse matrix `S` of dimensions `m x n` such that `S[I[k], J[k]] = V[k]`. The
 `combine` function is used to combine duplicates. If `m` and `n` are not specified, they
@@ -309,7 +312,13 @@ supplied, `combine` defaults to `+` unless the elements of `V` are Booleans in w
 elements of `J` must satisfy `1 <= J[k] <= n`. Numerical zeros in (`I`, `J`, `V`) are
 retained as structural nonzeros; to drop numerical zeros, use [`dropzeros!`](@ref).
 
+The positions may also be given as one vector `IJ` of two-dimensional `CartesianIndex`es,
+such that `S[IJ[k]] = V[k]`.
+
 For additional documentation and an expert driver, see `SparseArrays.sparse!`.
+
+!!! compat "Julia 1.14"
+    Passing the positions as a vector of `CartesianIndex`es requires at least Julia 1.14.
 
 # Examples
 ```jldoctest
@@ -324,6 +333,12 @@ julia> sparse(Is, Js, Vs)
  1  ⋅  ⋅
  ⋅  2  ⋅
  ⋅  ⋅  3
+
+julia> sparse([CartesianIndex(1, 2), CartesianIndex(3, 1)], [10, 20], 3, 3)
+3×3 SparseMatrixCSC{Int64, Int64} with 2 stored entries:
+  ⋅  10  ⋅
+  ⋅   ⋅  ⋅
+ 20   ⋅  ⋅
 ```
 """
 function sparse(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine::F) where {Tv,Ti<:Integer,F}
@@ -602,6 +617,24 @@ sparse(I,J,V::AbstractVector{Bool},m,n) = sparse(I, J, V, Int(m), Int(n), |)
 
 sparse(I,J,v::Number,m,n,combine::Function) = sparse(I, J, fill(v,length(I)), Int(m), Int(n), combine)
 
+# positions given as two-dimensional Cartesian indices: the rows and the columns, read in
+# place without copying them
+function _rowscols(IJ::AbstractVector{CartesianIndex{2}})
+    A = reinterpret(reshape, Int, IJ)
+    return view(A, 1, :), view(A, 2, :)
+end
+
+sparse(IJ::AbstractVector{CartesianIndex{2}}, V::Union{Number,AbstractVector}) =
+    sparse(_rowscols(IJ)..., V)
+
+# `m` and `n` are typed so that these stay apart from the methods above, which take the
+# values in third place
+sparse(IJ::AbstractVector{CartesianIndex{2}}, V::Union{Number,AbstractVector}, m::Integer, n::Integer) =
+    sparse(_rowscols(IJ)..., V, m, n)
+
+sparse(IJ::AbstractVector{CartesianIndex{2}}, V::Union{Number,AbstractVector}, m::Integer, n::Integer, combine) =
+    sparse(_rowscols(IJ)..., V, m, n, combine)
+
 function sparse_sortedlinearindices!(I::Vector{Ti}, V::Vector, m::Int, n::Int) where Ti
     length(I) == length(V) || throw(ArgumentError("I and V should have the same length"))
     nnz = length(V)
@@ -690,7 +723,7 @@ argument specifies a random number generator, see [Random Numbers](@ref).
 ```jldoctest; setup = :(using Random; Random.seed!(0))
 julia> sprandn(2, 2, 0.75)
 2×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
- -1.20577     ⋅
+ -1.20577       ⋅
   0.311817  -0.234641
 ```
 """
@@ -720,9 +753,9 @@ are still allocated, and a matrix additionally allocates a column pointer of
 ```jldoctest
 julia> spzeros(3, 3)
 3×3 SparseMatrixCSC{Float64, Int64} with 0 stored entries:
-  ⋅    ⋅    ⋅
-  ⋅    ⋅    ⋅
-  ⋅    ⋅    ⋅
+ ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅
 
 julia> spzeros(Float32, 4)
 4-element SparseVector{Float32, Int64} with 0 stored entries

@@ -29,8 +29,8 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 # the best of AMD and METIS. METIS is not tried if it isn't installed.
 
 using ..SparseArrays
-using ..SparseArrays: getcolptr, FixedSparseCSC, AbstractSparseMatrixCSC, _unsafe_unfix,
-    SparseQMatOperand, SparseQVecOperand
+using ..SparseArrays: getcolptr, getrowval, getnzval, FixedSparseCSC, AbstractSparseMatrixCSC,
+    _unsafe_unfix, SparseQMatOperand, SparseQVecOperand
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -48,7 +48,8 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         HPinv::Union{Ref{Ptr{Ti}}, Ptr{Cvoid}} = C_NULL,
         HTau::Union{Ref{Ptr{CHOLMOD.cholmod_dense}}    , Ptr{Cvoid}} = C_NULL) where {Ti<:CHOLMOD.ITypes, Tv<:Union{Float64, ComplexF64}}
 
-    ordering ∈ ORDERINGS || error("unknown ordering $ordering")
+    ordering ∈ ORDERINGS || throw(ArgumentError(
+        "unknown SPQR ordering $ordering; use one of the SPQR.ORDERING_* constants"))
 
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
@@ -72,7 +73,10 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
 
     if rnk < 0
-        error("Sparse QR factorization failed")
+        # A negative status has already been raised by `@checked`, so what is
+        # left is a failure SPQR reports through its return value only.
+        throw(CHOLMOD.CHOLMODException(string("SuiteSparseQR failed on a ", m, "×", n,
+            " matrix: rank ", rnk, ", status ", CHOLMOD.getcommon(Ti)[].status)))
     end
 
     e = E[]
@@ -236,8 +240,8 @@ function _fixed_pivots(R::SparseMatrixCSC{Tv, Ti}) where {Tv, Ti}
     k = 0
     for j in axes(R, 2)
         r = nzrange(R, j)
-        if !isempty(r) && rowvals(R)[last(r)] > k
-            k = rowvals(R)[last(r)]
+        if !isempty(r) && getrowval(R)[last(r)] > k
+            k = getrowval(R)[last(r)]
             push!(live, j)
         else
             push!(dead, j)
@@ -286,8 +290,8 @@ Q factor:
 4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
- -1.41421    ⋅
-   ⋅       -1.41421
+ -1.41421      ⋅
+     ⋅     -1.41421
 Row permutation:
 4-element Vector{Int64}:
  1
@@ -311,18 +315,18 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
     HPinv = Ref{Ptr{Ti}}(C_NULL)
     HTau  = Ref{Ptr{CHOLMOD.cholmod_dense}}(C_NULL)
 
-    # SPQR doesn't accept symmetric matrices so we explicitly set the stype
-    r, p, hpinv = _qr!(ordering, tol, 0, 0, Sparse(A, 0),
-        C_NULL, C_NULL, C_NULL, C_NULL,
-        R, E, H, HPinv, HTau)
-
-    # Wrap the C-allocated outputs. Each wrapper constructor frees its own
-    # pointer if it throws (or owns it via a finalizer once constructed), but
-    # the siblings that have not been wrapped yet would leak, so hand each
-    # pointer over by clearing its Ref first and free whatever is still held
-    # in a Ref before rethrowing.
-    local R_, factors, τ
+    # Factorize and wrap the C-allocated outputs in one `try` so that anything
+    # SPQR has written is freed whether the factorization or the wrapping
+    # throws. Each wrapper constructor frees its own pointer if it throws (or
+    # owns it via a finalizer once constructed), but the siblings that have not
+    # been wrapped yet would leak, so hand each pointer over by clearing its Ref
+    # first and free whatever is still held in a Ref before rethrowing.
+    local p, hpinv, R_, factors, τ
     try
+        # SPQR doesn't accept symmetric matrices so we explicitly set the stype
+        _, p, hpinv = _qr!(ordering, tol, 0, 0, Sparse(A, 0),
+            C_NULL, C_NULL, C_NULL, C_NULL,
+            R, E, H, HPinv, HTau)
         R_ = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(R)))
         factors = SparseMatrixCSC{Tv, Ti}(Sparse{Tv, Ti}(_take!(H)))
         τ = _take_dense_vec!(_take!(HTau), Tv, Ti)
@@ -335,8 +339,8 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
     R = SparseMatrixCSC{Tv, Ti}(min(size(A)...),
                                 size(R_, 2),
                                 getcolptr(R_),
-                                rowvals(R_),
-                                nonzeros(R_))
+                                getrowval(R_),
+                                getnzval(R_))
     if isempty(p)
         p, R = _fixed_pivots(R)
     end
@@ -480,11 +484,12 @@ for Q in (:QRSparseQ, :(AdjointQ{<:Any,<:QRSparseQ}))
     end
 end
 
+# `getfield` rather than `F.rpivinv`: a recursive `getproperty` call is not inferred.
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :prow
-        return invperm(F.rpivinv)
+        return invperm(getfield(F, :rpivinv))
     elseif d === :pcol
-        return F.cpiv
+        return getfield(F, :cpiv)
     else
         getfield(F, d)
     end
@@ -529,7 +534,7 @@ end
 
 Return the rank of the QR factorization
 """
-LinearAlgebra.rank(F::QRSparse) = reduce(max, view(rowvals(F.R), 1:nnz(F.R)), init = eltype(rowvals(F.R))(0))
+LinearAlgebra.rank(F::QRSparse) = reduce(max, view(getrowval(F.R), 1:nnz(F.R)), init = eltype(getrowval(F.R))(0))
 
 """
     rank(S::SparseMatrixCSC{Tv,Ti}; [tol::Real]) -> Ti
@@ -595,10 +600,10 @@ LinearAlgebra.lq(A::Transpose{<:Any,<:SparseMatrixCSC}; kwargs...) = lq(copy(A);
 
 @inline function Base.getproperty(F::AdjointQRSparse, d::Symbol)
     P = getfield(F, :parent)
-    d === :L && return copy(adjoint(P.R))
-    d === :Q && return adjoint(P.Q)
-    d === :prow && return P.pcol
-    d === :pcol && return P.prow
+    d === :L && return copy(adjoint(getfield(P, :R)))
+    d === :Q && return adjoint(getfield(P, :Q))
+    d === :prow && return getfield(P, :cpiv)
+    d === :pcol && return invperm(getfield(P, :rpivinv))
     return getfield(F, d)
 end
 Base.propertynames(F::AdjointQRSparse, private::Bool=false) =
@@ -691,10 +696,10 @@ minimum-norm solution through [`lq`](@ref SparseArrays.SPQR.lq), as for dense ma
 ```jldoctest
 julia> A = sparse([1,2,4], [1,1,1], [1.0,1.0,1.0], 4, 2)
 4×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
- 1.0   ⋅
- 1.0   ⋅
-  ⋅    ⋅
- 1.0   ⋅
+ 1.0  ⋅
+ 1.0  ⋅
+  ⋅   ⋅
+ 1.0  ⋅
 
 julia> qr(A)\\fill(1.0, 4)
 2-element Vector{Float64}:

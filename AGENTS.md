@@ -11,8 +11,8 @@ linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) und
 this one; read it before working there:
 
 - `src/solvers/AGENTS.md`: rules for the SuiteSparse solver layer.
-- `test/AGENTS.md`: suite layout, the coverage each reduced test grid must keep, and
-  how to measure test time.
+- `test/AGENTS.md`: suite layout, standard and comprehensive mode, where a new test
+  goes, and how to measure test time.
 - `gen/AGENTS.md`: regenerating `src/solvers/wrappers.jl`, and upgrading SuiteSparse
   and Clang.jl.
 
@@ -26,9 +26,13 @@ Being a stdlib shapes everything below:
 - LinearAlgebra is pinned in lockstep. Never write version-sniffing shims for its
   internals. Changes to the hooks shared with it need a paired PR there, and CI stays
   red until both sides merge.
-- Base runs this package's tests in its own CI, serially and without ParallelTestRunner.
-  Keep `test/runtests.jl`'s serial fallback, and keep test time down.
-- No new dependencies. Every test dependency needs a `[compat]` entry.
+- Base runs this package's tests in its own CI, serially, without ParallelTestRunner and
+  with `--depwarn=error`. Keep `test/runtests.jl`'s serial fallback, and keep test time
+  down. A test that passes only sometimes fails the bump: see the rule on random inputs
+  under Tests.
+- Base's `juliac --trim=safe` test loads this package, so the code must stay trimmable;
+  the `trim` CI job builds the app in `test/trim` to check it.
+- No new dependencies.
 - Loading the package is measured in sysimage invalidations. Do not define methods
   Base or LinearAlgebra already provide generically.
 - Every source and test file starts with the Julia MIT license banner.
@@ -49,23 +53,27 @@ Files in `src/` and `test/` are named by area. What the names do not tell you:
   generic LinearAlgebra functions (`lu`, `qr`, `cholesky`, `\`), never by naming a
   solver module. A test that factorizes or solves with a sparse matrix goes in
   `test/solvers/`, whatever feature it is about; the other suites must pass on a build
-  without GPL libraries.
+  without GPL libraries. `.ci/check-gpl-usage.jl`, run by the `code-checks` CI job, fails
+  on solver names outside those directories.
 
 ## Running tests
 
 ```sh
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one file; omit test_args for all
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["--comprehensive"])'   # comprehensive mode
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
 julia .ci/check-whitespace.jl
-julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous"])'   # Aqua and ambiguity checks
-julia +nightly --project=docs -e 'using Pkg; Pkg.develop(path="."); include("docs/make.jl")'  # doctests
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous", "aqua"])'   # ambiguity and Aqua checks
+julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'  # doctests
+julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/solvers/
 ```
 
-The doctest command edits `docs/Project.toml`; discard that change before committing.
-
-The Aqua and ambiguity checks in `test/ambiguous.jl` run only when selected by name, and
-as a separate CI job.
-One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
+The `ambiguous` and `aqua` suites run only when selected by name. The commands for the
+trimmed app are in the `trim` job of `.github/workflows/ci.yml`.
+The tests run in two modes, described in `test/AGENTS.md`. Standard mode is what
+`Pkg.test`, Julia's own CI and every CI job but the coverage job run. Comprehensive mode
+also runs the tests guarded with `@static if COMPREHENSIVE` and `test/issues.jl`; only the
+coverage job runs it, so run it locally before a PR that touches a kernel.
 
 ## Style
 
@@ -88,8 +96,9 @@ One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
   so compare only the buffers you write.
 - **Never infer structure from `nnz`.** Stored zeros are the recurring correctness
   trap; walk the column.
-- **Write through the storage accessors.** Use `nonzeros`, `rowvals`, `getcolptr`,
-  `nzrange` and `parent`, never fields, and never indexed `setindex!` on a result whose
+- **Write through the storage accessors.** Use `getnzval`, `getrowval`, `getcolptr`,
+  `nzrange` and `parent` on a matrix (`nonzeros` and `nonzeroinds` on a vector), never
+  fields, and never indexed `setindex!` on a result whose
   pattern you already know. Do not materialize with `findnz`.
 - **Follow dense semantics** when sparse behaviour is in doubt: shape rules,
   promotion, unaliasing. Sweep sparse against dense locally; commit only the
@@ -103,6 +112,20 @@ One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
   sparse arrays are first-class: define methods on the view aliases too.
 - **Products and solves follow the dense factor.** Sparse times dense returns dense,
   sparse times a banded structured type stays sparse, solves return dense.
+- **A result that would store every entry is dense.** That holds for sparse `+` and `-`
+  with a dense array or a scalar, in operator and broadcast form, and for a broadcast
+  whose function is not zero where its arguments are. Decide it from the function and
+  the argument types so that the result type stays inferable, and look at the shape of
+  the result before densifying an argument.
+- **Elements are opaque.** The eltype need not be a machine number: `zero(Tv)` may be of
+  another type than `Tv` (a JuMP variable) or not exist, so take the implicit zero from
+  `_densezero` and do not convert it to `Tv`. Do not `copy` an element. Do not assume
+  that a reducer commutes; walk the positions in order unless `op` is known to. A change
+  to the result type of an arithmetic operation is checked against JuMP's and
+  MutableArithmetics' test suites.
+- **Keep kernels trimmable.** Julia does not specialize a method on a function or a
+  splatted argument that it only passes on, which `--trim` rejects and which allocates.
+  Write `f::F` and `Vararg{T,N}` there.
 - **Prefer explicit helpers over `invoke`** for fallbacks; tooling cannot model
   `invoke` chains.
 - **Errors name the type and the reason**, and the working alternative when there is
@@ -115,30 +138,50 @@ One CI job runs `--check-bounds=yes` to catch bad `@inbounds`.
 
 ## Tests
 
-- Regression tests go next to the feature they exercise, in an existing testset when
-  one fits. After an expected throw, assert the destination is unchanged.
-- Cover real and complex eltypes, vector and matrix, with representative rather than
-  exhaustive grids. Pure-Julia kernels are generic over `Ti`; one index type is enough.
+`test/AGENTS.md` has the detail: the two modes, the fixtures and helpers, and what test
+time costs. In short:
+
+- A new test is a comprehensive test: put it next to the feature it exercises, in an
+  existing testset when one fits, inside `@static if COMPREHENSIVE ... end`. An
+  unguarded test is only for new code, and one representative case of it.
+- Test time is compilation, so it grows with the number of type combinations a test
+  compiles. Cover real and complex eltypes, vector and matrix, with `Int` indices, and
+  take any other type or helper from `test/SparseTestHelpers.jl`.
+- Inputs are fixed and built inside the testset, from the fixtures or a literal that
+  guarantees the property the test relies on. Random input is only for a test whose
+  point is randomness, and then it is seeded.
+- Compare a sparse result with `mismatch(S, D) === nothing`, which checks its structure
+  and types as well as its values. After an expected throw, assert the destination is
+  unchanged.
+- Do not add an assertion that an existing loop already makes for the same kernel path.
 - A method that exists only for speed needs a test proving it is dispatched to, not
   just a correctness check against dense, which passes on the fallback too.
 - No wall-clock assertions. Allocation bounds prove constancy, not zero. Match
   `@test_throws` messages loosely, because Base rewords errors.
-- Seed randomized tests of heuristics. Check a re-enabled test on nightly before
-  removing its skip.
 - Ambiguity failures on nightly are often Base's. Check before blaming a change.
 
 ## Pull requests
 
 - Do each change in its own git worktree on a branch off `main`, never on `main`
-  itself. Do not commit anything under `.claude/`.
+  itself.
 - One logical change per PR. Stack follow-ups and say so. A PR based on another PR's
   branch carries that diff when squash-merged.
-- PRs are squash-merged with the title as the subject. Titles are imperative and name
-  the API involved.
-- The body is the design record, kept short: the issue, a reproducer in a code block,
-  one paragraph on mechanism and fix, one line on what was tested on which build, and
-  anything deliberately left out. No section headers unless the change is large. A
-  documentation-only PR needs just the source of the material and how it was checked.
+- PRs are squash-merged with the title as the subject. Titles are imperative, name the
+  API involved, and fit on one line of `git log --oneline`: one clause, not a list of
+  everything the PR does.
+- The body is the design record, kept short: the issue, a **Before** and an **After**
+  block (a reproducer with its output on `main` and on the branch, or a measurement
+  table), one paragraph on mechanism and fix, and anything deliberately left out. No
+  section headers unless the change is large. A documentation-only PR needs just the
+  source of the material.
+- **Do not report what CI checks.** No sentence says that the tests, either test mode,
+  the whitespace or GPL usage check, the ambiguity or Aqua check, the doctests or the
+  docs build pass, were run, or are clean, and none gives the Julia build they ran on,
+  the pass counts, or which suites were selected. The same goes for where the new tests
+  were put and that they fail on `main`: the diff and the **Before** block show both.
+  Mention a check only when CI does not run it: a downstream package's test suite, a
+  bitwise or line-coverage comparison against `main`, a sweep against dense, a
+  benchmark.
 - Say when a PR touches dispatch, needs a docs update, or should be backported
   (label `backport 1.x`). Backports are bug and regression fixes only, never new
   methods or behaviour changes. Never bump compat on a release branch or push to one.

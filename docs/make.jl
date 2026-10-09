@@ -10,7 +10,7 @@ makedocs(
         "SparseArrays" => "index.md",
         "Sparse Linear Algebra API" => "solvers.md",
         ];
-    warnonly = [:missing_docs, :cross_references],
+    warnonly = [:cross_references],
     )
 
 deploydocs(repo = "github.com/JuliaSparse/SparseArrays.jl.git")

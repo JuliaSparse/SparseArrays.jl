@@ -13,7 +13,7 @@ import LinearAlgebra: Factorization, AdjointFactorization, TransposeFactorizatio
     checksquare, det, logabsdet, lu, lu!, ldiv!
 
 using SparseArrays
-using SparseArrays: getcolptr, AbstractSparseMatrixCSC
+using SparseArrays: getcolptr, getrowval, getnzval, AbstractSparseMatrixCSC
 import SparseArrays: nnz
 
 import Serialization: AbstractSerializer, deserialize, serialize
@@ -295,8 +295,8 @@ function UmfpackLU(S::AbstractSparseMatrixCSC{Tv, Ti};
     return UmfpackLU(Symbolic{Tv, Ti}(C_NULL), Numeric{Tv, Ti}(C_NULL),
                     size(S, 1), size(S, 2),
                     zerobased ? copy(getcolptr(S)) : decrement(getcolptr(S)),
-                    zerobased ? copy(rowvals(S)) : decrement(rowvals(S)),
-                    copy(nonzeros(S)), 0,
+                    zerobased ? copy(getrowval(S)) : decrement(getrowval(S)),
+                    copy(getnzval(S)), 0,
                     copy(control), Vector{Float64}(undef, UMFPACK_INFO),
                     ReentrantLock()
     )
@@ -497,8 +497,8 @@ julia> F \\ ones(2)
 function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
   check::Bool=true, reuse_symbolic::Bool=true, q=nothing) where {Tv, Ti}
     zerobased = getcolptr(S)[1] == 0
-    if max(size(S)..., length(nonzeros(S))) >= typemax(Ti)
-        throw(ArgumentError("matrix of size $(size(S)) with $(length(nonzeros(S))) stored entries does not fit the $Ti indices of $(typeof(F)); use lu(S) instead"))
+    if max(size(S)..., length(getnzval(S))) >= typemax(Ti)
+        throw(ArgumentError("matrix of size $(size(S)) with $(length(getnzval(S))) stored entries does not fit the $Ti indices of $(typeof(F)); use lu(S) instead"))
     end
     if Tv <: Real && !(eltype(S) <: Real)
         throw(ArgumentError("cannot refactorize the real $(typeof(F)) with a matrix of eltype $(eltype(S)); use lu(S) instead"))
@@ -514,15 +514,15 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
         F.colptr .= getcolptr(S) .- one(Ti)
     end
 
-    resize!(F.rowval, length(rowvals(S)))
+    resize!(F.rowval, length(getrowval(S)))
     if zerobased
-        F.rowval .= rowvals(S)
+        F.rowval .= getrowval(S)
     else
-        F.rowval .= rowvals(S) .- one(Ti)
+        F.rowval .= getrowval(S) .- one(Ti)
     end
 
-    resize!(F.nzval, length(nonzeros(S)))
-    F.nzval .= nonzeros(S)
+    resize!(F.nzval, length(getnzval(S)))
+    F.nzval .= getnzval(S)
 
     return lu!(F; reuse_symbolic, check, q)
 end
@@ -731,9 +731,7 @@ for itype in UmfpackIndexTypes
         function solve!(x::StridedVector{Float64},
             lu::UmfpackLU{Float64,$itype}, b::StridedVector{Float64},
             typ::Integer; workspace::Union{Nothing,UmfpackWS{$itype}} = nothing)
-            if x === b
-                throw(ArgumentError("output array must not be aliased with input array"))
-            end
+            Base.mightalias(x, b) && (b = copy(b))
             workspace === nothing && (workspace = UmfpackWS(lu))
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 return _unit_stride_solve!(x, lu, b, typ, workspace)
@@ -752,9 +750,7 @@ for itype in UmfpackIndexTypes
         function solve!(x::StridedVector{ComplexF64},
             lu::UmfpackLU{ComplexF64,$itype}, b::StridedVector{ComplexF64},
             typ::Integer; workspace::Union{Nothing,UmfpackWS{$itype}} = nothing)
-            if x === b
-                throw(ArgumentError("output array must not be aliased with input array"))
-            end
+            Base.mightalias(x, b) && (b = copy(b))
             workspace === nothing && (workspace = UmfpackWS(lu))
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 return _unit_stride_solve!(x, lu, b, typ, workspace)
@@ -1018,6 +1014,11 @@ end
 # backward compatibility
 umfpack_extract(lu::UmfpackLU) = getproperty(lu, :(:))
 
+function Base.propertynames(F::UmfpackLU, private::Bool=false)
+    public = (:L, :U, :p, :q, :Rs, :(:))
+    private ? ((public ∪ fieldnames(typeof(F)))...,) : public
+end
+
 function nnz(lu::UmfpackLU)
     lnz, unz, = umf_lunz(lu)
     return Int(lnz + unz)
@@ -1097,11 +1098,18 @@ ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Fl
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype,
                      workspace::Union{Nothing,UmfpackWS})
-    checksquare(lu)
-    if size(X, 2) != size(B, 2)
-        throw(DimensionMismatch("input and output arrays must have same number of columns"))
+    @lock lu.lock begin
+        checksquare(lu)
+        if size(B, 1) != lu.m
+            throw(DimensionMismatch("UmfpackLU is $(lu.m)×$(lu.n) but the right-hand side has $(size(B, 1)) rows"))
+        end
+        if size(X) != size(B)
+            throw(DimensionMismatch("output has size $(size(X)) but the right-hand side has size $(size(B))"))
+        end
+        # copy rather than unalias: unaliasing a view copies its whole parent
+        Base.mightalias(X, B) && (B = copy(B))
+        _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace)
     end
-    _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace)
     return X
 end
 function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},

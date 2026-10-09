@@ -54,16 +54,6 @@ function _sparsewrap(A::Union{Diagonal,Bidiagonal,Tridiagonal,SymTridiagonal})
     dropzeros!(sparse(A))
 end
 
-"""
-    unwrap(A::AbstractMatrix)
-
-In case A is a wrapper type (`SubArray, Symmetric, Adjoint, SubArray, Triangular, Tridiagonal`, etc.)
-convert to `Matrix` or `SparseMatrixCSC`, depending on final storage type of A.
-For other types return A itself.
-"""
-unwrap(A::Any) = A
-unwrap(A::AbstractMatrix) = iswrsparse(A) ? convert(SparseMatrixCSC, A) : convert(Array, A)
-
 # For pure sparse matrices and vectors return A.
 # For wrapped sparse matrices or vectors convert to SparseMatrixCSC.
 # Handle nested wrappers properly.
@@ -81,21 +71,24 @@ function _sparsem(@nospecialize A::AbstractArray{Tv}) where Tv
     end
 end
 
-_sparsem(A::AbstractSparseMatrix) = A
+_sparsem(A::AbstractSparseMatrixCSC) = A
+# a wrapper of another sparse matrix type is re-wrapped around its CSC conversion, so the
+# kernels below take it from there
+_sparsem(A::AbstractSparseMatrix) = SparseMatrixCSC(A)
 _sparsem(A::AbstractSparseVector) = A
 
 # Transpose/Adjoint of sparse vector (returning sparse matrix)
 function _sparsem(A::AdjOrTrans{<:Any,<:AbstractSparseVector})
     B = parent(A)
-    n = length(B)
-    Ti = eltype(nonzeroinds(B))
-    fadj = A isa Transpose ? transpose : adjoint
+    return _rowmatrix(length(B), nonzeroinds(B), wrapperop(A).(nonzeros(B)))
+end
+# the `1 x n` sparse matrix storing `nzval` at the columns `nzind` (sorted)
+function _rowmatrix(n, nzind::AbstractVector{Ti}, nzval) where Ti
     colptr = fill!(Vector{Ti}(undef, n + 1), 0)
     colptr[1] = 1
-    colptr[nonzeroinds(B) .+ 1] .= 1
+    colptr[nzind .+ 1] .= 1
     cumsum!(colptr, colptr)
-    rowval = fill!(similar(nonzeroinds(B)), 1)
-    nzval = fadj.(nonzeros(B))
+    rowval = fill!(similar(nzind), 1)
     SparseMatrixCSC(1, n, colptr, rowval, nzval)
 end
 
@@ -105,17 +98,16 @@ end
 
 # Symmetric/Hermitian of sparse matrix
 _sparsem(A::SparseMatrixCSCSymmHerm) = _sparsem(A.uplo == 'U' ? nzrangeup : nzrangelo, A)
-# Triangular of sparse matrix
-_sparsem(A::UpperTriangular{T,<:AbstractSparseMatrix}) where T = triu(A.data)
-_sparsem(A::LowerTriangular{T,<:AbstractSparseMatrix}) where T = tril(A.data)
 # view of sparse matrix
 _sparsem(S::SubArray{<:Any,2,<:AbstractSparseMatrixCSC}) = getindex(parent(S),S.indices...)
+# view of a sparse vector or of a column of a sparse matrix, which re-wrapping would recurse on
+_sparsem(S::SubArray{<:Any,1,<:Union{AbstractSparseVector,AbstractSparseMatrixCSC}}) = getindex(parent(S),S.indices...)
 
 # 4 cases: (Symmetric|Hermitian) variants (:U|:L)
 function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv}
-    A = sA.data
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    A = parent(sA)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     m, n = size(A)
     Ti = eltype(rowval)
     fadj = sA isa Symmetric ? transpose : adjoint
@@ -139,7 +131,7 @@ function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv
     newrowval = Vector{Ti}(undef, nz)
     newnzval = Vector{Tv}(undef, nz)
     @inbounds for j = 1:n
-        newk = newcolptr[j]
+        newk = Int(newcolptr[j])
         for k = rangefun(A, j)
             i = rowval[k]
             nzv = nzval[k]
@@ -162,11 +154,11 @@ function _sparsem(rangefun::Function, sA::SparseMatrixCSCSymmHerm{Tv}) where {Tv
     _sparse_gen(m, n, newcolptr, newrowval, newnzval)
 end
 
-# 2 cases: Unit(Upper|Lower)Triangular{Tv,AbstractSparseMatrixCSC}
+# 4 cases: [Unit](Upper|Lower)Triangular of a sparse matrix or a view of its columns
 function _sparsem(A::SparseTriangular{Tv}) where Tv
-    S = A.data
-    rowval = rowvals(S)
-    nzval = nonzeros(S)
+    S = parent(A)
+    rowval = getrowval(S)
+    nzval = getnzval(S)
     m, n = size(S)
     Ti = eltype(rowval)
     rangefun = A isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
@@ -210,9 +202,9 @@ end
 function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
 
     sA = parent(taA)
-    A = sA.data
-    rowval = rowvals(A)
-    nzval = nonzeros(A)
+    A = parent(sA)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
     m, n = size(A)
     Ti = eltype(rowval)
     rangefun = sA isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
@@ -272,21 +264,62 @@ function _sparse_gen(m, n, newcolptr, newrowval, newnzval)
 end
 
 ## Dense copies of sparse arrays, views of them and their adjoints/transposes, in
-## O(length + nnz). The `Array` constructors copy through `copyto!`, so `Matrix(A')`,
-## `Matrix(view(A, :, r))` and `Vector(view(A, :, j))` all reach these kernels.
+## O(length + nnz). The `Array` constructors copy through `copyto!`, so `Matrix(A)`, `Matrix(A')`,
+## `Matrix(view(A, :, r))` and `Vector(view(A, :, j))` all reach these kernels. They address `dest`
+## by the linear indices of `src`, so a matrix source goes into an `Array` of any shape with enough
+## elements, and a vector source into a `Vector`.
 
-function _sparse_copyto!(dest::AbstractMatrix, src::SparseMatrixCSCOrView)
-    _checkbuffers(parent(src))
-    (dest === src || isempty(src)) && return dest
+# `zeroval` is called only when a zero is written, so a fully stored source whose eltype has
+# no `zero` (a matrix of matrices) still copies. Iterating the `LinearIndices` itself is 2-3x slower.
+# A zero of another type than the source's eltype (an affine expression for a variable of an
+# optimization model) may be mutable, so each position gets its own, as `getindex` returns.
+function _dense_copy_prelude!(dest, src, zeroval::F) where {F}
     isrc = LinearIndices(src)
     checkbounds(dest, isrc)
     if length(src) > nnz(src)   # zero the part of dest spanned by src unless src is structurally dense
-        z = convert(eltype(dest), zero(eltype(src)))
-        @inbounds for i in isrc
-            dest[i] = z
+        z = zeroval()
+        if z isa eltype(src)
+            zd = convert(eltype(dest), z)
+            @inbounds for i in eachindex(isrc)
+                dest[i] = zd
+            end
+        else
+            @inbounds for i in eachindex(isrc)
+                dest[i] = zeroval()
+            end
         end
     end
-    @inbounds for col in axes(src, 2), ptr in nzrange(src, col)
+    return isrc
+end
+
+# The kernels read the source's buffers while writing `dest`, so a `dest` that shares one of
+# them (`copyto!(nonzeros(S), S')`) is copied from a fresh source. Empty buffers are skipped:
+# they report as aliased.
+_sparseroot(x::Union{AbstractSparseVector,AbstractSparseMatrixCSC}) = x
+_sparseroot(x::Union{SubArray,Adjoint,Transpose}) = _sparseroot(parent(x))
+_storagebuffers(S::AbstractSparseMatrixCSC) = (getcolptr(S), getrowval(S), getnzval(S))
+_storagebuffers(x::AbstractSparseVector) = (nonzeroinds(x), nonzeros(x))
+_unaliasedcopy(S::AbstractSparseMatrixCSC) =
+    SparseMatrixCSC(size(S)..., collect(getcolptr(S)), collect(getrowval(S)), collect(getnzval(S)))
+_unaliasedcopy(x::AbstractSparseVector) = SparseVector(length(x), collect(nonzeroinds(x)), collect(nonzeros(x)))
+_rewrap(::Union{AbstractSparseVector,AbstractSparseMatrixCSC}, R) = R
+_rewrap(x::SubArray, R) = view(_rewrap(parent(x), R), parentindices(x)...)
+_rewrap(x::Adjoint, R) = adjoint(_rewrap(parent(x), R))
+_rewrap(x::Transpose, R) = transpose(_rewrap(parent(x), R))
+# `ReadOnly` reports no data ids, but a fixed array's pattern can still share memory with `dest`
+_unwrapreadonly(b) = b isa ReadOnly ? parent(b) : b
+function _sourcealiases(dest, src)
+    isempty(dest) && return false
+    return any(b -> !isempty(b) && Base.mightalias(dest, _unwrapreadonly(b)), _storagebuffers(_sparseroot(src)))
+end
+_unaliasedsource(src) = _rewrap(src, _unaliasedcopy(_sparseroot(src)))
+
+function _sparse_copyto!(dest::AbstractArray, src::SparseMatrixCSCOrView)
+    _checkbuffers(parent(src))
+    (dest === src || isempty(src)) && return dest
+    _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
+    isrc = _dense_copy_prelude!(dest, src, () -> zero(eltype(src)))
+    @inbounds for col in axes(src, 2), ptr in getnzrange(src, col)
         dest[isrc[getrowval(src)[ptr], col]] = getnzval(src)[ptr]
     end
     return dest
@@ -294,49 +327,31 @@ end
 
 function _sparse_copyto!(dest::AbstractVector, src::Union{AbstractSparseVector,SparseVectorOrView,SparseVectorPartialView})
     isempty(src) && return dest
-    isrc = LinearIndices(src)
-    checkbounds(dest, isrc)
-    if length(src) > nnz(src)
-        z = convert(eltype(dest), zero(eltype(src)))
-        @inbounds for i in isrc
-            dest[i] = z
-        end
-    end
+    _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
+    isrc = _dense_copy_prelude!(dest, src, () -> zero(eltype(src)))
     @inbounds for (i, v) in zip(nonzeroinds(src), nonzeros(src))
         dest[i] = v
     end
     return dest
 end
 
-function _sparse_copyto!(dest::AbstractMatrix, src::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
+function _sparse_copyto!(dest::AbstractArray, src::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
     P, op = parent(src), wrapperop(src)
     _checkbuffers(P)
     isempty(P) && return dest
-    isrc = LinearIndices(src)
-    checkbounds(dest, isrc)
-    if length(P) > nnz(P)
-        z = convert(eltype(dest), op(zero(eltype(P))))
-        @inbounds for i in isrc
-            dest[i] = z
-        end
-    end
+    _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
+    isrc = _dense_copy_prelude!(dest, src, () -> op(zero(eltype(P))))
     @inbounds for col in axes(P, 2), ptr in nzrange(P, col)
-        dest[isrc[col, rowvals(P)[ptr]]] = op(nonzeros(P)[ptr])
+        dest[isrc[col, getrowval(P)[ptr]]] = op(getnzval(P)[ptr])
     end
     return dest
 end
 
-function _sparse_copyto!(dest::AbstractMatrix, src::AdjOrTransSparseVectorOrView)
+function _sparse_copyto!(dest::AbstractArray, src::AdjOrTransSparseVectorOrView)
     p, op = parent(src), wrapperop(src)
     isempty(p) && return dest
-    isrc = LinearIndices(src)
-    checkbounds(dest, isrc)
-    if length(p) > nnz(p)
-        z = convert(eltype(dest), op(zero(eltype(p))))
-        @inbounds for i in isrc
-            dest[i] = z
-        end
-    end
+    _sourcealiases(dest, src) && return _sparse_copyto!(dest, _unaliasedsource(src))
+    isrc = _dense_copy_prelude!(dest, src, () -> op(zero(eltype(p))))
     @inbounds for (i, v) in zip(nonzeroinds(p), nonzeros(p))
         dest[isrc[1, i]] = op(v)
     end
@@ -347,4 +362,25 @@ copyto!(dest::Vector, src::Union{AbstractSparseVector,SparseVectorOrView,SparseV
 for S in (:SparseMatrixCSCOrView, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}), :AdjOrTransSparseVectorOrView)
     @eval copyto!(dest::AbstractMatrix, src::$S) = _sparse_copyto!(dest, src)
     @eval copyto!(dest::PermutedDimsArray, src::$S) = _sparse_copyto!(dest, src)   # ambiguity resolution
+    @eval copyto!(dest::Array, src::$S) = _sparse_copyto!(dest, src)
+    @eval copyto!(dest::Matrix, src::$S) = _sparse_copyto!(dest, src)   # ambiguity resolution
+end
+
+# The zero of an element type need not be of that type (a variable of an optimization model
+# has an affine expression for a zero), so a dense copy made without naming an element type
+# holds both. A structurally dense source needs no zero.
+function _densearray(A)
+    Tv = eltype(A)
+    T = length(A) > nnz(A) ? promote_type(Tv, typeof(_densezero(A))) : Tv
+    return Array{T}(A)
+end
+_densezero(A) = zero(eltype(A))
+_densezero(A::AdjOrTrans) = wrapperop(A)(zero(eltype(parent(A))))
+for S in (:AbstractSparseVector, :SparseVectorOrView, :SparseVectorPartialView)
+    @eval Array(x::$S) = _densearray(x)
+    @eval Vector(x::$S) = _densearray(x)
+end
+for S in (:SparseMatrixCSCOrView, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}), :AdjOrTransSparseVectorOrView)
+    @eval Array(A::$S) = _densearray(A)
+    @eval Matrix(A::$S) = _densearray(A)
 end

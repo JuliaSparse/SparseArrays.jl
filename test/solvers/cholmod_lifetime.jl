@@ -11,6 +11,7 @@ using SparseArrays.LibSuiteSparse: cholmod_l_allocate_sparse, cholmod_allocate_s
     cholmod_l_allocate_dense, cholmod_allocate_dense
 using LinearAlgebra: I, cholesky, diag, ldiv!, ldlt, qr, Symmetric
 using Random
+include("../testhelpers.jl")
 
 # Run in a fresh process: intentional collections exercise finalization and rooting.
 # The constructors must free the pointer before throwing, so the Common's
@@ -27,9 +28,13 @@ function with_gc_disabled(f)
         GC.enable(enabled)
     end
 end
-itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
-for Ti ∈ itypes, Tv ∈ (Float32, Float64)
-Random.seed!(123)
+
+# One index type and one real type per process: the process that includes this file may
+# name them in the environment. The default is the 32-bit index type, the one for which
+# the checks that an object is released through its own Common mean something.
+const Ti, Tv = let types = split(get(ENV, "SPARSEARRAYS_TEST_LIFETIME_TYPES", "$(first(itypes)),Float64"), ',')
+    getfield(Base, Symbol(types[1])), getfield(Base, Symbol(types[2]))
+end
 
 @testset "illegal dtype" begin
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
@@ -93,7 +98,7 @@ end
 
     # Object-level free! must null the wrapper's pointer so that a second
     # free! (and the finalizer) is a no-op rather than a double free.
-    D = CHOLMOD.Dense(rand(Tv, 3))
+    D = CHOLMOD.Dense(Tv[1, 2, 3])
     @test CHOLMOD.free!(D)
     @test getfield(D, :ptr) == C_NULL
     @test_throws ArgumentError pointer(D)
@@ -129,7 +134,7 @@ end
 
 @testset "ldiv! no memory leak $Tv $Ti" begin
     local A, b, x, F
-    A = sprand(10, 10, 0.1)
+    A = fixture(Float64, 10, 10) / 40
     A = I + A * A'
     A = convert(SparseMatrixCSC{Tv,Ti}, A)
     F = cholesky(A)
@@ -156,7 +161,7 @@ end
 if Ti == Int32 && Int64 in itypes
 @testset "free!(CholmodWS) releases Y/E through the matching Common $Tv $Ti" begin
     local A, b, x, F
-    A = sprand(10, 10, 0.1)
+    A = fixture(Float64, 10, 10) / 40
     A = I + A * A'
     A = convert(SparseMatrixCSC{Tv,Ti}, A)
     b = A * fill(Tv(1), 10)
@@ -177,7 +182,7 @@ end
 
 @testset "copy(Factor) buffer isolation $Tv $Ti" begin
     local A, x, b, x2, x3
-    A = sprand(10, 10, 0.1)
+    A = fixture(Float64, 10, 10) / 40
     A = I + A * A'
     A = convert(SparseMatrixCSC{Tv,Ti}, A)
     factor = cholesky(A)
@@ -204,6 +209,7 @@ end
     # its finalizer and free the buffers mid-read. Not a deterministic
     # reproducer, but exercises the preserved paths under GC pressure.
     local S, SPD, Fref
+    Random.seed!(123)
     S = convert(SparseMatrixCSC{Tv,Ti}, sprand(400, 300, 0.05))
     SPD = convert(SparseMatrixCSC{Tv,Ti}, S[1:300, :] * S[1:300, :]' + 300I)
     Fref = cholesky(SPD)
@@ -233,12 +239,13 @@ end
 # For Int64 both Commons coincide, so the check is only meaningful for Ti == Int32.
 if Ti == Int32 && Int64 in itypes && Tv == Float64
 @testset "qr releases its outputs through the matching Common $Ti" begin
-    A = SparseMatrixCSC{Tv,Ti}(sprand(20, 10, 0.3) + sparse(1:10, 1:10, 1.0, 20, 10))
+    A = SparseMatrixCSC{Tv,Ti}(fixture(Float64, 20, 10) + sparse(1:10, 1:10, 1.0, 20, 10))
     qr(A)
     GC.gc()
     n32, n64 = getcommon(Int32)[].memory_inuse, getcommon(Int64)[].memory_inuse
     for _ in 1:10
         qr(A)
+        @test_throws ArgumentError qr(A; ordering=Int32(10))
     end
     GC.gc()
     @test getcommon(Int32)[].memory_inuse == n32
@@ -262,7 +269,5 @@ end
         @test getproperty(current_common[], name) == getproperty(default_common[], name)
     end
 end
-
-end # Ti, Tv
 
 end # module

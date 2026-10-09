@@ -16,8 +16,8 @@ end
     r1 = Int(@inbounds first(nzrange(A, i1)))
     r2 = Int(@inbounds last(nzrange(A, i1)))
     (r1 > r2) && return zero(T)
-    r1 = searchsortedfirst(view(rowvals(A), r1:r2), i0) + r1 - 1
-    ((r1 > r2) || (rowvals(A)[r1] != i0)) ? zero(T) : nonzeros(A)[r1]
+    r1 = searchsortedfirst(view(getrowval(A), r1:r2), i0) + r1 - 1
+    ((r1 > r2) || (getrowval(A)[r1] != i0)) ? zero(T) : getnzval(A)[r1]
 end
 
 # Colon translation
@@ -49,7 +49,7 @@ function getindex_cols(A::AbstractSparseMatrixCSC{Tv,Ti}, J::AbstractVector) whe
     (m, n) = size(A)
     nJ = length(J)
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    colptrA = getcolptr(A); rowvalA = getrowval(A); nzvalA = getnzval(A)
 
     colptrS = Vector{Ti}(undef, nJ+1)
     colptrS[1] = 1
@@ -93,7 +93,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::Abstra
     nI = length(I)
     nI == 0 || (minimum(I) >= 1 && maximum(I) <= m) || throw(BoundsError())
     nJ = length(J)
-    rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
     colptrS = Vector{Ti}(undef, nJ+1)
     colptrS[1] = 1
     nnzS = 0
@@ -167,7 +167,7 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
     nI = length(I)
     nJ = length(J)
 
-    rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
     colptrS = Vector{Ti}(undef, nJ+1)
     colptrS[1] = 1
 
@@ -227,7 +227,7 @@ function getindex_I_sorted_linear(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstract
     nI = length(I)
     nJ = length(J)
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    colptrA = getcolptr(A); rowvalA = getrowval(A); nzvalA = getnzval(A)
     colptrS = Vector{Ti}(undef, nJ+1)
     colptrS[1] = 1
     cacheI = zeros(Int, size(A, 1))
@@ -287,7 +287,7 @@ function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
     nI = length(I)
     nJ = length(J)
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    colptrA = getcolptr(A); rowvalA = getrowval(A); nzvalA = getnzval(A)
     colptrS = Vector{Ti}(undef, nJ+1)
     colptrS[1] = 1
 
@@ -382,7 +382,7 @@ function getindex_I_sorted_nocache(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstrac
     nI = length(I)
     nJ = length(J)
 
-    rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
     colptrS = Vector{Ti}(undef, nJ+1)
     colptrS[1] = 1
     # stored entries above the first requested row are skipped in one search per column
@@ -428,7 +428,7 @@ end
 
 function permute_rows!(S::AbstractSparseMatrixCSC{Tv,Ti}, pI::Vector{Int}) where {Tv,Ti}
     (m, n) = size(S)
-    colptrS = getcolptr(S); rowvalS = rowvals(S); nzvalS = nonzeros(S)
+    colptrS = getcolptr(S); rowvalS = getrowval(S); nzvalS = getnzval(S)
     # preallocate temporary sort space
     nr = min(nnz(S), m)
 
@@ -476,7 +476,9 @@ function getindex_general(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Abst
     require_one_based_indexing(A, I, J)
     pI = sortperm(I)
     @inbounds Is = I[pI]
-    return permute_rows!(getindex_I_sorted(A, Is, J), pI)
+    # the rows of each column are reordered in place, so fix the pattern only afterwards
+    S = permute_rows!(getindex_I_sorted(_unsafe_unfix(A), Is, J), pI)
+    return @if_move_fixed A S
 end
 
 # the general case:
@@ -499,8 +501,8 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     require_one_based_indexing(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
-    rowvalA = rowvals(A)
-    nzvalA = nonzeros(A)
+    rowvalA = getrowval(A)
+    nzvalA = getnzval(A)
 
     n = length(I)
     outm = size(I,1)
@@ -557,10 +559,10 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
     end
     coljfirstk = Int(getcolptr(A)[j])
     coljlastk = Int(getcolptr(A)[j+1] - 1)
-    searchk = searchsortedfirst(view(rowvals(A), coljfirstk:coljlastk), i) + coljfirstk - 1
-    if searchk <= coljlastk && rowvals(A)[searchk] == i
+    searchk = searchsortedfirst(view(getrowval(A), coljfirstk:coljlastk), i) + coljfirstk - 1
+    if searchk <= coljlastk && getrowval(A)[searchk] == i
         # Column j contains entry A[i,j]. Update and return
-        nonzeros(A)[searchk] = v
+        getnzval(A)[searchk] = v
         return A
     end
     # Column j does not contain entry A[i,j].
@@ -572,8 +574,8 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
 
         _is_fixed(A) && _throwfixedinsert(A, i, j)
         # if nnz(A) < length(rowval/nzval): no need to grow rowval and preserve values
-        _insert!(rowvals(A), searchk, i, nz)
-        _insert!(nonzeros(A), searchk, v, nz)
+        _insert!(getrowval(A), searchk, i, nz)
+        _insert!(getnzval(A), searchk, v, nz)
         @simd for m in (j + 1):(size(A, 2) + 1)
             @inbounds getcolptr(A)[m] += Ti(1)
         end
@@ -595,7 +597,7 @@ end
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
     A = parent(V)
     I, J = V.indices
-    if isempty(I) || isempty(J); return A; end
+    if isempty(I) || isempty(J); return V; end
     if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
         for j in J, i in I
             A[i, j] = x
@@ -631,23 +633,23 @@ function _spsetz_setindex!(A::AbstractSparseMatrixCSC,
         coljAfirstk > coljAlastk && continue
         kA = coljAfirstk
         kI = 1
-        entrykArow = rowvals(A)[kA]
+        entrykArow = getrowval(A)[kA]
         entrykIrow = I[kI]
         while true
             if entrykArow < entrykIrow
                 kA += 1
                 kA > coljAlastk && break
-                entrykArow = rowvals(A)[kA]
+                entrykArow = getrowval(A)[kA]
             elseif entrykArow > entrykIrow
                 kI += 1
                 kI > lengthI && break
                 entrykIrow = I[kI]
             else # entrykArow == entrykIrow
-                nonzeros(A)[kA] = zero(eltype(A))
+                getnzval(A)[kA] = zero(eltype(A))
                 kA += 1
                 kI += 1
                 (kA > coljAlastk || kI > lengthI) && break
-                entrykArow = rowvals(A)[kA]
+                entrykArow = getrowval(A)[kA]
                 entrykIrow = I[kI]
             end
         end
@@ -667,8 +669,8 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
     nnzold = nnz(A)
     nnzA = nnzold + lenI * length(J)
 
-    rowvalA = rowvals(A)
-    nzvalA = nonzeros(A)
+    rowvalA = getrowval(A)
+    nzvalA = getnzval(A)
 
     rowidx = 1
     nadd = 0
@@ -861,14 +863,14 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     end
     nJ = length(J)
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
-    colptrB = getcolptr(B); rowvalB = rowvals(B); nzvalB = nonzeros(B)
+    colptrA = getcolptr(A); rowvalA = getrowval(A); nzvalA = getnzval(A)
+    colptrB = getcolptr(B); rowvalB = getrowval(B); nzvalB = getnzval(B)
 
     nnzS = nnz(A) + nnz(B)
 
     colptrS = copy(getcolptr(A))
-    rowvalS = copy(rowvals(A))
-    nzvalS = copy(nonzeros(A))
+    rowvalS = copy(getrowval(A))
+    nzvalS = copy(getnzval(A))
 
     resize!(rowvalA, nnzS)
     resize!(nzvalA, nnzS)
@@ -962,125 +964,60 @@ setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Abs
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatrix{Bool})
     require_one_based_indexing(A, x, I)
     checkbounds(A, I)
-    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
-        k = 0
-        for ci in CartesianIndices(I)
-            I[ci] && (A[ci] = x[k += 1])
-        end
-        return A
-    end
-    n = sum(I)
-    (n == 0) && (return A)
+    return setindex!(A, x, _masklinearindices(I))
+end
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
-    colptrB = colptrA; rowvalB = rowvalA; nzvalB = nzvalA
-    nadd = 0
-    bidx = xidx = 1
-    r1 = r2 = 0
-
-    @inbounds for col in axes(A,2)
-        r1 = Int(first(nzrange(A, col)))
-        r2 = Int(last(nzrange(A, col)))
-
-        for row in axes(A,1)
-            if I[row, col]
-                v = convert(eltype(A), x[xidx])
-                xidx += 1
-
-                if r1 <= r2
-                    copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 1
-                    if (copylen > 0)
-                        if (nadd > 0)
-                            copyto!(rowvalB, bidx, rowvalA, r1, copylen)
-                            copyto!(nzvalB, bidx, nzvalA, r1, copylen)
-                        end
-                        bidx += copylen
-                        r1 += copylen
-                    end
-                end
-
-                # 0: no change, 1: update, 2: add new
-                mode = ((r1 <= r2) && (rowvalA[r1] == row)) ? 1 : (_isimplicitzero(v, eltype(A)) ? 0 : 2)
-
-                if (mode > 1) && (nadd == 0)
-                    # copy storage to take changes
-                    colptrA = copy(colptrB)
-                    memreq = (x == 0) ? 0 : n
-                    # this x == 0 check and approach doesn't jive with use of v above
-                    # and may not make sense generally, as scalar x == 0 probably
-                    # means this section should never be called. also may not be generic.
-                    # TODO: clean this up, maybe separate scalar and array X cases
-                    rowvalA = copy(rowvalB)
-                    nzvalA = copy(nzvalB)
-                    resize!(rowvalB, length(rowvalA)+memreq)
-                    resize!(nzvalB, length(rowvalA)+memreq)
-                end
-                if mode == 1
-                    rowvalB[bidx] = row
-                    nzvalB[bidx] = v
-                    bidx += 1
-                    r1 += 1
-                elseif mode == 2
-                    rowvalB[bidx] = row
-                    nzvalB[bidx] = v
-                    bidx += 1
-                    nadd += 1
-                end
-                (xidx > n) && break
-            end # if I[row, col]
-        end # for row in axes(A,1)
-
-        if (nadd != 0)
-            l = r2-r1+1
-            if l > 0
-                copyto!(rowvalB, bidx, rowvalA, r1, l)
-                copyto!(nzvalB, bidx, nzvalA, r1, l)
-                bidx += l
-            end
-            colptrB[col+1] = bidx
-
-            if (xidx > n) && (length(colptrB) > (col+1))
-                diff = nadd
-                colptrB[(col+2):end] = colptrA[(col+2):end] .+ diff
-                r1 = colptrA[col+1]
-                r2 = colptrA[end]-1
-                l = r2-r1+1
-                if l > 0
-                    copyto!(rowvalB, bidx, rowvalA, r1, l)
-                    copyto!(nzvalB, bidx, nzvalA, r1, l)
-                    bidx += l
-                end
-            end
-        else
-            bidx = colptrA[col+1]
-        end
-        (xidx > n) && break
-    end # for col in axes(A,2)
-
-    if (nadd != 0)
-        n = length(nzvalB)
-        if n > (bidx-1)
-            deleteat!(nzvalB, bidx:n)
-            deleteat!(rowvalB, bidx:n)
+# The linear indices of the true entries of a mask, in ascending order. Sparse masks and
+# their column views and transposes are walked by stored entry.
+_masklinearindices(I::AbstractMatrix{Bool}) = findall(vec(I))
+function _masklinearindices(I::SparseMatrixCSCOrColumnSubset{Bool})
+    m = size(I, 1)
+    rowvalI = getrowval(I); nzvalI = getnzval(I)
+    L = Int[]
+    sizehint!(L, nnz(I))
+    for j in axes(I, 2)
+        offset = (j - 1) * m
+        for k in getnzrange(I, j)
+            nzvalI[k] && push!(L, offset + Int(rowvalI[k]))
         end
     end
-    return _checkbuffers(A)
+    return L
+end
+function _masklinearindices(I::AdjOrTrans{Bool,<:SparseMatrixCSCOrColumnSubset{Bool}})
+    P = parent(I)
+    mI = size(I, 1)
+    rowvalP = getrowval(P); nzvalP = getnzval(P)
+    L = Int[]
+    sizehint!(L, nnz(P))
+    for j in axes(P, 2)
+        for k in getnzrange(P, j)
+            nzvalP[k] && push!(L, (Int(rowvalP[k]) - 1) * mI + j)
+        end
+    end
+    return sort!(L)
+end
+
+# A copy of `v` when it may share storage with a buffer the kernel writes; the kernel reads
+# the indices and values while it rewrites the storage.
+function _unalias_setindex(A::AbstractSparseMatrixCSC, v)
+    (Base.mightalias(v, getnzval(A)) || Base.mightalias(v, getrowval(A)) ||
+        Base.mightalias(v, getcolptr(A))) && return Base.unaliascopy(v)
+    return v
 end
 
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVector{<:Integer})
     require_one_based_indexing(A, x, Ix)
+    # to_indices does not compare a Bool mask's length with A's
+    Ix isa AbstractVector{Bool} && checkbounds(A, Ix)
     (I,) = Base.ensure_indexable(to_indices(A, (Ix,)))
-    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
-        for (k, i) in enumerate(I)
-            A[i] = x[k]
-        end
-        return A
-    end
-    # We check bounds after sorting I
+    I = _unalias_setindex(A, I)
+    x = _unalias_setindex(A, x)
     n = length(I)
+    setindex_shape_check(x, n)
+    _is_fixed(A) && return _setindex_fixed!(A, x, I)
     (n == 0) && (return A)
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A); szA = size(A)
+    colptrA = getcolptr(A); rowvalA = getrowval(A); nzvalA = getnzval(A); szA = size(A)
     colptrB = colptrA; rowvalB = rowvalA; nzvalB = nzvalA
     nadd = 0
     bidx = aidx = 1
@@ -1088,11 +1025,9 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     S = issorted(I) ? (1:n) : sortperm(I)
     sxidx = r1 = r2 = 0
 
-    if (!isempty(I) && (I[S[1]] < 1 || I[S[end]] > widelength(A)))
+    if (I[S[1]] < 1 || I[S[end]] > widelength(A))
         throw(BoundsError(A, I))
     end
-
-    isa(x, AbstractArray) && setindex_shape_check(x, length(I))
 
     CartIndsA = CartesianIndices(szA)
 
@@ -1144,12 +1079,10 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
         if (mode > 1) && (nadd == 0)
             # copy storage to take changes
             colptrA = copy(colptrB)
-            memreq = (x == 0) ? 0 : n
-            # see comment/TODO for same statement in preceding logical setindex! method
             rowvalA = copy(rowvalB)
             nzvalA = copy(nzvalB)
-            resize!(rowvalB, length(rowvalA)+memreq)
-            resize!(nzvalB, length(rowvalA)+memreq)
+            resize!(rowvalB, length(rowvalA)+n)
+            resize!(nzvalB, length(rowvalA)+n)
         end
         if mode == 1
             rowvalB[bidx] = row
@@ -1186,6 +1119,31 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     return _checkbuffers(A)
 end
 
+# Linear-index assignment into a fixed pattern: every index is located, and a nonzero
+# value outside the pattern rejected, before any entry is written.
+function _setindex_fixed!(A::AbstractSparseMatrixCSC{Tv}, x::AbstractArray, I::AbstractVector{<:Integer}) where Tv
+    checkbounds(A, I)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
+    CartIndsA = CartesianIndices(A)
+    pos = Vector{Int}(undef, length(I))
+    for (k, i) in enumerate(I)
+        row, col = Tuple(CartIndsA[i])
+        r1 = Int(first(nzrange(A, col)))
+        r2 = Int(last(nzrange(A, col)))
+        p = searchsortedfirst(view(rowvalA, r1:r2), row) + r1 - 1
+        if p <= r2 && rowvalA[p] == row
+            pos[k] = p
+        else
+            _isimplicitzero(convert(Tv, x[k]), Tv) || _throwfixedinsert(A, row, col)
+            pos[k] = 0
+        end
+    end
+    for k in eachindex(pos)
+        pos[k] == 0 || (nzvalA[pos[k]] = x[k])
+    end
+    return A
+end
+
 ## dropstored! methods
 """
     dropstored!(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
@@ -1208,13 +1166,15 @@ function dropstored!(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     if !((1 <= i <= size(A, 1)) & (1 <= j <= size(A, 2)))
         throw(BoundsError(A, (i,j)))
     end
+    # a fixed pattern keeps the entry and stores a zero, as `dropstored!` of a fixed vector does
+    _is_fixed(A) && (A[i, j] = zero(eltype(A)); return A)
     coljfirstk = Int(getcolptr(A)[j])
     coljlastk = Int(getcolptr(A)[j+1] - 1)
-    searchk = searchsortedfirst(view(rowvals(A), coljfirstk:coljlastk), i) + coljfirstk - 1
-    if searchk <= coljlastk && rowvals(A)[searchk] == i
+    searchk = searchsortedfirst(view(getrowval(A), coljfirstk:coljlastk), i) + coljfirstk - 1
+    if searchk <= coljlastk && getrowval(A)[searchk] == i
         # Entry A[i,j] is stored. Drop and return.
-        deleteat!(rowvals(A), searchk)
-        deleteat!(nonzeros(A), searchk)
+        deleteat!(getrowval(A), searchk)
+        deleteat!(getnzval(A), searchk)
         @simd for m in (j+1):(size(A, 2) + 1)
             @inbounds getcolptr(A)[m] -= 1
         end
@@ -1265,8 +1225,8 @@ function dropstored!(A::AbstractSparseMatrixCSC,
         return A
     end
 
-    rowval = rowvalA = rowvals(A)
-    nzval = nzvalA = nonzeros(A)
+    rowval = rowvalA = getrowval(A)
+    nzval = nzvalA = getnzval(A)
     rowidx = 1
     ndel = 0
     @inbounds for col in axes(A,2)
@@ -1322,20 +1282,23 @@ dropstored!(A::AbstractSparseMatrixCSC, ::Colon) = dropstored!(A, :, :)
 
 # Column slices
 function getindex(x::AbstractSparseMatrixCSC, ::Colon, j::Integer)
-    checkbounds(x, :, j)
+    # `checkbounds(x, :, j)` throws through Base's `_throw_boundserror_indices`, which does
+    # not specialize on `:` (a `Function`), so `juliac --trim` cannot resolve that call
+    checkbounds(Bool, x, :, j) || throw(BoundsError(x, (:, j)))
     nzr = nzrange(x, j)
-    return @if_move_fixed x SparseVector(size(x, 1), rowvals(x)[nzr], nonzeros(x)[nzr])
+    return @if_move_fixed x SparseVector(size(x, 1), getrowval(x)[nzr], getnzval(x)[nzr])
 end
 
 function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     checkbounds(x, I, j)
+    Ti = indtype(x)
     # Get the selected column
     c1 = Int(first(nzrange(x, j)))
     c2 = Int(last(nzrange(x, j)))
     # Restrict to the selected rows
-    r1 = searchsortedfirst(view(rowvals(x), c1:c2), first(I)) + c1 - 1
-    r2 = searchsortedlast(view(rowvals(x), c1:c2), last(I)) + c1 - 1
-    return @if_move_fixed x SparseVector(length(I), [rowvals(x)[i] - first(I) + 1 for i = r1:r2], nonzeros(x)[r1:r2])
+    r1 = searchsortedfirst(view(getrowval(x), c1:c2), first(I)) + c1 - 1
+    r2 = searchsortedlast(view(getrowval(x), c1:c2), last(I)) + c1 - 1
+    return @if_move_fixed x SparseVector(length(I), Ti[getrowval(x)[i] - first(I) + 1 for i = r1:r2], getnzval(x)[r1:r2])
 end
 
 # Nonscalar indexing of an adjoint or transpose indexes the parent with the indices swapped
@@ -1352,8 +1315,8 @@ _getindex_adjtrans(M, _, i::AbstractVector, j::Integer) = map!(wrapperop(M), par
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
-    let M = A[I, [J]]
-        @if_move_fixed A SparseVector(size(M, 1), rowvals(M), nonzeros(M))
+    let M = _unsafe_unfix(A)[I, [J]]
+        @if_move_fixed A SparseVector(size(M, 1), getrowval(M), getnzval(M))
     end
 
 # Row slices
@@ -1362,7 +1325,7 @@ function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::Abstrac
     require_one_based_indexing(A, J)
     _, J = _lower_indices(A, i, J)
     nJ = length(J)
-    rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
 
     nzinds = Vector{Ti}()
     nzvals = Vector{Tv}()
@@ -1399,7 +1362,7 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
     n = sum(I)
     nnzB = min(n, nnz(A))
 
-    rowvalA = rowvals(A); nzvalA = nonzeros(A)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
     rowvalB = Vector{Int}(undef, nnzB)
     nzvalB = Vector{Tv}(undef, nnzB)
     c = 1
@@ -1440,8 +1403,8 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
     checkbounds(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
-    rowvalA = rowvals(A)
-    nzvalA = nonzeros(A)
+    rowvalA = getrowval(A)
+    nzvalA = getnzval(A)
 
     n = length(I)
     nnzB = min(n, nnz(A))
@@ -1482,8 +1445,8 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
     @boundscheck checkbounds(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
-    rowvalA = rowvals(A)
-    nzvalA = nonzeros(A)
+    rowvalA = getrowval(A)
+    nzvalA = getnzval(A)
 
     n = length(I)
     nnzB = min(n, nnz(A))

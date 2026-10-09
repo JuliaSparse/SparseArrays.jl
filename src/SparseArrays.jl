@@ -9,10 +9,11 @@ using Base: ReshapedArray, promote_op, setindex_shape_check, to_shape, tail,
     require_one_based_indexing, promote_eltype, @propagate_inbounds, &, |
 using Base.Order: Forward
 using LinearAlgebra
-using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod,
+using LinearAlgebra: AdjOrTrans, AdjointFactorization, TransposeFactorization, matprod, matmul_size_check,
     AbstractQ, AdjointQ, HessenbergQ, QRCompactWYQ, QRPackedQ, LQPackedQ,
     UpperOrLowerTriangular, UnitUpperOrUnitLowerTriangular, UpperOrUnitUpperTriangular,
-    LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, isbanded
+    LowerOrUnitLowerTriangular, HermOrSym, BiTriSym, BandedMatrix, isbanded,
+    StridedMaybeAdjOrTransMat
 
 
 import Base: +, -, *, \, /, ==, zero
@@ -72,7 +73,7 @@ end
 
 Supertype for `N`-dimensional sparse arrays (or array-like types) with elements
 of type `Tv` and index type `Ti`. [`SparseMatrixCSC`](@ref), [`SparseVector`](@ref)
-and `SuiteSparse.CHOLMOD.Sparse` are subtypes of this.
+and `SparseArrays.CHOLMOD.Sparse` are subtypes of this.
 """
 abstract type AbstractSparseArray{Tv,Ti,N} <: AbstractArray{Tv,N} end
 
@@ -102,7 +103,23 @@ const AbstractSparseMatrix{Tv,Ti} = AbstractSparseArray{Tv,Ti,2}
 """
     AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
 
-Supertype for matrix with compressed sparse column (CSC).
+Supertype for matrices stored in compressed sparse column (CSC) format with element type
+`Tv` and index type `Ti`. [`SparseMatrixCSC`](@ref) is the concrete type; packages define
+their own subtypes to reuse the CSC kernels on other storage.
+
+A subtype must define `size` and the three storage accessors [`getcolptr`](@ref),
+[`getrowval`](@ref) and [`getnzval`](@ref), which are the only accessors the methods of
+this package call on it. They return vectors that alias the matrix and satisfy the
+invariants documented for the [`SparseMatrixCSC`](@ref) constructor: `getcolptr(S)` has
+length `size(S, 2) + 1`, starts at `1` and is nondecreasing; `getrowval(S)` and
+`getnzval(S)` have length `getcolptr(S)[end] - 1`; and within each column the row indices
+are sorted, unique and in `1:size(S, 1)`. Everything else, such as [`nnz`](@ref),
+[`nzrange`](@ref), indexing, `copy`, `similar` and the sparse linear algebra, is derived
+from these. [`rowvals`](@ref) and [`nonzeros`](@ref) are not defined for such a subtype.
+
+Subtypes written while `rowvals` and `nonzeros` were the only exported accessors implement
+those in place of `getrowval` and `getnzval`, which fall back to them. This remains
+supported, but is planned to stop being supported in SparseArrays 2.0.
 """
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
@@ -128,6 +145,10 @@ const SparseMatrixCSCColumnSubset{Tv,Ti} =
     SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti},
         Tuple{Base.Slice{Base.OneTo{Int}},I}} where {I<:AbstractVector{<:Integer}}
 const SparseMatrixCSCOrColumnSubset{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCColumnSubset{Tv,Ti}}
+# Any 2-d view (a superset of SparseMatrixCSCColumnSubset). One that is not a column subset
+# has no compressed storage of its own; `_compressed` gives the kernels its O(nnz) copy.
+const SparseMatrixCSCSubArray{Tv,Ti} = SubArray{Tv,2,<:AbstractSparseMatrixCSC{Tv,Ti}}
+const SparseMatrixCSCOrSubArray{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCSubArray{Tv,Ti}}
 
 # Whole-column views of sparse matrices and whole views of sparse vectors share the
 # sparse vector interface.
@@ -224,23 +245,32 @@ issparse(S::AbstractSparseArray) = true
 """
     indtype(S)
 
-Return the type used to index sparse array entries.
+Return the integer type in which sparse array `S` stores its indices: the `Ti` in
+`SparseMatrixCSC{Tv,Ti}` and `SparseVector{Tv,Ti}`. It is the index-type counterpart
+of `eltype`.
 
 # Examples
 ```jldoctest
 julia> indtype(sparse(Int32[1, 2], Int32[1, 2], [1.0, 2.0]))
 Int32
+
+julia> indtype(sparsevec(Int8[2, 5], [3.0, 4.0]))
+Int8
+
+julia> indtype(sparse([1, 2], [1, 2], [1.0, 2.0])')
+Int64
 ```
 """
 indtype(S::AbstractSparseArray{<:Any,Ti}) where {Ti} = Ti
 indtype(T::UpperOrLowerTriangular{<:Any,<:Union{AbstractSparseArray,SparseMatrixCSCColumnSubset}}) = indtype(parent(T))
+indtype(T::Union{AdjOrTrans,HermOrSym}) = indtype(parent(T))
 
 # The following two methods should be overloaded by concrete types to avoid
 # allocating the I = findall(...)
 _sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)
 _sparse_findprevnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedlast(I, i);  _isnotzero(n) ? I[n] : nothing)
 
-function findnext(f::Function, v::AbstractSparseArray, i)
+function findnext(f::Function, v::Union{AbstractSparseArray,SparseMatrixCSCView,SparseVectorOrView}, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
     if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
@@ -253,7 +283,7 @@ function findnext(f::Function, v::AbstractSparseArray, i)
     return j
 end
 
-function findprev(f::Function, v::AbstractSparseArray, i)
+function findprev(f::Function, v::Union{AbstractSparseArray,SparseMatrixCSCView,SparseVectorOrView}, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
     if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
@@ -287,6 +317,49 @@ julia> findnz(A)
 ```
 """
 function findnz end
+
+"""
+    iternz(A::AbstractSparseMatrixCSC)
+    iternz(x::AbstractSparseVector)
+
+Return an iterator over the stored entries of a sparse matrix or vector. `A` may also be
+a view of all rows and some columns of a sparse matrix, and `x` a view of a column of a
+sparse matrix or of a unit range of a sparse vector; the indices are then those of the
+view.
+
+For a matrix, each element is a tuple `(i, j, v)` holding the row index, the column index
+and the value of one stored entry. For a vector, each element is a tuple `(i, v)` holding
+the index and the value. The entries are visited in storage order, the same order as
+[`findnz`](@ref) returns them, and stored zeros are included.
+
+`iternz(A)` yields the same elements as `zip(findnz(A)...)`, but does not allocate the
+index and value arrays. Do not change the stored entries of the array while iterating
+over it.
+
+# Examples
+```jldoctest
+julia> A = sparse([1 2 0; 0 0 3; 0 4 0])
+3×3 SparseMatrixCSC{Int64, Int64} with 4 stored entries:
+ 1  2  ⋅
+ ⋅  ⋅  3
+ ⋅  4  ⋅
+
+julia> collect(SparseArrays.iternz(A))
+4-element Vector{Tuple{Int64, Int64, Int64}}:
+ (1, 1, 1)
+ (1, 2, 2)
+ (3, 2, 4)
+ (2, 3, 3)
+
+julia> x = sparsevec([2, 5], [1.5, 2.5], 6);
+
+julia> collect(SparseArrays.iternz(x))
+2-element Vector{Tuple{Int64, Float64}}:
+ (2, 1.5)
+ (5, 2.5)
+```
+"""
+function iternz end
 
 widelength(x::AbstractSparseArray) = prod(Int64.(size(x)))
 
@@ -376,7 +449,6 @@ end
 increment(A::AbstractArray{<:Integer}) = increment!(copy(A))
 
 include("solvers/LibSuiteSparse.jl")
-using .LibSuiteSparse
 
 @static if Base.USE_GPL_LIBS
     include("solvers/umfpack.jl")

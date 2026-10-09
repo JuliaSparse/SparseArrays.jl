@@ -5,21 +5,16 @@ using Pkg
 using Pkg.Artifacts
 using Clang.Generators
 using Clang.Generators.JLLEnvs
-using SuiteSparse_jll
 using JuliaFormatter
 
 cd(@__DIR__)
 
-# headers
-if length(ARGS) == 0
-    artifact_dir = SuiteSparse_jll.artifact_dir
-else
-    if isdir(ARGS[1])
-        artifact_dir = ARGS[1]
-    else
-        error("Usage: $PROGRAM_FILE <SuiteSparse artifact directory>")
-    end
+# headers: always the unpacked SuiteSparse_jll tarball that `Makefile` downloads, never the
+# SuiteSparse_jll of the running Julia, which is a fixed stdlib and may be an older release
+if length(ARGS) != 1 || !isdir(ARGS[1])
+    error("Usage: $PROGRAM_FILE <SuiteSparse artifact directory>")
 end
+artifact_dir = ARGS[1]
 include_dir = joinpath(artifact_dir, "include", "suitesparse") |> normpath
 
 config_h = joinpath(include_dir, "SuiteSparse_config.h")
@@ -30,6 +25,13 @@ cholmod_h = joinpath(include_dir, "cholmod.h")
 
 SuiteSparseQR_C_h = joinpath(include_dir, "SuiteSparseQR_C.h")
 @assert isfile(SuiteSparseQR_C_h)
+
+# the BSD-licensed ordering libraries, which a build without GPL libraries keeps
+amd_h = joinpath(include_dir, "amd.h")
+@assert isfile(amd_h)
+
+colamd_h = joinpath(include_dir, "colamd.h")
+@assert isfile(colamd_h)
 
 umfpack_h = joinpath(include_dir, "umfpack.h")
 @assert isfile(umfpack_h)
@@ -45,7 +47,7 @@ options["general"]["output_file_path"] = joinpath(@__DIR__, "..", "src/solvers/w
 args = get_default_args()
 push!(args, "-I$include_dir")
 
-header_files = [config_h, cholmod_h, SuiteSparseQR_C_h, umfpack_h]
+header_files = [config_h, cholmod_h, SuiteSparseQR_C_h, amd_h, colamd_h, umfpack_h]
 
 ctx = create_context(header_files, args, options)
 

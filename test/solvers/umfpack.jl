@@ -3,12 +3,12 @@
 module UMFPACKTests
 using Test
 
-using Random
 using SparseArrays
 using Serialization
 using LinearAlgebra:
     LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet, Symmetric, Hermitian
-using SparseArrays: nnz, sparse, sprand, sprandn, SparseMatrixCSC, UMFPACK, increment!
+using SparseArrays: nnz, sparse, SparseMatrixCSC, UMFPACK, increment!
+include("../testhelpers.jl")
 
 function umfpack_report(l::UMFPACK.UmfpackLU)
     UMFPACK.umfpack_report_numeric(l, 0)
@@ -21,6 +21,15 @@ _isnull_numeric(F::UMFPACK.UmfpackLU) = F.numeric.p == C_NULL
 const TransposeFact = isdefined(LinearAlgebra, :TransposeFactorization) ?
     LinearAlgebra.TransposeFactorization :
     Transpose
+
+# A standard run factorizes with the build's `Int` indices, and `Float64` elements where
+# the element type is not the point of the test.
+const ITYPES = core_itypes
+# The C entry points are generated per index type. The testsets that between them call
+# each one (solve and report, the factors and the determinant, a column ordering) take
+# both index types in a comprehensive run; the others would repeat them.
+const KERNEL_ITYPES = @static COMPREHENSIVE ? itypes : core_itypes
+const ELTYPES = @static COMPREHENSIVE ? STD_ELTYPES : (Float64,)
 
 for itype in UMFPACK.UmfpackIndexTypes
     sol_r = Symbol(UMFPACK.umf_nm("solve", :Float64, itype))
@@ -57,11 +66,11 @@ for itype in UMFPACK.UmfpackIndexTypes
 end
 
 @testset "Workspace management" begin
-    A0 = I + sprandn(100, 100, 0.01)
-    b0 = randn(100)
-    bn0 = rand(100, 20)
-    @testset "Core functionality for $Tv elements" for Tv in (Float64, ComplexF64)
-        for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+    A0 = fixture(Float64, 100, 100) + 100I
+    b0 = Float64.(1:100)
+    bn0 = reshape(Float64.(1:2000), 100, 20)
+    @testset "Core functionality for $Tv elements" for Tv in ELTYPES
+        for Ti in KERNEL_ITYPES
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             Af = lu(A)
             umfpack_report(Af)
@@ -70,7 +79,7 @@ end
                 similar(b),
                 Af, b,
                 UMFPACK.UMFPACK_A)
-            @test A \ b == x
+            @test (@static COMPREHENSIVE ? A : Af) \ b == x
             bn = convert(Matrix{Tv}, bn0)
             xn = similar(bn)
             for i in 1:20
@@ -79,7 +88,7 @@ end
                     Af, bn[:, i],
                     UMFPACK.UMFPACK_A)
             end
-            @test A \ bn == xn
+            @test (@static COMPREHENSIVE ? A : Af) \ bn == xn
             umfpack_report(Af)
         end
     end
@@ -101,7 +110,7 @@ end
     end
     @testset "Allocations" begin
         for Tv in Base.uniontypes(UMFPACK.UMFVTypes),
-            Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            Ti in ITYPES
             f(Tv, Ti)
             f(Tv, Ti)
             @test f(Tv, Ti) == 0
@@ -134,8 +143,10 @@ end
         Af = lu(A0)
         umfpack_report(Af)
         test_ws_dup(Af, copy(Af))
-        test_ws_dup(Af, copy(parent(transpose(Af))))
-        test_ws_dup(Af, copy(parent(adjoint(Af))))
+        # a copied wrapper has a factorization of its own, as a copied factorization has
+        test_ws_dup(Af, parent(copy(transpose(Af))))
+        test_ws_dup(Af, parent(copy(adjoint(Af))))
+        @test copy(transpose(Af)) isa typeof(transpose(Af))
         # the workspace argument is accepted for compatibility
         test_ws_dup(Af, copy(Af, UMFPACK.UmfpackWS(Af)))
         umfpack_report(Af)
@@ -143,9 +154,11 @@ end
 end
 
 @testset "UMFPACK wrappers" begin
+    @static if COMPREHENSIVE
     se33 = sparse(1.0I, 3, 3)
     do33 = fill(1., 3)
     @test isequal(se33 \ do33, do33)
+    end
 
     # based on deps/Suitesparse-4.0.2/UMFPACK/Demo/umfpack_di_demo.c
 
@@ -155,7 +168,7 @@ end
 
     @testset "Core functionality for $Tv elements" for Tv in (Float64, ComplexF64)
         # We might be able to support two index sizes one day
-        for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        for Ti in ITYPES
             A = convert(SparseMatrixCSC{Tv,Ti}, A0)
             lua = lu(A)
             umfpack_report(lua)
@@ -225,7 +238,7 @@ end
             x = lua \ b
             @test transpose(A)*x ≈ b
 
-            for W in (Symmetric(A), Hermitian(A), Symmetric(view(A, 1:3, 1:3)))
+            for W in (@static COMPREHENSIVE ? (Symmetric(A), Hermitian(view(A, 1:3, 1:3))) : (Tv <: Real ? Symmetric(A) : Hermitian(A),))
                 F = lu(W)
                 @test F isa UMFPACK.UmfpackLU
                 @test Matrix(W) * (F \ b[1:size(W, 1)]) ≈ b[1:size(W, 1)]
@@ -237,6 +250,7 @@ end
         end
     end
 
+    @static if COMPREHENSIVE
     @testset "More tests for complex cases" begin
         Ac0 = complex.(A0,A0)
         for Ti in Base.uniontypes(UMFPACK.UMFITypes)
@@ -255,25 +269,35 @@ end
             umfpack_report(lua)
         end
     end
+    end
 
+    @static if COMPREHENSIVE
     @testset "Rectangular cases. elty=$elty, m=$m, n=$n" for
         elty in (Float64, ComplexF64),
             (m, n) in ((10,5), (5, 10))
 
-        Random.seed!(30072018)
-        A = sparse([1:min(m,n); rand(1:m, 10)], [1:min(m,n); rand(1:n, 10)], elty == Float64 ? randn(min(m, n) + 10) : complex.(randn(min(m, n) + 10), randn(min(m, n) + 10)))
+        # UMFPACK takes the pivots from the first min(m, n) columns of its ordering and
+        # reports a zero pivot when those are dependent, although the matrix has full rank.
+        # The fixture's columns 1, 4, 7 and 10 span two rows, so the entries that give it
+        # full rank go in the last columns, where the ordering finds nonzero pivots.
+        k = min(m, n)
+        A = fixture(elty, m, n) + sparse(1:k, n-k+1:n, elty == Float64 ? Float64.(1:k) : complex.(1.0:k, -1.0), m, n)
         F = lu(A)
         umfpack_report(F)
         L, U, p, q, Rs = F.:(:)
         @test (Diagonal(Rs) * A)[p,q] ≈ L * U
+        @test (L, U, p, q, Rs) == (F.L, F.U, F.p, F.q, F.Rs)
         umfpack_report(F)
     end
+    end
 
+    @static if COMPREHENSIVE
     @testset "Issue #4523 - complex sparse \\" begin
         A, b = sparse((1.0 + im)I, 2, 2), fill(1., 2)
         @test A * (lu(A)\b) ≈ b
 
         @test det(sparse([1,3,3,1], [1,1,3,3], [1,1,1,1])) == 0
+    end
     end
 
     @testset "UMFPACK_ERROR_n_nonpositive" begin
@@ -283,13 +307,11 @@ end
     @testset "Issue #15099" begin
         testtypes = [
             (ComplexF32, ComplexF64),
-            (ComplexF64, ComplexF64),
             (Float32, Float64),
-            (Float64, Float64),
             (Int, Float64),
-            (ComplexF16, ComplexF64),
             (Float16, Float64),
         ]
+        testtypes = @static COMPREHENSIVE ? testtypes : [(ComplexF32, ComplexF64), (Int, Float64)]
 
         for (Tin, Tout) in testtypes
             F = lu(sparse(fill(Tin(1), 1, 1)))
@@ -297,13 +319,14 @@ end
             L = sparse(fill(Tout(1), 1, 1))
             @test F.p == F.q == [1]
             @test F.Rs == [1.0]
-            @test F.L == F.U == L
+            @test mismatch(F.L, Matrix(L)) === nothing
+            @test mismatch(F.U, Matrix(L)) === nothing
             @test F.:(:) == (L, L, [1], [1], [1.0])
             umfpack_report(F)
         end
     end
 
-    @testset "BigFloat not supported" for T in (BigFloat, Complex{BigFloat})
+    @testset "BigFloat not supported" for T in (BigFloat, (@static COMPREHENSIVE ? (Complex{BigFloat},) : ())...)
         @test_throws ArgumentError lu(sparse(fill(T(1), 1, 1)))
     end
 
@@ -319,13 +342,26 @@ end
         umfpack_report(F)
     end
 
-    @testset "Test aliasing" begin
-        a = rand(5)
-        @test_throws ArgumentError UMFPACK.solve!(a, lu(sparse(1.0I, 5, 5)), a, UMFPACK.UMFPACK_A)
-        aa = complex(a)
-        @test_throws ArgumentError UMFPACK.solve!(aa, lu(sparse((1.0im)I, 5, 5)), aa, UMFPACK.UMFPACK_A)
+    @testset "aliased solution and right-hand side" begin
+        A = sparse([2.0 1 0; 1 3 1; 0 1 4])
+        F = lu(A)
+        # iterative refinement reads the right-hand side again after writing the solution
+        F.control[UMFPACK.JL_UMFPACK_IRSTEP] = 2
+        B = A * [1.0 2; 3 4; 5 6]
+        @test ldiv!(view(B, :, 1), F, view(vec(B), 1:3)) ≈ [1, 3, 5]
+        B = A * [1.0 2 3; 4 5 6; 7 8 9]
+        @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2)) ≈ [1.0 2; 4 5; 7 8]
     end
 
+    @testset "propertynames(::UmfpackLU)" begin
+        F = lu(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+        @test propertynames(F) == (:L, :U, :p, :q, :Rs, :(:))
+        @test hasproperty(F, :(:))
+        @test :numeric ∉ propertynames(F)
+        @test :numeric ∈ propertynames(F, true)
+    end
+
+    @static if COMPREHENSIVE
     @testset "Issues #18246,18244 - lu sparse pivot" begin
         A = sparse(1.0I, 4, 4)
         A[1:2,1:2] = [-.01 -200; 200 .001]
@@ -333,29 +369,33 @@ end
         umfpack_report(F)
         @test F.p == [3 ; 4 ; 2 ; 1]
     end
+    end
 
     @testset "Test that A[c|t]_ldiv_B!{T<:Complex}(X::StridedMatrix{T}, lu::UmfpackLU{Float64}, B::StridedMatrix{T}) works as expected." begin
         N = 10
-        p = 0.5
-        A = N*I + sprand(N, N, p)
+        A = N*I + fixture(Float64, N, N)
         X = zeros(ComplexF64, N, N)
-        B = complex.(rand(N, N), rand(N, N))
+        B = Matrix(fixture(ComplexF64, N, N))
         luA, lufA = lu(A), lu(Array(A))
         umfpack_report(luA)
         @test ldiv!(copy(X), luA, B) ≈ ldiv!(copy(X), lufA, B)
+        # a vector right-hand side has a kernel of its own
+        @test ldiv!(X[:, 1], luA, B[:, 1]) ≈ ldiv!(copy(X), lufA, B)[:, 1]
+        @static if COMPREHENSIVE
         @test ldiv!(copy(X), adjoint(luA), B) ≈ ldiv!(copy(X), adjoint(lufA), B)
         @test ldiv!(copy(X), transpose(luA), B) ≈ ldiv!(copy(X), transpose(lufA), B)
+        end
         umfpack_report(luA)
     end
 
     @testset "singular matrix" begin
-        for A in sparse.((Float64[1 2; 0 0], ComplexF64[1 2; 0 0]))
+        for A in sparse.((Float64[1 2; 0 0], (@static COMPREHENSIVE ? (ComplexF64[1 2; 0 0],) : ())...))
             @test_throws SingularException lu(A)
             @test !issuccess(lu(A; check = false))
         end
     end
 
-    @testset "rcond (#118) for $Tv, $Ti" for Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+    @testset "rcond (#118) for $Tv, $Ti" for Tv in ELTYPES, Ti in ITYPES
         # the number is min/max of |diag(U)| of the row-scaled matrix UMFPACK factorized
         F = lu(SparseMatrixCSC{Tv,Ti}(sparse(Tv[1 3; 0 1])))
         @test UMFPACK.rcond(F) === 0.25
@@ -373,8 +413,9 @@ end
         @test UMFPACK.rcond(F) === 0.5
     end
 
+    @static if COMPREHENSIVE
     @testset "deserialization" begin
-        A  = 10*I + sprandn(10, 10, 0.4)
+        A  = 10*I + fixture(Float64, 10, 10)
         F1 = lu(A)
 
         umfpack_report(F1)
@@ -400,14 +441,17 @@ end
         umfpack_report(x.a)
         umfpack_report(x.b)
     end
+    end
 
     @testset "Do/do not reuse symbolic LU factorization" for reuse ∈ (true, false)
         A1 = sparse(increment!([0,4,1,1,2,2,0,1,2,3,4,4]),
                     increment!([0,4,0,2,1,2,1,4,3,2,1,2]),
                     [2.,1.,3.,4.,-1.,-3.,3.,9.,2.,1.,4.,2.], 5, 5)
-        testtypes = [Float64, ComplexF64, Float32, ComplexF32, Float16, ComplexF16]
-        for Tv in testtypes
-            for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+        testtypes = [ComplexF64, Float64]
+        cases = @static COMPREHENSIVE ? eachvalue((true, false), testtypes, itypes) : [(reuse, Float64, Int)]
+        for (r, Tv, Ti) in cases
+            # (Float64, Int) runs once under each `reuse`, whether or not the grid pairs them
+            if r == reuse || (Tv, Ti) == (Float64, Int) && (reuse, Tv, Ti) ∉ cases
                 A = convert(SparseMatrixCSC{Tv,Ti}, A0)
                 B = convert(SparseMatrixCSC{Tv,Ti}, A1)
                 b = Tv[8., 45., -3., 3., 19.]
@@ -415,7 +459,8 @@ end
                 umfpack_report(F)
                 lu!(F, B; reuse_symbolic=reuse)
                 umfpack_report(F)
-                @test F\b ≈ B\b ≈ Matrix(B)\b
+                @test F\b ≈ Matrix(B)\b
+                @static COMPREHENSIVE && @test B\b ≈ Matrix(B)\b
 
                 # singular matrix
                 C = copy(B)
@@ -437,14 +482,15 @@ end
                 else
                     lu!(F, D; reuse_symbolic=reuse)
                     umfpack_report(F)
-                    @test F\b ≈ D\b ≈ Matrix(D)\b
+                    @test F\b ≈ Matrix(D)\b
+                    @static COMPREHENSIVE && @test D\b ≈ Matrix(D)\b
                 end
             end
         end
     end
 
     @testset "F.Rs and logabsdet when UMFPACK divides by the scale factors, $Tv, $Ti" for
-            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            Tv in ELTYPES, Ti in KERNEL_ITYPES
         # UMFPACK stores reciprocal scale factors for badly scaled rows
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[1e-20 2e-20 0; 0 1 3; 1 0 1]))
         F = lu(A)
@@ -453,12 +499,14 @@ end
         @test Rs == F.Rs
         @test all(logabsdet(F) .≈ logabsdet(Matrix(A)))
         @test det(F) ≈ det(Matrix(A))
-        B = SparseMatrixCSC{Tv,Ti}(1e-15 * (sprandn(MersenneTwister(1), 50, 50, 0.1) + 10I))
+        @static if COMPREHENSIVE
+        B = SparseMatrixCSC{Tv,Ti}(1e-15 * (fixture(Tv, 50, 50) + 50I))
         @test all(logabsdet(lu(B)) .≈ logabsdet(Matrix(B)))
+        end
     end
 
     @testset "factors are rebuilt on demand, $Tv, $Ti" for
-            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            Tv in ELTYPES, Ti in ITYPES
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1; 1 3]))
         for G in (UMFPACK.UmfpackLU(A), deserialize(seekstart(let io = IOBuffer(); serialize(io, lu(A)); io; end)))
             @test det(G) ≈ det(Matrix(A))
@@ -473,7 +521,7 @@ end
     end
 
     @testset "failed lu! drops the old numeric factorization, $Tv, $Ti" for
-            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            Tv in ELTYPES, Ti in ITYPES
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
         B = SparseMatrixCSC{Tv,Ti}(sparse(Tv[5 1 0; 1 5 1; 0 1 5]))
         F = lu(A)
@@ -485,7 +533,7 @@ end
         @test F \ ones(3) ≈ Matrix(B) \ ones(3)
     end
 
-    @testset "lu!(F, S) validates S before mutating F, $Ti" for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+    @testset "lu!(F, S) validates S before mutating F, $Ti" for Ti in ITYPES
         A = SparseMatrixCSC{Float64,Ti}(sparse([4.0 1; 1 3]))
         F = lu(A)
         L, U = F.L, F.U
@@ -505,28 +553,55 @@ end
         @test Fc \ ComplexF64[1, 2, 3] ≈ Matrix(C) \ ComplexF64[1, 2, 3]
     end
 
-    @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in Base.uniontypes(UMFPACK.UMFITypes)
+    @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in KERNEL_ITYPES
         A = sparse([4.0 1 0; 1 4 1; 0 1 4])
         b = [1.0, 2.0, 3.0]
         x = Matrix(A) \ b
-        for S in (SparseMatrixCSC{Float32,Ti}(A), SparseMatrixCSC{ComplexF32,Ti}(A),
-                  SparseMatrixCSC{Int,Ti}(A), SparseMatrixCSC{Float64,Ti}(A))
+        # the element type is converted before the keywords reach anything index-specific
+        for S in (SparseMatrixCSC{Float32,Ti}(A), (@static COMPREHENSIVE ? (Ti == Int ? (SparseMatrixCSC{ComplexF32,Ti}(A),
+                  SparseMatrixCSC{Int,Ti}(A)) : ()) : ())..., SparseMatrixCSC{Float64,Ti}(A))
             @test lu(S; q=[3, 2, 1]) \ b ≈ x
+            @static if COMPREHENSIVE
             @test lu(S; q=Int32[2, 1, 0]) \ b ≈ x
+            end
             @test lu(S; q=3:-1:1) \ b ≈ x
+            # an ordering UMFPACK does not choose by itself, and an odd permutation
+            F = lu(S; q=[1, 3, 2])
+            @test F.q == [1, 3, 2] != lu(S).q
+            @test all(logabsdet(F) .≈ logabsdet(Matrix(A)))
             @test lu(S; control=UMFPACK.get_umfpack_control(Float64, Ti)) \ b ≈ x
         end
+        @test lu(SparseMatrixCSC{ComplexF64,Ti}(A); q=[3, 2, 1]) \ complex(b) ≈ x
         @test_throws DimensionMismatch lu(SparseMatrixCSC{Float64,Ti}(A); q=[1, 2])
     end
 
-    @testset "non-square det and \\ throw DimensionMismatch" begin
-        F = lu(sparse([1.0 2 0; 0 1 3]))
+    @testset "non-square det and \\ throw DimensionMismatch, $Tv, $m×$n" for
+            Tv in (Float64, ComplexF64), (m, n) in FIXTURE_SHAPES[1:2]
+        A = fixture(Tv, m, n)
+        # the fixture is rank deficient, which UMFPACK reports and still factorizes
+        F = lu(A; check=false)
         @test_throws DimensionMismatch det(F)
-        @test_throws DimensionMismatch F \ [1.0, 2.0]
+        @test_throws DimensionMismatch F \ ones(m)
+        # each factor read by itself has the shape and the values it has in the tuple
+        L, U, p, q, Rs = F.:(:)
+        @test size(L) == (m, min(m, n)) && size(U) == (min(m, n), n)
+        @test mismatch(F.L, Matrix(L)) === nothing
+        @test mismatch(F.U, Matrix(U)) === nothing
+        @test (F.p, F.q, F.Rs) == (p, q, Rs)
+        @test L * U ≈ (Diagonal(Rs) * A)[p, q]
+    end
+
+    @testset "ldiv! DimensionMismatch names the sizes and leaves the output unchanged" begin
+        F = lu(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+        X = fill(7.0, 3)
+        @test_throws DimensionMismatch ldiv!(X, F, [1.0, 2])
+        @test_throws r"3×3.*2 rows" ldiv!(X, F, [1.0, 2])
+        @test_throws r"\(3,\).*\(3, 1\)" ldiv!(X, F, reshape([1.0, 2, 3], 3, 1))
+        @test X == fill(7.0, 3)
     end
 
     @testset "ldiv! with strided and adjoint/transpose right-hand sides, $Tv, $Ti" for
-            Tv in (Float64, ComplexF64), Ti in Base.uniontypes(UMFPACK.UMFITypes)
+            Tv in ELTYPES, Ti in ITYPES
         A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0 0; 1 4 1 0; 0 1 4 1; 0 0 1 4.5]))
         F = lu(A)
         Ad = Matrix(A)
@@ -535,12 +610,25 @@ end
         @test ldiv!(F, v) ≈ Ad \ Tv.(1:2:8)
         @test w[2:2:8] == 2:2:8
         @test ldiv!(zeros(Tv, 4), F, view(Tv.(collect(1.0:8.0)), 1:2:8)) ≈ Ad \ Tv.(1:2:8)
+        # the ComplexF64 solve! has a strided branch of its own, which a standard run reaches only here
+        @static COMPREHENSIVE || @test ldiv!(zeros(ComplexF64, 4), lu(SparseMatrixCSC{ComplexF64,Ti}(A)), view(complex(collect(1.0:8.0)), 1:2:8)) ≈ Ad \ Tv.(1:2:8)
+        # a matrix and a right-hand side that differ from their conjugates tell the transpose
+        # from the adjoint solve, and check the imaginary part of the determinant
+        Ac = SparseMatrixCSC{ComplexF64,Ti}(fixture(ComplexF64, 4, 4) + 5I)
+        Fc = lu(Ac)
+        bc = complex.(1.0:4.0, 4.0:-1.0:1.0)
+        @test transpose(Ac) * ldiv!(zeros(ComplexF64, 4), transpose(Fc), bc) ≈ bc
+        @test Ac' * ldiv!(zeros(ComplexF64, 4), Fc', bc) ≈ bc
+        @test det(Fc) ≈ det(Matrix(Ac))
+        @test all(logabsdet(Fc) .≈ logabsdet(Matrix(Ac)))
         M = Tv.(reshape(1.0:24.0, 8, 3))
         Y = zeros(Tv, 8, 3)
         ldiv!(view(Y, 1:2:8, :), transpose(F), view(M, 2:2:8, :))
         @test Y[1:2:8, :] ≈ transpose(Ad) \ M[2:2:8, :]
         @test iszero(Y[2:2:8, :])
-        for op in (adjoint, transpose), G in (F, F', transpose(F))
+        for (op, G) in ((op, wrap(F)) for (tv, ti, op, wrap) in unique(((Float64, Int, adjoint, identity), (Float64, Int, transpose, adjoint),
+                (@static COMPREHENSIVE ? ((Float64, Int, adjoint, transpose), (ComplexF64, Int, transpose, identity),
+                    (ComplexF64, Int, adjoint, adjoint), (ComplexF64, Int, transpose, transpose)) : ())...)) if (tv, ti) == (Tv, Ti))
             B = Tv.(reshape(1.0:12.0, 3, 4))
             Bw = op(copy(B))
             @test ldiv!(G, Bw) === Bw
@@ -574,6 +662,7 @@ end
 end
 
 
+@static if COMPREHENSIVE
 @testset "UMFPACK's lu with custom permutation" begin
     A = sparse([1.0 0.0 0.9778920565882165 0.0 0.0 0.0 0.0 0.0 0.0 0.0;
     0.0 1.0 0.0 0.0 0.0 1.847311282254734 0.0 0.0 0.0 0.0;
@@ -588,7 +677,7 @@ end
     q1 = [9, 8, 5, 1, 7, 2, 3, 4, 6, 10]
     q0 = q1 .- 1
     for i in 1:10
-        b = randn(10)
+        b = Float64.((1:10) .== i)
         x = lu(A) \ b
         x0 = lu(A; q=q0) \ b
         x1 = lu(A; q=q1) \ b
@@ -596,11 +685,12 @@ end
         @test x ≈ x1
     end
 end
+end
 
 @testset "a workspace grows when refinement is turned on" begin
-    A = lu(sprandn(100, 100, 0.1) + I)
+    A = lu(fixture(Float64, 100, 100) + 100I)
     umfpack_report(A)
-    b = randn(100)
+    b = Float64.(1:100)
     ws = UMFPACK.UmfpackWS(A)
     @test length(ws.Wi) == 100
     @test length(ws.W) == 100
@@ -610,6 +700,9 @@ end
     @test x ≈ y
     @test length(ws.Wi) == 100
     @test length(ws.W) == 500
+    # a smaller factorization does not shrink it
+    @test ldiv!(zeros(2), lu(sparse([4.0 1; 1 3])), [1.0, 2.0]; workspace = ws) ≈ [4.0 1; 1 3] \ [1.0, 2.0]
+    @test length(ws.Wi) == 100
     umfpack_report(A)
 end
 
@@ -636,9 +729,11 @@ end
 end
 
 
-A = I + sprandn(100, 100, 0.01)
-Af = lu(A)
-UMFPACK.umfpack_report_numeric(Af, 0)
-UMFPACK.umfpack_report_symbolic(Af, 0)
+@testset "reports at print level 0 do not throw" begin
+    A = fixture(Float64, 100, 100) + 100I
+    Af = lu(A)
+    UMFPACK.umfpack_report_numeric(Af, 0)
+    UMFPACK.umfpack_report_symbolic(Af, 0)
+end
 
 end # module

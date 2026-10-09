@@ -56,7 +56,7 @@ indtype(x::ReadOnly) = indtype(parent(x))
 
 @inline _is_fixed(::AbstractArray) = false
 @inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
-@noinline _throwfixedinsert(A, I...) =
+@noinline _throwfixedinsert(A, I::Vararg{Integer,N}) where {N} =
     throw(ArgumentError("cannot store a new entry at ($(join(I, ", "))) in a $(nameof(typeof(A))), its sparsity pattern is read-only"))
 macro if_move_fixed(a...)
     length(a) <= 1 && error("@if_move_fixed needs at least two arguments")
@@ -98,12 +98,12 @@ FixedSparseCSC(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, n
     FixedSparseCSC{Tv,Ti}(m, n, ReadOnly(colptr), ReadOnly(rowval), nzval)
 FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
     FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
-        getcolptr(x), rowvals(x), nonzeros(x))
+        getcolptr(x), getrowval(x), getnzval(x))
 # shares x's buffers when the types already match, converts them otherwise
 function FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti}
     y = _unsafe_unfix(x)
     FixedSparseCSC{Tv,Ti}(size(y, 1), size(y, 2),
-        convert(Vector{Ti}, getcolptr(y)), convert(Vector{Ti}, rowvals(y)), convert(Vector{Tv}, nonzeros(y)))
+        convert(Vector{Ti}, getcolptr(y)), convert(Vector{Ti}, getrowval(y)), convert(Vector{Tv}, getnzval(y)))
 end
 
 """
@@ -120,20 +120,20 @@ fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
 
 Experimental, unsafe. Make a `FixedSparseCSC` by reusing the colptr, rowvals and nonzeros of `x`.
 """
-move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x), rowvals(x), nonzeros(x))
+move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x), getrowval(x), getnzval(x))
 """
     _unsafe_unfix(x)
 
 Experimental, unsafe. Returns a modifiable version of `x` for compatibility with this codebase.
 """
-_unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(x)), parent(rowvals(x)), nonzeros(x))
+_unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(x)), parent(getrowval(x)), getnzval(x))
 _unsafe_unfix(x::AbstractSparseMatrixCSC) = x
 
 # A fixed destination keeps its pattern: B's stored entries must lie in it and A's other
 # entries become zero. The pattern is checked in full before anything is written.
 function _copyto_fixed!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     size(A) == size(B) || throw(DimensionMismatch(lazy"cannot copy a matrix of size $(size(B)) into a fixed one of size $(size(A))"))
-    Arv, Brv, Anz, Bnz = rowvals(A), rowvals(B), nonzeros(A), nonzeros(B)
+    Arv, Brv, Anz, Bnz = getrowval(A), getrowval(B), getnzval(A), getnzval(B)
     for write in (false, true)
         write && fill!(Anz, zero(eltype(A)))
         @inbounds for j in axes(A, 2)
@@ -153,8 +153,8 @@ function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     @inbounds for j in axes(A,2)
         for k in nzrange(A, j)
             # If this element should be kept, rewrite in new position
-            if !f(rowvals(A)[k], j, nonzeros(A)[k])
-                nonzeros(A)[k] = zero(eltype(A))
+            if !f(getrowval(A)[k], j, getnzval(A)[k])
+                getnzval(A)[k] = zero(eltype(A))
             end
         end
     end
@@ -214,3 +214,11 @@ function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector
     end
     return A
 end
+
+# Base's `cumsum`, `cumprod` and `accumulate` allocate their result with `similar(A, T)`,
+# which keeps a fixed pattern, so compute them on the plain array and return that.
+for f in (:cumsum, :cumprod)
+    @eval Base.$f(A::FixedSparseCSC; dims::Integer) = $f(_unsafe_unfix(A); dims)
+    @eval Base.$f(x::FixedSparseVector; dims::Integer=1) = $f(_unsafe_unfix(x); dims)
+end
+Base.accumulate(op, A::Union{FixedSparseCSC,FixedSparseVector}; kw...) = accumulate(op, _unsafe_unfix(A); kw...)

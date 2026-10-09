@@ -40,13 +40,13 @@ end
 
 matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
     Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
-matop_dest(::typeof(*), A, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
 # sparse products with banded matrices should return sparse arrays
-matop_dest(::typeof(*), A::BiTriSym, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A::BiTriSym, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # needed for disambiguation with LinearAlgebra
-matop_dest(::typeof(*), A::Diagonal, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A::Diagonal, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # a `Diagonal` product keeps the structure of the sparse operand, so a fixed operand gets
 # a fixed destination with that structure up front, which `mul!` then only has to fill
@@ -71,37 +71,38 @@ matop_dest(::typeof(*), A::QuasiSparseMatrix, B::BiTriSym) =
 # The dense factor arrives with its adjoint/transpose/symmetric/Hermitian wrapper stripped,
 # so it is any matrix with fast scalar `getindex`: strided or not, or a structured dense
 # type without a product of its own, such as `UpperHessenberg`.
-mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::AbstractMatrix, alpha::Number, beta::Number) =
-    spdensemul!(C, tA, tB, A, B, alpha, beta)
-mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number) =
-    densespmul!(C, tA, tB, A, B, alpha, beta)
+mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrSubArray, B::AbstractMatrix, alpha::Number, beta::Number) =
+    spdensemul!(C, tA, tB, _compressed(A), B, alpha, beta)
+mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number) =
+    densespmul!(C, tA, tB, A, _compressed(B), alpha, beta)
 # With both factors sparse, only pairs of stored entries contribute: column `k` of `B` selects
 # the columns of `A` that are added into column `k` of `C`. A wrapped or subset factor is
 # materialized first, which is O(nnz).
-function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrColumnSubset, B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
+function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrSubArray, B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number)
+    A, B = _compressed(A), _compressed(B)
     _spmatspmat_dense!(C, tA == 'N' ? A : sparse(wrap(A, tA)), tB == 'N' ? B : sparse(wrap(B, tB)), alpha, beta)
     return C
 end
 function _spmatspmat_dense!(C, A, B, α, β)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
-    rvA, nzA = rowvals(A), nonzeros(A)
-    rvB, nzB = rowvals(B), nonzeros(B)
+    rvA, nzA = getrowval(A), getnzval(A)
+    rvB, nzB = getrowval(B), getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
     end
     C = _fix_size(C, mC, nC)
-    @inbounds for k in axes(B, 2), q in nzrange(B, k)
+    @inbounds for k in axes(B, 2), q in getnzrange(B, k)
         bα = α isa Bool ? nzB[q] : nzB[q] * α
-        for p in nzrange(A, rvB[q])
+        for p in getnzrange(A, rvB[q])
             C[rvA[p], k] = muladd(nzA[p], bα, C[rvA[p], k])
         end
     end
 end
 LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
-mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrColumnSubset, B::AbstractVector, alpha::Number, beta::Number) =
-    spdensemul!(C, tA, 'N', A, B, alpha, beta)
+mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrSubArray, B::AbstractVector, alpha::Number, beta::Number) =
+    spdensemul!(C, tA, 'N', _compressed(A), B, alpha, beta)
 # LinearAlgebra materializes the second of two symmetric/Hermitian factors, elementwise
 # when it is sparse; the kernels take both wrappers as they are
 LinearAlgebra.mul(A::HermOrSym{<:Any,<:DenseMatrixUnion}, B::SparseMatrixCSCSymmHerm) = LinearAlgebra._mul(A, B)
@@ -172,8 +173,8 @@ function _spmatmul!(C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
-    nzv = nonzeros(A)
-    rv = rowvals(A)
+    nzv = getnzval(A)
+    rv = getrowval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
@@ -183,7 +184,7 @@ function _spmatmul!(C, A, B, α, β)
     for k in Cax2
         @inbounds for col in Aax2
             αxj = α isa Bool ? B[col,k] : B[col,k] * α
-            for j in nzrange(A, col)
+            for j in getnzrange(A, col)
                 rvj = rv[j]
                 C[rvj, k] = muladd(nzv[j], αxj, C[rvj, k])
             end
@@ -195,8 +196,8 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AtB(C, A, B)
-    nzv = nonzeros(A)
-    rv = rowvals(A)
+    nzv = getnzval(A)
+    rv = getrowval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
@@ -207,7 +208,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     for k in Cax2
         @inbounds for col in Aax2
             tmp = C0
-            for j in nzrange(A, col)
+            for j in getnzrange(A, col)
                 tmp = muladd(tfun(nzv[j]), B[rv[j], k], tmp)
             end
             C[col, k] = α isa Bool ? tmp + C[col, k] : muladd(tmp, α, C[col, k])
@@ -239,15 +240,15 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::Spars
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = plain ? _matmul_size_AB(C, A, B) : _matmul_size_ABt(C, A, B)
-    rv = rowvals(B)
-    nzv = nonzeros(B)
+    rv = getrowval(B)
+    nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
     end
     C = _fix_size(C, mC, nC)
     A = _fix_size(A, mA, nA)
-    @inbounds for col in Bax2, k in nzrange(B, col)
+    @inbounds for col in Bax2, k in getnzrange(B, col)
         Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
         dst, src = plain ? (col, rv[k]) : (rv[k], col)
         @simd for row in Aax1
@@ -262,8 +263,8 @@ end
 function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
-    rv = rowvals(B)
-    nzv = nonzeros(B)
+    rv = getrowval(B)
+    nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
@@ -271,7 +272,7 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMat
     C = _fix_size(C, mC, nC)
     buf = Vector{eltype(A)}(undef, mA)
     @inbounds for col in axes(B, 2)
-        nzrng = nzrange(B, col)
+        nzrng = getnzrange(B, col)
         isempty(nzrng) && continue
         for row in Aax1
             buf[row] = A[row, col]
@@ -292,8 +293,8 @@ function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B
     Aax1 = axes(A, 1)
     Bax2 = axes(B, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
-    rv = rowvals(B)
-    nzv = nonzeros(B)
+    rv = getrowval(B)
+    nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
@@ -301,7 +302,7 @@ function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B
     C = _fix_size(C, mC, nC)
     A = _fix_size(A, mA, nA)
     @inbounds for row in Aax1, col in Bax2
-        nzrng = nzrange(B, col)
+        nzrng = getnzrange(B, col)
         isempty(nzrng) && continue
         tmp = C[row, col]
         for k in nzrng
@@ -349,6 +350,16 @@ end
 *(A::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCSymmHerm) = A * sparse(B)
 *(A::SparseMatrixCSCSymmHerm, B::SparseMatrixCSCSymmHerm) = sparse(A) * sparse(B)
 *(A::SparseMatrixCSCSymmHerm, x::SparseVectorOrView) = sparse(A) * x
+# so is the eagerly made adjoint/transpose of a sparse triangular matrix
+for W in (:UpperTriangular, :LowerTriangular, :UnitUpperTriangular, :UnitLowerTriangular)
+    @eval _sptriangular(A::$W) = $W(copy(parent(A)))
+end
+*(A::SparseAdjOrTransTriangular, B::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},SparseMatrixCSCSymmHerm}) =
+    _sptriangular(A) * B
+*(A::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},SparseMatrixCSCSymmHerm}, B::SparseAdjOrTransTriangular) =
+    A * _sptriangular(B)
+*(A::SparseAdjOrTransTriangular, B::SparseAdjOrTransTriangular) = _sptriangular(A) * _sptriangular(B)
+*(A::SparseAdjOrTransTriangular, x::SparseVectorOrView) = _sptriangular(A) * x
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
@@ -356,9 +367,9 @@ function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
         throw(DimensionMismatch("incompatible sizes"))
     T = promote_op(matprod, eltype(Da), promote_op(matprod, eltype(A), eltype(Db)))
     dest = similar(A, T)
-    vals_dest = nonzeros(dest)
-    rows = rowvals(A)
-    vals = nonzeros(A)
+    vals_dest = getnzval(dest)
+    rows = getrowval(A)
+    vals = getnzval(A)
     da, db = map(parent, (Da, Db))
     @inbounds for col in axes(A,2)
         dbcol = db[col]
@@ -426,16 +437,16 @@ end
 
 # process single rhs column
 function spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
-    rowvalA = rowvals(A); nzvalA = nonzeros(A)
-    rowvalB = rowvals(B); nzvalB = nonzeros(B)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
+    rowvalB = getrowval(B); nzvalB = getnzval(B)
     mA = size(A, 1)
     ip0 = ip
     k0 = ip - 1
     @inbounds begin
-        for jp in nzrange(B, i)
+        for jp in getnzrange(B, i)
             nzB = nzvalB[jp]
             j = rowvalB[jp]
-            for kp in nzrange(A, j)
+            for kp in getnzrange(A, j)
                 nzC = nzvalA[kp] * nzB
                 k = rowvalA[kp]
                 if xb[k]
@@ -494,8 +505,8 @@ end
 
 # A sparse destination takes the sparse product; its pattern becomes that of `A*B*α + C*β`.
 # A fixed destination is checked against that pattern before it is written.
-Base.@constprop :aggressive function mul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::SparseMatrixCSCOrColumnSubset,
-                            B::SparseMatrixCSCOrColumnSubset, alpha::Number, beta::Number)
+Base.@constprop :aggressive function mul!(C::SparseMatrixCSCOrColumnSubset, tA, tB, A::SparseMatrixCSCOrSubArray,
+                            B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number)
     mA, nA = LinearAlgebra.lapack_size(_uppercase(tA) in ('S', 'H') ? 'N' : tA, A)
     mB, nB = LinearAlgebra.lapack_size(_uppercase(tB) in ('S', 'H') ? 'N' : tB, B)
     nA == mB || throw(DimensionMismatch(lazy"matrix A has dimensions ($mA,$nA), matrix B has dimensions ($mB,$nB)"))
@@ -513,7 +524,7 @@ _assign_sparse!(C::AbstractSparseMatrixCSC, R) = copyto!(C, R)
 # a column view is assigned through its parent, whose sparse `setindex!` is O(nnz)
 _assign_sparse!(C::SparseMatrixCSCColumnSubset, R) = (parent(C)[:, parentindices(C)[2]] = R; C)
 # only contiguous column views have a sparse product of their own
-_unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(wrap(A, t))
+_unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(wrap(_compressed(A), t))
 
 # determine if sort! shall be used or the whole column be scanned
 # based on empirical data on i7-3610QM CPU
@@ -523,169 +534,44 @@ prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < 
 
 
 ## triangular multiplication
-function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat)
-    require_one_based_indexing(A, C)
-    nrowC = size(C, 1)
-    ncol = checksquare(A)
-    if nrowC != ncol
-        throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
-    end
-    nrowB, ncolB  = size(B, 1), size(B, 2)
+LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tfun::Function, A::SparseMatrixCSCOrView, B::AbstractVecOrMat) =
+    _trimatmul!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
+LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat) =
+    _trimatmul!(C, uploc == 'U', isunitc == 'U', conj, parent(xA), B)
+
+# C = M * B for a triangle M of `f(A)`, computed column by column of A; C may be B.
+# `F` keeps the method specialized on the forwarded `f`.
+function _trimatmul!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
+    require_one_based_indexing(C, A, B)
+    checksquare(A)
+    matmul_size_check(size(C), size(A), size(B))
     C !== B && copyto!(C, B)
-    aa = getnzval(A)
-    ja = getrowval(A)
-    ia = getcolptr(A)
-    joff = 0
-    unit = isunitc == 'U'
-    Z = zero(eltype(C))
-
-    if uploc == 'U'
-        if tfun === identity
-            # forward multiplication for UpperTriangular SparseCSC matrices
-            for k in axes(B,2)
-                for j in axes(B,1)
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    done = unit
-
-                    bj = B[joff + j]
-                    for ii = i1:i2
-                        jai = ja[ii]
-                        aii = aa[ii]
-                        if jai < j
-                            C[joff + jai] += aii * bj
-                        elseif jai == j
-                            if !unit
-                                C[joff + j] = aii * bj
-                                done = true
-                            end
-                        else
-                            break
-                        end
-                    end
-                    if !done
-                        C[joff + j] = Z
-                    end
-                end
-                joff += nrowB
-            end
-        else # tfun in (adjoint, transpose)
-            # backward multiplication with adjoint and transpose of LowerTriangular CSC matrices
-            for k in axes(B,2)
-                for j in reverse(axes(B,1))
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    akku = Z
-                    j0 = !unit ? j : j - 1
-
-                    # loop through column j of A - only structural non-zeros
-                    for ii = i1:i2
-                        jai = ja[ii]
-                        if jai <= j0
-                            akku += tfun(aa[ii]) * B[joff + jai]
-                        else
-                            break
-                        end
-                    end
-                    if unit
-                        akku += oneunit(eltype(A)) * B[joff + j]
-                    end
-                    C[joff + j] = akku
-                end
-                joff += nrowB
-            end
-        end
-    else # uploc == 'L'
-        if tfun === identity
-            # backward multiplication for LowerTriangular SparseCSC matrices
-            for k in axes(B,2)
-                for j in reverse(axes(B,1))
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    done = unit
-
-                    bj = B[joff + j]
-                    for ii = i2:-1:i1
-                        jai = ja[ii]
-                        aii = aa[ii]
-                        if jai > j
-                            C[joff + jai] += aii * bj
-                        elseif jai == j
-                            if !unit
-                                C[joff + j] = aii * bj
-                                done = true
-                            end
-                        else
-                            break
-                        end
-                    end
-                    if !done
-                        C[joff + j] = Z
-                    end
-                end
-                joff += nrowB
-            end
-        else # tfun in (adjoint, transpose)
-            # forward multiplication for adjoint and transpose of LowerTriangular CSC matrices
-            for k in axes(B,2)
-                for j in axes(B,1)
-                    i1 = ia[j]
-                    i2 = ia[j + 1] - 1
-                    akku = Z
-                    j0 = !unit ? j : j + 1
-
-                    # loop through column j of A - only structural non-zeros
-                    for ii = i2:-1:i1
-                        jai = ja[ii]
-                        if jai >= j0
-                            akku += tfun(aa[ii]) * B[joff + jai]
-                        else
-                            break
-                        end
-                    end
-                    if unit
-                        akku += oneunit(eltype(A)) * B[joff + j]
-                    end
-                    C[joff + j] = akku
-                end
-                joff += nrowB
-            end
-        end
-    end
-    return C
+    return upper ? _trimatmul!(C, Val(true), unit, f, A, B) : _trimatmul!(C, Val(false), unit, f, A, B)
 end
-function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::Function, xA::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}, B::AbstractVecOrMat)
-    A = parent(xA)
-    nrowC = size(C, 1)
-    ncol = checksquare(A)
-    if nrowC != ncol
-        throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
-    end
-    C !== B && copyto!(C, B)
-    nrowB, ncolB  = size(B, 1), size(B, 2)
+# the triangle is a type parameter so that each column walk compiles to a unit-stride loop
+function _trimatmul!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
+    n = size(A, 2)
     aa = getnzval(A)
     ja = getrowval(A)
     ia = getcolptr(A)
-    joff = 0
-    unit = isunitc == 'U'
+    direct = f === identity || f === conj
     Z = zero(eltype(C))
-
-    if uploc == 'U'
-        for k in axes(B,2)
-            for j in axes(B,1)
-                i1 = ia[j]
-                i2 = ia[j + 1] - 1
-                done = unit
-
+    joff = 0
+    for k in axes(B, 2)
+        for j in (upper == direct ? (1:n) : (n:-1:1))
+            i1 = Int(ia[j])
+            i2 = Int(ia[j + 1]) - 1
+            if direct
                 bj = B[joff + j]
-                for ii = i1:i2
-                    jai = ja[ii]
-                    aii = conj(aa[ii])
-                    if jai < j
-                        C[joff + jai] += aii * bj
-                    elseif jai == j
+                done = unit
+                for ii in (upper ? (i1:i2) : (i2:-1:i1))
+                    jai = Int(ja[ii])
+                    d = upper ? j - jai : jai - j
+                    if d > 0
+                        C[joff + jai] += f(aa[ii]) * bj
+                    elseif d == 0
                         if !unit
-                            C[joff + j] = aii * bj
+                            C[joff + j] = f(aa[ii]) * bj
                             done = true
                         end
                     else
@@ -695,37 +581,26 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
                 if !done
                     C[joff + j] = Z
                 end
-            end
-            joff += nrowB
-        end
-    else # uploc == 'L'
-        for k in axes(B,2)
-            for j in reverse(axes(B,1))
-                i1 = ia[j]
-                i2 = ia[j + 1] - 1
-                done = unit
-
-                bj = B[joff + j]
-                for ii = i2:-1:i1
-                    jai = ja[ii]
-                    aii = conj(aa[ii])
-                    if jai > j
-                        C[joff + jai] += aii * bj
-                    elseif jai == j
-                        if !unit
-                            C[joff + j] = aii * bj
-                            done = true
-                        end
+            else
+                akku = Z
+                for ii in (upper ? (i1:i2) : (i2:-1:i1))
+                    jai = Int(ja[ii])
+                    d = upper ? j - jai : jai - j
+                    if d > 0
+                        akku += f(aa[ii]) * B[joff + jai]
+                    elseif d == 0 && !unit
+                        akku += f(aa[ii]) * B[joff + j]
                     else
                         break
                     end
                 end
-                if !done
-                    C[joff + j] = Z
+                if unit
+                    akku += oneunit(eltype(A)) * B[joff + j]
                 end
+                C[joff + j] = akku
             end
-            joff += nrowB
         end
+        joff += n
     end
     return C
 end
@@ -746,8 +621,8 @@ function _mattrimul!(C, upper::Bool, unit::Bool, f::Function, X, B)
         throw(DimensionMismatch(lazy"A has $(size(X, 2)) columns and B has $n rows"))
     size(C) == size(X) ||
         throw(DimensionMismatch(lazy"C has size $(size(C)), A * B has size $(size(X))"))
-    rv = rowvals(B)
-    nzv = nonzeros(B)
+    rv = getrowval(B)
+    nzv = getnzval(B)
     rows = axes(X, 1)
     gather = f === identity || f === conj
     @inbounds for col in (upper == gather ? (n:-1:1) : (1:n))
@@ -787,8 +662,8 @@ function _symherm_mul!(rangefun::Function, diagop::Function, odiagop::Function, 
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
-    rv = rowvals(A)
-    nzv = nonzeros(A)
+    rv = getrowval(A)
+    nzv = getnzval(A)
     let z = T(0), sumcol=z, αxj=z, aarc=z, α = α
         isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
         @inbounds for k in axes(B,2)
@@ -815,8 +690,8 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
-    rv = rowvals(A)
-    nzv = nonzeros(A)
+    rv = getrowval(A)
+    nzv = getnzval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
     if α isa Bool && !α
         return
@@ -850,13 +725,13 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     lb = length(b)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(nonzeros(C), beta); return C)
+    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(getnzval(C), beta); return C)
     beta_is_zero = iszero(beta)
-    rows_match = rowvals(C) == rowvals(A)
+    rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
     identical_nzinds = rows_match && cols_match
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
+    Cnzval = getnzval(C)
+    Anzval = getnzval(A)
     if identical_nzinds || (beta_is_zero && !_is_fixed(C))
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
@@ -885,7 +760,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
         mergeinds!(C, A)
         beta_is_zero && fill!(Cnzval, zero(eltype(C)))
         for col in axes(C,2), p in @inbounds nzrange(C, col)
-            row = @inbounds rowvals(C)[p]
+            row = @inbounds getrowval(C)[p]
             # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
@@ -947,14 +822,14 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     lb = length(b)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(nonzeros(C), beta); return C)
+    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(getnzval(C), beta); return C)
     beta_is_zero = iszero(beta)
-    rows_match = rowvals(C) == rowvals(A)
+    rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
     identical_nzinds = rows_match && cols_match
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
+    Cnzval = getnzval(C)
+    Anzval = getnzval(A)
+    Arowval = getrowval(A)
     if identical_nzinds || (beta_is_zero && !_is_fixed(C))
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
@@ -983,7 +858,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
         mergeinds!(C, A)
         beta_is_zero && fill!(Cnzval, zero(eltype(C)))
         for col in axes(C,2), p in nzrange(C, col)
-            row = rowvals(C)[p]
+            row = getrowval(C)[p]
             # check if the index (row, col) is stored in A
             row_exists, row_ind_A = rowcheck_index(A, row, col)
             if row_exists
@@ -1003,77 +878,56 @@ end
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     copyinds!(C, A)
-    resize!(nonzeros(C), length(nonzeros(A)))
-    mul!(nonzeros(C), nonzeros(A), b)
+    resize!(getnzval(C), length(getnzval(A)))
+    mul!(getnzval(C), getnzval(A), b)
     C
 end
 
 function mul!(C::AbstractSparseMatrixCSC, b::Number, A::AbstractSparseMatrixCSC)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     copyinds!(C, A)
-    resize!(nonzeros(C), length(nonzeros(A)))
-    mul!(nonzeros(C), b, nonzeros(A))
+    resize!(getnzval(C), length(getnzval(A)))
+    mul!(getnzval(C), b, getnzval(A))
     C
 end
 
 function rmul!(A::AbstractSparseMatrixCSC, b::Number)
-    rmul!(nonzeros(A), b)
+    rmul!(getnzval(A), b)
     return A
 end
 
 function lmul!(b::Number, A::AbstractSparseMatrixCSC)
-    lmul!(b, nonzeros(A))
+    lmul!(b, getnzval(A))
     return A
 end
 
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
-    m, n = size(A)
-    szD = size(D, 1)
-    (n == szD) || throw(DimensionMismatch("A has size ($m, $n) but D has size ($szD, $szD)"))
-    Anzval = nonzeros(A)
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-         Anzval[p] = Anzval[p] * D.diag[col]
-    end
-    return A
+    _checkscaledims(A, A, D, 2)
+    return _scalecols!(A, A, D.diag, *)
 end
 
 function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
-    m, n = size(A)
-    ds2 = size(D, 2)
-    (m == ds2) || throw(DimensionMismatch("D has size ($ds2, $ds2) but A has size ($m, $n)"))
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-        Anzval[p] = D.diag[Arowval[p]] * Anzval[p]
-    end
-    return A
+    _checkscaledims(A, A, D, 1)
+    return _scalerows!(A, A, D.diag, *)
 end
 
 ## sparse vectors
 
 # scaling
 
-function rmul!(x::SparseVectorOrView, a::Real)
+function rmul!(x::SparseVectorOrView, a::Number)
     rmul!(nonzeros(x), a)
     return x
 end
-function rmul!(x::SparseVectorOrView, a::Complex)
-    rmul!(nonzeros(x), a)
-    return x
-end
-function lmul!(a::Real, x::SparseVectorOrView)
-    rmul!(nonzeros(x), a)
-    return x
-end
-function lmul!(a::Complex, x::SparseVectorOrView)
-    rmul!(nonzeros(x), a)
+function lmul!(a::Number, x::SparseVectorOrView)
+    lmul!(a, nonzeros(x))
     return x
 end
 
 (*)(x::SparseVectorOrView, a::Number) =
-    @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), nonzeros(x) * a)
+    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) * a)
 (*)(a::Number, x::SparseVectorOrView) =
-    @if_move_fixed x SparseVector(length(x), copy(nonzeroinds(x)), a * nonzeros(x))
+    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), a * nonzeros(x))
 
 # * and mul!
 
@@ -1229,8 +1083,8 @@ function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::Abstr
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Arowval = rowvals(A)
-    Anzval = nonzeros(A)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
 
     @inbounds for i = 1:length(xnzind)
         v = xnzval[i]
@@ -1259,8 +1113,8 @@ function _spAt_or_Ac_mul_spvec!(tfun::F,
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Arowval = rowvals(A)
-    Anzval = nonzeros(A)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
     mx = length(xnzind)
 
     for j = 1:n
@@ -1294,8 +1148,8 @@ function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
-    Arowval = rowvals(A)
-    Anzval = nonzeros(A)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
     mx = length(xnzind)
 
     ynzind = Vector{Ti}(undef, n)

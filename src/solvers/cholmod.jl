@@ -16,14 +16,14 @@ import Base: (*), convert, copy, eltype, getindex, getproperty, propertynames,
 using Base: require_one_based_indexing
 
 using LinearAlgebra
-using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans, AdjOrTransAbsMat
+using LinearAlgebra: RealHermSymComplexHerm, AdjOrTrans, AdjOrTransAbsMat, HermOrSym
 import LinearAlgebra: (\), AdjointFactorization, TransposeFactorization,
                  cholesky, cholesky!, det, diag, ishermitian, isposdef,
                  issuccess, issymmetric, ldiv!, ldlt, ldlt!, logdet,
                  lowrankdowndate, lowrankdowndate!, lowrankupdate, lowrankupdate!
 
 using SparseArrays
-using SparseArrays: getcolptr, AbstractSparseVecOrMat
+using SparseArrays: getcolptr, getrowval, getnzval, AbstractSparseVecOrMat, FixedSparseCSC, _unsafe_unfix
 export
     Dense,
     Factor,
@@ -494,7 +494,10 @@ end
 function FactorComponent{Tv, S}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
     return FactorComponent{Tv, S, Ti}(F)
 end
-function FactorComponent(F::Factor{Tv, Ti}, sym::Symbol) where {Tv, Ti}
+# Constant propagation of `sym` from `getproperty(F, :L)` and friends is what lets `F.L \ b`
+# infer; without it the component's `S` parameter is unknown and every solve through
+# a component dispatches dynamically.
+Base.@constprop :aggressive function FactorComponent(F::Factor{Tv, Ti}, sym::Symbol) where {Tv, Ti}
     FactorComponent{Tv, sym, Ti}(F)
 end
 
@@ -1117,11 +1120,11 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC{<:Any}, stype::Integer) where {Tv<:VT
     if length(getcolptr(A)) <= size(A, 2)
         throw(ArgumentError("length of colptr must be at least size(A,2) + 1 = $(size(A, 2) + 1) but was $(length(getcolptr(A)))"))
     end
-    if nnz(A) > length(rowvals(A))
-        throw(ArgumentError("length of rowval is $(length(rowvals(A))) but value of colptr requires length to be at least $(nnz(A))"))
+    if nnz(A) > length(getrowval(A))
+        throw(ArgumentError("length of rowval is $(length(getrowval(A))) but value of colptr requires length to be at least $(nnz(A))"))
     end
-    if nnz(A) > length(nonzeros(A))
-        throw(ArgumentError("length of nzval is $(length(nonzeros(A))) but value of colptr requires length to be at least $(nnz(A))"))
+    if nnz(A) > length(getnzval(A))
+        throw(ArgumentError("length of nzval is $(length(getnzval(A))) but value of colptr requires length to be at least $(nnz(A))"))
     end
 
     o = allocate_sparse(size(A, 1), size(A, 2), nnz(A), true, true, stype, Tv, Ti)
@@ -1130,7 +1133,7 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC{<:Any}, stype::Integer) where {Tv<:VT
         unsafe_store!(s.p, getcolptr(A)[i] - 1, i)
     end
     for i = 1:nnz(A)
-        unsafe_store!(s.i, rowvals(A)[i] - 1, i)
+        unsafe_store!(s.i, getrowval(A)[i] - 1, i)
     end
     if Tv <: Complex && stype != 0
         # Need to remove any non real elements in the diagonal because, in contrast to
@@ -1138,15 +1141,15 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC{<:Any}, stype::Integer) where {Tv<:VT
         # present CHOLMOD will fail with a non-positive definite/zero pivot error.
         for j = axes(A, 2)
             for ip = nzrange(A, j)
-                v = nonzeros(A)[ip]
-                unsafe_store!(Ptr{Tv}(s.x), rowvals(A)[ip] == j ? Complex(real(v)) : v, ip)
+                v = getnzval(A)[ip]
+                unsafe_store!(Ptr{Tv}(s.x), getrowval(A)[ip] == j ? Complex(real(v)) : v, ip)
             end
         end
-    elseif Tv == eltype(nonzeros(A))
-        unsafe_copyto!(Ptr{Tv}(s.x), pointer(nonzeros(A)), nnz(A))
+    elseif Tv == eltype(getnzval(A))
+        unsafe_copyto!(Ptr{Tv}(s.x), pointer(getnzval(A)), nnz(A))
     else
         for i = 1:nnz(A)
-            unsafe_store!(Ptr{Tv}(s.x), nonzeros(A)[i], i)
+            unsafe_store!(Ptr{Tv}(s.x), getnzval(A)[i], i)
         end
     end
     check_sparse(o)
@@ -1421,9 +1424,9 @@ function sparse(FC::FactorComponent{Tv,:L}) where Tv
     if s.is_ll == 0
         _sparse_exception(F)
     end
-    sparse(Sparse(F))
+    SparseMatrixCSC(Sparse(F))
 end
-sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = sparse(Sparse(Factor(FC)))
+sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = SparseMatrixCSC(Sparse(Factor(FC)))
 sparse(FC::FactorComponent{Tv}) where {Tv} = _sparse_exception(Factor(FC))
 function _sparse_exception(F::Factor)
     s = unsafe_load(pointer(F))
@@ -1585,9 +1588,9 @@ function getLd!(S::SparseMatrixCSC)
         while k >= getcolptr(S)[col+1]
             col += 1
         end
-        if rowvals(S)[k] == col
-            d[col] = nonzeros(S)[k]
-            nonzeros(S)[k] = 1
+        if getrowval(S)[k] == col
+            d[col] = getnzval(S)[k]
+            getnzval(S)[k] = 1
         end
     end
     S, d
@@ -1981,6 +1984,16 @@ ldlt(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
 ldlt(A::Union{AdjOrTrans{<:Any,<:SparseMatrixCSC},
     RealHermSymComplexHerm{<:Real,<:SubArray{<:Any,2,<:SparseMatrixCSC}}}; kws...) = ldlt(copy(A); kws...)
 
+# A fixed-pattern matrix is factorized through the `SparseMatrixCSC` that shares its buffers,
+# which CHOLMOD only reads.
+_unfix(A::FixedSparseCSC) = _unsafe_unfix(A)
+_unfix(A::Symmetric{<:Any,<:FixedSparseCSC}) = Symmetric(_unsafe_unfix(parent(A)), Symbol(A.uplo))
+_unfix(A::Hermitian{<:Any,<:FixedSparseCSC}) = Hermitian(_unsafe_unfix(parent(A)), Symbol(A.uplo))
+const FixedOrHermSym = Union{FixedSparseCSC, HermOrSym{<:Any,<:FixedSparseCSC}}
+ldlt(A::FixedOrHermSym; kws...) = ldlt(_unfix(A); kws...)
+ldlt!(F::Factor, A::FixedOrHermSym; kws...) = ldlt!(F, _unfix(A); kws...)
+cholesky!(F::Factor, A::FixedOrHermSym; kws...) = cholesky!(F, _unfix(A); kws...)
+
 for f in (:cholesky, :ldlt)
     @eval $f(A::Symmetric{<:Complex,<:Union{SparseMatrixCSC,SubArray{<:Any,2,<:SparseMatrixCSC}}}; kws...) =
         throw(ArgumentError(string($(string(f)), " of a complex `Symmetric` sparse matrix is not supported ",
@@ -2131,8 +2144,11 @@ end
 function (\)(L::FactorComponent, B::SparseVector)
     sparsevec(L\Sparse(B))
 end
+# The solution of a sparse right-hand side, and a factor extracted as a sparse matrix, are
+# always unsymmetric (`stype == 0`), so `SparseMatrixCSC(::Sparse)` applies and, unlike
+# `sparse(::Sparse)`, is type-stable; it throws if CHOLMOD ever marks one symmetric.
 function (\)(L::FactorComponent, B::SparseMatrixCSC)
-    sparse(L\Sparse(B,0))
+    SparseMatrixCSC(L\Sparse(B,0))
 end
 (\)(L::FactorComponent, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::FactorComponent, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
@@ -2149,7 +2165,7 @@ const FactorComponentRHS = Union{StridedVecOrMatMaybeAdjOrTrans, SparseVectorOrM
 
 (\)(L::Factor, B::Sparse) = spsolve(CHOLMOD_A, L, B)
 # When right hand side is sparse, we have to ensure that the rhs is not marked as symmetric.
-(\)(L::Factor, B::SparseMatrixCSC) = sparse(spsolve(CHOLMOD_A, L, Sparse(B, 0)))
+(\)(L::Factor, B::SparseMatrixCSC) = SparseMatrixCSC(spsolve(CHOLMOD_A, L, Sparse(B, 0)))
 (\)(L::Factor, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::Factor, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::Factor, B::SparseVector) = sparsevec(spsolve(CHOLMOD_A, L, Sparse(B)))
@@ -2220,6 +2236,12 @@ end
 CholmodWS(::Factor{<:Any, Ti}) where {Ti} = CholmodWS{Ti}()
 CholmodWS(F::Union{AdjointFactorization{<:Any,<:Factor},
                         TransposeFactorization{<:Any,<:Factor}}) = CholmodWS(parent(F))
+# A field-wise copy would share the Y/E handles and free them twice; the fresh workspace is
+# memoized so repeated references in the copied object graph resolve to one copy.
+function Base.deepcopy_internal(ws::CholmodWS{Ti}, dict::IdDict) where {Ti}
+    haskey(dict, ws) && return dict[ws]::CholmodWS{Ti}
+    return dict[ws] = CholmodWS{Ti}()
+end
 
 # cholmod(_l)_solve2 allocates Y and E through getcommon(Ti), so they are released through
 # the Common of the same index type. Nulling the handles makes a later solve allocate
@@ -2285,9 +2307,7 @@ for TI in IndexTypes
                          L::Factor{T, $TI},
                          b::StridedVecOrMat{T};
                          workspace::Union{Nothing, CholmodWS{$TI}} = nothing) where {T<:VTypes}
-        if x === b
-            throw(ArgumentError("output array must not be aliased with input array"))
-        end
+        Base.mightalias(x, b) && (b = copy(b))
         if size(L, 1) != size(b, 1)
             throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
                 "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
