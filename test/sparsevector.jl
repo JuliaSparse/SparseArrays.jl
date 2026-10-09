@@ -523,6 +523,29 @@ end
         @test findall(p -> false, x) == Int[]
     end
 end
+
+@testset "iteratenz (vector)" begin
+    for i in 1:10
+        A = sprandn(100, i / 100)
+        @test collect(SparseArrays.iternz(A)) == collect(zip(findnz(A)...))
+    end
+    x = sprandn(100, 0.3)
+    v = view(x, 20:70)
+    @test collect(SparseArrays.iternz(v)) == collect(zip(findnz(SparseVector(v))...))
+    @test length(SparseArrays.iternz(v)) == nnz(v)
+    @static if COMPREHENSIVE
+        A = sprandn(20, 30, 0.2)
+        A[:, 7] .= 0
+        dropzeros!(A)
+        for v in (view(x, :), view(x, 5:4), view(x, 101:100), view(x, 1:100), view(x, 99:100),
+                  view(spzeros(5), 2:4), view(A, :, 3), view(A, :, 7))
+            @test collect(SparseArrays.iternz(v)) == collect(zip(findnz(SparseVector(v))...))
+        end
+        v = view(sparsevec(Int32[2, 5, 9], [1.0, 2.0, 3.0], 10), 4:10)
+        @test typeof(first(SparseArrays.iternz(v))) == eltype(SparseArrays.iternz(v)) == Tuple{Int32, Float64}
+        @test collect(SparseArrays.iternz(v)) == [(Int32(2), 2.0), (Int32(6), 3.0)]
+    end
+end
 ### Array manipulation
 
 @testset "copy[!]" begin
