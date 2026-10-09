@@ -410,6 +410,15 @@ end
     Cf = fixed(copy(C0))
     @test_throws InexactError mul!(Cf, S, Diagonal([0.5, 1, 1]))
     @test Cf == C0
+    # a zero `alpha` leaves the product unformed: a non-finite entry of it is not converted
+    Ainf = sparse(reshape([Inf], 1, 1)); D1 = Diagonal([1.0])
+    for α in (0.0, false, 0), (β, r) in ((1, 7), (2, 14), (0, 0), (false, 0)),
+        f in ((C, A) -> mul!(C, A, D1, α, β), (C, A) -> mul!(C, D1, A, α, β),
+              (C, A) -> mul!(C, A', D1, α, β), (C, A) -> mul!(C, D1, transpose(A), α, β))
+        C = sparse(reshape([7], 1, 1))
+        @test f(C, Ainf) === C && C == reshape([r], 1, 1)
+        @test f(reshape([7], 1, 1), Matrix(Ainf)) == reshape([r], 1, 1)
+    end
 end
 
 @testset "products with a wrapped operand follow the dense or banded factor" begin

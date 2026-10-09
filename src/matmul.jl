@@ -767,6 +767,18 @@ function _diagmul_converted!(C, P, alpha, beta)
     R = iszero(beta) ? P : isone(beta) ? P + C : P + C * beta
     return copyto!(C, convert(SparseMatrixCSC{eltype(C),indtype(C)}, R))
 end
+# `C = C*beta`, the result for a zero `alpha`: the product is not formed, so a non-finite
+# entry of it cannot turn up in `C`. A scaling that may not convert is checked in full first.
+function _diagmul_scale!(C, beta)
+    Cnzval = getnzval(C)
+    TC = eltype(C)
+    if iszero(beta) || promote_type(promote_op(*, TC, typeof(beta)), TC) === TC
+        LinearAlgebra._rmul_or_fill!(Cnzval, beta)
+    else
+        copyto!(Cnzval, convert(Vector{TC}, Cnzval * beta))
+    end
+    return C
+end
 
 # multiply by diagonal matrix as vector
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, alpha::Number, beta::Number)
@@ -775,9 +787,9 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     lb = length(b)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
+    iszero(alpha) && return _diagmul_scale!(C, beta)
     _diagmul_fits(C, promote_op(matprod, eltype(A), eltype(D)), alpha, beta) ||
         return _diagmul_converted!(C, A * D, alpha, beta)
-    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(getnzval(C), beta); return C)
     beta_is_zero = iszero(beta)
     rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
@@ -874,9 +886,9 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     lb = length(b)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
+    iszero(alpha) && return _diagmul_scale!(C, beta)
     _diagmul_fits(C, promote_op(matprod, eltype(D), eltype(A)), alpha, beta) ||
         return _diagmul_converted!(C, D * A, alpha, beta)
-    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(getnzval(C), beta); return C)
     beta_is_zero = iszero(beta)
     rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
