@@ -264,6 +264,14 @@ end
     @testset "binary ops with matrices" begin
         λ = complex(0.5, -1.5)
         J = UniformScaling(λ)
+        @static if COMPREHENSIVE
+        for R in (fixture(Float64, 2, 3), spzeros(3, 0))
+            @test_throws DimensionMismatch R + I
+            @test_throws DimensionMismatch I + R
+            @test_throws DimensionMismatch R - J
+            @test_throws DimensionMismatch J - R
+        end
+        end
         for SS in (fixture(Float64, 3, 3), (@static COMPREHENSIVE ? (sparse(Int(1)I, 3, 3),) : ())...)
             for S in (SS,)
                 @test @inferred(I*S) !== S # Don't alias
@@ -1106,6 +1114,22 @@ end
     @test copyto!(B, A) == B
     end
 
+    @static if COMPREHENSIVE
+    # a value that does not convert, or more entries than the index type holds, is
+    # found before the pattern of the destination is rewritten
+    A = sparse([1, 2], [1, 2], [1, 2]); A0 = copy(A)
+    @test_throws InexactError copyto!(A, sparse([1, 2, 2], [1, 1, 2], [1.0, 2.5, 3.0]))
+    @test same_pattern(A, A0) && A == A0
+    A = sparse([1, 2], [1, 2], [1, 2], 2, 3)   # the source covers part of the destination
+    A0 = copy(A)
+    @test_throws InexactError copyto!(A, sparse([1.0 2.5; 0.0 3.0]))
+    @test same_pattern(A, A0) && A == A0
+    A = spzeros(Float64, Int8, 12, 12)
+    @test_throws ArgumentError copyto!(A, sparse(ones(12, 12)))
+    @test nnz(A) == 0 && mismatch(A, zeros(12, 12); Ti=Int8) === nothing
+    @test mismatch(copyto!(A, sparse(ones(12, 10))), [ones(12, 10) zeros(12, 2)]; Ti=Int8) === nothing
+    end
+
     # Test correct error for too small destination array
     @test_throws BoundsError copyto!(zeros(2,2), fixture(Float64, 3, 3))
 end
@@ -1212,6 +1236,31 @@ end
     # test for issue #5437, modified for new behavior following #15242/#14798
     @test nnz(sparse([1, 2, 3], [1, 2, 3], [0.0, 1.0, 2.0])) == 3
     @test nnz(dropzeros!(sparse([1, 2, 3],[1, 2, 3],[0.0, 1.0, 2.0]))) == 2
+    end
+end
+end
+
+@static if COMPREHENSIVE
+@testset "fkeep! with a predicate that throws" begin
+    D = collect(reshape(1.0:36.0, 6, 6))
+    A = sparse(D)
+    @test_throws ErrorException SparseArrays.fkeep!((i, j, x) -> (i, j) == (3, 4) ? error("stop") : isodd(i), A)
+    # the entries visited before the throw are filtered and the others are kept
+    for j in 1:6, i in 1:6
+        (j < 4 || (j == 4 && i < 3)) && iseven(i) && (D[i, j] = 0)
+    end
+    @test mismatch(A, D) === nothing && nnz(A) == 26
+    A = sparse(D)
+    @test_throws ErrorException SparseArrays.fkeep!((i, j, x) -> error("stop"), A)
+    @test mismatch(A, D) === nothing
+end
+
+@testset "tril! and triu! with a diagonal out of range" begin
+    D = ones(3, 4)
+    for k in (typemax(Int), typemax(Int) - 1, typemin(Int), typemin(Int) + 1, big(2)^70, -big(2)^70)
+        kd = clamp(k, -5, 5)
+        @test mismatch(tril!(sparse(D), k), tril(D, kd)) === nothing
+        @test mismatch(triu!(sparse(D), k), triu(D, kd)) === nothing
     end
 end
 end
@@ -1703,6 +1752,13 @@ using Base: swaprows!, swapcols!
     @test x == sparse([9.0 8 1
                        0 72 3
                        7 16 4])
+
+    @static if COMPREHENSIVE
+    x0 = copy(x)
+    @test_throws BoundsError swaprows!(x, 1, 4)
+    @test_throws BoundsError swaprows!(x, 0, 2)
+    @test same_pattern(x, x0) && x == x0
+    end
 end
 
 @testset "issymmetric with stored zeros and missing partner entries" begin

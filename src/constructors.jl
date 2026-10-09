@@ -144,17 +144,28 @@ SparseMatrixCSC(M::AbstractMatrix{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
 SparseMatrixCSC{Tv}(M::AbstractMatrix) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
 function SparseMatrixCSC{Tv,Ti}(M::AbstractMatrix) where {Tv,Ti}
     require_one_based_indexing(M)
-    I = Ti[]
-    V = Tv[]
-    i = 0
+    m, n = size(M)
+    colptr = Vector{Ti}(undef, n + 1)
+    rowval = Ti[]
+    nzval = Tv[]
+    # `M` is iterated in column-major order; a linear index need not fit in `Ti`
+    i, j = 0, 1
+    colptr[1] = 1
     for v in M
         i += 1
+        if i > m
+            colptr[j += 1] = length(rowval) + 1
+            i = 1
+        end
         if _isnotzero(v)
-            push!(I, i)
-            push!(V, v)
+            push!(rowval, i)
+            push!(nzval, v)
         end
     end
-    return sparse_sortedlinearindices!(I, V, size(M)...)
+    for k in j+1:n+1
+        colptr[k] = length(rowval) + 1
+    end
+    return SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
 
 function SparseMatrixCSC{Tv,Ti}(M::StridedMatrix) where {Tv,Ti}
@@ -502,7 +513,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector
     writek = Tj(1)
     newcsrrowptri = Ti(1)
     origcsrrowptri = Tj(1)
-    origcsrrowptrip1 = csrrowptr[2]
+    origcsrrowptrip1 = m == 0 ? Tj(1) : csrrowptr[2]
     @inbounds for i in 1:m
         for readk in origcsrrowptri:(origcsrrowptrip1-Tj(1))
             j = csrcolval[readk]

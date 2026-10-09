@@ -599,6 +599,7 @@ end
 
 function triu(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     m,n = size(S)
+    k = Int(clamp(k, -m, n))   # every diagonal lies in -m:n, and `k+1` cannot overflow
     colptr = Vector{Ti}(undef, n+1)
     nnz = 0
     @inbounds for col = 1 : min(max(k+1,1), n+1)
@@ -626,6 +627,7 @@ end
 
 function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     m,n = size(S)
+    k = Int(clamp(k, -m, n))   # every diagonal lies in -m:n, and `m+k` cannot overflow
     colptr = Vector{Ti}(undef, n+1)
     nnz = 0
     colptr[1] = 1

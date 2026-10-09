@@ -1908,14 +1908,17 @@ end
 
 # in-place shifts a sparse subvector by r. Used also by sparsematrix.jl
 function subvector_shifter!(R::AbstractVector, V::AbstractVector, start::Integer, fin::Integer, m::Integer, r::Integer)
+    # `0 <= r < m`. An index moves up by `r`, or wraps around, down by `m - r`; neither
+    # leaves `1:m`, where `R[j] + r` can leave the index type.
+    up = convert(eltype(R), r)
+    down = convert(eltype(R), m - r)
     split = fin
     @inbounds for j = start:fin
-        # shift positions ...
-        R[j] += r
-        if R[j] <= m
+        if R[j] <= down
+            R[j] += up
             split = j
         else
-            R[j] -= m
+            R[j] -= down
         end
     end
     # ...but rowval should be sorted within columns

@@ -130,10 +130,12 @@ _unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(
 _unsafe_unfix(x::AbstractSparseMatrixCSC) = x
 
 # A fixed destination keeps its pattern: B's stored entries must lie in it and A's other
-# entries become zero. The pattern is checked in full before anything is written.
+# entries become zero. The pattern and the values are checked in full before anything is
+# written.
 function _copyto_fixed!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     size(A) == size(B) || throw(DimensionMismatch(lazy"cannot copy a matrix of size $(size(B)) into a fixed one of size $(size(A))"))
     Arv, Brv, Anz, Bnz = getrowval(A), getrowval(B), getnzval(A), getnzval(B)
+    _checkconvertible(eltype(A), Bnz)
     for write in (false, true)
         write && fill!(Anz, zero(eltype(A)))
         @inbounds for j in axes(A, 2)
@@ -202,6 +204,7 @@ move_fixed(x::AbstractSparseVector) = FixedSparseVector(length(x), nonzeroinds(x
 function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector)
     length(A) == length(B) || throw(DimensionMismatch(lazy"cannot copy a vector of length $(length(B)) into a fixed one of length $(length(A))"))
     Ai, Bi, Anz, Bnz = nonzeroinds(A), nonzeroinds(B), nonzeros(A), nonzeros(B)
+    _checkconvertible(eltype(A), Bnz)
     for write in (false, true)
         write && fill!(Anz, zero(eltype(A)))
         k = 1
