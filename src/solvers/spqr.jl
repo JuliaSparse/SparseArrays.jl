@@ -128,6 +128,9 @@ QRSparseQ{T}(Q::QRSparseQ) where {T} =
     QRSparseQ(convert(SparseMatrixCSC{T}, Q.factors), convert(Vector{T}, Q.τ), Q.n)
 Base.convert(::Type{AbstractQ{T}}, Q::QRSparseQ) where {T} = QRSparseQ{T}(Q)
 
+Base.show(io::IO, ::MIME"text/plain", Q::Union{QRSparseQ, AdjointQ{<:Any, <:QRSparseQ}}) =
+    print(io, Base.dims2string(size(Q)), ' ', typeof(Q))
+
 # Struct for storing sparse QR from SPQR such that
 # A[invperm(rpivinv), cpiv] = (I - factors[:,1]*τ[1]*factors[:,1]')*...*(I - factors[:,k]*τ[k]*factors[:,k]')*R
 # with k = size(factors, 2).
