@@ -276,7 +276,7 @@ which case the columns that SPQR finds dependent are moved to the end.
     types wider than `Float64` throw an `ArgumentError`.
 
 # Examples
-```jldoctest
+```jldoctest; filter = r"(?<=QRSparseQ[{]Float64, Int64[}]).*?(?=R factor:)"s
 julia> A = sparse([1,2,3,4], [1,1,2,2], [1.0,1.0,1.0,1.0])
 4×2 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
  1.0   ⋅
@@ -287,7 +287,11 @@ julia> A = sparse([1,2,3,4], [1,1,2,2], [1.0,1.0,1.0,1.0])
 julia> qr(A)
 SparseArrays.SPQR.QRSparse{Float64, Int64}
 Q factor:
-4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}
+4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}:
+ -0.707107   0.0        0.0       -0.707107
+  0.0       -0.707107  -0.707107   0.0
+  0.0       -0.707107   0.707107   0.0
+ -0.707107   0.0        0.0        0.707107
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
  -1.41421      ⋅
