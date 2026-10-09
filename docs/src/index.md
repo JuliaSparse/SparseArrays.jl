@@ -403,49 +403,36 @@ julia> C
 
 ## [Requirements on the element type](@id man-sparse-eltype)
 
-A sparse array can store values of any type `T`. Storing them asks nothing of `T`: an
-operation calls a function on the elements only when it has to produce a value for an
-entry that is not stored, decide whether a value is zero, or compute with the values.
-The table lists what each group of operations calls.
+A sparse array can store values of any type `T`. Building one from indices and values,
+copying, slicing, concatenating and permuting it, and reading a stored entry call nothing
+on the elements. Everything else rests on three things:
 
-| Operations | Called on the elements |
-|:-----------|:-----------------------|
-| [`sparse`](@ref) and [`sparsevec`](@ref) from indices and values, [`spzeros`](@ref), `copy`, [`nnz`](@ref), [`nonzeros`](@ref), [`findnz`](@ref), reading a stored entry, `A[:, j]` and `A[I, J]`, `hcat`, `vcat`, [`blockdiag`](@ref), `tril`, `triu`, `diag`, [`permute`](@ref), `reshape` | nothing |
-| `sparse(I, J, V)` with repeated indices | `+`, or the `combine` function |
-| reading an entry that is not stored, `setindex!`, `Matrix(A)`, `Vector(x)` | `zero(T)` |
-| `sparse(M)` of a dense array, [`dropzeros!`](@ref), `fill!`, `iszero(A)`, `isdiag` | `iszero` |
-| `A == B`, `isequal(A, B)`, `hash(A)` | `==`, `isequal` or `hash`, and `zero(T)` |
-| `copy(transpose(A))`, `copy(A')` | `transpose` or `adjoint` |
-| `A + B`, `A - B`, `-A` | `+` or `-`, `zero(T)`, `iszero` |
-| `A * B` with both sparse | `*`, `+` |
-| `A * x` and `A * M` with a dense `x` or `M` | `*`, `+`, `zero(T)` |
-| `A * x` with a sparse vector `x` | `*`, `+`, `zero(T)`, `iszero`, and the product of an element and a `Bool` |
-| `A' * x`, `transpose(A) * x` | as `A * x`, and `adjoint` or `transpose` |
-| `c * A`, `A * c`, `A / c` with a scalar `c` | `*` or `/`, `zero(T)`, `iszero`; `c` must be a `Number` |
-| `map(f, A)`, `f.(A)`, `f.(A, B)` | `f`, `zero(T)`, `iszero` of the result |
-| `sum(A)` | `+`, `zero(T)`, and the product of an element and an `Int` |
-| `sum(A, dims=d)` | `+`, `zero(T)`, and `zero` of an element |
-| `maximum`, `minimum`, `findmax`, `findmin`, `argmax`, `argmin`, `sort` | `isless`, `zero(T)` |
-| `dot` | `dot` of two elements, `+`, `zero(T)` |
-| `kron` | `*`, `oneunit(T)` |
-| `tr` | `+`, `zero(T)` |
-| `issymmetric`, `ishermitian` | `==`, `iszero`, and `transpose` or `adjoint` |
-| `\` with a triangular matrix | `*`, `-`, `/`, `\`, `oneunit(T)` |
+- **`zero(T)`** is the value of an entry that is not stored. It is called on the type, not
+  on a value, by whatever has to produce such an entry: indexing, `setindex!`,
+  `Matrix(A)`, a product with a dense array or a sparse vector, `A + B`, `map`,
+  broadcasting and the reductions.
+- **`iszero(x)`** decides whether a value has to be stored. [`sparse`](@ref) of a dense
+  array, [`dropzeros!`](@ref), `A + B`, `map` and broadcasting call it. It falls back to
+  `x == zero(x)`, so a type that defines `zero` of a value and `==` need not define it.
+- **The arithmetic of the operation itself**: `+` and `*` for a product, `isless` for
+  `maximum`, `minimum` and `sort`, and so on. As with dense arrays, `A'` and
+  `transpose(A)` apply `adjoint` and `transpose` to the elements.
 
-Some consequences:
+The sparse kernels skip the entries that are not stored, so they assume that `zero(T)`
+behaves as a zero: `x + zero(T) == x`, and a product with `zero(T)` is zero. `map` and
+broadcasting do not assume this of an arbitrary function, and evaluate it on `zero(T)`, as
+described in [Broadcasting and `map`](@ref man-sparse-broadcast).
 
-- Reading an entry that is not stored calls `zero` on the type, as `zero(T)`, not on a
-  value. An element type whose zero depends on the value, such as a `Matrix{Float64}`,
-  whose size is not part of its type, can be stored and multiplied but not indexed at an
-  entry that is not stored.
-- Multiplying two sparse matrices needs only `*` and `+` of the elements. A product with
-  a dense array or a sparse vector also needs `zero(T)`.
-- `iszero(x)` falls back to `x == zero(x)`, so a type that defines `zero` of a value and
-  `==` need not define `iszero`.
-- The products with a scalar are defined for a scalar that is a `Number`. For any other
-  element type, use `map` or broadcasting.
-- `map` and broadcasting evaluate the function on `zero(T)` to find out whether the
-  result is sparse, as described in [Broadcasting and `map`](@ref man-sparse-broadcast).
+A type that defines `zero`, `+` and `*` is enough for most of the package, and every
+`Number` qualifies. Some limits apply to the other element types:
+
+- Multiplying two sparse matrices needs only `*` and `+`. It is the one arithmetic
+  operation that works without `zero(T)`.
+- An element type whose zero depends on the value, such as `Matrix{Float64}`, whose size
+  is not part of its type, has no `zero(T)`. A sparse matrix of them can be stored and
+  multiplied by another, but not indexed at an entry that is not stored.
+- `c * A`, `A * c` and `A / c` are defined for a scalar `c` that is a `Number`. For any
+  other element type, use `map` or broadcasting.
 - The [sparse factorizations](@ref stdlib-sparse-linalg) `lu`, `qr`, `cholesky` and `ldlt`
   call SuiteSparse, which works in real and complex floating point. A matrix of integers
   or rationals is converted to `Float64` first; a matrix of another element type, such
