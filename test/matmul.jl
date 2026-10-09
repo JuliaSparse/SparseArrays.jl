@@ -347,6 +347,103 @@ end
     end
 end
 
+@static if COMPREHENSIVE
+@testset "symmetric/Hermitian sparse mul! into a dense destination" begin
+    Quaternion = quaternion_type()
+    q(i) = Quaternion.(eachcol(fixturedense(Float64, i, 4))...)
+    # `alpha` multiplies from the right, as in `A*B*alpha`
+    H = sparse(reshape(q(9), 3, 3))
+    B = reshape(q(6), 3, 2)
+    α = q(1)[1]
+    for W in (Hermitian(H, :U), Symmetric(H, :L))
+        @test mul!(zeros(eltype(B), 3, 2), W, B, α, false) ≈ Matrix(W) * B * α
+        @test mul!(zeros(eltype(B), 3), W, B[:, 1], α, false) ≈ Matrix(W) * B[:, 1] * α
+    end
+    # `alpha === false` is a strong zero, so a NaN in `B` does not reach `C`
+    S = Symmetric(sparse([1.0 2; 3 4]))
+    @test mul!(ones(2, 2), S, [NaN 1; 1 1], false, 1.0) == ones(2, 2)
+    @test mul!(ones(2), S, [NaN, 1], false, 2.0) == [2.0, 2.0]
+    # the scalars keep their own type, so an integer destination takes any result it can hold
+    Si = Symmetric(sparse([1 2; 3 4]))
+    @test mul!(zeros(Int, 2, 2), Si, [2 2; 4 4], 0.5, 1) == [5 5; 10 10]
+    @test mul!(ones(Int, 2, 2), Si, [2 2; 4 4], 0.5, 1) == mul!(ones(Int, 2, 2), Symmetric([1 2; 3 4]), [2 2; 4 4], 0.5, 1)
+end
+
+@testset "mul! into a dense destination that is an operand throws" begin
+    S = sparse([1.0 2 0; 0 3 4; 5 0 6])
+    D = [1.0 2 3; 4 5 6; 7 8 10]
+    for f in (C -> mul!(C, S, C), C -> mul!(C, S', C), C -> mul!(C, transpose(S), C, 2.0, 3.0),
+              C -> mul!(C, Symmetric(S), C), C -> mul!(C, S, C'), C -> mul!(C, C, S),
+              C -> mul!(C, C, S'), C -> mul!(C, C', S), C -> mul!(C, transpose(C), transpose(S)),
+              C -> mul!(C, C, Symmetric(S)), C -> mul!(C, C, view(S, :, [2, 1, 3])))
+        C = copy(D)
+        @test_throws ArgumentError f(C)
+        @test C == D
+    end
+    x = [1.0, 2, 3]
+    @test_throws ArgumentError mul!(x, S, x)
+    @test_throws ArgumentError mul!(x, S', x)
+    @test_throws ArgumentError mul!(x, Hermitian(S), x)
+    @test x == [1.0, 2, 3]
+    # a shape error is reported first, as for a dense product
+    C = zeros(2, 3)
+    @test_throws DimensionMismatch mul!(C, S, C)
+end
+
+@testset "Diagonal mul! into a sparse destination converts before it writes" begin
+    S = sparse([1.0 2 0; 0 3 4; 5 0 6])
+    C0 = sparse([1 0 0; 0 1 1; 1 0 0])
+    for (D, α, β) in ((Diagonal([0.5, 1, 1]), true, false), (Diagonal([2, 1, 1]), 0.5, 1),
+                      (Diagonal([2, 1, 1]), 2, 0.5), (Diagonal([2, 1, 1]), 0, 0.5)),
+        f in ((C, A) -> mul!(C, A, D, α, β), (C, A) -> mul!(C, D, A, α, β),
+              (C, A) -> mul!(C, A', D, α, β), (C, A) -> mul!(C, D, transpose(A), α, β))
+        C = copy(C0)
+        @test_throws InexactError f(C, S)
+        @test same_pattern(C, C0) && nonzeros(C) == nonzeros(C0)
+    end
+    # a result the destination can hold is stored, whatever the eltypes of the operands
+    for (D, α, β) in ((Diagonal([2.0, 1, 1]), true, false), (Diagonal([2, 4, 6]), 0.5, 1), (Diagonal([2, 1, 1]), 2.0, 3.0)),
+        f in ((C, A) -> mul!(C, A, D, α, β), (C, A) -> mul!(C, D, A, α, β),
+              (C, A) -> mul!(C, A', D, α, β), (C, A) -> mul!(C, D, transpose(A), α, β))
+        @test mismatch(f(copy(C0), S), f(Matrix(C0), Matrix(S))) === nothing
+    end
+    Cf = fixed(copy(C0))
+    @test_throws InexactError mul!(Cf, S, Diagonal([0.5, 1, 1]))
+    @test Cf == C0
+    # a zero `alpha` leaves the product unformed: a non-finite entry of it is not converted
+    Ainf = sparse(reshape([Inf], 1, 1)); D1 = Diagonal([1.0])
+    for α in (0.0, false, 0), (β, r) in ((1, 7), (2, 14), (0, 0), (false, 0)),
+        f in ((C, A) -> mul!(C, A, D1, α, β), (C, A) -> mul!(C, D1, A, α, β),
+              (C, A) -> mul!(C, A', D1, α, β), (C, A) -> mul!(C, D1, transpose(A), α, β))
+        C = sparse(reshape([7], 1, 1))
+        @test f(C, Ainf) === C && C == reshape([r], 1, 1)
+        @test f(reshape([7], 1, 1), Matrix(Ainf)) == reshape([r], 1, 1)
+    end
+end
+
+@testset "products with a wrapped operand follow the dense or banded factor" begin
+    S = sparse(ComplexF64[1 2+3im 1im; 0 5 2-im; 3+im 0 7])
+    D = Matrix(S) .+ 1
+    H = Hermitian(S + S')
+    x = sparsevec([1.0 + im, 0, 2])
+    banded = (Bidiagonal([1.0, 2, 3], [4.0, 5], :U), Tridiagonal(real(D)), SymTridiagonal([1.0, 2, 3], [4.0, 5]))
+    # sparse times banded stays sparse on either side
+    for A in (UpperTriangular(S)', transpose(UnitLowerTriangular(S)), transpose(H), Symmetric(S)',
+              view(S, [2, 1, 3], :)), B in banded
+        @test issparse(A * B) && Matrix(A * B) ≈ Matrix(A) * B
+        @test issparse(B * A) && Matrix(B * A) ≈ B * Matrix(A)
+    end
+    # sparse times dense is dense on either side
+    for A in (transpose(H), Symmetric(S)'), B in (D, Symmetric(D), Hermitian(D + D'))
+        @test (A * B)::Matrix{ComplexF64} ≈ Matrix(A) * B
+        @test (B * A)::Matrix{ComplexF64} ≈ B * Matrix(A)
+    end
+    for A in (UpperTriangular(D)', transpose(UnitLowerTriangular(D)), Symmetric(D)', transpose(Hermitian(D + D')))
+        @test (A * x)::Vector{ComplexF64} ≈ Matrix(A) * Vector(x)
+    end
+end
+end
+
 @testset "in-place sparse-sparse mul!" begin
     for n in (20, (@static COMPREHENSIVE ? (30,) : ())...)
         sA = fixture(ComplexF64, n, n); A = Array(sA)

@@ -353,9 +353,42 @@ function _trimatdiv!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
         throw(DimensionMismatch(lazy"second dimension of left hand side A, $n, and first dimension of right hand side B, $(size(B, 1)), must be equal"))
     size(C) == size(B) ||
         throw(DimensionMismatch(lazy"size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
-    C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
+    if C === B
+        # solving in place overwrites the right-hand side, so a singular triangle is found first
+        if !unit
+            j = _trisingular(upper, A)
+            j == 0 || throw(LinearAlgebra.SingularException(j))
+        end
+    else
+        _uconvert_copyto!(C, B, oneunit(eltype(A)))
+    end
     return upper ? _trimatdiv!(C, Val(true), unit, f, A, B) : _trimatdiv!(C, Val(false), unit, f, A, B)
 end
+# The position in the storage of `A` of the diagonal entry of column `j`, which is the last
+# entry of the upper triangle and the first of the lower one, and whether it is stored. A
+# matrix that stores one triangle only has it at the end of the column, with no search.
+@inline function _tridiagindex(upper::Bool, ja, i1::Int, i2::Int, j::Int)
+    i1 > i2 && return (upper ? i2 : i1), false
+    ii = upper ? i2 : i1
+    @inbounds ja[ii] == j && return ii, true
+    ii = upper ? searchsortedlast(ja, j, i1, i2, Base.Order.Forward) :
+                 searchsortedfirst(ja, j, i1, i2, Base.Order.Forward)
+    return ii, i1 <= ii <= i2 && @inbounds(ja[ii]) == j
+end
+# The first column of `A` whose diagonal entry is not stored or is a stored zero, or 0.
+function _trisingular(upper::Bool, A)
+    aa = getnzval(A)
+    ja = getrowval(A)
+    ia = getcolptr(A)
+    for j in 1:size(A, 2)
+        ii, hasdiag = _tridiagindex(upper, ja, Int(ia[j]), Int(ia[j + 1]) - 1, j)
+        hasdiag && !iszero(aa[ii]) || return j
+    end
+    return 0
+end
+# A diagonal entry that is not stored or is a stored zero is singular, as a zero on the
+# diagonal of a dense triangle is. The elements of `A` multiply and divide from the left,
+# as they do in `M * X == B`.
 function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
     n = size(A, 2)
     aa = getnzval(A)
@@ -366,17 +399,13 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
         i1 = Int(ia[j])
         i2 = Int(ia[j + 1]) - 1
         if direct
-            if upper
-                ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
-                hasdiag = ii >= i1 && ja[ii] == j
-            else
-                ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
-                hasdiag = ii <= i2 && ja[ii] == j
-            end
+            ii, hasdiag = _tridiagindex(upper, ja, i1, i2, j)
             cj = C[j,k]
             if hasdiag
                 if !unit
-                    cj /= LinearAlgebra._ustrip(f(aa[ii]))
+                    d = f(aa[ii])
+                    iszero(d) && throw(LinearAlgebra.SingularException(j))
+                    cj = LinearAlgebra._ustrip(d) \ cj
                     C[j,k] = cj
                 end
                 ii += upper ? -1 : 1
@@ -384,7 +413,7 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                 throw(LinearAlgebra.SingularException(j))
             end
             for i in (upper ? (ii:-1:i1) : (ii:i2))
-                C[ja[i],k] -= cj * LinearAlgebra._ustrip(f(aa[i]))
+                C[ja[i],k] -= LinearAlgebra._ustrip(f(aa[i])) * cj
             end
         else
             akku = C[j,k]
@@ -393,9 +422,15 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                 jai = Int(ja[ii])
                 d = upper ? j - jai : jai - j
                 if d > 0
-                    akku -= C[jai,k] * f(aa[ii])
+                    akku -= f(aa[ii]) * C[jai,k]
                 elseif d == 0
-                    akku /= unit ? oneunit(eltype(A)) : f(aa[ii])
+                    if unit
+                        akku = oneunit(eltype(A)) \ akku
+                    else
+                        a = f(aa[ii])
+                        iszero(a) && throw(LinearAlgebra.SingularException(j))
+                        akku = a \ akku
+                    end
                     done = true
                     break
                 else
@@ -417,18 +452,23 @@ matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, b::AbstractSparseVect
     Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(b))}(undef, length(b))
 matop_dest(::typeof(\), A::Diagonal, b::AbstractSparseVector) =
     similar(b , promote_op(\, eltype(A), eltype(b)))
-matop_dest(::typeof(\), A, B::QuasiSparseMatrix) =
+# Solves return dense. A triangle of a lazy adjoint or transpose of a sparse matrix is a
+# sparse operand like the other wrappers.
+matop_dest(::typeof(\), A, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
     Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
-matop_dest(::typeof(\), A::Diagonal, B::QuasiSparseMatrix) =
-    similar(B , promote_op(\, eltype(A), eltype(B)), size(B))
-matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
+# a `Diagonal` keeps the structure of the sparse operand, and its triangle
+matop_dest(::typeof(\), A::Diagonal, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+    B isa SparseAdjOrTransTriangular ? similar(B, promote_op(\, eltype(A), eltype(B))) :
+                                       similar(B, promote_op(\, eltype(A), eltype(B)), size(B))
+matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
     Matrix{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, size(B))
-matop_dest(::typeof(/), A::QuasiSparseMatrix, B) =
+matop_dest(::typeof(/), A::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}, B) =
     Matrix{promote_op(/, eltype(A), eltype(B))}(undef, size(A))
-matop_dest(::typeof(/), A::QuasiSparseMatrix, B::UnitUpperOrUnitLowerTriangular) =
+matop_dest(::typeof(/), A::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}, B::UnitUpperOrUnitLowerTriangular) =
     Matrix{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, size(A))
-matop_dest(::typeof(/), A::QuasiSparseMatrix, B::Diagonal) =
-    similar(A , promote_op(/, eltype(A), eltype(B)), size(A))
+matop_dest(::typeof(/), A::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}, B::Diagonal) =
+    A isa SparseAdjOrTransTriangular ? similar(A, promote_op(/, eltype(A), eltype(B))) :
+                                       similar(A, promote_op(/, eltype(A), eltype(B)), size(A))
 ## end of triangular
 
 # symmetric/Hermitian
@@ -839,6 +879,7 @@ size; use `opnorm(Array(A))` when such a matrix is small enough.
 """
 function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
     m, n = size(A)
+    p in (1, 2, Inf) || throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, 2, Inf"))
     if m == 0 || n == 0 || isempty(A)
         return float(real(zero(eltype(A))))
     elseif m == 1
@@ -1124,7 +1165,7 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
 end
 
 ## kron
-const _SparseKronGroup = Union{SparseVecOrMatMaybeAdjOrTrans,
+const _SparseKronGroup = Union{SparseVecOrMatMaybeAdjOrTrans, SparseMatrixCSCSubArray,
                                HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
                                UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
 const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, BandedMatrix,
@@ -1228,6 +1269,9 @@ kron(A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) = A .* B
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
 kron(a::Number, b::_SparseKronGroup) = a * b
 kron(a::_SparseKronGroup, b::Number) = a * b
+# a view times a number would be dense
+kron(a::Number, b::SparseMatrixCSCSubArray) = a * convert(SparseMatrixCSC, b)
+kron(a::SparseMatrixCSCSubArray, b::Number) = convert(SparseMatrixCSC, a) * b
 
 ## det, inv, cond
 

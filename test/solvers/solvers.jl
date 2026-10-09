@@ -12,6 +12,14 @@ include("../testhelpers.jl")
     a = SparseMatrixCSC(2, 2, [1, 3, 5], [1, 2, 1, 2], [1.0, 0.0, 0.0, 1.0])
     @test lu(a)\[2.0, 3.0] ≈ [2.0, 3.0]
     @test cholesky(a)\[2.0, 3.0] ≈ [2.0, 3.0]
+    @static if COMPREHENSIVE
+    # a triangular matrix is solved by substitution, where a stored zero on the diagonal
+    # is singular as it is for a dense matrix
+    t = SparseMatrixCSC(2, 2, [1, 2, 4], [1, 1, 2], [1.0, 2.0, 0.0])
+    @test_throws SingularException t \ [1.0, 1.0]
+    @test_throws SingularException t' \ [1.0, 1.0]
+    @test_throws SingularException copy(t') \ [1.0, 1.0]
+    end
 end
 
 @testset "complex left-division" begin
