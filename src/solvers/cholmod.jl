@@ -394,7 +394,8 @@ diagonal), can be materialized. `sparse(F)` reconstructs the factorized matrix.
 [`issuccess`](@ref), `nnz`, `copy`, [`CHOLMOD.rcond`](@ref SparseArrays.CHOLMOD.rcond),
 refactorization with [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!) and `ldlt!`, and
 the low-rank modifications [`lowrankdowndate`](@ref SparseArrays.CHOLMOD.lowrankdowndate)
-and `lowrankupdate`.
+and `lowrankupdate`. `copy(F)` and `deepcopy(F)` return an independent factorization:
+nothing done to one affects the other.
 
 CHOLMOD owns the memory, which is released by a finalizer. The pointer is null after
 deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!` takes
@@ -466,7 +467,14 @@ function Base.unsafe_convert(::Type{Ptr{T}}, x::Union{Dense,Sparse,Factor}) wher
         return xp
     end
 end
-Base.pointer(x::Dense{Tv}) where {Tv}  = Base.unsafe_convert(Ptr{cholmod_dense}, x)
+# `Dense` is a `DenseMatrix`, so `pointer`, `strides` and `elsize` describe its data, as
+# strided code expects of one. `structpointer` is the C struct that owns the data.
+structpointer(x::Dense)  = Base.unsafe_convert(Ptr{cholmod_dense}, x)
+structpointer(x::Sparse) = Base.unsafe_convert(Ptr{cholmod_sparse}, x)
+Base.pointer(x::Dense{Tv}) where {Tv} = Ptr{Tv}(unsafe_load(structpointer(x)).x)
+Base.unsafe_convert(::Type{Ptr{Tv}}, x::Dense{Tv}) where {Tv<:VTypes} = pointer(x)
+Base.strides(x::Dense) = (1, Int(unsafe_load(structpointer(x)).d))
+Base.elsize(::Type{Dense{Tv}}) where {Tv} = sizeof(Tv)
 Base.pointer(x::Sparse{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_sparse}, x)
 Base.pointer(x::Factor{Tv}) where {Tv} = Base.unsafe_convert(Ptr{cholmod_factor}, x)
 
@@ -533,10 +541,10 @@ Factor(FC::FactorComponent) = FC.F
         Dense{Tv}(@checked cholmod_copy_dense(A, getcommon()))
     end
     function check_dense(A::Dense{Tv}) where Tv<:VTypes
-        (@checked cholmod_check_dense(pointer(A), getcommon())) != 0
+        (@checked cholmod_check_dense(structpointer(A), getcommon())) != 0
     end
     function norm_dense(D::Dense{Tv}, p::Integer) where Tv<:VTypes
-        s = unsafe_load(pointer(D))
+        s = unsafe_load(structpointer(D))
         if p == 2
             if s.ncol > 1
                 throw(ArgumentError("2 norm only supported when matrix has one column"))
@@ -566,11 +574,11 @@ else
         Dense{Tv}(@checked cholmod_l_copy_dense(A, getcommon()))
     end
     function check_dense(A::Dense{Tv}) where Tv<:VTypes
-        (@checked cholmod_l_check_dense(pointer(A), getcommon())) != 0
+        (@checked cholmod_l_check_dense(structpointer(A), getcommon())) != 0
     end
 
     function norm_dense(D::Dense{Tv}, p::Integer) where Tv<:VTypes
-        s = unsafe_load(pointer(D))
+        s = unsafe_load(structpointer(D))
         if p == 2
             if s.ncol > 1
                 throw(ArgumentError("2 norm only supported when matrix has one column"))
@@ -719,7 +727,7 @@ for TI ∈ IndexTypes
     end
 
     function copy(F::Factor{Tv, $TI}) where Tv<:VTypes
-        Factor{Tv, $TI}(@checked $(cholname(:copy_factor, TI))(F, getcommon($TI)))
+        Factor{Tv, $TI}(@lock F.lock @checked $(cholname(:copy_factor, TI))(F, getcommon($TI)))
     end
     function copy(A::Sparse{Tv, $TI}) where Tv<:VTypes
         Sparse{Tv, $TI}(@checked $(cholname(:copy_sparse, TI))(A, getcommon($TI)))
@@ -764,7 +772,7 @@ for TI ∈ IndexTypes
     end
 
     function scale!(S::Dense{Tv}, scale::Integer, A::Sparse{Tv, $TI}) where Tv<:VTypes
-        sS = unsafe_load(pointer(S))
+        sS = unsafe_load(structpointer(S))
         sA = unsafe_load(pointer(A))
         if sS.ncol != 1 && sS.nrow != 1
             throw(DimensionMismatch("first argument must be a vector"))
@@ -856,6 +864,7 @@ for TI ∈ IndexTypes
             throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
                 "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
         end
+        issuccess(F) || throw(factorization_exception(F))
         Sparse{Tv, $TI}(@checked $(cholname(:spsolve, TI))(sys, F, B, getcommon($TI)))
     end
     # Autodetects the types
@@ -890,7 +899,7 @@ for TI ∈ IndexTypes
         return Sparse{Tnew, $TI}(s)
     end
     function change_xdtype(F::Factor{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
-        c = @checked $(cholname(:copy_factor, TI))(F, getcommon($TI))
+        c = @lock F.lock @checked $(cholname(:copy_factor, TI))(F, getcommon($TI))
         try
             @checked $(cholname(:factor_xtype, TI))(xdtyp(Tnew), c, getcommon($TI))
         catch
@@ -900,6 +909,19 @@ for TI ∈ IndexTypes
         return Factor{Tnew, $TI}(c)
     end
 end
+end
+
+copy(F::AdjointFactorization{<:Any,<:Factor}) = AdjointFactorization(copy(parent(F)))
+copy(F::LinearAlgebra.TransposeFactorization{<:Any,<:Factor}) =
+    LinearAlgebra.TransposeFactorization(copy(parent(F)))
+
+# The default deepcopy would duplicate the raw pointer into a wrapper without a
+# finalizer, leaving it dangling once the original is freed or refactorized in place.
+function Base.deepcopy_internal(x::Union{Dense,Sparse,Factor}, stackdict::IdDict)
+    haskey(stackdict, x) && return stackdict[x]::typeof(x)
+    y = copy(x)
+    stackdict[x] = y
+    return y
 end
 
 # promotion functions for the strictly single typed functions above:
@@ -957,6 +979,7 @@ function spsolve(sys::Integer, F::Factor{Tv1, Ti1}, B::Sparse{Tv2}) where {Tv1, 
         throw(DimensionMismatch("LHS and RHS should have the same number of rows. " *
             "LHS has $(size(F,1)) rows, but RHS has $(size(B,1)) rows."))
     end
+    issuccess(F) || throw(factorization_exception(F))
     T = promote_type(Tv1, Tv2)
     return spsolve(sys, T === Tv1 ? F : change_xdtype(F, T), convert(Sparse{T, Ti1}, B))
 end
@@ -1005,7 +1028,7 @@ get_perm(FC::FactorComponent) = get_perm(Factor(FC))
 function Dense{T}(A::StridedVecOrMatMaybeAdjOrTrans) where T<:VTypes
     d = allocate_dense(size(A, 1), size(A, 2), size(A, 1), T)
     GC.@preserve d begin
-        D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(pointer(d)).x), size(A), own = false)
+        D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(structpointer(d)).x), size(A), own = false)
         copyto!(D, A)
     end
     return d
@@ -1039,10 +1062,10 @@ end
 
 function Base.convert(::Type{Dense{Tnew}}, A::Dense{T}) where {Tnew, T}
     GC.@preserve A begin
-        Ap = unsafe_load(pointer(A))
+        Ap = unsafe_load(structpointer(A))
         d = allocate_dense(size(A)..., Ap.d, Tnew)
         Ax = unsafe_wrap(Array, Ptr{eltype(A)}(Ap.x), size(A), own = false)
-        D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(pointer(d)).x), size(A), own = false)
+        D = unsafe_wrap(Array, Ptr{eltype(d)}(unsafe_load(structpointer(d)).x), size(A), own = false)
         copyto!(D, Ax)
     end
     return d
@@ -1237,7 +1260,7 @@ Base.convert(::Type{Sparse{T, Ti}}, A::Sparse{T, Ti}) where {T, Ti} = A
 
 ## conversion back to base Julia types
 function Matrix{T}(D::Dense{T}) where T
-    s = unsafe_load(pointer(D))
+    s = unsafe_load(structpointer(D))
     a = Matrix{T}(undef, s.nrow, s.ncol)
     copyto!(a, D)
 end
@@ -1250,7 +1273,7 @@ Base.copyto!(dest::AbstractArray, D::Dense) = _copy!(dest, D)
 
 function _copy!(dest::AbstractArray, D::Dense{T}) where {T<:VTypes}
     require_one_based_indexing(dest)
-    s = unsafe_load(pointer(D))
+    s = unsafe_load(structpointer(D))
     n = s.nrow*s.ncol
     n <= length(dest) || throw(BoundsError(dest, n))
     GC.@preserve D dest begin
@@ -1332,7 +1355,7 @@ SparseMatrixCSC(A::Sparse{Tv, Ti}) where {Tv, Ti} = SparseMatrixCSC{Tv, Ti}(A)
 SparseMatrixCSC(D::Dense{Tv}) where {Tv} = SparseMatrixCSC{Tv, Int}(D)
 SparseMatrixCSC{Tv}(D::Dense) where {Tv} = SparseMatrixCSC{Tv, Int}(D)
 function SparseMatrixCSC{Tv, Ti}(D::Dense{Td}) where {Tv, Ti, Td}
-    s = unsafe_load(pointer(D))
+    s = unsafe_load(structpointer(D))
     nrow, ncol, d = Int(s.nrow), Int(s.ncol), Int(s.d)
     GC.@preserve D begin
         buf = unsafe_wrap(Array, Ptr{Td}(s.x), (d, ncol); own = false)
@@ -1484,7 +1507,7 @@ isvalid(A::Sparse) = check_sparse(A)
 isvalid(A::Factor) = check_factor(A)
 
 function size(A::Union{Dense,Sparse})
-    s = unsafe_load(pointer(A))
+    s = unsafe_load(structpointer(A))
     return (Int(s.nrow), Int(s.ncol))
 end
 function size(F::Factor, i::Integer)
@@ -1515,7 +1538,7 @@ adjoint(FC::FactorComponent{Tv,:DUP}) where {Tv} = FactorComponent{Tv,:PtLD}(FC.
 
 function getindex(A::Dense{T}, i::Integer) where {T<:VTypes}
     GC.@preserve A begin
-        s = unsafe_load(pointer(A))
+        s = unsafe_load(structpointer(A))
         0 < i <= s.nrow*s.ncol || throw(BoundsError())
         x = unsafe_load(Ptr{T}(s.x), i)
     end
@@ -1677,8 +1700,8 @@ function cholesky!(F::Factor{Tv}, A::Sparse{Tv};
         @cholmod_param final_ll = true begin
             factorize_p!(A, shift, F)
         end
+        check && (issuccess(F) || throw(factorization_exception(F)))
     end
-    check && (issuccess(F) || throw(factorization_exception(F)))
     return F
 end
 
@@ -1852,8 +1875,8 @@ function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
     @lock F.lock begin
         change_factor!(F, false, false, true, false)
         factorize_p!(A, shift, F)
+        check && (issuccess(F) || throw(factorization_exception(F)))
     end
-    check && (issuccess(F) || throw(factorization_exception(F)))
     return F
 end
 
@@ -2001,9 +2024,14 @@ factor will be `L*L' == P*A*P' + C'*C`
 lowrankupdowndate!
 
 #Helper functions for rank updates
-lowrank_reorder(V::AbstractArray, p) = Sparse(sparse(V[p,:]))
-lowrank_reorder(V::AbstractSparseArray, p) = Sparse(V[p,:])
-lowrank_reorder(V::AbstractArray, p, Tv, Ti) = Sparse{Tv, Ti}(sparse(V[p, :]))
+# `V[p, :]` would silently drop the rows of `V` beyond `length(p)`
+function lowrank_checksize(V::AbstractArray, p)
+    size(V, 1) == length(p) || throw(DimensionMismatch(
+        "the factorization is of a matrix with $(length(p)) rows, but the update has $(size(V, 1))"))
+end
+lowrank_reorder(V::AbstractArray, p) = (lowrank_checksize(V, p); Sparse(sparse(V[p,:])))
+lowrank_reorder(V::AbstractSparseArray, p) = (lowrank_checksize(V, p); Sparse(V[p,:]))
+lowrank_reorder(V::AbstractArray, p, Tv, Ti) = (lowrank_checksize(V, p); Sparse{Tv, Ti}(sparse(V[p, :])))
 """
     lowrankupdate!(F::CHOLMOD.Factor, C::AbstractArray)
 
@@ -2195,7 +2223,7 @@ end
     dense_b.dtype = dtyp(T)
     return Ptr{cholmod_dense_struct}(pointer_from_objref(dense_b))
 end
-@inline _setup_bptr(b::Dense{<:VTypes}, ::cholmod_dense_struct) = b.ptr
+@inline _setup_bptr(b::Dense{<:VTypes}, ::cholmod_dense_struct) = Ptr{cholmod_dense_struct}(structpointer(b))
 
 """
     CHOLMOD.CholmodWS(F::CHOLMOD.Factor)
@@ -2249,22 +2277,22 @@ for TI in IndexTypes
         # dense_x struct.  In the reuse branch it also overwrites X->d with
         # n, so the output must be a contiguous column-major buffer.  Verify
         # these invariants here so CHOLMOD can never take the other branch.
-        n = size(L, 1)
-        if size(x, 1) != n || size(b, 1) != n || size(x, 2) != size(b, 2)
-            throw(DimensionMismatch("solution has size $(size(x)), RHS has size $(size(b)), " *
-                "but the factorization is $(n)×$(n)"))
-        end
-        if stride(x, 1) != 1 || stride(x, 2) != n
-            throw(ArgumentError("solution array must be a contiguous column-major array"))
-        end
-        if stride(b, 1) != 1
-            throw(ArgumentError("RHS array must have unit column stride"))
-        end
-        s = unsafe_load(pointer(L))
-        if xtyp(T) != s.xtype || dtyp(T) != s.dtype
-            throw(ArgumentError("element type of the solution array does not match the factorization"))
-        end
         @lock L.lock begin
+            n = size(L, 1)
+            if size(x, 1) != n || size(b, 1) != n || size(x, 2) != size(b, 2)
+                throw(DimensionMismatch("solution has size $(size(x)), RHS has size $(size(b)), " *
+                    "but the factorization is $(n)×$(n)"))
+            end
+            if stride(x, 1) != 1 || stride(x, 2) != n
+                throw(ArgumentError("solution array must be a contiguous column-major array"))
+            end
+            if stride(b, 1) != 1
+                throw(ArgumentError("RHS array must have unit column stride"))
+            end
+            s = unsafe_load(pointer(L))
+            if xtyp(T) != s.xtype || dtyp(T) != s.dtype
+                throw(ArgumentError("element type of the solution array does not match the factorization"))
+            end
             dense_x = ws.dense_x
             dense_x.nrow  = size(x, 1)
             dense_x.ncol  = size(x, 2)
@@ -2294,36 +2322,38 @@ for TI in IndexTypes
                          b::StridedVecOrMat{T};
                          workspace::Union{Nothing, CholmodWS{$TI}} = nothing) where {T<:VTypes}
         Base.mightalias(x, b) && (b = copy(b))
-        if size(L, 1) != size(b, 1)
-            throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
-                "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
-        end
-        if size(L, 2) != size(x, 1)
-            throw(DimensionMismatch("Factorization and solution should match sizes. " *
-                "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
-        end
-        if size(x, 2) != size(b, 2)
-            throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
-                "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
-        end
-        if stride(x, 1) != 1 || stride(x, 2) != size(x, 1)
-            throw(ArgumentError("solution array must be a contiguous column-major array " *
-                "(e.g. a Vector, Matrix, or view(M, :, 1:k)); got strides $(strides(x)) for size $(size(x))"))
-        end
-        if stride(b, 1) != 1
-            throw(ArgumentError("RHS array must have unit stride along its first dimension; " *
-                "got strides $(strides(b)) for size $(size(b))"))
-        end
-        issuccess(L) || throw(factorization_exception(L))
-        if workspace === nothing
-            ws = CholmodWS{$TI}()
-            try
-                solve!(x, L, b, ws)
-            finally
-                free!(ws)
+        @lock L.lock begin
+            if size(L, 1) != size(b, 1)
+                throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
+                    "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
             end
-        else
-            solve!(x, L, b, workspace)
+            if size(L, 2) != size(x, 1)
+                throw(DimensionMismatch("Factorization and solution should match sizes. " *
+                    "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
+            end
+            if size(x, 2) != size(b, 2)
+                throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
+                    "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
+            end
+            if stride(x, 1) != 1 || stride(x, 2) != size(x, 1)
+                throw(ArgumentError("solution array must be a contiguous column-major array " *
+                    "(e.g. a Vector, Matrix, or view(M, :, 1:k)); got strides $(strides(x)) for size $(size(x))"))
+            end
+            if stride(b, 1) != 1
+                throw(ArgumentError("RHS array must have unit stride along its first dimension; " *
+                    "got strides $(strides(b)) for size $(size(b))"))
+            end
+            issuccess(L) || throw(factorization_exception(L))
+            if workspace === nothing
+                ws = CholmodWS{$TI}()
+                try
+                    solve!(x, L, b, ws)
+                finally
+                    free!(ws)
+                end
+            else
+                solve!(x, L, b, workspace)
+            end
         end
         return x
     end
@@ -2346,6 +2376,8 @@ ldiv!(L::Union{AdjointFactorization{T,<:Factor{T}},TransposeFactorization{T,<:Fa
 function diag(F::Factor{Tv, Ti}) where {Tv, Ti}
     GC.@preserve F begin
         f = unsafe_load(typedpointer(F))
+        f.x == C_NULL && throw(ArgumentError(
+            "`diag` needs the numeric factors, but this `CHOLMOD.Factor` is only symbolic"))
         fsuper = f.super
         fpi = f.pi
         res = Base.zeros(Tv, Int(f.n))
@@ -2485,20 +2517,6 @@ function ishermitian(A::Sparse{<:VComplexTypes})
         return i == CHOLMOD_MM_HERMITIAN || i == CHOLMOD_MM_HERMITIAN_POSDIAG
     end
 end
-
-(*)(A::Symmetric{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}},
-    B::SparseVectorOrMatrixCSC{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-(*)(A::Hermitian{<:VComplexTypes,SparseMatrixCSC{<:VComplexTypes,Ti}},
-    B::SparseVectorOrMatrixCSC{<:VComplexTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-(*)(A::Hermitian{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}},
-    B::SparseVectorOrMatrixCSC{<:VRealTypes,Ti}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-
-(*)(A::SparseVectorOrMatrixCSC{<:VRealTypes,Ti},
-    B::Symmetric{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-(*)(A::SparseVectorOrMatrixCSC{<:VComplexTypes,Ti},
-    B::Hermitian{<:VComplexTypes,SparseMatrixCSC{<:VComplexTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
-(*)(A::SparseVectorOrMatrixCSC{<:VRealTypes,Ti},
-    B::Hermitian{<:VRealTypes,SparseMatrixCSC{<:VRealTypes,Ti}}) where {Ti} = sparse(Sparse(A)*Sparse(B))
 
 # Sort all the indices in each column for the construction of a CSC sparse matrix
 function _sort_buffers!(m, n, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Ti <: Integer, Tv}

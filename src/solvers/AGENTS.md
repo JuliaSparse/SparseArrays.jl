@@ -33,7 +33,11 @@ on the GPL libraries; see the Layout section there.
   and `CHOLMOD.Factor` and `_lock` on `QRSparse`. Every call that touches its mutable
   state (C factor objects, matrix arrays, status, control and info) holds that lock for
   the whole call, including argument checks that read the factor and any `issuccess`
-  check after refactorization. Read-only calls serialize too. Where a locked method
+  check after refactorization. Read-only calls on a `UmfpackLU` or a `QRSparse` serialize
+  too. Those on a `CHOLMOD.Factor` (`F \ b`, `diag`, `logdet`, `sparse(F)`) do not take
+  the lock, so that tasks can solve with one shared factor in parallel; only the calls
+  that modify the factor (`cholesky!`, `ldlt!`, `lowrankupdate!`) and `copy` take it, and
+  a factor must not be modified while another task reads it. Where a locked method
   calls another, rely on reentrancy or split out an unlocked kernel, whichever keeps hot
   paths to one acquisition.
 - `copy(F)` is fully independent: it shares nothing that any call modifies, and it
