@@ -875,6 +875,18 @@ unchanged(S, S0) = same_pattern(S, S0) && nonzeros(S) == nonzeros(S0)
         x = sparse([1, 2, 3])
         @test x[ones(Int, 2, 2, 2)] == [1, 2, 3][ones(Int, 2, 2, 2)]
         @test x[fill(3)] == fill(3)
+        @test_throws BoundsError A[reshape([1, 7], 1, 1, 2)]
+        @test_throws BoundsError A[fill(0)]
+        @test_throws BoundsError x[fill(4)]
+        # the result is dense, so its length need not fit the index type
+        A8 = sparse(Int8[1, 12], Int8[1, 12], [1.0, 2.0], 12, 12)
+        I8 = reshape(collect(1:144), 12, 12, 1)
+        @test A8[I8] == Matrix(A8)[I8]
+        # a stored entry is copied; only an unstored one needs a `zero`
+        As = SparseMatrixCSC(1, 1, [1, 2], [1], ["a"])
+        @test As[fill(1)] == fill("a")
+        @test As[ones(Int, 1, 1, 1)] == fill("a", 1, 1, 1)
+        @test size(As[Array{Int}(undef, 0, 2, 2)]) == (0, 2, 2)
     end
     @testset "a Bool is a mask, not an index" begin
         @test A[false:true, 2] == D[false:true, 2] == [3.0]

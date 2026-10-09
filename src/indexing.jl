@@ -551,11 +551,20 @@ end
 # There is no sparse array of the shape of an index array that is not a vector or a
 # matrix, so the result is dense, as it is for a dense `A`.
 function _getindex_dense(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray) where {Tv}
-    x = A[vec(I)]
-    B = zeros(Tv, size(I))
-    nzindx = nonzeroinds(x); nzvalx = nonzeros(x)
-    for k in eachindex(nzindx, nzvalx)
-        B[nzindx[k]] = nzvalx[k]
+    m = size(A, 1)
+    nA = length(A)
+    rowval = getrowval(A)
+    nzval = getnzval(A)
+    # filled entry by entry: a stored entry is copied, and only an unstored one needs `zero`
+    B = Array{Tv}(undef, size(I))
+    for (k, i) in zip(eachindex(B), I)
+        i isa Bool && Base.to_index(i)
+        1 <= i <= nA || throw(BoundsError(A, I))
+        col, row = divrem(Int(i) - 1, m)
+        col += 1; row += 1
+        r = nzrange(A, col)
+        p = searchsortedfirst(rowval, row, Int(first(r)), Int(last(r)), Base.Order.Forward)
+        B[k] = (p <= last(r) && rowval[p] == row) ? nzval[p] : zero(Tv)
     end
     return B
 end
