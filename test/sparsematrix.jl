@@ -2063,4 +2063,64 @@ end
 end
 end
 
+@static if COMPREHENSIVE
+@testset "views and lazy adjoints go through the sparse kernels" begin
+    insparse(f, args...) = which(f, typeof.(args)).module === SparseArrays
+    for T in (Float64, ComplexF64)
+        A = sparse(T[1 2 0 0; 2 0 3 0; 0 3 0 0; 0 0 0 4]); T <: Complex && (A[1, 2] = 2 + im; A[2, 1] = 2 - im)
+        nonzeros(A)[end] = 0   # a stored zero
+        B = sparse(T[1 0 2; 0 0 3; 4 5 0; 0 6 0])
+        F = fixed(copy(A))
+        wrapped(S, D) = ((view(S, :, 2:size(S, 2)), view(D, :, 2:size(D, 2))), (view(S, :, [3, 1, 2]), view(D, :, [3, 1, 2])),
+                         (view(S, [3, 1], :), view(D, [3, 1], :)), (S', D'), (transpose(S), transpose(D)))
+        for (S, D) in ((A, Array(A)), (B, Array(B)), (F, Array(A))), (X, Y) in wrapped(S, D)
+            for f in (reverse, rot180, rotl90, rotr90, permutedims, x -> circshift(x, (1, -1)), x -> circshift(x, 2),
+                      x -> reverse(x; dims=1), x -> reverse(x; dims=2), x -> permutedims(x, (1, 2)),
+                      x -> copy(reshape(x, size(x, 2), size(x, 1))), x -> copy(reshape(x, 1, length(x))))
+                R = f(X)
+                @test R isa SparseMatrixCSC{T,Int} && R == f(Y)
+            end
+            @test insparse(reverse, X) && insparse(rot180, X) && insparse(rotl90, X) && insparse(rotr90, X)
+            @test insparse(circshift, X, (1, 1)) && insparse(circshift, X, 1) && insparse(permutedims, X, (2, 1))
+            @test insparse(sort, X) && insparse(copy, reshape(X, 1, length(X)))
+            @test insparse(issymmetric, X) && insparse(ishermitian, X)
+            @test issymmetric(X) == issymmetric(Y) && ishermitian(X) == ishermitian(Y)
+            @test count(iszero, X) == count(iszero, Y) && count(x -> imag(x) > 0, X) == count(x -> imag(x) > 0, Y)
+            if T <: Real
+                for dims in 1:2
+                    R = sort(X; dims)
+                    @test R isa SparseMatrixCSC{T,Int} && R == sort(Y; dims) && sort(X; dims, rev=true) == sort(Y; dims, rev=true)
+                end
+            end
+            if X isa SubArray
+                @test insparse(==, X, X') && insparse(==, X', X) && insparse(isequal, X, transpose(X)) && insparse(==, S, X') && insparse(==, X', S)
+                @test (X == X') == (Y == Y') && (X' == X) == (Y' == Y) && (X == transpose(X)) == (Y == transpose(Y))
+                @test (copy(X) == X') == (Y == Y') && (transpose(X) == copy(X)) == (Y == Y') || T <: Complex
+                @test insparse(+, X, I) && insparse(-, I, X)
+                if size(X, 1) == size(X, 2)
+                    @test X + I == Y + I && I + X == I + Y && X - 2I == Y - 2I && 2I - X == 2I - Y
+                    @test X + I isa SparseMatrixCSC{T,Int}
+                else
+                    @test_throws DimensionMismatch X + I
+                    @test_throws DimensionMismatch I - X
+                end
+            else
+                @test which(Base._simple_count, (typeof(iszero), typeof(X), Int)).module === SparseArrays
+            end
+        end
+        for S in (A + transpose(A), A + A'), X in (view(S, :, :), view(S, :, [1, 2, 3, 4]), view(S, 1:4, 1:4), S', transpose(S), view(S, :, 1:4)')
+            Y = collect(X)
+            @test issymmetric(X) == issymmetric(Y) && ishermitian(X) == ishermitian(Y)
+            @test (X == X') == (Y == Y') && (X == transpose(X)) == (Y == transpose(Y))
+        end
+    end
+    # the parent is counted in place: the allocation does not grow with the matrix
+    countzeros(X) = count(iszero, X)
+    A = sprand(50, 50, 0.1); B = sprand(500, 500, 0.1)
+    countzeros(A'); countzeros(transpose(B))
+    @test (@allocated countzeros(A')) == (@allocated countzeros(B'))
+    @test countzeros(B') == countzeros(B) && countzeros(transpose(B)) == countzeros(B)
+end
+end
+
 end # module
