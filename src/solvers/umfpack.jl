@@ -456,9 +456,8 @@ Compute the LU factorization of a sparse matrix `A`, reusing the symbolic
 factorization of an already existing LU factorization stored in `F`.
 Unless `reuse_symbolic` is set to false, the sparse matrix `A` must have an
 identical nonzero pattern as the matrix used to create the LU factorization `F`,
-otherwise an error is thrown and `F` is left as it was. If the size of `A` and `F`
-differ, all vectors are resized accordingly and the symbolic factorization is computed
-anew.
+otherwise an error is thrown. If the size of `A` and `F` differ, all vectors are
+resized accordingly and the symbolic factorization is computed anew.
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
@@ -506,14 +505,8 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
     end
 
     @lock F.lock begin
-        if reuse_symbolic && _isnotnull(F.symbolic)
-            if size(S) != (F.m, F.n)
-                # the symbolic factors are those of a matrix of another size
-                reuse_symbolic = false
-            elseif !_samepattern(F, S, zerobased)
-                throw(ArgumentError("pattern of the matrix changed; pass `reuse_symbolic=false` to refactorize a matrix with another pattern"))
-            end
-        end
+        # the symbolic factors are those of a matrix of another size
+        reuse_symbolic && _isnotnull(F.symbolic) && size(S) != (F.m, F.n) && (reuse_symbolic = false)
 
         F.m = size(S, 1)
         F.n = size(S, 2)
@@ -538,22 +531,6 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
         lu!(F; reuse_symbolic, check, q)
     end
     return F
-end
-
-# whether `S` has the stored pattern that `F` was factorized with
-function _samepattern(F::UmfpackLU, S::AbstractSparseMatrixCSC, zerobased::Bool)
-    colptr, rowval = getcolptr(S), getrowval(S)
-    off = zerobased ? 0 : 1
-    length(colptr) == length(F.colptr) || return false
-    for j in eachindex(colptr, F.colptr)
-        colptr[j] == F.colptr[j] + off || return false
-    end
-    nz = Int(colptr[end]) - off
-    nz <= length(F.rowval) || return false
-    for k in 1:nz
-        rowval[k] == F.rowval[k] + off || return false
-    end
-    return true
 end
 
 function lu!(F::UmfpackLU{Tv, Ti}; check::Bool=true, reuse_symbolic::Bool=true,

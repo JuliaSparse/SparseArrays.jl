@@ -474,10 +474,11 @@ end
                 F = lu(A)
                 umfpack_report(F)
                 if reuse
-                    # rejected before F is written to, so F still factorizes A
                     @test_throws ArgumentError lu!(F, D; reuse_symbolic=reuse)
-                    umfpack_report(F)
-                    @test F\b ≈ Matrix(A)\b
+                    # the stale numeric factorization of A has been dropped, so
+                    # anything needing it refactors D against A's symbolic and fails again
+                    @test_throws ArgumentError umfpack_report(F)
+                    @test_throws ArgumentError F\b
                 else
                     lu!(F, D; reuse_symbolic=reuse)
                     umfpack_report(F)
