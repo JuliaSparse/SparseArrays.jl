@@ -9,8 +9,7 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   fallback for Julia Base CI. On both paths selectors match suite names by prefix and a
   `!prefix` selector excludes; the serial path takes selectors, `--list` and
   `--comprehensive` only, and errors when nothing matches. `--jobs=N` and `PTR_NUM_JOBS`
-  are honoured; without either, the runner uses `Sys.CPU_THREADS` workers. Adding a
-  feature file does not require adding a worker task.
+  are honoured; without either, the runner uses `Sys.CPU_THREADS` workers.
 - `SparseTestHelpers.jl` is a module holding everything the suites share: the
   `getproperty` guard that makes field access on the sparse types an error, the type
   sets (`STD_ELTYPES` and `core_itypes`, and `itypes`, which adds `Int32`, for guarded
@@ -48,6 +47,9 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   `sparsevector.jl` keeps the vector `axpy!` and `dot` tests. The `transpose`, `adjoint`
   and `permute` tests, including the in-place forms, live in `sparsematrix.jl`.
 - Preserve issue references on regression tests.
+- Load a file that defines a module or a type with a top-level statement, not from a
+  function a testset calls: the testset runs in the world from before the definition,
+  which is an error under the `--depwarn=error` that CI and Julia's CI pass.
 - `ambiguous.jl`, the Aqua ambiguity check, and `aqua.jl`, the other Aqua checks, are in
   the inventory but skipped unless a selector names them; CI runs each as its own step of
   the `code-checks` job. Both load Aqua through `with_aqua` in `aquahelper.jl`, which
@@ -90,6 +92,12 @@ square real `sprand`: they have an empty row and column, a stored zero, more row
 columns and the reverse, and complex values that differ from their conjugates, which is
 what it takes for a swapped dimension, a stored zero read as structural or a missing
 `conj` to change a result. They are of the types standard mode already compiles.
+
+**Inputs are fixed.** Julia's CI fails the stdlib bump on a test that passes for most
+draws. Use a fixture, a literal, or a matrix built so that the property the test relies
+on (positive definite, full rank, an off-diagonal entry) is guaranteed, and assert that
+property when the test depends on it. Randomness stays, seeded, only where it is the
+point: the tests of `sprand` and `sprandn`, sorting and permutation, a stress loop.
 
 **A testset owns its inputs.** Build them inside the testset: `A, Ad = fixturepair(T, m, n)`
 returns a fresh fixture and its dense copy. Do not keep arrays in module-level variables:
@@ -192,10 +200,4 @@ process-suite elapsed time includes waiting for its children.
   by one suite is reused by the next, so the sum of per-suite measurements overstates
   it. Measure the first command above, with `JULIA_OBJCACHE=0`, for the figure that
   matters.
-- Report cold dependency preparation separately from warmed preparation and test
-  execution.
-- Retain CI's verbose per-suite reporting; compare bounds-job elapsed time and summed
-  test-job durations across the unchanged platform matrix, as well as compilation
-  versus execution.
-- After reducing work, compare groupings in a trial runner with the same worker count
-  and inventory. Change the default groups only with a repeatable scheduling benefit.
+- Keep the `--verbose` per-suite reporting that `runtests.jl` turns on in CI.

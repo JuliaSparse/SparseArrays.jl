@@ -35,6 +35,11 @@ to be red; do not delete the merged bump PR's branch.
   so `/amd.h` and `/colamd.h` carry the separator that keeps the first from matching the
   second. AMD and COLAMD are BSD-licensed and present on a build without GPL libraries,
   so their wrappers may be called from outside `src/solvers/`.
+- The headers are wrapped in the order `generator.jl` lists them, so a header goes
+  before any header that includes it; otherwise its wrappers move in the output.
+- Run `make` before changing the generator. It must reproduce the committed
+  `wrappers.jl` byte for byte, so that the diff afterwards is only what the change
+  causes.
 - To drop a macro Clang.jl cannot handle, add it to `output_ignorelist` in
   `generator.toml`.
 - Never edit `src/solvers/wrappers.jl` by hand: change `prologue.jl`, `generator.toml` or
