@@ -160,11 +160,15 @@ _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nze
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 
 # Specialized mapreduce for any and all
-# The assertion rejects a predicate that is not Boolean, as the dense reductions do.
+# Each value of the predicate is checked to be Boolean, as the dense reductions check it:
+# `|` and `&` would absorb another value next to a `missing`, or combine two of them.
+_boolean(v::Union{Bool,Missing}) = v
+_boolean(v) = v::Bool
+_booleanpredicate(f::F) where {F} = _boolean ∘ f
 Base._any(f, A::SparseMatrixCSCOrColumnSubset, ::Colon) =
-    iszero(widelength(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)::Union{Bool,Missing}
+    iszero(widelength(A)) ? false : Base._mapreduce(_booleanpredicate(f), |, IndexCartesian(), A)
 Base._all(f, A::SparseMatrixCSCOrColumnSubset, ::Colon) =
-    iszero(widelength(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)::Union{Bool,Missing}
+    iszero(widelength(A)) ? true  : Base._mapreduce(_booleanpredicate(f), &, IndexCartesian(), A)
 
 function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::SparseMatrixCSCOrColumnSubset{T}) where {F,T}
     nnzA = nnz(A)
