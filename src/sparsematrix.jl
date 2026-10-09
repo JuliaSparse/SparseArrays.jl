@@ -1195,11 +1195,9 @@ function _checkargs_sourcecompatworkmat_permute!(A::AbstractSparseMatrixCSC{Tv,T
             "or equal to source argument `A`'s allocated entry count, `nnz(A)` (= $(nnz(A)))")))
     end
 end
-"""
-Helper method for `permute!` methods operating on `SparseMatrixCSC`s.
-Checks that no two of the arguments share memory: the kernels write each one while reading
-another.
-"""
+# Helper method for `permute!` methods operating on `SparseMatrixCSC`s.
+# Checks that no two of the arguments share memory: the kernels write each one while reading
+# another.
 function _checkargs_noalias_permute!(names::NTuple{N,Symbol}, args::Vararg{AbstractSparseMatrixCSC,N}) where {N}
     for i in 1:N, j in i+1:N
         _sharebuffers_permute!(args[i], args[j]) &&
