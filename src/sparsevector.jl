@@ -1463,6 +1463,7 @@ function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorOrView) w
     T = eltype(A)
     isempty(A) && return Base.mapreduce_empty(f, op, T)
     z = nnz(A)
+    (z == length(A) || _commutes(f, op, T)) || return _mapreduce_ordered(f, op, A)
     rest, ini = if z == 0
         length(A)-z-1, f(zero(T))
     else
@@ -1472,9 +1473,9 @@ function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorOrView) w
 end
 
 Base._any(f, A::SparseVectorOrView, ::Colon) =
-    iszero(length(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)
+    iszero(length(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)::Union{Bool,Missing}
 Base._all(f, A::SparseVectorOrView, ::Colon) =
-    iszero(length(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
+    iszero(length(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)::Union{Bool,Missing}
 
 function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorOrView) where {F,G}
     # dim1 reduction could be safely replaced with a mapreduce
@@ -1883,6 +1884,7 @@ function _densestructure!(A::AbstractSparseMatrixCSC)
     _checkdensifiable(A)
     _is_fixed(A) && return A
     m, n = size(A)
+    convert(indtype(A), m * n + 1)   # the last column pointer: throws before anything is written
     resize!(getrowval(A), m * n)
     resize!(getnzval(A), m * n)
     colptr = resize!(getcolptr(A), n + 1)

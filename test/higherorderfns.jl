@@ -1225,4 +1225,78 @@ end
     end
 end
 
+@static if COMPREHENSIVE
+@testset "map and broadcast of a function whose values are `missing`, have no zero or equal f(0) in another type" begin
+    A, Ad = fixturepair(Float64, 4, 3)
+    f = x -> x == 0 ? 1.0 : missing
+    @test isequal(map(f, A), map(f, Ad))
+    @test isequal(A .== missing, Ad .== missing)
+    g = (x, y) -> x == 0 ? 1.0 : missing
+    @test isequal(map(g, A, A), map(g, Ad, Ad))
+    @test isequal(broadcast(g, A, A[:, 1]), broadcast(g, Ad, Ad[:, 1]))
+    g3 = (x, y, z) -> x == 0 ? 1.0 : missing
+    @test isequal(broadcast(g3, A, A, A[:, 1]), broadcast(g3, Ad, Ad, Ad[:, 1]))
+    h = x -> x == 0 ? 1 : 1.0
+    @test typeof.(map(h, A)) == typeof.(map(h, Ad))
+    for k in (string, x -> (x,), x -> nothing, x -> x => 1)
+        @test map(k, A) == map(k, Ad)
+    end
+    @test string.(A) == string.(Ad) && string.(A) isa Matrix{String}
+    @test (A .=> 1) == (Ad .=> 1)
+end
+
+@testset "broadcast! of another shape into a fixed destination checks the result first" begin
+    F = SparseArrays.fixed(sparse([1.0 0; 1.0 2.0]))
+    Fd, nz = Array(F), copy(nonzeros(F))
+    @test_throws ArgumentError F .= F .+ sparsevec([3.0, 0.0])   # a nonzero at (1, 2)
+    @test nonzeros(F) == nz
+    @test_throws ArgumentError F .= F .+ [1.0 2.0]
+    @test nonzeros(F) == nz
+    Fi = SparseArrays.fixed(sparse([1 0; 1 2]))
+    @test_throws InexactError Fi .= Fi .* [0.5, 1.0]
+    @test nonzeros(Fi) == [1, 1, 2]
+    # a result that fits the pattern is stored, whatever zeros the kernel kept
+    @test (F .= F .* sparsevec([3.0, 0.0])) === F
+    @test F == Fd .* [3.0, 0.0] && rowvals(F) == [1, 2, 2]
+    copyto!(nonzeros(F), nz)
+    F .= F .* [3.0, 2.0]
+    @test F == Fd .* [3.0, 2.0]
+end
+
+@testset "broadcast! and map! leave a valid destination when `f` or a conversion throws" begin
+    A, _ = fixturepair(Float64, 4, 3)
+    top = maximum(nonzeros(A))   # not a zero: `f` is evaluated at the zeros before anything is written
+    @test top > 0
+    boom = (x, y) -> x == top ? error("boom") : x + y
+    for B in (copy(A), A[:, 1])   # the `map!` kernel, and the kernel for another shape
+        C = copy(A)
+        @test_throws ErrorException C .= boom.(A, B)
+        @test nnz(C) == 0 && iszero(Array(C))
+        C = copy(A)
+        @test_throws ErrorException C .= boom.(C, B)
+        @test nnz(C) == 0 && iszero(Array(C))
+    end
+    Ci = sparse([1 0; 0 2])
+    @test_throws InexactError Ci .= Ci .* sparse([0.5 1.0; 1.0 1.0])
+    @test nnz(Ci) == 0 && iszero(Array(Ci))
+    # every entry does not fit the index type: found before anything is written
+    S = sparse(Int8[1], Int8[1], [1.0], 12, 12)
+    S0 = copy(S)
+    @test_throws InexactError S .= 1.0
+    @test_throws InexactError map!(x -> x + 1, S, S0)
+    @test mismatch(S, Array(S0); Ti=Int8) === nothing
+    # a dense result does not go through that index type
+    @test cos.(S) == cos.(Array(S)) && cos.(S) isa Matrix{Float64}
+end
+
+@testset "broadcast keeps a non-finite value times an unstored zero, and the sign of a zero on a `Diagonal`" begin
+    for (x, y) in ((sparsevec([Inf, 0.0, 2.0]), sparsevec([0.0, 1.0, 3.0])),
+                   (sparsevec([1.0, 0.0, 2.0]), sparsevec([0.0, NaN, 3.0])),
+                   (sparsevec([Inf + 0im, 0, 2im]), sparsevec([0, 1im, 3.0 + 0im]))), w in (adjoint, transpose)
+        @test isequal(Array(x .* w(y)), Array(x) .* w(Array(y)))
+    end
+    @test isequal(Array(sparse(ones(2, 2)) ./ Diagonal([-0.0, 1.0])), ones(2, 2) ./ Diagonal([-0.0, 1.0]))
+end
+end
+
 end # module
