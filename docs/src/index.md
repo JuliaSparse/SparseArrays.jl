@@ -401,6 +401,56 @@ julia> C
   ⋅  ⋅  0
 ```
 
+## [Requirements on the element type](@id man-sparse-eltype)
+
+A sparse array can store values of any type `T`. Storing them asks nothing of `T`: an
+operation calls a function on the elements only when it has to produce a value for an
+entry that is not stored, decide whether a value is zero, or compute with the values.
+The table lists what each group of operations calls.
+
+| Operations | Called on the elements |
+|:-----------|:-----------------------|
+| [`sparse`](@ref) and [`sparsevec`](@ref) from indices and values, [`spzeros`](@ref), `copy`, [`nnz`](@ref), [`nonzeros`](@ref), [`findnz`](@ref), reading a stored entry, `A[:, j]` and `A[I, J]`, `hcat`, `vcat`, [`blockdiag`](@ref), `tril`, `triu`, `diag`, [`permute`](@ref), `reshape` | nothing |
+| `sparse(I, J, V)` with repeated indices | `+`, or the `combine` function |
+| reading an entry that is not stored, `setindex!`, `Matrix(A)`, `Vector(x)` | `zero(T)` |
+| `sparse(M)` of a dense array, [`dropzeros!`](@ref), `fill!`, `iszero(A)`, `isdiag` | `iszero` |
+| `A == B`, `isequal(A, B)`, `hash(A)` | `==`, `isequal` or `hash`, and `zero(T)` |
+| `copy(transpose(A))`, `copy(A')` | `transpose` or `adjoint` |
+| `A + B`, `A - B`, `-A` | `+` or `-`, `zero(T)`, `iszero` |
+| `A * B` with both sparse | `*`, `+` |
+| `A * x` and `A * M` with a dense `x` or `M` | `*`, `+`, `zero(T)` |
+| `A * x` with a sparse vector `x` | `*`, `+`, `zero(T)`, `iszero`, and the product of an element and a `Bool` |
+| `A' * x`, `transpose(A) * x` | as `A * x`, and `adjoint` or `transpose` |
+| `c * A`, `A * c`, `A / c` with a scalar `c` | `*` or `/`, `zero(T)`, `iszero`; `c` must be a `Number` |
+| `map(f, A)`, `f.(A)`, `f.(A, B)` | `f`, `zero(T)`, `iszero` of the result |
+| `sum(A)` | `+`, `zero(T)`, and the product of an element and an `Int` |
+| `sum(A, dims=d)` | `+`, `zero(T)`, and `zero` of an element |
+| `maximum`, `minimum`, `findmax`, `findmin`, `argmax`, `argmin`, `sort` | `isless`, `zero(T)` |
+| `dot` | `dot` of two elements, `+`, `zero(T)` |
+| `kron` | `*`, `oneunit(T)` |
+| `tr` | `+`, `zero(T)` |
+| `issymmetric`, `ishermitian` | `==`, `iszero`, and `transpose` or `adjoint` |
+| `\` with a triangular matrix | `*`, `-`, `/`, `\`, `oneunit(T)` |
+
+Some consequences:
+
+- Reading an entry that is not stored calls `zero` on the type, as `zero(T)`, not on a
+  value. An element type whose zero depends on the value, such as a `Matrix{Float64}`,
+  whose size is not part of its type, can be stored and multiplied but not indexed at an
+  entry that is not stored.
+- Multiplying two sparse matrices needs only `*` and `+` of the elements. A product with
+  a dense array or a sparse vector also needs `zero(T)`.
+- `iszero(x)` falls back to `x == zero(x)`, so a type that defines `zero` of a value and
+  `==` need not define `iszero`.
+- The products with a scalar are defined for a scalar that is a `Number`. For any other
+  element type, use `map` or broadcasting.
+- `map` and broadcasting evaluate the function on `zero(T)` to find out whether the
+  result is sparse, as described in [Broadcasting and `map`](@ref man-sparse-broadcast).
+- The [sparse factorizations](@ref stdlib-sparse-linalg) `lu`, `qr`, `cholesky` and `ldlt`
+  call SuiteSparse, which works in real and complex floating point. A matrix of integers
+  or rationals is converted to `Float64` first; a matrix of another element type, such
+  as `BigFloat`, is rejected.
+
 ## [Performance tips](@id man-sparse-performance)
 
 Sparse code is fast when its cost is proportional to the number of stored entries, and the
