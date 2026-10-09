@@ -192,12 +192,34 @@ end
     # Avoid calculating f(zero) unless necessary as it may fail.
     let r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            _iszero(fofzeros) ? _map_zeropres!(f, C, A, Bs...) :
+            _iszeroresult(fofzeros) ? _guardpattern(_map_zeropres!, f, C, A, Bs...) :
                 _map_notzeropres!(f, fofzeros, C, A, Bs...)
         else
-            _map_zeropres!(f, C, A, Bs...)
+            _guardpattern(_map_zeropres!, f, C, A, Bs...)
         end
     return @if_move_fixed A Bs... r
+end
+# A zero-preserving kernel rebuilds the pattern of C as it goes. When `f` or the conversion
+# of its result throws part-way, C is left structurally empty rather than half-written; a
+# fixed C keeps its pattern throughout.
+function _guardpattern(kernel!::K, f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {K,Tf,N}
+    try
+        return kernel!(f, C, As...)
+    catch
+        _is_fixed(C) || (trimstorage!(C, 0); _finishempty!(C))
+        rethrow()
+    end
+end
+# Whether `f` at the zeros is a zero. A value of a type that has none, such as a `String`,
+# a `Tuple` or `nothing`, is not one, and fills the result like any other nonzero.
+_iszeroresult(x::Union{Number,AbstractArray,Missing}) = _iszero(x)
+function _iszeroresult(x)
+    try
+        return _iszero(x)
+    catch e
+        e isa MethodError || rethrow()
+        return false
+    end
 end
 
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
@@ -206,7 +228,7 @@ function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N
     indextypeC = _promote_indtype(A, Bs...)
     r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            fpreszeros = _iszero(fofzeros)
+            fpreszeros = _iszeroresult(fofzeros)
             maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
             C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
             fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
@@ -227,7 +249,7 @@ copy(bc::SpBroadcasted1) = _asksthezeros(bc) && _fillszeros(bc.f, bc.args[1]) ?
     isempty(C) && return _finishempty!(C)
     f = bc.f
     fofnoargs = f()
-    if _iszero(fofnoargs) # f() is zero, so empty C
+    if _iszeroresult(fofnoargs) # f() is zero, so empty C
         trimstorage!(C, 0)
         _finishempty!(C)
     else # f() is nonzero, so densify C and fill with independent calls to f()
@@ -249,7 +271,7 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
     # Avoid calculating f(zero) unless necessary as it may fail.
     r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            _iszero(fofzeros) ?
+            _iszeroresult(fofzeros) ?
                 _broadcast_zeropres!(f, _allocres(shapeC, indextypeC, entrytypeC, maxnnzC), A, Bs...) :
                 _broadcast_notzeropres!(f, fofzeros, _allocres(shapeC, indextypeC, entrytypeC, _densennz(shapeC)), A, Bs...)
         else
@@ -323,12 +345,15 @@ Densifies `C`, storing `fillvalue` in place of each unstored entry in `A` and
 function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
+    # Below, and in the other `notzeropres` kernels, a value is left as filled only when it is
+    # identical to `fillvalue`: one that compares equal may be of another type or sign, and
+    # the comparison itself may be `missing`.
     # Populate values
     fill!(storedvals(C), fillvalue)
     @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
         for Ak in colrange(A, j)
             Cx = f(storedvals(A)[Ak])
-            Cx != fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
+            Cx !== fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
         end
     end
     # NOTE: Combining the fill! above into the loop above to avoid multiple sweeps over /
@@ -414,7 +439,7 @@ function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMa
                 Cx, Ci = f(zero(eltype(A)), storedvals(B)[Bk]), Bi
                 Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
             end
-            Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+            Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
         end
     end
     return _checkbuffers(C)
@@ -470,7 +495,7 @@ function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{Spars
         while activerow < rowsentinel
             vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
             Cx = f(vals...)
-            Cx != fillvalue && (storedvals(C)[jo + activerow] = Cx)
+            Cx !== fillvalue && (storedvals(C)[jo + activerow] = Cx)
             activerow = min(rows...)
         end
     end
@@ -611,7 +636,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             bccolrangejA = numcols(A) == 1 ? colrange(A, 1) : colrange(A, j)
             for Ak in bccolrangejA
                 Cx, Ci = f(storedvals(A)[Ak]), storedinds(A)[Ak]
-                Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
             end
         end
     # Cases with vertical expansion
@@ -621,7 +646,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
             Ax = Ak < stopAk ? svA[Ak] : zero(eltype(A))
             fofAx = f(Ax)
-            if fofAx != fillvalue
+            if fofAx !== fillvalue
                 for i in (jo + 1):(jo + numrows(C))
                     svC[i] = fofAx
                 end
@@ -839,7 +864,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
                     Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
                     Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
                 end
-                Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
             end
         end
     # Cases with vertical expansion
@@ -850,7 +875,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
             Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
             Cx = f(Ax, Bx)
-            if Cx != fillvalue
+            if Cx !== fillvalue
                 for Ck::Int in (jo + 1):(jo + numrows(C))
                     storedvals(C)[Ck] = Cx
                 end
@@ -862,10 +887,10 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
             Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
             fvAzB = f(Ax, zero(eltype(B)))
-            if fvAzB == fillvalue
+            if fvAzB === fillvalue
                 while Bk < stopBk
                     Cx = f(Ax, storedvals(B)[Bk])
-                    Cx != fillvalue && (storedvals(C)[jo + storedinds(B)[Bk]] = Cx)
+                    Cx !== fillvalue && (storedvals(C)[jo + storedinds(B)[Bk]] = Cx)
                     Bk += oneunit(Bk)
                 end
             else
@@ -877,7 +902,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
                     else
                         Cx = fvAzB
                     end
-                    Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                    Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
                 end
             end
         end
@@ -887,10 +912,10 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
             Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
             fzAvB = f(zero(eltype(A)), Bx)
-            if fzAvB == fillvalue
+            if fzAvB === fillvalue
                 while Ak < stopAk
                     Cx = f(storedvals(A)[Ak], Bx)
-                    Cx != fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
+                    Cx !== fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
                     Ak += oneunit(Ak)
                 end
             else
@@ -902,7 +927,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
                     else
                         Cx = fzAvB
                     end
-                    Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                    Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
                 end
             end
         end
@@ -952,7 +977,14 @@ _finishempty!(C::AbstractCompressedVector) = C
 _finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)
 
 # special case - vector outer product
-_copy(f::typeof(*), x::SparseVectorOrView, y::AdjOrTransSparseVectorOrView) = _outer(x, y)
+_copy(f::typeof(*), x::SparseVectorOrView, y::AdjOrTransSparseVectorOrView) =
+    _outerkeepszeros(x, y) ? _outer(x, y) : _copy(f, _sparsifystructured(x), _sparsifystructured(y))
+# `_outer` multiplies stored entries with stored entries alone, which gives the product when
+# every stored entry times a zero is a zero. An `Inf` or a `NaN` times a zero is not.
+function _outerkeepszeros(x, y)
+    zx, zy = zero(eltype(x)), zero(eltype(y))
+    return all(v -> _iszero(v * zy), nonzeros(x)) && all(v -> _iszero(zx * v), nonzeros(parent(y)))
+end
 @inline _outer(x::SparseVectorOrView, y::Adjoint) = return _outer(conj, x, parent(y))
 @inline _outer(x::SparseVectorOrView, y::Transpose) = return _outer(identity, x, parent(y))
 function _outer(trans::Tf, x, y) where Tf
@@ -1077,11 +1109,11 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg
         rows = _initrowforcol_all(j, rowsentinel, isemptys, expandsverts, ks, As)
         defaultCx = f(defargs...)
         activerow = min(rows...)
-        if defaultCx == fillvalue # fillvalue-preserving column scan
+        if defaultCx === fillvalue # fillvalue-preserving column scan
             while activerow < rowsentinel
                 args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
                 Cx = f(args...)
-                Cx != fillvalue && (storedvals(C)[jo + activerow] = Cx)
+                Cx !== fillvalue && (storedvals(C)[jo + activerow] = Cx)
                 activerow = min(rows...)
             end
         else # fillvalue-non-preserving column scan
@@ -1093,7 +1125,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg
                 else
                     Cx = defaultCx
                 end
-                Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
             end
         end
     end
@@ -1188,15 +1220,52 @@ end
 @inline function _copyto!(f, dest, As::SparseVecOrMat...)
     _aresameshape(dest, As...) && return _noshapecheck_map!(f, dest, As...)
     Base.Broadcast.check_broadcast_axes(axes(dest), As...)
+    # The kernels rebuild the pattern of their destination, which a fixed one does not allow:
+    # its result is computed aside and stored once it is known to fit.
+    _is_fixed(dest) && return _storeinfixed!(dest,
+        _diffshape_broadcast!(f, _allocres(size(dest), indtype(dest), eltype(dest), 0), As...))
+    return _diffshape_broadcast!(f, dest, As...)
+end
+function _diffshape_broadcast!(f::Tf, dest::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     # Avoid calculating f(zero) unless necessary as it may fail.
-    all(_haszeros, As) || return _broadcast_zeropres!(f, dest, As...)
+    all(_haszeros, As) || return _guardpattern(_broadcast_zeropres!, f, dest, As...)
     fofzeros = f(_zeros_eltypes(As...)...)
-    if _iszero(fofzeros)
-        return _broadcast_zeropres!(f, dest, As...)
+    if _iszeroresult(fofzeros)
+        return _guardpattern(_broadcast_zeropres!, f, dest, As...)
     else
         return _broadcast_notzeropres!(f, fofzeros, dest, As...)
     end
 end
+# Every entry of `S` that is not a zero must lie in the pattern of the fixed `C`, which is
+# checked in full before anything is written. The other entries of `C` become zero.
+function _storeinfixed!(C::SparseVecOrMat, S::SparseVecOrMat)
+    for write in (false, true)
+        @inbounds for j in columns(C)
+            Ck, stopCk = colstartind(C, j), colboundind(C, j)
+            for Sk in colstartind(S, j):(colboundind(S, j) - 1)
+                Si = storedinds(S)[Sk]
+                while Ck < stopCk && storedinds(C)[Ck] < Si
+                    write && (storedvals(C)[Ck] = zero(eltype(C)))
+                    Ck += oneunit(Ck)
+                end
+                if Ck < stopCk && storedinds(C)[Ck] == Si
+                    write && (storedvals(C)[Ck] = storedvals(S)[Sk])
+                    Ck += oneunit(Ck)
+                else
+                    _iszero(storedvals(S)[Sk]) || _throwfixedresult(C)
+                end
+            end
+            if write
+                for k in Ck:(stopCk - oneunit(stopCk))
+                    storedvals(C)[k] = zero(eltype(C))
+                end
+            end
+        end
+    end
+    return C
+end
+@noinline _throwfixedresult(C) =
+    throw(ArgumentError("the result has a nonzero entry outside the sparsity pattern of the $(nameof(typeof(C))) destination, whose pattern is read-only"))
 
 @inline function _copyto!(f, dest, args...)
     # args contains nothing but SparseVecOrMat and scalars
@@ -1322,11 +1391,13 @@ _fillszeros(f, args...) = false
 # A function that throws at the zeros, or an element type without a zero, is left to the
 # sparse kernels, which evaluate the function there only if some entry is not stored.
 function _preserveszeros(f::F, args::Vararg{Any,N}) where {F,N}
+    local fofzeros
     try
-        return _iszero(f(_zeros_eltypes(args...)...))
+        fofzeros = f(_zeros_eltypes(args...)...)
     catch
         return true
     end
+    return _iszeroresult(fofzeros)
 end
 
 # The sparse kernels evaluate the function once at the zeros and then at the stored entries
@@ -1336,8 +1407,12 @@ end
 function _densenonzero(bc::Broadcasted, f::F, args::Vararg{Any,N}) where {F,N}
     T = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, args)...))
     (isconcretetype(T) && T !== Bool) || return _densebroadcast(bc)
-    return _storedasdense(_copy(f, map(_sparsifystructured, args)...))
+    As = map(_sparsifystructured, args)
+    # the kernels store every entry, which the index type of the arguments may not address
+    _addresses(_promote_indtype(As...), map(length, axes(bc))) || return _densebroadcast(bc)
+    return _storedasdense(_copy(f, As...))
 end
+_addresses(::Type{Ti}, shape) where {Ti} = !(Ti <: Base.BitInteger) || prod(Int64, shape) < typemax(Ti)
 _storedasdense(C::Union{SparseVector,SparseMatrixCSC}) =
     length(getnzval(C)) == nnz(C) == length(C) ? reshape(getnzval(C), size(C)) : Array(C)
 _storedasdense(C) = Array(C)
@@ -1374,6 +1449,12 @@ _densifysparse(x) = x
 _sparsifystructured(M::AbstractMatrix) = _isdenselike(M) ? _fullystored(M) : SparseMatrixCSC(M)
 _sparsifystructured(V::AbstractVector) = _isdenselike(V) ? _fullystored(V) : SparseVector(V)
 _sparsifystructured(S::SparseVecOrMat) = S
+# stores the whole diagonal, as for the other banded types: a kernel that read a `-0.0` there
+# as a structural zero would lose its sign
+function _sparsifystructured(D::Diagonal)
+    n = size(D, 1)
+    return SparseMatrixCSC(n, n, collect(1:(n + 1)), collect(1:n), copyto!(Vector{eltype(D)}(undef, n), D.diag))
+end
 _sparsifystructured(S::SparseViewOfColumns) = copy(S)
 _sparsifystructured(x) = x
 

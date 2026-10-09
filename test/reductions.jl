@@ -737,4 +737,68 @@ end
     end
 end
 
+@static if COMPREHENSIVE
+@testset "reductions agree with dense on non-finite values, `init`, the order of the elements and `missing`" begin
+    # a stored `Inf` or `NaN` is not absorbed by an unstored zero
+    for D in ([0.0 Inf; 1.0 2.0], [0.0 NaN; 1.0 2.0]), dims in (:, 1, 2, (1, 2))
+        @test isequal(prod(sparse(D); dims), prod(D; dims))
+    end
+    @test prod(sparse([0 3; 1 2])) === 0
+    # `f(0)` is not added to a row that stores every entry
+    f = x -> x == 0 ? Inf : x
+    D = [1.0 2.0; 0.0 3.0]
+    @test isequal(mapreduce(f, +, sparse(D); dims=2), mapreduce(f, +, D; dims=2))
+    # `|` and `&` along the rows fold into `init`
+    for (pred, op) in ((>(5), |), (!iszero, &)), init in (true, false),
+        D in ([1.0 2.0; 0.0 3.0], [1.0 2.0; 3.0 4.0], [0.0 6.0; 0.0 0.0])
+        @test mapreduce(pred, op, sparse(D); dims=1, init) == mapreduce(pred, op, D; dims=1, init)
+    end
+    # an `op` that is not known to commute folds the elements in their order
+    takelast = (a, b) -> b
+    A, Ad = fixturepair(Float64, 4, 3)
+    x, xd = fixturepair(Float64, 5)
+    B = sparse([1.0 2.0; 3.0 4.0])   # stores every entry
+    for (S, D) in ((A, Ad), (x, xd), (view(A, :, [3, 1]), Ad[:, [3, 1]]), (view(A, :, 2), Ad[:, 2]), (B, Array(B)))
+        @test mapreduce(v -> [v], vcat, S) == mapreduce(v -> [v], vcat, D)
+        @test mapreduce(string, *, S) == mapreduce(string, *, D)
+        @test reduce(takelast, S) === reduce(takelast, D)
+        S isa AbstractMatrix || continue
+        for dims in (1, 2, (1, 2))
+            rd = mapreduce(identity, takelast, D; dims, init=7.0)
+            @test mapreduce(identity, takelast, S; dims, init=7.0) == rd
+            @test mismatch(mapreduce(identity, takelast, S; dims, init=7.0, sparse=true), rd) === nothing
+            @test mapreduce(string, *, S; dims, init="") == mapreduce(string, *, D; dims, init="")
+        end
+    end
+    # the ordered fold takes `f(0)` once and each stored entry once
+    calls = Ref(0)
+    mapreduce(v -> (calls[] += 1; v), takelast, A)
+    @test calls[] == nnz(A) + 1
+    # `missing` in `findmin` and `findmax`, which dense ranks above `NaN`
+    for D in (Union{Missing,Float64}[1.0 missing; 0.0 2.0], Union{Missing,Float64}[NaN missing; 0.0 2.0],
+              Union{Missing,Float64}[0.0 NaN; -1.0 0.0]), fm in (findmin, findmax)
+        S = sparse(D)
+        @test isequal(fm(S), fm(D))
+        @test isequal(fm(S; dims=1), fm(D; dims=1)) && isequal(fm(S; dims=2), fm(D; dims=2))
+    end
+    # a predicate that is not Boolean is rejected, as for dense
+    for S in (sparse([1 0; 0 0]), sparsevec([1, 0]))
+        @test_throws TypeError any(S)
+        @test_throws TypeError all(S)
+    end
+    # also next to a `missing`, which `|` and `&` would let absorb the other value
+    for S in (sparse(reshape(Union{Missing,Int}[missing, 1], 2, 1)), sparse(Union{Missing,Int}[missing, 1]),
+              sparse(Union{Missing,Int}[missing 0; 1 2]))
+        @test_throws TypeError any(S)
+        @test_throws TypeError all(S)
+        @test_throws TypeError any(Array(S))
+        @test_throws TypeError all(Array(S))
+    end
+    M = sparse(Union{Missing,Bool}[missing false; false false])
+    @test any(M) === missing && all(M) === false
+    @test any(iszero, sparse([1.0 0; 2 3])) === true && all(iszero, sparse([1.0 0; 2 3])) === false
+    @test any(ismissing, M) === true && all(x -> x === false, sparsevec([false, false])) === true
+end
+end
+
 end # module

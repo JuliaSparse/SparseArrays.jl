@@ -61,16 +61,83 @@ end
 function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
     z = nnz(A)
     n = widelength(A)
-    if z == 0
-        if n == 0
-            Base.mapreduce_empty(f, op, T)
-        else
-            _mapreducezeros(f, op, T, n-z-1, f(zero(T)))
-        end
+    if n == 0
+        Base.mapreduce_empty(f, op, T)
+    elseif !_commutes(f, op, T)
+        # every entry stored: they are folded in their order, without `f(0)`, which might throw
+        z == n ? Base._mapreduce(f, op, nzvalview(A)) : _mapreduce_ordered(f, op, A)
+    elseif z == 0
+        _mapreducezeros(f, op, T, n-z-1, f(zero(T)))
     else
         _mapreducezeros(f, op, T, n-z, Base._mapreduce(f, op, nzvalview(A)))
     end
 end
+
+# Whether `op` may fold the mapped values out of their order. It is taken to be associative,
+# and to be commutative only where it is known to be: a product commutes when its factors are
+# real or complex numbers, which is asked of inference.
+_commutes(f, ::Union{typeof(+),typeof(Base.add_sum),typeof(max),typeof(min),typeof(|),typeof(&),
+                     typeof(Base.or_any),typeof(Base.and_all),typeof(Base._extrema_rf)}, ::Type) = true
+_commutes(f::F, ::Union{typeof(*),typeof(Base.mul_prod)}, ::Type{T}) where {F,T} =
+    Base.promote_op(f, T) <: Union{Real,Complex}
+_commutes(f, op, ::Type) = false
+
+# An `op` not known to commute is folded over the positions in their order. `A` has an
+# unstored entry, so `f(0)` is taken once. A run of unstored entries is folded into the stored
+# entry after it, which an associative `op` allows and which keeps the accumulator one call
+# of `op` away from its next value.
+function _mapreduce_ordered(f::F, op::G, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
+    rf = Base.BottomRF(op)
+    rowval, nzval = getrowval(A), getnzval(A)
+    m = size(A, 1)
+    z, idem = _unstoredvalue(f, op, T)
+    v = Base._InitialValue()
+    unstored = Int64(0)   # unstored positions since the last stored one
+    @inbounds for col in axes(A, 2)
+        prev = 0
+        for k in getnzrange(A, col)
+            row = Int(rowval[k])
+            v = rf(v, _afterunstored(op, z, idem, unstored + (row - prev - 1), f(nzval[k])))
+            unstored, prev = Int64(0), row
+        end
+        unstored += m - prev
+    end
+    return unstored == 0 ? v : rf(v, _foldunstored(op, z, idem, unstored))
+end
+function _mapreduce_ordered(f::F, op::G, A::SparseVectorOrView{T}) where {F,G,T}
+    rf = Base.BottomRF(op)
+    nzind, nzval = nonzeroinds(A), nonzeros(A)
+    z, idem = _unstoredvalue(f, op, T)
+    v = Base._InitialValue()
+    prev = 0
+    @inbounds for k in eachindex(nzind, nzval)
+        i = Int(nzind[k])
+        v = rf(v, _afterunstored(op, z, idem, i - prev - 1, f(nzval[k])))
+        prev = i
+    end
+    n = length(A) - prev
+    return n == 0 ? v : rf(v, _foldunstored(op, z, idem, n))
+end
+# `f(0)` as `op` first sees it, and whether folding it with itself leaves it as it is, which
+# makes a run of any length that one value
+function _unstoredvalue(f::F, op::G, ::Type{T}) where {F,G,T}
+    z = Base.reduce_first(op, f(zero(T)))
+    return z, isequal(op(z, z), z)
+end
+# `z` folded over `n > 0` consecutive positions, in O(log(n)) calls of `op`
+@inline function _foldunstored(op::G, z, idem::Bool, n) where {G}
+    (idem || n == 1) && return z
+    p = r = z
+    n -= 1
+    while n > 0
+        isodd(n) && (r = op(r, p))
+        n >>= 1
+        n > 0 && (p = op(p, p))
+    end
+    return r
+end
+# the stored value `x` with the `n` unstored positions before it folded in
+@inline _afterunstored(op::G, z, idem::Bool, n, x) where {G} = n == 0 ? x : op(_foldunstored(op, z, idem, n), x)
 
 # Specialized mapreduce for +/*/min/max/_extrema_rf. The entries a sparse array does not
 # store are folded in at once, as `reduce_first` of `f(0)` (an `Int` for `sum` and `prod` of
@@ -93,10 +160,15 @@ _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nze
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 
 # Specialized mapreduce for any and all
+# Each value of the predicate is checked to be Boolean, as the dense reductions check it:
+# `|` and `&` would absorb another value next to a `missing`, or combine two of them.
+_boolean(v::Union{Bool,Missing}) = v
+_boolean(v) = v::Bool
+_booleanpredicate(f::F) where {F} = _boolean ∘ f
 Base._any(f, A::SparseMatrixCSCOrColumnSubset, ::Colon) =
-    iszero(widelength(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)
+    iszero(widelength(A)) ? false : Base._mapreduce(_booleanpredicate(f), |, IndexCartesian(), A)
 Base._all(f, A::SparseMatrixCSCOrColumnSubset, ::Colon) =
-    iszero(widelength(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
+    iszero(widelength(A)) ? true  : Base._mapreduce(_booleanpredicate(f), &, IndexCartesian(), A)
 
 function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::SparseMatrixCSCOrColumnSubset{T}) where {F,T}
     nnzA = nnz(A)
@@ -104,10 +176,13 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
     if nzeros == 0
         # No zeros, so don't compute f(0) since it might throw
         Base._mapreduce(f, op, nzvalview(A))
+    elseif !_commutes(f, op, T)
+        _mapreduce_ordered(f, op, A)
     else
         v = Base.reduce_first(op, f(zero(T)))^nzeros
-        # Bail out early if initial reduction value is zero or if there are no stored elements
-        (_iszero(v) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
+        # A zero ends the product only among integers: a stored `Inf` or `NaN` makes it `NaN`
+        (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) ? v :
+            v*Base._mapreduce(f, op, nzvalview(A))
     end
 end
 
@@ -339,6 +414,8 @@ function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,T
             getcolptr(R)[2] = 2
         end
         return R
+    elseif (rm == 1 || rn == 1) && !_inorder(f, op, A)
+        return _mapreduce_dim_sparse_ordered(f, op, init, A, dims, Tr, rm == 1)
     elseif rm == 1
         return _mapreducerows_sparse!(f, op, init, spzeros(Tr, Ti, 1, n), A)
     elseif rn == 1
@@ -347,6 +424,37 @@ function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,T
         # a dimension beyond 2: every entry is a slice of its own
         return convert(SparseMatrixCSC{Tr,Ti}, map(x -> _seed(f, op, init, x), A isa SubArray ? copy(A) : A))
     end
+end
+
+# The two kernels below fold each slice's stored entries first. For an `op` not known to
+# commute, the dense reduction, which keeps the order of the elements and takes time
+# proportional to nnz(A) + length(result) as well, is given the pattern they produce.
+function _mapreduce_dim_sparse_ordered(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,Ti}, dims, ::Type{Tr},
+                                       alongrows::Bool) where {T,Ti,Tr}
+    m, n = size(A)
+    D = Base._mapreduce_dim(f, op, init, A, dims)
+    slicelen, nslices = alongrows ? (m, n) : (n, m)
+    z = zero(Tr)
+    zunstored = nnz(A) == m*n && slicelen > 0 ? z : _reduce_unstored(f, op, init, T, slicelen)
+    stores = fill(!isequal(zunstored, z), nslices)
+    if alongrows
+        @inbounds for col in 1:n
+            stores[col] |= !isempty(getnzrange(A, col))
+        end
+    else
+        @inbounds for i in view(getrowval(A), _storedinds(A))
+            stores[i] = true
+        end
+    end
+    inds = convert(Vector{Ti}, findall(stores))
+    vals = Tr[D[i] for i in inds]
+    alongrows || return SparseMatrixCSC(m, 1, Ti[1, length(inds) + 1], inds, vals)
+    colptr = Vector{Ti}(undef, n + 1)
+    colptr[1] = 1
+    @inbounds for col in 1:n
+        colptr[col + 1] = colptr[col] + stores[col]
+    end
+    return SparseMatrixCSC(1, n, colptr, fill!(inds, 1), vals)
 end
 
 # `R` is a structurally empty `1 x n` sparse matrix: its columns are built in order
@@ -475,6 +583,44 @@ function _mapreducecols!(f, op, R::AbstractArray, A::SparseMatrixCSCOrColumnSubs
     R
 end
 
+# The kernels above fold each slice's stored entries first and its unstored ones last, which
+# is the order of the elements when `op` commutes or every entry is stored. Otherwise the
+# unstored entries are folded where they lie, with `f(0)` taken once.
+_inorder(f, op, A::AbstractArray{T}) where {T} = _commutes(f, op, T) || nnz(A) == length(A)
+function _mapreducerows_ordered!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
+    require_one_based_indexing(A, R)
+    rowval, nzval = getrowval(A), getnzval(A)
+    m = size(A, 1)
+    z, idem = _unstoredvalue(f, op, T)
+    @inbounds for col in axes(A, 2)
+        r = R[1, col]
+        prev = 0
+        for j in getnzrange(A, col)
+            row = Int(rowval[j])
+            r = op(r, _afterunstored(op, z, idem, row - prev - 1, f(nzval[j])))
+            prev = row
+        end
+        R[1, col] = prev == m ? r : op(r, _foldunstored(op, z, idem, m - prev))
+    end
+    R
+end
+function _mapreducecols_ordered!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
+    require_one_based_indexing(A, R)
+    rowval, nzval = getrowval(A), getnzval(A)
+    m, n = size(A)
+    z, idem = _unstoredvalue(f, op, T)
+    lastcol = zeros(Int, m)   # the last column folded into each row
+    @inbounds for col in axes(A, 2), j in getnzrange(A, col)
+        row = rowval[j]
+        R[row, 1] = op(R[row, 1], _afterunstored(op, z, idem, col - lastcol[row] - 1, f(nzval[j])))
+        lastcol[row] = col
+    end
+    @inbounds for i in 1:m
+        lastcol[i] == n || (R[i, 1] = op(R[i, 1], _foldunstored(op, z, idem, n - lastcol[i])))
+    end
+    R
+end
+
 function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
     require_one_based_indexing(A, R)
     lsiz = Base.check_reducedims(R,A)
@@ -485,10 +631,10 @@ function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOr
         R[1, 1] = op(R[1, 1], mapreduce(f, op, A))
     elseif size(R, 1) == 1
         # Reduction along rows
-        _mapreducerows!(f, op, R, A)
+        _inorder(f, op, A) ? _mapreducerows!(f, op, R, A) : _mapreducerows_ordered!(f, op, R, A)
     elseif size(R, 2) == 1
         # Reduction along columns
-        _mapreducecols!(f, op, R, A)
+        _inorder(f, op, A) ? _mapreducecols!(f, op, R, A) : _mapreducecols_ordered!(f, op, R, A)
     else
         # Reduction along a dimension > 2
         # Compute op(R, f(A))
@@ -582,7 +728,8 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
                 end
             end
             for i = 1:m
-                R[i, 1] += _addzeros(zeroval, rownz[i])
+                # a row stored in full has no `f(0)` to add, which need not be finite
+                rownz[i] == 0 || (R[i, 1] += _addzeros(zeroval, rownz[i]))
             end
         end
     end
@@ -590,37 +737,35 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
 end
 
 # any(pred, A, dims = 1) => mapreduce(pred, |, A, dims = 1)
-# final argument `post` is to allow post-mapping each columnar mapreduce
+# `R` holds the initial value of each column, which the column's reduction is folded into.
+# With `negate`, `pred` is the negated predicate of an `&` reduction, see below.
 function _mapreducerows!(pred::P, ::typeof(|), R::AbstractMatrix{Bool}, A::SparseMatrixCSCOrColumnSubset{Tv},
-                         post::F = identity) where {P, F, Tv}
+                         negate::Bool = false) where {P, Tv}
     nzval = getnzval(A)
     m, n = size(A)
     @inbounds for ii in axes(A,2)
+        # an initial value that already decides the column
+        R[1, ii] == negate || continue
         rng = getnzrange(A, ii)
         len = length(rng)
-        # An empty column is trivial
-        if len == 0
-            R[1, ii] = post(pred(zero(Tv)))
-            continue
+        if len < m && pred(zero(Tv))
+            # an unstored entry satisfies the predicate
+            r = true
+        else
+            # reduce over the stored values
+            r = false
+            for jj in rng
+                r = pred(nzval[jj])
+                r && break
+            end
         end
-        # If predicate on zero is true, then sparse column can be short-circuited
-        if pred(zero(Tv)) && len < m
-            R[1, ii] = post(true)
-            continue
-        end
-        # Otherwise reduce over the stored values
-        r = false
-        for jj in rng
-            r = pred(nzval[jj])
-            r && break
-        end
-        R[1, ii] = post(r)
+        R[1, ii] = r != negate
     end
     return R
 end
 # all(pred, A, dims = 1) => mapreduce(pred, &, A, dims = 1) == .!mapreduce(!pred, |, A, dims = 1)
 _mapreducerows!(pred::P, ::typeof(&), R::AbstractMatrix{Bool},
-                A::SparseMatrixCSCOrColumnSubset) where {P} = _mapreducerows!(!pred, |, R, A, !)
+                A::SparseMatrixCSCOrColumnSubset) where {P} = _mapreducerows!(!pred, |, R, A, true)
 
 # findmax/min and argmax/min methods
 # find the first entry of the sparse matrix that is not stored - return its cartesian index
@@ -724,8 +869,10 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
     end
 end
 
-_isless_fm(a, b)    =  b == b && ( a != a || isless(a, b) )
-_isgreater_fm(a, b) =  b == b && ( a != a || isless(b, a) )
+# whether `a` replaces the best value so far `b`, by the test of Base's dense `findmin` and
+# `findmax`, so that the result agrees with dense on `NaN`, `missing` and signed zeros
+_isless_fm(a, b)    = Base.isgreater(b, a)
+_isgreater_fm(a, b) = isless(b, a)
 
 findmin(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTuple{2,Integer}}) where {Tv} =
     _findr(_isless_fm, A, region)
