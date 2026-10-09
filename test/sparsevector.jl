@@ -529,6 +529,11 @@ end
             @test findall(p, y) == findall(p, Vector(y))
         end
         @test_throws TypeError findall(x -> 1, y)
+        # an index beyond `typemax(Int)` is converted only when its entry matches
+        n = big(typemax(Int)) + 10
+        z = SparseVector(n, BigInt[1, n], [1.0, -1.0])
+        @test findall(>(0), z) == [1]
+        @test_throws InexactError findall(<(0), z)
     end
 end
 ### Array manipulation

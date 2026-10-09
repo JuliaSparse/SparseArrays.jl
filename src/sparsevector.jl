@@ -740,16 +740,29 @@ function findall(p::F, x::SparseVectorOrView) where {F<:Function}
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
 
-    # Store every index and advance only past a match: a branch on `p` is mispredicted
-    # whenever the matches are irregular. `I` holds `numnz` entries, so the store is in
-    # bounds.
-    count = 1
-    @inbounds for i = 1 : numnz
-        I[count] = nzind[i]
-        count += p(nzval[i])::Bool
+    Ti = eltype(nzind)
+    if Ti <: Base.BitInteger && typemax(Ti) <= typemax(Int)
+        # Store every index and advance only past a match: a branch on `p` is mispredicted
+        # whenever the matches are irregular. `I` holds `numnz` entries, so the store is
+        # in bounds.
+        count = 1
+        @inbounds for i = 1 : numnz
+            I[count] = nzind[i]
+            count += p(nzval[i])::Bool
+        end
+        count -= 1
+    else
+        # an index that does not match may not fit in an `Int`, so convert only matches
+        count = 0
+        @inbounds for i = 1 : numnz
+            if p(nzval[i])
+                count += 1
+                I[count] = nzind[i]
+            end
+        end
     end
 
-    resize!(I, count - 1)
+    resize!(I, count)
 
     return I
 end
