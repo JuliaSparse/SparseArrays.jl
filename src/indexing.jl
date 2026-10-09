@@ -618,6 +618,15 @@ function _insert!(v::Vector, pos::Integer, item, nz::Integer)
     end
 end
 
+# The indices of `I` in increasing order without repeats. Each method returns the type it
+# is given where it can, so that the caller stays type-stable; a range cannot be sorted in
+# place.
+_strictlysorted(I::Integer) = I
+_strictlysorted(I::AbstractUnitRange) = I
+_strictlysorted(I::AbstractRange) = step(I) > zero(step(I)) ? I : step(I) < zero(step(I)) ? reverse(I) : I[1:min(1, length(I))]
+# lt=≤ to check for strict sorting
+_strictlysorted(I::AbstractVector) = issorted(I, lt=≤) ? I : unique!(sort!(collect(I)))
+
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
     A = parent(V)
     I, J = V.indices
@@ -628,9 +637,8 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
         _setindex_fixed!(Returns(x), A, I, J)
         return V
     end
-    # lt=≤ to check for strict sorting; a range cannot be sorted in place
-    if !issorted(I, lt=≤); I = unique!(sort!(collect(I))); end
-    if !issorted(J, lt=≤); J = unique!(sort!(collect(J))); end
+    I = _strictlysorted(I)
+    J = _strictlysorted(J)
     if (I[1] < 1 || I[end] > size(A, 1)) || (J[1] < 1 || J[end] > size(A, 2))
         throw(BoundsError(A, (I, J)))
     end
