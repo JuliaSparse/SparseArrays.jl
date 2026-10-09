@@ -626,6 +626,11 @@ end
     @test vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
     @test sparse_vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
     @test vcat(1, A8)::SparseMatrixCSC{Int,Int} == vcat(1, Array(A8))
+    # a vector whose length is not an `Int` stacked on a matrix
+    w8 = sparsevec(Int8[1], [2.0], 2)
+    @test mismatch(vcat(w8, ones(1, 1)), vcat(Array(w8), ones(1, 1)), Ti=Int8) === nothing
+    @test mismatch(vcat(sparse(ones(1, 1)), w8), vcat(ones(1, 1), Array(w8)), Ti=Int) === nothing
+    @test mismatch([w8; ones(1, 1); w8], [Array(w8); ones(1, 1); Array(w8)]) === nothing
     end
     # shape mismatches throw as for dense
     @test_throws DimensionMismatch vcat(M, 3)

@@ -1132,7 +1132,7 @@ function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
     require_one_based_indexing(A, x)
     y = densemv(A, x)
     initcap = min(nnz(A), size(A,1))
-    _dense2sparsevec(y, initcap)
+    _dense2sparsevec(eltype(y), y, initcap)
 end
 
 *(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
