@@ -63,6 +63,22 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
             end
         end
     end
+    # sparse factors that the product kernels cannot read in place: a unit triangle, an
+    # `UpperHessenberg`, and a triangle or a symmetric wrapper of a view of permuted columns
+    @testset "materialized sparse factors" begin
+        S = _sparse_test_matrix(n, Float64)
+        V = view(S, :, [2, 1, 3, 5, 4])
+        T = _triangular_test_matrix(n, UpperTriangular, Float64)
+        for W in (UnitUpperTriangular(S), UnitLowerTriangular(S), UpperHessenberg(S),
+                  UpperTriangular(V), UnitLowerTriangular(V), Symmetric(V), UpperHessenberg(V))
+            D = typeof(W).name.wrapper(Matrix(parent(W)))
+            @test Matrix(W * T) ≈ D * T
+            @test mul!(ones(n, n), W, T, 2.0, 3.0) ≈ mul!(ones(n, n), D, T, 2.0, 3.0)
+        end
+        @test UnitUpperTriangular(S) * T isa UpperTriangular{Float64,Matrix{Float64}}
+        @test mul!(zeros(n, n), UnitUpperTriangular(S), UpperTriangular(S)) ≈
+            UnitUpperTriangular(Matrix(S)) * UpperTriangular(Matrix(S))
+    end
     end
 end
 
@@ -197,6 +213,26 @@ begin
         @test_throws SingularException(1) LowerTriangular(Al) \ ones(2)
         @test UnitUpperTriangular(Au) \ ones(2) == [-1.0, 1.0]
         @test UnitLowerTriangular(Al) \ ones(2) == [1.0, -1.0]
+        @static if COMPREHENSIVE
+        # a stored zero on the diagonal is singular as well, for each transform
+        Az = SparseMatrixCSC(2, 2, [1, 2, 4], [1, 1, 2], [1.0, 2.0, 0.0])
+        for T in (UpperTriangular(Az), UpperTriangular(Az)', transpose(UpperTriangular(Az)),
+                  LowerTriangular(copy(Az')), UpperTriangular(transpose(copy(Az)')), UpperTriangular(big.(Az)))
+            @test_throws SingularException(2) T \ ones(2)
+        end
+        @test_throws SingularException(2) ones(2)' / UpperTriangular(Az)
+        @test UnitUpperTriangular(Az) \ ones(2) == [-1.0, 1.0]
+        # solving in place finds the first singular column before it overwrites the
+        # right-hand side
+        As = sparse([1.0 2 3; 0 0 4; 0 0 0])
+        for T in (UpperTriangular(As), UpperTriangular(As)', LowerTriangular(copy(As')))
+            C = ones(3, 3)
+            @test_throws SingularException(2) ldiv!(T, C)
+            @test C == ones(3, 3)
+            @test_throws SingularException ldiv!(fill(7.0, 3, 3), T, C)
+            @test C == ones(3, 3)
+        end
+        end
     end
     # a transpose of an adjoint is a conjugate, which the solve applies to the stored values
     ad = copy(a)
@@ -233,6 +269,40 @@ end
             @test transpose(hcat(b, 2b)) * S ≈ transpose(hcat(b, 2b)) * D
             @test S * spzeros(T, 6) == zeros(T, 6)
         end
+    end
+end
+end
+
+@static if COMPREHENSIVE
+@testset "triangular solves with a non-commutative eltype" begin
+    Quaternion = quaternion_type()
+    # the diagonal is stored and nonzero, and every product of two entries depends on its order
+    A = sparse(reshape(Quaternion.(eachcol(fixturedense(Float64, 16, 4))...), 4, 4))
+    b = Quaternion.(eachcol(fixturedense(Float64, 4, 4))...)
+    B = reshape(Quaternion.(eachcol(fixturedense(Float64, 8, 4))...), 4, 2)
+    for (op, W) in ((identity, UpperTriangular), (identity, UnitLowerTriangular), (adjoint, LowerTriangular),
+                    (transpose, UpperTriangular), (adjoint, UnitUpperTriangular))
+        T = op(W(A))
+        M = Matrix(T)
+        @test M * (T \ b) ≈ b
+        @test M * (T \ B) ≈ B
+        @test M * (T \ sparse(B)) ≈ B
+    end
+end
+
+@testset "solves with a triangle of a lazy adjoint or transpose on the right return dense" begin
+    S = sparse(ComplexF64[1 2+3im 1im; 4-1im 5 2-im; 3+im 2im 7])
+    # the conjugate of `S`, which no eager adjoint or transpose makes
+    A = UnitLowerTriangular(transpose(S'))
+    X = A \ A
+    @test X isa UnitLowerTriangular{ComplexF64,Matrix{ComplexF64}} && X ≈ I
+    X = A / A
+    @test X isa UnitLowerTriangular{ComplexF64,Matrix{ComplexF64}} && X ≈ I
+    for B in (A, LowerTriangular(S'), UpperTriangular(transpose(S)))
+        X = LowerTriangular(S) \ B
+        @test parent(X) isa Matrix{ComplexF64} && X ≈ Matrix(LowerTriangular(S)) \ Matrix(B)
+        X = B / LowerTriangular(S)
+        @test parent(X) isa Matrix{ComplexF64} && X ≈ Matrix(B) / Matrix(LowerTriangular(S))
     end
 end
 end
@@ -369,9 +439,10 @@ end
                 end
                 @test T * x ≈ Array(T) * Array(x)
                 COMPREHENSIVE || ta == tb || continue # promotion does not depend on the transform
-                @test T' * x ≈ Array(T)' * Array(x)
-                @test transpose(T) * x ≈ transpose(Array(T)) * Array(x)
-                @test mismatch((x' * T)', (Array(x)' * Array(T))'; approx=true) === nothing
+                # the eager adjoint of a dense triangle is a dense factor like the triangle
+                @test (T' * x)::Vector ≈ Array(T)' * Array(x)
+                @test (transpose(T) * x)::Vector ≈ transpose(Array(T)) * Array(x)
+                @test ((x' * T)')::Vector ≈ (Array(x)' * Array(T))'
                 @test x' * T' ≈ Array(x)' * Array(T)'
                 @test x' * transpose(T) ≈ Array(x)' * transpose(Array(T))
             end

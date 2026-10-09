@@ -213,6 +213,14 @@ end
     MAi = Array(Ai)
     end
     @test opnorm(Ac,1) ≈ opnorm(MAc,1)
+    @static if COMPREHENSIVE
+    # only the 1, 2 and Inf norms exist, for an empty matrix as well
+    for A in (Ac, spzeros(0, 0), spzeros(3, 0), spzeros(1, 4), spzeros(4, 1))
+        @test_throws ArgumentError opnorm(A, 3)
+        @test_throws ArgumentError opnorm(Matrix(A), 3)
+    end
+    @test opnorm(spzeros(0, 0), 1) === opnorm(zeros(0, 0), 1) === 0.0
+    end
     @test opnorm(Ac,Inf) ≈ opnorm(MAc,Inf)
     @test norm(Ac) ≈ norm(MAc)
     @static if COMPREHENSIVE
@@ -765,6 +773,25 @@ end
     # symtridiagonal with non-empty off-diagonal
     b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
     @test b + b == Matrix(b) + Matrix(b)
+end
+end
+
+@static if COMPREHENSIVE
+@testset "kronecker product with a view of a sparse matrix is sparse" begin
+    S = fixture(Float64, 4, 4)
+    D = fixturedense(Float64, 2, 3)
+    x = fixturevec(Float64, 3)
+    for V in (view(S, :, 2:3), view(S, :, [3, 1]), view(S, 2:3, :), view(S, [4, 1], [2, 2, 3]))
+        Vd = Matrix(V)
+        for B in (S, V, S', D, x, Diagonal([1.0, 2]), UpperTriangular(S))
+            Bd = B isa AbstractVector ? Vector(B) : Matrix(B)
+            @test mismatch(kron(V, B), kron(Vd, Bd)) === nothing
+            @test mismatch(kron(B, V), kron(Bd, Vd)) === nothing
+        end
+        C = spzeros(size(V) .* size(S)...)
+        @test kron!(C, V, S) === C && C == kron(Vd, Matrix(S))
+        @test kron(2.0, V)::SparseMatrixCSC == 2Vd
+    end
 end
 end
 
