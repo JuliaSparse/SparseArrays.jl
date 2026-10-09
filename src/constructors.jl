@@ -5,7 +5,7 @@
 # converting between SparseMatrixCSC types
 SparseMatrixCSC(S::AbstractSparseMatrixCSC) = copy(S)
 AbstractMatrix{Tv}(A::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv}(A)
-SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC{Tv}) where {Tv} = copy(S)
+SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(S)
 SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv,eltype(getcolptr(S))}(S)
 SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = copy(S)
 function SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC) where {Tv,Ti}
@@ -249,8 +249,16 @@ convert(T::Type{<:LowerTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
 convert(T::Type{<:UpperTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
     istriu(m) ? T(m) : throw(ArgumentError("matrix cannot be represented as UpperTriangular"))
 
-float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
-complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
+float(S::SparseMatrixCSC) = _withnonzeros(S, float(getnzval(S)))
+complex(S::SparseMatrixCSC) = _withnonzeros(S, complex(getnzval(S)))
+# `float` and `complex` return `nzval` itself when it already has the eltype asked for, and
+# the result is then `S` under another name, as for a dense array. A new `nzval` gets a
+# pattern of its own: one shared with `S` would change under it.
+function _withnonzeros(S::SparseMatrixCSC, nzval)
+    shared = nzval === getnzval(S)
+    return SparseMatrixCSC(size(S, 1), size(S, 2), shared ? getcolptr(S) : copy(getcolptr(S)),
+        shared ? getrowval(S) : copy(getrowval(S)), nzval)
+end
 float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
 complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
 

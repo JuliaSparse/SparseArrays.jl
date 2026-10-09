@@ -16,7 +16,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros, ftranspose,
                       nonzeroinds, nonzeros, rowvals, getcolptr, getrowval, getnzval, widelength,
                       _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, @if_move_fixed,
-                      ReadOnly, _storagebuffers
+                      ReadOnly, _storagebuffers, _unaliasedcopy
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
 using LinearAlgebra: AdjOrTrans, BandedMatrix, wrapperop
@@ -182,11 +182,16 @@ _unaliasarg(C, A) = Base.unalias(C, A)
 # only when it is a buffer of C itself.
 function _unaliasarg(C::SparseVecOrMat, A::SparseVecOrMat)
     Cbuffers = _storagebuffers(C)
+    # A read-only pattern is safe from a fixed C, which keeps its own. A writable C can
+    # share it all the same (`move_fixed`), and `unaliascopy` would keep sharing it.
+    _is_fixed(A) && !_is_fixed(C) && any(b -> b isa ReadOnly && _aliasesbuffers(Cbuffers, parent(b)), _storagebuffers(A)) &&
+        return move_fixed(_unaliasedcopy(A))
     aliased = any(_storagebuffers(A)) do b
         b isa ReadOnly ? false : isempty(b) ? any(c -> c === b, Cbuffers) : Base.mightalias(C, b)
     end
     return aliased ? Base.unaliascopy(A) : A
 end
+_aliasesbuffers(Cbuffers, b) = isempty(b) ? any(c -> c === b, Cbuffers) : any(c -> Base.mightalias(c, b), Cbuffers)
 
  _noshapecheck_map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N} =
     # Avoid calculating f(zero) unless necessary as it may fail.

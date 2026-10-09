@@ -880,7 +880,7 @@ similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1}
 # The calls without shape again preserve stored-entry structure, whereas those with shape
 # preserve storage space when the shape calls for a two-dimensional result.
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}) where{TvNew,TiNew} =
-    _sparsesimilar(S, TvNew, TiNew)
+    @if_move_fixed S _sparsesimilar(S, TvNew, TiNew)
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, dims::Union{Dims{1},Dims{2}}) where {TvNew,TiNew} =
     _sparsesimilar(S, TvNew, TiNew, dims)
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, m::Integer) where {TvNew,TiNew} =
@@ -1195,6 +1195,28 @@ function _checkargs_sourcecompatworkmat_permute!(A::AbstractSparseMatrixCSC{Tv,T
             "or equal to source argument `A`'s allocated entry count, `nnz(A)` (= $(nnz(A)))")))
     end
 end
+# Helper method for `permute!` methods operating on `SparseMatrixCSC`s.
+# Checks that no two of the arguments share memory: the kernels write each one while reading
+# another.
+function _checkargs_noalias_permute!(names::NTuple{N,Symbol}, args::Vararg{AbstractSparseMatrixCSC,N}) where {N}
+    for i in 1:N, j in i+1:N
+        _sharebuffers_permute!(args[i], args[j]) &&
+            throw(ArgumentError(string("arguments `", names[i], "` and `", names[j], "` must not share memory")))
+    end
+end
+# Empty buffers share one `Memory` and would report as aliased. The column pointers are
+# never empty, and a `ReadOnly` reports no data ids, so compare the buffers it wraps.
+function _sharebuffers_permute!(X::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
+    Xbuffers = map(_unwrapreadonly, _storagebuffers(X))
+    return any(_storagebuffers(A)) do b
+        a = _unwrapreadonly(b)
+        !isempty(a) && any(x -> !isempty(x) && Base.mightalias(x, a), Xbuffers)
+    end
+end
+# Scratch for checking `q` in the methods taking a destination `X`. `C`'s column pointers
+# are free again once `p` is checked, and long enough unless `A` is wide.
+_qcheckspace_permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
+    size(A, 2) <= length(getcolptr(C)) ? getcolptr(C) : Vector{Ti}(undef, size(A, 2))
 """
 Helper method for `permute` and `permute!` methods operating on `SparseMatrixCSC`s.
 Checks compatibility of source argument `A` and workspace argument `workcolptr`.
@@ -1246,7 +1268,8 @@ function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{
     resize!(getrowval(C), nnz(A))
     resize!(getnzval(C), nnz(A))
 
-    _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, getcolptr(X))
+    _checkargs_noalias_permute!((:X, :A), X, A)
+    _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, _qcheckspace_permute!(A, C))
     unchecked_noalias_permute!(X, A, p, q, C)
 end
 function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti},
@@ -1255,7 +1278,8 @@ function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{
     _checkargs_sourcecompatdest_permute!(A, X)
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
-    _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, getcolptr(X))
+    _checkargs_noalias_permute!((:X, :A, :C), X, A, C)
+    _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, _qcheckspace_permute!(A, C))
     unchecked_noalias_permute!(X, A, p, q, C)
 end
 function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer},
@@ -1272,6 +1296,7 @@ function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer
         q::AbstractVector{<:Integer}, C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
+    _checkargs_noalias_permute!((:A, :C), A, C)
     workcolptr = Vector{Ti}(undef, size(A, 2) + 1)
     _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, workcolptr)
     unchecked_aliasing_permute!(A, p, q, C, workcolptr)
@@ -1282,6 +1307,9 @@ function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
     _checkargs_sourcecompatworkcolptr_permute!(A, workcolptr)
+    _checkargs_noalias_permute!((:A, :C), A, C)
+    (Base.mightalias(workcolptr, getcolptr(A)) || Base.mightalias(workcolptr, getcolptr(C))) &&
+        throw(ArgumentError("argument `workcolptr` must not share memory with `A` or `C`"))
     _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, workcolptr)
     unchecked_aliasing_permute!(A, p, q, C, workcolptr)
 end

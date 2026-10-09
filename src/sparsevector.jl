@@ -473,8 +473,8 @@ end
 # convert SparseMatrixCSC to SparseVector
 function SparseVector{Tv,Ti}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti<:Integer}
     size(s, 2) == 1 || throw(ArgumentError("The input argument must have a single-column."))
-    # the vector's pattern is writable, so it cannot share the read-only one of a fixed matrix
-    SparseVector(size(s, 1), _is_fixed(s) ? Vector(getrowval(s)) : getrowval(s), getnzval(s))
+    # the vector's pattern is writable, so it cannot share the buffers of the matrix
+    SparseVector(size(s, 1), Vector(getrowval(s)), copy(getnzval(s)))
 end
 
 SparseVector{Tv}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
@@ -1251,9 +1251,11 @@ float(x::AbstractSparseVector) = _withnonzeros(x, float(nonzeros(x)))
 complex(x::AbstractSparseVector{<:Complex}) = x
 complex(x::AbstractSparseVector) = _withnonzeros(x, complex(nonzeros(x)))
 
-# a vector with the index pattern of `x` (shared, as `copy` of a fixed vector shares it)
-# and `nzval` as its stored values
-_withnonzeros(x::AbstractSparseVector, nzval) = SparseVector(length(x), nonzeroinds(x), nzval)
+# A vector with the index pattern of `x` and `nzval` as its stored values. A fixed vector
+# shares its read-only pattern, as its `copy` does. A writable one shares it only when
+# `nzval` is the value buffer of `x` too, see `_withnonzeros(::SparseMatrixCSC, nzval)`.
+_withnonzeros(x::AbstractSparseVector, nzval) =
+    SparseVector(length(x), nzval === nonzeros(x) ? nonzeroinds(x) : copy(nonzeroinds(x)), nzval)
 _withnonzeros(x::FixedSparseVector, nzval) = FixedSparseVector(length(x), nonzeroinds(x), nzval)
 
 
