@@ -122,6 +122,17 @@ end
     # be written there
     @test_throws ArgumentError copyto!(G, sparse([1], [2], [5.0], 2, 2))
     @test same_pattern(G, sparse(Diagonal([1.0, 2.0]))) && G == Diagonal([1.0, 2.0])
+    @static if COMPREHENSIVE
+    # a throw leaves the values alone too: the entry outside the pattern or the value that
+    # does not convert is found before the block is zeroed
+    Gi = fixed(sparse([1, 2], [1, 2], [1, 2], 2, 2))
+    R = CartesianIndices((1:2, 1:2))
+    @test_throws InexactError copyto!(Gi, sparse([1, 2], [1, 2], [1.0, 2.5]))
+    @test_throws ArgumentError copyto!(Gi, R, sparse([5 6; 7 8]), R)
+    @test_throws InexactError copyto!(Gi, R, sparse([5.5 0; 0 8]), R)
+    @test nonzeros(Gi) == [1, 2]
+    @test copyto!(Gi, R, sparse([5 0; 0 8]), R) === Gi && nonzeros(Gi) == [5, 8]
+    end
     G[1:2, 1:2] = [3 0; 0 4]
     G[:, 2] .= 0
     @test G == [3 0; 0 0] && nnz(G) == 2
@@ -228,6 +239,11 @@ end
     @test_throws ArgumentError w[2] = 1.0
     @test_throws ArgumentError copyto!(w, sparsevec([2], [1.0], 4))
     @test same_pattern(w, sparsevec([1, 3], [1.0, 2.0], 4)) && nonzeros(w) == [1.0, 2.0]
+    @static if COMPREHENSIVE
+    wi = fixed(sparsevec([1, 3], [1, 2], 4))
+    @test_throws InexactError copyto!(wi, sparsevec([1, 3], [1.0, 2.5], 4))
+    @test nonzeros(wi) == [1, 2]
+    end
     w .= sparsevec([3], [5.0], 4)
     @test w == [0, 0, 5, 0] && nnz(w) == 2
     r = real(fixed(sparsevec([1, 3], ComplexF64[1 + 2im, 3], 4)))

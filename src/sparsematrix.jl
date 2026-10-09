@@ -759,11 +759,26 @@ copy(S::AbstractSparseMatrixCSC) =
     SparseMatrixCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(getrowval(S)), copy(getnzval(S)))
 copy(S::FixedSparseCSC) =
     FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), copy(getnzval(S)))
+# Throw the conversion error of `copyto!(dest, vals)` before a caller rewrites the pattern
+# that goes with `dest`. A loop that cannot throw compiles away.
+_checkconvertible(::Type{T}, vals::AbstractVector{<:T}) where {T} = nothing
+function _checkconvertible(::Type{T}, vals::AbstractVector) where {T}
+    for v in vals
+        convert(T, v)
+    end
+    return nothing
+end
+_checknnzfits(::Type{Ti}, nz::Integer) where {Ti} =
+    Base.hastypemax(Ti) && nz >= typemax(Ti) &&
+        throw(ArgumentError(lazy"the index type $Ti cannot hold $nz stored entries; use a larger index type"))
+
 function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     _is_fixed(A) && return _copyto_fixed!(A, B)
+    _checkconvertible(eltype(A), getnzval(B))
     # If the two matrices have the same length then all the
     # elements in A will be overwritten.
     if widelength(A) == widelength(B)
+        _checknnzfits(indtype(A), length(getnzval(B)))
         resize!(getnzval(A), length(getnzval(B)))
         resize!(getrowval(A), length(getrowval(B)))
         if size(A) == size(B)
@@ -788,6 +803,7 @@ function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
             lastmodptrA += 1
         end
         lastmodptrA -= 1
+        _checknnzfits(indtype(A), nnzB + nnzA - lastmodptrA)
         if lastmodptrA >= nnzB
             # A will have fewer non-zero elements; unmodified elements are kept at the end.
             deleteat!(getrowval(A), nnzB+1:lastmodptrA)
@@ -818,6 +834,7 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
     checkbounds(dest, Rdest)
     checkbounds(src, Rsrc)
     src′ = Base.unalias(dest, src)
+    _is_fixed(dest) && _checkfixedcopyto(dest, Rdest, src′, Rsrc)
     for I in Rdest
         @inbounds dest[I] = zero(T) # implicitly convert to eltype(dest), throw if not possible
     end
@@ -832,6 +849,26 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
         end
     end
     return dest
+end
+
+# A fixed destination takes a stored entry of `src` only where it has one itself. Find the
+# entry that does not fit, or does not convert, before the block is zeroed.
+function _checkfixedcopyto(dest::AbstractSparseMatrixCSC{Tv}, Rdest::CartesianIndices{2},
+                           src::AbstractSparseMatrixCSC{T}, Rsrc::CartesianIndices{2}) where {Tv,T}
+    convert(Tv, zero(T))
+    rows, cols = Rsrc.indices
+    lin = LinearIndices(Base.IdentityUnitRange.(Rsrc.indices))
+    destrows = getrowval(dest)
+    for col in cols, ptr in nzrange(src, col)
+        row = getrowval(src)[ptr]
+        row in rows || continue
+        v = convert(Tv, getnzval(src)[ptr])
+        i, j = Tuple(Rdest[lin[row, col]])
+        r = nzrange(dest, j)
+        k = searchsortedfirst(view(destrows, r), i) + first(r) - 1
+        (k <= last(r) && destrows[k] == i) || _isimplicitzero(v, Tv) || _throwfixedinsert(dest, i, j)
+    end
+    return nothing
 end
 
 ## similar
@@ -1429,7 +1466,9 @@ Base.sort(A::AbstractSparseMatrixCSC; kws...) =
 
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
-function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
+# The predicates of `tril!`, `droptol!` and the other children do not throw, and call this
+# with no `progress`. `fkeep!` passes one for a caller's `f`: see `_fkeep_guarded!`.
+function _fkeep!(f::F, A::AbstractSparseMatrixCSC, progress::P=nothing) where {F<:Function,P}
     An = size(A, 2)
     Acolptr = getcolptr(A)
     Arowval = getrowval(A)
@@ -1443,6 +1482,7 @@ function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
         for Ak in oldAcolptrAj:(Acolptr[Aj+1]-1)
             Ai = Arowval[Ak]
             Ax = Anzval[Ak]
+            progress === nothing || (progress[] = (Aj, Int(Ak), Awritepos))
             # If this element should be kept, rewrite in new position
             if f(Ai, Aj, Ax)
                 if Awritepos != Ak
@@ -1463,6 +1503,33 @@ function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
 
     return A
 end
+
+# When `f` throws at entry `Ak` of column `Aj`, the entries kept so far are packed up to
+# `Awritepos` and the column pointers after `Aj` are stale. Keep that entry and every later
+# one, which leaves `A` valid, and rethrow. Tracking the position costs a store per entry.
+function _fkeep_guarded!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
+    progress = Ref((1, 1, 1))
+    try
+        _fkeep!(f, A, progress)
+    catch
+        Aj, Ak, Awritepos = progress[]
+        Acolptr, Arowval, Anzval = getcolptr(A), getrowval(A), getnzval(A)
+        shift = Ak - Awritepos
+        if shift != 0
+            Annz = Int(Acolptr[end]) - 1
+            copyto!(Arowval, Awritepos, Arowval, Ak, Annz - Ak + 1)
+            copyto!(Anzval, Awritepos, Anzval, Ak, Annz - Ak + 1)
+            for j in Aj+1:size(A, 2)+1
+                Acolptr[j] -= shift
+            end
+            resize!(Arowval, Annz - shift)
+            resize!(Anzval, Annz - shift)
+        end
+        rethrow()
+    end
+    return A
+end
+_fkeep_trusted!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
 
 """
     fkeep!(f, A::AbstractSparseArray)
@@ -1493,7 +1560,7 @@ julia> SparseArrays.fkeep!((i, j, v) -> isodd(v), A)
  ⋅  ⋅  ⋅  ⋅
 ```
 """
-fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
+fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep_guarded!(f, A)
 
 # deprecated syntax
 function fkeep!(x::SparseVecOrMat, f::F) where F<:Function
@@ -1503,9 +1570,9 @@ end
 
 
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    fkeep!((i, j, x) -> i + k >= j, A)
+    _fkeep_trusted!((i, j, x) -> j - i <= k, A)
 triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    fkeep!((i, j, x) -> j >= i + k, A)
+    _fkeep_trusted!((i, j, x) -> j - i >= k, A)
 
 """
     droptol!(A::AbstractSparseMatrixCSC, tol)
@@ -1513,7 +1580,7 @@ triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
 Removes stored values from `A` whose absolute value is less than or equal to `tol`.
 """
 droptol!(A::AbstractSparseMatrixCSC, tol) =
-    fkeep!((i, j, x) -> abs(x) > tol, A)
+    _fkeep_trusted!((i, j, x) -> abs(x) > tol, A)
 
 """
     dropzeros!(A::AbstractSparseMatrixCSC;)
@@ -1524,7 +1591,7 @@ For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
 
-dropzeros!(A::AbstractSparseMatrixCSC) = _is_fixed(A) ? A : fkeep!((i, j, x) -> _isnotzero(x), A)
+dropzeros!(A::AbstractSparseMatrixCSC) = _is_fixed(A) ? A : _fkeep!((i, j, x) -> _isnotzero(x), A)
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)
@@ -2050,14 +2117,13 @@ rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), iden
 
 ## Uniform matrix arithmetic
 
-(+)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} =
-    A + sparse(T, Ti, J, size(A)...)
-(+)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} =
-    sparse(T, Ti, J, size(A)...) + A
-(-)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} =
-    A - sparse(T, Ti, J, size(A)...)
-(-)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} =
-    sparse(T, Ti, J, size(A)...) - A
+_uniformscaling(A::AbstractSparseMatrixCSC{Tv,Ti}, J::UniformScaling{T}) where {T,Tv,Ti} =
+    sparse(T, Ti, J, checksquare(A), size(A, 2))
+
+(+)(A::AbstractSparseMatrixCSC, J::UniformScaling{<:Number}) = A + _uniformscaling(A, J)
+(+)(J::UniformScaling{<:Number}, A::AbstractSparseMatrixCSC) = _uniformscaling(A, J) + A
+(-)(A::AbstractSparseMatrixCSC, J::UniformScaling{<:Number}) = A - _uniformscaling(A, J)
+(-)(J::UniformScaling{<:Number}, A::AbstractSparseMatrixCSC) = _uniformscaling(A, J) - A
 
 
 
@@ -2165,6 +2231,9 @@ function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
 end
 
 function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
+    for k in (i, j)
+        k in axes(A, 1) || throw(BoundsError(A, (k, :)))
+    end
     # For simplicity, let i denote the smaller of the two rows
     j < i && @swap(i, j)
 

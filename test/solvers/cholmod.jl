@@ -948,7 +948,7 @@ end
 end
 
 @testset "Issue 14134" begin
-    A = CHOLMOD.Sparse(fixture(Tv, 10, 5) + I |> t -> t't)
+    A = CHOLMOD.Sparse(fixture(Tv, 10, 5) + sparse(I, 10, 5) |> t -> t't)
     b = IOBuffer()
     serialize(b, A)
     seekstart(b)

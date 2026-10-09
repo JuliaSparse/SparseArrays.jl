@@ -1872,6 +1872,11 @@ end
         @test_throws ArgumentError circshift!(g, v, 2)
         @test g == x && nonzeroinds(g) == [1, 5, 7, 8]
     end
+    @static if COMPREHENSIVE
+    # an index plus the shift need not fit in the index type
+    v8 = SparseVector{Float64,Int8}(100, Int8[3, 90], [1.0, 2.0])
+    @test mismatch(circshift(v8, 50), circshift(Vector(v8), 50); Ti=Int8) === nothing
+    end
     @test isempty(circshift(fixed(spzeros(0)), 1))
 end
 

@@ -37,6 +37,11 @@ include("testhelpers.jl")
         @test E1 == E2
         end
     end
+    @static if COMPREHENSIVE
+    # a row index plus the shift need not fit in the index type
+    A8 = SparseMatrixCSC{Float64,Int8}(sparse([100, 3, 60], [1, 2, 2], [1.0, 2.0, 3.0], 100, 2))
+    @test mismatch(circshift(A8, (60, 1)), circshift(Matrix(A8), (60, 1)); Ti=Int8) === nothing
+    end
     # the buffers of a source may be longer than its stored entries
     S = sparse([1 0 2; 0 3 0; 4 0 5.0])
     P = copy(S); push!(rowvals(P), 1); push!(nonzeros(P), 99.0)
@@ -384,6 +389,15 @@ end
     @test triu(A32, 1)::SparseMatrixCSC{Float64,Int32} == triu(AF, 1)
     @test !hasunionlocal(triu, (typeof(A32), Int), Int32, Int)
     @test !hasunionlocal(tril, (typeof(A32), Int), Int32, Int)
+    end
+
+    @static if COMPREHENSIVE
+    # a diagonal far out of range
+    for k in (typemax(Int), typemax(Int) - 1, typemin(Int), typemin(Int) + 1, big(2)^70, -big(2)^70)
+        kd = clamp(k, -10, 10)
+        @test mismatch(triu(A, k), triu(AF, kd)) === nothing
+        @test mismatch(tril(A, k), tril(AF, kd)) === nothing
+    end
     end
 
     # fkeep trim option

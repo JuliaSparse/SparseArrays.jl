@@ -131,6 +131,14 @@ end
     S = spzeros(ComplexF64, I, J, 4, 5)
     @test S == S′
     @test same_pattern(S, S′)
+    @static if COMPREHENSIVE
+    # no rows
+    @test mismatch(spzeros(Int[], Int[]), zeros(0, 0)) === nothing
+    @test mismatch(spzeros(ComplexF64, Int[], Int[], 0, 3), zeros(ComplexF64, 0, 3)) === nothing
+    @test mismatch(SparseArrays.spzeros!(Float64, Int[], Int[], 0, 3), zeros(0, 3)) === nothing
+    @test mismatch(SparseArrays.sparse!(Int[], Int[], Float64[]), zeros(0, 0)) === nothing
+    @test_throws ArgumentError spzeros([1], [1], 0, 3)
+    end
     @test eltype(S) == ComplexF64
 end
 
@@ -161,6 +169,15 @@ end
 
     @test count(!iszero, sparse(Diagonal(eltype(D)[]))) == 0
     @test count(!iszero, sparsevec(Diagonal(eltype(D)[]))) == 0
+
+    # the generic method places an entry by row and column: the linear index of the last
+    # entry here does not fit in the index type
+    bm = falses(12, 12); bm[3, 5] = bm[12, 12] = true
+    @test mismatch(SparseMatrixCSC{Bool,Int8}(bm), Matrix(bm); Ti=Int8) === nothing
+    Dv = view([1.0 0 2; 0 0 3; 4 0 0; 0 0 0]', :, [3, 1, 2, 4])
+    @test mismatch(SparseMatrixCSC{Float64,Int}(Dv), Matrix(Dv)) === nothing
+    @test mismatch(SparseMatrixCSC{Float64,Int}(view(zeros(0, 3), :, [1, 2])), zeros(0, 2)) === nothing
+    @test mismatch(SparseMatrixCSC{Float64,Int}(view(zeros(3, 0), [1, 2], :)), zeros(2, 0)) === nothing
 end
 end
 
