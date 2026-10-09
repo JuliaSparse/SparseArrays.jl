@@ -1619,7 +1619,7 @@ function _spdot(f::Function,
                 xj::Int, xj_last::Int, xnzind, xnzval,
                 yj::Int, yj_last::Int, ynzind, ynzval)
     # dot product between ranges of non-zeros,
-    s = zero(promote_op(f, eltype(xnzval), eltype(ynzval)))
+    s = _spdotzero(f, eltype(xnzval), eltype(ynzval))
     @inbounds while xj <= xj_last && yj <= yj_last
         ix = xnzind[xj]
         iy = ynzind[yj]
@@ -1636,13 +1636,22 @@ function _spdot(f::Function,
     s
 end
 
+# The zero a sum of `f(x, y)` starts from. No result type is inferred for an abstract
+# eltype such as `Real`, and then the zero is that of a value.
+function _spdotzero(f::F, ::Type{Tx}, ::Type{Ty}) where {F,Tx,Ty}
+    R = promote_op(f, Tx, Ty)
+    return isconcretetype(R) ? zero(R) : zero(f(zero(Tx), zero(Ty)))
+end
+
 function dot(x::SparseVectorOrView, y::SparseVectorOrView)
     if x === y
-        # every stored entry meets itself; the sum is of the type any other pair gives
+        # Every stored entry meets itself. The sum starts from a value, so that an
+        # abstract eltype, for which no result type can be inferred, needs no `zero` of it.
         xnzval = nonzeros(x)
-        s = zero(promote_op(dot, eltype(xnzval), eltype(xnzval)))
-        @simd for v in xnzval
-            s += dot(v, v)
+        isempty(xnzval) && return _spdotzero(dot, eltype(xnzval), eltype(xnzval))
+        s = dot(first(xnzval), first(xnzval))
+        @inbounds @simd for k in firstindex(xnzval)+1:lastindex(xnzval)
+            s += dot(xnzval[k], xnzval[k])
         end
         return s
     end

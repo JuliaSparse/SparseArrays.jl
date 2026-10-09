@@ -119,7 +119,7 @@ representation is as follows:
 
 ```julia
 struct SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
-    n::Int              # Length of the sparse vector
+    n::Ti               # Length of the sparse vector
     nzind::Vector{Ti}   # Indices of stored values
     nzval::Vector{Tv}   # Stored values, typically nonzeros
 end
@@ -127,6 +127,12 @@ end
 
 Like [`SparseMatrixCSC`](@ref), the `SparseVector` type can also contain explicitly
 stored zeros. (See [Sparse Matrix Storage](@ref man-csc).)
+
+The length is stored in the index type, so `length(x)` and `size(x)` of a
+`SparseVector{Tv,Ti}` return values of type `Ti`, not `Int`. A vector can then be longer than
+`typemax(Int)` when `Ti` is `BigInt`, but arithmetic on the length of a vector with a small
+index type can overflow: for an `Int8`-indexed vector of length 100, `length(x) + length(x)`
+is `-56`. Convert with `Int(length(x))` before computing with it.
 
 ## Sparse Vector and Matrix Constructors
 

@@ -1445,6 +1445,14 @@ end
         @test dot(x, spzeros(Matrix{Float64}, 4)) == 0
         @test dot(x, x) == dot(x, copy(x)) == sum(v -> dot(v, v), nonzeros(x))
     end
+    # an abstract eltype has no inferable result type to take a `zero` of
+    for T in (Real, Number)
+        x = SparseVector{T,Int}(3, [1, 3], T[2, 3])
+        @test dot(x, x) == dot(Vector(x), Vector(x)) == 13
+        @test dot(x, copy(x)) == 13
+        e = spzeros(T, 3)
+        @test dot(e, e) == dot(e, copy(e)) == 0
+    end
     # the constructor does not check the stored indices, so the kernels that index a dense
     # array with them must: an index past the end is an error, not a read or write there
     let x = SparseVector(3, [4], [1.0]), d = ones(3)
