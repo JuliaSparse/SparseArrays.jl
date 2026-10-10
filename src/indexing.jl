@@ -830,8 +830,11 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     require_one_based_indexing(A, V, Ix, Jx)
     (I, J) = Base.ensure_indexable(to_indices(A, (Ix, Jx)))
     checkbounds(A, I, J)
-    nJ = length(J)
-    Base.setindex_shape_check(V, length(I), nJ)
+    @static if VERSION >= v"1.14.0-DEV.3593"
+        Base.setindex_shape_check(V, Base.index_sizes(I, J))
+    else
+        Base.setindex_shape_check(V, length(I), length(J))
+    end
     if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
         k = 0
         for j in J, i in I
