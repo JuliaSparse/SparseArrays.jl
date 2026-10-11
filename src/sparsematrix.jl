@@ -1051,7 +1051,7 @@ See `halfperm!`
 adjoint!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, conj)
 
 # manually specifying eltype allows to avoid calling return_type of f on TvA
-function ftranspose(A::AbstractSparseMatrixCSC{TvA,Ti}, f::Function, eltype::Type{Tv} = TvA) where {Tv,TvA,Ti}
+function ftranspose(A::AbstractSparseMatrixCSC{TvA,Ti}, f::F, eltype::Type{Tv} = TvA) where {Tv,TvA,Ti,F<:Function}
     X = SparseMatrixCSC(size(A, 2), size(A, 1),
                         ones(Ti, size(A, 1)+1),
                         Vector{Ti}(undef, 0),
