@@ -303,7 +303,7 @@ Gives `C` the pattern of `A` and stores `f(A[i])`/`f(A[i,j])` at each stored ent
 not that value is zero, so that `f.(A)` keeps its stored zeros like `2A` and `float(A)` do.
 """
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
-    _is_fixed(C) && _checkfixedpattern(C, A)
+    _is_fixed(C) && !_fitsfixedpattern(C, A) && return _copyto_fixed_broadcast!(f, C, A)
     spaceC::Int = length(getnzval(C))
     Ck = 1
     @inbounds for j in columns(C)
@@ -347,7 +347,7 @@ end
 
 # (5) _map_zeropres!/_map_notzeropres! specialized for a pair of sparse vectors/matrices
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
-    _is_fixed(C) && _checkfixedpattern(C, A, B)
+    _is_fixed(C) && !_fitsfixedpattern(C, A, B) && return _copyto_fixed_broadcast!(f, C, A, B)
     isfixed = _is_fixed(C)
     spaceC::Int = length(getnzval(C))
     W = promote_type(Int, _promote_indtype(A, B))
@@ -428,7 +428,7 @@ end
 
 # (6) _map_zeropres!/_map_notzeropres! for more than two sparse matrices / vectors
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
-    _is_fixed(C) && _checkfixedpattern(C, As...)
+    _is_fixed(C) && !_fitsfixedpattern(C, As...) && return _copyto_fixed_broadcast!(f, C, As...)
     spaceC::Int = length(getnzval(C))
     isfixed = _is_fixed(C)
     W = promote_type(Int, _promote_indtype(As...))
@@ -482,31 +482,32 @@ function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{Spars
     return _checkbuffers(C)
 end
 
-# A fixed destination keeps every entry of the inputs' union pattern, so that union must be
-# its own pattern. Inputs sharing C's pattern are the common case and cheap to verify;
-# otherwise a dry run of the merge above checks this before anything is written.
-function _checkfixedpattern(C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where N
-    all(A -> _samepattern(C, A), As) && return nothing
+# The kernels above write the pattern of C as they go, which for a fixed C is only sound
+# when the inputs' union pattern is C's own. Inputs sharing C's pattern are the common case
+# and cheap to verify; otherwise a dry run of the merge decides. When it is not, the result
+# goes through `_copyto_fixed_broadcast!`, which accepts any result within the pattern.
+function _fitsfixedpattern(C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where N
+    all(A -> _samepattern(C, A), As) && return true
     W = promote_type(Int, _promote_indtype(As...))
     rowsentinel = W(numrows(C)) + one(W)
     Ck = 1
     stopks = _colstartind_all(1, As)
     @inbounds for j in columns(C)
-        Ck == colstartind(C, j) || _throwfixedpattern(C)
+        Ck == colstartind(C, j) || return false
         stopCk = colboundind(C, j)
         ks = stopks
         stopks = _colboundind_all(j, As)
         rows = _rowforind_all(rowsentinel, ks, stopks, As)
         activerow = min(rows...)
         while activerow < rowsentinel
-            (Ck < stopCk && storedinds(C)[Ck] == activerow) || _throwfixedpattern(C)
+            (Ck < stopCk && storedinds(C)[Ck] == activerow) || return false
             Ck += 1
             _, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
             activerow = min(rows...)
         end
-        Ck == stopCk || _throwfixedpattern(C)
+        Ck == stopCk || return false
     end
-    return nothing
+    return true
 end
 function _samepattern(C::SparseVecOrMat, A::SparseVecOrMat)
     @inbounds for j in columns(C)
@@ -517,8 +518,6 @@ function _samepattern(C::SparseVecOrMat, A::SparseVecOrMat)
     end
     return true
 end
-@noinline _throwfixedpattern(C) =
-    throw(ArgumentError("the inputs' combined sparsity pattern differs from that of the $(nameof(typeof(C))) destination, whose pattern is read-only"))
 
 # helper methods for map/map! methods just above
 @inline _colstartind(j, A) = colstartind(A, j)
@@ -1202,9 +1201,10 @@ end
     end
 end
 
-# The kernels above write the pattern of `dest` as they go. A fixed one gets the result
-# from a writable array of its shape through `_copyto_fixed!`, which checks the pattern
-# and the values before it writes.
+# A fixed `dest` whose pattern the kernels cannot write as they go gets the result from a
+# writable array of its shape through `_copyto_fixed!`, which checks the pattern and the
+# values before it writes. Every nonzero of the result must lie in the pattern of `dest`,
+# whose other entries become zero.
 function _copyto_fixed_broadcast!(f::Tf, dest::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     T = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, As)...))
     tmp = _allocres(size(dest), indtype(dest), T, Int(min(widelength(dest), _sumnnzs(As...))))

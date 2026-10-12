@@ -1194,7 +1194,7 @@ Checks compatibility of source argument `A` and destination argument `X`.
 """
 function _checkargs_sourcecompatdest_permute!(A::AbstractSparseMatrixCSC{Tv,Ti},
         X::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
-    _is_fixed(X) && _readonly_error(getcolptr(X))
+    _checkpatternwritable(X, :permute!)
     if size(X, 1) != size(A, 1)
         throw(DimensionMismatch(string("destination argument `X`'s row count, ",
             "`size(X, 1) (= $(size(X, 1)))`, must match source argument `A`'s row count, `size(A, 1) (= $(size(A, 1)))`")))
@@ -1322,6 +1322,7 @@ function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{
 end
 function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer},
         q::AbstractVector{<:Integer}) where {Tv,Ti}
+    _checkpatternwritable(A, :permute!)
     _checkargs_sourcecompatperms_permute!(A, p, q)
     C = spzeros(Tv, Ti, size(A,2), size(A,1))
     resize!(getrowval(C), nnz(A))
@@ -1332,6 +1333,7 @@ function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer
 end
 function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer},
         q::AbstractVector{<:Integer}, C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+    _checkpatternwritable(A, :permute!)
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
     _checkargs_noalias_permute!((:A, :C), A, C)
@@ -1342,6 +1344,7 @@ end
 function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer},
         q::AbstractVector{<:Integer}, C::AbstractSparseMatrixCSC{Tv,Ti},
         workcolptr::Vector{Ti}) where {Tv,Ti}
+    _checkpatternwritable(A, :permute!)
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
     _checkargs_sourcecompatworkcolptr_permute!(A, workcolptr)
@@ -1422,9 +1425,7 @@ that do not distinguish stored values from zero (such as `by = iszero`).
 The remaining keyword arguments are those of `sort!` for a `Vector`.
 """
 function Base.sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
-    if _is_fixed(A)
-        throw(ArgumentError("cannot sort! a FixedSparseCSC in place, its row indices are read-only"))
-    end
+    _checkpatternwritable(A, :sort!)
     if dims == 1
         _sortcolumns!(A; kws...)
     elseif dims == 2
@@ -1529,7 +1530,6 @@ function _fkeep_guarded!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     end
     return A
 end
-_fkeep_trusted!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _fkeep!(f, A)
 
 """
     fkeep!(f, A::AbstractSparseArray)
@@ -1570,9 +1570,9 @@ end
 
 
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    (_checkpatternwritable(A, :tril!); _fkeep_trusted!((i, j, x) -> j - i <= k, A))
+    (_checkpatternwritable(A, :tril!); _fkeep!((i, j, x) -> j - i <= k, A))
 triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    (_checkpatternwritable(A, :triu!); _fkeep_trusted!((i, j, x) -> j - i >= k, A))
+    (_checkpatternwritable(A, :triu!); _fkeep!((i, j, x) -> j - i >= k, A))
 
 """
     droptol!(A::AbstractSparseMatrixCSC, tol)
@@ -1580,7 +1580,7 @@ triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
 Removes stored values from `A` whose absolute value is less than or equal to `tol`.
 """
 droptol!(A::AbstractSparseMatrixCSC, tol) =
-    (_checkpatternwritable(A, :droptol!); _fkeep_trusted!((i, j, x) -> abs(x) > tol, A))
+    (_checkpatternwritable(A, :droptol!); _fkeep!((i, j, x) -> abs(x) > tol, A))
 
 """
     dropzeros!(A::AbstractSparseMatrixCSC;)
@@ -2133,8 +2133,8 @@ end
 # the pattern and the buffers may hold unused capacity beyond nnz
 rot180(A::AbstractSparseMatrixCSC) = _reverse!(SparseMatrixCSC(size(A)..., Vector(getcolptr(A)),
     Vector(view(getrowval(A), 1:nnz(A))), Vector(view(getnzval(A), 1:nnz(A)))), Colon())
-rotr90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 2)
-rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 1)
+rotr90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(A, identity), 2)
+rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(A, identity), 1)
 # Base returns `copy(A)` for a whole number of turns, which is fixed for a fixed `A`
 rot180(A::FixedSparseCSC, k::Integer) = isodd(k) ? rot180(A) : SparseMatrixCSC(A)
 function rotl90(A::FixedSparseCSC, k::Integer)
@@ -2216,6 +2216,7 @@ macro swap(a, b)
 end
 
 function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
+    _checkpatternwritable(A, :swapcols!)
     i == j && return
 
     # For simplicity, let i denote the smaller of the two columns
@@ -2257,6 +2258,7 @@ function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
 end
 
 function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
+    _checkpatternwritable(A, :swaprows!)
     for k in (i, j)
         k in axes(A, 1) || throw(BoundsError(A, (k, :)))
     end
@@ -2374,13 +2376,9 @@ end
 # The generic methods for these visit every entry. The sparse copy of the argument costs
 # O(nnz), and the kernels above do the rest.
 
-# a writable sparse copy; the copy of a view of a fixed matrix, or of its adjoint, is fixed
-function _writablecopy(A::SparseMatrixCSCSubArray)
-    B = copy(A)
-    return _is_fixed(B) ? SparseMatrixCSC(B) : B
-end
+_writablecopy(A::SparseMatrixCSCSubArray) = copy(A)
 _writablecopy(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
-    ftranspose(_unsafe_unfix(parent(A)), _adjtrans_fun(A), eltype(A))
+    ftranspose(parent(A), _adjtrans_fun(A), eltype(A))
 
 for T in (:SparseMatrixCSCSubArray, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}))
     @eval begin

@@ -399,13 +399,15 @@ always_true(x...) = true
     F, f = fixed(A), fixed(x)
     matfs = (dropzeros!, (@static COMPREHENSIVE ? (S -> droptol!(S, 0.5), S -> fkeep!(always_true, S), tril!, triu!,
         S -> dropstored!(S, 1, 1), S -> dropstored!(S, 1:2, 1:2), reverse!, S -> reverse!(S, dims=1),
-        S -> circshift!(S, A, (0, 0)), S -> sort!(S, dims=1), S -> permute!(S, A, [1, 2, 3], [1, 2, 3])) : ())...)
+        S -> circshift!(S, A, (0, 0)), S -> sort!(S, dims=1), S -> permute!(S, A, [1, 2, 3], [1, 2, 3]),
+        S -> permute!(S, [1, 2, 3], [1, 2, 3]), S -> dropstored!(S, [2], [1]), S -> dropstored!(S, 1:0, 1:0), S -> dropstored!(S, :, 1),
+        S -> Base.swaprows!(S, 1, 3), S -> Base.swapcols!(S, 1, 3)) : ())...)
     for f! in matfs
         @test_throws ArgumentError f!(F)
         @test exact_equal(F, A) && _is_fixed(F)
     end
     vecfs = (dropzeros!, (@static COMPREHENSIVE ? (v -> droptol!(v, 0.5), v -> fkeep!(always_true, v), v -> dropstored!(v, 1),
-        reverse!, v -> circshift!(v, x, 0), sort!) : ())...)
+        reverse!, v -> circshift!(v, x, 0), v -> circshift!(v, 1), sort!) : ())...)
     for f! in vecfs
         @test_throws ArgumentError f!(f)
         @test exact_equal(f, x) && _is_fixed(f)
@@ -417,6 +419,12 @@ always_true(x...) = true
     @test_throws ArgumentError tril!(fixed(sparse([1.0 0; 2 3])))
     @test_throws "SparseMatrixCSC" dropzeros!(F)
     @test_throws "SparseVector" dropzeros!(f)
+    # the error names the function that was called
+    @test_throws "droptol!" droptol!(f, 0.5)
+    @test_throws "circshift!" circshift!(f, 1)
+    @test_throws "sort!" sort!(f)
+    @test_throws "sort!" sort!(view(F, :, 1))
+    @test_throws "permute!" permute!(F, [1, 2, 3], [1, 2, 3])
     end
 end
 
@@ -465,6 +473,62 @@ end
     f = fixed(x)
     @test_throws ArgumentError f[:] = [7.0, 8, 9]
     @test exact_equal(f, x)
+end
+end
+
+@static if COMPREHENSIVE
+@testset "a result within the pattern of a fixed destination is stored, the rest zeroed" begin
+    J = sparse([1.0 2 0; 0 3 0; 4 0 5]); M = sparse([1.0 0 0; 0 1 0; 0 0 1])
+    P = M + J
+    for (write!, R) in ((W -> W .= 2 .* M, 2M), (W -> W .= .-M, -M), (W -> W .= M .+ M, 2M), (W -> W .= M .+ M .+ M, 3M),
+                        (W -> map!(identity, W, M), M), (W -> map!(+, W, M, M), 2M), (W -> W .= M, M), (W -> copyto!(W, M), M))
+        W = fixed(P)
+        @test write!(W) === W && W == R && same_pattern(W, P)
+    end
+    # a zero of the result may lie outside the pattern, stored or not
+    D = fixed(M)
+    @test (D .= J .* M) === D && D == J .* M && same_pattern(D, M)
+    Z = sparse([1, 3, 2, 3], [1, 1, 2, 3], [1.0, 0.0, 3.0, 5.0], 3, 3)   # a stored zero at (3, 1)
+    @test copyto!(D, Z) === D && D == [1.0 0 0; 0 3 0; 0 0 5] && same_pattern(D, M)
+    d = fixed(sparsevec([1], [1.0], 3))
+    @test copyto!(d, sparsevec([1, 3], [2.0, 0.0], 3)) === d && d == [2.0, 0, 0]
+    # a nonzero may not
+    D = fixed(M)
+    @test_throws ArgumentError D .= J .+ M
+    @test_throws ArgumentError D .= 2 .* J
+    @test_throws ArgumentError map!(identity, D, J)
+    @test exact_equal(D, M)
+end
+
+@testset "rdiv! and ldiv! by a number write the stored values of a fixed array" begin
+    A = sparse([1.0 2 0; 0 3 0; 4 0 5]); x = sparsevec([1, 3], [1.0, 2.0], 3)
+    F, f = fixed(A), fixed(x)
+    @test rdiv!(F, 2) === F && F == A / 2 && same_pattern(F, A)
+    @test ldiv!(2, F) === F && F == A / 4
+    @test rdiv!(f, 2) === f && ldiv!(2, f) === f && f == x / 4
+    # `0 / 0` is not zero, so the result needs every entry
+    for b in (0, NaN)
+        F, f = fixed(A), fixed(x)
+        @test_throws ArgumentError rdiv!(F, b)
+        @test_throws ArgumentError ldiv!(b, F)
+        @test_throws ArgumentError rdiv!(f, b)
+        @test exact_equal(F, A) && exact_equal(f, x)
+    end
+    S = copy(A)
+    @test rdiv!(S, 2) === S && mismatch(S, Matrix(A) / 2) === nothing && nnz(S) == 5
+    @test isequal(rdiv!(copy(A), 0), rdiv!(Matrix(A), 0)) && isequal(ldiv!(0, copy(x)), ldiv!(0, Vector(x)))
+end
+
+@testset "sparse and fixed of a fixed vector follow the matrix" begin
+    x = sparsevec([1, 3], [1.0, 2.0], 3); f = fixed(x)
+    for g in (sparse, sparsevec)
+        s = g(f)
+        @test s isa SparseVector && s == x && nonzeros(s) !== nonzeros(f) && (s[2] = 1; nnz(s) == 3 && nnz(f) == 2)
+    end
+    for g in (fixed, FixedSparseVector, FixedSparseVector{Float64,Int})
+        h = g(f)
+        @test _is_fixed(h) && nonzeroinds(h) === nonzeroinds(f) && nonzeros(h) !== nonzeros(f) && h == x
+    end
 end
 end
 

@@ -484,9 +484,11 @@ julia> W .= M .- J
 Three rules describe everything a fixed array does.
 
 **A write lands inside the pattern or throws.** `W .= ...`, `map!`, `copyto!`, `mul!`,
-`fill!`, `rmul!`, `lmul!`, `W[i, j] = v` and assignment through a column view store a
-value at each stored entry, a zero included, and leave the pattern alone. A write that
-needs an entry the pattern lacks throws an `ArgumentError`, and the kernels of this
+`fill!`, `rmul!`, `lmul!`, `rdiv!`, `W[i, j] = v` and assignment through a column view store
+a value at each stored entry, a zero included, and leave the pattern alone. What is written
+need not fill the pattern: every nonzero of it must fall on a stored entry, and the stored
+entries it leaves out become zero, so `W .= M` and `W .= 2 .* M` both work. A write that
+needs a nonzero where the pattern has no entry throws an `ArgumentError`, and the kernels of this
 package check for that before they change any value. That covers a block assignment such
 as `W[:, j] = x` or `W[I, J] = B`. An assignment that Julia carries out one entry at a
 time, such as a broadcast into a `view` of `W` or `w[inds] = x` with a vector of indices

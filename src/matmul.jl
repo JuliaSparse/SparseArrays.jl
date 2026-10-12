@@ -895,6 +895,13 @@ function lmul!(b::Number, A::AbstractSparseMatrixCSC)
     return A
 end
 
+# an entry that is not stored divides to `0 / b`, which is not zero for a zero or NaN `b`
+_divkeepszeros(A, b::Number) = nnz(A) == length(A) || _iszero(_densezero(A) / b)
+rdiv!(A::Union{AbstractSparseMatrixCSC,AbstractCompressedVector}, b::Number) =
+    _divkeepszeros(A, b) ? (rdiv!(nonzeros(A), b); A) : broadcast!(/, A, A, b)
+ldiv!(b::Number, A::Union{AbstractSparseMatrixCSC,AbstractCompressedVector}) =
+    _divkeepszeros(A, b) ? (ldiv!(b, nonzeros(A)); A) : broadcast!(\, A, b, A)
+
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
     _checkscaledims(A, A, D, 2)
     return _scalecols!(A, A, D.diag, *)

@@ -476,9 +476,7 @@ function getindex_general(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Abst
     require_one_based_indexing(A, I, J)
     pI = sortperm(I)
     @inbounds Is = I[pI]
-    # the rows of each column are reordered in place, so fix the pattern only afterwards
-    S = permute_rows!(getindex_I_sorted(_unsafe_unfix(A), Is, J), pI)
-    return S
+    return permute_rows!(getindex_I_sorted(A, Is, J), pI)
 end
 
 # the general case:
@@ -839,19 +837,7 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     else
         Base.setindex_shape_check(V, length(I), length(J))
     end
-    if _is_fixed(A)
-        V = Base.unalias(A, V)
-        k = 0
-        for j in J, i in I
-            v = convert(Tv, V[k += 1])
-            Base.isstored(A, i, j) || _isimplicitzero(v, Tv) || _throwfixedinsert(A, i, j)
-        end
-        k = 0
-        for j in J, i in I
-            A[i, j] = V[k += 1]
-        end
-        return A
-    end
+    _is_fixed(A) && return _setindex_fixed!(A, V, I, J)
     B = _to_same_csc(A, V, I, J)
 
     m, n = size(A)
@@ -1132,6 +1118,35 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     return _checkbuffers(A)
 end
 
+# Block assignment into a fixed pattern: every entry is converted and located, and a nonzero
+# value outside the pattern rejected, before any entry is written.
+function _setindex_fixed!(A::AbstractSparseMatrixCSC{Tv}, V::AbstractVecOrMat, I, J) where Tv
+    V = Base.unalias(A, V)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
+    pos = Vector{Int}(undef, length(I) * length(J))
+    vals = Vector{Tv}(undef, length(pos))
+    k = 0
+    for j in J
+        r1 = Int(first(nzrange(A, j)))
+        r2 = Int(last(nzrange(A, j)))
+        for i in I
+            k += 1
+            v = vals[k] = convert(Tv, V[k])
+            p = searchsortedfirst(view(rowvalA, r1:r2), i) + r1 - 1
+            if p <= r2 && rowvalA[p] == i
+                pos[k] = p
+            else
+                _isimplicitzero(v, Tv) || _throwfixedinsert(A, i, j)
+                pos[k] = 0
+            end
+        end
+    end
+    for k in eachindex(pos)
+        pos[k] == 0 || (nzvalA[pos[k]] = vals[k])
+    end
+    return A
+end
+
 # Linear-index assignment into a fixed pattern: every index is located, and a nonzero
 # value outside the pattern rejected, before any entry is written.
 function _setindex_fixed!(A::AbstractSparseMatrixCSC{Tv}, x::AbstractArray, I::AbstractVector{<:Integer}) where Tv
@@ -1222,6 +1237,7 @@ julia> SparseArrays.dropstored!(A, [1, 2], [1, 1])
 function dropstored!(A::AbstractSparseMatrixCSC,
         I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
     require_one_based_indexing(A, I, J)
+    _checkpatternwritable(A, :dropstored!)
     m, n = size(A)
     nnzA = nnz(A)
     (nnzA == 0) && (return A)
@@ -1327,7 +1343,7 @@ _getindex_adjtrans(M, _, i::AbstractVector, j::Integer) = map!(wrapperop(M), par
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
-    let M = _unsafe_unfix(A)[I, [J]]
+    let M = A[I, [J]]
         SparseVector(size(M, 1), getrowval(M), getnzval(M))
     end
 

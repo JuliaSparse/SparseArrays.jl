@@ -122,8 +122,9 @@ end
 Experimental. Like `sparse` but returns a sparse array whose sparsity pattern is read-only:
 stored entries can change value, but none can be added or removed.
 
-`fixed(A)` of a sparse array `A` copies it, so the result shares no memory with `A`. Use
-[`move_fixed`](@ref SparseArrays.move_fixed) to reuse the buffers of `A` instead.
+`fixed(A)` of a writable sparse array `A` copies it, so the result shares no memory with
+`A`. Use [`move_fixed`](@ref SparseArrays.move_fixed) to reuse the buffers of `A` instead.
+`fixed(F)` of a fixed array is `copy(F)`: it copies the values and shares the pattern.
 
 A write into the result keeps every stored entry and throws an `ArgumentError`, before
 changing anything, when it needs an entry outside the pattern. A function whose purpose is
@@ -186,7 +187,10 @@ function _copyto_fixed!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
             for p in nzrange(B, j)
                 i = Brv[p]
                 while k <= kend && Arv[k] < i; k += 1; end
-                (k <= kend && Arv[k] == i) || _throwfixedinsert(A, i, j)
+                if !(k <= kend && Arv[k] == i)
+                    _iszero(Bnz[p]) || _throwfixedinsert(A, i, j)
+                    continue
+                end
                 write && (Anz[k] = Bnz[p])
             end
         end
@@ -223,6 +227,9 @@ FixedSparseVector(n::Integer, nzind::Vector{<:Integer}, nzval::Vector) =
     FixedSparseVector(n, ReadOnly(nzind), nzval)
 
 FixedSparseVector(s::AbstractSparseVector) = FixedSparseVector(length(s), copy(nonzeroinds(s)), copy(nonzeros(s)))
+# a fixed `s` shares its read-only pattern, as with `copy`
+FixedSparseVector(s::FixedSparseVector) = copy(s)
+FixedSparseVector{Tv,Ti}(s::FixedSparseVector{Tv,Ti}) where {Tv,Ti} = copy(s)
 FixedSparseVector{Tv,Ti}(s::AbstractSparseVector) where {Tv,Ti} =
     FixedSparseVector{Tv,Ti}(length(s), ReadOnly(Vector{Ti}(nonzeroinds(s))), Vector{Tv}(nonzeros(s)))
 
@@ -251,7 +258,10 @@ function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector
         @inbounds for p in eachindex(Bi)
             i = Bi[p]
             while k <= length(Ai) && Ai[k] < i; k += 1; end
-            (k <= length(Ai) && Ai[k] == i) || _throwfixedinsert(A, i)
+            if !(k <= length(Ai) && Ai[k] == i)
+                _iszero(Bnz[p]) || _throwfixedinsert(A, i)
+                continue
+            end
             write && (Anz[k] = Bnz[p])
         end
     end
@@ -259,3 +269,6 @@ function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector
 end
 
 Base.setindex!(x::FixedSparseVector, v::AbstractVector, ::Colon) = setindex!(x, v, axes(x, 1))
+# Base's method goes through `reverse!`
+Base.circshift!(x::FixedSparseVector, ::Integer) = _throwfixedchange(x, :circshift!)
+sparsevec(x::FixedSparseVector) = _writablecopy(x)

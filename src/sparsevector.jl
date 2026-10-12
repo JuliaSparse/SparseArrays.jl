@@ -1805,9 +1805,7 @@ how [`sort!`](@ref) of a sparse matrix sorts each column.
 stored indices are read-only.
 """
 function sort!(x::Union{AbstractCompressedVector, SparseColumnView}; kws...)
-    if _is_fixed(x) || (x isa SubArray && _is_fixed(parent(x)))
-        throw(ArgumentError("cannot sort! a fixed sparse array in place, its stored indices are read-only"))
-    end
+    _checkpatternwritable(x isa SubArray ? parent(x) : x, :sort!)
     nz = nonzeros(x)
     I = nonzeroinds(x)
     Base.require_one_based_indexing(x, nz, I)
@@ -1860,7 +1858,7 @@ end
 
 Removes stored values from `x` whose absolute value is less than or equal to `tol`.
 """
-droptol!(x::AbstractCompressedVector, tol) = fkeep!((i, x) -> abs(x) > tol, x)
+droptol!(x::AbstractCompressedVector, tol) = (_checkpatternwritable(x, :droptol!); fkeep!((i, x) -> abs(x) > tol, x))
 
 """
     dropzeros!(x::AbstractCompressedVector)
@@ -1982,11 +1980,9 @@ circshift(X::AbstractCompressedVector, s::Real) = circshift!(similar(X), X, (Int
 
 reverse(x::Union{AbstractSparseVector, SparseColumnView, SparseVectorView, SparseVectorPartialView},
         start::Integer=firstindex(x), stop::Integer=lastindex(x)) =
-    reverse!(_reversecopy(x), start, stop)
+    reverse!(_writablecopy(x), start, stop)
 
-# a writable `SparseVector` with the same index type that shares no buffer with `x`
-_reversecopy(x::AbstractSparseVector) = _writablecopy(x)
-_reversecopy(x::Union{SparseColumnView, SparseVectorView, SparseVectorPartialView}) =
+_writablecopy(x::Union{SparseColumnView, SparseVectorView, SparseVectorPartialView}) =
     SparseVector(length(x), Vector{indtype(x)}(nonzeroinds(x)), Vector{eltype(x)}(nonzeros(x)))
 
 function reverse!(x::AbstractSparseVector, start::Integer=firstindex(x), stop::Integer=lastindex(x))
