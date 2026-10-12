@@ -155,49 +155,46 @@ SparseArrays.CHOLMOD.CholmodWS
 SparseArrays.SPQR.SpqrWS
 SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
 SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
-Base.copy(::SparseArrays.UMFPACK.UmfpackLU{Tv,Ti}) where {Tv,Ti}
+Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
 Base.copy(::SparseArrays.SPQR.QRSparse)
 SparseArrays.LibSuiteSparse.init_suitesparse
 ```
 
 ## Multithreading and thread safety
 
-Each factorization object has an internal lock, and every call that reads or changes its
-mutable state (the factors held by the C library, the stored matrix and the status) holds that lock for the whole call. Calls with one factorization from several
-tasks are therefore safe but run one at a time, even those that only read it. To work in
-parallel, give every task its own `copy` of the factorization: a copy shares nothing that
-any call modifies with the original or with the other copies, so its calls never wait for
-theirs.
-
-| Type | `copy(F)` | Calls serialized by the lock of one `F` |
-|:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
-| `SPQR.QRSparse` | shares the factors and permutations, which no call modifies; new lock | `\` and `ldiv!`, with `F` or `F'` |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
-
-The copies of an `UmfpackLU` or a `QRSparse` are cheap, since they share the factors:
+A solve (`\` or `ldiv!`, with `F`, `F'` or `transpose(F)`) only reads the factorization and
+takes no lock, so any number of tasks can solve with one factorization at the same time:
 
 ```julia
 using LinearAlgebra, SparseArrays
 
-F = lu(A)                       # or qr(A)
+F = lu(A)                       # or cholesky(A), or qr(A)
 X = similar(B)
 Threads.@threads for j in axes(B, 2)
-    Fj = copy(F)                # shared factors, own lock
-    ldiv!(view(X, :, j), Fj, view(B, :, j))
+    ldiv!(view(X, :, j), F, view(B, :, j))
 end
 ```
 
-A loop that performs many solves per task should make the copy once per task rather than
-once per right-hand side. Because the copies of an `UmfpackLU` share its factors, do not
-call [`lu!`](@ref) on the original or on any copy while another task is solving with one
-of them: refactorization frees the numeric object they all point to.
+A `QRSparse` is never modified once `qr` has returned, and has no lock. An `UmfpackLU` and
+a `CHOLMOD.Factor` can be refactorized in place, and each has an internal lock, which the
+calls that change it and some of those that read it hold for the whole call:
 
-For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`
-and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
-`Factor` is not safe to share between tasks when any of them may refactorize or update it.
-Use a separate `copy(F)` per task in that case; note that this duplicates the factor's
-memory.
+| Type | `copy(F)` | Calls that take the lock of `F` |
+|:-----|:----------|:--------------------------------|
+| `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `lu!`, `copy`, `det`, `logabsdet` and the factors `F.L`, `F.U`, `F.p`, `F.q`, `F.Rs` |
+| `SPQR.QRSparse` | independent copy of the factors and permutations | none: there is no lock |
+| `CHOLMOD.Factor` | independent deep copy of the whole factor | [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`, `copy` and the in-place low-rank updates |
+
+The lock keeps those calls apart from each other, not from a solve: a factorization must
+not be refactorized or updated while another task solves with it. A task that does so needs
+its own `copy(F)`. An independent copy is unaffected by anything done to the original, and
+the original by anything done to the copy; it duplicates the factors' memory.
+`deepcopy(F)` is an independent copy too, and `copy` of `F'` or `transpose(F)` wraps
+`copy(F)`.
+
+UMFPACK reports statistics of each solve, such as the refinement steps it took. A solve
+writes them to the `info` of the [`UMFPACK.UmfpackWS`](@ref SparseArrays.UMFPACK.UmfpackWS)
+it was given, not to `F.info`, which describes the factorization only.
 
 CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
 structure. SparseArrays creates one lazily for each Julia task (and index type) and keeps

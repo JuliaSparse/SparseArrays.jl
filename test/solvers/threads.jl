@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module SparseProcessTests
-using Test, SparseArrays, LinearAlgebra
+using Test, SparseArrays, LinearAlgebra, Serialization
 include("../testhelpers.jl")
 
 include("testprocess.jl")
@@ -20,6 +20,24 @@ end
 @static if COMPREHENSIVE
 @testset "CHOLMOD ownership and lifetime, $Ti, $Tv" for (Ti, Tv) in ((first(itypes), Float64), (last(itypes), Float32))
     @test success(pipeline(lifetimeprocess(Ti, Tv); stdout, stderr))
+end
+end
+
+@static if COMPREHENSIVE
+@testset "a deserialized UmfpackLU initializes SuiteSparse before its first C call" begin
+    mktemp() do path, io
+        serialize(io, lu(sparse([4.0 1; 1 3])))
+        close(io)
+        script = """
+            using LinearAlgebra, Serialization
+            F = deserialize($(repr(path)))
+            @test F \\ [1.0, 2.0] ≈ [4.0 1; 1 3] \\ [1.0, 2.0]
+            L = SparseArrays.LibSuiteSparse
+            # the allocator is no longer the C library's, which it is until initialization
+            @test L.SuiteSparse_config_malloc_func_get() != cglobal(:malloc)
+            """
+        @test success(pipeline(testprocess(script); stdout, stderr))
+    end
 end
 end
 

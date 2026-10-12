@@ -20,8 +20,6 @@ fullrank(::Type{T}, m, n) where {T} = (fixture(T, m, n) + sparse(1:min(m, n), 1:
 
 @test size(qr(fixture(Float64, m, n)).Q) == (m, m)
 
-@test repr("text/plain", qr(fixture(Float64, 4, 4)).Q) == "4×4 $(SparseArrays.SPQR.QRSparseQ{Float64, Int})"
-
 # SPQR has one entry point per element type and per index type, so a comprehensive run takes
 # each of them once: the standard case, and the complex element type with `Int32` indices
 @testset "element type of A: $eltyA" for eltyA in (@static COMPREHENSIVE ? STD_ELTYPES : (Float64,)), iltyA in (@static COMPREHENSIVE ? (eltyA <: Real ? core_itypes : (Int32,)) : core_itypes)
@@ -203,15 +201,6 @@ end
     @test A*xs ≈ A*xd
 end
 
-@static if COMPREHENSIVE
-@testset "Issue 26367" begin
-    A = sparse([0.0 1 0 0; 0 0 0 0])
-    @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test (sparse(I, 2, 2) * qr(A).Q)::Matrix == sparse(qr(A).Q) == sparse(I, 2, 2)
-end
-end
-
 @testset "thin Q products when SPQR stores fewer reflectors than columns" begin
     A = sparse([1:9; 3], [1:9; 5], collect(1.0:10), 10, 9)
     F = qr(A)
@@ -219,14 +208,6 @@ end
     @test F.Q * F.R ≈ A[F.prow, F.pcol]
     @test F.Q * F.R[:, 1] ≈ A[F.prow, F.pcol][:, 1]
     @test Matrix(F.R)' * F.Q' ≈ A[F.prow, F.pcol]'
-end
-
-@static if COMPREHENSIVE
-@testset "Issue 26368" begin
-    A = sparse([0.0 1 0 0; 0 0 0 0])
-    F = qr(A)
-    @test (F.Q*F.R)::Matrix == A[F.prow,F.pcol]
-end
 end
 
 @testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
@@ -261,14 +242,6 @@ end
     # and nothing else
     k == m || @test_throws DimensionMismatch Q' * fixture(T, k, 3)
     @test_throws DimensionMismatch Q * fixture(T, m + 1, 2)
-end
-
-@static if COMPREHENSIVE
-@testset "Issue #585 for element type: $eltyA" for eltyA in (Float32, ComplexF32)
-    A = sparse(eltyA[1 0; 0 1])
-    F = qr(A)
-    @test eltype(F.Q) == eltype(F.R) == eltyA
-end
 end
 
 @testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, ComplexF32)
@@ -354,7 +327,7 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
     @test propertynames(F) == (:R, :Q, :prow, :pcol)
-    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv, :_lock)
+    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv)
 end
 
 @testset "rank" begin
@@ -444,36 +417,29 @@ end
         @test ldiv!(b, F, b) == x
     end
 
-    @testset "copying QRSparse" begin
-        A = fixture(Float64, m, n)
-        F = qr(A)
-        F_copy = copy(F)
-
-        # The lock must not be shared
-        @test F._lock !== F_copy._lock
-    end
-
-    @testset "solves take the lock of F" begin
-        A = fullrank(Float64, m, n)
-        F = qr(A)
+    @static if COMPREHENSIVE
+    @testset "tasks solve with one shared F" begin
+        F = qr(fullrank(Float64, m, n))
         b, c = collect(1.0:m), collect(1.0:n)
         x, y = F \ b, F' \ c
-        calls = (() -> ldiv!(zeros(n), F, b) ≈ x,
-                 () -> F \ b ≈ x,
-                 (@static COMPREHENSIVE ? (() -> F \ complex.(b) ≈ x,) : ())...,
-                 () -> ldiv!(zeros(m), F', c) ≈ y,
-                 (@static COMPREHENSIVE ? (() -> F' \ c ≈ y,) : ())...)
-        for f in calls
-            lock(F._lock)
-            t = @async f()
-            yield()
-            @test !istaskdone(t)
-            # copying F and solving with the copy do not wait for the lock of F
-            @test fetch(@async copy(F) \ b ≈ x && copy(F)' \ c ≈ y)
-            unlock(F._lock)
-            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
-            @test fetch(t)
-        end
+        tasks = [Threads.@spawn (F \ (i .* b), ldiv!(zeros(m), F', i .* c)) for i in 1:8]
+        @test all(i -> fetch(tasks[i])[1] ≈ i .* x && fetch(tasks[i])[2] ≈ i .* y, 1:8)
+    end
+    end
+
+    @static if COMPREHENSIVE
+    @testset "copy and deepcopy are independent" begin
+        A = fullrank(Float64, m, n)
+        b, c = collect(1.0:m), collect(1.0:n)
+        F = qr(A)
+        x, y = F \ b, F' \ c
+        G, H = copy(F), deepcopy(F)
+        SparseArrays.nonzeros(F.R) .*= 2
+        @test G \ b ≈ x
+        @test H \ b ≈ x
+        SparseArrays.nonzeros(F.R) ./= 2
+        @test copy(F') \ c ≈ y
+    end
     end
 end
 

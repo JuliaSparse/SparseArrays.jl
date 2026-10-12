@@ -5,7 +5,7 @@
 # converting between SparseMatrixCSC types
 SparseMatrixCSC(S::AbstractSparseMatrixCSC) = copy(S)
 AbstractMatrix{Tv}(A::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv}(A)
-SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC{Tv}) where {Tv} = copy(S)
+SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(S)
 SparseMatrixCSC{Tv}(S::AbstractSparseMatrixCSC) where {Tv} = SparseMatrixCSC{Tv,eltype(getcolptr(S))}(S)
 SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = copy(S)
 function SparseMatrixCSC{Tv,Ti}(S::AbstractSparseMatrixCSC) where {Tv,Ti}
@@ -144,17 +144,28 @@ SparseMatrixCSC(M::AbstractMatrix{Tv}) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
 SparseMatrixCSC{Tv}(M::AbstractMatrix) where {Tv} = SparseMatrixCSC{Tv,Int}(M)
 function SparseMatrixCSC{Tv,Ti}(M::AbstractMatrix) where {Tv,Ti}
     require_one_based_indexing(M)
-    I = Ti[]
-    V = Tv[]
-    i = 0
+    m, n = size(M)
+    colptr = Vector{Ti}(undef, n + 1)
+    rowval = Ti[]
+    nzval = Tv[]
+    # `M` is iterated in column-major order; a linear index need not fit in `Ti`
+    i, j = 0, 1
+    colptr[1] = 1
     for v in M
         i += 1
+        if i > m
+            colptr[j += 1] = length(rowval) + 1
+            i = 1
+        end
         if _isnotzero(v)
-            push!(I, i)
-            push!(V, v)
+            push!(rowval, i)
+            push!(nzval, v)
         end
     end
-    return sparse_sortedlinearindices!(I, V, size(M)...)
+    for k in j+1:n+1
+        colptr[k] = length(rowval) + 1
+    end
+    return SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
 
 function SparseMatrixCSC{Tv,Ti}(M::StridedMatrix) where {Tv,Ti}
@@ -249,8 +260,16 @@ convert(T::Type{<:LowerTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
 convert(T::Type{<:UpperTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
     istriu(m) ? T(m) : throw(ArgumentError("matrix cannot be represented as UpperTriangular"))
 
-float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
-complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
+float(S::SparseMatrixCSC) = _withnonzeros(S, float(getnzval(S)))
+complex(S::SparseMatrixCSC) = _withnonzeros(S, complex(getnzval(S)))
+# `float` and `complex` return `nzval` itself when it already has the eltype asked for, and
+# the result is then `S` under another name, as for a dense array. A new `nzval` gets a
+# pattern of its own: one shared with `S` would change under it.
+function _withnonzeros(S::SparseMatrixCSC, nzval)
+    shared = nzval === getnzval(S)
+    return SparseMatrixCSC(size(S, 1), size(S, 2), shared ? getcolptr(S) : copy(getcolptr(S)),
+        shared ? getrowval(S) : copy(getrowval(S)), nzval)
+end
 float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
 complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
 
@@ -502,7 +521,7 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector
     writek = Tj(1)
     newcsrrowptri = Ti(1)
     origcsrrowptri = Tj(1)
-    origcsrrowptrip1 = csrrowptr[2]
+    origcsrrowptrip1 = m == 0 ? Tj(1) : csrrowptr[2]
     @inbounds for i in 1:m
         for readk in origcsrrowptri:(origcsrrowptrip1-Tj(1))
             j = csrcolval[readk]

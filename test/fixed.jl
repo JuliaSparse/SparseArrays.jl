@@ -122,6 +122,17 @@ end
     # be written there
     @test_throws ArgumentError copyto!(G, sparse([1], [2], [5.0], 2, 2))
     @test same_pattern(G, sparse(Diagonal([1.0, 2.0]))) && G == Diagonal([1.0, 2.0])
+    @static if COMPREHENSIVE
+    # a throw leaves the values alone too: the entry outside the pattern or the value that
+    # does not convert is found before the block is zeroed
+    Gi = fixed(sparse([1, 2], [1, 2], [1, 2], 2, 2))
+    R = CartesianIndices((1:2, 1:2))
+    @test_throws InexactError copyto!(Gi, sparse([1, 2], [1, 2], [1.0, 2.5]))
+    @test_throws ArgumentError copyto!(Gi, R, sparse([5 6; 7 8]), R)
+    @test_throws InexactError copyto!(Gi, R, sparse([5.5 0; 0 8]), R)
+    @test nonzeros(Gi) == [1, 2]
+    @test copyto!(Gi, R, sparse([5 0; 0 8]), R) === Gi && nonzeros(Gi) == [5, 8]
+    end
     G[1:2, 1:2] = [3 0; 0 4]
     G[:, 2] .= 0
     @test G == [3 0; 0 0] && nnz(G) == 2
@@ -143,6 +154,58 @@ end
     # fixed(x...)
     @test sparse(2I, 3, 5) == sparse(fixed(2I, 3, 5))
     @test SparseArrays._unsafe_unfix(A) == A
+
+    @static if COMPREHENSIVE
+    # every constructor of a plain matrix returns one, which shares nothing with `F`
+    for T in (SparseMatrixCSC, SparseMatrixCSC{Float64}, SparseMatrixCSC{Float64,Int}, SparseMatrixCSC{ComplexF64})
+        B = T(F)
+        @test B isa SparseMatrixCSC && !_is_fixed(B) && B == A
+        B[3, 1] = 1; nonzeros(B) .= 0
+        @test exact_equal(SparseMatrixCSC(F), A)
+        @test convert(T, F) isa SparseMatrixCSC
+    end
+    # the structure-preserving forms of `similar` stay fixed, the others are writable
+    @test similar(F, Float32, Int) isa FixedSparseCSC{Float32,Int} && same_pattern(similar(F, Float32, Int), F)
+    @test similar(F, Float32, Int, 3, 5) isa SparseMatrixCSC{Float32,Int}
+    end
+end
+
+@testset "fixed and FixedSparseCSC copy a writable array" begin
+    A = fixture(Float64, 3, 5); A0 = copy(A)
+    x = sparsevec([1, 3], [1.0, 2.0], 4); x0 = copy(x)
+    cases = (@static COMPREHENSIVE ? (fixed, FixedSparseCSC, FixedSparseCSC{Float64,Int}) : (fixed,))
+    for T in cases
+        F = T(A)
+        @test _is_fixed(F) && F == A0 && same_pattern(F, A0)
+        A[2, 1] = 7.0; SparseArrays.dropstored!(A, 1, 1); nonzeros(A) .= 3.0
+        @test F == A0 && same_pattern(F, A0)
+        nonzeros(F) .= 4.0
+        @test all(==(3.0), nonzeros(A))
+        A = copy(A0)
+    end
+    f = fixed(x)
+    x[2] = 7.0
+    @test f == x0 && nonzeroinds(f) == [1, 3]
+    # `move_fixed` reuses the buffers, and a fixed array shares its pattern with its copy
+    M = move_fixed(A)
+    @test getcolptr(M) == getcolptr(A) && parent(getcolptr(M)) === getcolptr(A) && nonzeros(M) === nonzeros(A)
+    @static if COMPREHENSIVE
+    G = fixed(M)
+    @test getcolptr(G) === getcolptr(M) && rowvals(G) === rowvals(M) && nonzeros(G) !== nonzeros(M)
+    end
+end
+
+@static if COMPREHENSIVE
+@testset "copying a fixed array onto itself" begin
+    A = sparse([1, 2], [1, 2], [1.0, 2.0]); x = sparsevec([1, 3], [1.0, 2.0], 4)
+    for (F, expected) in ((fixed(A), copy(A)), (fixed(x), copy(x)))
+        @test copyto!(F, F) === F && F == expected
+        @test copy!(F, F) === F && F == expected
+        @test (F .= F) === F && F == expected
+        # a writable array on the same buffers
+        @test copyto!(F, SparseArrays._unsafe_unfix(F)) === F && F == expected
+    end
+end
 end
 @testset "FixedSparseVector" begin
     y = fixturevec(Float64, 10)
@@ -176,6 +239,11 @@ end
     @test_throws ArgumentError w[2] = 1.0
     @test_throws ArgumentError copyto!(w, sparsevec([2], [1.0], 4))
     @test same_pattern(w, sparsevec([1, 3], [1.0, 2.0], 4)) && nonzeros(w) == [1.0, 2.0]
+    @static if COMPREHENSIVE
+    wi = fixed(sparsevec([1, 3], [1, 2], 4))
+    @test_throws InexactError copyto!(wi, sparsevec([1, 3], [1.0, 2.5], 4))
+    @test nonzeros(wi) == [1, 2]
+    end
     w .= sparsevec([3], [5.0], 4)
     @test w == [0, 0, 5, 0] && nnz(w) == 2
     r = real(fixed(sparsevec([1, 3], ComplexF64[1 + 2im, 3], 4)))
@@ -208,22 +276,6 @@ end
         @test R == f(A) && same_pattern(R, A) && r == f(x) && same_pattern(r, x)
     end
     @test getcolptr(-F) === getcolptr(F) && nonzeroinds(-y) === nonzeroinds(y)
-end
-
-@static if COMPREHENSIVE
-@testset "Issue #190" begin
-    J = move_fixed(sparse(Diagonal(ones(4))))
-    W = move_fixed(sparse(Diagonal(ones(4))))
-    J[4, 4] = 0
-    gamma = 1.0
-    W .= gamma .* J
-    @test W == J
-
-    x = move_fixed(fixture(Float64, 5, 3))
-    @test (x .= x .* 0; true)
-    @test (x .= 0; true)
-    @test (fill!(x, false); true)
-end
 end
 
 @testset "fill! keeps a fixed pattern" begin

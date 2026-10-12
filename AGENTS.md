@@ -35,6 +35,9 @@ Being a stdlib shapes everything below:
 - No new dependencies.
 - Loading the package is measured in sysimage invalidations. Do not define methods
   Base or LinearAlgebra already provide generically.
+- Julia's manual includes `docs/src/index.md` and the docstrings it lists, but not
+  `docs/src/solvers.md`. An `@ref` from the former into the latter breaks Julia's docs
+  build; `.ci/check-docs-crossrefs.jl`, run by the `code-checks` CI job, fails on one.
 - Every source and test file starts with the Julia MIT license banner.
 
 ## Layout
@@ -66,14 +69,16 @@ julia .ci/check-whitespace.jl
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous", "aqua"])'   # ambiguity and Aqua checks
 julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'  # doctests
 julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/solvers/
+julia .ci/check-docs-crossrefs.jl   # no `@ref` from docs/src/index.md into docs/src/solvers.md
 ```
 
 The `ambiguous` and `aqua` suites run only when selected by name. The commands for the
 trimmed app are in the `trim` job of `.github/workflows/ci.yml`.
 The tests run in two modes, described in `test/AGENTS.md`. Standard mode is what
 `Pkg.test`, Julia's own CI and every CI job but the coverage job run. Comprehensive mode
-also runs the tests guarded with `@static if COMPREHENSIVE` and `test/issues.jl`; only the
-coverage job runs it, so run it locally before a PR that touches a kernel.
+also runs the tests guarded with `@static if COMPREHENSIVE`, `test/issues.jl` and
+`test/solvers/issues.jl`; only the coverage job runs it, so run it locally before a PR
+that touches a kernel.
 
 ## Style
 
@@ -141,9 +146,11 @@ coverage job runs it, so run it locally before a PR that touches a kernel.
 `test/AGENTS.md` has the detail: the two modes, the fixtures and helpers, and what test
 time costs. In short:
 
-- A new test is a comprehensive test: put it next to the feature it exercises, in an
-  existing testset when one fits, inside `@static if COMPREHENSIVE ... end`. An
-  unguarded test is only for new code, and one representative case of it.
+- A new test is a comprehensive test. Put a standalone issue reproducer in
+  `test/issues.jl`, or `test/solvers/issues.jl` if it uses a sparse solver. Put additional
+  feature cases next to the feature, in an existing testset when one fits, inside
+  `@static if COMPREHENSIVE ... end`. An unguarded feature test is only for new code,
+  and one representative case of it; retain existing standard regression coverage.
 - Test time is compilation, so it grows with the number of type combinations a test
   compiles. Cover real and complex eltypes, vector and matrix, with `Int` indices, and
   take any other type or helper from `test/SparseTestHelpers.jl`.

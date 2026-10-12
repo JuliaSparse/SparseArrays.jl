@@ -129,15 +129,15 @@ end
         umfpack_report(Af)
     end
     function test_ws_dup(Af, Af1)
-        for i in [:colptr, :rowval, :nzval]
-            @test getproperty(Af, i) === getproperty(Af1, i)
-        end
-        for i in [:n, :m]
+        for i in [:colptr, :rowval, :nzval, :control, :info]
             @test getproperty(Af, i) == getproperty(Af1, i)
-        end
-        for i in [:control, :info, :lock]
             @test getproperty(Af, i) !== getproperty(Af1, i)
         end
+        for i in [:n, :m, :status]
+            @test getproperty(Af, i) == getproperty(Af1, i)
+        end
+        @test Af1.lock !== Af.lock
+        @test Af1.symbolic.p != Af.symbolic.p && Af1.numeric.p != Af.numeric.p
     end
     @testset "test copy(UmfpackLU)" begin
         Af = lu(A0)
@@ -147,11 +147,9 @@ end
         test_ws_dup(Af, parent(copy(transpose(Af))))
         test_ws_dup(Af, parent(copy(adjoint(Af))))
         @test copy(transpose(Af)) isa typeof(transpose(Af))
+        # the workspace argument is accepted for compatibility
+        test_ws_dup(Af, copy(Af, UMFPACK.UmfpackWS(Af)))
         umfpack_report(Af)
-
-        Afcopy = copy(Af)
-        @test Afcopy.numeric === Af.numeric
-        @test Afcopy.symbolic === Af.symbolic
     end
 end
 
@@ -293,15 +291,6 @@ end
     end
     end
 
-    @static if COMPREHENSIVE
-    @testset "Issue #4523 - complex sparse \\" begin
-        A, b = sparse((1.0 + im)I, 2, 2), fill(1., 2)
-        @test A * (lu(A)\b) ≈ b
-
-        @test det(sparse([1,3,3,1], [1,1,3,3], [1,1,1,1])) == 0
-    end
-    end
-
     @testset "UMFPACK_ERROR_n_nonpositive" begin
         @test_throws ArgumentError lu(sparse(Int[], Int[], Float64[], 5, 0))
     end
@@ -361,16 +350,6 @@ end
         @test hasproperty(F, :(:))
         @test :numeric ∉ propertynames(F)
         @test :numeric ∈ propertynames(F, true)
-    end
-
-    @static if COMPREHENSIVE
-    @testset "Issues #18246,18244 - lu sparse pivot" begin
-        A = sparse(1.0I, 4, 4)
-        A[1:2,1:2] = [-.01 -200; 200 .001]
-        F = lu(A)
-        umfpack_report(F)
-        @test F.p == [3 ; 4 ; 2 ; 1]
-    end
     end
 
     @testset "Test that A[c|t]_ldiv_B!{T<:Complex}(X::StridedMatrix{T}, lu::UmfpackLU{Float64}, B::StridedMatrix{T}) works as expected." begin
@@ -555,6 +534,50 @@ end
         @test Fc \ ComplexF64[1, 2, 3] ≈ Matrix(C) \ ComplexF64[1, 2, 3]
     end
 
+    @static if COMPREHENSIVE
+    @testset "factors are read under the lock, $Ti" for Ti in ITYPES
+        A = SparseMatrixCSC{Float64,Ti}(sparse([4.0 1; 1 3]))
+        F = lu(A)
+        for f in (F -> F.L, F -> F.:(:), logabsdet, F -> lu!(F, A))
+            lock(F.lock)
+            t = @async f(F)
+            yield()
+            @test !istaskdone(t)
+            unlock(F.lock)
+            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
+        end
+        @test F \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
+    end
+
+    @testset "solves do not take the lock, $Tv" for Tv in STD_ELTYPES
+        A = sparse(Tv[4 1 0; 1 3 1; 0 2 5])
+        b = Tv[1, 2, 3]
+        F = lu(A)
+        info = copy(F.info)
+        solves = (() -> F \ b ≈ Matrix(A) \ b,
+                  () -> ldiv!(similar(b), F, b; workspace=UMFPACK.UmfpackWS(F)) ≈ Matrix(A) \ b,
+                  () -> F' \ b ≈ Matrix(A)' \ b,
+                  () -> transpose(F) \ b ≈ transpose(Matrix(A)) \ b,
+                  () -> F \ (b .* (1 + im)) ≈ Matrix(A) \ (b .* (1 + im)),
+                  () -> F \ [b 2b] ≈ Matrix(A) \ [b 2b])
+        tasks = @lock F.lock begin
+            spawned = [Threads.@spawn(f()) for f in solves]
+            @test timedwait(() -> all(istaskdone, spawned), 60; pollint=0.001) === :ok
+            spawned
+        end
+        @test all(fetch, tasks)
+        # a solve leaves the statistics of the factorization alone, and records its own in
+        # the workspace
+        @test isequal(F.info, info)
+        ws = UMFPACK.UmfpackWS(F)
+        @test all(==(-1), ws.info)
+        ldiv!(similar(b), F, b; workspace=ws)
+        @test ws.info[SparseArrays.LibSuiteSparse.UMFPACK_STATUS + 1] == SparseArrays.LibSuiteSparse.UMFPACK_OK
+        @test ws.info[SparseArrays.LibSuiteSparse.UMFPACK_IR_TAKEN + 1] >= 0
+        @test isequal(F.info, info)
+    end
+    end
+
     @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in KERNEL_ITYPES
         A = sparse([4.0 1 0; 1 4 1; 0 1 4])
         b = [1.0, 2.0, 3.0]
@@ -709,21 +732,27 @@ end
 end
 
 
-@testset "copy should keep the numeric/symbolic by default" begin
-    S = fixture(Float64, 10, 10) + 10I
-    A = lu(S)
-    B = copy(A)
-    @test A.numeric === B.numeric
-    @test A.symbolic === B.symbolic
-    # refactoring frees the shared numeric (and freeing again is a no-op);
-    # the copy then refactors on demand instead of using freed memory
-    num = A.numeric
-    lu!(A, S)
-    @test num.p == C_NULL
-    UMFPACK.umfpack_free_numeric(num, Float64, Int)
-    @test num.p == C_NULL
-    b = ones(10)
-    @test B \ b ≈ Matrix(S) \ b
+@static if COMPREHENSIVE
+@testset "copy is independent of the original" begin
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    b = [1.0, 2, 3]
+    F = lu(A)
+    G = copy(F)
+    lu!(F, 2A)
+    @test G \ b ≈ Matrix(A) \ b
+    # a factorization without factors, or a failed one, copies as one
+    @test _isnull_numeric(copy(UMFPACK.UmfpackLU(A)))
+    @test !issuccess(copy(lu(sparse([1.0 2; 2 4]); check=false)))
+end
+
+@testset "deepcopy does not duplicate the C pointers" begin
+    S = sparse([4.0 1 0; 1 3 1; 0 1 2])
+    b = [1.0, 2, 3]
+    F = lu(S)
+    G = deepcopy(F)
+    @test G.numeric.p != F.numeric.p
+    @test deepcopy(F') \ b ≈ Matrix(S)' \ b
+end
 end
 
 

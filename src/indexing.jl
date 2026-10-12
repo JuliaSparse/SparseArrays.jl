@@ -830,8 +830,11 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     require_one_based_indexing(A, V, Ix, Jx)
     (I, J) = Base.ensure_indexable(to_indices(A, (Ix, Jx)))
     checkbounds(A, I, J)
-    nJ = length(J)
-    Base.setindex_shape_check(V, length(I), nJ)
+    @static if VERSION >= v"1.14.0-DEV.3614"
+        Base.setindex_shape_check(V, Base.index_sizes(I, J))
+    else
+        Base.setindex_shape_check(V, length(I), length(J))
+    end
     if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
         k = 0
         for j in J, i in I
@@ -1305,7 +1308,7 @@ end
 @propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, I, J) =
     _getindex_adjtrans(M, (I, J), _lower_indices(M, I, J)...)
 # resolves the ambiguity with LinearAlgebra's scalar method
-@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Int, j::Int) =
+@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Signed, j::Signed) =
     wrapperop(M)(parent(M)[j, i])
 _getindex_adjtrans(M, _, i::AbstractVector, j::AbstractVector) = copy(wrapperop(M)(parent(M)[j, i]))
 _getindex_adjtrans(M, _, i::Integer, j::AbstractVector) = map!(wrapperop(M), parent(M)[j, i])

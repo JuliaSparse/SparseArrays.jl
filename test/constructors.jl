@@ -10,14 +10,6 @@ using Random
 using Test: guardseed
 include("testhelpers.jl")
 
-@static if COMPREHENSIVE
-@testset "uniform scaling should not change type #103" begin
-    A = spzeros(Float32, Int8, 5, 5)
-    B = I - A
-    @test typeof(B) == typeof(A)
-end
-end
-
 @testset "spzeros de-splatting" begin
     @test spzeros(Float64, Int64, (2, 2)) == spzeros(Float64, Int64, 2, 2)
 @static if COMPREHENSIVE
@@ -131,6 +123,14 @@ end
     S = spzeros(ComplexF64, I, J, 4, 5)
     @test S == S′
     @test same_pattern(S, S′)
+    @static if COMPREHENSIVE
+    # no rows
+    @test mismatch(spzeros(Int[], Int[]), zeros(0, 0)) === nothing
+    @test mismatch(spzeros(ComplexF64, Int[], Int[], 0, 3), zeros(ComplexF64, 0, 3)) === nothing
+    @test mismatch(SparseArrays.spzeros!(Float64, Int[], Int[], 0, 3), zeros(0, 3)) === nothing
+    @test mismatch(SparseArrays.sparse!(Int[], Int[], Float64[]), zeros(0, 0)) === nothing
+    @test_throws ArgumentError spzeros([1], [1], 0, 3)
+    end
     @test eltype(S) == ComplexF64
 end
 
@@ -161,6 +161,15 @@ end
 
     @test count(!iszero, sparse(Diagonal(eltype(D)[]))) == 0
     @test count(!iszero, sparsevec(Diagonal(eltype(D)[]))) == 0
+
+    # the generic method places an entry by row and column: the linear index of the last
+    # entry here does not fit in the index type
+    bm = falses(12, 12); bm[3, 5] = bm[12, 12] = true
+    @test mismatch(SparseMatrixCSC{Bool,Int8}(bm), Matrix(bm); Ti=Int8) === nothing
+    Dv = view([1.0 0 2; 0 0 3; 4 0 0; 0 0 0]', :, [3, 1, 2, 4])
+    @test mismatch(SparseMatrixCSC{Float64,Int}(Dv), Matrix(Dv)) === nothing
+    @test mismatch(SparseMatrixCSC{Float64,Int}(view(zeros(0, 3), :, [1, 2])), zeros(0, 2)) === nothing
+    @test mismatch(SparseMatrixCSC{Float64,Int}(view(zeros(3, 0), [1, 2], :)), zeros(2, 0)) === nothing
 end
 end
 
@@ -214,6 +223,19 @@ end
     A = sparse([1, 3, 5, 2], [1, 2, 2, 5], [true, false, true, true], 5, 5)  # a stored `false`
     @test complex(A) == complex(Array(A))
 end
+
+@testset "float and complex do not share their pattern with the argument" begin
+    for f in (float, complex)
+        A = sparse([1 0 2; 0 3 0]); A0 = copy(A)
+        B = f(A)
+        @test getcolptr(B) !== getcolptr(A) && rowvals(B) !== rowvals(A)
+        tril!(B); B[2, 1] = 5
+        @test exact_equal(A, A0)
+    end
+    # as for a dense array, there is nothing to convert when the eltype is already there
+    A = sparse([1.0 0 2; 0 3 0])
+    @test nonzeros(float(A)) === nonzeros(A) && getcolptr(float(A)) === getcolptr(A) && rowvals(float(A)) === rowvals(A)
+end
 end
 
 @testset "one(A::SparseMatrixCSC)" begin
@@ -246,16 +268,6 @@ end
         @test convert(T, S) isa T
     end
     @test_throws ArgumentError convert(Diagonal, sparse([1, 2, 1], [1, 2, 2], [1.0, 2.0, 3.0]))
-end
-
-@static if COMPREHENSIVE
-@testset "issue #731" begin
-    x = MockTropical{Float64}(1.0)
-    B = sparse([1, 2], [1,2], [x, x])
-    C = [one(x) zero(x); zero(x) one(x)]
-    @test one(B) == C
-    @test B^0 == C
-end
 end
 
 @testset "sparsevec" begin

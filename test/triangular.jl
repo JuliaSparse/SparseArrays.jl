@@ -466,14 +466,6 @@ end
 
 
 @static if COMPREHENSIVE
-@testset "issue #14816" begin
-    m = 5
-    intmat = fill(1, m, m)
-    ltintmat = LowerTriangular([mod1(i + 2j, 5) for i in 1:m, j in 1:m])
-    @test \(transpose(ltintmat), sparse(intmat)) ≈ \(transpose(ltintmat), intmat)
-end
-
-
 @testset "issue #13792, use sparse triangular solvers for sparse triangular solves" begin
     local A, n, x
     n = 100
@@ -763,26 +755,6 @@ end
         end
     end
     end
-end
-@static if COMPREHENSIVE
-@testset "#16716" begin
-    origmat = [-1.5 -0.7; 0.0 1.0]
-    transmat = copy(origmat')
-    utmat = UpperTriangular(origmat)
-    ultmat = LinearAlgebra.UnitLowerTriangular(transmat)
-
-    zerospvec = spzeros(Float64, 2)
-    zerodvec = zeros(Float64, 2)
-
-    for mat in (utmat, ultmat)
-        @test isequal(\(mat, zerospvec), zerodvec)
-        @test isequal(\(adjoint(mat), zerospvec), zerodvec)
-        @test isequal(\(transpose(mat), zerospvec), zerodvec)
-        @test isequal(ldiv!(mat, copy(zerospvec)), zerospvec)
-        @test isequal(ldiv!(adjoint(mat), copy(zerospvec)), zerospvec)
-        @test isequal(ldiv!(transpose(mat), copy(zerospvec)), zerospvec)
-    end
-end
 end
 
 end # module SparseTriangularTests

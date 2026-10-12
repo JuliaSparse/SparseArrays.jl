@@ -143,6 +143,29 @@ function structure()
     return bad
 end
 
+# Every caller of `ftranspose`, with each callback it is given: `transpose`, `adjoint` and
+# `identity`. The callback only passes through `ftranspose`, which must still specialize
+# on it for the call to the kernel to resolve.
+function transposing()
+    A = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    At = sparse([1, 2, 1, 3], [1, 2, 3, 3], [2.0, 3.0, 4.0, 5.0], 3, 3)
+    C = sparse([1, 2, 3, 3], [1, 2, 1, 3], [2.0im, 3.0 + 0im, 4.0 - 1im, 5.0im], 3, 3)
+    Ct = sparse([1, 2, 1, 3], [1, 2, 3, 3], [-2.0im, 3.0 + 0im, 4.0 + 1im, -5.0im], 3, 3)
+    bad = 0
+    bad += check(sparse(transpose(A)) == At && sparse(A') == At)
+    bad += check(SparseMatrixCSC(transpose(A)) == At && copy(A') == At)
+    bad += check(sparse(C') == Ct && sparse(transpose(C)) == conj(Ct) && copy(C') == Ct)
+    A32 = SparseMatrixCSC{Float64,Int32}(A)
+    bad += check(sparse(transpose(A32)) isa SparseMatrixCSC{Float64,Int32} && sparse(A32') == At)
+    bad += check(permutedims(A, (2, 1)) == At && permutedims(C) == conj(Ct))
+    bad += check(rotr90(A) == sparse([1, 3, 2, 1], [1, 1, 2, 3], [4.0, 5.0, 3.0, 2.0], 3, 3))
+    bad += check(rotl90(A) == sparse([1, 2, 3, 3], [3, 2, 1, 3], [5.0, 3.0, 2.0, 4.0], 3, 3))
+    bad += check(sort(A; dims = 2) == sparse([1, 2, 3, 3], [3, 3, 2, 3], [2.0, 3.0, 4.0, 5.0], 3, 3))
+    bad += check(map(abs2, transpose(A)) == At .* At && map(abs2, C') == abs2.(Ct))
+    bad += check(transpose(A) == At && C' == Ct && A' != A)
+    return bad
+end
+
 function vectors()
     x = sparsevec([1, 3, 5], [1.0, 2.0, 3.0], 6)
     y = sparsevec([3, 4], [4.0, -1.0], 6)
@@ -390,7 +413,7 @@ end
 
 function @main(args::Vector{String})::Cint
     bad = dense_cat() + sparse_cat() + construction() + indexing() + algebra() +
-        structure() + vectors() + eltypes() + wrappers() + triangular() + inplace() +
+        structure() + transposing() + vectors() + eltypes() + wrappers() + triangular() + inplace() +
         kernels() + search() + reshaping() + broadcasting() + equality()
     if "solvers" in args
         bad += solvers()

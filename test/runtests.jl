@@ -4,19 +4,20 @@ using Test, LinearAlgebra, SparseArrays
 
 # The suite inventory, shared by ParallelTestRunner and the serial fallback. A suite is
 # named by its path under `test/` without the extension. Command-line selectors match
-# those names by prefix, and a `!prefix` selector excludes instead.
+# those names by prefix, and a `!prefix` selector excludes instead. `issues` names
+# both issue suites; a broad prefix does not enable them in standard mode.
 testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "sparsematrix.jl", "constructors.jl", "indexing.jl", "reductions.jl",
              "sparsevector.jl", "issues.jl", "linalg.jl", "matmul.jl",
              "triangular.jl", "concatenation.jl", "ambiguous.jl", "aqua.jl"]
 
 @static if Base.USE_GPL_LIBS
-    append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl"])
+    append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl", "issues.jl"])
 end
 
 # `--comprehensive` selects comprehensive mode: the tests the suites guard with
-# `@static if COMPREHENSIVE` run as well, and so does `issues.jl`. It is passed on through
-# the environment, which the test workers inherit.
+# `@static if COMPREHENSIVE` run as well, and so do `issues.jl` and `solvers/issues.jl`.
+# It is passed on through the environment, which the test workers inherit.
 let i = findfirst(==("--comprehensive"), ARGS)
     if i !== nothing
         deleteat!(ARGS, i)
@@ -27,12 +28,21 @@ const comprehensive = get(ENV, "SPARSEARRAYS_TEST_COMPREHENSIVE", "false") == "t
 
 suitename(f) = splitext(f)[1]
 
+# Expand the group selector for both runners, including ParallelTestRunner's own
+# prefix filtering. The GPL guard still controls whether the solver suite exists.
+for selector in ("issues", "!issues")
+    selector in ARGS && push!(ARGS, selector == "issues" ? "solvers/issues" : "!solvers/issues")
+end
+
 # Suites that run only when a selector names them. The ambiguity check in `ambiguous.jl`
-# and the other Aqua checks in `aqua.jl` get their own CI job; `issues.jl` holds
-# regressions only, and runs in comprehensive mode.
-skipped_by_default(name) = name in ("ambiguous", "aqua") || (!comprehensive && name == "issues")
+# and the other Aqua checks in `aqua.jl` get their own CI job; `issues.jl` and
+# `solvers/issues.jl` hold regressions only, and run in comprehensive mode.
+skipped_by_default(name) = name in ("ambiguous", "aqua") ||
+    (!comprehensive && name in ("issues", "solvers/issues"))
 
 matches(name, selectors) = any(sel -> startswith(name, sel), selectors)
+enabled(name, includes) = !skipped_by_default(name) ||
+    (name in ("issues", "solvers/issues") ? name in includes : matches(name, includes))
 
 # ParallelTestRunner comes from the Pkg.test target; Julia base CI runs this
 # file without it and falls back to the serial path.
@@ -54,7 +64,7 @@ if Base.find_package("ParallelTestRunner") !== nothing
     if args.list === nothing
         includes = filter(!startswith("!"), args.positionals)
         for name in collect(keys(testsuite))
-            skipped_by_default(name) && !matches(name, includes) && delete!(testsuite, name)
+            enabled(name, includes) || delete!(testsuite, name)
         end
     end
     runtests(SparseArrays, args; testsuite)
@@ -72,8 +82,8 @@ else
         excludes = lstrip.(filter(startswith("!"), selectors), '!')
         includes = filter(!startswith("!"), selectors)
         selected = filter(names) do name
-            (isempty(includes) ? !skipped_by_default(name) : matches(name, includes)) &&
-                !matches(name, excludes)
+            (isempty(includes) || matches(name, includes)) &&
+                enabled(name, includes) && !matches(name, excludes)
         end
         isempty(selected) && error("no test suite matches $(repr(selectors)); the suites are $(join(names, ", "))")
         for f in testfiles

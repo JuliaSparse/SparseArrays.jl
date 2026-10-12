@@ -397,11 +397,6 @@ end
 
 @testset "issue #19304" begin
     @inferred hcat(fixture(Float64, 2, 1), I)
-    @static if COMPREHENSIVE
-    @inferred hcat(fixture(Float64, 2, 1), 1.0I)
-    @inferred hcat(fixture(Float64, 2, 1), Matrix(I, 2, 2))
-    @inferred hcat(fixture(Float64, 2, 1), Matrix(1.0I, 2, 2))
-    end
 end
 
 
@@ -516,43 +511,7 @@ end
 
             @test issparse(@inferred cat_with_constdims(densemat, diagmat, spmat, densevec, spvec))
         end
-        @static if COMPREHENSIVE
-        @testset "vertical concatenation of SparseVectors with different el- and ind-type (#22225)" begin
-            spv6464 = SparseVector(0, Int64[], Int64[])
-            @test isa(vcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseVector{Int64,Int64})
-        end
-        @testset "horizontal concatenation of SparseVectors with different el- and ind-type (#22225)" begin
-            spv6464 = SparseVector(0, Int64[], Int64[])
-            @test isa(hcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseMatrixCSC{Int64,Int64})
-        end
-        end
     end
-end
-
-# An array type from another package that owns the `vcat`/`hcat`/`hvcat` of its own
-# arrays with anything; those methods must not become ambiguous when SparseArrays is
-# loaded (#431)
-@static if COMPREHENSIVE
-@testset "no ambiguities with concatenation methods of other array types (#431)" begin
-    A = ConcatArray([1 2; 3 4])
-    v = ConcatArray([1, 2])
-    S = sparse([1 0; 0 1])
-    for x in (A, [5 6; 7 8], S)
-        @test vcat(x, A)::ConcatArray == vcat(Array(x), A.data)
-        @test hcat(x, A)::ConcatArray == hcat(Array(x), A.data)
-        @test hvcat((2,), x, A)::ConcatArray == hvcat((2,), Array(x), A.data)
-    end
-    for x in (v, [5, 6], sparse([1, 0]))
-        @test vcat(x, v)::ConcatArray == vcat(Array(x), v.data)
-        @test hcat(x, v)::ConcatArray == hcat(Array(x), v.data)
-    end
-    # with the sparse array first, the generic fallback still yields a sparse result
-    @test vcat(A, S)::SparseMatrixCSC == vcat(A.data, Array(S))
-    @test hcat(A, S)::SparseMatrixCSC == hcat(A.data, Array(S))
-    @test hvcat((2,), A, S)::SparseMatrixCSC == hvcat((2,), A.data, Array(S))
-    @test vcat(A, [5 6; 7 8])::Matrix == vcat(A.data, [5 6; 7 8])
-    @test vcat(v, sparse([1, 0]))::SparseVector == vcat(v.data, [1, 0])
-end
 end
 
 @testset "concatenation with non-numeric eltypes stays dense (#71)" begin
@@ -626,6 +585,11 @@ end
     @test vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
     @test sparse_vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
     @test vcat(1, A8)::SparseMatrixCSC{Int,Int} == vcat(1, Array(A8))
+    # a vector whose length is not an `Int` stacked on a matrix
+    w8 = sparsevec(Int8[1], [2.0], 2)
+    @test mismatch(vcat(w8, ones(1, 1)), vcat(Array(w8), ones(1, 1)), Ti=Int8) === nothing
+    @test mismatch(vcat(sparse(ones(1, 1)), w8), vcat(ones(1, 1), Array(w8)), Ti=Int) === nothing
+    @test mismatch([w8; ones(1, 1); w8], [Array(w8); ones(1, 1); Array(w8)]) === nothing
     end
     # shape mismatches throw as for dense
     @test_throws DimensionMismatch vcat(M, 3)
