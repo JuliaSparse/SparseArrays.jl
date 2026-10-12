@@ -732,6 +732,7 @@ end
 end
 
 
+@static if COMPREHENSIVE
 @testset "copy is independent of the original" begin
     A = sparse([4.0 1 0; 1 4 1; 0 1 4])
     b = [1.0, 2, 3]
@@ -751,6 +752,7 @@ end
     G = deepcopy(F)
     @test G.numeric.p != F.numeric.p
     @test deepcopy(F') \ b ≈ Matrix(S)' \ b
+end
 end
 
 
