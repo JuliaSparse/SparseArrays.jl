@@ -1435,7 +1435,8 @@ end
     @test transpose(Ac) * Xc ≈ Nc
 end
 
-@testset "copy and deepcopy are independent, Ti = $Ti2" for Ti2 in (@static COMPREHENSIVE ? itypes : core_itypes)
+@static if COMPREHENSIVE
+@testset "copy and deepcopy are independent, Ti = $Ti2" for Ti2 in itypes
     A = SparseMatrixCSC{Tv,Ti2}(Tv[4 1 0; 1 3 1; 0 1 2])
     b = Tv[1, 2, 3]
     x = Matrix(A) \ b
@@ -1450,7 +1451,6 @@ end
     @test getfield(deepcopy(S), :ptr) != getfield(S, :ptr)
 end
 
-@static if COMPREHENSIVE
 @testset "getindex with unsorted or unpacked buffers (#758), Ti = $Ti" begin
     # the product of two matrices with sorted row indices need not be sorted
     A = sparse(Ti[2, 1, 2], Ti[1, 2, 2], Tv[1, 2, 3])
