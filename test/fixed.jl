@@ -296,6 +296,13 @@ end
     @test c isa FixedSparseVector && nonzeroinds(c) === nonzeroinds(f) && nonzeros(c) !== nonzeros(f)
     @static if COMPREHENSIVE
     @test float(F) === F && float(f) === f
+    # `float` of a complex array and `complex` of a real one, where one of the two is the identity
+    Fc, fc = fixed(complex(A)), fixed(complex(x))
+    @test float(Fc) === Fc && float(fc) === fc && complex(Fc) === Fc && complex(fc) === fc
+    # the ways to ask for a copy that do not go through `copy`
+    for op in (S -> permutedims(S, (1, 2)), S -> rot180(S, 2), S -> rotl90(S, 4), S -> rotr90(S, 0), S -> rotl90(S, 3), S -> rotr90(S, 2))
+        @test sameresult(op, A, F)
+    end
     end
     @test exact_equal(F, A) && exact_equal(f, x)
 end
@@ -424,6 +431,15 @@ end
     F = fixed(A)
     @test_throws ArgumentError F .= A .+ v'
     @test exact_equal(F, A)
+    # the destination's shape extends the arguments': each column of `W` takes `v .+ v`
+    W = fixed(sparse(ones(3, 2)))
+    @test (W .= v .+ v) === W && W == [4.0 4.0; 0.0 0.0; 6.0 6.0] && nnz(W) == 6
+    w = fixed(sparse(ones(3)))
+    V = sparse(reshape([2.0, 0.0, 3.0], 3, 1))
+    @test (w .= V .+ V) === w && w == [4.0, 0.0, 6.0] && nnz(w) == 3
+    Wi = fixed(sparse(ones(Int, 3, 2)))
+    @test_throws InexactError Wi .= v ./ 4 .+ v
+    @test nonzeros(Wi) == ones(Int, 6)
     # a one-column destination takes the vector result
     M = fixed(sparse(reshape([1.0, 0.0, 2.0], 3, 1)))
     @test (M .= v .* v) === M && M == reshape([4.0, 0.0, 9.0], 3, 1) && nnz(M) == 2

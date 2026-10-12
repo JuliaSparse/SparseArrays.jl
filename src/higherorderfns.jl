@@ -1191,9 +1191,7 @@ end
 @inline function _copyto!(f, dest, As::SparseVecOrMat...)
     _aresameshape(dest, As...) && return _noshapecheck_map!(f, dest, As...)
     Base.Broadcast.check_broadcast_axes(axes(dest), As...)
-    # the kernels below write the pattern of `dest` as they go; a fixed one takes the
-    # result through `_copyto_fixed!`, which checks it against the pattern first
-    _is_fixed(dest) && return _copyto_fixed!(dest, _sameshapeas(dest, _diffshape_broadcast(f, As...)))
+    _is_fixed(dest) && return _copyto_fixed_broadcast!(f, dest, As...)
     # Avoid calculating f(zero) unless necessary as it may fail.
     all(_haszeros, As) || return _broadcast_zeropres!(f, dest, As...)
     fofzeros = f(_zeros_eltypes(As...)...)
@@ -1204,8 +1202,14 @@ end
     end
 end
 
-_sameshapeas(dest, R) = R
-_sameshapeas(dest::AbstractSparseMatrixCSC, R::AbstractCompressedVector) = SparseMatrixCSC(R)
+# The kernels above write the pattern of `dest` as they go. A fixed one gets the result
+# from a writable array of its shape through `_copyto_fixed!`, which checks the pattern
+# and the values before it writes.
+function _copyto_fixed_broadcast!(f::Tf, dest::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
+    T = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, As)...))
+    tmp = _allocres(size(dest), indtype(dest), T, Int(min(widelength(dest), _sumnnzs(As...))))
+    return _copyto_fixed!(dest, _copyto!(f, tmp, As...))
+end
 
 @inline function _copyto!(f, dest, args...)
     # args contains nothing but SparseVecOrMat and scalars

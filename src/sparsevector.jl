@@ -1271,6 +1271,9 @@ complex(x::AbstractSparseVector) = _withnonzeros(x, complex(nonzeros(x)))
 # `_withnonzeros(::SparseMatrixCSC, nzval)`.
 _withnonzeros(x::AbstractSparseVector, nzval) =
     SparseVector(length(x), nzval === nonzeros(x) ? nonzeroinds(x) : Vector(nonzeroinds(x)), nzval)
+# a fixed vector that already has the eltype is returned as it is, pattern and all
+_withnonzeros(x::FixedSparseVector, nzval) = nzval === nonzeros(x) ? x :
+    SparseVector(length(x), Vector(nonzeroinds(x)), nzval)
 
 
 ### math functions

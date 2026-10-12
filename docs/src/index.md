@@ -451,8 +451,8 @@ A type that defines `zero`, `+` and `*` is enough for most of the package, and e
 !!! warning "Experimental"
     `fixed`, `FixedSparseCSC` and `FixedSparseVector` are experimental and not exported.
 
-Writing into a `SparseMatrixCSC` can change which entries it stores. `W .= γ .* J` drops
-an entry of `W` wherever `J` holds a stored zero, and `W[i, j] = v` inserts one. Code
+Writing into a `SparseMatrixCSC` can change which entries it stores. `W .= M .- γ .* J`
+drops an entry of `W` wherever the difference is zero, and `W[i, j] = v` inserts one. Code
 that has derived something from the pattern of `W`, such as a symbolic factorization, the
 positions of its entries in `nonzeros(W)`, or a copy of its index arrays on another
 device, is then silently out of date.
@@ -463,21 +463,22 @@ changes**: the stored values can be overwritten, and no entry can be added or re
 sparse array, which it copies.
 
 ```jldoctest fixedpattern
-julia> J = sparse([1.0 2 0; 0 3 0; 4 0 5]);
+julia> J = sparse([1.0 2 0; 0 3 0; 4 0 5]); M = sparse(1.0I, 3, 3);
 
-julia> W = SparseArrays.fixed(J)
+julia> nnz(M .- J)   # the entry at (1, 1) cancels and is not stored
+4
+
+julia> W = SparseArrays.fixed(M + J)
 3×3 SparseArrays.FixedSparseCSC{Float64, Int64} with 5 stored entries:
- 1.0  2.0   ⋅
-  ⋅   3.0   ⋅
- 4.0   ⋅   5.0
+ 2.0  2.0   ⋅
+  ⋅   4.0   ⋅
+ 4.0   ⋅   6.0
 
-julia> J[3, 3] = 0;
-
-julia> W .= 0.5 .* J
+julia> W .= M .- J
 3×3 SparseArrays.FixedSparseCSC{Float64, Int64} with 5 stored entries:
- 0.5  1.0   ⋅
-  ⋅   1.5   ⋅
- 2.0   ⋅   0.0
+  0.0  -2.0    ⋅
+   ⋅   -2.0    ⋅
+ -4.0    ⋅   -4.0
 ```
 
 Three rules describe everything a fixed array does.
@@ -519,21 +520,23 @@ number. Being fixed is a property of one array, not of its values, so it does no
 over to indexing, arithmetic, broadcasting, concatenation or `similar`. A result is fixed
 only where you ask for it:
 
-- `copy(W)` is fixed and shares the pattern of `W`, so that `rowvals(copy(W)) === rowvals(W)`;
+- `copy(W)` is fixed and shares the pattern of `W`, so that `rowvals(copy(W)) === rowvals(W)`,
+  and so is the result of a generic function of another package that returns `copy(W)`;
+- a function that returns its argument, such as `float(W)` here or `+W`, returns `W`;
 - `SparseArrays.fixed(A)` fixes any other result;
 - `SparseMatrixCSC(W)` and `SparseVector(x)` give a writable copy.
 
 ```jldoctest fixedpattern
 julia> 2W
 3×3 SparseMatrixCSC{Float64, Int64} with 5 stored entries:
- 1.0  2.0   ⋅
-  ⋅   3.0   ⋅
- 4.0   ⋅   0.0
+  0.0  -4.0    ⋅
+   ⋅   -4.0    ⋅
+ -8.0    ⋅   -8.0
 
 julia> W[:, 1]
 3-element SparseVector{Float64, Int64} with 2 stored entries:
-  [1]  =  0.5
-  [3]  =  2.0
+  [1]  =  0.0
+  [3]  =  -4.0
 
 julia> typeof(similar(W))
 SparseMatrixCSC{Float64, Int64}
@@ -542,8 +545,9 @@ julia> V = copy(W); rowvals(V) === rowvals(W)
 true
 ```
 
-Note that an out-of-place broadcast drops the entries it computes as zero, like any other
-sparse broadcast; write into a fixed destination to keep them.
+Note that an out-of-place `map` or broadcast over two or more arrays drops the entries it
+computes as zero, as it does for other sparse arrays (over a single array it keeps the
+pattern of its argument); write into a fixed destination to keep them.
 
 The factorizations accept a fixed matrix, which is what makes
 [reusing a symbolic factorization](@ref man-sparse-solving) safe: see the solver manual.

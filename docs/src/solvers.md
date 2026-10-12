@@ -80,8 +80,8 @@ true
 ```
 
 The symbolic analysis in `F` is valid only for the pattern it was computed from, and an
-in-place update of a `SparseMatrixCSC` can change that pattern: `A .= c .* B` drops an
-entry where `B` stores a zero. A [fixed-pattern matrix](@ref man-sparse-fixed) cannot
+in-place update of a `SparseMatrixCSC` can change that pattern: `A .= M .- c .* B` drops
+an entry wherever the difference is zero. A [fixed-pattern matrix](@ref man-sparse-fixed) cannot
 lose or gain an entry, so it can be refilled and refactorized any number of times:
 
 ```jldoctest

@@ -1071,7 +1071,7 @@ Base.copy(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
     ftranspose(parent(A), _adjtrans_fun(A), eltype(A))
 function Base.permutedims(A::AbstractSparseMatrixCSC, (a,b))
     (a, b) == (2, 1) && return ftranspose(A, identity)
-    (a, b) == (1, 2) && return copy(A)
+    (a, b) == (1, 2) && return _writablecopy(A)
     throw(ArgumentError("no valid permutation of dimensions"))
 end
 
@@ -2135,6 +2135,13 @@ rot180(A::AbstractSparseMatrixCSC) = _reverse!(SparseMatrixCSC(size(A)..., Vecto
     Vector(view(getrowval(A), 1:nnz(A))), Vector(view(getnzval(A), 1:nnz(A)))), Colon())
 rotr90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 2)
 rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 1)
+# Base returns `copy(A)` for a whole number of turns, which is fixed for a fixed `A`
+rot180(A::FixedSparseCSC, k::Integer) = isodd(k) ? rot180(A) : SparseMatrixCSC(A)
+function rotl90(A::FixedSparseCSC, k::Integer)
+    k = mod(k, 4)
+    return k == 1 ? rotl90(A) : k == 2 ? rot180(A) : k == 3 ? rotr90(A) : SparseMatrixCSC(A)
+end
+rotr90(A::FixedSparseCSC, k::Integer) = rotl90(A, -k)
 
 ## Uniform matrix arithmetic
 
