@@ -2180,4 +2180,73 @@ end
 end
 end
 
+@static if COMPREHENSIVE
+@testset "views and lazy adjoints go through the sparse kernels" begin
+    insparse(f, args...) = which(f, typeof.(args)).module === SparseArrays
+    for T in (Float64, ComplexF64)
+        A = sparse(T[1 2 0 0; 2 0 3 0; 0 3 0 0; 0 0 0 4]); T <: Complex && (A[1, 2] = 2 + im; A[2, 1] = 2 - im)
+        nonzeros(A)[end] = 0   # a stored zero
+        B = sparse(T[1 0 2; 0 0 3; 4 5 0; 0 6 0])
+        F = fixed(copy(A))
+        # the dense references are plain matrices; `transpose` differs from `adjoint` only for complex
+        wrapped(S, D) = ((view(S, :, 2:size(S, 2)), D[:, 2:end]), (view(S, :, [3, 1, 2]), D[:, [3, 1, 2]]),
+                         (view(S, [3, 1], :), D[[3, 1], :]), (S', Matrix(D')),
+                         (T <: Complex ? ((transpose(S), Matrix(transpose(D))),) : ())...)
+        for (S, D) in ((A, Array(A)), (B, Array(B)), (F, Array(A))), (X, Y) in wrapped(S, D)
+            @test insparse(reverse, X) && insparse(rot180, X) && insparse(rotl90, X) && insparse(rotr90, X)
+            @test insparse(circshift, X, (1, 1)) && insparse(circshift, X, 1) && insparse(permutedims, X, (2, 1))
+            @test insparse(sort, X) && insparse(copy, reshape(X, 1, length(X)))
+            @test insparse(issymmetric, X) && insparse(ishermitian, X)
+            if X isa SubArray
+                @test insparse(==, X, X') && insparse(==, X', X) && insparse(isequal, X, transpose(X)) && insparse(==, S, X') && insparse(==, X', S)
+                @test insparse(+, X, I) && insparse(-, I, X)
+            else
+                @test which(Base._simple_count, (typeof(iszero), typeof(X), Int)).module === SparseArrays
+            end
+            if S === F   # only the writable copy differs for a fixed matrix
+                R = rot180(X)
+                @test R isa SparseMatrixCSC{T,Int} && R == rot180(Y)
+                continue
+            end
+            for f in (reverse, x -> reverse(x; dims=2), rot180, rotl90, rotr90, permutedims,
+                      x -> circshift(x, (1, -1)), x -> circshift(x, 2), x -> copy(reshape(x, 1, length(x))))
+                R = f(X)
+                @test R isa SparseMatrixCSC{T,Int} && R == f(Y)
+            end
+            @test issymmetric(X) == issymmetric(Y) && ishermitian(X) == ishermitian(Y)
+            @test count(iszero, X) == count(iszero, Y) && count(x -> imag(x) > 0, X) == count(x -> imag(x) > 0, Y)
+            if T <: Real
+                R = sort(X; dims=1)
+                @test R isa SparseMatrixCSC{T,Int} && R == sort(Y; dims=1) && sort(X; dims=2, rev=true) == sort(Y; dims=2, rev=true)
+            end
+            if X isa SubArray
+                @test (X == X') == (Y == Y') && (X' == X) == (Y' == Y) && (X == transpose(X)) == (Y == transpose(Y))
+                @test (copy(X) == X') == (Y == Y') && (transpose(X) == copy(X)) == (transpose(Y) == Y)
+                if size(X, 1) == size(X, 2)
+                    @test X + I == Y + I && I + X == I + Y && X - 2I == Y - 2I && 2I - X == 2I - Y
+                    @test X + I isa SparseMatrixCSC{T,Int}
+                else
+                    @test_throws DimensionMismatch X + I
+                    @test_throws DimensionMismatch I - X
+                end
+            end
+        end
+        for S in (A + transpose(A), A + A')
+            D = Array(S)
+            for (X, Y) in ((view(S, :, :), D), (view(S, :, [1, 2, 3, 4]), D), (view(S, :, 1:4)', Matrix(D')))
+                @test issymmetric(X) == issymmetric(Y) && ishermitian(X) == ishermitian(Y)
+                @test (X == X') == (Y == Y') && (X == transpose(X)) == (Y == transpose(Y))
+                X isa SubArray && @test (X == S') == (Y == D') && (transpose(S) == X) == (transpose(D) == Y)
+            end
+        end
+    end
+    # the parent is counted in place: the allocation does not grow with the matrix
+    countzeros(X) = count(iszero, X)
+    A = spdiagm(ones(50)); B = spdiagm(ones(500))
+    countzeros(A'); countzeros(transpose(B))
+    @test (@allocated countzeros(A')) == (@allocated countzeros(B'))
+    @test countzeros(B') == countzeros(transpose(B)) == 500^2 - 500
+end
+end
+
 end # module

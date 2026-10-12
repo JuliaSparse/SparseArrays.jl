@@ -320,6 +320,9 @@ nnz1(S) = @inbounds sum(length.(getnzrange.(Ref(S), axes(S, 2))))
 function Base._simple_count(pred, S::SparseMatrixCSCOrColumnSubset, init::T) where T
     init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
 end
+# the entries of a lazy adjoint or transpose are those of its parent, each under the wrapper
+Base._simple_count(pred, S::AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}, init) =
+    Base._simple_count(pred ∘ wrapperop(S), parent(S), init)
 
 """
     nonzeros(A)
@@ -1911,6 +1914,19 @@ end
     _iseq(==, A, B)
 Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(isequal, A, B)
+# A view against a lazy adjoint or transpose, or an adjoint or transpose of a view against
+# a matrix, would be compared entry by entry: compare the sparse copies of the views.
+for eq in (:(==), :(Base.isequal))
+    @eval begin
+        $eq(A::SparseMatrixCSCSubArray, B::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}) = $eq(_unview(A), _unview(B))
+        $eq(A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}, B::SparseMatrixCSCSubArray) = $eq(_unview(A), _unview(B))
+        $eq(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}) = $eq(A, _unview(B))
+        $eq(A::AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}, B::AbstractSparseMatrixCSC) = $eq(_unview(A), B)
+    end
+end
+_unview(A::SparseMatrixCSCSubArray) = copy(A)
+_unview(A::AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}) = wrapperop(A)(copy(parent(A)))
+_unview(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = A
 # Peel off `Adjoint` and `Transpose` from first argument
 ==(A::Adjoint{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
     A' == B'
@@ -1922,9 +1938,18 @@ Base.isequal(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatr
     isequal(transpose(A), transpose(B))
 
 ## Structure query functions
-issymmetric(A::SparseMatrixCSCOrView) = is_hermsym(A, transpose)
+issymmetric(A::AbstractSparseMatrixCSC) = is_hermsym(A, transpose)
+issymmetric(A::SparseMatrixCSCSubArray) = is_hermsym(_colptrstorage(A), transpose)
 
-ishermitian(A::SparseMatrixCSCOrView) = is_hermsym(A, adjoint)
+ishermitian(A::AbstractSparseMatrixCSC) = is_hermsym(A, adjoint)
+ishermitian(A::SparseMatrixCSCSubArray) = is_hermsym(_colptrstorage(A), adjoint)
+
+# a lazy adjoint or transpose is symmetric, or Hermitian, exactly when its parent is
+issymmetric(A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}) = issymmetric(parent(A))
+ishermitian(A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}) = ishermitian(parent(A))
+
+# `A` itself where `getcolptr` works on it, otherwise its sparse copy
+_colptrstorage(A::SparseMatrixCSCSubArray) = A isa SparseMatrixCSCView ? A : copy(A)
 
 function is_hermsym(A::SparseMatrixCSCOrView, check::Function)
     m, n = size(A)
@@ -2372,4 +2397,38 @@ function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
         end
     end
     return M
+end
+
+## Views and lazy adjoints and transposes of a sparse matrix
+#
+# The generic methods for these visit every entry. The sparse copy of the argument costs
+# O(nnz), and the kernels above do the rest.
+
+# a writable sparse copy; the copy of a view of a fixed matrix, or of its adjoint, is fixed
+function _writablecopy(A::SparseMatrixCSCSubArray)
+    B = copy(A)
+    return _is_fixed(B) ? SparseMatrixCSC(B) : B
+end
+_writablecopy(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
+    ftranspose(_unsafe_unfix(parent(A)), _adjtrans_fun(A), eltype(A))
+
+for T in (:SparseMatrixCSCSubArray, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}))
+    @eval begin
+        reverse(A::$T; dims=:) = _reverse!(_writablecopy(A), _reversedims(dims))
+        rot180(A::$T) = _reverse!(_writablecopy(A), Colon())
+        rotr90(A::$T) = rotr90(_writablecopy(A))
+        rotl90(A::$T) = rotl90(_writablecopy(A))
+        circshift(X::$T, s::Base.DimsInteger) = circshift(_writablecopy(X), s)
+        circshift(X::$T, s::Real) = circshift(_writablecopy(X), s)
+        Base.permutedims(A::$T, perm) = permutedims(_writablecopy(A), perm)
+        Base.sort(A::$T; kws...) = sort!(_writablecopy(A); kws...)
+        copy(R::ReshapedArray{<:Any,2,<:$T}) = copy(reshape(_writablecopy(parent(R)), size(R)))
+    end
+end
+
+for op in (:+, :-)
+    @eval begin
+        ($op)(A::SparseMatrixCSCSubArray, J::UniformScaling{<:Number}) = (checksquare(A); ($op)(_writablecopy(A), J))
+        ($op)(J::UniformScaling{<:Number}, A::SparseMatrixCSCSubArray) = (checksquare(A); ($op)(J, _writablecopy(A)))
+    end
 end
