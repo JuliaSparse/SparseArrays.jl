@@ -11,12 +11,12 @@ testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
              "triangular.jl", "concatenation.jl", "ambiguous.jl", "aqua.jl"]
 
 @static if Base.USE_GPL_LIBS
-    append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl"])
+    append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl", "issues.jl"])
 end
 
 # `--comprehensive` selects comprehensive mode: the tests the suites guard with
-# `@static if COMPREHENSIVE` run as well, and so does `issues.jl`. It is passed on through
-# the environment, which the test workers inherit.
+# `@static if COMPREHENSIVE` run as well, and so do `issues.jl` and `solvers/issues.jl`.
+# It is passed on through the environment, which the test workers inherit.
 let i = findfirst(==("--comprehensive"), ARGS)
     if i !== nothing
         deleteat!(ARGS, i)
@@ -28,9 +28,10 @@ const comprehensive = get(ENV, "SPARSEARRAYS_TEST_COMPREHENSIVE", "false") == "t
 suitename(f) = splitext(f)[1]
 
 # Suites that run only when a selector names them. The ambiguity check in `ambiguous.jl`
-# and the other Aqua checks in `aqua.jl` get their own CI job; `issues.jl` holds
-# regressions only, and runs in comprehensive mode.
-skipped_by_default(name) = name in ("ambiguous", "aqua") || (!comprehensive && name == "issues")
+# and the other Aqua checks in `aqua.jl` get their own CI job; `issues.jl` and
+# `solvers/issues.jl` hold regressions only, and run in comprehensive mode.
+skipped_by_default(name) = name in ("ambiguous", "aqua") ||
+    (!comprehensive && name in ("issues", "solvers/issues"))
 
 matches(name, selectors) = any(sel -> startswith(name, sel), selectors)
 

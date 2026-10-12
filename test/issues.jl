@@ -3,7 +3,8 @@
 module SparseIssuesTests
 using Test
 using SparseArrays
-using SparseArrays: nonzeroinds, getcolptr
+using SparseArrays: nonzeroinds, getcolptr, move_fixed
+using SparseArrays.HigherOrderFns: SparseVecStyle
 using LinearAlgebra
 using Random
 include("testhelpers.jl")
@@ -493,6 +494,18 @@ end
     @test nonzeros(A) !== nonzeros(B)
 end
 
+@testset "avoid aliasing of fields during constructing $T (issue #34630)" for T in
+    (SparseVector, SparseVector{Float64}, SparseVector{Float64,Int16})
+
+    A = sparse([1; 0])
+    B = T(A)
+    @test A == B
+    A[2] = 1
+    @test A != B
+    @test nonzeroinds(A) !== nonzeroinds(B)
+    @test nonzeros(A) !== nonzeros(B)
+end
+
 @testset "Symmetric and Hermitian #35325" begin
     A = fixture(ComplexF64, 10, 10)
     B = permutedims(fixture(ComplexF64, 10, 10)) + sparse([9, 2], [2, 9], [3.0 - 2.0im, 1.0 + 4.0im], 10, 10)
@@ -586,6 +599,392 @@ end
     r[3] = z
     @test r[3] === z
     @test s[3] === -0.0
+end
+
+@testset "uniform scaling should not change type #103" begin
+    A = spzeros(Float32, Int8, 5, 5)
+    B = I - A
+    @test typeof(B) == typeof(A)
+end
+
+@testset "issue #731" begin
+    x = MockTropical{Float64}(1.0)
+    B = sparse([1, 2], [1,2], [x, x])
+    C = [one(x) zero(x); zero(x) one(x)]
+    @test one(B) == C
+    @test B^0 == C
+end
+
+@testset "Issue #190" begin
+    J = move_fixed(sparse(Diagonal(ones(4))))
+    W = move_fixed(sparse(Diagonal(ones(4))))
+    J[4, 4] = 0
+    gamma = 1.0
+    W .= gamma .* J
+    @test W == J
+
+    x = move_fixed(fixture(Float64, 5, 3))
+    @test (x .= x .* 0; true)
+    @test (x .= 0; true)
+    @test (fill!(x, false); true)
+end
+
+@testset "Issue #27836" begin
+    @test minimum(sparse([1, 2], [1, 2], ones(Int32, 2)), dims = 1) isa Matrix
+end
+
+@testset "Issue #30120: method ambiguity" begin
+    # HigherOrderFns._copy(f) was ambiguous.  It may be impossible to
+    # invoke this from dot notation and it is an error anyway.  But
+    # when someone invokes it by accident, we want it to produce a
+    # meaningful error.
+    err = try
+        copy(Broadcast.Broadcasted{SparseVecStyle}(rand, ()))
+    catch err
+        err
+    end
+    @test err isa MethodError
+    @test !occursin("is ambiguous", sprint(showerror, err))
+    @test err.f === SparseArrays.HigherOrderFns._copy
+end
+
+@testset "issue #31758: out of bounds write in _map_zeropres!" begin
+    y = sparsevec([2,7], [1., 2.], 10)
+    x1 = sparsevec(fill(1.0, 10))
+    x2 = sparsevec([2,7], [1., 2.], 10)
+    x3 = sparsevec(fill(1.0, 10))
+    f(x, y, z) = x == y == z == 0 ? 0.0 : NaN
+    y .= f.(x1, x2, x3)
+    @test all(isnan, y)
+end
+
+@testset "issue #42670 - error in sparsevec outer product" begin
+    A = spzeros(Int, 4)
+    B = copy(A)
+    C = sparsevec([0 0 1 1 0 0])'
+    A[2] = 1
+    A[2] = 0
+    @test A * C == B * C == spzeros(Int, 4, 6)
+end
+
+@testset "issue #46337 - error in sparsevec map" begin
+    x = sparsevec([1], [1//1+0im])
+    @test inv.(x) == [1//1+0im]
+    y = spzeros(Int, 1)
+    @test y ./ x == y
+end
+
+@testset "Issue 14013" begin
+    s14013 = sparse([10.0 0.0 30.0; 0.0 1.0 0.0])
+    a14013 = [10.0 0.0 30.0; 0.0 1.0 0.0]
+    @test s14013 == a14013
+    @test vec(s14013) == s14013[:] == a14013[:]
+    @test Array(s14013)[1,:] == s14013[1,:] == a14013[1,:] == [10.0, 0.0, 30.0]
+    @test Array(s14013)[2,:] == s14013[2,:] == a14013[2,:] == [0.0, 1.0, 0.0]
+end
+
+@testset "Issue 14046" begin
+    s14046 = sparse([1.0, 2.5, -3.0, 4.0, 0.5])
+    @test spzeros(5) + s14046 == s14046
+    @test 2*s14046 == s14046 + s14046
+end
+
+@testset "13130 and 16661" begin
+    xd = collect(1.0:10.0)
+    @test issparse([fixture(Float64, 10, 3) fixturevec(Float64, 10)])
+    @test issparse([fixture(Float64, 10, 1); fixturevec(Float64, 10)])
+
+    @test issparse([fixture(Float64, 10, 3) xd])
+    @test issparse([fixture(Float64, 10, 1)  xd])
+    @test issparse([fixture(Float64, 10, 2) fixture(Float64, 10, 1) xd])
+    @test issparse([fixture(Float64, 10, 1); xd])
+
+    @test issparse([fixturevec(Float64, 10)  xd])
+    @test issparse([fixturevec(Float64, 10); xd])
+end
+
+@testset "corner cases of broadcast arithmetic operations with scalars (#21515)" begin
+    # test both scalar literals and variables
+    areequal(a, b, c) = isequal(a, b) && isequal(b, c)
+    inf, zeroh, zv, spzv = Inf, 0.0, zeros(1), spzeros(1)
+    @test areequal(spzv .* Inf,  spzv .* inf,    sparsevec(zv .* Inf))
+    @test areequal(Inf .* spzv,  inf .* spzv,    sparsevec(Inf .* zv))
+    @test areequal(spzv ./ 0.0,  spzv ./ zeroh,  sparsevec(zv ./ 0.0))
+    @test areequal(0.0 .\ spzv,  zeroh .\ spzv,  sparsevec(0.0 .\ zv))
+end
+
+@testset "issue #605" begin
+    S = sparse([2, 3, 1], [1, 1, 3], [1, 1, 1], 3, 3)
+    @test !issymmetric(S)
+end
+
+@testset "issue #748" begin
+    for S in [
+        sparse([3,3,4,1,2], [1,2,2,3,4], ones(Int,5), 4, 4),
+        sparse([1,3,3,4,1,2], [1,1,2,2,3,4], ones(Int,6), 4, 4),
+        sparse([2,3,1,3,4,1,2], [1,1,2,2,2,3,4], ones(Int,7), 4, 4),
+        sparse([1,2,3,1,3,4,1,2], [1,1,1,2,2,2,3,4], ones(Int,8), 4, 4),
+        sparse([3,2,3,4,1,2], [1,2,2,2,3,4], ones(Int,6), 4, 4),
+        sparse([1,3,2,3,4,1,2], [1,1,2,2,2,3,4], ones(Int,7), 4, 4),
+        sparse([2,3,1,2,3,4,1,2], [1,1,2,2,2,2,3,4], ones(Int,8), 4, 4),
+        sparse([1,2,3,1,2,3,4,1,2], [1,1,1,2,2,2,2,3,4], ones(Int,9), 4, 4),
+        sparse([3,3,4,1,2,4], [1,2,2,3,4,4], ones(Int,6), 4, 4),
+        sparse([1,3,3,4,1,2,4], [1,1,2,2,3,4,4], ones(Int,7), 4, 4),
+        sparse([2,3,1,3,4,1,2,4], [1,1,2,2,2,3,4,4], ones(Int,8), 4, 4),
+        sparse([1,2,3,1,3,4,1,2,4], [1,1,1,2,2,2,3,4,4], ones(Int,9), 4, 4),
+        sparse([3,2,3,4,1,2,4], [1,2,2,2,3,4,4], ones(Int,7), 4, 4),
+        sparse([1,3,2,3,4,1,2,4], [1,1,2,2,2,3,4,4], ones(Int,8), 4, 4),
+        sparse([2,3,1,2,3,4,1,2,4], [1,1,2,2,2,2,3,4,4], ones(Int,9), 4, 4),
+        sparse([1,2,3,1,2,3,4,1,2,4], [1,1,1,2,2,2,2,3,4,4], ones(Int,10), 4, 4),
+        SparseMatrixCSC(6, 6, [1,1,2,3,4,5,6], [4,4,3,6,1], [0,1,1,1,0]),
+    ]
+        @test !issymmetric(S)
+    end
+end
+
+@testset "Adding sparse-backed SymTridiagonal (#46355)" begin
+    a = SymTridiagonal(sparsevec(Int[1]), sparsevec(Int[]))
+    @test a + a == Matrix(a) + Matrix(a)
+
+    # symtridiagonal with non-empty off-diagonal
+    b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
+    @test b + b == Matrix(b) + Matrix(b)
+end
+
+@testset "Issue #246" begin
+    for t in [Float64]
+        a = OpCount.(fixturevec(t, 100))
+        b = OpCount.(2 * fixturevec(t, 100))
+
+        c = if nnz(a) != 0
+            c = copy(a)
+            nonzeros(c)[1] = 0
+            c
+        else
+            c = copy(a)
+            push!(nonzeros(c), zero(t))
+            push!(nonzerosinds(c), 1)
+            c
+        end
+        d = dropzeros(c)
+
+        for m in [identity, transpose]
+            ma, mb, mc, md = m.([a, b, c, d])
+
+            @test eqcount(() -> ma == mb) <= nnz(a) + nnz(b)
+
+            @test (mc == md) == (Array(mc) == Array(md))
+        end
+    end
+end
+
+@testset "sparse right multiplication of Symmetric and Hermitian matrices #21431" begin
+    S = sparse(1.0I, 2, 2)
+    @test issparse(S*S*S)
+    for T in (Symmetric, Hermitian)
+        @test issparse(S*T(S)*S)
+        @test issparse(S*(T(S)*S))
+        @test issparse((S*T(S))*S)
+    end
+end
+
+@testset "vertical concatenation of SparseVectors with different el- and ind-type (#22225)" begin
+    spv6464 = SparseVector(0, Int64[], Int64[])
+    @test isa(vcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseVector{Int64,Int64})
+end
+
+@testset "horizontal concatenation of SparseVectors with different el- and ind-type (#22225)" begin
+    spv6464 = SparseVector(0, Int64[], Int64[])
+    @test isa(hcat(spv6464, SparseVector(0, Int32[], Int32[])), SparseMatrixCSC{Int64,Int64})
+end
+
+# An array type from another package that owns the `vcat`/`hcat`/`hvcat` of its own
+# arrays with anything; those methods must not become ambiguous when SparseArrays is
+# loaded (#431)
+@testset "no ambiguities with concatenation methods of other array types (#431)" begin
+    A = ConcatArray([1 2; 3 4])
+    v = ConcatArray([1, 2])
+    S = sparse([1 0; 0 1])
+    for x in (A, [5 6; 7 8], S)
+        @test vcat(x, A)::ConcatArray == vcat(Array(x), A.data)
+        @test hcat(x, A)::ConcatArray == hcat(Array(x), A.data)
+        @test hvcat((2,), x, A)::ConcatArray == hvcat((2,), Array(x), A.data)
+    end
+    for x in (v, [5, 6], sparse([1, 0]))
+        @test vcat(x, v)::ConcatArray == vcat(Array(x), v.data)
+        @test hcat(x, v)::ConcatArray == hcat(Array(x), v.data)
+    end
+    # with the sparse array first, the generic fallback still yields a sparse result
+    @test vcat(A, S)::SparseMatrixCSC == vcat(A.data, Array(S))
+    @test hcat(A, S)::SparseMatrixCSC == hcat(A.data, Array(S))
+    @test hvcat((2,), A, S)::SparseMatrixCSC == hvcat((2,), A.data, Array(S))
+    @test vcat(A, [5 6; 7 8])::Matrix == vcat(A.data, [5 6; 7 8])
+    @test vcat(v, sparse([1, 0]))::SparseVector == vcat(v.data, [1, 0])
+end
+
+@testset "issue #14816" begin
+    m = 5
+    intmat = fill(1, m, m)
+    ltintmat = LowerTriangular([mod1(i + 2j, 5) for i in 1:m, j in 1:m])
+    @test \(transpose(ltintmat), sparse(intmat)) ≈ \(transpose(ltintmat), intmat)
+end
+
+@testset "#16716" begin
+    origmat = [-1.5 -0.7; 0.0 1.0]
+    transmat = copy(origmat')
+    utmat = UpperTriangular(origmat)
+    ultmat = LinearAlgebra.UnitLowerTriangular(transmat)
+
+    zerospvec = spzeros(Float64, 2)
+    zerodvec = zeros(Float64, 2)
+
+    for mat in (utmat, ultmat)
+        @test isequal(\(mat, zerospvec), zerodvec)
+        @test isequal(\(adjoint(mat), zerospvec), zerodvec)
+        @test isequal(\(transpose(mat), zerospvec), zerodvec)
+        @test isequal(ldiv!(mat, copy(zerospvec)), zerospvec)
+        @test isequal(ldiv!(adjoint(mat), copy(zerospvec)), zerospvec)
+        @test isequal(ldiv!(transpose(mat), copy(zerospvec)), zerospvec)
+    end
+end
+
+@testset "Julia #37819: map preserves Int32 indices" begin
+    Z = spzeros(Float64, Int32, 10000, 10000)
+    @test isa(-Z, SparseMatrixCSC{Float64, Int32})
+    @test isa(Z + Z, SparseMatrixCSC{Float64, Int32})
+end
+
+@testset "Julia #24534: indexing a sparse vector with UInt32 indices" begin
+    # issue 24534
+    let x = convert(SparseVector{Float64,UInt32},fixturevec(Float64, 100))
+        I = [mod1(37k, 99) + 1 for k in [1:23; 1]]
+        r = x[I]
+        @test isa(r, SparseVector{Float64,UInt32})
+        @test all(!iszero, nonzeros(r))
+        @test Array(r) == Array(x)[I]
+    end
+
+    # issue 24534
+    let x = convert(SparseVector{Float64,UInt32},fixturevec(Float64, 100))
+        I = reshape([mod1(37k, 99) + 1 for k in [1:19; 1]], 20, 1)
+        r = x[I]
+        @test isa(r, SparseMatrixCSC{Float64,UInt32})
+        @test all(!iszero, nonzeros(r))
+        @test Array(r) == Array(x)[I]
+    end
+end
+
+@testset "heap-allocated zero in sparse vectors (#389)" begin
+    for T in (BigFloat,)
+        x = spzeros(T, 4)
+        x[1] = 0
+        x[3] = zero(T)
+        @test nnz(x) == 0
+        x[2] = one(T)
+        x[2] = 0
+        @test nnz(x) == 1 && x[2] == 0
+    end
+    x = spzeros(BigFloat, 4)
+    x[1] = -big(0.0)
+    @test nnz(x) == 1 && signbit(x[1])
+    x = spzeros(Union{Missing,Int}, 4)
+    x[1] = missing
+    @test nnz(x) == 1 && x[1] === missing
+    A = sparse([1, 2], [1, 1], BigFloat[1, 2], 3, 2)
+    copyto!(view(A, :, 1), BigFloat[0, 3, 0])   # as `setindex!` would store
+    @test nnz(A) == 1 && A[2, 1] == 3
+    copyto!(view(A, :, 1), [-big(0.0), big(3), big(0)])
+    @test nnz(A) == 2 && signbit(A[1, 1])
+end
+
+@testset "heap-allocated zero in sparse matrices (#389)" begin
+    for T in (BigFloat,)
+        A = spzeros(T, 3, 3)
+        A[1, 1] = 0
+        A[2, 3] = zero(T)
+        @test nnz(A) == 0
+        A[2, 2] = one(T)
+        A[2, 2] = 0         # an existing entry is overwritten in place
+        @test nnz(A) == 1 && A[2, 2] == 0
+    end
+    A = spzeros(BigFloat, 2, 2)
+    A[1, 1] = -big(0.0)     # the sign of a zero is not reconstructible
+    @test nnz(A) == 1 && signbit(A[1, 1])
+    A[2, 2] = -0.0
+    @test nnz(A) == 2 && signbit(A[2, 2])
+    M = Matrix(Diagonal(BigFloat[1, 2, 3, 4]))
+    S = spzeros(BigFloat, 4, 4)
+    S .= M                  # the generic broadcast assigns every element
+    @test nnz(S) == 4 && S == M
+end
+
+@testset "Julia #44978: argmin and argmax with implicit zeros" begin
+    let v = spzeros(3) #Julia #44978
+        v[1] = 2
+        @test argmin(v) == 2
+        @test argmax(v) == 1
+        v[2] = 2
+        @test argmin(v) == 3
+        v[1] = 0
+        v[2] = 0
+        v[3] = 2
+        @test argmin(v) == 1
+        @test argmax(v) == 3
+    end
+
+    let v = spzeros(3) #Julia #44978
+        v[3] = 2
+        @test argmax(v) == 3
+    end
+end
+
+@testset "issue #714: findmin and findmax with NaN" begin
+    let v = sparse([0, NaN]) #issue #714
+        @test findmin(v) === (NaN, 2)
+        @test findmax(v) === (NaN, 2)
+    end
+end
+
+@testset "Julia #5169 and #5437: stored zeros (#15242/#14798)" begin
+    # test for issue #5169, modified for new behavior following #15242/#14798
+    @test nnz(sparse([1, 1], [1, 2], [0.0, -0.0])) == 2
+    @test nnz(dropzeros!(sparse([1, 1], [1, 2], [0.0, -0.0]))) == 0
+    # test for issue #5437, modified for new behavior following #15242/#14798
+    @test nnz(sparse([1, 2, 3], [1, 2, 3], [0.0, 1.0, 2.0])) == 3
+    @test nnz(dropzeros!(sparse([1, 2, 3],[1, 2, 3],[0.0, 1.0, 2.0]))) == 2
+end
+
+@testset "Julia #32568: search accepts non-Int start indices" begin
+    x_sp = sparse([0,0,0,0,1,0,1,0,1,1,0])
+    z_sp = sparsevec(Dict(1=>1, 5=>1, 8=>0, 10=>1))
+    # issue 32568
+    for T = (UInt, BigInt)
+        @test findnext(!iszero, x_sp, T(4)) isa keytype(x_sp)
+        @test findnext(!iszero, x_sp, T(5)) isa keytype(x_sp)
+        @test findprev(!iszero, x_sp, T(5)) isa keytype(x_sp)
+        @test findprev(!iszero, x_sp, T(6)) isa keytype(x_sp)
+        @test findnext(iseven, x_sp, T(4)) isa keytype(x_sp)
+        @test findnext(iseven, x_sp, T(5)) isa keytype(x_sp)
+        @test findprev(iseven, x_sp, T(4)) isa keytype(x_sp)
+        @test findprev(iseven, x_sp, T(5)) isa keytype(x_sp)
+        @test findnext(!iszero, z_sp, T(4)) isa keytype(z_sp)
+        @test findnext(!iszero, z_sp, T(5)) isa keytype(z_sp)
+        @test findprev(!iszero, z_sp, T(4)) isa keytype(z_sp)
+        @test findprev(!iszero, z_sp, T(5)) isa keytype(z_sp)
+    end
+end
+
+@testset "Julia #30589: show Boolean sparse arrays" begin
+    # Issue #30589
+    @test sprint(show, "text/plain", sparse([true true]); context=:limit=>true) == "1×2 $SparseMatrixCSC{Bool, $Int} with 2 stored entries:\n 1  1"
+    # issue #30589
+    @test repr("text/plain", sparse([true])) == "1-element $(SparseArrays.SparseVector){Bool, $Int} with 1 stored entry:\n  [1]  =  1"
+end
+
+@testset "Julia #19304: hcat inference with identity matrices" begin
+    @inferred hcat(fixture(Float64, 2, 1), 1.0I)
+    @inferred hcat(fixture(Float64, 2, 1), Matrix(I, 2, 2))
+    @inferred hcat(fixture(Float64, 2, 1), Matrix(1.0I, 2, 2))
 end
 
 if isdefined(Docs, :undocumented_names) # new in Julia 1.11

@@ -10,14 +10,6 @@ using Random
 using Test: guardseed
 include("testhelpers.jl")
 
-@static if COMPREHENSIVE
-@testset "uniform scaling should not change type #103" begin
-    A = spzeros(Float32, Int8, 5, 5)
-    B = I - A
-    @test typeof(B) == typeof(A)
-end
-end
-
 @testset "spzeros de-splatting" begin
     @test spzeros(Float64, Int64, (2, 2)) == spzeros(Float64, Int64, 2, 2)
 @static if COMPREHENSIVE
@@ -276,16 +268,6 @@ end
         @test convert(T, S) isa T
     end
     @test_throws ArgumentError convert(Diagonal, sparse([1, 2, 1], [1, 2, 2], [1.0, 2.0, 3.0]))
-end
-
-@static if COMPREHENSIVE
-@testset "issue #731" begin
-    x = MockTropical{Float64}(1.0)
-    B = sparse([1, 2], [1,2], [x, x])
-    C = [one(x) zero(x); zero(x) one(x)]
-    @test one(B) == C
-    @test B^0 == C
-end
 end
 
 @testset "sparsevec" begin

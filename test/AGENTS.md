@@ -24,9 +24,11 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   add it to `SparseTestHelpers.jl` and export it, and reuse a type that is already there
   when it fits. A helper that a second suite needs goes there as well. `ambiguous.jl`
   and `aqua.jl` alone do not include `testhelpers.jl`.
-- Test files are named after the source area they cover. `solvers/` mirrors
-  `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
-  `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
+- Test files are named after the source area they cover. `issues.jl` holds standalone
+  issue regressions. `solvers/` mirrors `src/solvers/`: its suites are `solvers/cholmod`,
+  `solvers/umfpack`, `solvers/spqr`, `solvers/solvers`, `solvers/threads` and
+  `solvers/issues`, so the selector `solvers` runs them all. Solver-specific regressions
+  go in `solvers/issues.jl`, preserving the GPL boundary.
 - `trim/` is not a suite: it is a small app that the `trim` CI job builds with
   `juliac --trim=safe` and runs. It covers the concatenation hooks SparseArrays adds to
   Base for dense arrays, which Julia's own trim test reaches, and the main sparse
@@ -76,9 +78,10 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   get their standard coverage from the 32-bit CI jobs. Julia's CI runs every suite
   serially in one process, so standard mode must stay fast.
 - **Comprehensive** mode runs, in the same files, the tests guarded with
-  `@static if COMPREHENSIVE` as well, and the `issues` suite, which a standard run skips
-  unless a selector names it. It is selected by `SPARSEARRAYS_TEST_COMPREHENSIVE=true` in
-  the environment, which `runtests.jl` sets for the `--comprehensive` argument, and in CI
+  `@static if COMPREHENSIVE` as well, and the `issues` and `solvers/issues` suites, which a
+  standard run skips unless a selector names them. It is selected by
+  `SPARSEARRAYS_TEST_COMPREHENSIVE=true` in the environment, which `runtests.jl` sets for
+  the `--comprehensive` argument, and in CI
   by the coverage job only. The guarded tests are the issue regressions and the wider
   corner cases: more element and index types, wrappers, promotion pairs, sizes, and the
   allocation, inference and dispatch checks beyond one per kernel.

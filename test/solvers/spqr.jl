@@ -201,15 +201,6 @@ end
     @test A*xs ≈ A*xd
 end
 
-@static if COMPREHENSIVE
-@testset "Issue 26367" begin
-    A = sparse([0.0 1 0 0; 0 0 0 0])
-    @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test (sparse(I, 2, 2) * qr(A).Q)::Matrix == sparse(qr(A).Q) == sparse(I, 2, 2)
-end
-end
-
 @testset "thin Q products when SPQR stores fewer reflectors than columns" begin
     A = sparse([1:9; 3], [1:9; 5], collect(1.0:10), 10, 9)
     F = qr(A)
@@ -217,14 +208,6 @@ end
     @test F.Q * F.R ≈ A[F.prow, F.pcol]
     @test F.Q * F.R[:, 1] ≈ A[F.prow, F.pcol][:, 1]
     @test Matrix(F.R)' * F.Q' ≈ A[F.prow, F.pcol]'
-end
-
-@static if COMPREHENSIVE
-@testset "Issue 26368" begin
-    A = sparse([0.0 1 0 0; 0 0 0 0])
-    F = qr(A)
-    @test (F.Q*F.R)::Matrix == A[F.prow,F.pcol]
-end
 end
 
 @testset "products of Q with sparse operands (#121), size(A) = $(size(A))" for A in
@@ -259,14 +242,6 @@ end
     # and nothing else
     k == m || @test_throws DimensionMismatch Q' * fixture(T, k, 3)
     @test_throws DimensionMismatch Q * fixture(T, m + 1, 2)
-end
-
-@static if COMPREHENSIVE
-@testset "Issue #585 for element type: $eltyA" for eltyA in (Float32, ComplexF32)
-    A = sparse(eltyA[1 0; 0 1])
-    F = qr(A)
-    @test eltype(F.Q) == eltype(F.R) == eltyA
-end
 end
 
 @testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, ComplexF32)

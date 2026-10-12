@@ -72,8 +72,9 @@ The `ambiguous` and `aqua` suites run only when selected by name. The commands f
 trimmed app are in the `trim` job of `.github/workflows/ci.yml`.
 The tests run in two modes, described in `test/AGENTS.md`. Standard mode is what
 `Pkg.test`, Julia's own CI and every CI job but the coverage job run. Comprehensive mode
-also runs the tests guarded with `@static if COMPREHENSIVE` and `test/issues.jl`; only the
-coverage job runs it, so run it locally before a PR that touches a kernel.
+also runs the tests guarded with `@static if COMPREHENSIVE`, `test/issues.jl` and
+`test/solvers/issues.jl`; only the coverage job runs it, so run it locally before a PR
+that touches a kernel.
 
 ## Style
 

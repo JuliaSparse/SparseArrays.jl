@@ -36,8 +36,9 @@ julia +nightly --project -e 'using Pkg; Pkg.test()'
 ```
 
 That runs the standard mode, which is also what Julia's own CI runs. The comprehensive
-mode adds the tests guarded with `COMPREHENSIVE` and `test/issues.jl`. Run it before
-a pull request that touches a kernel, since only the coverage job in CI runs it:
+mode adds the tests guarded with `COMPREHENSIVE`, `test/issues.jl`, and
+`test/solvers/issues.jl` when GPL libraries are available. Run it before a pull request
+that touches a kernel, since only the coverage job in CI runs it:
 
 ```sh
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["--comprehensive"])'

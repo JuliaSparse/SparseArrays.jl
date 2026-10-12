@@ -276,26 +276,6 @@ end
             @test all(!iszero, nonzeros(r))
             @test mismatch(r, Array(x)[I]) === nothing
         end
-
-        @static if COMPREHENSIVE
-        # issue 24534
-        let x = convert(SparseVector{Float64,UInt32},fixturevec(Float64, 100))
-            I = [mod1(37k, 99) + 1 for k in [1:23; 1]]
-            r = x[I]
-            @test isa(r, SparseVector{Float64,UInt32})
-            @test all(!iszero, nonzeros(r))
-            @test Array(r) == Array(x)[I]
-        end
-
-        # issue 24534
-        let x = convert(SparseVector{Float64,UInt32},fixturevec(Float64, 100))
-            I = reshape([mod1(37k, 99) + 1 for k in [1:19; 1]], 20, 1)
-            r = x[I]
-            @test isa(r, SparseMatrixCSC{Float64,UInt32})
-            @test all(!iszero, nonzeros(r))
-            @test Array(r) == Array(x)[I]
-        end
-        end
     end
     @testset "boolean array index" begin
         @static if COMPREHENSIVE
@@ -389,31 +369,6 @@ end
 
         xc[1] = 0.0
         @test exact_equal(xc, SparseVector(8, [2, 5, 6], [0.0, 0.0, 0.0]))
-    end
-
-    @static if COMPREHENSIVE
-    @testset "heap-allocated zero (#389)" begin
-        for T in (BigFloat,)
-            x = spzeros(T, 4)
-            x[1] = 0
-            x[3] = zero(T)
-            @test nnz(x) == 0
-            x[2] = one(T)
-            x[2] = 0
-            @test nnz(x) == 1 && x[2] == 0
-        end
-        x = spzeros(BigFloat, 4)
-        x[1] = -big(0.0)
-        @test nnz(x) == 1 && signbit(x[1])
-        x = spzeros(Union{Missing,Int}, 4)
-        x[1] = missing
-        @test nnz(x) == 1 && x[1] === missing
-        A = sparse([1, 2], [1, 1], BigFloat[1, 2], 3, 2)
-        copyto!(view(A, :, 1), BigFloat[0, 3, 0])   # as `setindex!` would store
-        @test nnz(A) == 1 && A[2, 1] == 3
-        copyto!(view(A, :, 1), [-big(0.0), big(3), big(0)])
-        @test nnz(A) == 2 && signbit(A[1, 1])
-    end
     end
 end
 end
@@ -1337,26 +1292,6 @@ end
         @test_throws ArgumentError findmax(x)
     end
 
-    @static if COMPREHENSIVE
-    let v = spzeros(3) #Julia #44978
-        v[1] = 2
-        @test argmin(v) == 2
-        @test argmax(v) == 1
-        v[2] = 2
-        @test argmin(v) == 3
-        v[1] = 0
-        v[2] = 0
-        v[3] = 2
-        @test argmin(v) == 1
-        @test argmax(v) == 3
-    end
-
-    let v = spzeros(3) #Julia #44978
-        v[3] = 2
-        @test argmax(v) == 3
-    end
-    end
-
     let
         v = spzeros(Bool, 5)
         @test !any(v)
@@ -1384,10 +1319,6 @@ end
     end
 
     @static if COMPREHENSIVE
-    let v = sparse([0, NaN]) #issue #714
-        @test findmin(v) === (NaN, 2)
-        @test findmax(v) === (NaN, 2)
-    end
 
     # an `Int` index on every path, agreeing with dense, whatever the index type
     @testset "findmin/findmax index type" begin
@@ -1567,21 +1498,6 @@ end
     end
 end
 
-@static if COMPREHENSIVE
-@testset "Issue 14013" begin
-    s14013 = sparse([10.0 0.0 30.0; 0.0 1.0 0.0])
-    a14013 = [10.0 0.0 30.0; 0.0 1.0 0.0]
-    @test s14013 == a14013
-    @test vec(s14013) == s14013[:] == a14013[:]
-    @test Array(s14013)[1,:] == s14013[1,:] == a14013[1,:] == [10.0, 0.0, 30.0]
-    @test Array(s14013)[2,:] == s14013[2,:] == a14013[2,:] == [0.0, 1.0, 0.0]
-end
-@testset "Issue 14046" begin
-    s14046 = sparse([1.0, 2.5, -3.0, 4.0, 0.5])
-    @test spzeros(5) + s14046 == s14046
-    @test 2*s14046 == s14046 + s14046
-end
-end
 @testset "Issue 14589" begin
     # test vectors with no zero elements
     let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
@@ -1639,31 +1555,11 @@ end
 end
 end
 
-@static if COMPREHENSIVE
-@testset "13130 and 16661" begin
-    xd = collect(1.0:10.0)
-    @test issparse([fixture(Float64, 10, 3) fixturevec(Float64, 10)])
-    @test issparse([fixture(Float64, 10, 1); fixturevec(Float64, 10)])
-
-    @test issparse([fixture(Float64, 10, 3) xd])
-    @test issparse([fixture(Float64, 10, 1)  xd])
-    @test issparse([fixture(Float64, 10, 2) fixture(Float64, 10, 1) xd])
-    @test issparse([fixture(Float64, 10, 1); xd])
-
-    @test issparse([fixturevec(Float64, 10)  xd])
-    @test issparse([fixturevec(Float64, 10); xd])
-end
-end
-
 @testset "show" begin
     spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     @test occursin("1.25", string(spv_x1))
     @test occursin("-0.75", string(spv_x1))
     @test occursin("3.5", string(spv_x1))
-    @static if COMPREHENSIVE
-    # issue #30589
-    @test repr("text/plain", sparse([true])) == "1-element $(SparseArrays.SparseVector){Bool, $Int} with 1 stored entry:\n  [1]  =  1"
-    end
 
     io = IOBuffer()
     show(io, MIME"text/plain"(), sparsevec(Int64[1], [1.0]))
@@ -1722,18 +1618,6 @@ end
         @test collect(skipmissing(Array(broadcast(fun, C, B)))) == collect(skipmissing(broadcast(fun, CA, BA)))
     end
     end
-end
-end
-
-@static if COMPREHENSIVE
-@testset "corner cases of broadcast arithmetic operations with scalars (#21515)" begin
-    # test both scalar literals and variables
-    areequal(a, b, c) = isequal(a, b) && isequal(b, c)
-    inf, zeroh, zv, spzv = Inf, 0.0, zeros(1), spzeros(1)
-    @test areequal(spzv .* Inf,  spzv .* inf,    sparsevec(zv .* Inf))
-    @test areequal(Inf .* spzv,  inf .* spzv,    sparsevec(Inf .* zv))
-    @test areequal(spzv ./ 0.0,  spzv ./ zeroh,  sparsevec(zv ./ 0.0))
-    @test areequal(0.0 .\ spzv,  zeroh .\ spzv,  sparsevec(0.0 .\ zv))
 end
 end
 
@@ -1981,20 +1865,6 @@ end
     scv = view(A, :, 1)
     @test SparseArrays.indtype(scv) == SparseArrays.indtype(A)
     @test nnz(scv) == nnz(A[:, 1])
-end
-end
-
-@static if COMPREHENSIVE
-@testset "avoid aliasing of fields during constructing $T (issue #34630)" for T in
-    (SparseVector, SparseVector{Float64}, SparseVector{Float64,Int16})
-
-    A = sparse([1; 0])
-    B = T(A)
-    @test A == B
-    A[2] = 1
-    @test A != B
-    @test nonzeroinds(A) !== nonzeroinds(B)
-    @test nonzeros(A) !== nonzeros(B)
 end
 end
 

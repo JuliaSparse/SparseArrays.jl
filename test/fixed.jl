@@ -278,22 +278,6 @@ end
     @test getcolptr(-F) === getcolptr(F) && nonzeroinds(-y) === nonzeroinds(y)
 end
 
-@static if COMPREHENSIVE
-@testset "Issue #190" begin
-    J = move_fixed(sparse(Diagonal(ones(4))))
-    W = move_fixed(sparse(Diagonal(ones(4))))
-    J[4, 4] = 0
-    gamma = 1.0
-    W .= gamma .* J
-    @test W == J
-
-    x = move_fixed(fixture(Float64, 5, 3))
-    @test (x .= x .* 0; true)
-    @test (x .= 0; true)
-    @test (fill!(x, false); true)
-end
-end
-
 @testset "fill! keeps a fixed pattern" begin
     P = sparse([1, 3], [1, 2], [1.0, 2.0], 3, 3)
     A = fixed(copy(P))
