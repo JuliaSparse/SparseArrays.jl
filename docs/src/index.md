@@ -422,7 +422,9 @@ on the elements. Everything else rests on three things:
   `x == zero(x)`, so a type that defines `zero` of a value and `==` need not define it.
 - **The arithmetic of the operation itself**: `+` and `*` for a product, `isless` for
   `maximum`, `minimum` and `sort`, and so on. As with dense arrays, `A'` and
-  `transpose(A)` apply `adjoint` and `transpose` to the elements.
+  `transpose(A)` apply `adjoint` and `transpose` to the elements. `sum` adds the `n`
+  entries that are not stored in one step, as `zero(T) * n`, so it also needs the product
+  of an element with an integer.
 
 The sparse kernels skip the entries that are not stored, so they assume that `zero(T)`
 behaves as a zero: `x + zero(T) == x`, and a product with `zero(T)` is zero. `map` and

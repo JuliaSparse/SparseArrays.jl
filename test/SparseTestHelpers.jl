@@ -258,6 +258,11 @@ Base.one(::Type{MockTropical{T}}) where {T} = MockTropical{T}(zero(T))
 Base.one(x::MockTropical{T}) where {T} = one(MockTropical{T})
 Base.:*(a::MockTropical{T}, b::MockTropical{T}) where {T} = MockTropical{T}(a.n + b.n)
 Base.:+(a::MockTropical{T}, b::MockTropical{T}) where {T} = MockTropical{T}(max(a.n, b.n))
+# what the operations ask for beyond `zero`, `+` and `*`: `sum` folds the `n` entries that are
+# not stored in as `zero(T) * n`, `maximum` and `minimum` compare, and `A'` conjugates
+Base.:*(a::MockTropical, n::Integer) = n > 0 ? a : zero(a)
+Base.isless(a::MockTropical, b::MockTropical) = isless(a.n, b.n)
+Base.conj(a::MockTropical) = a
 
 # An element type whose zero, sums and differences are of another type.
 struct Variable

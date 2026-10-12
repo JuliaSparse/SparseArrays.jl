@@ -484,6 +484,34 @@ end
 end
 
 @static if COMPREHENSIVE
+@testset "an element type that is a semiring: `zero(T)`, `iszero`, `+` and `*`" begin
+    Tr = MockTropical{Float64}
+    A = sparse([1, 2, 3, 1], [1, 2, 3, 3], Tr.([1.0, 2, 3, 4]), 3, 3)
+    B = sparse([2, 2, 3, 1], [1, 2, 2, 3], Tr.([5.0, 6, 7, 8]), 3, 3)
+    x, sx, c = Tr.([1.0, 2, 3]), sparsevec([1, 3], Tr.([1.0, 3]), 3), Tr(2.0)
+    DA, DB, dx = Matrix(A), Matrix(B), Vector(sx)
+    # an entry that is not stored is `zero(T)`, here `-Inf` and not the zero of the field
+    @test A[2, 1] === DA[2, 1] === zero(Tr) === Tr(-Inf)
+    S = copy(A); S[2, 1] = c; S[1, 1] = zero(Tr)
+    @test nnz(S) == 5 && S[2, 1] === c
+    # `iszero` decides what is stored: `-Inf` is dropped and the number zero is kept
+    @test nnz(sparse(DA)) == 4
+    @test getnzval(dropzeros!(sparse([1, 2, 3], [1, 2, 3], [c, zero(Tr), Tr(0.0)]))) == [c, Tr(0.0)]
+    # the kernels skip the entries that are not stored, and agree with the dense arithmetic
+    for (R, D) in ((A * B, DA * DB), (A' * B, DA' * DB), (A * sx, DA * dx), (A + B, DA + DB),
+                   (A .* B, DA .* DB), (map(+, A, B), map(+, DA, DB)), (c * A, c * DA),
+                   (copy(A'), copy(DA')), (copy(transpose(A)), copy(transpose(DA))))
+        @test mismatch(R, D) === nothing
+    end
+    @test (A * DB)::Matrix{Tr} == DA * DB && (DB * A)::Matrix{Tr} == DB * DA
+    @test (A * x)::Vector{Tr} == DA * x
+    @test sum(A) === sum(DA) && sum(A, dims=1) == sum(DA, dims=1) && sum(A, dims=2) == sum(DA, dims=2)
+    @test prod(A) === prod(DA) && tr(A) === tr(DA)
+    @test maximum(A) === maximum(DA) && minimum(A) === minimum(DA) === zero(Tr)
+end
+end
+
+@static if COMPREHENSIVE
 @testset "oneunit of sparse matrix" begin
     A = sparse([Meters(0) Meters(0); Meters(0) Meters(0)])
     @test oneunit(fixture(Float64, 2, 2)) isa SparseMatrixCSC{Float64}
