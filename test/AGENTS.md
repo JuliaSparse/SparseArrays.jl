@@ -27,8 +27,10 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
 - Test files are named after the source area they cover. `issues.jl` holds standalone
   issue regressions. `solvers/` mirrors `src/solvers/`: its suites are `solvers/cholmod`,
   `solvers/umfpack`, `solvers/spqr`, `solvers/solvers`, `solvers/threads` and
-  `solvers/issues`, so the selector `solvers` runs them all. Solver-specific regressions
-  go in `solvers/issues.jl`, preserving the GPL boundary.
+  `solvers/issues`. In standard mode, `solvers` skips `solvers/issues`; comprehensive
+  mode includes it. The selector `issues` selects both issue suites, `!issues` excludes
+  both, and `solvers/issues` selects only the solver regressions. Solver-specific
+  regressions go in `solvers/issues.jl`, preserving the GPL boundary.
 - `trim/` is not a suite: it is a small app that the `trim` CI job builds with
   `juliac --trim=safe` and runs. It covers the concatenation hooks SparseArrays adds to
   Base for dense arrays, which Julia's own trim test reaches, and the main sparse
@@ -107,9 +109,12 @@ returns a fresh fixture and its dense copy. Do not keep arrays in module-level v
 any testset can write to them, and what a later testset then sees depends on which ran
 before it, which also changes when a testset is guarded.
 
-**A new test is guarded.** That covers a regression test for an issue and any additional
-case for code the standard tests already exercise. An unguarded test is only for new
-code, and is one representative case; its variations are guarded.
+**A new test is comprehensive.** Put standalone issue reproducers in `issues.jl` or,
+when they use a sparse solver, `solvers/issues.jl`. These suites are selected as a whole
+and need no per-test guards. Put additional feature cases in the existing feature
+testset behind `@static if COMPREHENSIVE`. An unguarded feature test is only for new
+code, and is one representative case; its variations are guarded. Preserve existing
+standard regression coverage when reorganizing tests.
 
 `COMPREHENSIVE` comes from `SparseTestHelpers.jl`. Guard with `@static`, which is
 resolved when the macro expands, so that a standard run does not lower or compile the

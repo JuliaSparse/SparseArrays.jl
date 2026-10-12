@@ -399,6 +399,7 @@ end
     @inferred hcat(fixture(Float64, 2, 1), I)
 end
 
+
 @testset "Concatenation" begin
     let m = 80, n = (@static COMPREHENSIVE ? 100 : 10)  # 100 reach Base's long-tuple methods
         A = Vector{SparseVector{Float64,Int}}(undef, n)

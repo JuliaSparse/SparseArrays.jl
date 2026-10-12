@@ -1319,7 +1319,6 @@ end
     end
 
     @static if COMPREHENSIVE
-
     # an `Int` index on every path, agreeing with dense, whatever the index type
     @testset "findmin/findmax index type" begin
         xs = (SparseVector(5, Int32[], Float64[]),               # no stored entries

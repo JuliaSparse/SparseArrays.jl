@@ -201,16 +201,14 @@ end
     @test all(fetch(t) .≈ logabsdet(Matrix(A)))
 end
 
-@testset "Issue 26367" begin
-    A = sparse([0.0 1 0 0; 0 0 0 0])
-    @test Matrix(qr(A).Q) == Matrix(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test sparse(qr(A).Q) == sparse(qr(Matrix(A)).Q) == Matrix(I, 2, 2)
-    @test (sparse(I, 2, 2) * qr(A).Q)::Matrix == sparse(qr(A).Q) == sparse(I, 2, 2)
-end
-
-@testset "Issue 26368" begin
+@testset "Issues #26367 and #26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
+    Fd = qr(Matrix(A))
+    Qs = sparse(F.Q)
+    @test Matrix(F.Q) == Matrix(Fd.Q) == Matrix(I, 2, 2)
+    @test Qs == sparse(Fd.Q) == Matrix(I, 2, 2)
+    @test (sparse(I, 2, 2) * F.Q)::Matrix == Qs == sparse(I, 2, 2)
     @test (F.Q*F.R)::Matrix == A[F.prow,F.pcol]
 end
 

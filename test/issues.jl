@@ -4,7 +4,6 @@ module SparseIssuesTests
 using Test
 using SparseArrays
 using SparseArrays: nonzeroinds, getcolptr, move_fixed
-using SparseArrays.HigherOrderFns: SparseVecStyle
 using LinearAlgebra
 using Random
 include("testhelpers.jl")
@@ -179,28 +178,28 @@ end
     T = Tridiagonal([1.0, -2.0, 3.0, -4.0], [5.0, 6.0, -7.0, 8.0, 9.0], [-10.0, 11.0, 12.0, 13.0])
     S = sparse(T)
     S2 = SparseMatrixCSC(T)
-    @test Array(T) == Array(S) == Array(S2)
-    @test S == S2
+    @test mismatch(S, Matrix(T)) === nothing
+    @test mismatch(S2, Matrix(T)) === nothing
     T = SymTridiagonal([5.0, 6.0, -7.0, 8.0, 9.0], [1.0, 2.0, 3.0, 4.0])
     S = sparse(T)
     S2 = SparseMatrixCSC(T)
-    @test Array(T) == Array(S) == Array(S2)
-    @test S == S2
+    @test mismatch(S, Matrix(T)) === nothing
+    @test mismatch(S2, Matrix(T)) === nothing
     B = Bidiagonal([5.0, 6.0, -7.0, 8.0, 9.0], [1.0, -2.0, 3.0, -4.0], :U)
     S = sparse(B)
     S2 = SparseMatrixCSC(B)
-    @test Array(B) == Array(S) == Array(S2)
-    @test S == S2
+    @test mismatch(S, Matrix(B)) === nothing
+    @test mismatch(S2, Matrix(B)) === nothing
     B = Bidiagonal([5.0, 6.0, -7.0, 8.0, 9.0], [1.0, -2.0, 3.0, -4.0], :L)
     S = sparse(B)
     S2 = SparseMatrixCSC(B)
-    @test Array(B) == Array(S) == Array(S2)
-    @test S == S2
+    @test mismatch(S, Matrix(B)) === nothing
+    @test mismatch(S2, Matrix(B)) === nothing
     D = Diagonal([5.0, 6.0, -7.0, 8.0, 9.0])
     S = sparse(D)
     S2 = SparseMatrixCSC(D)
-    @test Array(D) == Array(S) == Array(S2)
-    @test S == S2
+    @test mismatch(S, Matrix(D)) === nothing
+    @test mismatch(S2, Matrix(D)) === nothing
 
     # An issue discovered in #42574 where
     # SparseMatrixCSC{Tv, Ti}(::Diagonal) ignored Ti
@@ -213,17 +212,21 @@ end
     A12118 = sparse([1,2,3,4,5], [1,2,3,4,5], [1,2,3,4,5])
     B12118 = sparse([1,2,4,5],   [1,2,3,5],   [2,1,-1,-2])
 
-    @test A12118 + B12118 == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], [3,3,3,-1,4,3])
-    @test typeof(A12118 + B12118) == SparseMatrixCSC{Int,Int}
+    result = A12118 + B12118
+    @test result == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], [3,3,3,-1,4,3])
+    @test typeof(result) == SparseMatrixCSC{Int,Int}
 
-    @test A12118 - B12118 == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], [-1,1,3,1,4,7])
-    @test typeof(A12118 - B12118) == SparseMatrixCSC{Int,Int}
+    result = A12118 - B12118
+    @test result == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], [-1,1,3,1,4,7])
+    @test typeof(result) == SparseMatrixCSC{Int,Int}
 
-    @test max.(A12118, B12118) == sparse([1,2,3,4,5], [1,2,3,4,5], [2,2,3,4,5])
-    @test typeof(max.(A12118, B12118)) == SparseMatrixCSC{Int,Int}
+    result = max.(A12118, B12118)
+    @test result == sparse([1,2,3,4,5], [1,2,3,4,5], [2,2,3,4,5])
+    @test typeof(result) == SparseMatrixCSC{Int,Int}
 
-    @test min.(A12118, B12118) == sparse([1,2,4,5], [1,2,3,5], [1,1,-1,-2])
-    @test typeof(min.(A12118, B12118)) == SparseMatrixCSC{Int,Int}
+    result = min.(A12118, B12118)
+    @test result == sparse([1,2,4,5], [1,2,3,5], [1,1,-1,-2])
+    @test typeof(result) == SparseMatrixCSC{Int,Int}
 end
 
 @testset "issue #13008" begin
@@ -235,26 +238,28 @@ end
     A13024 = sparse([1,2,3,4,5], [1,2,3,4,5], fill(true,5))
     B13024 = sparse([1,2,4,5],   [1,2,3,5],   fill(true,4))
 
-    @test broadcast(&, A13024, B13024) == sparse([1,2,5], [1,2,5], fill(true,3))
-    @test typeof(broadcast(&, A13024, B13024)) == SparseMatrixCSC{Bool,Int}
+    result = broadcast(&, A13024, B13024)
+    @test result == sparse([1,2,5], [1,2,5], fill(true,3))
+    @test typeof(result) == SparseMatrixCSC{Bool,Int}
 
-    @test broadcast(|, A13024, B13024) == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], fill(true,6))
-    @test typeof(broadcast(|, A13024, B13024)) == SparseMatrixCSC{Bool,Int}
+    result = broadcast(|, A13024, B13024)
+    @test result == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], fill(true,6))
+    @test typeof(result) == SparseMatrixCSC{Bool,Int}
 
-    @test broadcast(⊻, A13024, B13024) == sparse([3,4,4], [3,3,4], fill(true,3), 5, 5)
-    @test typeof(broadcast(⊻, A13024, B13024)) == SparseMatrixCSC{Bool,Int}
+    result = broadcast(⊻, A13024, B13024)
+    @test result == sparse([3,4,4], [3,3,4], fill(true,3), 5, 5)
+    @test typeof(result) == SparseMatrixCSC{Bool,Int}
 
-    @test broadcast(max, A13024, B13024) == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], fill(true,6))
-    @test typeof(broadcast(max, A13024, B13024)) == SparseMatrixCSC{Bool,Int}
+    result = broadcast(max, A13024, B13024)
+    @test result == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], fill(true,6))
+    @test typeof(result) == SparseMatrixCSC{Bool,Int}
 
-    @test broadcast(min, A13024, B13024) == sparse([1,2,5], [1,2,5], fill(true,3))
-    @test typeof(broadcast(min, A13024, B13024)) == SparseMatrixCSC{Bool,Int}
+    result = broadcast(min, A13024, B13024)
+    @test result == sparse([1,2,5], [1,2,5], fill(true,3))
+    @test typeof(result) == SparseMatrixCSC{Bool,Int}
 
     for op in (+, -)
         @test op(A13024, B13024) == op(Array(A13024), Array(B13024))
-    end
-    for op in (max, min, &, |, xor)
-        @test op.(A13024, B13024) == op.(Array(A13024), Array(B13024))
     end
 end
 
@@ -481,7 +486,7 @@ end
     @test sparse(UInt8.(1:254), fill(UInt8(1), 254), fill(1, 254), 255, 255) !== nothing
 end
 
-@testset "avoid aliasing of fields during constructing $T (issue #34630)" for T in
+@testset "matrix construction does not alias fields, $T (issue #34630)" for T in
     (SparseMatrixCSC, SparseMatrixCSC{Float64}, SparseMatrixCSC{Float64,Int16})
 
     A = sparse([1 1; 1 0])
@@ -494,7 +499,7 @@ end
     @test nonzeros(A) !== nonzeros(B)
 end
 
-@testset "avoid aliasing of fields during constructing $T (issue #34630)" for T in
+@testset "vector construction does not alias fields, $T (issue #34630)" for T in
     (SparseVector, SparseVector{Float64}, SparseVector{Float64,Int16})
 
     A = sparse([1; 0])
@@ -516,18 +521,21 @@ end
         BWU = Wrapper(B, :U)
         BWL = Wrapper(B, :L)
 
-        @test op(AWU, B) isa SparseMatrixCSC
-        @test op(A, BWL) isa SparseMatrixCSC
+        left = op(AWU, B)
+        @test left isa SparseMatrixCSC
+        right = op(A, BWL)
+        @test right isa SparseMatrixCSC
 
-        @test op(AWU, B) ≈ op(collect(AWU), B)
+        @test left ≈ op(collect(AWU), B)
         @test op(AWL, B) ≈ op(collect(AWL), B)
         @test op(A, BWU) ≈ op(A, collect(BWU))
-        @test op(A, BWL) ≈ op(A, collect(BWL))
+        @test right ≈ op(A, collect(BWL))
 
-        @test op(AWU, BWL) isa Wrapper{ComplexF64, <:SparseMatrixCSC}
+        mixed = op(AWU, BWL)
+        @test mixed isa Wrapper{ComplexF64, <:SparseMatrixCSC}
 
         @test op(AWU, BWU) ≈ op(collect(AWU), collect(BWU))
-        @test op(AWU, BWL) ≈ op(collect(AWU), collect(BWL))
+        @test mixed ≈ op(collect(AWU), collect(BWL))
         @test op(AWL, BWU) ≈ op(collect(AWL), collect(BWU))
         @test op(AWL, BWL) ≈ op(collect(AWL), collect(BWL))
     end
@@ -631,21 +639,6 @@ end
 
 @testset "Issue #27836" begin
     @test minimum(sparse([1, 2], [1, 2], ones(Int32, 2)), dims = 1) isa Matrix
-end
-
-@testset "Issue #30120: method ambiguity" begin
-    # HigherOrderFns._copy(f) was ambiguous.  It may be impossible to
-    # invoke this from dot notation and it is an error anyway.  But
-    # when someone invokes it by accident, we want it to produce a
-    # meaningful error.
-    err = try
-        copy(Broadcast.Broadcasted{SparseVecStyle}(rand, ()))
-    catch err
-        err
-    end
-    @test err isa MethodError
-    @test !occursin("is ambiguous", sprint(showerror, err))
-    @test err.f === SparseArrays.HigherOrderFns._copy
 end
 
 @testset "issue #31758: out of bounds write in _map_zeropres!" begin
@@ -752,29 +745,16 @@ end
 end
 
 @testset "Issue #246" begin
-    for t in [Float64]
-        a = OpCount.(fixturevec(t, 100))
-        b = OpCount.(2 * fixturevec(t, 100))
+    a = OpCount.(fixturevec(Float64, 100))
+    b = OpCount.(2 * fixturevec(Float64, 100))
+    c = copy(a)
+    nonzeros(c)[1] = 0
+    d = dropzeros(c)
 
-        c = if nnz(a) != 0
-            c = copy(a)
-            nonzeros(c)[1] = 0
-            c
-        else
-            c = copy(a)
-            push!(nonzeros(c), zero(t))
-            push!(nonzerosinds(c), 1)
-            c
-        end
-        d = dropzeros(c)
-
-        for m in [identity, transpose]
-            ma, mb, mc, md = m.([a, b, c, d])
-
-            @test eqcount(() -> ma == mb) <= nnz(a) + nnz(b)
-
-            @test (mc == md) == (Array(mc) == Array(md))
-        end
+    for m in (identity, transpose)
+        ma, mb, mc, md = m.((a, b, c, d))
+        @test eqcount(() -> ma == mb) <= nnz(a) + nnz(b)
+        @test (mc == md) == (Array(mc) == Array(md))
     end
 end
 
@@ -848,8 +828,9 @@ end
     end
 end
 
-@testset "Julia #37819: map preserves Int32 indices" begin
-    Z = spzeros(Float64, Int32, 10000, 10000)
+@testset "Julia #37819: map preserves indices when length exceeds typemax(Ti)" begin
+    Z = spzeros(Float64, Int32, 50000, 50000)
+    @test widemul(size(Z)...) > typemax(Int32)
     @test isa(-Z, SparseMatrixCSC{Float64, Int32})
     @test isa(Z + Z, SparseMatrixCSC{Float64, Int32})
 end

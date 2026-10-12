@@ -1035,6 +1035,21 @@ end
 
 using SparseArrays.HigherOrderFns: SparseVecStyle, SparseMatStyle
 
+@testset "Issue #30120: method ambiguity" begin
+    # HigherOrderFns._copy(f) was ambiguous.  It may be impossible to
+    # invoke this from dot notation and it is an error anyway.  But
+    # when someone invokes it by accident, we want it to produce a
+    # meaningful error.
+    err = try
+        copy(Broadcast.Broadcasted{SparseVecStyle}(rand, ()))
+    catch err
+        err
+    end
+    @test err isa MethodError
+    @test !occursin("is ambiguous", sprint(showerror, err))
+    @test err.f === SparseArrays.HigherOrderFns._copy
+end
+
 @testset "Sparse outer product, for type $T and vector $op" for
          (op, T) in (@static COMPREHENSIVE ? pairwise : eachvalue)((transpose, adjoint), (Float64, ComplexF64))
     m, n = 100, 250

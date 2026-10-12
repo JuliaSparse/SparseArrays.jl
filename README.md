@@ -44,6 +44,11 @@ that touches a kernel, since only the coverage job in CI runs it:
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["--comprehensive"])'
 ```
 
+To run just the standalone regressions, use `test_args=["issues"]`; this selects both
+issue suites. `test_args=["solvers/issues"]` selects only the solver regressions.
+The `solvers` selector includes them only in comprehensive mode, and `!issues` excludes
+both issue suites.
+
 [AGENTS.md](AGENTS.md) has the conventions this repository follows, the commands for
 running a single test file, the whitespace check and the doctests, and pointers to the
 guides for the solvers, the test suite and upgrading SuiteSparse.
