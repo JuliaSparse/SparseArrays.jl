@@ -431,8 +431,8 @@ end
 
 # process single rhs column
 function spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
-    rowvalA = getrowval(A); nzvalA = getnzval(A)
-    rowvalB = getrowval(B); nzvalB = getnzval(B)
+    SA = _storageparent(A); rowvalA = getrowval(SA); nzvalA = getnzval(SA)
+    SB = _storageparent(B); rowvalB = getrowval(SB); nzvalB = getnzval(SB)
     mA = size(A, 1)
     ip0 = ip
     k0 = ip - 1

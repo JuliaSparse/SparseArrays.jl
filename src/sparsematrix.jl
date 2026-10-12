@@ -168,12 +168,13 @@ getcolptr(S::FixedSparseCSC) = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(parentindices(S)[2]):(last(parentindices(S)[2]) + 1))
 getcolptr(S::SparseMatrixCSCColumnSubset) = error("getcolptr not well-defined for $(typeof(S))")
 
-# The kernels address the storage behind `S` through `getcolptr`, `getrowval`, `getnzval`
-# and `getnzrange`: for a view or a wrapper these are the parent's vectors and the
-# positions of column `j` of `S` within them, so `getnzval(S)[getnzrange(S, j)]` holds
-# column `j` whatever `S` is. The public `nonzeros`, `rowvals` and `nzrange` instead
-# describe the entries of `S` itself, which for a view or wrapper are a subset of the
-# parent's; for a `SparseMatrixCSC` the two agree.
+# The kernels address the storage behind `S` through `getrowval`, `getnzval` and
+# `getnzrange`: for a view these are the parent's vectors and the positions of column `j`
+# of `S` within them, so `getnzval(S)[getnzrange(S, j)]` holds column `j`. A triangular or
+# symmetric/Hermitian wrapper has no `getrowval` or `getnzval`, and `getnzrange` of one
+# gives positions in the vectors of `_storageparent(S)`. The public `nonzeros`, `rowvals`
+# and `nzrange` instead describe the entries of `S` itself, which for a view or wrapper are
+# a subset of the parent's; for a `SparseMatrixCSC` the two agree.
 Base.@propagate_inbounds getnzrange(S::AbstractSparseMatrixCSC, col::Integer) = nzrange(S, col)
 Base.@propagate_inbounds getnzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = getnzrange(parent(S), parentindices(S)[2][col])
 getnzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}, i::Integer) = nzrangeup(S.data, i)
@@ -186,6 +187,8 @@ const _SparseTriOrSymHerm{Tv,Ti} = Union{UpperTriangular{Tv,<:SparseMatrixCSCOrV
                                         LowerTriangular{Tv,<:SparseMatrixCSCOrView{Tv,Ti}},
                                         SparseMatrixCSCSymmHerm{Tv,Ti}}
 const _SparseScatteredStorage{Tv,Ti} = Union{SparseMatrixCSCColumnSubset{Tv,Ti}, _SparseTriOrSymHerm{Tv,Ti}}
+_storageparent(S) = S
+_storageparent(S::_SparseTriOrSymHerm) = parent(S)
 """
     getrowval(A)
 
@@ -197,8 +200,10 @@ stored internally can be useful in conjunction with iterating over structural
 nonzero values. See also [`getnzval`](@ref) and [`nzrange`](@ref).
 
 For a `SparseMatrixCSC` or a `SparseVector`, `getrowval` is equivalent to
-[`rowvals`](@ref). For a column view or a triangular or symmetric wrapper of a sparse matrix it
-returns the parent's vector, of which `rowvals(A)` is the part belonging to `A`.
+[`rowvals`](@ref). For a view of all rows and some columns of a sparse matrix it returns
+the parent's vector, of which `rowvals(A)` is the part belonging to `A`. It is not
+defined for a triangular, `Symmetric` or `Hermitian` wrapper of a sparse matrix; use
+`rowvals(A)`, or `getrowval(parent(A))` for the parent's vector.
 
 # Examples
 ```jldoctest
@@ -225,7 +230,6 @@ getrowval(S::FixedSparseCSC) = getfield(S, :rowval)
 # a subtype may implement the longer-exported `rowvals` instead
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
 getrowval(S::SparseMatrixCSCColumnSubset) = getrowval(parent(S))
-getrowval(S::_SparseTriOrSymHerm) = getrowval(S.data)
 
 """
     getnzval(A)
@@ -237,8 +241,10 @@ to the internal nonzero storage of `A`, and any modifications to the returned ve
 will mutate `A` as well. See also [`getrowval`](@ref) and [`nzrange`](@ref).
 
 For a `SparseMatrixCSC` or a `SparseVector`, `getnzval` is equivalent to
-[`nonzeros`](@ref). For a column view or a triangular or symmetric wrapper of a sparse matrix it
-returns the parent's vector, of which `nonzeros(A)` is the part belonging to `A`.
+[`nonzeros`](@ref). For a view of all rows and some columns of a sparse matrix it returns
+the parent's vector, of which `nonzeros(A)` is the part belonging to `A`. It is not
+defined for a triangular, `Symmetric` or `Hermitian` wrapper of a sparse matrix; use
+`nonzeros(A)`, or `getnzval(parent(A))` for the parent's vector.
 
 # Examples
 ```jldoctest
@@ -265,7 +271,6 @@ getnzval(S::FixedSparseCSC) = getfield(S, :nzval)
 # a subtype may implement the longer-exported `nonzeros` instead
 getnzval(S::AbstractSparseMatrixCSC) = nonzeros(S)
 getnzval(S::SparseMatrixCSCColumnSubset) = getnzval(parent(S))
-getnzval(S::_SparseTriOrSymHerm) = getnzval(S.data)
 nzvalview(S::AbstractSparseMatrixCSC) = view(getnzval(S), 1:nnz(S))
 nzvalview(S::_SparseScatteredStorage) = nonzeros(S)
 # where the stored entries of `S` sit in `getnzval(S)`: a contiguous range for a column range
@@ -363,7 +368,7 @@ julia> nonzeros(view(A, :, 2:3))
 """
 nonzeros(S::SparseMatrixCSC) = getnzval(S)
 nonzeros(S::FixedSparseCSC) = getnzval(S)
-nonzeros(S::_SparseScatteredStorage) = view(getnzval(S), _storedinds(S))
+nonzeros(S::_SparseScatteredStorage) = view(getnzval(_storageparent(S)), _storedinds(S))
 
 """
     rowvals(A)
@@ -402,7 +407,7 @@ julia> rowvals(sparsevec([2, 5], [1.5, 2.5], 6))
 """
 rowvals(S::SparseMatrixCSC) = getrowval(S)
 rowvals(S::FixedSparseCSC) = getrowval(S)
-rowvals(S::_SparseScatteredStorage) = view(getrowval(S), _storedinds(S))
+rowvals(S::_SparseScatteredStorage) = view(getrowval(_storageparent(S)), _storedinds(S))
 
 """
     nzrange(A, col::Integer)

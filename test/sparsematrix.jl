@@ -1531,10 +1531,11 @@ end
     @test nonzeros(AL) == V[[3, 4, 8]]
     @test nonzeros(b) == V[1:4]
     @test nonzeros(c) == V[5:8]
-    # the storage tier addresses the parent's vectors
-    for W in (AU, AL)
-        @test SparseArrays.getrowval(W) === rowvals(A) && SparseArrays.getnzval(W) === nonzeros(A)
-        @test all(j -> SparseArrays.getnzval(W)[SparseArrays.getnzrange(W, j)] == nonzeros(W)[nzrange(W, j)], 1:9)
+    # the storage accessors are not defined for a wrapper; its ranges address the parent's vectors
+    for W in (AU, AL, Symmetric(A))
+        @test_throws MethodError SparseArrays.getrowval(W)
+        @test_throws MethodError SparseArrays.getnzval(W)
+        @test all(j -> nonzeros(A)[SparseArrays.getnzrange(W, j)] == nonzeros(W)[nzrange(W, j)], 1:9)
     end
     # a view of some columns describes its own entries (#376)
     e = view(A, :, 5:6)
@@ -1565,7 +1566,7 @@ end
         @test all(S[i, j] == (W <: Hermitian && i == j ? real(C[i, j]) : C[i, j]) for j in 1:9, i in 1:9 if !iszero(C[i, j]))
         # the storage tier and the public accessors walk the same entries, and writes go through
         for j in axes(S, 2)
-            @test SparseArrays.getnzval(S)[SparseArrays.getnzrange(S, j)] == nonzeros(S)[nzrange(S, j)]
+            @test nonzeros(A)[SparseArrays.getnzrange(S, j)] == nonzeros(S)[nzrange(S, j)]
         end
         other = uplo == :U ? tril(A, -1) : triu(A, 1)
         fill!(nonzeros(S), T(7))
@@ -1621,8 +1622,8 @@ end
     @test all(j -> SparseArrays.getnzrange(vA, j) == nzrange(A, j), 1:5)
     sA = view(A, :, 1:10)   # a square view can be wrapped
     for W in (UpperTriangular(sA), LowerTriangular(sA))
-        @test SparseArrays.getnzval(W) === SparseArrays.getnzval(A)
-        @test SparseArrays.getrowval(W) === SparseArrays.getrowval(A)
+        @test nonzeros(W) == nonzeros(typeof(W).name.wrapper(A))
+        @test rowvals(W) == rowvals(typeof(W).name.wrapper(A))
         @test all(j -> SparseArrays.getnzrange(W, j) ⊆ nzrange(A, j), 1:10)
     end
     # the public accessors describe the view's own entries
