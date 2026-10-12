@@ -327,7 +327,7 @@ end
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
     @test propertynames(F) == (:R, :Q, :prow, :pcol)
-    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv, :_lock)
+    @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv)
 end
 
 @testset "rank" begin
@@ -417,36 +417,14 @@ end
         @test ldiv!(b, F, b) == x
     end
 
-    @testset "copying QRSparse" begin
-        A = fixture(Float64, m, n)
-        F = qr(A)
-        F_copy = copy(F)
-
-        # The lock must not be shared
-        @test F._lock !== F_copy._lock
-    end
-
-    @testset "solves take the lock of F" begin
-        A = fullrank(Float64, m, n)
-        F = qr(A)
+    @static if COMPREHENSIVE
+    @testset "tasks solve with one shared F" begin
+        F = qr(fullrank(Float64, m, n))
         b, c = collect(1.0:m), collect(1.0:n)
         x, y = F \ b, F' \ c
-        calls = (() -> ldiv!(zeros(n), F, b) ≈ x,
-                 () -> F \ b ≈ x,
-                 (@static COMPREHENSIVE ? (() -> F \ complex.(b) ≈ x,) : ())...,
-                 () -> ldiv!(zeros(m), F', c) ≈ y,
-                 (@static COMPREHENSIVE ? (() -> F' \ c ≈ y,) : ())...)
-        for f in calls
-            lock(F._lock)
-            t = @async f()
-            yield()
-            @test !istaskdone(t)
-            # copying F and solving with the copy do not wait for the lock of F
-            @test fetch(@async copy(F) \ b ≈ x && copy(F)' \ c ≈ y)
-            unlock(F._lock)
-            @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
-            @test fetch(t)
-        end
+        tasks = [Threads.@spawn (F \ (i .* b), ldiv!(zeros(m), F', i .* c)) for i in 1:8]
+        @test all(i -> fetch(tasks[i])[1] ≈ i .* x && fetch(tasks[i])[2] ≈ i .* y, 1:8)
+    end
     end
 
     @static if COMPREHENSIVE

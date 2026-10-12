@@ -162,17 +162,22 @@ SparseArrays.LibSuiteSparse.init_suitesparse
 
 ## Multithreading and thread safety
 
-Each factorization object has an internal lock, and every call that reads or changes its
-mutable state (the factors held by the C library, the stored matrix and the status) holds that lock for the whole call. Calls with one factorization from several
-tasks are therefore safe but run one at a time, even those that only read it. To work in
-parallel, give every task its own `copy` of the factorization: a copy shares nothing that
-any call modifies with the original or with the other copies, so its calls never wait for
-theirs.
+A `QRSparse` is never modified once `qr` has returned, and a solve only reads it, so it
+has no lock: any number of tasks can solve with one `QRSparse`, or with its adjoint or
+transpose, at the same time.
+
+An `UmfpackLU` and a `CHOLMOD.Factor` can be refactorized in place, and each has an internal
+lock. Every call that reads or changes the mutable state of an `UmfpackLU` (the factors held
+by the C library, the stored matrix and the status) holds that lock for the whole call, so
+calls with one `UmfpackLU` from several tasks are safe but run one at a time, even those that
+only read it. To work in parallel there, give every task its own `copy` of the
+factorization: a copy shares nothing that any call modifies with the original or with the
+other copies, so its calls never wait for theirs.
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
 | `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `logabsdet`, `lu!`, `copy` and the factors `F.L`, `F.U`, `F.p`, `F.q`, `F.Rs` |
-| `SPQR.QRSparse` | independent copy of the factors and permutations; new lock | `\` and `ldiv!`, with `F` or `F'` |
+| `SPQR.QRSparse` | independent copy of the factors and permutations | none: there is no lock |
 | `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!`, `copy` and the in-place low-rank updates |
 
 An independent copy is unaffected by anything done to the original, and the original by
@@ -183,7 +188,7 @@ task rather than one per right-hand side:
 ```julia
 using LinearAlgebra, SparseArrays
 
-F = lu(A)                       # or qr(A)
+F = lu(A)
 X = similar(B)
 Threads.@threads for cols in collect(Iterators.partition(axes(B, 2), cld(size(B, 2), Threads.nthreads())))
     Fj = copy(F)
