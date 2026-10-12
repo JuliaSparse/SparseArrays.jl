@@ -546,6 +546,7 @@ LinearAlgebra.rank(F::QRSparse) = reduce(max, view(getrowval(F.R), 1:nnz(F.R)), 
 Calculate rank of `S` by calculating its QR factorization. Values smaller than `tol` are considered as zero. See SPQR's manual.
 """
 LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
+LinearAlgebra.rank(S::FixedSparseCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 
 # With a real lhs and complex rhs with the same precision, we can reinterpret
 # the complex rhs as a real rhs with twice the number of columns

@@ -713,9 +713,9 @@ end
     @test isa(acp, SparseVector{ComplexF64,Int})
     @test exact_equal(acp, SparseVector(8, [2, 5, 6], complex([12., 35., 72.])))
     @test sparsevec((acp')') == acp
-    # a fixed vector stays fixed and shares its pattern
+    # a fixed vector reads as a plain one
     cf = complex(fixed(af))
-    @test cf isa SparseArrays.FixedSparseVector{ComplexF64,Int} && cf == acp
+    @test cf isa SparseVector{ComplexF64,Int} && cf == acp
     @static if COMPREHENSIVE
     # a writable result does not share its pattern with the argument
     for f in (float, complex)
@@ -932,18 +932,16 @@ end
         @test x == xc   # the parent is untouched
     end
     @testset "reverse! of a fixed pattern" begin
-        # 2:9 is its own mirror under a full reversal, so only the values move
-        s = fixed(sparsevec([2, 5, 6, 9], [1.0, 2, 3, 4], 10))
-        f = copy(s)
-        @test reverse!(f) === f && f == reverse(collect(s)) && same_pattern(f, s)
-        f = copy(s)
-        @test_throws ArgumentError reverse!(f, 1, 9)
-        @test f == s && nonzeroinds(f) == [2, 5, 6, 9]
+        # also when the pattern is its own mirror
+        s = sparsevec([2, 5, 6, 9], [1.0, 2, 3, 4], 10)
+        f = fixed(s)
+        @test_throws ArgumentError reverse!(f)
+        @test exact_equal(f, s)
     end
     @static if COMPREHENSIVE
     x = SparseVector(big(typemax(Int)) + 10, BigInt[1, 5], [1.0, 2.0])
     @test nonzeroinds(reverse(x)) == [big(typemax(Int)) + 6, big(typemax(Int)) + 10]
-    @test nonzeroinds(reverse!(fixed(copy(x)), 1, 5)) == [1, 5]
+    @test nonzeroinds(reverse!(copy(x), 1, 5)) == [1, 5]
     end
 end
 
@@ -1021,15 +1019,15 @@ end
         a = WrappedSparseVector(sparsevec([1, 3], [1.0, 2.0], 5))
         @test a + a isa SparseVector && a + a == [2, 0, 4, 0, 0]
         @test_throws DimensionMismatch a + WrappedSparseVector(sparsevec([1], [1.0], 4))
-        # a view reads as the vector it stores with the parent's index type; a fixed input
-        # gives a fixed result over the union of the patterns, as for matrices
+        # a view reads as the vector it stores with the parent's index type, and a fixed
+        # input as a plain vector
         @static if COMPREHENSIVE
         A32 = SparseMatrixCSC{Float64,Int32}(sparse([1, 4], [2, 2], [-1.0, 3.0], 5, 2))
         @test exact_equal(view(A32, :, 2) - SparseVector{Float64,Int32}(z),
                           SparseVector{Float64,Int32}(SparseVector(5, [1, 3, 4], [-2.0, -2.0, 3.0])))
         end
         fr = SparseArrays.fixed(copy(z)) + w
-        @test fr isa SparseArrays.FixedSparseVector && nonzeroinds(fr) == [1, 2, 3, 4] && fr == r
+        @test fr isa SparseVector && exact_equal(fr, r)
 
         # multiplies
         xm = SparseVector(8, [2, 6], [5.0, -19.25])
@@ -1844,10 +1842,10 @@ end
         x = circshift(collect(v), 3)
         c = circshift(fixed(v), 3)   # a fixed source shifts into a plain copy
         @test mismatch(c, x, Ti=Ti) === nothing && c isa SparseVector{Float64,Ti} && nnz(c) == 4
-        g = fixed(c)   # a fixed destination must already hold the shifted pattern
-        @test circshift!(g, v, 3) === g && g == x
+        g = fixed(c)   # a fixed destination takes the shift that its pattern holds
+        @test circshift!(g, 2v, 3) === g && g == 2x && nonzeroinds(g) == [1, 5, 7, 8]
         @test_throws ArgumentError circshift!(g, v, 2)
-        @test g == x && nonzeroinds(g) == [1, 5, 7, 8]
+        @test g == 2x && nonzeroinds(g) == [1, 5, 7, 8]
     end
     @static if COMPREHENSIVE
     # an index plus the shift need not fit in the index type

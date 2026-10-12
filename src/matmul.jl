@@ -48,14 +48,8 @@ matop_dest(::typeof(*), A::BiTriSym, B::Union{QuasiSparseMatrix,SparseMatrixCSCS
 # needed for disambiguation with LinearAlgebra
 matop_dest(::typeof(*), A::Diagonal, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
-# a `Diagonal` product keeps the structure of the sparse operand, so a fixed operand gets
-# a fixed destination with that structure up front, which `mul!` then only has to fill
-# (an empty fixed destination could not take the indices); the adjoint/transpose of a
-# sparse matrix gets an empty, writable destination, since its structure is not that of
-# the parent
 matop_dest(::typeof(*), A::Diagonal, B::AbstractSparseMatrixCSC) =
-    _is_fixed(B) ? similar(B, promote_op(matprod, eltype(A), eltype(B))) :
-                   similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
+    similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 matop_dest(::typeof(*), A::Diagonal, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
     _adjtrans_dest(B, promote_op(matprod, eltype(A), eltype(B)))
 matop_dest(::typeof(*), A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::Diagonal) =
@@ -732,7 +726,9 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     identical_nzinds = rows_match && cols_match
     Cnzval = getnzval(C)
     Anzval = getnzval(A)
-    if identical_nzinds || (beta_is_zero && !_is_fixed(C))
+    identical_nzinds || !_is_fixed(C) ||
+        return _copyto_fixed!(C, mul!(_writablecopy(C), A, D, alpha, beta))
+    if identical_nzinds || beta_is_zero
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
         @inbounds if beta_is_zero
@@ -830,7 +826,9 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     Cnzval = getnzval(C)
     Anzval = getnzval(A)
     Arowval = getrowval(A)
-    if identical_nzinds || (beta_is_zero && !_is_fixed(C))
+    identical_nzinds || !_is_fixed(C) ||
+        return _copyto_fixed!(C, mul!(_writablecopy(C), D, A, alpha, beta))
+    if identical_nzinds || beta_is_zero
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
         if beta_is_zero
@@ -877,6 +875,7 @@ end
 
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
+    _is_fixed(C) && return broadcast!(*, C, A, b)
     copyinds!(C, A)
     resize!(getnzval(C), length(getnzval(A)))
     mul!(getnzval(C), getnzval(A), b)
@@ -885,6 +884,7 @@ end
 
 function mul!(C::AbstractSparseMatrixCSC, b::Number, A::AbstractSparseMatrixCSC)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
+    _is_fixed(C) && return broadcast!(*, C, b, A)
     copyinds!(C, A)
     resize!(getnzval(C), length(getnzval(A)))
     mul!(getnzval(C), b, getnzval(A))
@@ -900,6 +900,13 @@ function lmul!(b::Number, A::AbstractSparseMatrixCSC)
     lmul!(b, getnzval(A))
     return A
 end
+
+# an entry that is not stored divides to `0 / b`, which is not zero for a zero or NaN `b`
+_divkeepszeros(A, b::Number) = nnz(A) == widelength(A) || _iszero(_densezero(A) / b)
+rdiv!(A::Union{AbstractSparseMatrixCSC,AbstractCompressedVector}, b::Number) =
+    _divkeepszeros(A, b) ? (rdiv!(nonzeros(A), b); A) : broadcast!(/, A, A, b)
+ldiv!(b::Number, A::Union{AbstractSparseMatrixCSC,AbstractCompressedVector}) =
+    _divkeepszeros(A, b) ? (ldiv!(b, nonzeros(A)); A) : broadcast!(\, A, b, A)
 
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
     _checkscaledims(A, A, D, 2)
@@ -925,9 +932,9 @@ function lmul!(a::Number, x::SparseVectorOrView)
 end
 
 (*)(x::SparseVectorOrView, a::Number) =
-    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) * a)
+    SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) * a)
 (*)(a::Number, x::SparseVectorOrView) =
-    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), a * nonzeros(x))
+    SparseVector(length(x), Vector(nonzeroinds(x)), a * nonzeros(x))
 
 # * and mul!
 
@@ -936,8 +943,13 @@ _fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
 _fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
 _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 
+# The kernels for a product with a sparse vector write `y` entry by entry, so the product
+# for a fixed `y` is formed in a dense vector and copied, which checks it against the pattern
+_mul_fixed!(y, tA, A, x, alpha, beta) = copyto!(y, mul!(Vector(y), tA, A, x, alpha, beta))
+
 Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                                         alpha::Number, beta::Number)
+    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     if tA == 'N'
         _A_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
@@ -955,6 +967,7 @@ LinearAlgebra._mul!(y::AbstractVector, A::UpperOrLowerTriangular, x::AbstractSpa
 function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
                 alpha::Number, beta::Number)
     @assert tA == 'N'
+    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     Adata = parent(A)
     if Adata isa Transpose
         _At_or_Ac_mul_spvec!(transpose, y, _fliptri(A), x, alpha, beta)
@@ -1055,6 +1068,7 @@ mul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
 mul!(y::StridedVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, alpha::Number, beta::Number) =
     _spmatspvecmul!(y, tA, A, x, alpha, beta)
 Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
+    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     if tA == 'N'
         _spA_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
@@ -1169,5 +1183,5 @@ function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
         resize!(ynzind, jr)
         resize!(ynzval, jr)
     end
-    return @if_move_fixed A x SparseVector(n, ynzind, ynzval)
+    return SparseVector(n, ynzind, ynzval)
 end

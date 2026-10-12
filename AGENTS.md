@@ -135,9 +135,16 @@ that touches a kernel.
   `invoke` chains.
 - **Errors name the type and the reason**, and the working alternative when there is
   one. `ArgumentError` for bad values, `DimensionMismatch` for shapes.
-- **Fixed-pattern arrays stay experimental and unexported.** Their pattern is
-  read-only, `copy` shares it, and only shape-taking `similar` returns a writable
-  array.
+- **A fixed-pattern array is a destination, not a kind of value.** Read
+  "Sparse arrays with a fixed pattern" in `docs/src/index.md` before touching one. A
+  kernel that writes its argument stores inside the pattern or throws before changing
+  anything; one whose purpose is to change the pattern calls `_checkpatternwritable`. As
+  an operand a fixed array reads as the plain array, and no result is fixed except
+  `copy`, so an out-of-place kernel never checks `_is_fixed` on an input and starts from
+  `_writablecopy` when it mutates a copy. Do not add a method to make another operation
+  return a fixed array. A method on a fixed type is only for a function whose generic
+  method in Base or LinearAlgebra never reaches a kernel of this package that could check.
+- **Fixed-pattern arrays stay experimental and unexported.**
 - **`@inbounds` only after the bounds are provably guarded.** Performance PRs include a
   before/after table of time and allocations at realistic sizes.
 
