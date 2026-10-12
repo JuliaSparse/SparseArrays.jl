@@ -197,7 +197,8 @@ For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `
 `copy` and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
 `Factor` is not safe to share between tasks when any of them may refactorize or update it.
 Use a separate `copy(F)` per task in that case; note that this duplicates the factor's
-memory.
+memory. `deepcopy(F)` returns `copy(F)`, and `copy` of `F'` or `transpose(F)` wraps
+`copy(F)`.
 
 CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
 structure. SparseArrays creates one lazily for each Julia task (and index type) and keeps
