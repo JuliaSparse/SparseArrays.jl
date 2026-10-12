@@ -203,11 +203,22 @@ _isnotnull(x::Union{Symbolic, Numeric}) = x.p != C_NULL
 Scratch space for `ldiv!(x, F, b; workspace)`, which makes repeated solves allocation-free.
 Without it, `ldiv!` allocates its scratch space on each call. A workspace grows as needed,
 so it can be reused with any factorization, but not by two calls at once.
+
+A solve leaves UMFPACK's statistics of it, such as the number of refinement steps taken, in
+`workspace.info`, which `UMFPACK.show_umf_info(F, workspace)` prints. They are those of the
+last system solved: the last column of a matrix right-hand side, and the imaginary part of
+a complex right-hand side with a real `F`.
 """
 struct UmfpackWS{T<:UMFITypes}
     Wi::Vector{T}
     W::Vector{Float64}
+    info::Vector{Float64}
 end
+
+# UMFPACK marks an entry of `info` that it has not set with -1
+UmfpackWS{T}(Wi::Vector{T}, W::Vector{Float64}) where {T<:UMFITypes} =
+    UmfpackWS{T}(Wi, W, fill(-1.0, UMFPACK_INFO))
+UmfpackWS(Wi::Vector{T}, W::Vector{Float64}) where {T<:UMFITypes} = UmfpackWS{T}(Wi, W)
 
 UmfpackWS{T}(Wisize::Integer, Wsize::Integer) where {T<:UMFITypes} =
     UmfpackWS{T}(Vector{T}(undef, Wisize), Vector{Float64}(undef, Wsize))
@@ -254,9 +265,11 @@ refactorization with `lu!`. A serialized `UmfpackLU` carries the matrix rather t
 factors, which are recomputed on first use after deserialization.
 
 `ldiv!` takes an optional [`UMFPACK.UmfpackWS`](@ref SparseArrays.UMFPACK.UmfpackWS) to
-avoid allocating. Calls with `F` take an internal lock. To solve with the same
-factorization from several tasks at once, give each task its own `copy(F)`, which is
-independent of `F` and duplicates the factors.
+avoid allocating. A solve (`\\` or `ldiv!`, with `F`, `F'` or `transpose(F)`) only reads `F`
+and takes no lock, so several tasks can solve with one `F` at the same time, provided that
+none of them refactorizes it with `lu!` meanwhile; a task that does needs its own `copy(F)`,
+which is independent of `F` and duplicates the factors. The other calls with `F` take an
+internal lock.
 
 # Examples
 ```jldoctest
@@ -647,6 +660,11 @@ end
 # `F.Rs` always multiplies.
 _scale_factors!(Rs, do_recip) = do_recip == 0 ? map!(inv, Rs, Rs) : Rs
 
+# A solve takes no lock: it only reads the factorization, passes UMFPACK no `info` to write
+# to, and has its scratch space to itself. The numeric factors are missing only in a
+# deserialized or hand-built `UmfpackLU`, and computing them is a write, done under the lock.
+_ensure_numeric!(lu::UmfpackLU) = _isnull(lu.numeric) ? umfpack_numeric!(lu) : lu
+
 # UMFPACK needs contiguous vectors; solve through contiguous copies otherwise.
 function _unit_stride_solve!(x, lu, b, typ, workspace::UmfpackWS)
     xc = stride(x, 1) == 1 ? x : similar(x, length(x))
@@ -759,15 +777,12 @@ for itype in UmfpackIndexTypes
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 return _unit_stride_solve!(x, lu, b, typ, workspace)
             end
-            @lock lu.lock begin
-                resize!(workspace, lu, has_refinement(lu); expand_only = true)
-                umfpack_numeric!(lu)
-                (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
-
-                @isok $wsol_r(typ, lu.colptr, lu.rowval, lu.nzval,
-                    x, b, lu.numeric, lu.control,
-                    lu.info, workspace.Wi, workspace.W)
-            end
+            resize!(workspace, lu, has_refinement(lu); expand_only = true)
+            _ensure_numeric!(lu)
+            (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
+            @isok $wsol_r(typ, lu.colptr, lu.rowval, lu.nzval,
+                x, b, lu.numeric, lu.control,
+                C_NULL, workspace.Wi, workspace.W)
             return x
         end
         function solve!(x::StridedVector{ComplexF64},
@@ -778,13 +793,11 @@ for itype in UmfpackIndexTypes
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 return _unit_stride_solve!(x, lu, b, typ, workspace)
             end
-            @lock lu.lock begin
-                resize!(workspace, lu, has_refinement(lu); expand_only = true)
-                umfpack_numeric!(lu)
-                (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
-                @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
-                    C_NULL, lu.numeric, lu.control, lu.info, workspace.Wi, workspace.W)
-            end
+            resize!(workspace, lu, has_refinement(lu); expand_only = true)
+            _ensure_numeric!(lu)
+            (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
+            @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
+                C_NULL, lu.numeric, lu.control, C_NULL, workspace.Wi, workspace.W)
             return x
         end
         function det(lu::UmfpackLU{Float64,$itype})
@@ -1120,18 +1133,16 @@ ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Fl
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype,
                      workspace::Union{Nothing,UmfpackWS})
-    @lock lu.lock begin
-        checksquare(lu)
-        if size(B, 1) != lu.m
-            throw(DimensionMismatch("UmfpackLU is $(lu.m)×$(lu.n) but the right-hand side has $(size(B, 1)) rows"))
-        end
-        if size(X) != size(B)
-            throw(DimensionMismatch("output has size $(size(X)) but the right-hand side has size $(size(B))"))
-        end
-        # copy rather than unalias: unaliasing a view copies its whole parent
-        Base.mightalias(X, B) && (B = copy(B))
-        _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace)
+    checksquare(lu)
+    if size(B, 1) != lu.m
+        throw(DimensionMismatch("UmfpackLU is $(lu.m)×$(lu.n) but the right-hand side has $(size(B, 1)) rows"))
     end
+    if size(X) != size(B)
+        throw(DimensionMismatch("output has size $(size(X)) but the right-hand side has size $(size(B))"))
+    end
+    # copy rather than unalias: unaliasing a view copies its whole parent
+    Base.mightalias(X, B) && (B = copy(B))
+    _AqldivB_kernel!(X, lu, B, transposeoptype, workspace === nothing ? UmfpackWS(lu) : workspace)
     return X
 end
 function _AqldivB_kernel!(x::StridedVector{T}, lu::UmfpackLU{T},
