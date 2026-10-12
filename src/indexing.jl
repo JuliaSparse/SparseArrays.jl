@@ -1308,7 +1308,7 @@ end
 @propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, I, J) =
     _getindex_adjtrans(M, (I, J), _lower_indices(M, I, J)...)
 # resolves the ambiguity with LinearAlgebra's scalar method
-@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Int, j::Int) =
+@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Signed, j::Signed) =
     wrapperop(M)(parent(M)[j, i])
 _getindex_adjtrans(M, _, i::AbstractVector, j::AbstractVector) = copy(wrapperop(M)(parent(M)[j, i]))
 _getindex_adjtrans(M, _, i::Integer, j::AbstractVector) = map!(wrapperop(M), parent(M)[j, i])
