@@ -371,6 +371,8 @@ show_umf_ctrl(F::UmfpackLU, level::Real=2.0) =
 
 show_umf_info(F::UmfpackLU, level::Real=2.0) =
     @lock F.lock show_umf_info(F.control, F.info, level)
+show_umf_info(F::UmfpackLU, workspace::UmfpackWS, level::Real=2.0) =
+    @lock F.lock show_umf_info(F.control, workspace.info, level)
 
 
 """
@@ -660,8 +662,8 @@ end
 # `F.Rs` always multiplies.
 _scale_factors!(Rs, do_recip) = do_recip == 0 ? map!(inv, Rs, Rs) : Rs
 
-# A solve takes no lock: it only reads the factorization, passes UMFPACK no `info` to write
-# to, and has its scratch space to itself. The numeric factors are missing only in a
+# A solve takes no lock: it only reads the factorization, and has its scratch space and the
+# `info` that UMFPACK writes to, both in the workspace, to itself. The numeric factors are missing only in a
 # deserialized or hand-built `UmfpackLU`, and computing them is a write, done under the lock.
 _ensure_numeric!(lu::UmfpackLU) = _isnull(lu.numeric) ? umfpack_numeric!(lu) : lu
 
@@ -782,7 +784,7 @@ for itype in UmfpackIndexTypes
             (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
             @isok $wsol_r(typ, lu.colptr, lu.rowval, lu.nzval,
                 x, b, lu.numeric, lu.control,
-                C_NULL, workspace.Wi, workspace.W)
+                workspace.info, workspace.Wi, workspace.W)
             return x
         end
         function solve!(x::StridedVector{ComplexF64},
@@ -797,7 +799,7 @@ for itype in UmfpackIndexTypes
             _ensure_numeric!(lu)
             (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
             @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
-                C_NULL, lu.numeric, lu.control, C_NULL, workspace.Wi, workspace.W)
+                C_NULL, lu.numeric, lu.control, workspace.info, workspace.Wi, workspace.W)
             return x
         end
         function det(lu::UmfpackLU{Float64,$itype})

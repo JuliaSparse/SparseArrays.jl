@@ -566,7 +566,14 @@ end
             spawned
         end
         @test all(fetch, tasks)
-        # a solve leaves the statistics of the factorization alone
+        # a solve leaves the statistics of the factorization alone, and records its own in
+        # the workspace
+        @test isequal(F.info, info)
+        ws = UMFPACK.UmfpackWS(F)
+        @test all(==(-1), ws.info)
+        ldiv!(similar(b), F, b; workspace=ws)
+        @test ws.info[SparseArrays.LibSuiteSparse.UMFPACK_STATUS + 1] == SparseArrays.LibSuiteSparse.UMFPACK_OK
+        @test ws.info[SparseArrays.LibSuiteSparse.UMFPACK_IR_TAKEN + 1] >= 0
         @test isequal(F.info, info)
     end
     end
