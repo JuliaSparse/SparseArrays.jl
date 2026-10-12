@@ -548,6 +548,34 @@ end
         end
         @test F \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
     end
+
+    @testset "solves do not take the lock, $Tv" for Tv in STD_ELTYPES
+        A = sparse(Tv[4 1 0; 1 3 1; 0 2 5])
+        b = Tv[1, 2, 3]
+        F = lu(A)
+        info = copy(F.info)
+        solves = (() -> F \ b ≈ Matrix(A) \ b,
+                  () -> ldiv!(similar(b), F, b; workspace=UMFPACK.UmfpackWS(F)) ≈ Matrix(A) \ b,
+                  () -> F' \ b ≈ Matrix(A)' \ b,
+                  () -> transpose(F) \ b ≈ transpose(Matrix(A)) \ b,
+                  () -> F \ (b .* (1 + im)) ≈ Matrix(A) \ (b .* (1 + im)),
+                  () -> F \ [b 2b] ≈ Matrix(A) \ [b 2b])
+        tasks = @lock F.lock begin
+            spawned = [Threads.@spawn(f()) for f in solves]
+            @test timedwait(() -> all(istaskdone, spawned), 60; pollint=0.001) === :ok
+            spawned
+        end
+        @test all(fetch, tasks)
+        # a solve leaves the statistics of the factorization alone, and records its own in
+        # the workspace
+        @test isequal(F.info, info)
+        ws = UMFPACK.UmfpackWS(F)
+        @test all(==(-1), ws.info)
+        ldiv!(similar(b), F, b; workspace=ws)
+        @test ws.info[SparseArrays.LibSuiteSparse.UMFPACK_STATUS + 1] == SparseArrays.LibSuiteSparse.UMFPACK_OK
+        @test ws.info[SparseArrays.LibSuiteSparse.UMFPACK_IR_TAKEN + 1] >= 0
+        @test isequal(F.info, info)
+    end
     end
 
     @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in KERNEL_ITYPES
