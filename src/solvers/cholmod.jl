@@ -400,7 +400,9 @@ nothing done to one affects the other.
 CHOLMOD owns the memory, which is released by a finalizer. The pointer is null after
 deserialization, and using such a factorization throws an `ArgumentError`. `ldiv!` takes
 an optional [`CHOLMOD.CholmodWS`](@ref SparseArrays.CHOLMOD.CholmodWS) to avoid
-allocating; the refactorizations take a lock internal to `F`.
+allocating. A solve (`\\` or `ldiv!`) only reads `F` and takes no lock, so several tasks
+can solve with one `F` at the same time, provided that none of them refactorizes or
+updates it meanwhile; those calls take a lock internal to `F`.
 
 # Examples
 ```jldoctest
@@ -2277,44 +2279,42 @@ for TI in IndexTypes
         # dense_x struct.  In the reuse branch it also overwrites X->d with
         # n, so the output must be a contiguous column-major buffer.  Verify
         # these invariants here so CHOLMOD can never take the other branch.
-        @lock L.lock begin
-            n = size(L, 1)
-            if size(x, 1) != n || size(b, 1) != n || size(x, 2) != size(b, 2)
-                throw(DimensionMismatch("solution has size $(size(x)), RHS has size $(size(b)), " *
-                    "but the factorization is $(n)×$(n)"))
-            end
-            if stride(x, 1) != 1 || stride(x, 2) != n
-                throw(ArgumentError("solution array must be a contiguous column-major array"))
-            end
-            if stride(b, 1) != 1
-                throw(ArgumentError("RHS array must have unit column stride"))
-            end
-            s = unsafe_load(pointer(L))
-            if xtyp(T) != s.xtype || dtyp(T) != s.dtype
-                throw(ArgumentError("element type of the solution array does not match the factorization"))
-            end
-            dense_x = ws.dense_x
-            dense_x.nrow  = size(x, 1)
-            dense_x.ncol  = size(x, 2)
-            dense_x.nzmax = length(x)
-            dense_x.d     = stride(x, 2)
-            dense_x.x     = pointer(x)
-            dense_x.z     = C_NULL
-            dense_x.xtype = xtyp(T)
-            dense_x.dtype = dtyp(T)
-
-            ws.X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
-            Bptr = _setup_bptr(b, ws.dense_b)
-            status = GC.@preserve x b L ws begin
-                @checked $(cholname(:solve2, TI))(
-                    CHOLMOD_A, L,
-                    Bptr, C_NULL,
-                    ws.X, C_NULL,
-                    ws.Y, ws.E,
-                    getcommon($TI))
-            end
-            @assert !iszero(status)
+        n = size(L, 1)
+        if size(x, 1) != n || size(b, 1) != n || size(x, 2) != size(b, 2)
+            throw(DimensionMismatch("solution has size $(size(x)), RHS has size $(size(b)), " *
+                "but the factorization is $(n)×$(n)"))
         end
+        if stride(x, 1) != 1 || stride(x, 2) != n
+            throw(ArgumentError("solution array must be a contiguous column-major array"))
+        end
+        if stride(b, 1) != 1
+            throw(ArgumentError("RHS array must have unit column stride"))
+        end
+        s = unsafe_load(pointer(L))
+        if xtyp(T) != s.xtype || dtyp(T) != s.dtype
+            throw(ArgumentError("element type of the solution array does not match the factorization"))
+        end
+        dense_x = ws.dense_x
+        dense_x.nrow  = size(x, 1)
+        dense_x.ncol  = size(x, 2)
+        dense_x.nzmax = length(x)
+        dense_x.d     = stride(x, 2)
+        dense_x.x     = pointer(x)
+        dense_x.z     = C_NULL
+        dense_x.xtype = xtyp(T)
+        dense_x.dtype = dtyp(T)
+
+        ws.X[] = Ptr{cholmod_dense_struct}(pointer_from_objref(dense_x))
+        Bptr = _setup_bptr(b, ws.dense_b)
+        status = GC.@preserve x b L ws begin
+            @checked $(cholname(:solve2, TI))(
+                CHOLMOD_A, L,
+                Bptr, C_NULL,
+                ws.X, C_NULL,
+                ws.Y, ws.E,
+                getcommon($TI))
+        end
+        @assert !iszero(status)
     end
 
     @eval function ldiv!(x::StridedVecOrMat{T},
@@ -2322,38 +2322,36 @@ for TI in IndexTypes
                          b::StridedVecOrMat{T};
                          workspace::Union{Nothing, CholmodWS{$TI}} = nothing) where {T<:VTypes}
         Base.mightalias(x, b) && (b = copy(b))
-        @lock L.lock begin
-            if size(L, 1) != size(b, 1)
-                throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
-                    "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
+        if size(L, 1) != size(b, 1)
+            throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
+                "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))
+        end
+        if size(L, 2) != size(x, 1)
+            throw(DimensionMismatch("Factorization and solution should match sizes. " *
+                "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
+        end
+        if size(x, 2) != size(b, 2)
+            throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
+                "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
+        end
+        if stride(x, 1) != 1 || stride(x, 2) != size(x, 1)
+            throw(ArgumentError("solution array must be a contiguous column-major array " *
+                "(e.g. a Vector, Matrix, or view(M, :, 1:k)); got strides $(strides(x)) for size $(size(x))"))
+        end
+        if stride(b, 1) != 1
+            throw(ArgumentError("RHS array must have unit stride along its first dimension; " *
+                "got strides $(strides(b)) for size $(size(b))"))
+        end
+        issuccess(L) || throw(factorization_exception(L))
+        if workspace === nothing
+            ws = CholmodWS{$TI}()
+            try
+                solve!(x, L, b, ws)
+            finally
+                free!(ws)
             end
-            if size(L, 2) != size(x, 1)
-                throw(DimensionMismatch("Factorization and solution should match sizes. " *
-                    "Factorization has $(size(L, 1)) columns, but solution has $(size(x, 1)) rows."))
-            end
-            if size(x, 2) != size(b, 2)
-                throw(DimensionMismatch("Solution and RHS should have the same number of columns. " *
-                    "Solution has $(size(x, 2)) columns, but RHS has $(size(b, 2)) columns."))
-            end
-            if stride(x, 1) != 1 || stride(x, 2) != size(x, 1)
-                throw(ArgumentError("solution array must be a contiguous column-major array " *
-                    "(e.g. a Vector, Matrix, or view(M, :, 1:k)); got strides $(strides(x)) for size $(size(x))"))
-            end
-            if stride(b, 1) != 1
-                throw(ArgumentError("RHS array must have unit stride along its first dimension; " *
-                    "got strides $(strides(b)) for size $(size(b))"))
-            end
-            issuccess(L) || throw(factorization_exception(L))
-            if workspace === nothing
-                ws = CholmodWS{$TI}()
-                try
-                    solve!(x, L, b, ws)
-                finally
-                    free!(ws)
-                end
-            else
-                solve!(x, L, b, workspace)
-            end
+        else
+            solve!(x, L, b, workspace)
         end
         return x
     end

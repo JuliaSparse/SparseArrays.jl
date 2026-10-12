@@ -1400,6 +1400,25 @@ end
     @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
     @test fetch(t) \ b ≈ Matrix(A) \ b
 end
+
+@static if COMPREHENSIVE
+@testset "solves do not take the lock" begin
+    A = SparseMatrixCSC{Tv,Ti}(Tv[4 1 0; 1 3 1; 0 1 2])
+    b = Tv[1, 2, 3]
+    F = cholesky(A)
+    x = Matrix(A) \ b
+    solves = (() -> F \ b ≈ x,
+              () -> ldiv!(similar(b), F, b) ≈ x,
+              () -> ldiv!(similar(b), F', b) ≈ x,
+              () -> ldiv!(zeros(Tv, 3, 2), F, [b 2b]) ≈ [x 2x])
+    tasks = @lock F.lock begin
+        spawned = [Threads.@spawn(f()) for f in solves]
+        @test timedwait(() -> all(istaskdone, spawned), 60; pollint=0.001) === :ok
+        spawned
+    end
+    @test all(fetch, tasks)
+end
+end
 end
 
 end # module
