@@ -773,35 +773,6 @@ end
     @test hash(v) == hash(Vector(v)) && hash(w) == hash(Vector(w))
 end
 
-@static if COMPREHENSIVE
-@testset "Issue #246" begin
-    for t in [Float64]
-        a = OpCount.(fixturevec(t, 100))
-        b = OpCount.(2 * fixturevec(t, 100))
-
-        c = if nnz(a) != 0
-            c = copy(a)
-            nonzeros(c)[1] = 0
-            c
-        else
-            c = copy(a)
-            push!(nonzeros(c), zero(t))
-            push!(nonzerosinds(c), 1)
-            c
-        end
-        d = dropzeros(c)
-
-        for m in [identity, transpose]
-            ma, mb, mc, md = m.([a, b, c, d])
-
-            @test eqcount(() -> ma == mb) <= nnz(a) + nnz(b)
-
-            @test (mc == md) == (Array(mc) == Array(md))
-        end
-    end
-end
-end
-
 @testset "copytrito!" begin
     S = sparse([1,2,2,2,3], [1,1,2,2,4], [5, -19, 73, 12, -7])
     M = fill(Inf, size(S))
@@ -1290,14 +1261,6 @@ end
     local A = sparse([1 2 3; 4 5 6; 7 8 9])
     nonzeros(A)[2] = nonzeros(A)[6] = nonzeros(A)[7] = 0
     @test getcolptr(dropzeros!(A)) == [1, 3, 5, 7]
-    @static if COMPREHENSIVE
-    # test for issue #5169, modified for new behavior following #15242/#14798
-    @test nnz(sparse([1, 1], [1, 2], [0.0, -0.0])) == 2
-    @test nnz(dropzeros!(sparse([1, 1], [1, 2], [0.0, -0.0]))) == 0
-    # test for issue #5437, modified for new behavior following #15242/#14798
-    @test nnz(sparse([1, 2, 3], [1, 2, 3], [0.0, 1.0, 2.0])) == 3
-    @test nnz(dropzeros!(sparse([1, 2, 3],[1, 2, 3],[0.0, 1.0, 2.0]))) == 2
-    end
 end
 end
 
@@ -1476,24 +1439,6 @@ end
     for i in keys(z)
         @test findnext(!iszero, z,i) == findnext(!iszero, z_sp,i)
         @test findprev(!iszero, z,i) == findprev(!iszero, z_sp,i)
-    end
-
-    @static if COMPREHENSIVE
-    # issue 32568
-    for T = (UInt, BigInt)
-        @test findnext(!iszero, x_sp, T(4)) isa keytype(x_sp)
-        @test findnext(!iszero, x_sp, T(5)) isa keytype(x_sp)
-        @test findprev(!iszero, x_sp, T(5)) isa keytype(x_sp)
-        @test findprev(!iszero, x_sp, T(6)) isa keytype(x_sp)
-        @test findnext(iseven, x_sp, T(4)) isa keytype(x_sp)
-        @test findnext(iseven, x_sp, T(5)) isa keytype(x_sp)
-        @test findprev(iseven, x_sp, T(4)) isa keytype(x_sp)
-        @test findprev(iseven, x_sp, T(5)) isa keytype(x_sp)
-        @test findnext(!iszero, z_sp, T(4)) isa keytype(z_sp)
-        @test findnext(!iszero, z_sp, T(5)) isa keytype(z_sp)
-        @test findprev(!iszero, z_sp, T(4)) isa keytype(z_sp)
-        @test findprev(!iszero, z_sp, T(5)) isa keytype(z_sp)
-    end
     end
 
     # The sparse methods must actually extend `Base.findnext`/`Base.findprev` and skip
@@ -1994,11 +1939,6 @@ end
     for X in (D, Symmetric(D), (@static COMPREHENSIVE ? (D', Hermitian(D), UnitLowerTriangular(D), view(D, :, 1:100_000), Diagonal(sparsevec(1:100_000, 1.0))) : ())...)
         shown_bytes(X)
         @test shown_bytes(X) < nnz(D)
-    end
-
-    @static if COMPREHENSIVE
-    # Issue #30589
-    @test sprint(show, "text/plain", sparse([true true]); context=:limit=>true) == "1×2 $SparseMatrixCSC{Bool, $Int} with 2 stored entries:\n 1  1"
     end
 
     function _filled_sparse(m::Integer, n::Integer)

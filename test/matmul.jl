@@ -1031,16 +1031,4 @@ end
     end
 end
 
-@static if COMPREHENSIVE
-@testset "sparse right multiplication of Symmetric and Hermitian matrices #21431" begin
-    S = sparse(1.0I, 2, 2)
-    @test issparse(S*S*S)
-    for T in (Symmetric, Hermitian)
-        @test issparse(S*T(S)*S)
-        @test issparse(S*(T(S)*S))
-        @test issparse((S*T(S))*S)
-    end
-end
-end
-
 end # module

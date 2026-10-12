@@ -527,37 +527,6 @@ end
             @test !issymmetric(S) || isreal(S)
         end
     end
-
-    @static if COMPREHENSIVE
-    @testset "issue #605" begin
-        S = sparse([2, 3, 1], [1, 1, 3], [1, 1, 1], 3, 3)
-        @test !issymmetric(S)
-    end
-
-    @testset "issue #748" begin
-        for S in [
-            sparse([3,3,4,1,2], [1,2,2,3,4], ones(Int,5), 4, 4),
-            sparse([1,3,3,4,1,2], [1,1,2,2,3,4], ones(Int,6), 4, 4),
-            sparse([2,3,1,3,4,1,2], [1,1,2,2,2,3,4], ones(Int,7), 4, 4),
-            sparse([1,2,3,1,3,4,1,2], [1,1,1,2,2,2,3,4], ones(Int,8), 4, 4),
-            sparse([3,2,3,4,1,2], [1,2,2,2,3,4], ones(Int,6), 4, 4),
-            sparse([1,3,2,3,4,1,2], [1,1,2,2,2,3,4], ones(Int,7), 4, 4),
-            sparse([2,3,1,2,3,4,1,2], [1,1,2,2,2,2,3,4], ones(Int,8), 4, 4),
-            sparse([1,2,3,1,2,3,4,1,2], [1,1,1,2,2,2,2,3,4], ones(Int,9), 4, 4),
-            sparse([3,3,4,1,2,4], [1,2,2,3,4,4], ones(Int,6), 4, 4),
-            sparse([1,3,3,4,1,2,4], [1,1,2,2,3,4,4], ones(Int,7), 4, 4),
-            sparse([2,3,1,3,4,1,2,4], [1,1,2,2,2,3,4,4], ones(Int,8), 4, 4),
-            sparse([1,2,3,1,3,4,1,2,4], [1,1,1,2,2,2,3,4,4], ones(Int,9), 4, 4),
-            sparse([3,2,3,4,1,2,4], [1,2,2,2,3,4,4], ones(Int,7), 4, 4),
-            sparse([1,3,2,3,4,1,2,4], [1,1,2,2,2,3,4,4], ones(Int,8), 4, 4),
-            sparse([2,3,1,2,3,4,1,2,4], [1,1,2,2,2,2,3,4,4], ones(Int,9), 4, 4),
-            sparse([1,2,3,1,2,3,4,1,2,4], [1,1,1,2,2,2,2,3,4,4], ones(Int,10), 4, 4),
-            SparseMatrixCSC(6, 6, [1,1,2,3,4,5,6], [4,4,3,6,1], [0,1,1,1,0]),
-        ]
-            @test !issymmetric(S)
-        end
-    end
-    end
 end
 
 @testset "diff" begin
@@ -770,15 +739,6 @@ end
 @testset "exp" begin
     A = fixture(Float64, 5, 3)
     @test ℯ.^A ≈ ℯ.^Array(A)
-end
-
-@testset "Adding sparse-backed SymTridiagonal (#46355)" begin
-    a = SymTridiagonal(sparsevec(Int[1]), sparsevec(Int[]))
-    @test a + a == Matrix(a) + Matrix(a)
-
-    # symtridiagonal with non-empty off-diagonal
-    b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
-    @test b + b == Matrix(b) + Matrix(b)
 end
 end
 

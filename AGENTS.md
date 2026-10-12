@@ -72,8 +72,9 @@ The `ambiguous` and `aqua` suites run only when selected by name. The commands f
 trimmed app are in the `trim` job of `.github/workflows/ci.yml`.
 The tests run in two modes, described in `test/AGENTS.md`. Standard mode is what
 `Pkg.test`, Julia's own CI and every CI job but the coverage job run. Comprehensive mode
-also runs the tests guarded with `@static if COMPREHENSIVE` and `test/issues.jl`; only the
-coverage job runs it, so run it locally before a PR that touches a kernel.
+also runs the tests guarded with `@static if COMPREHENSIVE`, `test/issues.jl` and
+`test/solvers/issues.jl`; only the coverage job runs it, so run it locally before a PR
+that touches a kernel.
 
 ## Style
 
@@ -141,9 +142,11 @@ coverage job runs it, so run it locally before a PR that touches a kernel.
 `test/AGENTS.md` has the detail: the two modes, the fixtures and helpers, and what test
 time costs. In short:
 
-- A new test is a comprehensive test: put it next to the feature it exercises, in an
-  existing testset when one fits, inside `@static if COMPREHENSIVE ... end`. An
-  unguarded test is only for new code, and one representative case of it.
+- A new test is a comprehensive test. Put a standalone issue reproducer in
+  `test/issues.jl`, or `test/solvers/issues.jl` if it uses a sparse solver. Put additional
+  feature cases next to the feature, in an existing testset when one fits, inside
+  `@static if COMPREHENSIVE ... end`. An unguarded feature test is only for new code,
+  and one representative case of it; retain existing standard regression coverage.
 - Test time is compilation, so it grows with the number of type combinations a test
   compiles. Cover real and complex eltypes, vector and matrix, with `Int` indices, and
   take any other type or helper from `test/SparseTestHelpers.jl`.

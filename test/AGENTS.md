@@ -24,9 +24,13 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   add it to `SparseTestHelpers.jl` and export it, and reuse a type that is already there
   when it fits. A helper that a second suite needs goes there as well. `ambiguous.jl`
   and `aqua.jl` alone do not include `testhelpers.jl`.
-- Test files are named after the source area they cover. `solvers/` mirrors
-  `src/solvers/`: its suites are `solvers/cholmod`, `solvers/umfpack`, `solvers/spqr`,
-  `solvers/solvers` and `solvers/threads`, so the selector `solvers` runs them all.
+- Test files are named after the source area they cover. `issues.jl` holds standalone
+  issue regressions. `solvers/` mirrors `src/solvers/`: its suites are `solvers/cholmod`,
+  `solvers/umfpack`, `solvers/spqr`, `solvers/solvers`, `solvers/threads` and
+  `solvers/issues`. In standard mode, `solvers` skips `solvers/issues`; comprehensive
+  mode includes it. The selector `issues` selects both issue suites, `!issues` excludes
+  both, and `solvers/issues` selects only the solver regressions. Solver-specific
+  regressions go in `solvers/issues.jl`, preserving the GPL boundary.
 - `trim/` is not a suite: it is a small app that the `trim` CI job builds with
   `juliac --trim=safe` and runs. It covers the concatenation hooks SparseArrays adds to
   Base for dense arrays, which Julia's own trim test reaches, and the main sparse
@@ -76,9 +80,10 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   get their standard coverage from the 32-bit CI jobs. Julia's CI runs every suite
   serially in one process, so standard mode must stay fast.
 - **Comprehensive** mode runs, in the same files, the tests guarded with
-  `@static if COMPREHENSIVE` as well, and the `issues` suite, which a standard run skips
-  unless a selector names it. It is selected by `SPARSEARRAYS_TEST_COMPREHENSIVE=true` in
-  the environment, which `runtests.jl` sets for the `--comprehensive` argument, and in CI
+  `@static if COMPREHENSIVE` as well, and the `issues` and `solvers/issues` suites, which a
+  standard run skips unless a selector names them. It is selected by
+  `SPARSEARRAYS_TEST_COMPREHENSIVE=true` in the environment, which `runtests.jl` sets for
+  the `--comprehensive` argument, and in CI
   by the coverage job only. The guarded tests are the issue regressions and the wider
   corner cases: more element and index types, wrappers, promotion pairs, sizes, and the
   allocation, inference and dispatch checks beyond one per kernel.
@@ -104,9 +109,12 @@ returns a fresh fixture and its dense copy. Do not keep arrays in module-level v
 any testset can write to them, and what a later testset then sees depends on which ran
 before it, which also changes when a testset is guarded.
 
-**A new test is guarded.** That covers a regression test for an issue and any additional
-case for code the standard tests already exercise. An unguarded test is only for new
-code, and is one representative case; its variations are guarded.
+**A new test is comprehensive.** Put standalone issue reproducers in `issues.jl` or,
+when they use a sparse solver, `solvers/issues.jl`. These suites are selected as a whole
+and need no per-test guards. Put additional feature cases in the existing feature
+testset behind `@static if COMPREHENSIVE`. An unguarded feature test is only for new
+code, and is one representative case; its variations are guarded. Preserve existing
+standard regression coverage when reorganizing tests.
 
 `COMPREHENSIVE` comes from `SparseTestHelpers.jl`. Guard with `@static`, which is
 resolved when the macro expands, so that a standard run does not lower or compile the

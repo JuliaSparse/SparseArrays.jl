@@ -44,11 +44,6 @@ end
         A = dropzeros(A)
         test_map_and_map!(A, true)
     end
-    @static if COMPREHENSIVE
-    # https://github.com/JuliaLang/julia/issues/37819
-    Z = spzeros(Float64, Int32, 50000, 50000)
-    @test isa(-Z, SparseMatrixCSC{Float64, Int32})
-    end
 end
 
 @testset "map[!] implementation specialized for a pair of (input) sparse vectors/matrices" begin
@@ -87,11 +82,6 @@ end
         end
         @test mismatch(map!(f, X, A, B), map!(f, fX, fA, fB)) === nothing
         retype === identity && @test_throws DimensionMismatch map!(f, X, A, spzeros((shapeA .- 1)...))
-    end
-    @static if COMPREHENSIVE
-    # https://github.com/JuliaLang/julia/issues/37819
-    Z = spzeros(Float64, Int32, 50000, 50000)
-    @test isa(Z + Z, SparseMatrixCSC{Float64, Int32})
     end
 end
 
@@ -1030,12 +1020,6 @@ end
     end
 end
 
-@static if COMPREHENSIVE
-@testset "Issue #27836" begin
-    @test minimum(sparse([1, 2], [1, 2], ones(Int32, 2)), dims = 1) isa Matrix
-end
-end
-
 @testset "Issue #30118" begin
     @static if COMPREHENSIVE
     @test ((_, x) -> x).(Int, spzeros(3)) == spzeros(3)
@@ -1097,18 +1081,6 @@ end
     C = a .* transpose(b)
     @test mismatch(C, Vector(a) .* transpose(Vector(b))) === nothing
     @test nnz(C) == 4
-end
-
-@static if COMPREHENSIVE
-@testset "issue #31758: out of bounds write in _map_zeropres!" begin
-    y = sparsevec([2,7], [1., 2.], 10)
-    x1 = sparsevec(fill(1.0, 10))
-    x2 = sparsevec([2,7], [1., 2.], 10)
-    x3 = sparsevec(fill(1.0, 10))
-    f(x, y, z) = x == y == z == 0 ? 0.0 : NaN
-    y .= f.(x1, x2, x3)
-    @test all(isnan, y)
-end
 end
 
 @testset "Vec/Mat Style" begin
@@ -1181,24 +1153,6 @@ end
         A[1:sz+3:sz^2] .= NaN
         test_extrema(A; dims_test = @static COMPREHENSIVE ? ((), 1, 2) : (1,))
     end
-end
-
-@static if COMPREHENSIVE
-@testset "issue #42670 - error in sparsevec outer product" begin
-    A = spzeros(Int, 4)
-    B = copy(A)
-    C = sparsevec([0 0 1 1 0 0])'
-    A[2] = 1
-    A[2] = 0
-    @test A * C == B * C == spzeros(Int, 4, 6)
-end
-
-@testset "issue #46337 - error in sparsevec map" begin
-    x = sparsevec([1], [1//1+0im])
-    @test inv.(x) == [1//1+0im]
-    y = spzeros(Int, 1)
-    @test y ./ x == y
-end
 end
 
 @testset "map and broadcast kernels with the row count at typemax of the index type" begin

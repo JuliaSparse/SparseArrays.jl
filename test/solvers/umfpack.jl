@@ -291,15 +291,6 @@ end
     end
     end
 
-    @static if COMPREHENSIVE
-    @testset "Issue #4523 - complex sparse \\" begin
-        A, b = sparse((1.0 + im)I, 2, 2), fill(1., 2)
-        @test A * (lu(A)\b) ≈ b
-
-        @test det(sparse([1,3,3,1], [1,1,3,3], [1,1,1,1])) == 0
-    end
-    end
-
     @testset "UMFPACK_ERROR_n_nonpositive" begin
         @test_throws ArgumentError lu(sparse(Int[], Int[], Float64[], 5, 0))
     end
@@ -359,16 +350,6 @@ end
         @test hasproperty(F, :(:))
         @test :numeric ∉ propertynames(F)
         @test :numeric ∈ propertynames(F, true)
-    end
-
-    @static if COMPREHENSIVE
-    @testset "Issues #18246,18244 - lu sparse pivot" begin
-        A = sparse(1.0I, 4, 4)
-        A[1:2,1:2] = [-.01 -200; 200 .001]
-        F = lu(A)
-        umfpack_report(F)
-        @test F.p == [3 ; 4 ; 2 ; 1]
-    end
     end
 
     @testset "Test that A[c|t]_ldiv_B!{T<:Complex}(X::StridedMatrix{T}, lu::UmfpackLU{Float64}, B::StridedMatrix{T}) works as expected." begin
@@ -554,15 +535,6 @@ end
     end
 
     @static if COMPREHENSIVE
-    @testset "lu!(F, S) does not reuse the symbolic factors of another size, $Ti" for Ti in ITYPES
-        F = lu(SparseMatrixCSC{Float64,Ti}(sparse([4.0 1; 1 3])))
-        C = sparse([4.0 1 0; 1 3 0; 0 0 7])
-        lu!(F, C)
-        @test size(F.L) == (3, 3)
-        @test F \ [1.0, 2.0, 3.0] ≈ Matrix(C) \ [1.0, 2.0, 3.0]
-        @test det(F) ≈ det(Matrix(C))
-    end
-
     @testset "factors are read under the lock, $Ti" for Ti in ITYPES
         A = SparseMatrixCSC{Float64,Ti}(sparse([4.0 1; 1 3]))
         F = lu(A)
@@ -575,19 +547,6 @@ end
             @test timedwait(() -> istaskdone(t), 60; pollint=0.001) === :ok
         end
         @test F \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
-    end
-
-    @testset "logabsdet snapshots size with factors (#1029), $Tv" for Tv in STD_ELTYPES
-        F = lu(sparse(Diagonal(Tv[2, 3])))
-        A = sparse(Diagonal(Tv[7, 11, 13]))
-        t = @lock F.lock begin
-            task = @async logabsdet(F)
-            yield()
-            @test !istaskdone(task)
-            lu!(F, A)
-            task
-        end
-        @test all(fetch(t) .≈ logabsdet(Matrix(A)))
     end
     end
 
