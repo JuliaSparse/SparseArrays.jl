@@ -35,6 +35,9 @@ Being a stdlib shapes everything below:
 - No new dependencies.
 - Loading the package is measured in sysimage invalidations. Do not define methods
   Base or LinearAlgebra already provide generically.
+- Julia's manual includes `docs/src/index.md` and the docstrings it lists, but not
+  `docs/src/solvers.md`. An `@ref` from the former into the latter breaks Julia's docs
+  build; `.ci/check-docs-crossrefs.jl`, run by the `code-checks` CI job, fails on one.
 - Every source and test file starts with the Julia MIT license banner.
 
 ## Layout
@@ -66,6 +69,7 @@ julia .ci/check-whitespace.jl
 julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous", "aqua"])'   # ambiguity and Aqua checks
 julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'  # doctests
 julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/solvers/
+julia .ci/check-docs-crossrefs.jl   # no `@ref` from docs/src/index.md into docs/src/solvers.md
 ```
 
 The `ambiguous` and `aqua` suites run only when selected by name. The commands for the
