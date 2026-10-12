@@ -178,7 +178,7 @@ other copies, so its calls never wait for theirs.
 |:-----|:----------|:-----------------------------------------|
 | `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `logabsdet`, `lu!`, `copy` and the factors `F.L`, `F.U`, `F.p`, `F.q`, `F.Rs` |
 | `SPQR.QRSparse` | independent copy of the factors and permutations | none: there is no lock |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!`, `copy` and the in-place low-rank updates |
+| `CHOLMOD.Factor` | independent deep copy of the whole factor | `cholesky!`, `ldlt!`, `copy` and the in-place low-rank updates; not `\` and `ldiv!` |
 
 An independent copy is unaffected by anything done to the original, and the original by
 anything done to the copy. `deepcopy(F)` is an independent copy too, and `copy`
@@ -198,11 +198,12 @@ Threads.@threads for cols in collect(Iterators.partition(axes(B, 2), cld(size(B,
 end
 ```
 
-For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`,
-`copy` and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
-`Factor` is not safe to share between tasks when any of them may refactorize or update it.
-Use a separate `copy(F)` per task in that case; note that this duplicates the factor's
-memory.
+For CHOLMOD, only [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`, `copy` and
+the in-place low-rank updates take the lock of the `Factor`. `F \ b` and `ldiv!` only read
+the factor and do not, so several tasks can solve with one `Factor` at the same time and
+need no copies. That leaves a `Factor` unsafe to share between tasks when any of them may
+refactorize or update it. Use a separate `copy(F)` per task in that case; note that this
+duplicates the factor's memory.
 
 CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
 structure. SparseArrays creates one lazily for each Julia task (and index type) and keeps

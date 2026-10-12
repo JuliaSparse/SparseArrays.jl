@@ -34,12 +34,13 @@ on the GPL libraries; see the Layout section there.
   state (C factor objects, matrix arrays, status, control and info) holds that lock for
   the whole call, including argument checks that read the factor and any `issuccess`
   check after refactorization. Read-only calls on a `UmfpackLU` serialize too. Those on
-  a `CHOLMOD.Factor` (`F \ b`, `diag`, `logdet`, `sparse(F)`) do not take the lock, so
-  that tasks can solve with one shared factor in parallel; only the calls that modify
-  the factor (`cholesky!`, `ldlt!`, `lowrankupdate!`) and `copy` take it, and a factor
-  must not be modified while another task reads it. Where a locked method calls another,
-  rely on reentrancy or split out an unlocked kernel, whichever keeps hot paths to one
-  acquisition.
+  a `CHOLMOD.Factor` (`F \ b`, `ldiv!`, `diag`, `logdet`, `sparse(F)`) do not take the
+  lock, so that tasks can solve with one shared factor in parallel; only the calls that
+  modify the factor (`cholesky!`, `ldlt!`, `lowrankupdate!`) and `copy` take it, and a
+  factor must not be modified while another task reads it. CHOLMOD's solve writes to
+  the factor when it is given a `Bset`, so a lock-free solve must not pass one. Where a
+  locked method calls another, rely on reentrancy or split out an unlocked kernel,
+  whichever keeps hot paths to one acquisition.
 - A `QRSparse` is immutable and nothing writes to its arrays after `qr` returns, so it
   has no lock and its solves run in parallel on one shared object. Keep it that way: a
   method that modifies a `QRSparse` in place would need a lock on every solve again.
