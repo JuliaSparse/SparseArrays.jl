@@ -35,6 +35,14 @@ Development happens against Julia nightly. To run the tests:
 julia +nightly --project -e 'using Pkg; Pkg.test()'
 ```
 
+That runs the standard mode, which is also what Julia's own CI runs. The comprehensive
+mode adds the tests guarded with `COMPREHENSIVE` and `test/issues.jl`. Run it before
+a pull request that touches a kernel, since only the coverage job in CI runs it:
+
+```sh
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["--comprehensive"])'
+```
+
 [AGENTS.md](AGENTS.md) has the conventions this repository follows, the commands for
 running a single test file, the whitespace check and the doctests, and pointers to the
 guides for the solvers, the test suite and upgrading SuiteSparse.
