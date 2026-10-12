@@ -168,9 +168,9 @@ _unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(
 _unsafe_unfix(x::AbstractSparseMatrixCSC) = x
 _writablecopy(A::FixedSparseCSC) = SparseMatrixCSC(A)
 
-# A fixed destination keeps its pattern: B's stored entries must lie in it and A's other
-# entries become zero. The pattern and the values are checked in full before anything is
-# written.
+# A fixed destination keeps its pattern: A's entries that B does not store become zero, and
+# an entry of B outside the pattern must be one that `setindex!` would not store. The
+# pattern and the values are checked in full before anything is written.
 function _copyto_fixed!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     size(A) == size(B) || throw(DimensionMismatch(lazy"cannot copy a matrix of size $(size(B)) into a fixed one of size $(size(A))"))
     Arv, Brv, Anz, Bnz = getrowval(A), getrowval(B), getnzval(A), getnzval(B)
@@ -188,7 +188,7 @@ function _copyto_fixed!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
                 i = Brv[p]
                 while k <= kend && Arv[k] < i; k += 1; end
                 if !(k <= kend && Arv[k] == i)
-                    _iszero(Bnz[p]) || _throwfixedinsert(A, i, j)
+                    _isimplicitzero(convert(eltype(A), Bnz[p]), eltype(A)) || _throwfixedinsert(A, i, j)
                     continue
                 end
                 write && (Anz[k] = Bnz[p])
@@ -259,7 +259,7 @@ function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector
             i = Bi[p]
             while k <= length(Ai) && Ai[k] < i; k += 1; end
             if !(k <= length(Ai) && Ai[k] == i)
-                _iszero(Bnz[p]) || _throwfixedinsert(A, i)
+                _isimplicitzero(convert(eltype(A), Bnz[p]), eltype(A)) || _throwfixedinsert(A, i)
                 continue
             end
             write && (Anz[k] = Bnz[p])
@@ -269,6 +269,9 @@ function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector
 end
 
 Base.setindex!(x::FixedSparseVector, v::AbstractVector, ::Colon) = setindex!(x, v, axes(x, 1))
-# Base's method goes through `reverse!`
+# Base's methods never reach a sparse kernel that could check: `circshift!` goes through
+# `reverse!` and `permute!` assigns a permuted copy
 Base.circshift!(x::FixedSparseVector, ::Integer) = _throwfixedchange(x, :circshift!)
+Base.permute!(x::FixedSparseVector, ::AbstractVector) = _throwfixedchange(x, :permute!)
+Base.invpermute!(x::FixedSparseVector, ::AbstractVector) = _throwfixedchange(x, :invpermute!)
 sparsevec(x::FixedSparseVector) = _writablecopy(x)

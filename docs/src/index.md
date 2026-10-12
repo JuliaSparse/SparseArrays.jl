@@ -486,14 +486,18 @@ Three rules describe everything a fixed array does.
 **A write lands inside the pattern or throws.** `W .= ...`, `map!`, `copyto!`, `mul!`,
 `fill!`, `rmul!`, `lmul!`, `rdiv!`, `W[i, j] = v` and assignment through a column view store
 a value at each stored entry, a zero included, and leave the pattern alone. What is written
-need not fill the pattern: every nonzero of it must fall on a stored entry, and the stored
-entries it leaves out become zero, so `W .= M` and `W .= 2 .* M` both work. A write that
-needs a nonzero where the pattern has no entry throws an `ArgumentError`, and the kernels of this
-package check for that before they change any value. That covers a block assignment such
-as `W[:, j] = x` or `W[I, J] = B`. An assignment that Julia carries out one entry at a
-time, such as a broadcast into a `view` of `W` or `w[inds] = x` with a vector of indices
-into a fixed vector, stops at the first entry outside the pattern, with the entries before
-it already written. Writing through `nonzeros(W)` is always allowed.
+need not fill the pattern: every value that `setindex!` would store must fall on a stored
+entry, and the stored entries it leaves out become zero, so `W .= M` and `W .= 2 .* M` both
+work. That holds for a result written into a separate fixed destination as well, as by
+`transpose!(W, A)`, `permute!(W, A, p, q)` or `circshift!(W, A, s)`. A write that needs an
+entry where the pattern has none throws an `ArgumentError`, and the kernels of this package
+check for that before they change any value. That covers a block assignment such as
+`W[:, j] = x`, `W[I, J] = B` or `w[inds] = x`. Where this package has no method for a sparse
+destination, Julia's generic one runs and writes one entry at a time: a broadcast into a
+`view` of `W`, a dense source as in `W .= D` or `copyto!(W, D)`, `axpy!(a, A, W)`, or `mul!`
+with a dense factor. Such a
+write cannot change the pattern either, but it stops at the first entry outside it, with
+the entries before it already written. Writing through `nonzeros(W)` is always allowed.
 
 ```jldoctest fixedpattern
 julia> W[1, 3] = 1.0
@@ -507,10 +511,12 @@ ERROR: ArgumentError: cannot store a nonzero f(0) into a FixedSparseCSC, its spa
 
 **A function that exists to change the pattern throws.** [`dropzeros!`](@ref),
 [`droptol!`](@ref), [`SparseArrays.fkeep!`](@ref), `tril!`, `triu!`,
-[`SparseArrays.dropstored!`](@ref), `sort!`, `permute!`, `reverse!` and `circshift!`
-refuse a fixed array. None of them does something else that happens to fit the pattern.
-Their out-of-place forms (`dropzeros`, `tril`, `sort`, ...) work, because of the next
-rule.
+[`SparseArrays.dropstored!`](@ref), `sort!`, `permute!`, `invpermute!`, `reverse!`,
+`circshift!`, `SparseArrays.swaprows!` and `SparseArrays.swapcols!` refuse a fixed array
+as the argument they change. None of them does something else that happens to fit the
+pattern. Their out-of-place forms (`dropzeros`, `tril`, `sort`, ...) work, because of the
+next rule. Applied to a `view` of a fixed array, those that have no sparse method for a
+view are generic writes, under the previous rule.
 
 ```jldoctest fixedpattern
 julia> dropzeros!(W)

@@ -1118,31 +1118,27 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     return _checkbuffers(A)
 end
 
-# Block assignment into a fixed pattern: every entry is converted and located, and a nonzero
-# value outside the pattern rejected, before any entry is written.
+# Block assignment into a fixed pattern: a first pass converts every value and rejects one
+# that would be stored outside the pattern, and only the second pass writes.
 function _setindex_fixed!(A::AbstractSparseMatrixCSC{Tv}, V::AbstractVecOrMat, I, J) where Tv
     V = Base.unalias(A, V)
     rowvalA = getrowval(A); nzvalA = getnzval(A)
-    pos = Vector{Int}(undef, length(I) * length(J))
-    vals = Vector{Tv}(undef, length(pos))
-    k = 0
-    for j in J
-        r1 = Int(first(nzrange(A, j)))
-        r2 = Int(last(nzrange(A, j)))
-        for i in I
-            k += 1
-            v = vals[k] = convert(Tv, V[k])
-            p = searchsortedfirst(view(rowvalA, r1:r2), i) + r1 - 1
-            if p <= r2 && rowvalA[p] == i
-                pos[k] = p
-            else
-                _isimplicitzero(v, Tv) || _throwfixedinsert(A, i, j)
-                pos[k] = 0
+    for write in (false, true)
+        k = 0
+        for j in J
+            r1 = Int(first(nzrange(A, j)))
+            r2 = Int(last(nzrange(A, j)))
+            for i in I
+                k += 1
+                v = convert(Tv, V[k])
+                p = searchsortedfirst(view(rowvalA, r1:r2), i) + r1 - 1
+                if p <= r2 && rowvalA[p] == i
+                    write && (nzvalA[p] = v)
+                else
+                    _isimplicitzero(v, Tv) || _throwfixedinsert(A, i, j)
+                end
             end
         end
-    end
-    for k in eachindex(pos)
-        pos[k] == 0 || (nzvalA[pos[k]] = vals[k])
     end
     return A
 end

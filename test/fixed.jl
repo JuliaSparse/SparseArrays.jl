@@ -399,7 +399,7 @@ always_true(x...) = true
     F, f = fixed(A), fixed(x)
     matfs = (dropzeros!, (@static COMPREHENSIVE ? (S -> droptol!(S, 0.5), S -> fkeep!(always_true, S), tril!, triu!,
         S -> dropstored!(S, 1, 1), S -> dropstored!(S, 1:2, 1:2), reverse!, S -> reverse!(S, dims=1),
-        S -> circshift!(S, A, (0, 0)), S -> sort!(S, dims=1), S -> permute!(S, A, [1, 2, 3], [1, 2, 3]),
+        S -> sort!(S, dims=1),
         S -> permute!(S, [1, 2, 3], [1, 2, 3]), S -> dropstored!(S, [2], [1]), S -> dropstored!(S, 1:0, 1:0), S -> dropstored!(S, :, 1),
         S -> Base.swaprows!(S, 1, 3), S -> Base.swapcols!(S, 1, 3)) : ())...)
     for f! in matfs
@@ -407,7 +407,7 @@ always_true(x...) = true
         @test exact_equal(F, A) && _is_fixed(F)
     end
     vecfs = (dropzeros!, (@static COMPREHENSIVE ? (v -> droptol!(v, 0.5), v -> fkeep!(always_true, v), v -> dropstored!(v, 1),
-        reverse!, v -> circshift!(v, x, 0), v -> circshift!(v, 1), sort!) : ())...)
+        reverse!, v -> circshift!(v, 1), v -> permute!(v, collect(1:5)), v -> invpermute!(v, collect(1:5)), sort!) : ())...)
     for f! in vecfs
         @test_throws ArgumentError f!(f)
         @test exact_equal(f, x) && _is_fixed(f)
@@ -498,6 +498,77 @@ end
     @test_throws ArgumentError D .= 2 .* J
     @test_throws ArgumentError map!(identity, D, J)
     @test exact_equal(D, M)
+end
+
+# These write a result into a destination apart from their operands, so the pattern of a
+# fixed destination decides, as it does for a broadcast.
+@testset "a result written into a separate fixed destination fits the pattern or throws" begin
+    A = sparse([1.0 0 2; 0 3 0; 4 0 5]); B = sparse([1.0 0 2; 1 3 0; 4 0 5])
+    x = sparsevec([1, 3], [1.0, 2.0], 3); y = sparsevec([1, 2], [1.0, 2.0], 3)
+    p = [3, 2, 1]
+    for (write!, R, bad!) in (
+            (W -> mul!(W, A, 2), 2A, W -> mul!(W, B, 2)), (W -> mul!(W, 2, A), 2A, W -> mul!(W, 2, B)),
+            (W -> transpose!(W, sparse(A')), A, W -> transpose!(W, sparse(B'))),
+            (W -> adjoint!(W, sparse(A')), A, W -> adjoint!(W, sparse(B'))),
+            (W -> circshift!(W, A, (0, 0)), A, W -> circshift!(W, A, (1, 0))),
+            (W -> permute!(W, A, p, p), A[p, p], W -> permute!(W, A, [2, 1, 3], [1, 2, 3])),
+            (W -> mul!(W, B, Diagonal([0.0, 1.0, 1.0])), B * Diagonal([0.0, 1, 1]), W -> mul!(W, B, Diagonal([1.0, 1.0, 1.0]))),
+            (W -> mul!(W, Diagonal([0.0, 1.0, 1.0]), sparse(B')), Diagonal([0.0, 1, 1]) * B', W -> mul!(W, Diagonal([1.0, 1.0, 1.0]), sparse(B'))))
+        W = fixed(A)
+        @test write!(W) === W && W == R && same_pattern(W, A)
+        W = fixed(A)
+        @test_throws ArgumentError bad!(W)
+        @test exact_equal(W, A)
+    end
+    for (write!, r, bad!) in (
+            (w -> mul!(w, A, x), A * x, w -> mul!(w, B, x)), (w -> mul!(w, A', x), A' * x, w -> mul!(w, B', y)),
+            (w -> mul!(w, Matrix(A), x), A * x, w -> mul!(w, Matrix(B), x)),
+            (w -> mul!(w, UpperTriangular(Matrix(A)), x), UpperTriangular(Matrix(A)) * x, w -> mul!(w, LowerTriangular(Matrix(B)), x)),
+            (w -> mul!(w, A, x, 2, 1), 2 * (A * x) + x, w -> mul!(w, B, x, 2, 1)),
+            (w -> axpy!(2, x, w), 3x, w -> axpy!(2, y, w)),
+            (w -> circshift!(w, x, 0), x, w -> circshift!(w, x, 1)),
+            (w -> (w[[3, 1]] = [7.0, 8.0]; w), [8.0, 0, 7], w -> (w[[1, 2]] = [7.0, 8.0])),
+            (w -> (w[[true, false, true]] = [7.0, 8.0]; w), [7.0, 0, 8], w -> (w[[true, true, false]] = [7.0, 8.0])))
+        w = fixed(x)
+        @test write!(w) === w && w == r && nonzeroinds(w) == [1, 3]
+        w = fixed(x)
+        @test_throws ArgumentError bad!(w)
+        @test exact_equal(w, x)
+    end
+    # an index vector assigns into a writable vector as before
+    s = copy(x)
+    @test (s[[2, 1]] = [7.0, 8.0]; s == [8.0, 7, 2]) && (s[[true, false, true]] = [0.0, 1.0]; s == [0.0, 7, 1])
+end
+
+# One test decides what may lie outside the pattern, whatever the kernel: a value that
+# `setindex!` leaves unstored.
+@testset "a value outside a fixed pattern is accepted when setindex! would not store it" begin
+    M = sparse([1.0 0 0; 0 1 0; 0 0 1]); x = sparsevec([1], [1.0], 3)
+    Z = sparse([1, 3], [1, 1], [2.0, 0.0], 3, 3); z = sparsevec([1, 3], [2.0, 0.0], 3)
+    N = sparse([1, 3], [1, 1], [2.0, -0.0], 3, 3); n = sparsevec([1, 3], [2.0, -0.0], 3)
+    for write! in (W -> copyto!(W, Z), W -> (W[:, :] = Z), W -> (W[:, 1] = z), W -> copyto!(view(W, :, 1), z),
+                   W -> (W[3, 1] = 0.0; W[1, 1] = 2.0), W -> (W[[1, 3]] = [2.0, 0.0]))
+        W = fixed(M)
+        write!(W)
+        @test W[:, 1] == [2.0, 0, 0] && same_pattern(W, M)
+    end
+    for write! in (W -> copyto!(W, N), W -> (W[:, :] = N), W -> (W[:, 1] = n), W -> copyto!(view(W, :, 1), n), W -> (W[3, 1] = -0.0),
+                   W -> (W[[1, 3]] = [2.0, -0.0]))
+        W = fixed(M)
+        @test_throws ArgumentError write!(W)
+        @test exact_equal(W, M)
+    end
+    for write! in (w -> copyto!(w, z), w -> (w[:] = z), w -> (w[1:3] = z), w -> (w[[1, 3]] = [2.0, 0.0]), w -> (w[3] = 0.0; w[1] = 2.0))
+        w = fixed(x)
+        write!(w)
+        @test w == [2.0, 0, 0] && nonzeroinds(w) == [1]
+    end
+    for write! in (w -> copyto!(w, n), w -> (w[:] = n), w -> (w[1:3] = n), w -> (w[[1, 3]] = [2.0, -0.0]), w -> (w[3] = -0.0),
+                   w -> copyto!(w, Vector(n)))
+        w = fixed(x)
+        @test_throws ArgumentError write!(w)
+        @test exact_equal(w, x)
+    end
 end
 
 @testset "rdiv! and ldiv! by a number write the stored values of a fixed array" begin

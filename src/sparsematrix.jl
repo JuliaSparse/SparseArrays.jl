@@ -959,6 +959,7 @@ beyond that passed in.
 """
 function halfperm!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{TvA,Ti},
         q::AbstractVector{<:Integer}, f::F = identity) where {Tv,TvA,Ti,F<:Function}
+    _is_fixed(X) && return _copyto_fixed!(X, halfperm!(spzeros(Tv, Ti, size(A, 2), size(A, 1)), A, q, f))
     _computecolptrs_halfperm!(X, A)
     _distributevals_halfperm!(X, A, q, f)
     return X
@@ -1194,7 +1195,6 @@ Checks compatibility of source argument `A` and destination argument `X`.
 """
 function _checkargs_sourcecompatdest_permute!(A::AbstractSparseMatrixCSC{Tv,Ti},
         X::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
-    _checkpatternwritable(X, :permute!)
     if size(X, 1) != size(A, 1)
         throw(DimensionMismatch(string("destination argument `X`'s row count, ",
             "`size(X, 1) (= $(size(X, 1)))`, must match source argument `A`'s row count, `size(A, 1) (= $(size(A, 1)))`")))
@@ -1300,6 +1300,7 @@ See also [`permute`](@ref).
 function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti},
         p::AbstractVector{<:Integer}, q::AbstractVector{<:Integer}) where {Tv,Ti}
     _checkargs_sourcecompatdest_permute!(A, X)
+    _is_fixed(X) && return _copyto_fixed!(X, permute(A, p, q))
     _checkargs_sourcecompatperms_permute!(A, p, q)
     # bypass strict buffer checking
     C = spzeros(Tv, Ti, size(A,2), size(A,1))
@@ -1314,6 +1315,7 @@ function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{
         p::AbstractVector{<:Integer}, q::AbstractVector{<:Integer},
         C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     _checkargs_sourcecompatdest_permute!(A, X)
+    _is_fixed(X) && return _copyto_fixed!(X, permute(A, p, q))
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
     _checkargs_noalias_permute!((:X, :A, :C), X, A, C)
@@ -2160,7 +2162,7 @@ _uniformscaling(A::AbstractSparseMatrixCSC{Tv,Ti}, J::UniformScaling{T}) where {
 function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c)::Base.DimsInteger{2})
     size(O) == size(X) || throw(DimensionMismatch(LazyString("cannot shift a matrix of size ",
         size(X), " into a ", nameof(typeof(O)), " of size ", size(O))))
-    _checkpatternwritable(O, :circshift!)
+    _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r, c)))
     nz = nnz(X)
 
     iszero(nz) && return copy!(O, X)

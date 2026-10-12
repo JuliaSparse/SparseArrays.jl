@@ -142,7 +142,8 @@ that touches a kernel.
   an operand a fixed array reads as the plain array, and no result is fixed except
   `copy`, so an out-of-place kernel never checks `_is_fixed` on an input and starts from
   `_writablecopy` when it mutates a copy. Do not add a method to make another operation
-  return or accept a fixed array.
+  return a fixed array. A method on a fixed type is only for a function whose generic
+  method in Base or LinearAlgebra never reaches a kernel of this package that could check.
 - **Fixed-pattern arrays stay experimental and unexported.**
 - **`@inbounds` only after the bounds are provably guarded.** Performance PRs include a
   before/after table of time and allocations at realistic sizes.

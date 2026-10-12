@@ -424,6 +424,46 @@ function setindex!(x::AbstractCompressedVector, v::AbstractVector, I::AbstractUn
     return x
 end
 
+function setindex!(x::AbstractCompressedVector, v::AbstractVector, I::AbstractVector{<:Integer})
+    require_one_based_indexing(x, v, I)
+    if I isa AbstractVector{Bool}
+        checkbounds(x, I)
+        return setindex!(x, v, findall(I))
+    end
+    I = Base.unalias(x, I)
+    _is_fixed(x) && return _setindex_fixed!(x, v, I)
+    checkbounds(x, I)
+    Base.setindex_shape_check(v, length(I))
+    v = Base.unalias(x, v)
+    for (k, i) in enumerate(I)
+        x[i] = v[k]
+    end
+    return x
+end
+
+# Assignment at an index vector into a fixed pattern: every index is located, and a value
+# that would be stored outside the pattern rejected, before any entry is written.
+function _setindex_fixed!(x::AbstractCompressedVector{Tv}, v::AbstractVector, I::AbstractVector{<:Integer}) where Tv
+    checkbounds(x, I)
+    Base.setindex_shape_check(v, length(I))
+    v = Base.unalias(x, v)
+    nzind = nonzeroinds(x); nzval = nonzeros(x)
+    pos = Vector{Int}(undef, length(I))
+    for (k, i) in enumerate(I)
+        p = searchsortedfirst(nzind, i)
+        if p <= length(nzind) && nzind[p] == i
+            pos[k] = p
+        else
+            _isimplicitzero(convert(Tv, v[k]), Tv) || _throwfixedinsert(x, i)
+            pos[k] = 0
+        end
+    end
+    for k in eachindex(pos)
+        pos[k] == 0 || (nzval[pos[k]] = v[k])
+    end
+    return x
+end
+
 
 ### dropstored!
 """
@@ -662,7 +702,10 @@ function _splice_entries!(x::AbstractSparseArray, inds::AbstractVector, vals::Ab
         k = k1
         for (i, v) in zip(newinds, newvals)
             while k <= k2 && inds[k] < i; k += 1; end
-            (k <= k2 && inds[k] == i) || _throwfixedinsert(x, i)
+            if !(k <= k2 && inds[k] == i)
+                _isimplicitzero(v, eltype(vals)) || _throwfixedinsert(x, i)
+                continue
+            end
             write && (vals[k] = v)
         end
     end
@@ -1549,6 +1592,8 @@ function LinearAlgebra.axpy!(a::Number, x::SparseVectorOrView, y::AbstractVector
     require_one_based_indexing(x, y)
     length(x) == length(y) || throw(DimensionMismatch(
         "Vector x has a length $(length(x)) but y has a length $(length(y))"))
+    # the loops below write `y` entry by entry
+    _is_fixed(y) && return copyto!(y, axpy!(a, x, Vector(y)))
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     m = length(nzind)
@@ -1967,7 +2012,7 @@ function subvector_shifter!(R::AbstractVector, V::AbstractVector, start::Integer
 end
 
 function circshift!(O::AbstractCompressedVector, X::AbstractCompressedVector, (r,)::Base.DimsInteger{1})
-    _checkpatternwritable(O, :circshift!)
+    _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r,)))
     copy!(O, X)
     iszero(length(X)) && return O
     subvector_shifter!(nonzeroinds(O), nonzeros(O), 1, length(nonzeroinds(O)), length(O), mod(r, length(X)))

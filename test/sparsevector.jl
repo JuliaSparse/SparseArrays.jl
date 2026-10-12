@@ -1842,9 +1842,10 @@ end
         x = circshift(collect(v), 3)
         c = circshift(fixed(v), 3)   # a fixed source shifts into a plain copy
         @test mismatch(c, x, Ti=Ti) === nothing && c isa SparseVector{Float64,Ti} && nnz(c) == 4
-        g = fixed(c)   # a fixed destination is refused, also when it holds the shifted pattern
-        @test_throws ArgumentError circshift!(g, v, 3)
-        @test g == x && nonzeroinds(g) == [1, 5, 7, 8]
+        g = fixed(c)   # a fixed destination takes the shift that its pattern holds
+        @test circshift!(g, 2v, 3) === g && g == 2x && nonzeroinds(g) == [1, 5, 7, 8]
+        @test_throws ArgumentError circshift!(g, v, 2)
+        @test g == 2x && nonzeroinds(g) == [1, 5, 7, 8]
     end
     @static if COMPREHENSIVE
     # an index plus the shift need not fit in the index type

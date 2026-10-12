@@ -726,7 +726,9 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     identical_nzinds = rows_match && cols_match
     Cnzval = getnzval(C)
     Anzval = getnzval(A)
-    if identical_nzinds || (beta_is_zero && !_is_fixed(C))
+    identical_nzinds || !_is_fixed(C) ||
+        return _copyto_fixed!(C, mul!(_writablecopy(C), A, D, alpha, beta))
+    if identical_nzinds || beta_is_zero
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
         @inbounds if beta_is_zero
@@ -824,7 +826,9 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     Cnzval = getnzval(C)
     Anzval = getnzval(A)
     Arowval = getrowval(A)
-    if identical_nzinds || (beta_is_zero && !_is_fixed(C))
+    identical_nzinds || !_is_fixed(C) ||
+        return _copyto_fixed!(C, mul!(_writablecopy(C), D, A, alpha, beta))
+    if identical_nzinds || beta_is_zero
         identical_nzinds || copyinds!(C, A, copy_rows = !rows_match, copy_cols = !cols_match)
         resize!(Cnzval, length(Anzval))
         if beta_is_zero
@@ -871,6 +875,7 @@ end
 
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
+    _is_fixed(C) && return broadcast!(*, C, A, b)
     copyinds!(C, A)
     resize!(getnzval(C), length(getnzval(A)))
     mul!(getnzval(C), getnzval(A), b)
@@ -879,6 +884,7 @@ end
 
 function mul!(C::AbstractSparseMatrixCSC, b::Number, A::AbstractSparseMatrixCSC)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
+    _is_fixed(C) && return broadcast!(*, C, b, A)
     copyinds!(C, A)
     resize!(getnzval(C), length(getnzval(A)))
     mul!(getnzval(C), b, getnzval(A))
@@ -896,7 +902,7 @@ function lmul!(b::Number, A::AbstractSparseMatrixCSC)
 end
 
 # an entry that is not stored divides to `0 / b`, which is not zero for a zero or NaN `b`
-_divkeepszeros(A, b::Number) = nnz(A) == length(A) || _iszero(_densezero(A) / b)
+_divkeepszeros(A, b::Number) = nnz(A) == widelength(A) || _iszero(_densezero(A) / b)
 rdiv!(A::Union{AbstractSparseMatrixCSC,AbstractCompressedVector}, b::Number) =
     _divkeepszeros(A, b) ? (rdiv!(nonzeros(A), b); A) : broadcast!(/, A, A, b)
 ldiv!(b::Number, A::Union{AbstractSparseMatrixCSC,AbstractCompressedVector}) =
@@ -937,8 +943,13 @@ _fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
 _fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
 _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 
+# The kernels for a product with a sparse vector write `y` entry by entry, so the product
+# for a fixed `y` is formed in a dense vector and copied, which checks it against the pattern
+_mul_fixed!(y, tA, A, x, alpha, beta) = copyto!(y, mul!(Vector(y), tA, A, x, alpha, beta))
+
 Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                                         alpha::Number, beta::Number)
+    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     if tA == 'N'
         _A_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
@@ -956,6 +967,7 @@ LinearAlgebra._mul!(y::AbstractVector, A::UpperOrLowerTriangular, x::AbstractSpa
 function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
                 alpha::Number, beta::Number)
     @assert tA == 'N'
+    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     Adata = parent(A)
     if Adata isa Transpose
         _At_or_Ac_mul_spvec!(transpose, y, _fliptri(A), x, alpha, beta)
@@ -1056,6 +1068,7 @@ mul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
 mul!(y::StridedVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, alpha::Number, beta::Number) =
     _spmatspvecmul!(y, tA, A, x, alpha, beta)
 Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
+    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     if tA == 'N'
         _spA_mul_spvec!(y, A, x, alpha, beta)
     elseif tA == 'T'
