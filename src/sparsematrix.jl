@@ -904,14 +904,12 @@ the original sparse matrix, except in the case where dimensions of the
 output matrix are different from the output.
 
 The output matrix has zeros in the same locations as the input, but
-uninitialized values for the nonzero locations. A `FixedSparseCSC` input keeps
-its fixed pattern only in the structure-preserving form; the forms taking a
-shape return a `SparseMatrixCSC`.
+uninitialized values for the nonzero locations. The result is a writable
+`SparseMatrixCSC` also when `A` is a `FixedSparseCSC`; `copy` keeps a fixed pattern.
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
-    @if_move_fixed S _sparsesimilar(S, TvNew, Ti)
+    _sparsesimilar(S, TvNew, Ti)
 
-# a new shape carries no pattern over, so the result is never fixed
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
     _sparsesimilar(S, TvNew, Ti, dims)
 
@@ -920,7 +918,7 @@ similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1}
 # The calls without shape again preserve stored-entry structure, whereas those with shape
 # preserve storage space when the shape calls for a two-dimensional result.
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}) where{TvNew,TiNew} =
-    @if_move_fixed S _sparsesimilar(S, TvNew, TiNew)
+    _sparsesimilar(S, TvNew, TiNew)
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, dims::Union{Dims{1},Dims{2}}) where {TvNew,TiNew} =
     _sparsesimilar(S, TvNew, TiNew, dims)
 similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, m::Integer) where {TvNew,TiNew} =
@@ -1060,7 +1058,7 @@ function ftranspose(A::AbstractSparseMatrixCSC{TvA,Ti}, f::F, eltype::Type{Tv} =
                         Vector{Ti}(undef, 0),
                         Vector{Tv}(undef, 0))
     sizehint!(X, nnz(A))
-    return @if_move_fixed A halfperm!(X, A, axes(A,2), f)
+    return halfperm!(X, A, axes(A,2), f)
 end
 
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)
@@ -1463,9 +1461,8 @@ equal to zero.
 """
 Base.sort(A::AbstractSparseMatrixCSC; kws...) =
     # the generic `Base.sort` for matrices goes through `permutedims`/`reshape` and does
-    # not return a `SparseMatrixCSC` for `dims = 1`; `copy` of a `FixedSparseCSC` shares
-    # its read-only structure, so convert to a writable `SparseMatrixCSC` in that case
-    sort!(_is_fixed(A) ? SparseMatrixCSC(A) : copy(A); kws...)
+    # not return a `SparseMatrixCSC` for `dims = 1`
+    sort!(_writablecopy(A); kws...)
 
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
@@ -1532,7 +1529,7 @@ function _fkeep_guarded!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     end
     return A
 end
-_fkeep_trusted!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
+_fkeep_trusted!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _fkeep!(f, A)
 
 """
     fkeep!(f, A::AbstractSparseArray)
@@ -1563,7 +1560,7 @@ julia> SparseArrays.fkeep!((i, j, v) -> isodd(v), A)
  ⋅  ⋅  ⋅  ⋅
 ```
 """
-fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep_guarded!(f, A)
+fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = (_checkpatternwritable(A, :fkeep!); _fkeep_guarded!(f, A))
 
 # deprecated syntax
 function fkeep!(x::SparseVecOrMat, f::F) where F<:Function
@@ -1573,9 +1570,9 @@ end
 
 
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    _fkeep_trusted!((i, j, x) -> j - i <= k, A)
+    (_checkpatternwritable(A, :tril!); _fkeep_trusted!((i, j, x) -> j - i <= k, A))
 triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    _fkeep_trusted!((i, j, x) -> j - i >= k, A)
+    (_checkpatternwritable(A, :triu!); _fkeep_trusted!((i, j, x) -> j - i >= k, A))
 
 """
     droptol!(A::AbstractSparseMatrixCSC, tol)
@@ -1583,7 +1580,7 @@ triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
 Removes stored values from `A` whose absolute value is less than or equal to `tol`.
 """
 droptol!(A::AbstractSparseMatrixCSC, tol) =
-    _fkeep_trusted!((i, j, x) -> abs(x) > tol, A)
+    (_checkpatternwritable(A, :droptol!); _fkeep_trusted!((i, j, x) -> abs(x) > tol, A))
 
 """
     dropzeros!(A::AbstractSparseMatrixCSC;)
@@ -1594,7 +1591,7 @@ For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
 
-dropzeros!(A::AbstractSparseMatrixCSC) = _is_fixed(A) ? A : _fkeep!((i, j, x) -> _isnotzero(x), A)
+dropzeros!(A::AbstractSparseMatrixCSC) = (_checkpatternwritable(A, :dropzeros!); _fkeep!((i, j, x) -> _isnotzero(x), A))
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)
@@ -1618,7 +1615,7 @@ julia> dropzeros(A)
   ⋅   ⋅  1.0
 ```
 """
-dropzeros(A::AbstractSparseMatrixCSC) = dropzeros!(copy(A))
+dropzeros(A::AbstractSparseMatrixCSC) = dropzeros!(_writablecopy(A))
 
 ## Find methods
 
@@ -1782,8 +1779,7 @@ end
 function (-)(A::AbstractSparseMatrixCSC)
     nzval = similar(getnzval(A), typeof(-zero(eltype(A))))
     map!(-, view(nzval, 1:nnz(A)), nzvalview(A))
-    _is_fixed(A) && return FixedSparseCSC(size(A, 1), size(A, 2), getcolptr(A), getrowval(A), nzval)
-    return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(getrowval(A)), nzval)
+    return SparseMatrixCSC(size(A, 1), size(A, 2), Vector(getcolptr(A)), Vector(getrowval(A)), nzval)
 end
 
 # the rest of real, conj, imag are handled correctly via AbstractArray methods
@@ -2157,8 +2153,7 @@ _uniformscaling(A::AbstractSparseMatrixCSC{Tv,Ti}, J::UniformScaling{T}) where {
 function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c)::Base.DimsInteger{2})
     size(O) == size(X) || throw(DimensionMismatch(LazyString("cannot shift a matrix of size ",
         size(X), " into a ", nameof(typeof(O)), " of size ", size(O))))
-    # a fixed destination keeps its pattern, which `_copyto_fixed!` checks before writing
-    _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r, c)))
+    _checkpatternwritable(O, :circshift!)
     nz = nnz(X)
 
     iszero(nz) && return copy!(O, X)
@@ -2205,9 +2200,8 @@ end
 
 circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,)::Base.DimsInteger{1}) = circshift!(O, X, (r,0))
 circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, r::Real) = circshift!(O, X, (Integer(r),0))
-# a fixed X keeps its pattern under `similar`, so shift into a plain copy instead
-circshift(X::AbstractSparseMatrixCSC, s::Base.DimsInteger) = circshift!(similar(_unsafe_unfix(X)), X, s)
-circshift(X::AbstractSparseMatrixCSC, s::Real) = circshift!(similar(_unsafe_unfix(X)), X, (Integer(s),))
+circshift(X::AbstractSparseMatrixCSC, s::Base.DimsInteger) = circshift!(similar(X), X, s)
+circshift(X::AbstractSparseMatrixCSC, s::Real) = circshift!(similar(X), X, (Integer(s),))
 
 ## swaprows! / swapcols!
 macro swap(a, b)
@@ -2298,13 +2292,11 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
     return nothing
 end
 
-reverse(A::AbstractSparseMatrixCSC; dims=:) = _reverse!(copy(_unsafe_unfix(A)), _reversedims(dims))
+reverse(A::AbstractSparseMatrixCSC; dims=:) = _reverse!(_writablecopy(A), _reversedims(dims))
 function reverse!(S::AbstractSparseMatrixCSC; dims=:)
     d = _reversedims(dims)
-    _is_fixed(S) || return _reverse!(S, d)
-    _reversalkeepspattern(S, d) ||
-        throw(ArgumentError(lazy"cannot reverse a $(nameof(typeof(S))) in place along dims=$dims: its sparsity pattern is read-only and the reversal would change it; use reverse(A; dims) for a new array"))
-    return _reversevals!(S, d)
+    _checkpatternwritable(S, :reverse!)
+    return _reverse!(S, d)
 end
 
 _reversedims(::Colon) = Colon()
@@ -2344,35 +2336,6 @@ function _reverse!(S::AbstractSparseMatrixCSC, dims::Int)
         colptr .= (nnz(S) + 2) .- colptr
         reverse!(colptr)
     end
-    return S
-end
-
-# A reversal keeps a read-only pattern when it maps the pattern onto itself: every column
-# onto its mirror column with the same row set (dims=2), the rows of each column onto
-# themselves mirrored (dims=1), or both at once (dims=:). Then only the values move.
-function _reversalkeepspattern(S::AbstractSparseMatrixCSC, dims)
-    rowinds = getrowval(S)
-    m, n = size(S)
-    for j in axes(S, 2)
-        r = nzrange(S, j)
-        r2 = dims == 1 ? r : nzrange(S, n + 1 - j)
-        length(r) == length(r2) || return false
-        for t in 0:Int(length(r))-1
-            i = rowinds[first(r) + t]
-            mirrored = dims == 2 ? rowinds[first(r2) + t] : m + 1 - rowinds[last(r2) - t]
-            i == mirrored || return false
-        end
-    end
-    return true
-end
-_reversevals!(S::AbstractSparseMatrixCSC, ::Colon) = (reverse!(getnzval(S)); S)
-function _reversevals!(S::AbstractSparseMatrixCSC, dims::Int)
-    nzval = getnzval(S)
-    for j in axes(S, 2)
-        r = nzrange(S, j)
-        reverse!(nzval, Int(first(r)), Int(last(r)))
-    end
-    dims == 2 && reverse!(nzval)
     return S
 end
 

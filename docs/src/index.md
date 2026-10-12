@@ -446,6 +446,108 @@ A type that defines `zero`, `+` and `*` is enough for most of the package, and e
   or rationals is converted to `Float64` first; a matrix of another element type, such
   as `BigFloat`, is rejected.
 
+## [Sparse arrays with a fixed pattern](@id man-sparse-fixed)
+
+!!! warning "Experimental"
+    `fixed`, `FixedSparseCSC` and `FixedSparseVector` are experimental and not exported.
+
+Writing into a `SparseMatrixCSC` can change which entries it stores. `W .= γ .* J` drops
+an entry of `W` wherever `J` holds a stored zero, and `W[i, j] = v` inserts one. Code
+that has derived something from the pattern of `W`, such as a symbolic factorization, the
+positions of its entries in `nonzeros(W)`, or a copy of its index arrays on another
+device, is then silently out of date.
+
+A fixed sparse array rules that out. It is a **destination whose sparsity pattern never
+changes**: the stored values can be overwritten, and no entry can be added or removed.
+[`SparseArrays.fixed`](@ref) makes one, with the arguments of [`sparse`](@ref) or from a
+sparse array, which it copies.
+
+```jldoctest fixedpattern
+julia> J = sparse([1.0 2 0; 0 3 0; 4 0 5]);
+
+julia> W = SparseArrays.fixed(J)
+3×3 SparseArrays.FixedSparseCSC{Float64, Int64} with 5 stored entries:
+ 1.0  2.0   ⋅
+  ⋅   3.0   ⋅
+ 4.0   ⋅   5.0
+
+julia> J[3, 3] = 0;
+
+julia> W .= 0.5 .* J
+3×3 SparseArrays.FixedSparseCSC{Float64, Int64} with 5 stored entries:
+ 0.5  1.0   ⋅
+  ⋅   1.5   ⋅
+ 2.0   ⋅   0.0
+```
+
+Three rules describe everything a fixed array does.
+
+**A write lands inside the pattern or throws.** `W .= ...`, `map!`, `copyto!`, `mul!`,
+`fill!`, `rmul!`, `lmul!`, `W[i, j] = v` and assignment through a column view store a
+value at each stored entry, a zero included, and leave the pattern alone. A write that
+needs an entry the pattern lacks throws an `ArgumentError`, and the kernels of this
+package check for that before they change any value. Writing through `nonzeros(W)` is
+always allowed.
+
+```jldoctest fixedpattern
+julia> W[1, 3] = 1.0
+ERROR: ArgumentError: cannot store a new entry at (1, 3) in a FixedSparseCSC, its sparsity pattern is read-only
+[...]
+
+julia> W .= J .+ 1
+ERROR: ArgumentError: cannot store a nonzero f(0) into a FixedSparseCSC, its sparsity pattern is read-only
+[...]
+```
+
+**A function that exists to change the pattern throws.** [`dropzeros!`](@ref),
+[`droptol!`](@ref), [`SparseArrays.fkeep!`](@ref), `tril!`, `triu!`,
+[`SparseArrays.dropstored!`](@ref), `sort!`, `permute!`, `reverse!` and `circshift!`
+refuse a fixed array. None of them does something else that happens to fit the pattern.
+Their out-of-place forms (`dropzeros`, `tril`, `sort`, ...) work, because of the next
+rule.
+
+```jldoctest fixedpattern
+julia> dropzeros!(W)
+ERROR: ArgumentError: cannot `dropzeros!` a FixedSparseCSC: it would change the sparsity pattern, which is read-only; apply it to a writable copy, `SparseMatrixCSC(A)`
+[...]
+```
+
+**Reading a fixed array gives an ordinary result.** As an operand, a fixed array behaves
+as the `SparseMatrixCSC` or `SparseVector` with the same entries, and what comes back is
+what that array would give: a `SparseMatrixCSC`, a `SparseVector`, a dense array or a
+number. Being fixed is a property of one array, not of its values, so it does not carry
+over to indexing, arithmetic, broadcasting, concatenation or `similar`. A result is fixed
+only where you ask for it:
+
+- `copy(W)` is fixed and shares the pattern of `W`, so that `rowvals(copy(W)) === rowvals(W)`;
+- `SparseArrays.fixed(A)` fixes any other result;
+- `SparseMatrixCSC(W)` and `SparseVector(x)` give a writable copy.
+
+```jldoctest fixedpattern
+julia> 2W
+3×3 SparseMatrixCSC{Float64, Int64} with 5 stored entries:
+ 1.0  2.0   ⋅
+  ⋅   3.0   ⋅
+ 4.0   ⋅   0.0
+
+julia> W[:, 1]
+3-element SparseVector{Float64, Int64} with 2 stored entries:
+  [1]  =  0.5
+  [3]  =  2.0
+
+julia> typeof(similar(W))
+SparseMatrixCSC{Float64, Int64}
+
+julia> V = copy(W); rowvals(V) === rowvals(W)
+true
+```
+
+Note that an out-of-place broadcast drops the entries it computes as zero, like any other
+sparse broadcast; write into a fixed destination to keep them.
+
+The factorizations accept a fixed matrix, which is what makes
+[reusing a symbolic factorization](@ref man-sparse-solving) safe: see the solver manual.
+
 ## [Performance tips](@id man-sparse-performance)
 
 Sparse code is fast when its cost is proportional to the number of stored entries, and the

@@ -2095,19 +2095,13 @@ end
         @test_throws ArgumentError reverse(S, dims=(1,1))
     end
     @testset "reverse! of a fixed pattern" begin
-        # a pattern that is its own mirror along both axes: only the values move
-        S = fixed(SparseMatrixCSC{Float64,(@static COMPREHENSIVE ? Int32 : Int)}(sparse([1,3,2,1,3], [1,1,2,3,3], [1.0,2,3,0,5])))
-        for dims in (:, 1, 2)
-            F = copy(S)
-            @test reverse!(F; dims) === F && F == reverse(collect(S); dims) && same_pattern(F, S)
-        end
-        # mirrored along rows only, so reversing the columns would move the pattern
-        F = fixed(sparse([1,3], [1,1], [1.0,2], 3, 3))
-        @test_throws ArgumentError reverse!(F; dims=2)
-        @test_throws ArgumentError reverse!(F)
-        @test F == [1 0 0; 0 0 0; 2 0 0] && rowvals(F) == [1,3]
-        for dims in (:, 1, 2)
-            @test iszero(reverse!(fixed(spzeros(Float64, (@static COMPREHENSIVE ? UInt64 : Int), 3, 3)); dims))
+        # also when the pattern is its own mirror along both axes
+        S = sparse([1,3,2,1,3], [1,1,2,3,3], [1.0,2,3,0,5])
+        F = fixed(S)
+        for dims in (:, (@static COMPREHENSIVE ? (1, 2) : ())...)
+            @test_throws ArgumentError reverse!(F; dims)
+            @test exact_equal(F, S)
+            @test mismatch(reverse(F; dims), reverse(collect(S); dims)) === nothing
         end
     end
 end

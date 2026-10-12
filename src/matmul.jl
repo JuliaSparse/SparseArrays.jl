@@ -48,14 +48,8 @@ matop_dest(::typeof(*), A::BiTriSym, B::Union{QuasiSparseMatrix,SparseMatrixCSCS
 # needed for disambiguation with LinearAlgebra
 matop_dest(::typeof(*), A::Diagonal, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
-# a `Diagonal` product keeps the structure of the sparse operand, so a fixed operand gets
-# a fixed destination with that structure up front, which `mul!` then only has to fill
-# (an empty fixed destination could not take the indices); the adjoint/transpose of a
-# sparse matrix gets an empty, writable destination, since its structure is not that of
-# the parent
 matop_dest(::typeof(*), A::Diagonal, B::AbstractSparseMatrixCSC) =
-    _is_fixed(B) ? similar(B, promote_op(matprod, eltype(A), eltype(B))) :
-                   similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
+    similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 matop_dest(::typeof(*), A::Diagonal, B::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
     _adjtrans_dest(B, promote_op(matprod, eltype(A), eltype(B)))
 matop_dest(::typeof(*), A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, B::Diagonal) =
@@ -925,9 +919,9 @@ function lmul!(a::Number, x::SparseVectorOrView)
 end
 
 (*)(x::SparseVectorOrView, a::Number) =
-    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) * a)
+    SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) * a)
 (*)(a::Number, x::SparseVectorOrView) =
-    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), a * nonzeros(x))
+    SparseVector(length(x), Vector(nonzeroinds(x)), a * nonzeros(x))
 
 # * and mul!
 
@@ -1169,5 +1163,5 @@ function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
         resize!(ynzind, jr)
         resize!(ynzval, jr)
     end
-    return @if_move_fixed A x SparseVector(n, ynzind, ynzval)
+    return SparseVector(n, ynzind, ynzval)
 end

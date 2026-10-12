@@ -4,7 +4,7 @@ module SparseFixedTests
 
 using Test, SparseArrays, LinearAlgebra
 using SparseArrays: AbstractSparseVector, AbstractSparseMatrixCSC, FixedSparseCSC, FixedSparseVector, ReadOnly,
-    getcolptr, rowvals, nonzeros, nonzeroinds, _is_fixed, fixed, move_fixed, fkeep!, indtype
+    getcolptr, rowvals, nonzeros, nonzeroinds, _is_fixed, fixed, move_fixed, fkeep!, dropstored!, indtype
 include("testhelpers.jl")
 
 @testset "ReadOnly" begin
@@ -63,11 +63,8 @@ end
     @test same_pattern(F, A)
     nonzeros(F) .= 0
     @test same_pattern(F, A)
-    dropzeros!(F)
-    @test same_pattern(F, A)
     H = F ./ 1
-    @test typeof(H) == typeof(F)
-    @test same_pattern(F, H, A)
+    @test H isa SparseMatrixCSC && same_pattern(F, H, A)
     H = map!(zero, copy(F), F)
     @test same_pattern(F, H, A)
     @test_throws ArgumentError map!(x -> x + 1, H, F)
@@ -107,8 +104,7 @@ end
     end
 
     B = similar(F)
-    @test typeof(B) == typeof(F)
-    @test same_pattern(B, F)
+    @test B isa SparseMatrixCSC{Float64,Int} && same_pattern(B, F)
     @test similar(F, 3, 3) isa SparseMatrixCSC
     @test typeof(FixedSparseCSC{ComplexF64,Int}(F)) == FixedSparseCSC{ComplexF64,Int}
     @static if COMPREHENSIVE
@@ -138,11 +134,6 @@ end
     @test G == [3 0; 0 0] && nnz(G) == 2
     G .= sparse([2], [2], [6.0], 2, 2)   # a subset pattern zero-fills the rest
     @test G == [0 0; 0 6] && nnz(G) == 2
-    # a fixed destination of circshift! must already hold the shifted pattern
-    @test_throws ArgumentError circshift!(G, G, (1, 0))
-    @test G == [0 0; 0 6] && nnz(G) == 2
-    H = fixed(circshift(G, (1, 1)))
-    @test circshift!(H, G, (1, 1)) === H && H == Diagonal([6.0, 0.0]) && nnz(H) == 2
     @test Diagonal([2.0, 3.0]) * G == [0 0; 0 18] && (@static COMPREHENSIVE ? Symmetric(G) * G == [0 0; 0 36] : true)
 end
 @testset "SparseMatrixCSC conversions" begin
@@ -164,8 +155,9 @@ end
         @test exact_equal(SparseMatrixCSC(F), A)
         @test convert(T, F) isa SparseMatrixCSC
     end
-    # the structure-preserving forms of `similar` stay fixed, the others are writable
-    @test similar(F, Float32, Int) isa FixedSparseCSC{Float32,Int} && same_pattern(similar(F, Float32, Int), F)
+    # every form of `similar` is writable; the structure-preserving ones copy the pattern
+    @test similar(F, Float32, Int) isa SparseMatrixCSC{Float32,Int} && same_pattern(similar(F, Float32, Int), F)
+    @test parent(rowvals(F)) !== rowvals(similar(F))
     @test similar(F, Float32, Int, 3, 5) isa SparseMatrixCSC{Float32,Int}
     end
 end
@@ -219,18 +211,15 @@ end
     nonzeros(x) .= 0
     # a fixed vector made from `y` owns its buffers
     @test same_pattern(x, y) && nonzeros(y) == yvals
-    dropzeros!(x)
-    @test same_pattern(x, y)
     z = x ./ 2
-    @test same_pattern(x, y, z)
+    @test z isa SparseVector && same_pattern(x, y, z)
     f(x, y, z) = @allocated(x .= y .+ y) +
         (@static COMPREHENSIVE ? @allocated(x .= y .- y) : 0)
     f(x, y, z)
     f(x, y, z)
     @test f(x, y, z) == 0
     t = similar(x)
-    @test typeof(t) == typeof(x)
-    @test same_pattern(t, x)
+    @test t isa SparseVector{Float64,Int} && same_pattern(t, x)
     @test similar(x, 5) isa SparseVector
     @static if COMPREHENSIVE
     @test typeof(FixedSparseVector{Float32,Int32}(x)) == FixedSparseVector{Float32,Int32}
@@ -256,7 +245,7 @@ end
     end
 end
 
-@testset "structure queries and unary maps keep the fixed pattern" begin
+@testset "structure queries read a fixed matrix" begin
     # `issymmetric`/`ishermitian` advance a copy of the column pointers, which are
     # read-only in a fixed matrix
     S = fixed(sparse([4.0 1 0; 1 4 1; 0 1 4]))
@@ -266,16 +255,49 @@ end
     @test ishermitian(fixed(sparse(ComplexF64[4 1+im 0; 1-im 4 1; 0 1 4])))
     @test !issymmetric(fixed(sparse(ComplexF64[4 1+im 0; 1-im 4 1; 0 1 4])))
     end
-    A = sparse([1, 2, 2], [1, 1, 2], (@static COMPREHENSIVE ? [1, 2, 0] : [1.0, 2.0, 0.0]), 3, 3)
-    x = sparsevec([1, 3], (@static COMPREHENSIVE ? [1, 0] : [1.0, 0.0]), 4)
-    F, y = fixed(A), fixed(x)
-    @test which(-, (typeof(F),)).module === SparseArrays
-    for f in (-, complex, (@static COMPREHENSIVE ? (float,) : ())...)
-        R, r = f(F), f(y)
-        @test R isa FixedSparseCSC && r isa FixedSparseVector
-        @test R == f(A) && same_pattern(R, A) && r == f(x) && same_pattern(r, x)
+end
+
+# As an operand a fixed array is the plain array with the same entries: the result has the
+# type, pattern and values that the plain array gives, and shares no pattern buffer with
+# the fixed one.
+@testset "reading a fixed array gives the result of the plain array" begin
+    A = sparse([1, 3, 2, 4, 1, 3, 4], [1, 1, 2, 2, 3, 4, 4], [1.0, 2, 3, 0, 5, 6, 7], 4, 4)
+    B = sparse([1, 2, 4, 2], [1, 2, 3, 4], [2.0, 1, 1, 3], 4, 4)
+    x = sparsevec([1, 3, 4], [1.0, 0.0, 3.0], 4); y = sparsevec([2, 3], [1.0, 2.0], 4)
+    D = Diagonal([1.0, 2, 3, 4])
+    F, f = fixed(A), fixed(x)
+    function sameresult(op, P, Q)
+        want, got = op(P), op(Q)
+        typeof(want) == typeof(got) || return false
+        want isa Union{AbstractSparseMatrixCSC,AbstractSparseVector} || return isequal(want, got)
+        return exact_equal(want, got) && !_is_fixed(got) &&
+            !any(b -> b === parent(getcolptr(F)) || b === parent(rowvals(F)) || b === parent(nonzeroinds(f)),
+                 SparseArrays._storagebuffers(got))
     end
-    @test getcolptr(-F) === getcolptr(F) && nonzeroinds(-y) === nonzeroinds(y)
+    matops = (S -> 2S, (@static COMPREHENSIVE ? (S -> -S, S -> S / 2, complex, S -> conj(complex(S)), S -> abs.(S), S -> map(sin, S),
+        S -> S + B, S -> B .* S, S -> S .* y, S -> S * B, S -> D * S, S -> S * D, S -> S + I, S -> copy(S'), S -> kron(S, B),
+        S -> S[:, :], S -> S[:, 2], S -> S[2:3, 1:2], S -> S[[3, 1], :], S -> S[:], S -> [S B], S -> [S; B], S -> [S B; B S],
+        S -> fill!(similar(S), 1), S -> fill!(similar(S, Int), 1), sparse, dropzeros, tril, triu, reverse, rot180, S -> circshift(S, (1, 1)),
+        S -> sort(S, dims=1), S -> permute(S, [2, 1, 3, 4], [1, 3, 2, 4]), S -> cumsum(S, dims=1), S -> sum(S, dims=1),
+        S -> S * x, S -> S * ones(4), norm, sum, nnz, findnz, issymmetric) : ())...)
+    for op in matops
+        @test sameresult(op, A, F)
+    end
+    vecops = (v -> v + y, (@static COMPREHENSIVE ? (v -> -v, v -> 2v, v -> v / 2, complex, v -> conj(complex(v)), v -> abs.(v),
+        v -> y - v, v -> v .* y, v -> kron(v, y), v -> v[:], v -> v[1:3], v -> v[[3, 1]], v -> [v; y], v -> [v y],
+        v -> fill!(similar(v), 1), dropzeros, reverse, v -> circshift(v, 1), sort, cumsum, v -> A * v, v -> dot(v, y), sum, findnz) : ())...)
+    for op in vecops
+        @test sameresult(op, x, f)
+    end
+    # only `copy` stays fixed, on the same pattern; an operation that returns its argument
+    # returns the fixed array
+    C, c = copy(F), copy(f)
+    @test C isa FixedSparseCSC && getcolptr(C) === getcolptr(F) && rowvals(C) === rowvals(F) && nonzeros(C) !== nonzeros(F)
+    @test c isa FixedSparseVector && nonzeroinds(c) === nonzeroinds(f) && nonzeros(c) !== nonzeros(f)
+    @static if COMPREHENSIVE
+    @test float(F) === F && float(f) === f
+    end
+    @test exact_equal(F, A) && exact_equal(f, x)
 end
 
 @testset "fill! keeps a fixed pattern" begin
@@ -288,22 +310,6 @@ end
     @test fill!(F, 2.5) === F && F == fill(2.5, 2, 3) && nnz(F) == 6 && _is_fixed(F)
 end
 
-@static if COMPREHENSIVE
-@testset "`getindex`` should return type with same `_is_fixed`" begin
-    for A in [fixed(fixture(Float64, 5, 3))]
-        @test _is_fixed(A) == _is_fixed(A[:, :])
-        @test _is_fixed(A) == _is_fixed(A[:, 1])
-        @test _is_fixed(A) == _is_fixed(A[1, :])
-        @test _is_fixed(A) == _is_fixed(A[1:2, 1:2])
-        @test _is_fixed(A) == _is_fixed(A[2:4, 2:3])
-    end
-    for A in [fixturevec(Float64, 10), fixed(fixturevec(Float64, 10))]
-        @test _is_fixed(A) == _is_fixed(A[:])
-        @test _is_fixed(A) == _is_fixed(A[1:3])
-    end
-end
-end
-
 @testset "getindex with unsorted indices keeps the pattern read-only" begin
     S = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 4.0])
     F = fixed(S)
@@ -313,20 +319,17 @@ end
                    ([3, 1, 2], 3)) : ())...)
         R = F[I, J]
         @test R == S[I, J]
-        @test _is_fixed(R)
+        @test !_is_fixed(R)
         @test size(R) == size(S[I, J])
     end
     @test (parent(getcolptr(F)), parent(rowvals(F)), nonzeros(F)) == pattern
 end
 
-@testset "cumsum, cumprod and accumulate return a writable copy" begin
+@testset "cumsum, cumprod and accumulate of a fixed array" begin
     for T in (Float64,)
         S = sparse([1, 2, 3, 1], [1, 2, 3, 3], T[1, 2, 3, 4])
         F = fixed(S)
         pattern = (copy(parent(getcolptr(F))), copy(parent(rowvals(F))), copy(nonzeros(F)))
-        @test which(cumsum, (typeof(F),)).module === SparseArrays
-        @test which(cumprod, (typeof(F),)).module === SparseArrays
-        @test which(accumulate, (typeof(+), typeof(F))).module === SparseArrays
         for d in (1, 2)
             for f in (cumsum, (@static COMPREHENSIVE ? (cumprod,) : ())...)
                 R = f(F, dims=d)
@@ -342,7 +345,6 @@ end
         s = sparsevec([1, 3], T[1, 2], 4)
         v = fixed(s)
         vpattern = (copy(parent(nonzeroinds(v))), copy(nonzeros(v)))
-        @test which(cumsum, (typeof(v),)).module === SparseArrays
         for f in (cumsum,)
             r = f(v)
             @test r == f(s) == f(Array(s)) == f(v, dims=1)
@@ -363,7 +365,7 @@ end
     v = fixed(x)
     for I in ([3, 1], Int[], (@static COMPREHENSIVE ? ([true, false, true, false, false, true, false, true],) : ())...)
         r = v[I]
-        @test r isa FixedSparseVector{Float64,Int} && r == x[I]
+        @test r isa SparseVector{Float64,Int} && r == x[I]
     end
     @test nonzeroinds(v) == [1, 3, 6] && nonzeros(v) == [1.0, 2.0, 3.0]
 end
@@ -373,30 +375,59 @@ end
 @testset "fixed arrays do not leak a MethodError from the read-only pattern" begin
     A = sparse([4.0 1 0; 1 3 1; 0 1 5]); F = fixed(copy(A))
     x = sparsevec([1, 3], [1.0, 2.0], 3); f = fixed(copy(x))
-    @test (f * 2)::FixedSparseVector == 2x && (2 * f)::FixedSparseVector == 2x && (f / 2)::FixedSparseVector == x / 2
+    @test (f * 2)::SparseVector == 2x && (2 * f)::SparseVector == 2x && (f / 2)::SparseVector == x / 2
     @test SparseVector(fixed(A[:, 1:1]))::SparseVector == A[:, 1]
     @test copy(reshape(F, 1, 9)) == reshape(A, 1, 9)
-    @test SparseArrays.dropstored!(F, 1, 1) === F && F[1, 1] == 0 && same_pattern(F, A)
     @test copy!(f, [5.0, 0.0, 6.0]) === f && f == [5.0, 0.0, 6.0] && nonzeroinds(f) == [1, 3]
     @test_throws ArgumentError permute!(fixed(copy(A)), A, [2, 1, 3], [1, 3, 2])
 end
 end
 
-always_false(x...) = false
-below_diagonal(i, j, v) = i > j
-@testset "Test fkeep!" begin
-    for a in [fixture(Float64, 4, 4) + I, map(x -> x + 1, fixturevec(Float64, 10))]
-        a = fixed(a)
-        b = copy(a)
-        fkeep!(always_false, b)
-        @test nnz(a) == nnz(b)
-        @test all(iszero, nonzeros(b))
-
+# A function whose purpose is to change the pattern throws, whatever the pattern and the
+# values are, and leaves the array as it was.
+always_true(x...) = true
+@testset "functions that change the pattern throw on a fixed array" begin
+    A = sparse([1, 3, 2, 3, 1, 3], [1, 1, 2, 2, 3, 3], [1.0, 2, 3, 0, 5, 6], 3, 3)
+    x = sparsevec([1, 3, 4], [1.0, 0.0, 3.0], 5)
+    F, f = fixed(A), fixed(x)
+    matfs = (dropzeros!, (@static COMPREHENSIVE ? (S -> droptol!(S, 0.5), S -> fkeep!(always_true, S), tril!, triu!,
+        S -> dropstored!(S, 1, 1), S -> dropstored!(S, 1:2, 1:2), reverse!, S -> reverse!(S, dims=1),
+        S -> circshift!(S, A, (0, 0)), S -> sort!(S, dims=1), S -> permute!(S, A, [1, 2, 3], [1, 2, 3])) : ())...)
+    for f! in matfs
+        @test_throws ArgumentError f!(F)
+        @test exact_equal(F, A) && _is_fixed(F)
     end
-    # a predicate that tells a row from a column, on a matrix that is not square
-    A = fixture(Float64, 5, 3)
-    F = fkeep!(below_diagonal, fixed(copy(A)))
-    @test mismatch(F, tril(Array(A), -1)) === nothing && same_pattern(F, A)
+    vecfs = (dropzeros!, (@static COMPREHENSIVE ? (v -> droptol!(v, 0.5), v -> fkeep!(always_true, v), v -> dropstored!(v, 1),
+        reverse!, v -> circshift!(v, x, 0), sort!) : ())...)
+    for f! in vecfs
+        @test_throws ArgumentError f!(f)
+        @test exact_equal(f, x) && _is_fixed(f)
+    end
+    @static if COMPREHENSIVE
+    # also where the function would have nothing to change
+    Z = fixed(spzeros(2, 2))
+    @test_throws ArgumentError dropzeros!(Z)
+    @test_throws ArgumentError tril!(fixed(sparse([1.0 0; 2 3])))
+    @test_throws "SparseMatrixCSC" dropzeros!(F)
+    @test_throws "SparseVector" dropzeros!(f)
+    end
+end
+
+# The kernels for arguments of different shapes write the pattern of the destination as
+# they go, so a fixed destination is checked first.
+@static if COMPREHENSIVE
+@testset "broadcast of different shapes into a fixed destination" begin
+    A = sparse([1, 3, 2, 3, 1, 3], [1, 1, 2, 2, 3, 3], [1.0, 2, 3, 4, 5, 6], 3, 3)
+    v = sparsevec([1, 3], [2.0, 3.0], 3)
+    F = fixed(A)
+    @test (F .= A .* v) === F && F == A .* Vector(v) && same_pattern(F, A)   # row 2 is zeroed, and stays stored
+    F = fixed(A)
+    @test_throws ArgumentError F .= A .+ v'
+    @test exact_equal(F, A)
+    # a one-column destination takes the vector result
+    M = fixed(sparse(reshape([1.0, 0.0, 2.0], 3, 1)))
+    @test (M .= v .* v) === M && M == reshape([4.0, 0.0, 9.0], 3, 1) && nnz(M) == 2
+end
 end
 
 end # module

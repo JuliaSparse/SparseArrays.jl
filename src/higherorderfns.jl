@@ -15,7 +15,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       SparseMatrixCSCColumnSubset, SparseColumnView, SparseVectorView, SparseVectorPartialView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros, ftranspose,
                       nonzeroinds, nonzeros, rowvals, getcolptr, getrowval, getnzval, widelength,
-                      _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, @if_move_fixed,
+                      _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, _copyto_fixed!,
                       ReadOnly, _storagebuffers, _unaliasedcopy
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
@@ -202,7 +202,7 @@ _aliasesbuffers(Cbuffers, b) = isempty(b) ? any(c -> c === b, Cbuffers) : any(c 
         else
             _map_zeropres!(f, C, A, Bs...)
         end
-    return @if_move_fixed A Bs... r
+    return r
 end
 
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
@@ -221,7 +221,7 @@ function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N
             C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
             _map_zeropres!(f, C, A, Bs...)
         end
-    return @if_move_fixed A Bs... r
+    return r
 end
 
 # (3) broadcast[!] entry points
@@ -260,7 +260,7 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
         else
             _broadcast_zeropres!(f, _allocres(shapeC, indextypeC, entrytypeC, maxnnzC), A, Bs...)
         end
-    return @if_move_fixed A Bs... r
+    return r
 end
 # helper functions for map[!]/broadcast[!] entry points (and related methods below)
 @inline _haszeros(A) = nnz(A) ≠ length(A)
@@ -348,7 +348,7 @@ end
 # (5) _map_zeropres!/_map_notzeropres! specialized for a pair of sparse vectors/matrices
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
     _is_fixed(C) && _checkfixedpattern(C, A, B)
-    isfixed = _is_fixed(C, A, B)
+    isfixed = _is_fixed(C)
     spaceC::Int = length(getnzval(C))
     W = promote_type(Int, _promote_indtype(A, B))
     rowsentinelA = W(numrows(C)) + one(W)
@@ -430,7 +430,7 @@ end
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     _is_fixed(C) && _checkfixedpattern(C, As...)
     spaceC::Int = length(getnzval(C))
-    isfixed = _is_fixed(C, As...)
+    isfixed = _is_fixed(C)
     W = promote_type(Int, _promote_indtype(As...))
     rowsentinel = W(numrows(C)) + one(W)
     Ck = 1
@@ -640,7 +640,6 @@ end
 # (8) _broadcast_zeropres!/_broadcast_notzeropres! specialized for a pair of (input) sparse vectors/matrices
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(A, B)
     spaceC::Int = length(getnzval(C))
     W = promote_type(Int, _promote_indtype(A, B))
     rowsentinelA = W(numrows(C)) + one(W)
@@ -662,9 +661,9 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
     # Cases without vertical expansion
     Ck = 1
     fswapped = (y, x) -> f(x, y)
-    if numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows(f, C, A, B)
+    if numrows(A) == numrows(B) == numrows(C) && _scalesrows(f, C, A, B)
         Ck = _broadcast_scalerows!(f, C, A, B, spaceC)
-    elseif numrows(A) == numrows(B) == numrows(C) && !isfixed && _scalesrows(fswapped, C, B, A)
+    elseif numrows(A) == numrows(B) == numrows(C) && _scalesrows(fswapped, C, B, A)
         Ck = _broadcast_scalerows!(fswapped, C, B, A, spaceC)
     elseif numrows(A) == numrows(B) == numrows(C)
         @inbounds for j in columns(C)
@@ -700,7 +699,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                 # pattern) the Ai < Bi and Bi < Ai cases are equally or more likely than the
                 # Ai == Bi and termination cases. Hence the ordering of the conditional
                 # chain above differs from that in the corresponding map code.
-                if isfixed || _isnotzero(Cx)
+                if _isnotzero(Cx)
                     Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = Cx
@@ -717,7 +716,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
             Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
             Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
             Cx = f(Ax, Bx)
-            if isfixed || _isnotzero(Cx)
+            if _isnotzero(Cx)
                 for Ci in 1:numrows(C)
                     Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                     storedinds(C)[Ck] = Ci
@@ -739,7 +738,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                 # B's jth column without storing every entry in C's jth column
                 while Bk < stopBk
                     Cx = f(Ax, storedvals(B)[Bk])
-                    if isfixed || _isnotzero(Cx)
+                    if _isnotzero(Cx)
                         Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = storedinds(B)[Bk]
                         storedvals(C)[Ck] = Cx
@@ -758,7 +757,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                     else
                         Cx = fvAzB
                     end
-                    if isfixed || _isnotzero(Cx)
+                    if _isnotzero(Cx)
                         Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = Ci
                         storedvals(C)[Ck] = Cx
@@ -780,7 +779,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                 # A's jth column without storing every entry in C's jth column
                 while Ak < stopAk
                     Cx = f(storedvals(A)[Ak], Bx)
-                    if isfixed || _isnotzero(Cx)
+                    if _isnotzero(Cx)
                         Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = storedinds(A)[Ak]
                         storedvals(C)[Ck] = Cx
@@ -799,7 +798,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
                     else
                         Cx = fzAvB
                     end
-                    if isfixed || _isnotzero(Cx)
+                    if _isnotzero(Cx)
                         Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), A, B)))
                         storedinds(C)[Ck] = Ci
                         storedvals(C)[Ck] = Cx
@@ -1010,7 +1009,6 @@ end
 # (9) _broadcast_zeropres!/_broadcast_notzeropres! for more than two (input) sparse vectors/matrices
 function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     isempty(C) && return _finishempty!(C)
-    isfixed = _is_fixed(As...)
     spaceC::Int = length(getnzval(C))
     expandsverts = _expandsvert_all(C, As)
     expandshorzs = _expandshorz_all(C, As)
@@ -1032,7 +1030,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMa
             while activerow < rowsentinel
                 args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
                 Cx = f(args...)
-                if isfixed || _isnotzero(Cx)
+                if _isnotzero(Cx)
                     Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), As)))
                     storedinds(C)[Ck] = activerow
                     storedvals(C)[Ck] = Cx
@@ -1049,7 +1047,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMa
                 else
                     Cx = defaultCx
                 end
-                if isfixed || _isnotzero(Cx)
+                if _isnotzero(Cx)
                     Ck > spaceC && (spaceC = _growstorage!(C, spaceC, Ck, j, _unchecked_maxnnzbcres(size(C), As)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = Cx
@@ -1193,6 +1191,9 @@ end
 @inline function _copyto!(f, dest, As::SparseVecOrMat...)
     _aresameshape(dest, As...) && return _noshapecheck_map!(f, dest, As...)
     Base.Broadcast.check_broadcast_axes(axes(dest), As...)
+    # the kernels below write the pattern of `dest` as they go; a fixed one takes the
+    # result through `_copyto_fixed!`, which checks it against the pattern first
+    _is_fixed(dest) && return _copyto_fixed!(dest, _sameshapeas(dest, _diffshape_broadcast(f, As...)))
     # Avoid calculating f(zero) unless necessary as it may fail.
     all(_haszeros, As) || return _broadcast_zeropres!(f, dest, As...)
     fofzeros = f(_zeros_eltypes(As...)...)
@@ -1202,6 +1203,9 @@ end
         return _broadcast_notzeropres!(f, fofzeros, dest, As...)
     end
 end
+
+_sameshapeas(dest, R) = R
+_sameshapeas(dest::AbstractSparseMatrixCSC, R::AbstractCompressedVector) = SparseMatrixCSC(R)
 
 @inline function _copyto!(f, dest, args...)
     # args contains nothing but SparseVecOrMat and scalars

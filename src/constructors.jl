@@ -270,8 +270,11 @@ function _withnonzeros(S::SparseMatrixCSC, nzval)
     return SparseMatrixCSC(size(S, 1), size(S, 2), shared ? getcolptr(S) : copy(getcolptr(S)),
         shared ? getrowval(S) : copy(getrowval(S)), nzval)
 end
-float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), float(getnzval(S)))
-complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), complex(getnzval(S)))
+# a fixed matrix that already has the eltype is returned as it is, pattern and all
+float(S::FixedSparseCSC) = _withnonzeros(S, float(getnzval(S)))
+complex(S::FixedSparseCSC) = _withnonzeros(S, complex(getnzval(S)))
+_withnonzeros(S::FixedSparseCSC, nzval) = nzval === getnzval(S) ? S :
+    SparseMatrixCSC(size(S, 1), size(S, 2), Vector(getcolptr(S)), Vector(getrowval(S)), nzval)
 
 """
     sparse(A::Union{AbstractVector, AbstractMatrix})
@@ -307,7 +310,7 @@ julia> sparse([1.0, 0.0, 1.0])
 """
 sparse(A::AbstractMatrix{Tv}) where {Tv} = convert(SparseMatrixCSC{Tv}, A)
 
-sparse(S::AbstractSparseMatrixCSC) = copy(S)
+sparse(S::AbstractSparseMatrixCSC) = _writablecopy(S)
 
 sparse(Q::AbstractQ) = SparseMatrixCSC(Q)
 

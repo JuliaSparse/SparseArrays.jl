@@ -79,6 +79,25 @@ julia> F \ b ≈ x / 2
 true
 ```
 
+The symbolic analysis in `F` is valid only for the pattern it was computed from, and an
+in-place update of a `SparseMatrixCSC` can change that pattern: `A .= c .* B` drops an
+entry where `B` stores a zero. A [fixed-pattern matrix](@ref man-sparse-fixed) cannot
+lose or gain an entry, so it can be refilled and refactorized any number of times:
+
+```jldoctest
+julia> A = SparseArrays.fixed(sparse([2.0 1 0; 0 3 1; 1 0 4])); b = [1.0, 2.0, 3.0];
+
+julia> F = lu(A); x = F \ b;
+
+julia> A .= 2 .* A; nnz(A)
+6
+
+julia> lu!(F, A);
+
+julia> F \ b ≈ x / 2
+true
+```
+
 ### Extracting the factors
 
 The factorizations permute rows and columns to reduce fill-in, so the factors reproduce a
