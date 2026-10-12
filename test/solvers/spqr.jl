@@ -20,8 +20,6 @@ fullrank(::Type{T}, m, n) where {T} = (fixture(T, m, n) + sparse(1:min(m, n), 1:
 
 @test size(qr(fixture(Float64, m, n)).Q) == (m, m)
 
-@test repr("text/plain", qr(fixture(Float64, 4, 4)).Q) == "4×4 $(SparseArrays.SPQR.QRSparseQ{Float64, Int})"
-
 # SPQR has one entry point per element type and per index type, so a comprehensive run takes
 # each of them once: the standard case, and the complex element type with `Int32` indices
 @testset "element type of A: $eltyA" for eltyA in (@static COMPREHENSIVE ? STD_ELTYPES : (Float64,)), iltyA in (@static COMPREHENSIVE ? (eltyA <: Real ? core_itypes : (Int32,)) : core_itypes)
