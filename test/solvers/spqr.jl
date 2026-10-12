@@ -473,6 +473,21 @@ end
             @test fetch(t)
         end
     end
+
+    @static if COMPREHENSIVE
+    @testset "copy and deepcopy are independent" begin
+        A = fullrank(Float64, m, n)
+        b, c = collect(1.0:m), collect(1.0:n)
+        F = qr(A)
+        x, y = F \ b, F' \ c
+        G, H = copy(F), deepcopy(F)
+        SparseArrays.nonzeros(F.R) .*= 2
+        @test G \ b ≈ x
+        @test H \ b ≈ x
+        SparseArrays.nonzeros(F.R) ./= 2
+        @test copy(F') \ c ≈ y
+    end
+    end
 end
 
 @testset "no strategies" begin
