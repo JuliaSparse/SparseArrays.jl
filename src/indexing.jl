@@ -598,7 +598,11 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
     A = parent(V)
     I, J = V.indices
     if isempty(I) || isempty(J); return V; end
-    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
+    # a zero only overwrites stored entries, below; a nonzero must find every entry stored
+    if _is_fixed(A) && !_isimplicitzero(convert(Tv, x), Tv)
+        for j in J, i in I
+            Base.isstored(A, i, j) || _throwfixedinsert(A, i, j)
+        end
         for j in J, i in I
             A[i, j] = x
         end
@@ -835,7 +839,13 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     else
         Base.setindex_shape_check(V, length(I), length(J))
     end
-    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
+    if _is_fixed(A)
+        V = Base.unalias(A, V)
+        k = 0
+        for j in J, i in I
+            v = convert(Tv, V[k += 1])
+            Base.isstored(A, i, j) || _isimplicitzero(v, Tv) || _throwfixedinsert(A, i, j)
+        end
         k = 0
         for j in J, i in I
             A[i, j] = V[k += 1]

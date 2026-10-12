@@ -487,8 +487,11 @@ Three rules describe everything a fixed array does.
 `fill!`, `rmul!`, `lmul!`, `W[i, j] = v` and assignment through a column view store a
 value at each stored entry, a zero included, and leave the pattern alone. A write that
 needs an entry the pattern lacks throws an `ArgumentError`, and the kernels of this
-package check for that before they change any value. Writing through `nonzeros(W)` is
-always allowed.
+package check for that before they change any value. That covers a block assignment such
+as `W[:, j] = x` or `W[I, J] = B`. An assignment that Julia carries out one entry at a
+time, such as a broadcast into a `view` of `W` or `w[inds] = x` with a vector of indices
+into a fixed vector, stops at the first entry outside the pattern, with the entries before
+it already written. Writing through `nonzeros(W)` is always allowed.
 
 ```jldoctest fixedpattern
 julia> W[1, 3] = 1.0

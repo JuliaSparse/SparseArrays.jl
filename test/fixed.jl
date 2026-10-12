@@ -446,4 +446,26 @@ end
 end
 end
 
+@static if COMPREHENSIVE
+@testset "block assignment into a fixed array checks the pattern before writing" begin
+    A = sparse([1.0 0 0; 0 0 0; 4 0 5]); A[1, 2] = 0
+    x = sparsevec([1, 3], [1.0, 0.0], 3)
+    F = fixed(A)
+    @test (F[:, 1] = [7.0, 0, 8]; F[[1, 3], [1, 3]] = [6.0 0; 9 3]; F[:, 1] .= 0; F == [0.0 0 0; 0 0 0; 0 0 3]) && same_pattern(F, A)
+    @test (F[:, 3] = view(F, :, 3); F[3, 3] == 3)
+    f = fixed(x)
+    @test (f[:] = [7.0, 0, 8]; f == [7.0, 0, 8]) && nonzeroinds(f) == [1, 3]
+    # the first entries of each of these lie inside the pattern, and a later one does not
+    for write! in (S -> (S[:, 1] = [7.0, 8, 9]), S -> (S[[1, 3], [1, 3]] = [7.0 6; 8 9]), S -> (S[1, :] = [7.0, 8, 9]),
+                   S -> (S[:, 1] .= 7), S -> (S[:, 1] = [7.0, 0, 1im]))
+        F = fixed(A)
+        @test_throws Union{ArgumentError,InexactError} write!(F)
+        @test exact_equal(F, A)
+    end
+    f = fixed(x)
+    @test_throws ArgumentError f[:] = [7.0, 8, 9]
+    @test exact_equal(f, x)
+end
+end
+
 end # module

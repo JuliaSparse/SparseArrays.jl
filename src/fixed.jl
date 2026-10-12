@@ -257,3 +257,5 @@ function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector
     end
     return A
 end
+
+Base.setindex!(x::FixedSparseVector, v::AbstractVector, ::Colon) = setindex!(x, v, axes(x, 1))
