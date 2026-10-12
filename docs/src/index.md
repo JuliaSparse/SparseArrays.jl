@@ -462,14 +462,14 @@ julia> [(rowvals(x)[k], nonzeros(x)[k]) for k in nzrange(x, 1)]
  (5, 2.5)
 ```
 
-A view of all rows and some columns, `@view A[:, 2:3]` or `@view A[:, [3, 1]]`, and an
-`UpperTriangular`, `LowerTriangular`, `Symmetric` or `Hermitian` wrapper of a sparse matrix
-are matrices in their own right. Their `nonzeros` and `rowvals` are views of the parent's
-vectors, with `nnz` elements each, holding only their own entries (those of the stored
-triangle, for a symmetric or Hermitian wrapper). Their `nzrange` indexes these views, and
-writing to them mutates the parent. The accessors are O(1) for a range of columns. For an
-arbitrary column subset and for the wrappers, `nonzeros` and `rowvals` gather the positions
-of the entries once, and `nzrange(V, j)` costs O(`j`).
+A view of all rows and some columns, `@view A[:, 2:3]` or `@view A[:, [3, 1]]`, is a matrix
+in its own right. Its `nonzeros` and `rowvals` are views of the parent's vectors, with `nnz`
+elements each, holding only its own entries. Its `nzrange` indexes these views, and writing
+to them mutates the parent. The accessors are O(1) for a range of columns. For an arbitrary
+column subset, `nonzeros` and `rowvals` gather the positions of the entries once, and
+`nzrange(V, j)` costs O(`j`). An `UpperTriangular`, `LowerTriangular`, `Symmetric` or
+`Hermitian` wrapper of a sparse matrix has no `nonzeros`, `rowvals` or `nzrange`; convert it
+with `sparse`, or work on its `parent`.
 
 In contrast, scalar indexing `A[i, j]` has to do a binary search of column `j` for row `i`. A
 loop over all `(i, j)` of an `m`-by-`n` matrix therefore performs `m * n` searches, however few

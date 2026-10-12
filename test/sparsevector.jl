@@ -42,7 +42,8 @@ include("testhelpers.jl")
     for T in (UpperTriangular(sparse(1.0I, 3, 3)), (@static COMPREHENSIVE ? (LowerTriangular(sparse(1.0I, 3, 3)),) : ())...)
         @test_throws MethodError getrowval(T)
         @test_throws MethodError getnzval(T)
-        @test rowvals(T) == rowvals(parent(T)) && nonzeros(T) == nonzeros(parent(T))
+        @test_throws MethodError rowvals(T)
+        @test_throws MethodError nonzeros(T)
     end
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
     @static if COMPREHENSIVE
