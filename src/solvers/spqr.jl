@@ -36,6 +36,32 @@ using ..CHOLMOD: change_stype!, free!
 
 import ..LibSuiteSparse: cholmod_l_free, cholmod_free
 
+# Release a permutation that SPQR allocated, through the Common that counts its memory,
+# and clear the handle so that it is released once.
+function _free_perm!(ref::Ref{Ptr{Ti}}, len::Integer) where {Ti<:CHOLMOD.ITypes}
+    p = ref[]
+    p == C_NULL && return nothing
+    ref[] = C_NULL
+    Ti === Int64 ?
+        cholmod_l_free(len, sizeof(Ti), p, CHOLMOD.getcommon(Ti)) :
+        cholmod_free(len, sizeof(Ti), p, CHOLMOD.getcommon(Ti))
+    return nothing
+end
+_free_perm!(::Ptr{Cvoid}, ::Integer) = nothing
+
+# Copy a permutation that SPQR allocated into a one-based vector and release it. A null
+# handle is the identity, returned as an empty vector.
+function _take_perm!(ref::Ref{Ptr{Ti}}, len::Integer) where {Ti<:CHOLMOD.ITypes}
+    p = ref[]
+    p == C_NULL && return Vector{Ti}()
+    v = Vector{Ti}(undef, len)
+    for i in 1:len
+        @inbounds v[i] = unsafe_load(p, i) + 1
+    end
+    _free_perm!(ref, len)
+    return v
+end
+
 function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         A::Sparse{Tv, Ti},
         Bsparse::Union{Sparse{Tv, Ti}                      , Ptr{Cvoid}} = C_NULL,
@@ -54,61 +80,41 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = CHOLMOD.@checked spqr_call(
-        ordering,       # all, except 3:given treated as 0:fixed
-        tol,            # columns with 2-norm <= tol treated as 0
-        econ,           # e = max(min(m,econ),rank(A))
-        getCTX,         # 0: Z=C (e-by-k), 1: Z=C', 2: Z=X (e-by-k)
-        A,              # m-by-n sparse matrix to factorize
-        Bsparse,        # sparse m-by-k B
-        Bdense,         # dense  m-by-k B
-        # /* outputs: */
-        Zsparse,        # sparse Z
-        Zdense,         # dense Z
-        R,              # e-by-n sparse matrix */
-        E,              # size n column perm, NULL if identity */
-        H,              # m-by-nh Householder vectors
-        HPinv,          # size m row permutation
-        HTau,           # 1-by-nh Householder coefficients
-        CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
+    local rnk
+    try
+        rnk = CHOLMOD.@checked spqr_call(
+            ordering,       # all, except 3:given treated as 0:fixed
+            tol,            # columns with 2-norm <= tol treated as 0
+            econ,           # e = max(min(m,econ),rank(A))
+            getCTX,         # 0: Z=C (e-by-k), 1: Z=C', 2: Z=X (e-by-k)
+            A,              # m-by-n sparse matrix to factorize
+            Bsparse,        # sparse m-by-k B
+            Bdense,         # dense  m-by-k B
+            # /* outputs: */
+            Zsparse,        # sparse Z
+            Zdense,         # dense Z
+            R,              # e-by-n sparse matrix */
+            E,              # size n column perm, NULL if identity */
+            H,              # m-by-nh Householder vectors
+            HPinv,          # size m row permutation
+            HTau,           # 1-by-nh Householder coefficients
+            CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
 
-    if rnk < 0
-        # A negative status has already been raised by `@checked`, so what is
-        # left is a failure SPQR reports through its return value only.
-        throw(CHOLMOD.CHOLMODException(string("SuiteSparseQR failed on a ", m, "×", n,
-            " matrix: rank ", rnk, ", status ", CHOLMOD.getcommon(Ti)[].status)))
+        if rnk < 0
+            # A negative status has already been raised by `@checked`, so what is
+            # left is a failure SPQR reports through its return value only.
+            throw(CHOLMOD.CHOLMODException(string("SuiteSparseQR failed on a ", m, "×", n,
+                " matrix: rank ", rnk, ", status ", CHOLMOD.getcommon(Ti)[].status)))
+        end
+    catch
+        # the caller frees the matrices it asked for; the permutations are owned here
+        _free_perm!(E, n)
+        _free_perm!(HPinv, m)
+        rethrow()
     end
 
-    e = E[]
-    if e == C_NULL
-        _E = Vector{Ti}()
-    else
-        _E = Vector{Ti}(undef, n)
-        for i in 1:n
-            @inbounds _E[i] = unsafe_load(e, i) + 1
-        end
-        # Free memory allocated by SPQR. This call will make sure that the
-        # correct deallocator function is called and that the memory count in
-        # the common struct is updated
-        Ti === Int64 ?
-            cholmod_l_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti)) :
-            cholmod_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti))
-    end
-    hpinv = HPinv[]
-    if hpinv == C_NULL
-        _HPinv = Vector{Ti}()
-    else
-        _HPinv = Vector{Ti}(undef, m)
-        for i in 1:m
-            @inbounds _HPinv[i] = unsafe_load(hpinv, i) + 1
-        end
-        # Free memory allocated by SPQR. This call will make sure that the
-        # correct deallocator function is called and that the memory count in
-        # the common struct is updated
-        Ti === Int64 ?
-            cholmod_l_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti)) :
-            cholmod_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti))
-    end
+    _E = _take_perm!(E, n)
+    _HPinv = _take_perm!(HPinv, m)
 
     return rnk, _E, _HPinv
 end

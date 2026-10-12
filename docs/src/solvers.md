@@ -171,9 +171,9 @@ theirs.
 
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
-| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `lu!` |
+| `UMFPACK.UmfpackLU` | shares the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `logabsdet`, `lu!` and the factors `F.L`, `F.U`, `F.p`, `F.q`, `F.Rs` |
 | `SPQR.QRSparse` | shares the factors and permutations, which no call modifies; new lock | `\` and `ldiv!`, with `F` or `F'` |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!` |
+| `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!`, `copy` and the in-place low-rank updates |
 
 The copies of an `UmfpackLU` or a `QRSparse` are cheap, since they share the factors:
 
@@ -193,8 +193,8 @@ once per right-hand side. Because the copies of an `UmfpackLU` share its factors
 call [`lu!`](@ref) on the original or on any copy while another task is solving with one
 of them: refactorization frees the numeric object they all point to.
 
-For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`
-and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
+For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`,
+`copy` and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
 `Factor` is not safe to share between tasks when any of them may refactorize or update it.
 Use a separate `copy(F)` per task in that case; note that this duplicates the factor's
 memory.

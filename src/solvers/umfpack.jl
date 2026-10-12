@@ -446,8 +446,8 @@ Compute the LU factorization of a sparse matrix `A`, reusing the symbolic
 factorization of an already existing LU factorization stored in `F`.
 Unless `reuse_symbolic` is set to false, the sparse matrix `A` must have an
 identical nonzero pattern as the matrix used to create the LU factorization `F`,
-otherwise an error is thrown. If the size of `A` and `F` differ, all vectors will
-be resized accordingly.
+otherwise an error is thrown. If the size of `A` and `F` differ, all vectors are
+resized accordingly and the symbolic factorization is computed anew.
 
 When `check = true`, an error is thrown if the decomposition fails.
 When `check = false`, responsibility for checking the decomposition's
@@ -494,41 +494,61 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
         throw(ArgumentError("cannot refactorize the real $(typeof(F)) with a matrix of eltype $(eltype(S)); use lu(S) instead"))
     end
 
-    F.m = size(S, 1)
-    F.n = size(S, 2)
+    @lock F.lock begin
+        # the symbolic factors are those of a matrix of another size
+        reuse_symbolic && _isnotnull(F.symbolic) && size(S) != (F.m, F.n) && (reuse_symbolic = false)
 
-    resize!(F.colptr, length(getcolptr(S)))
-    if zerobased
-        F.colptr .= getcolptr(S)
-    else
-        F.colptr .= getcolptr(S) .- one(Ti)
+        F.m = size(S, 1)
+        F.n = size(S, 2)
+
+        resize!(F.colptr, length(getcolptr(S)))
+        if zerobased
+            F.colptr .= getcolptr(S)
+        else
+            F.colptr .= getcolptr(S) .- one(Ti)
+        end
+
+        resize!(F.rowval, length(getrowval(S)))
+        if zerobased
+            F.rowval .= getrowval(S)
+        else
+            F.rowval .= getrowval(S) .- one(Ti)
+        end
+
+        resize!(F.nzval, length(getnzval(S)))
+        F.nzval .= getnzval(S)
+
+        lu!(F; reuse_symbolic, check, q)
     end
-
-    resize!(F.rowval, length(getrowval(S)))
-    if zerobased
-        F.rowval .= getrowval(S)
-    else
-        F.rowval .= getrowval(S) .- one(Ti)
-    end
-
-    resize!(F.nzval, length(getnzval(S)))
-    F.nzval .= getnzval(S)
-
-    return lu!(F; reuse_symbolic, check, q)
+    return F
 end
 
 function lu!(F::UmfpackLU{Tv, Ti}; check::Bool=true, reuse_symbolic::Bool=true,
   q=nothing) where {Tv, Ti}
-    if !reuse_symbolic && _isnotnull(F.symbolic)
-        @lock F.lock begin
+    @lock F.lock begin
+        if !reuse_symbolic && _isnotnull(F.symbolic)
             umfpack_free_symbolic(F.symbolic, Tv, Ti)
             F.symbolic = Symbolic{Tv, Ti}(C_NULL)
         end
+        umfpack_numeric!(F; reuse_numeric = false, q)
+        check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     end
-    umfpack_numeric!(F; reuse_numeric = false, q)
-    check && (issuccess(F) || throw(LinearAlgebra.SingularException(0)))
     return F
 end
+
+# The factors are read from the C numeric object, under the lock that `lu!` replaces it
+# under. The locked read is a function of its own, because with the `try` of `@lock` in the
+# body of `getproperty` a field access infers as a union. Inference propagates a constant
+# name into `getproperty` unasked, but into the functions below only when told to.
+@inline function getproperty(lu::UmfpackLU, d::Symbol)
+    if d === :L || d === :U || d === :p || d === :q || d === :Rs || d === :(:)
+        return _locked_factor_property(lu, d)
+    else
+        return getfield(lu, d)
+    end
+end
+Base.@constprop :aggressive _locked_factor_property(lu::UmfpackLU, d::Symbol) =
+    @lock getfield(lu, :lock) _factor_property(lu, d)
 
 size(F::UmfpackLU) = (F.m, F.n)
 function size(F::UmfpackLU, dim::Integer)
@@ -650,8 +670,9 @@ for itype in UmfpackIndexTypes
     get_num_z = Symbol(umf_nm("get_numeric", :ComplexF64, itype))
     @eval begin
         function umfpack_symbolic!(U::UmfpackLU{Float64,$itype}, q::Union{Nothing, AbstractVector{<:Integer}})
-            _isnotnull(U.symbolic) && return U
             @lock U.lock begin
+                _isnotnull(U.symbolic) && return U
+                LibSuiteSparse.init_suitesparse()
                 tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 if q === nothing
                     @isok $sym_r(U.m, U.n, U.colptr, U.rowval, U.nzval, tmp, U.control, U.info)
@@ -665,8 +686,9 @@ for itype in UmfpackIndexTypes
             return U
         end
         function umfpack_symbolic!(U::UmfpackLU{ComplexF64,$itype}, q::Union{Nothing, AbstractVector{<:Integer}})
-            _isnotnull(U.symbolic) && return U
             @lock U.lock begin
+                _isnotnull(U.symbolic) && return U
+                LibSuiteSparse.init_suitesparse()
                 tmp = Ref{Ptr{Cvoid}}(C_NULL)
                 if q === nothing
                     @isok $sym_c(U.m, U.n, U.colptr, U.rowval, real(U.nzval), imag(U.nzval), tmp,
@@ -682,6 +704,7 @@ for itype in UmfpackIndexTypes
         function umfpack_numeric!(U::UmfpackLU{Float64,$itype}; reuse_numeric=true, q=nothing)
             @lock U.lock begin
                 (reuse_numeric && _isnotnull(U.numeric)) && return U
+                LibSuiteSparse.init_suitesparse()
                 # Free the previous factorization eagerly (through the shared
                 # wrapper, so copies see a null numeric and refactor) and drop
                 # it before the symbolic and numeric calls, so that a failure
@@ -703,6 +726,7 @@ for itype in UmfpackIndexTypes
         function umfpack_numeric!(U::UmfpackLU{ComplexF64,$itype}; reuse_numeric=true, q=nothing)
             @lock U.lock begin
                 (reuse_numeric && _isnotnull(U.numeric)) && return U
+                LibSuiteSparse.init_suitesparse()
                 umfpack_free_numeric(U.numeric, ComplexF64, $itype)
                 U.numeric = Numeric{ComplexF64, $itype}(C_NULL)
                 U.status = UMFPACK_ERROR_invalid_Numeric_object
@@ -726,8 +750,8 @@ for itype in UmfpackIndexTypes
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 return _unit_stride_solve!(x, lu, b, typ, workspace)
             end
-            resize!(workspace, lu, has_refinement(lu); expand_only = true)
             @lock lu.lock begin
+                resize!(workspace, lu, has_refinement(lu); expand_only = true)
                 umfpack_numeric!(lu)
                 (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
 
@@ -745,8 +769,8 @@ for itype in UmfpackIndexTypes
             if stride(x, 1) != 1 || stride(b, 1) != 1
                 return _unit_stride_solve!(x, lu, b, typ, workspace)
             end
-            resize!(workspace, lu, has_refinement(lu); expand_only = true)
             @lock lu.lock begin
+                resize!(workspace, lu, has_refinement(lu); expand_only = true)
                 umfpack_numeric!(lu)
                 (size(b, 1) == lu.m) && (size(b) == size(x)) || throw(DimensionMismatch())
                 @isok $wsol_c(typ, lu.colptr, lu.rowval, lu.nzval, C_NULL, x, C_NULL, b,
@@ -776,12 +800,11 @@ for itype in UmfpackIndexTypes
         end
         function logabsdet(F::UmfpackLU{T, $itype}) where {T<:Union{Float64,ComplexF64}} # return log(abs(det)) and sign(det)
             n = checksquare(F)
-            umfpack_numeric!(F)
-            issuccess(F) || return log(zero(real(T))), zero(T)
-            U = F.U
-            Rs = F.Rs
-            p = F.p
-            q = F.q
+            U, Rs, p, q = @lock F.lock begin
+                umfpack_numeric!(F)
+                issuccess(F) || return log(zero(real(T))), zero(T)
+                F.U, F.Rs, F.p, F.q
+            end
             s = _signperm(p)*_signperm(q)*one(real(T))
             P = one(T)
             abs_det = zero(real(T))
@@ -817,7 +840,7 @@ for itype in UmfpackIndexTypes
             end
             (lnz[], unz[], n_row[], n_col[], nz_diag[])
         end
-        function getproperty(lu::UmfpackLU{Float64, $itype}, d::Symbol)
+        Base.@constprop :aggressive function _factor_property(lu::UmfpackLU{Float64, $itype}, d::Symbol)
             if d === :L
                 umfpack_numeric!(lu)        # ensure the numeric decomposition exists
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
@@ -905,7 +928,7 @@ for itype in UmfpackIndexTypes
                 return getfield(lu, d)
             end
         end
-        function getproperty(lu::UmfpackLU{ComplexF64, $itype}, d::Symbol)
+        Base.@constprop :aggressive function _factor_property(lu::UmfpackLU{ComplexF64, $itype}, d::Symbol)
             if d === :L
                 umfpack_numeric!(lu)        # ensure the numeric decomposition exists
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
