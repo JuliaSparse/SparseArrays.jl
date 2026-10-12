@@ -576,6 +576,19 @@ end
         end
         @test F \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
     end
+
+    @testset "logabsdet snapshots size with factors (#1029), $Tv" for Tv in STD_ELTYPES
+        F = lu(sparse(Diagonal(Tv[2, 3])))
+        A = sparse(Diagonal(Tv[7, 11, 13]))
+        t = @lock F.lock begin
+            task = @async logabsdet(F)
+            yield()
+            @test !istaskdone(task)
+            lu!(F, A)
+            task
+        end
+        @test all(fetch(t) .≈ logabsdet(Matrix(A)))
+    end
     end
 
     @testset "keywords reach converted eltypes and any q vector, $Ti" for Ti in KERNEL_ITYPES

@@ -808,11 +808,11 @@ for itype in UmfpackIndexTypes
             complex(mx[], mz[])
         end
         function logabsdet(F::UmfpackLU{T, $itype}) where {T<:Union{Float64,ComplexF64}} # return log(abs(det)) and sign(det)
-            n = checksquare(F)
-            U, Rs, p, q = @lock F.lock begin
+            n, U, Rs, p, q = @lock F.lock begin
+                n = checksquare(F)
                 umfpack_numeric!(F)
                 issuccess(F) || return log(zero(real(T))), zero(T)
-                F.U, F.Rs, F.p, F.q
+                n, F.U, F.Rs, F.p, F.q
             end
             s = _signperm(p)*_signperm(q)*one(real(T))
             P = one(T)
