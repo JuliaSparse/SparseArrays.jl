@@ -49,6 +49,13 @@ end
     @test samefile(L.libdir(), original_dir)
     @static if COMPREHENSIVE
     mktempdir() do dir
+        failure = """
+            L = SparseArrays.LibSuiteSparse
+            @test_throws ErrorException L.init_suitesparse()
+            @test_throws ErrorException L.init_suitesparse()
+            @test !any(L._isloaded, values(L.SUITESPARSE_LIBRARIES))
+            """
+        @test success(pipeline(testprocess(failure; env=[L.LIBDIR_ENV => dir]); stdout, stderr))
         for name in keys(L.SUITESPARSE_LIBRARIES)
             src = L._jll_path(name)
             cp(src, joinpath(dir, basename(src)); follow_symlinks=true)
