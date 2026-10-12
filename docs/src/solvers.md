@@ -59,7 +59,8 @@ once and pass it with the `workspace` keyword:
 [`CHOLMOD.CholmodWS(F)`](@ref SparseArrays.CHOLMOD.CholmodWS) for `cholesky` and `ldlt`,
 and [`SPQR.SpqrWS(F)`](@ref SparseArrays.SPQR.SpqrWS) for `qr`. This works with `F`, `F'`
 and `transpose(F)`, and in `ldiv!(F, b)`. A workspace grows as needed and can be reused,
-but not by two calls at once.
+but not by two calls at once; `similar(ws)` makes another one. The right-hand side of
+`ldiv!` may be complex when the factorization is real.
 
 For a new matrix with the same sparsity pattern, `lu!(F, A2)`,
 [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!)`(F, A2)` and `ldlt!(F, A2)` redo only
@@ -163,7 +164,8 @@ SparseArrays.LibSuiteSparse.init_suitesparse
 ## Multithreading and thread safety
 
 A solve (`\` or `ldiv!`, with `F`, `F'` or `transpose(F)`) only reads the factorization and
-takes no lock, so any number of tasks can solve with one factorization at the same time:
+takes no lock, and neither do `det`, `logabsdet`, `logdet` and the factor properties. Any
+number of tasks can therefore use one factorization at the same time:
 
 ```julia
 using LinearAlgebra, SparseArrays
@@ -175,22 +177,31 @@ Threads.@threads for j in axes(B, 2)
 end
 ```
 
+Each `ldiv!` above allocates its scratch space. To avoid that, give every task a workspace
+of its own, made with `similar(ws)` from one that exists.
+
+Solves with a supernodal `cholesky` factor, which CHOLMOD chooses for larger matrices, do
+not currently speed up when run from several threads, and can slow down: they make many
+small BLAS calls, which contend with each other in OpenBLAS
+([SparseArrays.jl#1044](https://github.com/JuliaSparse/SparseArrays.jl/issues/1044)). Solves
+with `ldlt`, `lu` and `qr` factors are not affected.
+
 A `QRSparse` is never modified once `qr` has returned, and has no lock. An `UmfpackLU` and
 a `CHOLMOD.Factor` can be refactorized in place, and each has an internal lock, which the
-calls that change it and some of those that read it hold for the whole call:
+calls that change or copy it hold for the whole call:
 
 | Type | `copy(F)` | Calls that take the lock of `F` |
 |:-----|:----------|:--------------------------------|
-| `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `lu!`, `copy`, `det`, `logabsdet` and the factors `F.L`, `F.U`, `F.p`, `F.q`, `F.Rs` |
+| `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `lu!`, `copy`, and `show_umf_ctrl` and `show_umf_info` |
 | `SPQR.QRSparse` | independent copy of the factors and permutations | none: there is no lock |
-| `CHOLMOD.Factor` | independent deep copy of the whole factor | [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`, `copy` and the in-place low-rank updates |
+| `CHOLMOD.Factor` | independent deep copy of the whole factor | [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`, the in-place low-rank updates, `copy`, and what copies the factor internally: `sparse(F)`, `nnz(F)`, and a solve that has to convert the factor to the element type of the right-hand side |
 
-The lock keeps those calls apart from each other, not from a solve: a factorization must
-not be refactorized or updated while another task solves with it. A task that does so needs
-its own `copy(F)`. An independent copy is unaffected by anything done to the original, and
-the original by anything done to the copy; it duplicates the factors' memory.
-`deepcopy(F)` is an independent copy too, and `copy` of `F'` or `transpose(F)` wraps
-`copy(F)`.
+The lock keeps those calls apart from each other, not from a call that reads: a
+factorization must not be refactorized or updated while another task solves with it or
+reads its factors. A task that does so needs its own `copy(F)`. An independent copy is
+unaffected by anything done to the original, and the original by anything done to the
+copy; it duplicates the factors' memory. `deepcopy(F)` is an independent copy too, and
+`copy` of `F'` or `transpose(F)` wraps `copy(F)`.
 
 UMFPACK reports statistics of each solve, such as the refinement steps it took. A solve
 writes them to the `info` of the [`UMFPACK.UmfpackWS`](@ref SparseArrays.UMFPACK.UmfpackWS)
