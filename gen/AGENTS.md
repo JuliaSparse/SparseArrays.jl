@@ -19,9 +19,13 @@ to be red; do not delete the merged bump PR's branch.
 
 1. `cd` to this directory.
 2. Update the SuiteSparse version (`VER`) and the `SuiteSparse_jll` build number
-   (`JLL_BUILD`) in `Makefile`.
+   (`JLL_BUILD`) in `Makefile`, and set `SHA256` to the `x86_64-linux-gnu` archive's
+   checksum from that release's `SuiteSparse_jll` `Artifacts.toml`.
 3. Run `make`. The updated wrappers are written to `src/solvers/wrappers.jl`; the banner
    at the top of that file comes from `prologue.jl`.
+
+Downloads and extracted headers are cached by version and build number. `make clean`
+removes the current release's cache. Use `make JULIA='julia +nightly'` to select Julia.
 
 - `Makefile` downloads the `x86_64-linux-gnu` build of `SuiteSparse_jll` to obtain the
   headers. The headers are platform independent, so the generated wrappers are used on
