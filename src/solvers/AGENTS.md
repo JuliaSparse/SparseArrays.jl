@@ -29,17 +29,20 @@ on the GPL libraries; see the Layout section there.
 - Initialization is lazy and process-once, done before the first C call rather than in
   `__init__`. Library handles belong to `LibSuiteSparse`; every submodule imports each
   symbol it uses explicitly, and never references a library by bare symbol.
-- Each factorization has one plain `ReentrantLock` field, named `lock` on `UmfpackLU`
-  and `CHOLMOD.Factor` and `_lock` on `QRSparse`. Every call that touches its mutable
+- A factorization that can change after it is constructed (`UmfpackLU`, `CHOLMOD.Factor`)
+  has one plain `ReentrantLock` field, named `lock`. Every call that touches its mutable
   state (C factor objects, matrix arrays, status, control and info) holds that lock for
   the whole call, including argument checks that read the factor and any `issuccess`
-  check after refactorization. Read-only calls on a `UmfpackLU` or a `QRSparse` serialize
-  too. Those on a `CHOLMOD.Factor` (`F \ b`, `diag`, `logdet`, `sparse(F)`) do not take
-  the lock, so that tasks can solve with one shared factor in parallel; only the calls
-  that modify the factor (`cholesky!`, `ldlt!`, `lowrankupdate!`) and `copy` take it, and
-  a factor must not be modified while another task reads it. Where a locked method
-  calls another, rely on reentrancy or split out an unlocked kernel, whichever keeps hot
-  paths to one acquisition.
+  check after refactorization. Read-only calls on a `UmfpackLU` serialize too. Those on
+  a `CHOLMOD.Factor` (`F \ b`, `diag`, `logdet`, `sparse(F)`) do not take the lock, so
+  that tasks can solve with one shared factor in parallel; only the calls that modify
+  the factor (`cholesky!`, `ldlt!`, `lowrankupdate!`) and `copy` take it, and a factor
+  must not be modified while another task reads it. Where a locked method calls another,
+  rely on reentrancy or split out an unlocked kernel, whichever keeps hot paths to one
+  acquisition.
+- A `QRSparse` is immutable and nothing writes to its arrays after `qr` returns, so it
+  has no lock and its solves run in parallel on one shared object. Keep it that way: a
+  method that modifies a `QRSparse` in place would need a lock on every solve again.
 - `copy(F)` is fully independent: it shares nothing that any call modifies, and it
   holds the source's lock while it reads any of that state. Parallel work uses one copy
   per task; document threading in the docs.
