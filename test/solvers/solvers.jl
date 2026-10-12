@@ -277,4 +277,28 @@ end
     end
 end
 
+@testset "ldiv! with a complex right-hand side and a real factorization, $name" for (name, fact) in (
+        ("lu", lu), ("cholesky", cholesky), ("qr", qr))
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    F = fact(A)
+    b = ComplexF64[1, 2im, 3 - im]
+    x = Matrix(A) \ b
+    ws = fact === lu ? SparseArrays.UMFPACK.UmfpackWS(F) :
+         fact === cholesky ? SparseArrays.CHOLMOD.CholmodWS(F) : SparseArrays.SPQR.SpqrWS(F)
+    @test ldiv!(similar(b), F, b; workspace = similar(ws)) ≈ x
+    @static if COMPREHENSIVE
+    @test typeof(similar(ws)) === typeof(ws) && similar(ws) !== ws
+    @test ldiv!(F, copy(b)) ≈ x
+    @test ldiv!(similar([b b]), F, [b 2b]; workspace = ws) ≈ [x 2x]
+    for wrap in (adjoint, transpose)
+        @test ldiv!(similar(b), wrap(F), b; workspace = ws) ≈ wrap(Matrix(A)) \ b
+        @test ldiv!(wrap(F), copy(b)) ≈ wrap(Matrix(A)) \ b
+    end
+    # the sizes are checked before the solution is written
+    y = fill(7.0 + 0im, 3)
+    @test_throws DimensionMismatch ldiv!(y, F, ComplexF64[1, 2])
+    @test all(==(7), y)
+    end
+end
+
 end # module

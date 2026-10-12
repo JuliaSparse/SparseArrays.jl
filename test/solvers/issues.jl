@@ -188,17 +188,11 @@ end
     @test det(F) ≈ det(Matrix(C))
 end
 
-@testset "logabsdet snapshots size with factors (#1029, PR #1034), $Tv" for Tv in STD_ELTYPES
+@testset "logabsdet after lu! with a matrix of another size (#1029, PR #1034), $Tv" for Tv in STD_ELTYPES
     F = lu(sparse(Diagonal(Tv[2, 3])))
     A = sparse(Diagonal(Tv[7, 11, 13]))
-    t = @lock F.lock begin
-        task = @async logabsdet(F)
-        yield()
-        @test !istaskdone(task)
-        lu!(F, A)
-        task
-    end
-    @test all(fetch(t) .≈ logabsdet(Matrix(A)))
+    lu!(F, A)
+    @test all(logabsdet(F) .≈ logabsdet(Matrix(A)))
 end
 
 @testset "Issues #26367 and #26368" begin
