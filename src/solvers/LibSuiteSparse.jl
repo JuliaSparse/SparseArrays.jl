@@ -23,8 +23,12 @@ const LIBDIR_ENV = "JULIA_SUITESPARSE_LIBDIR"
 const _libdir = Ref{Union{Nothing,String}}(nothing)
 const _libdir_lock = ReentrantLock()
 
-# Path SuiteSparse_jll would load for library `name`, without loading it.
-_jll_path(name::Symbol) = string((getfield(SuiteSparse_jll, name)::LazyLibrary).path)
+# Path SuiteSparse_jll would load for a library, without loading it.
+function _jll_path(lib::LazyLibrary)
+    path = lib.path
+    return path isa String ? path : string(path::Libdl.LazyLibraryPath)
+end
+_jll_path(name::Symbol) = _jll_path(getfield(SuiteSparse_jll, name)::LazyLibrary)
 
 function _override_dir()
     # Nothing loaded while generating a pkgimage may be cached in it.
@@ -40,14 +44,21 @@ function _override_dir()
     end
 end
 
-struct SuiteSparseLibPath
-    name::Symbol
+@static if isdefined(Libdl, :LazyLibraryCallback)
+    struct SuiteSparseLibPath <: Libdl.LazyLibraryCallback
+        jll::LazyLibrary
+    end
+else
+    struct SuiteSparseLibPath
+        jll::LazyLibrary
+    end
 end
 function Base.string(p::SuiteSparseLibPath)
-    path = _jll_path(p.name)
+    path = _jll_path(p.jll)
     dir = _override_dir()
     return isempty(dir) ? path : joinpath(dir, basename(path))
 end
+(p::SuiteSparseLibPath)() = string(p)
 Base.print(io::IO, p::SuiteSparseLibPath) = print(io, string(p))
 
 # The BLAS/LAPACK and compiler runtime libraries SuiteSparse_jll declares as dependencies.
@@ -57,16 +68,16 @@ const _system_deps = LazyLibrary[getfield(SuiteSparse_jll, n)
     for n in (:libblastrampoline, :libstdcxx, :libgcc_s)
     if isdefined(SuiteSparse_jll, n)]
 
-const libsuitesparseconfig = LazyLibrary(SuiteSparseLibPath(:libsuitesparseconfig))
-const libamd     = LazyLibrary(SuiteSparseLibPath(:libamd);     dependencies = [libsuitesparseconfig])
-const libcamd    = LazyLibrary(SuiteSparseLibPath(:libcamd);    dependencies = [libsuitesparseconfig])
-const libcolamd  = LazyLibrary(SuiteSparseLibPath(:libcolamd);  dependencies = [libsuitesparseconfig])
-const libccolamd = LazyLibrary(SuiteSparseLibPath(:libccolamd); dependencies = [libsuitesparseconfig])
-const libcholmod = LazyLibrary(SuiteSparseLibPath(:libcholmod);
+const libsuitesparseconfig = LazyLibrary(SuiteSparseLibPath(SuiteSparse_jll.libsuitesparseconfig))
+const libamd     = LazyLibrary(SuiteSparseLibPath(SuiteSparse_jll.libamd);     dependencies = [libsuitesparseconfig])
+const libcamd    = LazyLibrary(SuiteSparseLibPath(SuiteSparse_jll.libcamd);    dependencies = [libsuitesparseconfig])
+const libcolamd  = LazyLibrary(SuiteSparseLibPath(SuiteSparse_jll.libcolamd);  dependencies = [libsuitesparseconfig])
+const libccolamd = LazyLibrary(SuiteSparseLibPath(SuiteSparse_jll.libccolamd); dependencies = [libsuitesparseconfig])
+const libcholmod = LazyLibrary(SuiteSparseLibPath(SuiteSparse_jll.libcholmod);
     dependencies = [libsuitesparseconfig, libamd, libcamd, libccolamd, libcolamd, _system_deps...])
-const libspqr    = LazyLibrary(SuiteSparseLibPath(:libspqr);
+const libspqr    = LazyLibrary(SuiteSparseLibPath(SuiteSparse_jll.libspqr);
     dependencies = [libsuitesparseconfig, libcholmod, _system_deps...])
-const libumfpack = LazyLibrary(SuiteSparseLibPath(:libumfpack);
+const libumfpack = LazyLibrary(SuiteSparseLibPath(SuiteSparse_jll.libumfpack);
     dependencies = [libsuitesparseconfig, libamd, libcholmod, _system_deps...])
 
 const SUITESPARSE_LIBRARIES = (; libsuitesparseconfig, libamd, libcamd, libcolamd, libccolamd,
