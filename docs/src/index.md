@@ -441,7 +441,7 @@ A type that defines `zero`, `+` and `*` is enough for most of the package, and e
   multiplied by another, but not indexed at an entry that is not stored.
 - `c * A`, `A * c` and `A / c` are defined for a scalar `c` that is a `Number`. For any
   other element type, use `map` or broadcasting.
-- The [sparse factorizations](@ref stdlib-sparse-linalg) `lu`, `qr`, `cholesky` and `ldlt`
+- The sparse factorizations `lu`, `qr`, `cholesky` and `ldlt`
   call SuiteSparse, which works in real and complex floating point. A matrix of integers
   or rationals is converted to `Float64` first; a matrix of another element type, such
   as `BigFloat`, is rejected.
