@@ -554,8 +554,8 @@ Note that an out-of-place `map` or broadcast over two or more arrays drops the e
 computes as zero, as it does for other sparse arrays (over a single array it keeps the
 pattern of its argument); write into a fixed destination to keep them.
 
-The factorizations accept a fixed matrix, which is what makes
-[reusing a symbolic factorization](@ref man-sparse-solving) safe: see the solver manual.
+The factorizations accept a fixed matrix, which is what makes reusing a symbolic
+factorization safe: see "Reusing a factorization" in the solver manual.
 
 ## [Performance tips](@id man-sparse-performance)
 
