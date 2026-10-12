@@ -255,8 +255,8 @@ factors, which are recomputed on first use after deserialization.
 
 `ldiv!` takes an optional [`UMFPACK.UmfpackWS`](@ref SparseArrays.UMFPACK.UmfpackWS) to
 avoid allocating. Calls with `F` take an internal lock. To solve with the same
-factorization from several tasks at once, give each task its own `copy(F)`, which shares
-the factors.
+factorization from several tasks at once, give each task its own `copy(F)`, which is
+independent of `F` and duplicates the factors.
 
 # Examples
 ```jldoctest
