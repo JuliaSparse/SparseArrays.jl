@@ -172,17 +172,18 @@ theirs.
 | Type | `copy(F)` | Calls serialized by the lock of one `F` |
 |:-----|:----------|:-----------------------------------------|
 | `UMFPACK.UmfpackLU` | independent copy of the matrix and the symbolic and numeric factors; new `control`, `info` and lock | `\`, `ldiv!`, `det`, `logabsdet`, `lu!`, `copy` and the factors `F.L`, `F.U`, `F.p`, `F.q`, `F.Rs` |
-| `SPQR.QRSparse` | shares the factors and permutations, which no call modifies; new lock | `\` and `ldiv!`, with `F` or `F'` |
+| `SPQR.QRSparse` | independent copy of the factors and permutations; new lock | `\` and `ldiv!`, with `F` or `F'` |
 | `CHOLMOD.Factor` | independent deep copy of the whole factor | `ldiv!`, `cholesky!`, `ldlt!`, `copy` and the in-place low-rank updates |
 
-A copy of an `UmfpackLU` is unaffected by anything done to the original, and the original
-by anything done to the copy; `deepcopy(F)` returns `copy(F)`. A copy duplicates the
-factors, so make one per task rather than one per right-hand side:
+An independent copy is unaffected by anything done to the original, and the original by
+anything done to the copy. `deepcopy(F)` is an independent copy too, and `copy`
+of `F'` or `transpose(F)` wraps `copy(F)`. A copy duplicates the factors, so make one per
+task rather than one per right-hand side:
 
 ```julia
 using LinearAlgebra, SparseArrays
 
-F = lu(A)
+F = lu(A)                       # or qr(A)
 X = similar(B)
 Threads.@threads for cols in collect(Iterators.partition(axes(B, 2), cld(size(B, 2), Threads.nthreads())))
     Fj = copy(F)
@@ -192,14 +193,11 @@ Threads.@threads for cols in collect(Iterators.partition(axes(B, 2), cld(size(B,
 end
 ```
 
-The copies of a `QRSparse` share its factors, which no call modifies, so they are cheap.
-
 For CHOLMOD, only `ldiv!`, [`cholesky!`](@ref SparseArrays.CHOLMOD.cholesky!), `ldlt!`,
 `copy` and the in-place low-rank updates take the lock of the `Factor`. `F \ b` does not, so a
 `Factor` is not safe to share between tasks when any of them may refactorize or update it.
 Use a separate `copy(F)` per task in that case; note that this duplicates the factor's
-memory. `deepcopy(F)` returns `copy(F)`, and `copy` of `F'` or `transpose(F)` wraps
-`copy(F)`.
+memory.
 
 CHOLMOD and SPQR keep their parameters, statistics and error state in a `cholmod_common`
 structure. SparseArrays creates one lazily for each Julia task (and index type) and keeps
