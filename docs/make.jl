@@ -1,5 +1,5 @@
 using SparseArrays
-using Documenter: DocMeta, makedocs, deploydocs
+using Documenter: Documenter, DocMeta, makedocs, deploydocs
 
 DocMeta.setdocmeta!(SparseArrays, :DocTestSetup, :(using SparseArrays; using LinearAlgebra); recursive=true)
 
@@ -8,8 +8,9 @@ makedocs(
     sitename = "SparseArrays",
     pages = Any[
         "SparseArrays" => "index.md",
-        "Sparse Linear Algebra API" => "solvers.md",
         ];
+    # The same limits as Julia's manual, which renders `index.md` as one page.
+    format = Documenter.HTML(size_threshold = 800 * 2^10, size_threshold_warn = 200 * 2^10),
     warnonly = [:cross_references],
     )
 

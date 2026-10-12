@@ -89,10 +89,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           julia --color=yes .ci/check-gpl-usage.jl
-      - name: Check that the manual page has no cross-references into the solvers page
-        if: ${{ !cancelled() }}
-        run: |
-          julia --color=yes .ci/check-docs-crossrefs.jl
       - name: Run ambiguity tests
         if: ${{ !cancelled() }}
         run: |
