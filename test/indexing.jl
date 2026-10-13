@@ -156,6 +156,15 @@ include("testhelpers.jl")
         end
     end
 
+    @static if COMPREHENSIVE
+    @testset "StepRangeLen row ranges" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Matrix(A)
+        for I in (StepRangeLen(2, -1, 2), StepRangeLen(1, 0, 3))
+            @test mismatch(A[I, :], D[I, :]) === nothing
+        end
+    end
+    end
+
     # workaround issue #7197: comment out let-block
     #let S = SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[])
     S1290 = @static COMPREHENSIVE ? SparseMatrixCSC(3, 3, UInt8[1,1,1,1], UInt8[], Int64[]) : spzeros(3, 3)
