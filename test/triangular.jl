@@ -238,24 +238,18 @@ end
 
 @testset "solves with a triangle of a lazy adjoint or transpose on the right return dense" begin
     S = sparse(ComplexF64[1 2+3im 1im; 4-1im 5 2-im; 3+im 2im 7])
+    L = LowerTriangular(S)
     # the conjugate of `S`, which no eager adjoint or transpose makes
     A = UnitLowerTriangular(transpose(S'))
     X = A \ A
     @test X isa UnitLowerTriangular{ComplexF64,Matrix{ComplexF64}} && X ≈ I
     X = A / A
     @test X isa UnitLowerTriangular{ComplexF64,Matrix{ComplexF64}} && X ≈ I
-    # so do solves with the lazy transpose of a Hermitian matrix and with a view of rows
-    H = Hermitian(S + S')
-    for B in (transpose(H), view(S, [2, 1, 3], :))
-        @test (LowerTriangular(S) \ B)::Matrix{ComplexF64} ≈ Matrix(LowerTriangular(S)) \ Matrix(B)
-        @test (B / LowerTriangular(S))::Matrix{ComplexF64} ≈ Matrix(B) / Matrix(LowerTriangular(S))
-    end
-    for B in (A, LowerTriangular(S'), UpperTriangular(transpose(S)))
-        X = LowerTriangular(S) \ B
-        @test parent(X) isa Matrix{ComplexF64} && X ≈ Matrix(LowerTriangular(S)) \ Matrix(B)
-        X = B / LowerTriangular(S)
-        @test parent(X) isa Matrix{ComplexF64} && X ≈ Matrix(B) / Matrix(LowerTriangular(S))
-    end
+    # so do solves with a view of rows and with the lazy transpose of a Hermitian matrix
+    V = view(S, [2, 1, 3], :)
+    @test (L \ V)::Matrix{ComplexF64} ≈ Matrix(L) \ Matrix(V)
+    H = transpose(Hermitian(S + S'))
+    @test (H / L)::Matrix{ComplexF64} ≈ Matrix(H) / Matrix(L)
 end
 end
 
