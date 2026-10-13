@@ -2764,8 +2764,10 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
     end
 end
 
-_isless_fm(a, b)    =  b == b && ( a != a || isless(a, b) )
-_isgreater_fm(a, b) =  b == b && ( a != a || isless(b, a) )
+# whether `a` replaces the best value so far `b`, by the test of Base's dense `findmin` and
+# `findmax`, so that the result agrees with dense on `NaN`, `missing` and signed zeros
+_isless_fm(a, b)    = Base.isgreater(b, a)
+_isgreater_fm(a, b) = isless(b, a)
 
 findmin(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTuple{2,Integer}}) where {Tv} =
     _findr(_isless_fm, A, region)
