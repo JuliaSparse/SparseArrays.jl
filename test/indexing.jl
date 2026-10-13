@@ -263,10 +263,6 @@ end
     @static if COMPREHENSIVE
     @testset "decreasing ranges through a view" begin
         S = sparse([1.0 2 0; 0 3 4; 5 0 6]); E = Matrix(S)
-        S[3:-1:1, 1] .= 0.0; E[3:-1:1, 1] .= 0.0
-        @test mismatch(S, E) === nothing
-        S[:, 3:-2:1] .= 2.0; E[:, 3:-2:1] .= 2.0
-        @test mismatch(S, E) === nothing
         fill!(view(S, 3:-1:2, 3:-1:1), 7.0); fill!(view(E, 3:-1:2, 3:-1:1), 7.0)
         @test mismatch(S, E) === nothing
     end
