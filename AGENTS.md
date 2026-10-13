@@ -40,6 +40,8 @@ Being a stdlib shapes everything below:
   Julia's docs build. So does a `@docs` entry for a function that LinearAlgebra's page
   lists too, such as `lu` or `cholesky`, unless it carries the method signature of the
   sparse docstring.
+  The page's `@contents` block names it as both `index.md` and `SparseArrays.md`, its
+  file name in Julia's manual; under any other name the table of contents comes out empty.
 - Every source and test file starts with the Julia MIT license banner.
 
 ## Layout

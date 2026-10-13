@@ -227,6 +227,23 @@ julia> issparse(spzeros(5))
 true
 ```
 
+Other constructors build common matrices directly. `sparse(I, n, n)` is the identity,
+[`spdiagm`](@ref) places vectors on diagonals, and [`blockdiag`](@ref) puts matrices along
+the diagonal of a larger one. [`sprand`](@ref) and [`sprandn`](@ref) return a random vector
+or matrix in which each entry is stored with probability `d`, with uniformly or normally
+distributed values.
+
+```jldoctest
+julia> spdiagm(0 => [1, 2, 3], 1 => [4, 5])
+3×3 SparseMatrixCSC{Int64, Int64} with 5 stored entries:
+ 1  4  ⋅
+ ⋅  2  5
+ ⋅  ⋅  3
+
+julia> blockdiag(sparse(2I, 2, 2), sparse([3 4])) == [2 0 0 0; 0 2 0 0; 0 0 3 4]
+true
+```
+
 ### Sparse matrix operations
 
 Arithmetic, indexing, assignment and concatenation work on sparse matrices as they do on
@@ -522,7 +539,7 @@ ERROR: ArgumentError: number of rows (m = 200) does not fit in Ti = Int8
 Operations between matrices with different index types promote to the wider one, so use one index type
 consistently.
 
-#### Lazy `transpose` and `adjoint`
+#### [Lazy `transpose` and `adjoint`](@id man-sparse-lazy-transpose)
 
 `transpose(A)` and `A'` do not copy; they return `Transpose` and `Adjoint` wrappers around
 `A`. What happens to a wrapper depends on the function:
@@ -732,11 +749,66 @@ computes as zero, as it does for other sparse arrays (over a single array it kee
 pattern of its argument); write into a fixed destination to keep them.
 
 The factorizations accept a fixed matrix, which is what makes reusing a symbolic
-factorization safe: see "Reusing a factorization" in the solver manual.
+factorization safe: see [Reusing a factorization](@ref man-sparse-refactorize).
 
 ## [Sparse Linear Algebra](@id stdlib-sparse-linalg)
 
-Sparse factorizations call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse):
+The functions of LinearAlgebra have methods for sparse arrays. Products, `dot`, `kron` and
+the norms are implemented in this package. The factorizations, and the solves that use
+them, call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
+
+### [Products and norms](@id man-sparse-products)
+
+The result of `*` follows the other factor:
+
+| Product of a sparse matrix with | Result |
+|:--------------------------------|:-------|
+| a `Vector` or a `Matrix` | dense |
+| a sparse vector | `SparseVector` |
+| a sparse matrix | `SparseMatrixCSC` |
+| a `Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix | `SparseMatrixCSC` |
+
+`mul!(y, A, x)` writes the product into `y`, and `mul!(y, A, x, α, β)` computes
+`A*x*α + y*β` in place. Products with `A'` and `transpose(A)` do not materialize the
+transpose when the other factor is dense or a sparse vector: see
+[Lazy `transpose` and `adjoint`](@ref man-sparse-lazy-transpose).
+
+- `dot(x, y)` of sparse or dense vectors and matrices visits the stored entries only, and
+  `dot(x, A, y)` computes `x' * A * y` without forming `A * y`.
+- `kron` of two sparse arrays, or of a sparse array and a dense or `Diagonal` matrix, is
+  sparse.
+- `norm(A, p)` treats `A` as a vector of its entries, so `norm(A)` is the Frobenius norm.
+  [`opnorm(A, p)`](@ref SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real))
+  is the operator norm for `p` equal to `1`, `2` or `Inf`; for `p = 2` it is an iterative
+  estimate.
+- `cond(A, 1)` and `cond(A, Inf)` estimate the norm of the inverse from an
+  [`lu`](@ref SparseArrays.UMFPACK.lu) factorization. The 2-norm condition number is not
+  available; use `cond(Array(A))` for a matrix small enough.
+- `tr`, `diag`, `triu` and `tril` work on the stored entries, and the last three return
+  sparse results.
+
+```jldoctest
+julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]); x = [1.0, 2.0, 3.0];
+
+julia> y = similar(x); mul!(y, A, x)
+3-element Vector{Float64}:
+  4.0
+  9.0
+ 13.0
+
+julia> dot(x, A, x)
+61.0
+
+julia> kron(A, sparse(I, 2, 2)) isa SparseMatrixCSC
+true
+
+julia> norm(A, 1), opnorm(A, 1), opnorm(A, Inf)
+(12.0, 5.0, 5.0)
+```
+
+### [Solving linear systems](@id man-sparse-solving)
+
+Sparse factorizations call SuiteSparse:
 
 | Function | Returns | Library |
 |:---------|:--------|:--------|
@@ -744,8 +816,6 @@ Sparse factorizations call [SuiteSparse](https://github.com/DrTimothyAldenDavis/
 | [`lu`](@ref SparseArrays.UMFPACK.lu) | [`UMFPACK.UmfpackLU`](@ref SparseArrays.UMFPACK.UmfpackLU) | UMFPACK |
 | [`qr`](@ref SparseArrays.SPQR.qr) | [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | SPQR |
 | [`lq`](@ref SparseArrays.SPQR.lq) | [`SPQR.AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse), the adjoint of `qr(A')` | SPQR |
-
-### [Solving linear systems](@id man-sparse-solving)
 
 For a sparse `A` and a dense `b`, `A \ b` picks a method from the structure of `A` and
 returns a dense result. `factorize(A)` makes the same choice and returns the
@@ -776,7 +846,7 @@ julia> qr(A) \ b ≈ [1.0, 2.0, 0.0, 0.0]
 true
 ```
 
-#### Reusing a factorization
+#### [Reusing a factorization](@id man-sparse-refactorize)
 
 To solve several systems with one matrix, factorize once. `F \ B` takes a vector or a
 matrix of right-hand sides, and `ldiv!(x, F, b)` writes into `x`.
@@ -997,8 +1067,9 @@ By default the solvers use the SuiteSparse libraries bundled with Julia. To use 
 build, such as one with GPU support, point SparseArrays at a directory holding all of
 `libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod`,
 `libspqr` and `libumfpack`, with the bundled file names and the same major SuiteSparse
-version. Either call `SparseArrays.LibSuiteSparse.set_libdir!(dir)` before the first
-solver call, or set `JULIA_SUITESPARSE_LIBDIR` before starting Julia; `set_libdir!` wins.
+version. Either call
+[`SparseArrays.LibSuiteSparse.set_libdir!(dir)`](@ref SparseArrays.LibSuiteSparse.set_libdir!)
+before the first solver call, or set `JULIA_SUITESPARSE_LIBDIR` before starting Julia; `set_libdir!` wins.
 Packages that call `SuiteSparse_jll` directly are not affected.
 
 ```@meta
@@ -1054,14 +1125,73 @@ SparseArrays.adjoint!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArr
 Base.sort!(::SparseArrays.AbstractSparseMatrixCSC)
 Base.sort(::SparseArrays.AbstractSparseMatrixCSC)
 Base.sort!(::Union{SparseArrays.AbstractCompressedVector, SparseArrays.SparseColumnView})
-SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
 SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
 SparseArrays.allowscalar
 ```
 
-### Internals
+## [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
+
+### Norms
+
+```@docs
+SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
+```
+
+### CHOLMOD
+
+```@docs
+SparseArrays.CHOLMOD.Factor
+SparseArrays.CHOLMOD.Sparse
+SparseArrays.CHOLMOD.Dense
+SparseArrays.CHOLMOD.cholesky(::Union{SparseArrays.SparseMatrixCSC{T}, SparseArrays.SparseMatrixCSC{Complex{T}}, SparseArrays.LinearAlgebra.Symmetric{T,<:SparseArrays.SparseMatrixCSC}, SparseArrays.LinearAlgebra.Hermitian{Complex{T},<:SparseArrays.SparseMatrixCSC}, SparseArrays.LinearAlgebra.Hermitian{T,<:SparseArrays.SparseMatrixCSC}}) where {T<:Real}
+SparseArrays.CHOLMOD.cholesky!(::SparseArrays.CHOLMOD.Factor, ::SparseArrays.SparseMatrixCSC{Float64})
+SparseArrays.CHOLMOD.ldlt(::Union{SparseArrays.SparseMatrixCSC{T}, SparseArrays.SparseMatrixCSC{Complex{T}}, SparseArrays.LinearAlgebra.Symmetric{T,<:SparseArrays.SparseMatrixCSC{T}}, SparseArrays.LinearAlgebra.Hermitian{Complex{T},<:SparseArrays.SparseMatrixCSC{Complex{T}}}, SparseArrays.LinearAlgebra.Hermitian{T,<:SparseArrays.SparseMatrixCSC{T}}}) where {T<:Real}
+SparseArrays.CHOLMOD.ldlt!(::SparseArrays.CHOLMOD.Factor, ::SparseArrays.SparseMatrixCSC{Float64})
+SparseArrays.CHOLMOD.lowrankupdate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
+SparseArrays.CHOLMOD.lowrankupdate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
+SparseArrays.CHOLMOD.lowrankdowndate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
+SparseArrays.CHOLMOD.lowrankdowndate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
+SparseArrays.CHOLMOD.lowrankupdowndate!
+SparseArrays.CHOLMOD.rcond
+SparseArrays.CHOLMOD.CholmodWS
+```
+
+### UMFPACK
+
+```@docs
+SparseArrays.UMFPACK.UmfpackLU
+SparseArrays.UMFPACK.lu(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Union{Float64,ComplexF64}, Ti<:Union{Int32,Int64}}
+SparseArrays.UMFPACK.lu!(::SparseArrays.UMFPACK.UmfpackLU, ::SparseArrays.AbstractSparseMatrixCSC)
+SparseArrays.UMFPACK.rcond
+SparseArrays.UMFPACK.UmfpackWS
+Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
+```
+
+### SPQR
+
+```@docs
+SparseArrays.SPQR.QRSparse
+SparseArrays.SPQR.AdjointQRSparse
+SparseArrays.SPQR.qr(::SparseArrays.SparseMatrixCSC{Tv,Ti}) where {Ti<:Union{Int32,Int64}, Tv<:Union{Float64,ComplexF64}}
+SparseArrays.SPQR.lq(::SparseArrays.SparseMatrixCSC)
+SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
+SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
+SparseArrays.SPQR.SpqrWS
+Base.:\(::SparseArrays.SPQR.QRSparse, ::AbstractVecOrMat)
+Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::AbstractVecOrMat)
+Base.copy(::SparseArrays.SPQR.QRSparse)
+```
+
+### SuiteSparse libraries
+
+```@docs
+SparseArrays.LibSuiteSparse.set_libdir!
+SparseArrays.LibSuiteSparse.libdir
+```
+
+## Internal API
 
 The helpers below are not part of the API: they are unexported and may change or disappear
 in any release. They are documented, incompletely, as a companion to the public API.
@@ -1092,51 +1222,7 @@ SparseArrays._checkargs_sourcecompatworkmat_permute!
 SparseArrays._checkargs_sourcecompatworkcolptr_permute!
 SparseArrays._computecolptrs_halfperm!
 SparseArrays._distributevals_halfperm!
-```
-
-## [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
-
-```@docs
-SparseArrays.CHOLMOD.Factor
-SparseArrays.CHOLMOD.Sparse
-SparseArrays.CHOLMOD.Dense
-SparseArrays.UMFPACK.UmfpackLU
-SparseArrays.SPQR.QRSparse
-SparseArrays.SPQR.AdjointQRSparse
-SparseArrays.CHOLMOD.cholesky(::Union{SparseArrays.SparseMatrixCSC{T}, SparseArrays.SparseMatrixCSC{Complex{T}}, SparseArrays.LinearAlgebra.Symmetric{T,<:SparseArrays.SparseMatrixCSC}, SparseArrays.LinearAlgebra.Hermitian{Complex{T},<:SparseArrays.SparseMatrixCSC}, SparseArrays.LinearAlgebra.Hermitian{T,<:SparseArrays.SparseMatrixCSC}}) where {T<:Real}
-SparseArrays.CHOLMOD.cholesky!(::SparseArrays.CHOLMOD.Factor, ::SparseArrays.SparseMatrixCSC{Float64})
-SparseArrays.CHOLMOD.lowrankupdate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankupdate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankdowndate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankdowndate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankupdowndate!
-SparseArrays.CHOLMOD.ldlt(::Union{SparseArrays.SparseMatrixCSC{T}, SparseArrays.SparseMatrixCSC{Complex{T}}, SparseArrays.LinearAlgebra.Symmetric{T,<:SparseArrays.SparseMatrixCSC{T}}, SparseArrays.LinearAlgebra.Hermitian{Complex{T},<:SparseArrays.SparseMatrixCSC{Complex{T}}}, SparseArrays.LinearAlgebra.Hermitian{T,<:SparseArrays.SparseMatrixCSC{T}}}) where {T<:Real}
-SparseArrays.CHOLMOD.ldlt!(::SparseArrays.CHOLMOD.Factor, ::SparseArrays.SparseMatrixCSC{Float64})
-SparseArrays.CHOLMOD.rcond
-SparseArrays.SPQR.qr(::SparseArrays.SparseMatrixCSC{Tv,Ti}) where {Ti<:Union{Int32,Int64}, Tv<:Union{Float64,ComplexF64}}
-SparseArrays.SPQR.lq(::SparseArrays.SparseMatrixCSC)
-Base.:\(::SparseArrays.SPQR.QRSparse, ::AbstractVecOrMat)
-Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::AbstractVecOrMat)
-SparseArrays.UMFPACK.lu(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Union{Float64,ComplexF64}, Ti<:Union{Int32,Int64}}
-SparseArrays.UMFPACK.lu!(::SparseArrays.UMFPACK.UmfpackLU, ::SparseArrays.AbstractSparseMatrixCSC)
-SparseArrays.UMFPACK.rcond
-SparseArrays.UMFPACK.UmfpackWS
-SparseArrays.CHOLMOD.CholmodWS
-SparseArrays.SPQR.SpqrWS
-SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
-SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
-Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
-Base.copy(::SparseArrays.SPQR.QRSparse)
 SparseArrays.LibSuiteSparse.init_suitesparse
-```
-
-```@docs
-SparseArrays.LibSuiteSparse.set_libdir!
-SparseArrays.LibSuiteSparse.libdir
-```
-
-```@meta
-DocTestSetup = nothing
 ```
 
 ## Noteworthy External Sparse Packages
