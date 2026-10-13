@@ -12,6 +12,7 @@ end
 @RCI @propagate_inbounds getindex(A::AbstractSparseMatrixCSC, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
 
 @RCI @propagate_inbounds function getindex(A::AbstractSparseMatrixCSC{T}, i0::Integer, i1::Integer) where T
+    _checkscalarindex(i0); _checkscalarindex(i1)
     @boundscheck checkbounds(A, i0, i1)
     r1 = Int(@inbounds first(nzrange(A, i1)))
     r2 = Int(@inbounds last(nzrange(A, i1)))
@@ -549,12 +550,17 @@ end
 getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector) = A[collect(I), J]
 getindex(A::AbstractSparseMatrixCSC, I::AbstractUnitRange{Bool}, j::Integer) = A[collect(I), j]
 
+# a `Bool` is not a scalar index; Base's `to_index` throws for it
+_checkscalarindex(i::Bool) = Base.to_index(i)
+_checkscalarindex(::Integer) = nothing
+
 ## setindex!
 
 # dispatch helper for #29034
 @RCI setindex!(A::AbstractSparseMatrixCSC, _v, _i::Integer, _j::Integer) = _setindex_scalar!(A, _v, _i, _j)
 
 function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _j::Integer) where {Tv,Ti<:Integer}
+    _checkscalarindex(_i); _checkscalarindex(_j)
     v = convert(Tv, _v)
     i = convert(Ti, _i)
     j = convert(Ti, _j)
@@ -1198,6 +1204,7 @@ julia> SparseArrays.dropstored!(A, 1, 2); A
 ```
 """
 function dropstored!(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
+    _checkscalarindex(i); _checkscalarindex(j)
     if !((1 <= i <= size(A, 1)) & (1 <= j <= size(A, 2)))
         throw(BoundsError(A, (i,j)))
     end
