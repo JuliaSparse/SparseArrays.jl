@@ -232,6 +232,10 @@ end
             @test isequal(m(Z, dims=region), m(Array(Z), dims=region))
         end
     end
+    # `missing`, which dense ranks above `NaN`
+    D = Union{Missing,Float64}[NaN missing; 0.0 2.0]
+    @test isequal(findmin(sparse(D)), findmin(D))
+    @test isequal(findmax(sparse(D), dims=1), findmax(D, dims=1))
     end
     for m in [findmax, findmin]
         @test_throws ArgumentError m(S, (4, 3))
