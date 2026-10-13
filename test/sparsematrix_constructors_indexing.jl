@@ -766,6 +766,11 @@ end
         end
     end
 
+    @testset "a Bool unit range is a mask" begin
+        M = sparse([1.0 2 0; 0 3 4])
+        @test M[false:true, 2] == Array(M)[false:true, 2] && M[false:true, 2] isa SparseVector
+    end
+
     @testset "StepRangeLen row ranges" begin
         A = sparse([1.0 2 0; 0 3 4]); D = Matrix(A)
         for I in (StepRangeLen(2, -1, 2), StepRangeLen(1, 0, 3))

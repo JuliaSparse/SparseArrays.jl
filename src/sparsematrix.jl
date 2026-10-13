@@ -3236,6 +3236,8 @@ getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = A[fi
 getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = A[findall(I),findall(J)]
 getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{<:Integer}, J::AbstractVector{Bool}) = A[I,findall(J)]
 getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{<:Integer}) = A[findall(I),J]
+# a unit range of `Bool` is a mask, not a range of rows
+getindex(A::AbstractSparseMatrixCSC, I::AbstractUnitRange{Bool}, j::Integer) = A[collect(I), j]
 
 ## setindex!
 
