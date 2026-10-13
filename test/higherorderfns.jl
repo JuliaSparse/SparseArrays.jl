@@ -860,6 +860,15 @@ end
     # `map` and a sparse destination keep the result sparse
     @test map(cos, S)::SparseMatrixCSC == cos.(fS)
     @test broadcast!(cos, similar(S), S)::SparseMatrixCSC == cos.(fS)
+    # a destination that cannot take the result is left untouched: the fill value does
+    # not convert, or every entry does not fit the index type
+    Ci = sparse([1 0; 0 2])
+    @test_throws InexactError Ci .= Ci .+ 0.5
+    @test nnz(Ci) == 2 && mismatch(Ci, [1 0; 0 2]) === nothing
+    S8 = sparse(Int8[1], Int8[1], [1.0], 12, 12)
+    S0 = copy(S8)
+    @test_throws InexactError S8 .= 1.0
+    @test mismatch(S8, Array(S0); Ti=Int8) === nothing
     # sums, differences and products are sparse and inferable for an element type whose
     # zero the compiler cannot evaluate
     B = sparse(BigFloat[1 0; 0 2])
