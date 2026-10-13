@@ -235,6 +235,22 @@ end
         end
     end
 end
+
+@testset "solves with a triangle of a lazy adjoint or transpose on the right return dense" begin
+    S = sparse(ComplexF64[1 2+3im 1im; 4-1im 5 2-im; 3+im 2im 7])
+    L = LowerTriangular(S)
+    # the conjugate of `S`, which no eager adjoint or transpose makes
+    A = UnitLowerTriangular(transpose(S'))
+    X = A \ A
+    @test X isa UnitLowerTriangular{ComplexF64,Matrix{ComplexF64}} && X ≈ I
+    X = A / A
+    @test X isa UnitLowerTriangular{ComplexF64,Matrix{ComplexF64}} && X ≈ I
+    # so do solves with a view of rows and with the lazy transpose of a Hermitian matrix
+    V = view(S, [2, 1, 3], :)
+    @test (L \ V)::Matrix{ComplexF64} ≈ Matrix(L) \ Matrix(V)
+    H = transpose(Hermitian(S + S'))
+    @test (H / L)::Matrix{ComplexF64} ≈ Matrix(H) / Matrix(L)
+end
 end
 
 @testset "triangular kernel dispatch and shape checks" begin
@@ -369,9 +385,10 @@ end
                 end
                 @test T * x ≈ Array(T) * Array(x)
                 COMPREHENSIVE || ta == tb || continue # promotion does not depend on the transform
-                @test T' * x ≈ Array(T)' * Array(x)
-                @test transpose(T) * x ≈ transpose(Array(T)) * Array(x)
-                @test mismatch((x' * T)', (Array(x)' * Array(T))'; approx=true) === nothing
+                # the eager adjoint of a dense triangle is a dense factor like the triangle
+                @test (T' * x)::Vector ≈ Array(T)' * Array(x)
+                @test (transpose(T) * x)::Vector ≈ transpose(Array(T)) * Array(x)
+                @test ((x' * T)')::Vector ≈ (Array(x)' * Array(T))'
                 @test x' * T' ≈ Array(x)' * Array(T)'
                 @test x' * transpose(T) ≈ Array(x)' * transpose(Array(T))
             end

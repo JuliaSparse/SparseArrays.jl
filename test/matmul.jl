@@ -188,6 +188,8 @@ end
             @test issparse(N)
         end
     end
+    # sparse times banded is formed from the stored entries, not by LinearAlgebra's kernel
+    @test which(*, Tuple{SparseMatrixCSC{Float64,Int},Bidiagonal{Float64,Vector{Float64}}}).module === SparseArrays
     # two triangular factors of one kind give that kind; an implicit unit diagonal is made
     # explicit for the kernel
     @static if !COMPREHENSIVE
@@ -206,6 +208,29 @@ end
     S = sparse(A)
     B = [0.25 -1.5]'
     @test Symmetric(S) * B ≈ Symmetric(A) * B
+end
+
+@static if COMPREHENSIVE
+@testset "products with a wrapped operand follow the dense or banded factor" begin
+    S = sparse(ComplexF64[1 2+3im 1im; 0 5 2-im; 3+im 0 7])
+    D = Matrix(S) .+ 1
+    H = Hermitian(S + S')
+    B = Bidiagonal([1.0, 2, 3], [4.0, 5], :U)
+    # sparse times banded stays sparse
+    for A in (UpperTriangular(S)', transpose(H), view(S, [2, 1, 3], :))
+        @test mismatch(A * B, Matrix(A) * B; approx=true) === nothing
+    end
+    # from the stored entries of both factors, not LinearAlgebra's kernel over every entry
+    @test which(*, typeof.((B, S))).module === SparseArrays
+    @test mismatch(B * S, B * Matrix(S); approx=true) === nothing
+    for A in (UpperHessenberg(S), view(S, [2, 1, 3], :))
+        @test which(*, typeof.((A, B))).module === SparseArrays
+    end
+    @test UpperHessenberg(S) * B == Matrix(UpperHessenberg(S)) * B
+    # sparse times dense is dense, and so is dense times a sparse vector
+    @test (D * transpose(H))::Matrix{ComplexF64} ≈ D * Matrix(transpose(H))
+    @test (transpose(Hermitian(D)) * sparsevec([1.0 + im, 0, 2]))::Vector{ComplexF64} ≈ transpose(Matrix(Hermitian(D))) * [1.0 + im, 0, 2]
+end
 end
 
 @static if COMPREHENSIVE
