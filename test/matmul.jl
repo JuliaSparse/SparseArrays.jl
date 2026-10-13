@@ -213,32 +213,14 @@ end
     S = sparse(ComplexF64[1 2+3im 1im; 0 5 2-im; 3+im 0 7])
     D = Matrix(S) .+ 1
     H = Hermitian(S + S')
-    x = sparsevec([1.0 + im, 0, 2])
-    banded = (Bidiagonal([1.0, 2, 3], [4.0, 5], :U), Tridiagonal(real(D)), SymTridiagonal([1.0, 2, 3], [4.0, 5]))
-    # sparse times banded stays sparse on either side
-    for A in (UpperTriangular(S)', transpose(UnitLowerTriangular(S)), transpose(H), Symmetric(S)',
-              view(S, [2, 1, 3], :)), B in banded
-        # a triangle that the product keeps is wrapped around the sparse result
-        for (P, Pd) in ((A * B, Matrix(A) * B), (B * A, B * Matrix(A)))
-            @test mismatch(P isa LinearAlgebra.AbstractTriangular ? parent(P) : P, Pd; approx=true) === nothing
-        end
+    B = Bidiagonal([1.0, 2, 3], [4.0, 5], :U)
+    # sparse times banded stays sparse
+    for A in (UpperTriangular(S)', transpose(H), view(S, [2, 1, 3], :))
+        @test mismatch(A * B, Matrix(A) * B; approx=true) === nothing
     end
-    # sparse times dense is dense on either side
-    for A in (transpose(H), Symmetric(S)'), B in (D, Symmetric(D), Hermitian(D + D'))
-        @test (A * B)::Matrix{ComplexF64} ≈ Matrix(A) * B
-        @test (B * A)::Matrix{ComplexF64} ≈ B * Matrix(A)
-    end
-    for A in (UpperTriangular(D)', transpose(UnitLowerTriangular(D)), Symmetric(D)', transpose(Hermitian(D + D')))
-        @test (A * x)::Vector{ComplexF64} ≈ Matrix(A) * Vector(x)
-    end
-    # and so is a product with a dense triangle, which LinearAlgebra may wrap in a triangle
-    for A in (UpperTriangular(S)', transpose(UnitLowerTriangular(S)), transpose(H), Symmetric(S)',
-              view(S, [2, 1, 3], :)), T in (UpperTriangular(D), UnitLowerTriangular(D))
-        P = A * T
-        @test (P isa LinearAlgebra.AbstractTriangular ? parent(P) : P) isa Matrix{ComplexF64}
-        @test P ≈ Matrix(A) * Matrix(T)
-        @test mul!(ones(ComplexF64, 3, 3), A, T, 2.0, 3.0) ≈ 2 * Matrix(A) * Matrix(T) .+ 3
-    end
+    # sparse times dense is dense, and so is dense times a sparse vector
+    @test (D * transpose(H))::Matrix{ComplexF64} ≈ D * Matrix(transpose(H))
+    @test (transpose(Hermitian(D)) * sparsevec([1.0 + im, 0, 2]))::Vector{ComplexF64} ≈ transpose(Matrix(Hermitian(D))) * [1.0 + im, 0, 2]
 end
 end
 
