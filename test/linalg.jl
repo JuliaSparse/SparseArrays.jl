@@ -765,7 +765,18 @@ end
         C = spzeros(size(V) .* size(S)...)
         @test kron!(C, V, S) === C && C == kron(Vd, Matrix(S))
         @test kron(2.0, V)::SparseMatrixCSC == 2Vd
+        C = spzeros(size(V)...)
+        @test kron!(C, 2.0, V) === C && mismatch(C, 2Vd) === nothing
     end
+    # so is one with a wrapped view or a view of a column
+    W = view(S, :, [3, 1, 2, 4])
+    c = view(S, :, 3)
+    for V in (view(S, :, [3, 1])', Symmetric(W), UpperTriangular(W'), c), B in (S, view(S, :, [3, 1]), c, D)
+        Vd, Bd = Array(V), Array(B)
+        @test mismatch(kron(V, B), kron(Vd, Bd)) === nothing
+        @test mismatch(kron(B, V), kron(Bd, Vd)) === nothing
+    end
+    @test mismatch(kron(2.0, Symmetric(W)), 2 * Matrix(Symmetric(W))) === nothing
 end
 end
 

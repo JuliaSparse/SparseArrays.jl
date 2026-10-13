@@ -229,8 +229,11 @@ begin
             C = ones(3, 3)
             @test_throws SingularException(2) ldiv!(T, C)
             @test C == ones(3, 3)
-            @test_throws SingularException ldiv!(fill(7.0, 3, 3), T, C)
+            # the other forms report the same column, with no right-hand side as well
+            @test_throws SingularException(2) ldiv!(fill(7.0, 3, 3), T, C)
             @test C == ones(3, 3)
+            @test_throws SingularException(2) T \ ones(3)
+            @test_throws SingularException(2) T \ ones(3, 0)
         end
         end
     end
@@ -298,6 +301,12 @@ end
     @test X isa UnitLowerTriangular{ComplexF64,Matrix{ComplexF64}} && X ≈ I
     X = A / A
     @test X isa UnitLowerTriangular{ComplexF64,Matrix{ComplexF64}} && X ≈ I
+    # so do solves with the lazy transpose of a Hermitian matrix and with a view of rows
+    H = Hermitian(S + S')
+    for B in (transpose(H), view(S, [2, 1, 3], :))
+        @test (LowerTriangular(S) \ B)::Matrix{ComplexF64} ≈ Matrix(LowerTriangular(S)) \ Matrix(B)
+        @test (B / LowerTriangular(S))::Matrix{ComplexF64} ≈ Matrix(B) / Matrix(LowerTriangular(S))
+    end
     for B in (A, LowerTriangular(S'), UpperTriangular(transpose(S)))
         X = LowerTriangular(S) \ B
         @test parent(X) isa Matrix{ComplexF64} && X ≈ Matrix(LowerTriangular(S)) \ Matrix(B)

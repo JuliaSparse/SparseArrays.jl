@@ -353,15 +353,13 @@ function _trimatdiv!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
         throw(DimensionMismatch(lazy"second dimension of left hand side A, $n, and first dimension of right hand side B, $(size(B, 1)), must be equal"))
     size(C) == size(B) ||
         throw(DimensionMismatch(lazy"size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
-    if C === B
-        # solving in place overwrites the right-hand side, so a singular triangle is found first
-        if !unit
-            j = _trisingular(upper, A)
-            j == 0 || throw(LinearAlgebra.SingularException(j))
-        end
-    else
-        _uconvert_copyto!(C, B, oneunit(eltype(A)))
+    # solving in place overwrites the right-hand side, so a singular triangle is found
+    # first; one with no right-hand side to meet it in is singular all the same
+    if !unit && (C === B || isempty(B))
+        j = _trisingular(upper, A)
+        j == 0 || throw(LinearAlgebra.SingularException(j))
     end
+    C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
     return upper ? _trimatdiv!(C, Val(true), unit, f, A, B) : _trimatdiv!(C, Val(false), unit, f, A, B)
 end
 # The position in the storage of `A` of the diagonal entry of column `j`, which is the last
@@ -387,8 +385,9 @@ function _trisingular(upper::Bool, A)
     return 0
 end
 # A diagonal entry that is not stored or is a stored zero is singular, as a zero on the
-# diagonal of a dense triangle is. The elements of `A` multiply and divide from the left,
-# as they do in `M * X == B`.
+# diagonal of a dense triangle is, and the first such column is the one reported, whichever
+# the sweep meets first. The elements of `A` multiply and divide from the left, as they do
+# in `M * X == B`.
 function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
     n = size(A, 2)
     aa = getnzval(A)
@@ -404,13 +403,13 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
             if hasdiag
                 if !unit
                     d = f(aa[ii])
-                    iszero(d) && throw(LinearAlgebra.SingularException(j))
+                    iszero(d) && throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
                     cj = LinearAlgebra._ustrip(d) \ cj
                     C[j,k] = cj
                 end
                 ii += upper ? -1 : 1
             elseif !unit
-                throw(LinearAlgebra.SingularException(j))
+                throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
             end
             for i in (upper ? (ii:-1:i1) : (ii:i2))
                 C[ja[i],k] -= LinearAlgebra._ustrip(f(aa[i])) * cj
@@ -428,7 +427,7 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                         akku = oneunit(eltype(A)) \ akku
                     else
                         a = f(aa[ii])
-                        iszero(a) && throw(LinearAlgebra.SingularException(j))
+                        iszero(a) && throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
                         akku = a \ akku
                     end
                     done = true
@@ -438,7 +437,7 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                 end
             end
             if !done && !unit
-                throw(LinearAlgebra.SingularException(j))
+                throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
             end
             C[j,k] = akku
         end
@@ -452,21 +451,20 @@ matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, b::AbstractSparseVect
     Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(b))}(undef, length(b))
 matop_dest(::typeof(\), A::Diagonal, b::AbstractSparseVector) =
     similar(b , promote_op(\, eltype(A), eltype(b)))
-# Solves return dense. A triangle of a lazy adjoint or transpose of a sparse matrix is a
-# sparse operand like the other wrappers.
-matop_dest(::typeof(\), A, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+# solves return dense
+matop_dest(::typeof(\), A, B::QuasiSparseMatrix) =
     Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
 # a `Diagonal` keeps the structure of the sparse operand, and its triangle
-matop_dest(::typeof(\), A::Diagonal, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(\), A::Diagonal, B::QuasiSparseMatrix) =
     B isa SparseAdjOrTransTriangular ? similar(B, promote_op(\, eltype(A), eltype(B))) :
                                        similar(B, promote_op(\, eltype(A), eltype(B)), size(B))
-matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, B::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
     Matrix{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, size(B))
-matop_dest(::typeof(/), A::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}, B) =
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B) =
     Matrix{promote_op(/, eltype(A), eltype(B))}(undef, size(A))
-matop_dest(::typeof(/), A::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}, B::UnitUpperOrUnitLowerTriangular) =
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B::UnitUpperOrUnitLowerTriangular) =
     Matrix{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, size(A))
-matop_dest(::typeof(/), A::Union{QuasiSparseMatrix,SparseAdjOrTransTriangular}, B::Diagonal) =
+matop_dest(::typeof(/), A::QuasiSparseMatrix, B::Diagonal) =
     A isa SparseAdjOrTransTriangular ? similar(A, promote_op(/, eltype(A), eltype(B))) :
                                        similar(A, promote_op(/, eltype(A), eltype(B)), size(A))
 ## end of triangular
@@ -885,14 +883,8 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
     if m == 0 || n == 0 || isempty(A)
         return float(real(zero(eltype(A))))
     elseif m == 1
-        if p == 1
-            return norm(nzvalview(A), Inf)
-        elseif p == 2
-            return norm(nzvalview(A), 2)
-        elseif p == Inf
-            return norm(nzvalview(A), 1)
-        end
-    elseif n == 1 && p in (1, 2, Inf)
+        return norm(nzvalview(A), p == 1 ? Inf : p == 2 ? 2 : 1)
+    elseif n == 1
         return norm(nzvalview(A), p)
     else
         Tnorm = typeof(float(real(zero(eltype(A)))))
@@ -909,7 +901,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             return convert(Tnorm, nA)
         elseif p==2
             return convert(Tnorm, opnorm2est(A))
-        elseif p==Inf
+        else
             rowSum = zeros(Tsum,m)
             @inbounds for i in axes(getnzval(A),1)
                 rowSum[getrowval(A)[i]] += abs(getnzval(A)[i])
@@ -917,7 +909,6 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             return convert(Tnorm, maximum(rowSum))
         end
     end
-    throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, 2, Inf"))
 end
 
 # Largest singular value by Golub-Kahan-Lanczos bidiagonalization, stopped once the residual
@@ -1167,9 +1158,21 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
 end
 
 ## kron
-const _SparseKronGroup = Union{SparseVecOrMatMaybeAdjOrTrans, SparseMatrixCSCSubArray,
-                               HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
-                               UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
+# a sparse vector or matrix or a view of one, its adjoint or transpose, and a symmetric,
+# Hermitian or triangular wrapper of any of those
+const _SparseKronMaybeAdjOrTrans = Union{SparseVecOrMat, SparseVectorOrView, SparseMatrixCSCSubArray,
+    AdjOrTrans{<:Any,<:Union{SparseVecOrMat, SparseVectorOrView, SparseMatrixCSCSubArray}}}
+const _SparseKronGroup = Union{_SparseKronMaybeAdjOrTrans,
+                               HermOrSym{<:Any,<:_SparseKronMaybeAdjOrTrans},
+                               UpperOrLowerTriangular{<:Any,<:_SparseKronMaybeAdjOrTrans}}
+# a view of a sparse matrix, bare or wrapped, which a number scales into a dense matrix
+const _SparseKronView = Union{SparseMatrixCSCSubArray, AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray},
+    HermOrSym{<:Any,<:Union{SparseMatrixCSCSubArray, AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}}},
+    UpperOrLowerTriangular{<:Any,<:Union{SparseMatrixCSCSubArray, AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}}}}
+_kronmatrix(A) = convert(SparseMatrixCSC, A)
+_kronmatrix(x::Union{SparseColumnView,SparseVectorView}) = convert(SparseMatrixCSC, SparseVector(x))
+_kronscaled(b) = b
+_kronscaled(b::_SparseKronView) = convert(SparseMatrixCSC, b)
 const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, BandedMatrix,
                               HermOrSym{<:Any,<:Matrix}, UpperOrLowerTriangular{<:Any,<:Matrix}}
 
@@ -1230,18 +1233,18 @@ end
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseKronGroup) = kron!(C, A, sparse(B))
 kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) = kron!(C, sparse(A), B)
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+    kron!(C, _kronmatrix(A), _kronmatrix(B))
 kron!(C::SparseMatrixCSC, A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) =
     broadcast!(*, C, A, B)
 # disambiguation
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+    kron!(C, _kronmatrix(A), _kronmatrix(B))
 kron!(C::SparseMatrixCSC, A::Diagonal, B::_SparseKronGroup) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+    kron!(C, _kronmatrix(A), _kronmatrix(B))
 kron!(C::SparseMatrixCSC, A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) =
     broadcast!(*, C, A, B)
-kron!(c::SparseMatrixCSC, a::Number, b::_SparseKronGroup) = mul!(c, a, b)
-kron!(c::SparseMatrixCSC, a::_SparseKronGroup, b::Number) = mul!(c, a, b)
+kron!(c::SparseMatrixCSC, a::Number, b::_SparseKronGroup) = mul!(c, a, _kronscaled(b))
+kron!(c::SparseMatrixCSC, a::_SparseKronGroup, b::Number) = mul!(c, _kronscaled(a), b)
 
 function kron(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A)
@@ -1263,17 +1266,15 @@ function kron(x::AbstractCompressedVector, y::AbstractCompressedVector)
 end
 # extend to annotated sparse arrays, but leave out the (dense ⊗ dense)-case
 kron(A::_SparseKronGroup, B::_SparseKronGroup) =
-    kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+    kron(_kronmatrix(A), _kronmatrix(B))
 kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
 kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
+kron(x::SparseVectorOrView, y::SparseVectorOrView) = kron(SparseVector(x), SparseVector(y))
 kron(A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
-kron(a::Number, b::_SparseKronGroup) = a * b
-kron(a::_SparseKronGroup, b::Number) = a * b
-# a view times a number would be dense
-kron(a::Number, b::SparseMatrixCSCSubArray) = a * convert(SparseMatrixCSC, b)
-kron(a::SparseMatrixCSCSubArray, b::Number) = convert(SparseMatrixCSC, a) * b
+kron(a::Number, b::_SparseKronGroup) = a * _kronscaled(b)
+kron(a::_SparseKronGroup, b::Number) = _kronscaled(a) * b
 
 ## det, inv, cond
 

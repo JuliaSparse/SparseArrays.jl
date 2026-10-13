@@ -38,24 +38,15 @@ end
     _FixedSizeMatrix{'C'}(parent(A).ref, nrow, ncol)
 
 
-# The lazy adjoint/transpose of a triangular, symmetric or Hermitian matrix, which the
-# wrapper aliases leave out: LinearAlgebra makes the adjoint of a triangle eagerly, and keeps
-# the transpose of a complex Hermitian matrix and the adjoint of a complex symmetric one lazy.
-const _AdjOrTransTriSymHerm{MT} = Union{UpperOrLowerTriangular{<:Any,<:AdjOrTrans{<:Any,<:MT}},
-                                        AdjOrTrans{<:Any,<:HermOrSym{<:Any,<:MT}}}
-# The sparse operands of a product, whose result follows the other operand.
-const _SparseMulOperand = Union{QuasiSparseMatrix, SparseMatrixCSCSubArray, SparseAdjOrTransTriangular,
-                                _AdjOrTransTriSymHerm{SparseMatrixCSCOrColumnSubset}}
-
-matop_dest(::typeof(*), A::Union{QuasiStridedMatrix,_AdjOrTransTriSymHerm{StridedMatrix}}, b::AbstractSparseVector) =
+matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
     Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
-matop_dest(::typeof(*), A, B::_SparseMulOperand) =
+matop_dest(::typeof(*), A, B::QuasiSparseMatrix) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
 # sparse products with banded matrices should return sparse arrays
-matop_dest(::typeof(*), A::BiTriSym, B::_SparseMulOperand) =
+matop_dest(::typeof(*), A::BiTriSym, B::QuasiSparseMatrix) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # needed for disambiguation with LinearAlgebra
-matop_dest(::typeof(*), A::Diagonal, B::_SparseMulOperand) =
+matop_dest(::typeof(*), A::Diagonal, B::QuasiSparseMatrix) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # a `Diagonal` product keeps the structure of the sparse operand, so a fixed operand gets
 # a fixed destination with that structure up front, which `mul!` then only has to fill
@@ -73,8 +64,18 @@ function _adjtrans_dest(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, ::Type{T
     P = parent(A)
     return sizehint!(spzeros(T, indtype(P), size(A)...), nnz(P))
 end
-matop_dest(::typeof(*), A::_SparseMulOperand, B::BiTriSym) =
+matop_dest(::typeof(*), A::QuasiSparseMatrix, B::BiTriSym) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
+# A banded factor has O(n) entries, so the product is formed from the stored entries of both
+# factors; LinearAlgebra's kernel for a banded factor visits every entry of the other one.
+*(A::QuasiSparseMatrix, B::BiTriSym) = _bandedmul(A, B)
+*(A::BiTriSym, B::QuasiSparseMatrix) = _bandedmul(A, B)
+_bandedmul(A, B) = LinearAlgebra.postop_proc(*, _bandedfactor(A) * _bandedfactor(B), A, B)
+_bandedfactor(A::AbstractSparseMatrixCSC) = A
+_bandedfactor(A::UpperHessenberg) = _sparsehessenberg(A)
+_bandedfactor(A) = convert(SparseMatrixCSC, A)
+# the generic conversion of an `UpperHessenberg` visits every entry
+_sparsehessenberg(A::UpperHessenberg) = triu(convert(SparseMatrixCSC, parent(A)), -1)
 
 
 # The dense factor arrives with its adjoint/transpose/symmetric/Hermitian wrapper stripped,
@@ -119,7 +120,7 @@ _trimul_factor(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:Any,<:SparseM
                         SparseMatrixCSCSymmHerm,UpperTriangular{<:Any,<:SparseMatrixCSCOrView},
                         LowerTriangular{<:Any,<:SparseMatrixCSCOrView}}) =
     LinearAlgebra.wrapper_char(A), LinearAlgebra._unwrap(A)
-_trimul_factor(A::UpperHessenberg) = 'N', triu(convert(SparseMatrixCSC, parent(A)), -1)
+_trimul_factor(A::UpperHessenberg) = 'N', _sparsehessenberg(A)
 _trimul_factor(A) = 'N', convert(SparseMatrixCSC, A)
 mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrSubArray, B::AbstractVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', _compressed(A), B, alpha, beta)
@@ -184,9 +185,17 @@ end
     return mC, nC, mA, nA, mB, nB
 end
 
-# as for a dense product: the kernels read the dense operand while they write `C`
-@inline _checknoalias(C, B) = C === LinearAlgebra._unwrap(B) &&
-    throw(ArgumentError("output matrix must not be aliased with input matrix"))
+# As for a dense product: the kernels read the dense operand while they write `C`. Its
+# wrappers are stripped first, so that views of one array are compared by their indices.
+# A `false` `α` leaves the operand unread.
+_densestorage(B::MatrixWrappers) = _densestorage(parent(B))
+_densestorage(B) = B
+@inline function _checknoalias(C, B, α)
+    α isa Bool && !α && return
+    Base.mightalias(C, _densestorage(B)) &&
+        throw(ArgumentError("output matrix must not be aliased with input matrix"))
+    return
+end
 
 @inline _matmul_size_AB(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('N'))
 @inline _matmul_size_AtB(C, A, B) = _matmul_size(C, A, B, Val('T'), Val('N'))
@@ -196,7 +205,7 @@ function _spmatmul!(C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
-    _checknoalias(C, B)
+    _checknoalias(C, B, α)
     nzv = getnzval(A)
     rv = getrowval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -220,7 +229,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AtB(C, A, B)
-    _checknoalias(C, B)
+    _checknoalias(C, B, α)
     nzv = getnzval(A)
     rv = getrowval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -265,7 +274,7 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::Spars
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = plain ? _matmul_size_AB(C, A, B) : _matmul_size_ABt(C, A, B)
-    _checknoalias(C, A)
+    _checknoalias(C, A, α)
     rv = getrowval(B)
     nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -289,7 +298,7 @@ end
 function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
-    _checknoalias(C, A)
+    _checknoalias(C, A, α)
     rv = getrowval(B)
     nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -320,7 +329,7 @@ function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B
     Aax1 = axes(A, 1)
     Bax2 = axes(B, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
-    _checknoalias(C, A)
+    _checknoalias(C, A, α)
     rv = getrowval(B)
     nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -573,6 +582,7 @@ function _trimatmul!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
     require_one_based_indexing(C, A, B)
     checksquare(A)
     matmul_size_check(size(C), size(A), size(B))
+    C === B || _checknoalias(C, B, true)
     C !== B && copyto!(C, B)
     return upper ? _trimatmul!(C, Val(true), unit, f, A, B) : _trimatmul!(C, Val(false), unit, f, A, B)
 end
@@ -649,6 +659,7 @@ function _mattrimul!(C, upper::Bool, unit::Bool, f::Function, X, B)
         throw(DimensionMismatch(lazy"A has $(size(X, 2)) columns and B has $n rows"))
     size(C) == size(X) ||
         throw(DimensionMismatch(lazy"C has size $(size(C)), A * B has size $(size(X))"))
+    C === X || _checknoalias(C, X, true)
     rv = getrowval(B)
     nzv = getnzval(B)
     rows = axes(X, 1)
@@ -690,7 +701,7 @@ function _symherm_mul!(rangefun::R, diagop::D, odiagop::O, C::StridedVecOrMat, A
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
-    _checknoalias(C, B)
+    _checknoalias(C, B, α)
     rv = getrowval(A)
     nzv = getnzval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -721,7 +732,7 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
-    _checknoalias(C, X)
+    _checknoalias(C, X, α)
     rv = getrowval(A)
     nzv = getnzval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -750,29 +761,33 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
     end
 end
 
-# Whether the eltype of `C` holds `P*alpha + C*beta` for a product `P` of eltype `TP`, so
-# that storing it cannot throw. The kernels below write the pattern of `C` before the
-# values; a result that may not convert is formed apart and converted first, which leaves
-# `C` untouched if the conversion throws.
-@inline function _diagmul_fits(C, ::Type{TP}, alpha, beta) where {TP}
-    TC = eltype(C)
-    Tα = promote_op(*, TP, typeof(alpha))
-    Tβ = promote_op(*, TC, typeof(beta))
-    fits(T) = promote_type(T, TC) === TC
-    return isone(alpha) ? (iszero(beta) ? fits(TP) : fits(promote_op(+, TP, Tβ))) :
-                          (iszero(beta) ? fits(Tα) : fits(promote_op(+, Tα, Tβ)))
+# Whether storing a value of type `T` in an array of eltype `TC` cannot throw: `TC` holds
+# every `T`, or both are machine numbers and `TC` is floating point, where a conversion
+# rounds or overflows to `Inf`.
+const _MachineReal = Union{Base.IEEEFloat,Base.BitInteger,Bool}
+_storesafely(::Type{TC}, ::Type{T}) where {TC,T} = promote_type(T, TC) === TC
+_storesafely(::Type{<:Base.IEEEFloat}, ::Type{<:_MachineReal}) = true
+_storesafely(::Type{<:Complex{<:Base.IEEEFloat}}, ::Type{<:Union{_MachineReal,Complex{<:_MachineReal}}}) = true
+# The type of `P*alpha + C*beta` for a product `P` of eltype `TP`. The kernels below write
+# the pattern of `C` before the values; a result that may not convert is formed in a copy
+# of `C` with this eltype and converted before `C` changes, so that a throw leaves it as
+# it was.
+@inline function _diagmul_eltype(C, ::Type{TP}, alpha, beta) where {TP}
+    Tα = isone(alpha) ? TP : promote_op(*, TP, typeof(alpha))
+    return iszero(beta) ? Tα : promote_op(+, Tα, promote_op(*, eltype(C), typeof(beta)))
 end
-function _diagmul_converted!(C, P, alpha, beta)
-    isone(alpha) || (P = P * alpha)
-    R = iszero(beta) ? P : isone(beta) ? P + C : P + C * beta
-    return copyto!(C, convert(SparseMatrixCSC{eltype(C),indtype(C)}, R))
+_diagmul_widened(C, ::Type{R}) where {R} =
+    SparseMatrixCSC(size(C)..., copy(getcolptr(C)), copy(getrowval(C)), convert(Vector{promote_type(R, eltype(C))}, getnzval(C)))
+function _diagmul_store!(C, W)
+    nzval = convert(Vector{eltype(C)}, view(getnzval(W), 1:nnz(W)))
+    return copyto!(C, SparseMatrixCSC(size(W)..., getcolptr(W), getrowval(W), nzval))
 end
 # `C = C*beta`, the result for a zero `alpha`: the product is not formed, so a non-finite
 # entry of it cannot turn up in `C`. A scaling that may not convert is checked in full first.
 function _diagmul_scale!(C, beta)
     Cnzval = getnzval(C)
     TC = eltype(C)
-    if iszero(beta) || promote_type(promote_op(*, TC, typeof(beta)), TC) === TC
+    if iszero(beta) || _storesafely(TC, promote_op(*, TC, typeof(beta)))
         LinearAlgebra._rmul_or_fill!(Cnzval, beta)
     else
         copyto!(Cnzval, convert(Vector{TC}, Cnzval * beta))
@@ -788,8 +803,13 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
     iszero(alpha) && return _diagmul_scale!(C, beta)
-    _diagmul_fits(C, promote_op(matprod, eltype(A), eltype(D)), alpha, beta) ||
-        return _diagmul_converted!(C, A * D, alpha, beta)
+    R = _diagmul_eltype(C, promote_op(matprod, eltype(A), eltype(D)), alpha, beta)
+    _storesafely(eltype(C), R) ||
+        return _diagmul_store!(C, _spdiagmul!(_diagmul_widened(C, R), A, D, alpha, beta))
+    return _spdiagmul!(C, A, D, alpha, beta)
+end
+function _spdiagmul!(C, A, D, alpha, beta)
+    b = D.diag
     beta_is_zero = iszero(beta)
     rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
@@ -856,7 +876,8 @@ end
 _adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha, beta) =
     !iszero(alpha) && iszero(beta) && !Base.mightalias(C, parent(A)) && !_is_fixed(C) &&
     indtype(C) === indtype(parent(A)) &&
-    eltype(C) === eltype(A) === promote_op(matprod, eltype(A), eltype(D))
+    eltype(C) === eltype(A) === promote_op(matprod, eltype(A), eltype(D)) &&
+    _storesafely(eltype(C), _diagmul_eltype(C, eltype(C), alpha, beta))
 
 function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
     m, n = size(A)
@@ -887,8 +908,13 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
     iszero(alpha) && return _diagmul_scale!(C, beta)
-    _diagmul_fits(C, promote_op(matprod, eltype(D), eltype(A)), alpha, beta) ||
-        return _diagmul_converted!(C, D * A, alpha, beta)
+    R = _diagmul_eltype(C, promote_op(matprod, eltype(D), eltype(A)), alpha, beta)
+    _storesafely(eltype(C), R) ||
+        return _diagmul_store!(C, _diagspmul!(_diagmul_widened(C, R), D, A, alpha, beta))
+    return _diagspmul!(C, D, A, alpha, beta)
+end
+function _diagspmul!(C, D, A, alpha, beta)
+    b = D.diag
     beta_is_zero = iszero(beta)
     rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
