@@ -851,6 +851,9 @@ setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::In
 function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::Union{Integer, AbstractVector{<:Integer}, Colon}, Jx::Union{Integer, AbstractVector{<:Integer}, Colon}) where {Tv,Ti<:Integer}
     require_one_based_indexing(A, V, Ix, Jx)
     (I, J) = _lower_indices(A, Ix, Jx)
+    # the kernel reads the indices while it rewrites the storage
+    I = _unalias_setindex(A, I)
+    J = _unalias_setindex(A, J)
     @static if VERSION >= v"1.14.0-DEV.3614"
         Base.setindex_shape_check(V, Base.index_sizes(I, J))
     else
