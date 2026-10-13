@@ -535,10 +535,10 @@ end
     end
 
     @static if COMPREHENSIVE
-    @testset "factors are read under the lock, $Ti" for Ti in ITYPES
+    @testset "lu! and copy take the lock, $Ti" for Ti in ITYPES
         A = SparseMatrixCSC{Float64,Ti}(sparse([4.0 1; 1 3]))
         F = lu(A)
-        for f in (F -> F.L, F -> F.:(:), logabsdet, F -> lu!(F, A))
+        for f in (copy, F -> lu!(F, A))
             lock(F.lock)
             t = @async f(F)
             yield()
@@ -549,12 +549,19 @@ end
         @test F \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
     end
 
-    @testset "solves do not take the lock, $Tv" for Tv in STD_ELTYPES
+    @testset "calls that only read do not take the lock, $Tv" for Tv in STD_ELTYPES
         A = sparse(Tv[4 1 0; 1 3 1; 0 2 5])
         b = Tv[1, 2, 3]
         F = lu(A)
         info = copy(F.info)
-        solves = (() -> F \ b ≈ Matrix(A) \ b,
+        L, U, p, q, Rs = F.:(:)
+        solves = (() -> F.L == L && F.U == U && F.p == p && F.q == q && F.Rs == Rs,
+                  () -> F.:(:) == (L, U, p, q, Rs),
+                  () -> det(F) ≈ det(Matrix(A)),
+                  () -> all(logabsdet(F) .≈ logabsdet(Matrix(A))),
+                  () -> nnz(F) == nnz(L) + nnz(U),
+                  () -> UMFPACK.rcond(F) > 0,
+                  () -> F \ b ≈ Matrix(A) \ b,
                   () -> ldiv!(similar(b), F, b; workspace=UMFPACK.UmfpackWS(F)) ≈ Matrix(A) \ b,
                   () -> F' \ b ≈ Matrix(A)' \ b,
                   () -> transpose(F) \ b ≈ transpose(Matrix(A)) \ b,
@@ -566,8 +573,8 @@ end
             spawned
         end
         @test all(fetch, tasks)
-        # a solve leaves the statistics of the factorization alone, and records its own in
-        # the workspace
+        # none of them writes to the statistics of the factorization; a solve records its
+        # own in the workspace
         @test isequal(F.info, info)
         ws = UMFPACK.UmfpackWS(F)
         @test all(==(-1), ws.info)

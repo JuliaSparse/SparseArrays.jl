@@ -1211,7 +1211,7 @@ const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMa
     end
     return C
 end
-@inline function kron!(z::SparseVector, x::SparseVector, y::SparseVector)
+@inline function kron!(z::SparseVector, x::AbstractCompressedVector, y::AbstractCompressedVector)
     @boundscheck length(z) == length(x)*length(y) || throw(DimensionMismatch("length of " *
         "target vector needs to be $(length(x)*length(y)), but has length $(length(z))"))
     nnzx, nnzy = nnz(x), nnz(y)

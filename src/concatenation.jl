@@ -200,7 +200,7 @@ function hcat(Xin::AbstractSparseVector...)
     Tv = promote_type(map(eltype, X)...)
     Ti = promote_type(map(indtype, X)...)
     r = stack(SparseVector{Tv,Ti}[X...])
-    return @if_move_fixed Xin... r
+    return r
 end
 
 # `stack` of sparse vectors along a new trailing dimension. Base's generic loop calls
@@ -248,7 +248,7 @@ function vcat(Xin::AbstractSparseVector...)
     r = (function (::Type{SV}) where SV
             _absspvec_vcat(map(x -> convert(SV, x), X)...)
         end)(SparseVector{Tv,Ti})
-    return @if_move_fixed Xin... r
+    return r
 end
 function _absspvec_vcat(X1::AbstractSparseVector{Tv,Ti}, Xs::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
     X = (X1, Xs...)

@@ -2252,6 +2252,7 @@ end
 CholmodWS(::Factor{<:Any, Ti}) where {Ti} = CholmodWS{Ti}()
 CholmodWS(F::Union{AdjointFactorization{<:Any,<:Factor},
                         TransposeFactorization{<:Any,<:Factor}}) = CholmodWS(parent(F))
+Base.similar(::CholmodWS{Ti}) where {Ti} = CholmodWS{Ti}()
 # A field-wise copy would share the Y/E handles and free them twice; the fresh workspace is
 # memoized so repeated references in the copied object graph resolve to one copy.
 function Base.deepcopy_internal(ws::CholmodWS{Ti}, dict::IdDict) where {Ti}
@@ -2369,6 +2370,18 @@ ldiv!(x::StridedVecOrMat{T}, L::TransposeFactorization{T,<:Factor{T}}, b::Stride
       workspace=nothing) where {T<:Complex} = conj!(ldiv!(x, parent(L), conj(b); workspace))
 ldiv!(L::Union{AdjointFactorization{T,<:Factor{T}},TransposeFactorization{T,<:Factor{T}}},
       B::StridedVecOrMat{T}; workspace=nothing) where {T<:VTypes} = ldiv!(B, L, copy(B); workspace)
+# A complex right-hand side with a real factor is solved for its real and its imaginary
+# part. The first solve checks the sizes, before x is written.
+const RealFactorOrAdjTrans{T} = Union{Factor{T},AdjointFactorization{T,<:Factor{T}},
+                                      TransposeFactorization{T,<:Factor{T}}}
+function ldiv!(x::StridedVecOrMat{Complex{T}}, L::RealFactorOrAdjTrans{T},
+               b::StridedVecOrMat{Complex{T}}; workspace=nothing) where {T<:VRealTypes}
+    xr = ldiv!(similar(x, T), L, real(b); workspace)
+    xi = ldiv!(similar(x, T), L, imag(b); workspace)
+    return map!(complex, x, xr, xi)
+end
+ldiv!(L::RealFactorOrAdjTrans{T}, B::StridedVecOrMat{Complex{T}};
+      workspace=nothing) where {T<:VRealTypes} = ldiv!(B, L, copy(B); workspace)
 
 ## Other convenience methods
 function diag(F::Factor{Tv, Ti}) where {Tv, Ti}

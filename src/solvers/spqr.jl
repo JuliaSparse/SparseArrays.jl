@@ -546,6 +546,7 @@ LinearAlgebra.rank(F::QRSparse) = reduce(max, view(getrowval(F.R), 1:nnz(F.R)), 
 Calculate rank of `S` by calculating its QR factorization. Values smaller than `tol` are considered as zero. See SPQR's manual.
 """
 LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
+LinearAlgebra.rank(S::FixedSparseCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 
 # With a real lhs and complex rhs with the same precision, we can reinterpret
 # the complex rhs as a real rhs with twice the number of columns
@@ -668,6 +669,7 @@ end
 SpqrWS(F::QRSparse{Tv}) where {Tv} = SpqrWS{Tv}(Tv[])
 SpqrWS(F::LinearAlgebra.AdjointFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
 SpqrWS(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
+Base.similar(ws::SpqrWS{Tv}) where {Tv} = SpqrWS{Tv}(similar(ws.w))
 
 function _get_ldiv_workspace(workspace, F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
     m, n = size(F)
@@ -890,9 +892,21 @@ LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedV
                     workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Complex} =
     conj!(ldiv!(X, parent(Ft)', conj(B); workspace))
 
+# A complex right-hand side with a real factorization is solved for its real and its
+# imaginary part. The first solve checks the sizes, before X is written.
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{Complex{T}},
+                             F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
+                             B::StridedVecOrMat{Complex{T}};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Real}
+    Xr = ldiv!(similar(X, T), F, real(B); workspace)
+    Xi = ldiv!(similar(X, T), F, imag(B); workspace)
+    return map!(complex, X, Xr, Xi)
+end
+
 # In place, only for a square A, whose solution has the size of B.
 function LinearAlgebra.ldiv!(F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
-                             B::StridedVecOrMat{T}; workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
+                             B::StridedVecOrMat{<:Union{T,Complex{T}}};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     LinearAlgebra.checksquare(F)
     return copyto!(B, ldiv!(similar(B), F, B; workspace))
 end

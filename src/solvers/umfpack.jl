@@ -265,11 +265,11 @@ refactorization with `lu!`. A serialized `UmfpackLU` carries the matrix rather t
 factors, which are recomputed on first use after deserialization.
 
 `ldiv!` takes an optional [`UMFPACK.UmfpackWS`](@ref SparseArrays.UMFPACK.UmfpackWS) to
-avoid allocating. A solve (`\\` or `ldiv!`, with `F`, `F'` or `transpose(F)`) only reads `F`
-and takes no lock, so several tasks can solve with one `F` at the same time, provided that
-none of them refactorizes it with `lu!` meanwhile; a task that does needs its own `copy(F)`,
-which is independent of `F` and duplicates the factors. The other calls with `F` take an
-internal lock.
+avoid allocating. Solves (`\\` or `ldiv!`, with `F`, `F'` or `transpose(F)`), `det`,
+`logabsdet` and the factor properties only read `F` and take no lock, so several tasks can
+use one `F` at the same time, provided that none of them refactorizes it with `lu!`
+meanwhile; a task that does needs its own `copy(F)`, which is independent of `F` and
+duplicates the factors. `lu!` and `copy` take an internal lock.
 
 # Examples
 ```jldoctest
@@ -561,19 +561,16 @@ function lu!(F::UmfpackLU{Tv, Ti}; check::Bool=true, reuse_symbolic::Bool=true,
     return F
 end
 
-# The factors are read from the C numeric object, under the lock that `lu!` replaces it
-# under. The locked read is a function of its own, because with the `try` of `@lock` in the
-# body of `getproperty` a field access infers as a union. Inference propagates a constant
-# name into `getproperty` unasked, but into the functions below only when told to.
+# The factors are copied out of the C numeric object, which those calls only read.
+# Inference propagates a constant name into `getproperty` unasked, but into
+# `_factor_property` only when told to.
 @inline function getproperty(lu::UmfpackLU, d::Symbol)
     if d === :L || d === :U || d === :p || d === :q || d === :Rs || d === :(:)
-        return _locked_factor_property(lu, d)
+        return _factor_property(lu, d)
     else
         return getfield(lu, d)
     end
 end
-Base.@constprop :aggressive _locked_factor_property(lu::UmfpackLU, d::Symbol) =
-    @lock getfield(lu, :lock) _factor_property(lu, d)
 
 size(F::UmfpackLU) = (F.m, F.n)
 function size(F::UmfpackLU, dim::Integer)
@@ -662,9 +659,11 @@ end
 # `F.Rs` always multiplies.
 _scale_factors!(Rs, do_recip) = do_recip == 0 ? map!(inv, Rs, Rs) : Rs
 
-# A solve takes no lock: it only reads the factorization, and has its scratch space and the
-# `info` that UMFPACK writes to, both in the workspace, to itself. The numeric factors are missing only in a
-# deserialized or hand-built `UmfpackLU`, and computing them is a write, done under the lock.
+# A call that only reads the factorization takes no lock. That covers the solves, whose
+# scratch space and `info` belong to the workspace of the call, and `det`, `logabsdet` and
+# the factor properties, which pass UMFPACK no `info`. The numeric factors are missing
+# only in a deserialized or hand-built `UmfpackLU`, and computing them is a write, done
+# under the lock.
 _ensure_numeric!(lu::UmfpackLU) = _isnull(lu.numeric) ? umfpack_numeric!(lu) : lu
 
 # UMFPACK needs contiguous vectors; solve through contiguous copies otherwise.
@@ -805,10 +804,8 @@ for itype in UmfpackIndexTypes
         function det(lu::UmfpackLU{Float64,$itype})
             checksquare(lu)
             mx = Ref{Float64}(zero(Float64))
-            @lock lu.lock begin
-                umfpack_numeric!(lu)
-                @isok $det_r(mx, C_NULL, lu.numeric, lu.info)
-            end
+            _ensure_numeric!(lu)
+            @isok $det_r(mx, C_NULL, lu.numeric, C_NULL)
             mx[]
         end
 
@@ -816,19 +813,15 @@ for itype in UmfpackIndexTypes
             mx = Ref{Float64}(zero(Float64))
             mz = Ref{Float64}(zero(Float64))
             checksquare(lu)
-            @lock lu.lock begin
-                umfpack_numeric!(lu)
-                @isok $det_z(mx, mz, C_NULL, lu.numeric, lu.info)
-            end
+            _ensure_numeric!(lu)
+            @isok $det_z(mx, mz, C_NULL, lu.numeric, C_NULL)
             complex(mx[], mz[])
         end
         function logabsdet(F::UmfpackLU{T, $itype}) where {T<:Union{Float64,ComplexF64}} # return log(abs(det)) and sign(det)
-            n, U, Rs, p, q = @lock F.lock begin
-                n = checksquare(F)
-                umfpack_numeric!(F)
-                issuccess(F) || return log(zero(real(T))), zero(T)
-                n, F.U, F.Rs, F.p, F.q
-            end
+            n = checksquare(F)
+            _ensure_numeric!(F)
+            issuccess(F) || return log(zero(real(T))), zero(T)
+            U, Rs, p, q = F.U, F.Rs, F.p, F.q
             s = _signperm(p)*_signperm(q)*one(real(T))
             P = one(T)
             abs_det = zero(real(T))
@@ -846,10 +839,8 @@ for itype in UmfpackIndexTypes
             n_row = Ref{$itype}(zero($itype))
             n_col = Ref{$itype}(zero($itype))
             nz_diag = Ref{$itype}(zero($itype))
-            @lock lu.lock begin
-                umfpack_numeric!(lu)
-                @isok $lunz_r(lnz, unz, n_row, n_col, nz_diag, lu.numeric)
-            end
+            _ensure_numeric!(lu)
+            @isok $lunz_r(lnz, unz, n_row, n_col, nz_diag, lu.numeric)
             (lnz[], unz[], n_row[], n_col[], nz_diag[])
         end
         function umf_lunz(lu::UmfpackLU{ComplexF64,$itype})
@@ -858,15 +849,13 @@ for itype in UmfpackIndexTypes
             n_row = Ref{$itype}(zero($itype))
             n_col = Ref{$itype}(zero($itype))
             nz_diag = Ref{$itype}(zero($itype))
-            @lock lu.lock begin
-                umfpack_numeric!(lu)
-                @isok $lunz_z(lnz, unz, n_row, n_col, nz_diag, lu.numeric)
-            end
+            _ensure_numeric!(lu)
+            @isok $lunz_z(lnz, unz, n_row, n_col, nz_diag, lu.numeric)
             (lnz[], unz[], n_row[], n_col[], nz_diag[])
         end
         Base.@constprop :aggressive function _factor_property(lu::UmfpackLU{Float64, $itype}, d::Symbol)
             if d === :L
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Lp = Vector{$itype}(undef, n_row + 1)
                 # L is returned in CSR (compressed sparse row) format
@@ -880,7 +869,7 @@ for itype in UmfpackIndexTypes
                 return copy(transpose(SparseMatrixCSC(min(n_row, n_col), n_row,
                                                       increment!(Lp), increment!(Lj), Lx)))
             elseif d === :U
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Up = Vector{$itype}(undef, n_col + 1)
                 Ui = Vector{$itype}(undef, unz)
@@ -893,7 +882,7 @@ for itype in UmfpackIndexTypes
                 return  SparseMatrixCSC(min(n_row, n_col), n_col, increment!(Up),
                                         increment!(Ui), Ux)
             elseif d === :p
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 P  = Vector{$itype}(undef, n_row)
                 @isok $get_num_r(
@@ -903,7 +892,7 @@ for itype in UmfpackIndexTypes
                             C_NULL, C_NULL, lu.numeric)
                 return increment!(P)
             elseif d === :q
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Q  = Vector{$itype}(undef, n_col)
                 @isok $get_num_r(
@@ -913,7 +902,7 @@ for itype in UmfpackIndexTypes
                             C_NULL, C_NULL, lu.numeric)
                 return increment!(Q)
             elseif d === :Rs
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Rs = Vector{Float64}(undef, n_row)
                 do_recip = Ref{$itype}(0)
@@ -924,7 +913,7 @@ for itype in UmfpackIndexTypes
                             do_recip, Rs, lu.numeric)
                 return _scale_factors!(Rs, do_recip[])
             elseif d === :(:)
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Lp = Vector{$itype}(undef, n_row + 1)
                 # L is returned in CSR (compressed sparse row) format
@@ -954,7 +943,7 @@ for itype in UmfpackIndexTypes
         end
         Base.@constprop :aggressive function _factor_property(lu::UmfpackLU{ComplexF64, $itype}, d::Symbol)
             if d === :L
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Lp = Vector{$itype}(undef, n_row + 1)
                 # L is returned in CSR (compressed sparse row) format
@@ -970,7 +959,7 @@ for itype in UmfpackIndexTypes
                                                       increment!(Lp), increment!(Lj),
                                                       complex.(Lx, Lz))))
             elseif d === :U
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Up = Vector{$itype}(undef, n_col + 1)
                 Ui = Vector{$itype}(undef, unz)
@@ -984,7 +973,7 @@ for itype in UmfpackIndexTypes
                 return SparseMatrixCSC(min(n_row, n_col), n_col, increment!(Up),
                                        increment!(Ui), complex.(Ux, Uz))
             elseif d === :p
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 P  = Vector{$itype}(undef, n_row)
                 @isok $get_num_z(
@@ -994,7 +983,7 @@ for itype in UmfpackIndexTypes
                             C_NULL, C_NULL, lu.numeric)
                 return increment!(P)
             elseif d === :q
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Q  = Vector{$itype}(undef, n_col)
                 @isok $get_num_z(
@@ -1004,7 +993,7 @@ for itype in UmfpackIndexTypes
                             C_NULL, C_NULL, lu.numeric)
                 return increment!(Q)
             elseif d === :Rs
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Rs = Vector{Float64}(undef, n_row)
                 do_recip = Ref{$itype}(0)
@@ -1015,7 +1004,7 @@ for itype in UmfpackIndexTypes
                             do_recip, Rs, lu.numeric)
                 return _scale_factors!(Rs, do_recip[])
             elseif d === :(:)
-                umfpack_numeric!(lu)        # ensure the numeric decomposition exists
+                _ensure_numeric!(lu)
                 (lnz, unz, n_row, n_col, nz_diag) = umf_lunz(lu)
                 Lp = Vector{$itype}(undef, n_row + 1)
                 # L is returned in CSR (compressed sparse row) format
@@ -1095,7 +1084,7 @@ julia> SparseArrays.UMFPACK.rcond(lu(sparse([1.0 2.0; 0.0 0.0]); check=false))
 ```
 """
 function rcond(F::UmfpackLU)
-    umfpack_numeric!(F)        # ensure the numeric decomposition exists
+    _ensure_numeric!(F)
     return F.info[JL_UMFPACK_RCOND]
 end
 
