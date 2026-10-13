@@ -353,9 +353,36 @@ function _trimatdiv!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
         throw(DimensionMismatch(lazy"second dimension of left hand side A, $n, and first dimension of right hand side B, $(size(B, 1)), must be equal"))
     size(C) == size(B) ||
         throw(DimensionMismatch(lazy"size of output, $(size(C)), does not match size of right hand side, $(size(B))"))
+    # solving in place overwrites the right-hand side, so a singular triangle is found
+    # first; one with no right-hand side to meet it in is singular all the same
+    if !unit && (C === B || isempty(B))
+        j = _trisingular(upper, A)
+        j == 0 || throw(LinearAlgebra.SingularException(j))
+    end
     C !== B && _uconvert_copyto!(C, B, oneunit(eltype(A)))
     return upper ? _trimatdiv!(C, Val(true), unit, f, A, B) : _trimatdiv!(C, Val(false), unit, f, A, B)
 end
+# The position in the storage of `A` of the diagonal entry of column `j`, which is the last
+# entry of the upper triangle and the first of the lower one, and whether it is stored.
+@inline function _tridiagindex(upper::Bool, ja, i1::Int, i2::Int, j::Int)
+    ii = upper ? searchsortedlast(ja, j, i1, i2, Base.Order.Forward) :
+                 searchsortedfirst(ja, j, i1, i2, Base.Order.Forward)
+    return ii, i1 <= ii <= i2 && @inbounds(ja[ii]) == j
+end
+# The first column of `A` whose diagonal entry is not stored or is a stored zero, or 0.
+function _trisingular(upper::Bool, A)
+    aa = getnzval(A)
+    ja = getrowval(A)
+    ia = getcolptr(A)
+    for j in 1:size(A, 2)
+        ii, hasdiag = _tridiagindex(upper, ja, Int(ia[j]), Int(ia[j + 1]) - 1, j)
+        hasdiag && !iszero(aa[ii]) || return j
+    end
+    return 0
+end
+# A diagonal entry that is not stored or is a stored zero is singular, as a zero on the
+# diagonal of a dense triangle is, and the first such column is the one reported, whichever
+# the sweep meets first.
 function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
     n = size(A, 2)
     aa = getnzval(A)
@@ -366,22 +393,18 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
         i1 = Int(ia[j])
         i2 = Int(ia[j + 1]) - 1
         if direct
-            if upper
-                ii = searchsortedlast(view(ja, i1:i2), j) + i1 - 1
-                hasdiag = ii >= i1 && ja[ii] == j
-            else
-                ii = searchsortedfirst(view(ja, i1:i2), j) + i1 - 1
-                hasdiag = ii <= i2 && ja[ii] == j
-            end
+            ii, hasdiag = _tridiagindex(upper, ja, i1, i2, j)
             cj = C[j,k]
             if hasdiag
                 if !unit
-                    cj /= LinearAlgebra._ustrip(f(aa[ii]))
+                    d = f(aa[ii])
+                    iszero(d) && throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
+                    cj /= LinearAlgebra._ustrip(d)
                     C[j,k] = cj
                 end
                 ii += upper ? -1 : 1
             elseif !unit
-                throw(LinearAlgebra.SingularException(j))
+                throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
             end
             for i in (upper ? (ii:-1:i1) : (ii:i2))
                 C[ja[i],k] -= cj * LinearAlgebra._ustrip(f(aa[i]))
@@ -395,7 +418,13 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                 if d > 0
                     akku -= C[jai,k] * f(aa[ii])
                 elseif d == 0
-                    akku /= unit ? oneunit(eltype(A)) : f(aa[ii])
+                    if unit
+                        akku /= oneunit(eltype(A))
+                    else
+                        a = f(aa[ii])
+                        iszero(a) && throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
+                        akku /= a
+                    end
                     done = true
                     break
                 else
@@ -403,7 +432,7 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                 end
             end
             if !done && !unit
-                throw(LinearAlgebra.SingularException(j))
+                throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
             end
             C[j,k] = akku
         end
