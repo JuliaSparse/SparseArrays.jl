@@ -510,6 +510,40 @@ end
     @test mapreduce(+, +, c, c) === mapreduce(+, +, C, C) === 6
     @test mapreduce(+, +, c, sparse([3, 4]); init = 0.5) === 10.5
 end
+
+@testset "mapreduce folds the elements in their order unless `op` is known to commute" begin
+    takelast = (a, b) -> b
+    A, Ad = fixturepair(Float64, 4, 3)
+    x, xd = fixturepair(Float64, 5)
+    B = sparse([1.0 2.0; 3.0 4.0])   # stores every entry
+    for (S, D) in ((A, Ad), (x, xd), (view(A, :, [3, 1]), Ad[:, [3, 1]]), (view(A, :, 2), Ad[:, 2]), (B, Array(B)))
+        @test mapreduce(v -> [v], vcat, S) == mapreduce(v -> [v], vcat, D)
+        @test mapreduce(string, *, S) == mapreduce(string, *, D)
+        @test reduce(takelast, S) === reduce(takelast, D)
+        S isa AbstractMatrix || continue
+        for dims in (1, 2, (1, 2))
+            rd = mapreduce(identity, takelast, D; dims, init=7.0)
+            @test mapreduce(identity, takelast, S; dims, init=7.0) == rd
+            @test mismatch(mapreduce(identity, takelast, S; dims, init=7.0, sparse=true), rd) === nothing
+            @test mapreduce(string, *, S; dims, init="") == mapreduce(string, *, D; dims, init="")
+        end
+    end
+    # the ordered fold takes `f(0)` once and each stored entry once
+    calls = Ref(0)
+    mapreduce(v -> (calls[] += 1; v), takelast, A)
+    @test calls[] == nnz(A) + 1
+    calls[] = 0
+    mapreduce(v -> (calls[] += 1; v), takelast, A; dims=1, init=7.0, sparse=true)
+    @test calls[] == nnz(A) + 1
+    # a run of unstored entries has the type `op` gives it, not that of `f(0)`
+    plus = (a, b) -> a + b
+    for S in (spzeros(2, 2), spzeros(4), sparse([0.0 0.0 0.0 1.0]))
+        @test mapreduce(!iszero, plus, S) === mapreduce(!iszero, plus, Array(S))
+    end
+    # `|` and `&` commute for one array and for two
+    @test SparseArrays._commutes(!iszero, |, Float64) && SparseArrays._commutes(>, &, Float64, Float64)
+    @test mapreduce(>, |, A, 2A) === mapreduce(>, |, Ad, 2Ad)
+end
 end
 
 @testset "reductions along a dimension: dense by default, sparse with `sparse = true` (#43), column views (#377)" begin
