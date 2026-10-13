@@ -1047,6 +1047,8 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     if (I[S[1]] < 1 || I[S[end]] > widelength(A))
         throw(BoundsError(A, I))
     end
+    # a value that does not convert throws before any write
+    _checkconvertible(eltype(A), x)
 
     CartIndsA = CartesianIndices(szA)
 

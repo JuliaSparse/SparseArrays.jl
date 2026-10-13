@@ -430,6 +430,15 @@ end
     @test count(!iszero, A) == 11
     @test A[lininds] == A[X] == c
 
+    @static if COMPREHENSIVE
+    @testset "a value that does not convert" begin
+        S0 = sparse([1 0 0; 0 2 0; 0 0 3])
+        S = copy(S0)
+        @test_throws InexactError S[[2, 4, 6]] = [7.0, 8.0, 8.5]
+        @test exact_equal(S, S0)
+    end
+    end
+
     let # prevent assignment to I from overwriting UniformSampling in enclosing scope
         S = fixture(Float64, 50, 30)   # integer values, so that the sums are exact
         I = sparse([(i + 2j) % 5 == 0 for i in 1:50, j in 1:30])
