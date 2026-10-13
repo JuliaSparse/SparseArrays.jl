@@ -767,8 +767,8 @@ copy(S::FixedSparseCSC) =
     FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), copy(getnzval(S)))
 # Throw the conversion error of `copyto!(dest, vals)` before a caller rewrites the pattern
 # that goes with `dest`. A loop that cannot throw compiles away.
-_checkconvertible(::Type{T}, vals::AbstractVector{<:T}) where {T} = nothing
-function _checkconvertible(::Type{T}, vals::AbstractVector) where {T}
+_checkconvertible(::Type{T}, vals::AbstractArray{<:T}) where {T} = nothing
+function _checkconvertible(::Type{T}, vals::AbstractArray) where {T}
     for v in vals
         convert(T, v)
     end
