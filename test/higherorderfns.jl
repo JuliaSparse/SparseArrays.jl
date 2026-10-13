@@ -804,4 +804,19 @@ end
     end
 end
 
+@testset "a destination that cannot take the result is left untouched" begin
+    # the fill value does not convert, or every entry does not fit the index type
+    Ci = sparse([1 0; 0 2])
+    @test_throws InexactError Ci .= Ci .+ 0.5
+    @test nnz(Ci) == 2 && Ci == [1 0; 0 2]
+    @test_throws InexactError map!(x -> x + 0.5, Ci, Ci)
+    @test nnz(Ci) == 2 && Ci == [1 0; 0 2]
+    S8 = sparse(Int8[1], Int8[1], [1.0], 12, 12)
+    S0 = copy(S8)
+    @test_throws InexactError S8 .= 1.0
+    @test S8 == S0 && nnz(S8) == nnz(S0) && length(SparseArrays.rowvals(S8)) == 1
+    @test_throws InexactError S8 .= S8 .+ 1.0
+    @test S8 == S0 && nnz(S8) == nnz(S0) && length(SparseArrays.rowvals(S8)) == 1
+end
+
 end # module

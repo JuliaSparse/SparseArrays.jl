@@ -165,11 +165,18 @@ map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) 
     let r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
             _iszero(fofzeros) ? _map_zeropres!(f, C, A, Bs...) :
-                _map_notzeropres!(f, fofzeros, C, A, Bs...)
+                _guardfill(_map_notzeropres!, f, fofzeros, C, A, Bs...)
         else
             _map_zeropres!(f, C, A, Bs...)
         end
     return @if_move_fixed A Bs... r
+end
+# A kernel that fills C stores every entry of it first. What can be checked is checked before
+# that, the conversion of the fill value included, and leaves C as it was.
+function _guardfill(kernel!::K, f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {K,Tf,N}
+    _checkdensestructure(C)
+    isempty(C) || convert(eltype(C), fillvalue)
+    return kernel!(f, fillvalue, C, As...)
 end
 
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
@@ -202,8 +209,10 @@ copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
         trimstorage!(C, 0)
         _finishempty!(C)
     else # f() is nonzero, so densify C and fill with independent calls to f()
+        _checkdensestructure(C)
+        firstvalue = convert(eltype(C), fofnoargs)
         _densestructure!(C)
-        storedvals(C)[1] = fofnoargs
+        storedvals(C)[1] = firstvalue
         broadcast!(f, view(storedvals(C), 2:length(storedvals(C))))
     end
     return _checkbuffers(C)
@@ -301,12 +310,20 @@ end
 # helper functions for these methods and some of those below
 @inline _densecoloffsets(A::AbstractCompressedVector) = 0
 @inline _densecoloffsets(A::AbstractSparseMatrixCSC) = 0:size(A, 1):(size(A, 1)*(size(A, 2) - 1))
+# What `_densestructure!` checks before it writes anything.
+_checkdensestructure(A::AbstractCompressedVector) = true
+function _checkdensestructure(A::AbstractSparseMatrixCSC)
+    _is_fixed(A) || convert(indtype(A), size(A, 1) * size(A, 2) + 1)   # the last column pointer
+    return true
+end
 function _densestructure!(A::AbstractCompressedVector)
+    _checkdensestructure(A)
     expandstorage!(A, length(A))
     copyto!(nonzeroinds(A), 1:length(A))
     return A
 end
 function _densestructure!(A::AbstractSparseMatrixCSC)
+    _checkdensestructure(A)
     nnzA = size(A, 1) * size(A, 2)
     expandstorage!(A, nnzA)
     copyto!(getcolptr(A), 1:size(A, 1):(nnzA + 1))
@@ -1086,7 +1103,7 @@ end
     if _iszero(fofzeros)
         return _broadcast_zeropres!(f, dest, As...)
     else
-        return _broadcast_notzeropres!(f, fofzeros, dest, As...)
+        return _guardfill(_broadcast_notzeropres!, f, fofzeros, dest, As...)
     end
 end
 

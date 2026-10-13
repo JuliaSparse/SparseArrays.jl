@@ -2399,6 +2399,9 @@ end
 
 function _fillnonzero!(arr::AbstractSparseMatrixCSC{Tv, Ti}, val) where {Tv,Ti}
     m, n = size(arr)
+    # checked before anything is resized, so that a throw leaves `arr` as it was
+    convert(Ti, m * n + 1)   # the last column pointer
+    val = convert(Tv, val)
     resize!(getcolptr(arr), n+1)
     resize!(rowvals(arr), m*n)
     resize!(nonzeros(arr), m*n)
@@ -2416,6 +2419,7 @@ end
 
 function _fillnonzero!(arr::AbstractCompressedVector{Tv,Ti}, val) where {Tv,Ti}
     n = length(arr)
+    val = convert(Tv, val)   # before anything is resized
     resize!(nonzeroinds(arr), n)
     resize!(nonzeros(arr), n)
     @inbounds for i in 1:n
