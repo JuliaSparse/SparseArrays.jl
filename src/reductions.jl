@@ -590,37 +590,35 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
 end
 
 # any(pred, A, dims = 1) => mapreduce(pred, |, A, dims = 1)
-# final argument `post` is to allow post-mapping each columnar mapreduce
+# `R` holds the initial value of each column, which the column's reduction is folded into.
+# With `negate`, `pred` is the negated predicate of an `&` reduction, see below.
 function _mapreducerows!(pred::P, ::typeof(|), R::AbstractMatrix{Bool}, A::SparseMatrixCSCOrColumnSubset{Tv},
-                         post::F = identity) where {P, F, Tv}
+                         negate::Bool = false) where {P, Tv}
     nzval = getnzval(A)
     m, n = size(A)
     @inbounds for ii in axes(A,2)
+        # an initial value that already decides the column
+        R[1, ii] == negate || continue
         rng = getnzrange(A, ii)
         len = length(rng)
-        # An empty column is trivial
-        if len == 0
-            R[1, ii] = post(pred(zero(Tv)))
-            continue
+        if len < m && pred(zero(Tv))
+            # an unstored entry satisfies the predicate
+            r = true
+        else
+            # reduce over the stored values
+            r = false
+            for jj in rng
+                r = pred(nzval[jj])
+                r && break
+            end
         end
-        # If predicate on zero is true, then sparse column can be short-circuited
-        if pred(zero(Tv)) && len < m
-            R[1, ii] = post(true)
-            continue
-        end
-        # Otherwise reduce over the stored values
-        r = false
-        for jj in rng
-            r = pred(nzval[jj])
-            r && break
-        end
-        R[1, ii] = post(r)
+        R[1, ii] = r != negate
     end
     return R
 end
 # all(pred, A, dims = 1) => mapreduce(pred, &, A, dims = 1) == .!mapreduce(!pred, |, A, dims = 1)
 _mapreducerows!(pred::P, ::typeof(&), R::AbstractMatrix{Bool},
-                A::SparseMatrixCSCOrColumnSubset) where {P} = _mapreducerows!(!pred, |, R, A, !)
+                A::SparseMatrixCSCOrColumnSubset) where {P} = _mapreducerows!(!pred, |, R, A, true)
 
 # findmax/min and argmax/min methods
 # find the first entry of the sparse matrix that is not stored - return its cartesian index
