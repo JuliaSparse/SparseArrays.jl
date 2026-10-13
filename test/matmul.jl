@@ -222,6 +222,7 @@ end
     end
     # from the stored entries of both factors, not LinearAlgebra's kernel over every entry
     @test which(*, typeof.((B, S))).module === SparseArrays
+    @test mismatch(B * S, B * Matrix(S); approx=true) === nothing
     for A in (UpperHessenberg(S), view(S, [2, 1, 3], :))
         @test which(*, typeof.((A, B))).module === SparseArrays
     end
