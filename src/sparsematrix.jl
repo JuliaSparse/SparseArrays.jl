@@ -3825,16 +3825,20 @@ julia> SparseArrays.dropstored!(A, [1, 2], [1, 1])
 function dropstored!(A::AbstractSparseMatrixCSC,
         I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
     require_one_based_indexing(A, I, J)
-    m, n = size(A)
+    # Lower indices as Base does. Bounds are checked first because a mask lowers to a
+    # `Base.LogicalIndex`, which `ensure_indexable` collects, dropping the mask's length.
+    L = to_indices(A, (I, J))
+    checkbounds(A, L...)
+    I, J = Base.ensure_indexable(L)
+    # the kernel reads the indices while it compacts the storage
+    I = _unalias_setindex(A, I)
+    J = _unalias_setindex(A, J)
+    n = size(A, 2)
     nnzA = nnz(A)
     (nnzA == 0) && (return A)
 
     !issorted(I) && (I = sort(I))
     !issorted(J) && (J = sort(J))
-
-    if (!isempty(I) && (I[1] < 1 || I[end] > m)) || (!isempty(J) && (J[1] < 1 || J[end] > n))
-        throw(BoundsError(A, (I, J)))
-    end
 
     if isempty(I) || isempty(J)
         return A
