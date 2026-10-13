@@ -742,6 +742,46 @@ end
 end
 end
 
+@static if COMPREHENSIVE
+@testset "kronecker product with a view of a sparse matrix is sparse" begin
+    S = fixture(Float64, 4, 4)
+    D = fixturedense(Float64, 2, 3)
+    x = fixturevec(Float64, 3)
+    for V in (view(S, :, 2:3), view(S, :, [3, 1]), view(S, 2:3, :), view(S, [4, 1], [2, 2, 3]))
+        Vd = Matrix(V)
+        for B in (S, V, S', D, x, Diagonal([1.0, 2]), UpperTriangular(S))
+            Bd = B isa AbstractVector ? Vector(B) : Matrix(B)
+            @test mismatch(kron(V, B), kron(Vd, Bd)) === nothing
+            @test mismatch(kron(B, V), kron(Bd, Vd)) === nothing
+        end
+        C = spzeros(size(V) .* size(S)...)
+        @test kron!(C, V, S) === C && C == kron(Vd, Matrix(S))
+        @test kron(2.0, V)::SparseMatrixCSC == 2Vd
+        C = spzeros(size(V)...)
+        @test kron!(C, 2.0, V) === C && mismatch(C, 2Vd) === nothing
+    end
+    # so is one with a wrapped view or a view of a column
+    W = view(S, :, [3, 1, 2, 4])
+    c = view(S, :, 3)
+    for V in (view(S, :, [3, 1])', Symmetric(W), UpperTriangular(W'), c), B in (S, view(S, :, [3, 1]), c, D)
+        Vd, Bd = Array(V), Array(B)
+        @test mismatch(kron(V, B), kron(Vd, Bd)) === nothing
+        @test mismatch(kron(B, V), kron(Bd, Vd)) === nothing
+    end
+    # with a number, a wrapped view gives what the wrapped matrix does
+    for V in (W, W'), (wrap, T) in ((Symmetric, Symmetric), (Hermitian, Hermitian),
+            (UpperTriangular, UpperTriangular), (A -> Symmetric(A, :L), Symmetric), (UnitLowerTriangular, LowerTriangular))
+        B = wrap(V)
+        for K in (kron(2.0, B), kron(B, 2.0))
+            @test K isa T{Float64,<:SparseMatrixCSC} && K == 2 * Matrix(B)
+        end
+        C = spzeros(4, 4)
+        @test kron!(C, 2.0, B) === C && mismatch(C, 2 * Matrix(B)) === nothing
+    end
+    @test mismatch(kron(W', 2.0), 2 * Matrix(W')) === nothing
+end
+end
+
 @testset "kronecker product" begin
     for (m,n) in ((5,10),)
         a = fixture(ComplexF64, m, 3); a_d = Matrix(a)
