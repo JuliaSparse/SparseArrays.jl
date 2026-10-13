@@ -735,6 +735,27 @@ end
     end
 end
 
+@static if COMPREHENSIVE
+@testset "mul! into a dense destination that is an operand throws" begin
+    S = sparse([1.0 2 0; 0 3 4; 5 0 6])
+    D = [1.0 2 3; 4 5 6; 7 8 10]
+    # one aliased call for each kernel that reads a dense operand, and one through a wrapper
+    for f in (C -> mul!(C, S, C), C -> mul!(C, S', C), C -> mul!(C, C, S), C -> mul!(C, C', S),
+              C -> mul!(C, transpose(C), transpose(S)), C -> mul!(C, Symmetric(S), C),
+              C -> mul!(C, C, Symmetric(S)), C -> mul!(C, UpperTriangular(S), C'),
+              C -> mul!(C, Symmetric(C), UpperTriangular(S)), C -> mul!(C, S, UpperTriangular(C)))
+        C = copy(D)
+        @test_throws ArgumentError f(C)
+        @test C == D
+    end
+    # a `false` `alpha` leaves the operand unread, and views of one array that do not
+    # overlap are distinct operands
+    @test mul!((C = copy(D); C), S, C, false, 2.0) == 2D
+    X = [D D]
+    @test mul!(view(X, :, 1:3), S, UpperTriangular(view(X, :, 4:6))) == S * UpperTriangular(D)
+end
+end
+
 @testset "BLAS Level-2" begin
     @testset "dense A * sparse x -> dense y" begin
         # standard: a plain matrix with either eltype, and the transposed and wrapped factors
