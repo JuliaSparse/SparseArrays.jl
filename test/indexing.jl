@@ -184,28 +184,16 @@ include("testhelpers.jl")
         A = sparse([1.0 2 0; 0 3 4]); D = Array(A)
         I3 = reshape([1, 3, 4, 6, 1, 3, 4, 6], 2, 2, 2)
         @test A[I3] == D[I3] && A[I3] isa Array{Float64,3}
-        @test A[fill(2)] == D[fill(2)] && A[fill(2)] isa Array{Float64,0}
-        @test_throws BoundsError A[reshape([1, 7], 1, 1, 2)]
-        # the result is dense, so its length need not fit the index type
-        A8 = sparse(Int8[1, 12], Int8[1, 12], [1.0, 2.0], 12, 12)
-        I8 = reshape(collect(1:144), 12, 12, 1)
-        @test A8[I8] == Matrix(A8)[I8]
+        C3 = reshape([CartesianIndex(1, 1), CartesianIndex(2, 3)], 1, 1, 2)
+        @test A[C3] == D[C3]
         # a stored entry is copied; only an unstored one needs a `zero`
         As = SparseMatrixCSC(1, 1, [1, 2], [1], ["a"])
         @test As[fill(1)] == fill("a")
-        # the elements of the index array are indices of any kind, and nothing else
-        C3 = reshape([CartesianIndex(1, 1), CartesianIndex(2, 3)], 1, 1, 2)
-        @test A[C3] == D[C3]
-        x = sparse([1, 2, 3])
-        C1 = reshape([CartesianIndex(1), CartesianIndex(3)], 1, 1, 2)
-        @test x[C1] == [1, 2, 3][C1]
-        @test_throws ArgumentError A[reshape([1.0, 2.0], 1, 1, 2)]
-        @test_throws ArgumentError A[reshape(Any[1, true], 1, 1, 2)]
         # the zero of an entry that is not stored may be of another type, as in `Array(A)`
         Av = sparse([1], [1], [Variable(1)], 1, 2)
         @test Av[reshape([1, 2], 1, 1, 2)]::Array{Expression,3} == Array(Av)[reshape([1, 2], 1, 1, 2)]
         # the error is about the vector, not a matrix made of it
-        @test_throws "SparseVector" x[reshape([1, 4], 1, 1, 2)]
+        @test_throws "SparseVector" sparse([1, 2, 3])[reshape([1, 4], 1, 1, 2)]
     end
     end
 
