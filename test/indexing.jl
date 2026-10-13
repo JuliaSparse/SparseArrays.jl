@@ -589,6 +589,22 @@ end
     @test nnz(A) == 50
     SparseArrays.dropstored!(A, :, :)
     @test nnz(A) == 0
+    @static if COMPREHENSIVE
+        # a mask selects rows, it is not a vector of the indices 0 and 1
+        A = sparse(1.0I, 3, 3)
+        SparseArrays.dropstored!(A, [true, false, true], [1, 3])
+        @test mismatch(A, [0.0 0 0; 0 1 0; 0 0 0]) === nothing && nnz(A) == 1
+        @test_throws BoundsError SparseArrays.dropstored!(A, [true, true], [1])
+        @test mismatch(A, [0.0 0 0; 0 1 0; 0 0 0]) === nothing && nnz(A) == 1
+        # the bounds are checked even when nothing is stored
+        A = spzeros(2, 2)
+        @test_throws BoundsError SparseArrays.dropstored!(A, [5], [1])
+        @test mismatch(A, zeros(2, 2)) === nothing && nnz(A) == 0
+        # an index that is the matrix's own storage is read while the storage is compacted
+        A = sparse([11.0 21; 12 0])
+        SparseArrays.dropstored!(A, view(rowvals(A), 1:1), 1:2)
+        @test mismatch(A, [0.0 0; 12 0]) === nothing && nnz(A) == 1
+    end
 end
 
 @testset "test_getindex_algs" begin

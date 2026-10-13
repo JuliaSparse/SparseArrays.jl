@@ -1234,16 +1234,16 @@ function dropstored!(A::AbstractSparseMatrixCSC,
         I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
     require_one_based_indexing(A, I, J)
     _checkpatternwritable(A, :dropstored!)
-    m, n = size(A)
+    I, J = _lower_indices(A, I, J)   # checks the bounds, and turns a mask into indices
+    # the kernel reads the indices while it compacts the storage
+    I = _unalias_setindex(A, I)
+    J = _unalias_setindex(A, J)
+    n = size(A, 2)
     nnzA = nnz(A)
     (nnzA == 0) && (return A)
 
     !issorted(I) && (I = sort(I))
     !issorted(J) && (J = sort(J))
-
-    if (!isempty(I) && (I[1] < 1 || I[end] > m)) || (!isempty(J) && (J[1] < 1 || J[end] > n))
-        throw(BoundsError(A, (I, J)))
-    end
 
     if isempty(I) || isempty(J)
         return A
