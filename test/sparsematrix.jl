@@ -1503,82 +1503,61 @@ end
     end
 
     @test (nnz(A), nnz(AU), nnz(AL), nnz(b), nnz(c)) == (12, 11, 3, 4, 4)
-    for M in (A, AU, AL, b, c, (@static COMPREHENSIVE ? (d,) : ())...)
+    for M in (A, b, c, (@static COMPREHENSIVE ? (d,) : ())...)
         @test_throws BoundsError nzrange(M, 0)
         @test_throws BoundsError nzrange(M, size(M, 2) + 1)
     end
     @testset "nzrange(A, $i)" for (i, nzr) in ((1,1:0),(4,1:4),(5,5:8),(6,9:12),(9,13:12))
         @test nzrange(A, i) == nzr
     end
-    # the wrappers' accessors describe the entries of their triangle only
-    @testset "nzrange(AU, $i)" for (i, nzr) in ((2,1:0),(4,1:3),(5,4:7),(6,8:11),(8,12:11))
-        @test nzrange(AU, i) == nzr
-    end
-    @testset "nzrange(AL, $i)" for (i, nzr) in ((3,1:0),(4,1:2),(5,3:3),(6,4:3),(7,4:3))
-        @test nzrange(AL, i) == nzr
-    end
     @test nzrange(b, 1) == 1:4
     @test nzrange(c, 1) == 1:4
 
     @test rowvals(A) == I
-    @test rowvals(AU) == I[[1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]]
-    @test rowvals(AL) == I[[3, 4, 8]]
     @test rowvals(b) == I[1:4]
     @test rowvals(c) == I[5:8]
 
     @test nonzeros(A) == V
-    @test nonzeros(AU) == V[[1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]]
-    @test nonzeros(AL) == V[[3, 4, 8]]
     @test nonzeros(b) == V[1:4]
     @test nonzeros(c) == V[5:8]
-    # the storage tier addresses the parent's vectors
-    for W in (AU, AL)
-        @test SparseArrays.getrowval(W) === rowvals(A) && SparseArrays.getnzval(W) === nonzeros(A)
-        @test all(j -> SparseArrays.getnzval(W)[SparseArrays.getnzrange(W, j)] == nonzeros(W)[nzrange(W, j)], 1:9)
+    # a wrapper has no storage accessors; the kernels' ranges address its parent's vectors
+    for W in (AU, AL, Symmetric(A))
+        for f in (rowvals, nonzeros, SparseArrays.getrowval, SparseArrays.getnzval)
+            @test_throws MethodError f(W)
+        end
+        @test_throws MethodError nzrange(W, 4)
     end
+    @test [nonzeros(A)[k] for j in 1:9 for k in SparseArrays.getnzrange(AU, j)] == V[[1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]]
+    @test [nonzeros(A)[k] for j in 1:9 for k in SparseArrays.getnzrange(AL, j)] == V[[3, 4, 8]]
     # a view of some columns describes its own entries (#376)
     e = view(A, :, 5:6)
     @test nonzeros(e) == V[5:12] && rowvals(e) == I[5:12] && nzrange(e, 2) == 5:8
 end
 
 @static if COMPREHENSIVE
-@testset "nonzeros, rowvals and nzrange of triangular and symmetric wrappers (#64)" begin
+@testset "triangular and symmetric wrappers have no storage accessors (#913)" begin
     @testset "$(nameof(T)) $(nameof(W)) $uplo" for T in (Float64, ComplexF64),
             (W, uplo) in ((UpperTriangular, :U), (LowerTriangular, :L), (Symmetric, :U),
                           (Symmetric, :L), (Hermitian, :U), (Hermitian, :L))
         A = fixture(T, 9, 9)                     # with a stored zero on the diagonal
         S = W <: Union{Symmetric,Hermitian} ? W(A, uplo) : W(A)
         C = uplo == :U ? triu(A) : tril(A)       # the stored triangle keeps its pattern
-        @test length(nonzeros(S)) == length(rowvals(S)) == nnz(S) == nnz(C)
-        @test nonzeros(S) == nonzeros(C)         # the values as stored, before any conjugation
-        @test rowvals(S) == rowvals(C)
-        @test all(j -> nzrange(S, j) == nzrange(C, j), axes(S, 2))
-        @test_throws BoundsError nzrange(S, 0)
-        @test_throws BoundsError nzrange(S, 10)
-        # the documented loop visits exactly the stored triangle, and the wrapper reads it
-        seen = spzeros(T, 9, 9)
-        rows, vals = rowvals(S), nonzeros(S)
-        for j in axes(S, 2), k in nzrange(S, j)
-            seen[rows[k], j] = vals[k]
+        for f in (rowvals, nonzeros, SparseArrays.getrowval, SparseArrays.getnzval)
+            @test_throws MethodError f(S)
         end
-        @test seen == C
-        @test all(S[i, j] == (W <: Hermitian && i == j ? real(C[i, j]) : C[i, j]) for j in 1:9, i in 1:9 if !iszero(C[i, j]))
-        # the storage tier and the public accessors walk the same entries, and writes go through
-        for j in axes(S, 2)
-            @test SparseArrays.getnzval(S)[SparseArrays.getnzrange(S, j)] == nonzeros(S)[nzrange(S, j)]
-        end
-        other = uplo == :U ? tril(A, -1) : triu(A, 1)
-        fill!(nonzeros(S), T(7))
-        @test all(==(T(7)), nonzeros(uplo == :U ? triu(A) : tril(A)))
-        @test (uplo == :U ? tril(A, -1) : triu(A, 1)) == other
-        @test nnz(A) == nnz(C) + nnz(other)
+        @test_throws MethodError nzrange(S, 1)
+        @test nnz(S) == nnz(C)
+        # the kernels' ranges pick the stored triangle out of the parent's vectors
+        @test [nonzeros(A)[k] for j in 1:9 for k in SparseArrays.getnzrange(S, j)] == nonzeros(C)
+        @test [rowvals(A)[k] for j in 1:9 for k in SparseArrays.getnzrange(S, j)] == rowvals(C)
     end
-    # a wrapper of a column-range view gathers within the view's columns
+    # a wrapper of a column-range view stays within the view's columns
     A = fixture(Float64, 12, 14)
-    for (S, R) in ((UpperTriangular(view(A, :, 2:13)), UpperTriangular(A[:, 2:13])),
-                   (Symmetric(view(A, :, 2:13), :L), Symmetric(A[:, 2:13], :L)))
-        @test nonzeros(S) == nonzeros(R) && rowvals(S) == rowvals(R) && nnz(S) == nnz(R)
-        @test all(j -> nzrange(S, j) == nzrange(R, j), 1:12)
+    for (S, R) in ((UpperTriangular(view(A, :, 2:13)), triu(A[:, 2:13])),
+                   (Symmetric(view(A, :, 2:13), :L), tril(A[:, 2:13])))
+        @test nnz(S) == nnz(R)
+        @test [nonzeros(A)[k] for j in 1:12 for k in SparseArrays.getnzrange(S, j)] == nonzeros(R)
+        @test_throws MethodError nonzeros(S)
     end
 end
 end
@@ -1621,8 +1600,8 @@ end
     @test all(j -> SparseArrays.getnzrange(vA, j) == nzrange(A, j), 1:5)
     sA = view(A, :, 1:10)   # a square view can be wrapped
     for W in (UpperTriangular(sA), LowerTriangular(sA))
-        @test SparseArrays.getnzval(W) === SparseArrays.getnzval(A)
-        @test SparseArrays.getrowval(W) === SparseArrays.getrowval(A)
+        @test_throws MethodError nonzeros(W)
+        @test_throws MethodError rowvals(W)
         @test all(j -> SparseArrays.getnzrange(W, j) ⊆ nzrange(A, j), 1:10)
     end
     # the public accessors describe the view's own entries
