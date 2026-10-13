@@ -127,6 +127,25 @@ along(f::F, X, dims) where {F} = f(X; dims)
         @test count(v) == length(v)
         @test all(!iszero, spzeros(0, 0))
         @test !any(iszero, spzeros(0, 0))
+        @static if COMPREHENSIVE
+            # a predicate that is not Boolean is rejected, as for dense
+            for S in (sparse([1 0; 0 0]), sparsevec([1, 0]))
+                @test_throws TypeError any(S)
+                @test_throws TypeError all(S)
+            end
+            # also next to a `missing`, which `|` and `&` would let absorb the other value
+            for S in (sparse(reshape(Union{Missing,Int}[missing, 1], 2, 1)), sparse(Union{Missing,Int}[missing, 1]),
+                      sparse(Union{Missing,Int}[missing 0; 1 2]))
+                @test_throws TypeError any(S)
+                @test_throws TypeError all(S)
+                @test_throws TypeError any(Array(S))
+                @test_throws TypeError all(Array(S))
+            end
+            M = sparse(Union{Missing,Bool}[missing false; false false])
+            @test any(M) === missing && all(M) === false
+            @test any(iszero, sparse([1.0 0; 2 3])) === true && all(iszero, sparse([1.0 0; 2 3])) === false
+            @test any(ismissing, M) === true && all(x -> x === false, sparsevec([false, false])) === true
+        end
     end
 
     @testset "seed without copying the first slice" begin
