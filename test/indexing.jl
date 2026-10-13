@@ -787,6 +787,18 @@ end
         b[[6, 8, 13, 15, 23]] .= false
         @test mismatch(setindex!(copy(F), X, b), setindex!(Matrix(F), X, b)) === nothing
     end
+    @static if COMPREHENSIVE
+    @testset "an index vector that is the matrix's own storage" begin
+        S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
+        E[[1, 2, 3, 4], 2] = [10.0, 20, 30, 40]
+        S[rowvals(S), 2] = [10.0, 20, 30, 40]
+        @test mismatch(S, E) === nothing
+        S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
+        E[2, [1, 2, 3, 4]] = [10.0, 20, 30, 40]
+        S[2, rowvals(S)] = [10.0, 20, 30, 40]
+        @test mismatch(S, E) === nothing
+    end
+    end
     # of a repeated index the last write wins and the pattern stays valid, see #811
     for Tv in (Float64,)
         S = sparse(Tv[1 0 2 0; 0 3 0 0; 4 0 0 5; 0 0 6 0])
