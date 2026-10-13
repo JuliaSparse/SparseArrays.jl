@@ -188,6 +188,8 @@ end
             @test issparse(N)
         end
     end
+    # sparse times banded is formed from the stored entries, not by LinearAlgebra's kernel
+    @test which(*, Tuple{SparseMatrixCSC{Float64,Int},Bidiagonal{Float64,Vector{Float64}}}).module === SparseArrays
     # two triangular factors of one kind give that kind; an implicit unit diagonal is made
     # explicit for the kernel
     @static if !COMPREHENSIVE
@@ -224,9 +226,9 @@ end
         end
     end
     # from the stored entries of both factors, not LinearAlgebra's kernel over every entry
-    for A in (S, UpperHessenberg(S), view(S, [2, 1, 3], :))
+    @test which(*, typeof.((banded[2], S))).module === SparseArrays
+    for A in (UpperHessenberg(S), view(S, [2, 1, 3], :))
         @test which(*, typeof.((A, banded[1]))).module === SparseArrays
-        @test which(*, typeof.((banded[2], A))).module === SparseArrays
     end
     @test UpperHessenberg(S) * banded[2] == Matrix(UpperHessenberg(S)) * banded[2]
     # sparse times dense is dense on either side
