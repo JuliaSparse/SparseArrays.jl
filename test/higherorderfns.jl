@@ -908,6 +908,23 @@ end
     @test_throws ErrorException C .= (() -> (calls[] += 1) > 2 ? error("boom") : 1.0).()
     @test nnz(C) == 0 && iszero(Array(C))
 end
+
+@testset "map and broadcast of a function whose values are `missing` or equal f(0) in another type" begin
+    A, Ad = fixturepair(Float64, 4, 3)
+    f = x -> x == 0 ? 1.0 : missing
+    @test isequal(map(f, A), map(f, Ad))
+    g = (x, y) -> x == 0 ? 1.0 : missing
+    @test isequal(map(g, A, A), map(g, Ad, Ad))
+    g3 = (x, y, z) -> x == 0 ? 1.0 : missing
+    @test isequal(map(g3, A, A, A), map(g3, Ad, Ad, Ad))
+    # a sparse destination, as the out-of-place broadcast of these is dense
+    C = similar(A, Union{Missing,Float64})
+    @test isequal(broadcast!(f, C, A[:, 1]), broadcast!(f, similar(Ad, Union{Missing,Float64}), Ad[:, 1]))
+    @test isequal(broadcast!(g, C, A, A[:, 1]), broadcast(g, Ad, Ad[:, 1]))
+    @test isequal(broadcast!(g3, C, A, A, A[:, 1]), broadcast(g3, Ad, Ad, Ad[:, 1]))
+    h = x -> x == 0 ? 1 : 1.0
+    @test typeof.(map(h, A)) == typeof.(map(h, Ad))
+end
 end
 
 @testset "aliasing and indexed assignment or broadcast!" begin
