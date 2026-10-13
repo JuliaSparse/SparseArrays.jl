@@ -39,7 +39,8 @@ Being a stdlib shapes everything below:
   page. All documentation goes in that one file; an `@ref` to anything outside it breaks
   Julia's docs build. So does a `@docs` entry for a function that LinearAlgebra's page
   lists too, such as `lu` or `cholesky`, unless it carries the method signature of the
-  sparse docstring.
+  sparse docstring. Write that signature with the solver's own index type alias
+  (`UMFPACK.UMFITypes`, `CHOLMOD.ITypes`), which is `Int32` alone on a 32-bit build.
   The page's `@contents` block names it as both `index.md` and `SparseArrays.md`, its
   file name in Julia's manual; under any other name the table of contents comes out empty.
 - Every source and test file starts with the Julia MIT license banner.
