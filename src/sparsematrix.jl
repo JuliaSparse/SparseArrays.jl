@@ -3665,6 +3665,16 @@ function _unalias_setindex(A::AbstractSparseMatrixCSC, v)
     return v
 end
 
+# Throw the conversion error of writing `vals` into storage of eltype `T` before a caller
+# rewrites the pattern. A loop that cannot throw compiles away.
+_checkconvertible(::Type{T}, vals::AbstractArray{<:T}) where {T} = nothing
+function _checkconvertible(::Type{T}, vals::AbstractArray) where {T}
+    for v in vals
+        convert(T, v)
+    end
+    return nothing
+end
+
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVector{<:Integer})
     require_one_based_indexing(A, x, Ix)
     # to_indices does not compare a Bool mask's length with A's
@@ -3687,6 +3697,8 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     if (I[S[1]] < 1 || I[S[end]] > widelength(A))
         throw(BoundsError(A, I))
     end
+    # a value that does not convert throws before any write
+    _checkconvertible(eltype(A), x)
 
     CartIndsA = CartesianIndices(szA)
 

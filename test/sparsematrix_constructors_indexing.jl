@@ -766,6 +766,13 @@ end
         end
     end
 
+    @testset "a value that does not convert" begin
+        S0 = sparse([1 0 0; 0 2 0; 0 0 3])
+        S = copy(S0)
+        @test_throws InexactError S[[2, 4, 6]] = [7.0, 8.0, 8.5]
+        @test S == S0 && nnz(S) == nnz(S0)
+    end
+
     @testset "an index vector that is the matrix's own storage" begin
         S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
         E[[1, 2, 3, 4], 2] = [10.0, 20, 30, 40]
