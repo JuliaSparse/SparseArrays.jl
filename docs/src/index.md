@@ -1162,7 +1162,7 @@ SparseArrays.CHOLMOD.CholmodWS
 
 ```@docs
 SparseArrays.UMFPACK.UmfpackLU
-SparseArrays.UMFPACK.lu(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Union{Float64,ComplexF64}, Ti<:Union{Int32,Int64}}
+SparseArrays.UMFPACK.lu(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:SparseArrays.UMFPACK.UMFVTypes, Ti<:SparseArrays.UMFPACK.UMFITypes}
 SparseArrays.UMFPACK.lu!(::SparseArrays.UMFPACK.UmfpackLU, ::SparseArrays.AbstractSparseMatrixCSC)
 SparseArrays.UMFPACK.rcond
 SparseArrays.UMFPACK.UmfpackWS
@@ -1174,7 +1174,7 @@ Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
 ```@docs
 SparseArrays.SPQR.QRSparse
 SparseArrays.SPQR.AdjointQRSparse
-SparseArrays.SPQR.qr(::SparseArrays.SparseMatrixCSC{Tv,Ti}) where {Ti<:Union{Int32,Int64}, Tv<:Union{Float64,ComplexF64}}
+SparseArrays.SPQR.qr(::SparseArrays.SparseMatrixCSC{Tv,Ti}) where {Ti<:SparseArrays.CHOLMOD.ITypes, Tv<:Union{Float64,ComplexF64}}
 SparseArrays.SPQR.lq(::SparseArrays.SparseMatrixCSC)
 SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
 SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
