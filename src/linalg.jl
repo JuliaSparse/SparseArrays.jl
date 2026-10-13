@@ -363,8 +363,12 @@ function _trimatdiv!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
     return upper ? _trimatdiv!(C, Val(true), unit, f, A, B) : _trimatdiv!(C, Val(false), unit, f, A, B)
 end
 # The position in the storage of `A` of the diagonal entry of column `j`, which is the last
-# entry of the upper triangle and the first of the lower one, and whether it is stored.
+# entry of the upper triangle and the first of the lower one, and whether it is stored. A
+# matrix that stores one triangle only has it at the end of the column, with no search.
 @inline function _tridiagindex(upper::Bool, ja, i1::Int, i2::Int, j::Int)
+    i1 > i2 && return (upper ? i2 : i1), false
+    ii = upper ? i2 : i1
+    @inbounds ja[ii] == j && return ii, true
     ii = upper ? searchsortedlast(ja, j, i1, i2, Base.Order.Forward) :
                  searchsortedfirst(ja, j, i1, i2, Base.Order.Forward)
     return ii, i1 <= ii <= i2 && @inbounds(ja[ii]) == j

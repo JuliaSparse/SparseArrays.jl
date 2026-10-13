@@ -193,6 +193,30 @@ begin
         COMPREHENSIVE || continue # a view-backed triangle is a kernel of its own
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW \ B ≈ AW \ B
+        # a matrix that stores the solved triangle alone has its diagonal at the end of
+        # each column, and solves as the one that stores both triangles does
+        @test tr(wr((wr <: Union{UpperTriangular,UnitUpperTriangular} ? triu : tril)(A))) \ B == AW \ B
+    end
+    @static if COMPREHENSIVE
+    @testset "the diagonal of a stored triangle is found without a search" begin
+        # column 5 of an upper triangle, of a lower one, and of a matrix that stores both
+        ja = CountedReads([1, 3, 5, 5, 7, 9, 1, 5, 9])
+        @test SparseArrays._tridiagindex(true, ja, 1, 3, 5) == (3, true)
+        @test SparseArrays._tridiagindex(false, ja, 4, 6, 5) == (4, true)
+        @test ja.reads[] == 2
+        @test SparseArrays._tridiagindex(true, ja, 7, 9, 5) == (8, true)
+        @test SparseArrays._tridiagindex(false, ja, 7, 9, 5) == (8, true)
+        # a column that stores nothing reads nothing
+        ja = CountedReads([1, 3, 5])
+        @test SparseArrays._tridiagindex(true, ja, 4, 3, 5) == (3, false)
+        @test SparseArrays._tridiagindex(false, ja, 4, 3, 5) == (4, false)
+        @test SparseArrays._tridiagindex(false, ja, 1, 0, 5) == (1, false)
+        @test ja.reads[] == 0
+        Ae = sparse([1, 1, 3], [1, 3, 1], [2.0, 3.0, 4.0], 3, 3)
+        for W in (UnitUpperTriangular, UnitLowerTriangular)
+            @test W(Ae) \ [1.0, 2.0, 3.0] == W(Matrix(Ae)) \ [1.0, 2.0, 3.0]
+        end
+    end
     end
     @testset "triangular singular exceptions" begin
         A = LowerTriangular(sparse([0 2.0;0 1]))
