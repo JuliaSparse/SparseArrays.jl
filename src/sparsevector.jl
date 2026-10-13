@@ -1525,9 +1525,9 @@ function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorOrView) w
 end
 
 Base._any(f, A::SparseVectorOrView, ::Colon) =
-    iszero(length(A)) ? false : Base._mapreduce(f, |, IndexCartesian(), A)
+    iszero(length(A)) ? false : Base._mapreduce(_booleanpredicate(f), |, IndexCartesian(), A)
 Base._all(f, A::SparseVectorOrView, ::Colon) =
-    iszero(length(A)) ? true  : Base._mapreduce(f, &, IndexCartesian(), A)
+    iszero(length(A)) ? true  : Base._mapreduce(_booleanpredicate(f), &, IndexCartesian(), A)
 
 function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorOrView) where {F,G}
     isempty(A) && return R
