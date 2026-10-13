@@ -15,7 +15,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       SparseMatrixCSCColumnSubset, SparseColumnView, SparseVectorView, SparseVectorPartialView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros, ftranspose,
                       nonzeroinds, nonzeros, rowvals, getcolptr, getrowval, getnzval, widelength,
-                      _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, _checkdensestructure, _copyto_fixed!,
+                      _iszero, _isnotzero, _densezero, _is_fixed, _checkbuffers, _densestructure!, _checkdensestructure, _copyto_fixed!,
                       ReadOnly, _storagebuffers, _unaliasedcopy
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
@@ -976,7 +976,14 @@ _finishempty!(C::AbstractCompressedVector) = C
 _finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)
 
 # special case - vector outer product
-_copy(f::typeof(*), x::SparseVectorOrView, y::AdjOrTransSparseVectorOrView) = _outer(x, y)
+_copy(f::typeof(*), x::SparseVectorOrView, y::AdjOrTransSparseVectorOrView) =
+    _outerkeepszeros(x, y) ? _outer(x, y) : _copy(f, _sparsifystructured(x), _sparsifystructured(y))
+# `_outer` multiplies stored entries with stored entries alone, which gives the product when
+# every stored entry times a zero is a zero. An `Inf` or a `NaN` times a zero is not.
+function _outerkeepszeros(x, y)
+    zx, zy, op = _densezero(x), _densezero(y), wrapperop(y)
+    return all(v -> _iszero(v * zy), nonzeros(x)) && all(v -> _iszero(zx * op(v)), nonzeros(parent(y)))
+end
 @inline _outer(x::SparseVectorOrView, y::Adjoint) = return _outer(conj, x, parent(y))
 @inline _outer(x::SparseVectorOrView, y::Transpose) = return _outer(identity, x, parent(y))
 function _outer(trans::Tf, x, y) where Tf
