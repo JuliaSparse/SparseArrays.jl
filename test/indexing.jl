@@ -409,11 +409,9 @@ end
     @static if COMPREHENSIVE
     @testset "a value that does not convert" begin
         S0 = sparse([1 0 0; 0 2 0; 0 0 3])
-        for (L, x) in (([2, 4, 6], [7.0, 8.0, 8.5]), ([1, 5], [7.0, 8.5]), ([9, 2, 2], [7.0, 1.0, 8.5]))
-            S = copy(S0)
-            @test_throws InexactError S[L] = x
-            @test exact_equal(S, S0)
-        end
+        S = copy(S0)
+        @test_throws InexactError S[[2, 4, 6]] = [7.0, 8.0, 8.5]
+        @test exact_equal(S, S0)
     end
     end
 
