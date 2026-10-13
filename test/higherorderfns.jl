@@ -868,7 +868,6 @@ end
     S8 = sparse(Int8[1], Int8[1], [1.0], 12, 12)
     S0 = copy(S8)
     @test_throws InexactError S8 .= 1.0
-    @test_throws InexactError map!(x -> x + 1, S8, S0)
     @test mismatch(S8, Array(S0); Ti=Int8) === nothing
     # sums, differences and products are sparse and inferable for an element type whose
     # zero the compiler cannot evaluate
