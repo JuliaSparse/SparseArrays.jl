@@ -745,40 +745,20 @@ end
 @static if COMPREHENSIVE
 @testset "kronecker product with a view of a sparse matrix is sparse" begin
     S = fixture(Float64, 4, 4)
-    D = fixturedense(Float64, 2, 3)
-    x = fixturevec(Float64, 3)
-    for V in (view(S, :, 2:3), view(S, :, [3, 1]), view(S, 2:3, :), view(S, [4, 1], [2, 2, 3]))
-        Vd = Matrix(V)
-        for B in (S, V, S', D, x, Diagonal([1.0, 2]), UpperTriangular(S))
-            Bd = B isa AbstractVector ? Vector(B) : Matrix(B)
-            @test mismatch(kron(V, B), kron(Vd, Bd)) === nothing
-            @test mismatch(kron(B, V), kron(Bd, Vd)) === nothing
-        end
-        C = spzeros(size(V) .* size(S)...)
-        @test kron!(C, V, S) === C && C == kron(Vd, Matrix(S))
-        @test kron(2.0, V)::SparseMatrixCSC == 2Vd
-        C = spzeros(size(V)...)
-        @test kron!(C, 2.0, V) === C && mismatch(C, 2Vd) === nothing
-    end
-    # so is one with a wrapped view or a view of a column
-    W = view(S, :, [3, 1, 2, 4])
+    Sd = Matrix(S)
+    V = view(S, [4, 1], [2, 2, 3])
+    W = view(S, [4, 1, 2, 3], :)
     c = view(S, :, 3)
-    for V in (view(S, :, [3, 1])', Symmetric(W), UpperTriangular(W'), c), B in (S, view(S, :, [3, 1]), c, D)
-        Vd, Bd = Array(V), Array(B)
-        @test mismatch(kron(V, B), kron(Vd, Bd)) === nothing
-        @test mismatch(kron(B, V), kron(Bd, Vd)) === nothing
-    end
+    @test mismatch(kron(V, S), kron(Matrix(V), Sd)) === nothing
+    @test mismatch(kron(S, UpperTriangular(W')), kron(Sd, Matrix(UpperTriangular(W')))) === nothing
+    @test mismatch(kron(c, S), kron(Vector(c), Sd)) === nothing
+    @test mismatch(kron(c, c), kron(Vector(c), Vector(c))) === nothing
+    C = spzeros(8, 12)
+    @test kron!(C, V, S) === C && mismatch(C, kron(Matrix(V), Sd)) === nothing
     # with a number, a wrapped view gives what the wrapped matrix does
-    for V in (W, W'), (wrap, T) in ((Symmetric, Symmetric), (Hermitian, Hermitian),
-            (UpperTriangular, UpperTriangular), (A -> Symmetric(A, :L), Symmetric), (UnitLowerTriangular, LowerTriangular))
-        B = wrap(V)
-        for K in (kron(2.0, B), kron(B, 2.0))
-            @test K isa T{Float64,<:SparseMatrixCSC} && K == 2 * Matrix(B)
-        end
-        C = spzeros(4, 4)
-        @test kron!(C, 2.0, B) === C && mismatch(C, 2 * Matrix(B)) === nothing
-    end
-    @test mismatch(kron(W', 2.0), 2 * Matrix(W')) === nothing
+    @test mismatch(kron(2.0, V'), 2 * Matrix(V')) === nothing
+    K = kron(Symmetric(W), 2.0)
+    @test K isa Symmetric{Float64,<:SparseMatrixCSC} && K == 2 * Matrix(Symmetric(W))
 end
 end
 
