@@ -660,6 +660,54 @@ end
                 @test mismatch(mul!(copy(sA2), D, sA, alpha, beta), D * dA * alpha + sA2 * beta; approx=true) === nothing
             end
         end
+        @static if COMPREHENSIVE
+        @testset "Diagonal mul! into a sparse destination converts before it writes" begin
+            S = sparse([1.0 2 0; 0 3 4; 5 0 6])
+            C0 = sparse([1 0 0; 0 1 1; 1 0 0])
+            for (D, α, β) in ((Diagonal([0.5, 1, 1]), true, false), (Diagonal([2, 1, 1]), 0.5, 1),
+                              (Diagonal([2, 1, 1]), 2, 0.5), (Diagonal([2, 1, 1]), 0, 0.5)),
+                f in ((C, A) -> mul!(C, A, D, α, β), (C, A) -> mul!(C, D, A, α, β),
+                      (C, A) -> mul!(C, A', D, α, β), (C, A) -> mul!(C, D, transpose(A), α, β))
+                C = copy(C0)
+                @test_throws InexactError f(C, S)
+                @test same_pattern(C, C0) && nonzeros(C) == nonzeros(C0)
+            end
+            # the scalar counts as well when the adjoint is formed directly in the destination
+            Si = sparse([1 2 0; 0 3 4; 5 0 6])
+            for f in (C -> mul!(C, Si', Diagonal([1, 1, 1]), 0.5, false), C -> mul!(C, Diagonal([1, 1, 1]), transpose(Si), 0.5, false))
+                C = copy(C0)
+                @test_throws InexactError f(C)
+                @test same_pattern(C, C0) && nonzeros(C) == nonzeros(C0)
+            end
+            # a result the destination can hold is stored, whatever the eltypes of the operands
+            for (D, α, β) in ((Diagonal([2.0, 1, 1]), true, false), (Diagonal([2, 4, 6]), 0.5, 1), (Diagonal([2, 1, 1]), 2.0, 3.0)),
+                f in ((C, A) -> mul!(C, A, D, α, β), (C, A) -> mul!(C, D, A, α, β),
+                      (C, A) -> mul!(C, A', D, α, β), (C, A) -> mul!(C, D, transpose(A), α, β))
+                @test mismatch(f(copy(C0), S), f(Matrix(C0), Matrix(S))) === nothing
+            end
+            # with the pattern that a destination of the result's eltype gets, stored zeros included
+            Sz = SparseMatrixCSC(3, 3, [1, 3, 4, 5], [1, 2, 2, 3], [1.0, 0.0, 2.0, 3.0])
+            for (α, β) in ((2, 1), (true, 1), (2, false)),
+                f in (C -> mul!(C, Sz, Diagonal([1.0, 1, 1]), α, β), C -> mul!(C, Diagonal([1.0, 1, 1]), Sz, α, β))
+                @test same_pattern(f(copy(C0)), f(Float64.(C0)))
+            end
+            # a floating-point destination holds any machine number, so it is written directly
+            @test SparseArrays._storesafely(Float32, Float64) && SparseArrays._storesafely(ComplexF32, Float64)
+            @test !SparseArrays._storesafely(Int, Float64) && !SparseArrays._storesafely(Float64, ComplexF64)
+            Cf = fixed(copy(C0))
+            @test_throws InexactError mul!(Cf, S, Diagonal([0.5, 1, 1]))
+            @test Cf == C0
+            # a zero `alpha` leaves the product unformed: a non-finite entry of it is not converted
+            Ainf = sparse(reshape([Inf], 1, 1)); D1 = Diagonal([1.0])
+            for α in (0.0, false, 0), (β, r) in ((1, 7), (2, 14), (0, 0), (false, 0)),
+                f in ((C, A) -> mul!(C, A, D1, α, β), (C, A) -> mul!(C, D1, A, α, β),
+                      (C, A) -> mul!(C, A', D1, α, β), (C, A) -> mul!(C, D1, transpose(A), α, β))
+                C = sparse(reshape([7], 1, 1))
+                @test f(C, Ainf) === C && C == reshape([r], 1, 1)
+                @test f(reshape([7], 1, 1), Matrix(Ainf)) == reshape([r], 1, 1)
+            end
+        end
+        end
     end
 
     @testset "scale" begin

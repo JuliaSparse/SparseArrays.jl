@@ -754,6 +754,40 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
     end
 end
 
+# Whether storing a value of type `T` in an array of eltype `TC` cannot throw: `TC` holds
+# every `T`, or both are machine numbers and `TC` is floating point, where a conversion
+# rounds or overflows to `Inf`.
+const _MachineReal = Union{Base.IEEEFloat,Base.BitInteger,Bool}
+_storesafely(::Type{TC}, ::Type{T}) where {TC,T} = promote_type(T, TC) === TC
+_storesafely(::Type{<:Base.IEEEFloat}, ::Type{<:_MachineReal}) = true
+_storesafely(::Type{<:Complex{<:Base.IEEEFloat}}, ::Type{<:Union{_MachineReal,Complex{<:_MachineReal}}}) = true
+# The type of `P*alpha + C*beta` for a product `P` of eltype `TP`. The kernels below write
+# the pattern of `C` before the values; a result that may not convert is formed in a copy
+# of `C` with this eltype and converted before `C` changes, so that a throw leaves it as
+# it was.
+@inline function _diagmul_eltype(C, ::Type{TP}, alpha, beta) where {TP}
+    Tα = isone(alpha) ? TP : promote_op(*, TP, typeof(alpha))
+    return iszero(beta) ? Tα : promote_op(+, Tα, promote_op(*, eltype(C), typeof(beta)))
+end
+_diagmul_widened(C, ::Type{R}) where {R} =
+    SparseMatrixCSC(size(C)..., copy(getcolptr(C)), copy(getrowval(C)), convert(Vector{promote_type(R, eltype(C))}, getnzval(C)))
+function _diagmul_store!(C, W)
+    nzval = convert(Vector{eltype(C)}, view(getnzval(W), 1:nnz(W)))
+    return copyto!(C, SparseMatrixCSC(size(W)..., getcolptr(W), getrowval(W), nzval))
+end
+# `C = C*beta`, the result for a zero `alpha`: the product is not formed, so a non-finite
+# entry of it cannot turn up in `C`. A scaling that may not convert is checked in full first.
+function _diagmul_scale!(C, beta)
+    Cnzval = getnzval(C)
+    TC = eltype(C)
+    if iszero(beta) || _storesafely(TC, promote_op(*, TC, typeof(beta)))
+        LinearAlgebra._rmul_or_fill!(Cnzval, beta)
+    else
+        copyto!(Cnzval, convert(Vector{TC}, Cnzval * beta))
+    end
+    return C
+end
+
 # multiply by diagonal matrix as vector
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, alpha::Number, beta::Number)
     m, n = size(A)
@@ -761,7 +795,14 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     lb = length(b)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(getnzval(C), beta); return C)
+    iszero(alpha) && return _diagmul_scale!(C, beta)
+    R = _diagmul_eltype(C, promote_op(matprod, eltype(A), eltype(D)), alpha, beta)
+    _storesafely(eltype(C), R) ||
+        return _diagmul_store!(C, _spdiagmul!(_diagmul_widened(C, R), A, D, alpha, beta))
+    return _spdiagmul!(C, A, D, alpha, beta)
+end
+function _spdiagmul!(C, A, D, alpha, beta)
+    b = D.diag
     beta_is_zero = iszero(beta)
     rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
@@ -830,7 +871,8 @@ end
 _adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha, beta) =
     !iszero(alpha) && iszero(beta) && !Base.mightalias(C, parent(A)) && !_is_fixed(C) &&
     indtype(C) === indtype(parent(A)) &&
-    eltype(C) === eltype(A) === promote_op(matprod, eltype(A), eltype(D))
+    eltype(C) === eltype(A) === promote_op(matprod, eltype(A), eltype(D)) &&
+    _storesafely(eltype(C), _diagmul_eltype(C, eltype(C), alpha, beta))
 
 function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
     m, n = size(A)
@@ -860,7 +902,14 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     lb = length(b)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    iszero(alpha) && (LinearAlgebra._rmul_or_fill!(getnzval(C), beta); return C)
+    iszero(alpha) && return _diagmul_scale!(C, beta)
+    R = _diagmul_eltype(C, promote_op(matprod, eltype(D), eltype(A)), alpha, beta)
+    _storesafely(eltype(C), R) ||
+        return _diagmul_store!(C, _diagspmul!(_diagmul_widened(C, R), D, A, alpha, beta))
+    return _diagspmul!(C, D, A, alpha, beta)
+end
+function _diagspmul!(C, D, A, alpha, beta)
+    b = D.diag
     beta_is_zero = iszero(beta)
     rows_match = getrowval(C) == getrowval(A)
     cols_match = getcolptr(C) == getcolptr(A)
