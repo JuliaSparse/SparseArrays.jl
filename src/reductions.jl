@@ -6,44 +6,28 @@
 # (issue #43) is opt-in with the keyword `sparse = true`, see `_mapreduce_dim_sparse` below.
 # Covers views and adjoints so they reduce like their copy (#377), where Base's `similar`
 # would otherwise give a sparse result.
-function Base.reducedim_initarray(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset},
-                                           AdjOrTransSparseVectorOrView},
-                                  region, v0, ::Type{R}) where {R}
-    fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
-end
+using Base: CommutativeOps, _InitialValue, _mapreduce_start
 
-# Base seeds `maximum`, `minimum` and `extrema` along a dimension from the first slice and,
-# when `A` is empty, takes `map(f, slice)` as the result, which for a sparse `A` is sparse.
-# Only that case needs a dense copy of the (empty) slice; otherwise Base reduces the slice
-# to a scalar seed and fills through `reducedim_initarray`, which is dense above.
-function _reducedim_init_dense(f, op, A, region)
-    ri = Base.reduced_indices(A, region)   # also validates `region`
-    any(i -> isempty(axes(A, i)), region) && Base._empty_reduce_error()
-    A1 = view(A, ri...)
-    isempty(A1) && return map(f, Array(A1))
-    # the assertion hides Base's empty-slice branch, which is sparse here, from inference
-    return invoke(Base.reducedim_init, Tuple{typeof(f), typeof(op), AbstractArray, typeof(region)},
-                  f, op, A, region)::Array
-end
-for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
-          :AdjOrTransSparseVectorOrView)
-    @eval begin
-        Base.reducedim_init(f, op::typeof(max), A::$T, region) = _reducedim_init_dense(f, op, A, region)
-        Base.reducedim_init(f, op::typeof(min), A::$T, region) = _reducedim_init_dense(f, op, A, region)
-        Base.reducedim_init(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), A::$T, region) =
-            _reducedim_init_dense(f, op, A, region)
-        # Base seeds these with zero, from no slice; disambiguates from the `max` method above
-        Base.reducedim_init(f::Union{typeof(abs),typeof(abs2)}, op::typeof(max), A::$T, region) =
-            Base.reducedim_initarray(A, region, zero(f(zero(eltype(A)))), Base._realtype(f, eltype(A)))
-    end
-end
+widelength(inds::CartesianIndices) = prod(Int64.(size(inds)))
 
-# General mapreduce
-function _mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G,T}
+# Reductions along a dimension return a dense `Array`, including for views and adjoints
+# (#377), where Base's `similar` would give a sparse one.
+const _SparseReducible = Union{AbstractSparseArray, SparseMatrixCSCSubArray, SparseVectorOrView}
+Base.mapreduce_similar(A::Union{_SparseReducible, AdjOrTrans{<:Any,<:_SparseReducible}}, ::Type{R}, axs) where {R} =
+    similar(1:1, R, axs)
+
+# Fold `nzeros` unstored zeros into the accumulator `v0`. Callers that fold many runs of
+# zeros can compute `fz = f(zero(T))` once and pass it in. `fz` is `nothing` when the array
+# has no unstored entries.
+_mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G,T} =
+    _mapreducezeros(f, op, T, nzeros, v0, nzeros == 0 ? nothing : f(zero(T)))
+_mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0, fz) where {F,G,T} =
+    nzeros == 0 ? v0 : _foldzeros(op, fz, nzeros, v0)
+# Fold `zeroval` into `v0` `nzeros` times
+function _foldzeros(op::G, zeroval, nzeros::Integer, v0) where {G}
     nzeros == 0 && return v0
 
     # Reduce over first zero
-    zeroval = f(zero(T))
     v = op(v0, zeroval)
     isequal(v, v0) && return v
 
@@ -57,85 +41,423 @@ function _mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G
 
     v
 end
+# `nothing` means there are no unstored entries, so there's nothing to fold. We don't
+# compute `f(0)` in that case because it might throw.
+_foldzeros(op, ::Nothing, nzeros::Integer, v0) = v0
+# `f(0)`, or `nothing` if `A` stores every entry
+_mappedzero(f::F, A::AbstractArray{T}) where {F,T} = nnz(A) == widelength(A) ? nothing : f(zero(T))
 
-function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
-    z = nnz(A)
-    n = widelength(A)
-    if z == 0
-        if n == 0
-            Base.mapreduce_empty(f, op, T)
-        else
-            _mapreducezeros(f, op, T, n-z-1, f(zero(T)))
-        end
-    else
-        _mapreducezeros(f, op, T, n-z, Base._mapreduce(f, op, nzvalview(A)))
-    end
-end
-
-# Specialized mapreduce for +/*/min/max/_extrema_rf. The entries a sparse array does not
-# store are folded in at once, as `reduce_first` of `f(0)` (an `Int` for `sum` and `prod` of
-# small integers, as for dense input) times or to the power of their count, in the type the
-# accumulator `v0` has reached: `init` or another mapped value may have widened it.
-_mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? Base.reduce_first(op, v0) : op(_addzeros(_unstored(op, f, T, v0), nzeros), v0)
-_mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? Base.reduce_first(op, v0) : op(_unstored(op, f, T, v0)^nzeros, v0)
-_unstored(op, f, ::Type{T}, v0) where T = _widen(Base.reduce_first(op, f(zero(T))), v0)
+# Fast paths for +, *, min, max and extrema that fold all the unstored zeros in one step:
+# multiply `f(0)` by their count, or raise it to that power. `reduce_first` widens small
+# integers to `Int` like the dense reductions do, and the result is converted to the type of
+# `v0`, which `init` or an earlier value may already have widened.
+_mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0, fz) where {F,T} =
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_addzeros(_unstored(op, fz, v0), nzeros), v0)
+_mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0, fz) where {F,T} =
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_unstored(op, fz, v0)^nzeros, v0)
+_unstored(op, fz, v0) = _widen(Base.reduce_first(op, fz), v0)
 _widen(z, v0) = _widen(z, typeof(v0))
 _widen(z, ::Type{S}) where S = convert(promote_type(typeof(z), S), z)
 # `nzeros` copies of `z` added up, in the type `+` keeps for them: a small integer wraps
 # rather than widening to the count's `Int`, as when dense input is summed with `+`
 _addzeros(z, nzeros) = z * nzeros
 _addzeros(z::Base.BitInteger, nzeros) = z * (nzeros % typeof(z))
-_mapreducezeros(f::F, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? v0 : op(v0, f(zero(T)))
-_mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
-    nzeros == 0 ? v0 : op(v0, f(zero(T)))
+_mapreducezeros(f::F, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0, fz) where {F,T} =
+    nzeros == 0 ? v0 : op(v0, fz)
+_mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0, fz) where {T} =
+    nzeros == 0 ? v0 : op(v0, fz)
 
-# Specialized mapreduce for any and all
-# Each value of the predicate is checked to be Boolean, as the dense reductions check it:
-# `|` and `&` would absorb another value next to a `missing`, or combine two of them.
+# The product of the stored values `vals` and `nzeros` unstored zeros, for real and complex
+# scalars. An integer zero makes the whole product zero. A float zero doesn't, because a
+# stored `Inf` or `NaN` has to turn the result into `NaN`. Multiplying the stored values
+# together first can overflow to `Inf` even if they're all finite, so if that gives a
+# nonzero result we fold them onto the zero one at a time instead.
+function _prodstored(f::F, op::G, init, vals, nzeros, ::Type{T}) where {F,G,T}
+    nzeros == 0 && return mapreduce(f, op, vals; init)   # no f(0), which might throw
+    v = Base.reduce_first(op, f(zero(T)))^nzeros
+    if !isempty(vals) && !(_iszero(v) && Base.promote_op(f, T) <: Integer)
+        r = v * mapreduce(f, op, vals)
+        v = (_iszero(r) || !_iszero(v)) ? r : mapfoldl(f, op, vals; init=v)
+    end
+    return init isa _InitialValue ? v : op(init, v)
+end
+
+# `any` and `all` require the predicate to return `Bool` (or `missing`), like the dense
+# versions do. Without the check, `|` and `&` would silently combine other values.
 _boolean(v::Union{Bool,Missing}) = v
 _boolean(v) = v::Bool
 _booleanpredicate(f::F) where {F} = _boolean ∘ f
-Base._any(f, A::SparseMatrixCSCOrColumnSubset, ::Colon) =
-    iszero(widelength(A)) ? false : Base._mapreduce(_booleanpredicate(f), |, IndexCartesian(), A)
-Base._all(f, A::SparseMatrixCSCOrColumnSubset, ::Colon) =
-    iszero(widelength(A)) ? true  : Base._mapreduce(_booleanpredicate(f), &, IndexCartesian(), A)
 
-function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Base.IndexCartesian, A::SparseMatrixCSCOrColumnSubset{T}) where {F,T}
-    nnzA = nnz(A)
-    nzeros = widelength(A) - nnzA
-    if nzeros == 0
-        # No zeros, so don't compute f(0) since it might throw
-        Base._mapreduce(f, op, nzvalview(A))
+### Kernels for sparse matrices and column-subset views
+
+# Indices into `getnzval(A)` of the stored entries in columns `cols`. This is a contiguous
+# range unless `A` is a column subset.
+_storedpositions(A::AbstractSparseMatrixCSC, cols::AbstractUnitRange) =
+    Int(first(getnzrange(A, first(cols)))):Int(last(getnzrange(A, last(cols))))
+_storedpositions(A::SparseMatrixCSCView, cols::AbstractUnitRange) =
+    Int(first(getnzrange(A, first(cols)))):Int(last(getnzrange(A, last(cols))))
+function _storedpositions(A::SparseMatrixCSCColumnSubset, cols::AbstractUnitRange)
+    inds = Int[]
+    for col in cols
+        append!(inds, getnzrange(A, col))
+    end
+    return inds
+end
+
+function Base.mapreduce_kernel(f::F, op::CommutativeOps, A::SparseMatrixCSCOrColumnSubset{T}, init,
+                               inds::CartesianIndices{2}) where {F,T}
+    n = widelength(inds)
+    nnz(A) == 0 && return _mapreducezeros(f, op, T, n-1, _mapreduce_start(f, op, A, init, zero(T)))
+    rows, cols = inds.indices
+    rowval = getrowval(A)
+    nzval = getnzval(A)
+    m = length(rows)
+    if m == 1
+        # In the common case of reducing over just one row we just need to identify
+        # whether that row is stored or not
+        row = only(rows)
+        r = _mapreduce_start(f, op, A, init, A[row, first(cols)])
+        nskipped = 0
+        for col in cols[begin+1:end]
+            js = getnzrange(A, col)
+            j = searchsorted(view(rowval, js), row)
+            if isempty(j)
+                nskipped += 1
+            else
+                r = op(r, f(nzval[js[j[]]]))
+            end
+        end
+        return _mapreducezeros(f, op, T, nskipped, r)
+    elseif m != size(A, 1)
+        # We need to constrain our column indexing by the given rows in every col
+        r = _mapreduce_start(f, op, A, init, A[first(inds)])
+        for col in cols
+            js = getnzrange(A, col)
+            j1 = searchsortedfirst(view(rowval, js), first(rows) + (col == first(cols)))
+            jN = searchsortedlast(view(rowval, js[j1:end]), last(rows))
+            if jN > 0
+                r = op(r, mapreduce(f, op, view(nzval, js[j1:j1+jN-1]); init))
+            end
+            r = _mapreducezeros(f, op, T, m-jN-(col==first(cols)), r)
+        end
+        return r
     else
-        v = Base.reduce_first(op, f(zero(T)))^nzeros
-        (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) && return v
-        r = v*Base._mapreduce(f, op, nzvalview(A))
-        # A zero ends the product unless a stored `Inf` or `NaN` makes it `NaN`. The product
-        # of the stored entries may also have overflowed to one; folding them into the zero
-        # instead cannot.
-        (_iszero(r) || !_iszero(v)) ? r : mapfoldl(f, op, nzvalview(A); init=v)
+        # All rows: reduce the stored values in these columns, then fold in the zeros
+        nzinds = _storedpositions(A, cols)
+        isempty(nzinds) && return _mapreducezeros(f, op, T, n-1, _mapreduce_start(f, op, A, init, zero(T)))
+        r = mapreduce(f, op, view(nzval, nzinds); init)
+        return _mapreducezeros(f, op, T, n - length(nzinds), r)
     end
 end
 
-# The `sparse` keyword, the opt-in for a sparse result (issue #43): `sum(A; dims = 2, sparse = true)`
-# and the other reductions along a dimension return a `SparseMatrixCSC` (a `SparseVector` for a
-# sparse vector) that stores an entry only for the rows or columns of `A` that store one (all of
-# them when a slice that stores
-# nothing reduces to something nonzero, as for `f(0) != 0`), in time proportional to
-# nnz(A) + length(result) rather than to length(A). Base's `sum`, `prod`, `maximum` and
-# `minimum` forward unknown keywords to `mapreduce`, so the `mapreduce` method serves them all; `any`,
-# `all` and `count` do not and get their own methods below. A view without compressed storage
-# is reduced as its copy.
+# Kernel for any other `op`: fold the stored values and the runs of zeros between them in
+# column-major order
+function Base.mapreduce_kernel(f::F, op, A::SparseMatrixCSCOrColumnSubset{T}, init, inds::CartesianIndices{2}) where {F,T}
+    n = widelength(inds)
+    nnz(A) == 0 && return _mapreducezeros(f, op, T, n-1, _mapreduce_start(f, op, A, init, zero(T)))
+    rows, cols = inds.indices
+    rowval = getrowval(A)
+    nzval = getnzval(A)
+    zeroval = _mappedzero(f, A)   # computed once, not for every run of zeros
+    r = _mapreduce_start(f, op, A, init, A[first(inds)])
+    for col in cols
+        js = getnzrange(A, col)
+        j1 = searchsortedfirst(view(rowval, js), first(rows) + (col == first(cols)))
+        jN = searchsortedlast(view(rowval, js[j1:end]), last(rows))
+        row = first(rows) - 1 + (col==first(cols))
+        for j in js[j1:j1+jN-1]
+            row, prev_stored_row = rowval[j], row
+            if row > prev_stored_row+1
+                # implicit zeros between consecutive stored values
+                r = _foldzeros(op, zeroval, row-prev_stored_row-1, r)
+            end
+            r = op(r, f(nzval[j]))
+        end
+        if last(rows) > row
+            # implicit zeros after the last stored value in this column
+            r = _foldzeros(op, zeroval, last(rows)-row, r)
+        end
+    end
+    return r
+end
+
+# `*` isn't in `CommutativeOps`, but it does commute for real and complex numbers, so all
+# the zeros can be folded in as a single power (see `_prodstored`).
+function Base.mapreduce_kernel(f::F, op::Union{typeof(*),typeof(Base.mul_prod)}, A::SparseMatrixCSCOrColumnSubset{T}, init,
+                               inds::CartesianIndices{2}) where {F,T<:Union{Real,Complex}}
+    rows, cols = inds.indices
+    n = widelength(inds)
+    nzval = getnzval(A)
+    if _scalarproduct(f, T)
+        if nnz(A) == 0
+            return _prodstored(f, op, init, view(nzval, 1:0), n, T)
+        elseif rows == axes(A, 1)
+            nzinds = _storedpositions(A, cols)
+            return _prodstored(f, op, init, view(nzval, nzinds), n - length(nzinds), T)
+        end
+    end
+    # Partial-row blocks, or an `f` whose results may not commute: use the general kernel
+    return invoke(Base.mapreduce_kernel,
+                  Tuple{Any,Any,SparseMatrixCSCOrColumnSubset,Any,CartesianIndices{2}},
+                  f, op, A, init, inds)
+end
+
+# Base would split the range into fixed-size chunks, which makes the cost proportional to
+# length(A). Give the kernel the whole range instead. It still reduces the stored values
+# pairwise, through `mapreduce`.
+Base.mapreduce_pairwise(f::F, op::G, A::SparseMatrixCSCOrColumnSubset, init, inds::CartesianIndices{2}) where {F,G} =
+    Base.mapreduce_kernel(f, op, A, init, inds)
+
+# Base's `any`/`all` look up every element, and each lookup is a binary search here.
+# Reducing with `|` and `&` only touches the stored values and keeps the documented
+# `missing` behavior. Empty arrays are handled first, since `mapreduce` may have no
+# `reduce_empty` for them.
+Base._any(f, A::SparseMatrixCSCOrColumnSubset, ::Colon) =
+    iszero(widelength(A)) ? false : mapreduce(_booleanpredicate(f), |, A)
+Base._all(f, A::SparseMatrixCSCOrColumnSubset, ::Colon) =
+    iszero(widelength(A)) ? true : mapreduce(_booleanpredicate(f), &, A)
+
+### Kernels for sparse vectors, their views, and whole-column views of a matrix
+
+nzvalview(x::SparseVectorOrView) = view(nonzeros(x), 1:nnz(x))
+
+Base.mapreduce_kernel(f::F, op::G, A::SparseVectorOrView, init, inds::CartesianIndices{1}) where {F,G} =
+    Base.mapreduce_kernel(f, op, A, init, inds.indices[1])
+function Base.mapreduce_kernel(f::F, op::CommutativeOps, A::SparseVectorOrView{T}, init, inds::AbstractUnitRange) where {F,T}
+    z = nnz(A)
+    if z == 0
+        return _mapreducezeros(f, op, T, length(inds)-1, _mapreduce_start(f, op, A, init, zero(T)))
+    elseif inds == Base.axes1(A)
+        return _mapreducezeros(f, op, T, length(inds)-z, mapreduce(f, op, nzvalview(A); init))
+    end
+    nzind = getrowval(A)
+    nzval = getnzval(A)
+    m = length(inds)
+    r = _mapreduce_start(f, op, A, init, A[first(inds)])
+    j1 = searchsortedfirst(nzind, first(inds) + 1)
+    jN = searchsortedlast(view(nzind, j1:z), last(inds))
+    for j in j1:j1+jN-1
+        r = op(r, f(nzval[j]))
+    end
+    # Apart from the first element (used by `_mapreduce_start`) and the jN stored values,
+    # everything in `inds` is a zero
+    return _mapreducezeros(f, op, T, m-jN-1, r)
+end
+
+function Base.mapreduce_kernel(f::F, op, A::SparseVectorOrView{T}, init, inds::AbstractUnitRange) where {F,T}
+    z = nnz(A)
+    if z == 0
+        return _mapreducezeros(f, op, T, length(inds)-1, _mapreduce_start(f, op, A, init, zero(T)))
+    end
+    nzind = getrowval(A)
+    nzval = getnzval(A)
+    zeroval = _mappedzero(f, A)   # computed once, not for every run of zeros
+    r = _mapreduce_start(f, op, A, init, A[first(inds)])
+    j1 = searchsortedfirst(nzind, first(inds) + 1)
+    jN = searchsortedlast(view(nzind, j1:z), last(inds))
+    row = first(inds)
+    for j in j1:j1+jN-1
+        row, prev_stored_row = nzind[j], row
+        if row > prev_stored_row+1
+            # implicit zeros between consecutive stored values
+            r = _foldzeros(op, zeroval, row-prev_stored_row-1, r)
+        end
+        r = op(r, f(nzval[j]))
+    end
+    if last(inds) > row
+        # implicit zeros after the last stored value
+        r = _foldzeros(op, zeroval, last(inds)-row, r)
+    end
+    return r
+end
+
+function Base.mapreduce_kernel(f::F, op::Union{typeof(*),typeof(Base.mul_prod)}, A::SparseVectorOrView{T}, init,
+                               inds::AbstractUnitRange) where {F,T<:Union{Real,Complex}}
+    _scalarproduct(f, T) || return invoke(Base.mapreduce_kernel,
+                                          Tuple{Any,Any,SparseVectorOrView,Any,AbstractUnitRange}, f, op, A, init, inds)
+    z = nnz(A)
+    nzval = getnzval(A)
+    if z == 0
+        return _prodstored(f, op, init, view(nzval, 1:0), length(inds), T)
+    elseif inds == Base.axes1(A)
+        return _prodstored(f, op, init, nzvalview(A), length(inds) - z, T)
+    end
+    nzind = getrowval(A)
+    j1 = searchsortedfirst(nzind, first(inds))
+    jN = searchsortedlast(view(nzind, j1:z), last(inds))
+    return _prodstored(f, op, init, view(nzval, j1:j1+jN-1), length(inds) - jN, T)
+end
+
+Base.mapreduce_pairwise(f::F, op::G, A::SparseVectorOrView, init, inds::AbstractUnitRange) where {F,G} =
+    Base.mapreduce_kernel(f, op, A, init, inds)
+Base.mapreduce_pairwise(f::F, op::G, A::SparseVectorOrView, init, inds::CartesianIndices{1}) where {F,G} =
+    Base.mapreduce_kernel(f, op, A, init, inds.indices[1])
+
+Base._any(f, A::SparseVectorOrView, ::Colon) =
+    iszero(length(A)) ? false : mapreduce(_booleanpredicate(f), |, A)
+Base._all(f, A::SparseVectorOrView, ::Colon) =
+    iszero(length(A)) ? true : mapreduce(_booleanpredicate(f), &, A)
+
+### Reductions along a dimension
+
+# Can the row-wise pass fold each row's zeros in at the end, out of order?
+_rowwise_commutes(f::F, op, ::Type{T}) where {F,T} = op isa CommutativeOps ||
+    (op isa Union{typeof(*),typeof(Base.mul_prod)} && _scalarproduct(f, T))
+# Does `*` commute for the values `f` returns? It does for real and complex numbers. We ask
+# inference because `f` could return a string or a matrix.
+_scalarproduct(f::F, ::Type{T}) where {F,T} = Base.promote_op(f, T) <: Union{Real,Complex}
+
+# Reduce along `dims = 2` in one column-major pass with an accumulator per row, which is
+# O(nnz) instead of O(m·n·log(nnz)). If `_rowwise_commutes` allows it, each row's zeros are
+# folded in at the end. Otherwise they're folded in where they occur, so each row is still
+# reduced in order and any `op` works.
+function Base.mapreducedim_rowmajor(f::F, op::OP, A::SparseMatrixCSCOrColumnSubset{T}, init,
+                                    is_inner_dim, inner, outer, alloc,
+                                    enforce_pairwise::Bool=true) where {F,OP,T}
+    if is_inner_dim != (false, true)
+        return invoke(Base.mapreducedim_rowmajor,
+                      Tuple{Any,Any,Any,Any,Any,Any,Any,Any,Any},
+                      f, op, A, init, is_inner_dim, inner, outer, alloc, enforce_pairwise)
+    end
+    rowval = getrowval(A)
+    nzval = getnzval(A)
+    cols = inner.indices[2]
+    c1 = first(cols)
+    m, ncols = size(A, 1), length(cols)
+    o2 = only(outer.indices[2])  # the (possibly offset) singleton output column
+    # Seed each row from its entry in the first column. `outer` visits the rows in order, so
+    # one cursor can walk that column's stored values.
+    js1 = getnzrange(A, c1)
+    j = Ref(Int(first(js1)))
+    stop = Int(last(js1)) + 1
+    seeds = Base.Generator(outer) do o
+        i = o[1]
+        v = zero(T)
+        jj = j[]
+        if jj < stop && rowval[jj] == i
+            v = nzval[jj]
+            j[] = jj + 1
+        end
+        _mapreduce_start(f, op, A, init, v)
+    end
+    R = alloc(seeds)
+    if _rowwise_commutes(f, op, T)
+        # Fold in the stored values of the remaining columns and count how many zeros each
+        # row has. The zeros get folded in afterwards.
+        rownz = fill(ncols - 1, m)
+        for col in cols[begin+1:end]
+            for jj in getnzrange(A, col)
+                row = rowval[jj]
+                R[row, o2] = op(R[row, o2], f(nzval[jj]))
+                rownz[row] -= 1
+            end
+        end
+        if !all(iszero, rownz)
+            fz = f(zero(T))   # computed once for all rows
+            for row in axes(A, 1)
+                R[row, o2] = _mapreducezeros(f, op, T, rownz[row], R[row, o2], fz)
+            end
+        end
+    else
+        # Fold each row in order: before each stored value, fold in the zeros since that
+        # row's previous stored value
+        nstored = sum(col -> length(getnzrange(A, col)), cols; init=0)
+        zeroval = nstored == m * ncols ? nothing : f(zero(T))
+        lastk = fill(1, m)   # index in `cols` of the last entry folded into each row
+        for (k, col) in enumerate(cols)
+            k == 1 && continue
+            for jj in getnzrange(A, col)
+                row = rowval[jj]
+                R[row, o2] = _foldzeros(op, zeroval, k - lastk[row] - 1, R[row, o2])
+                R[row, o2] = op(R[row, o2], f(nzval[jj]))
+                lastk[row] = k
+            end
+        end
+        for row in axes(A, 1)
+            lastk[row] == ncols || (R[row, o2] = _foldzeros(op, zeroval, ncols - lastk[row], R[row, o2]))
+        end
+    end
+    return R
+end
+
+# Base picks this naive strategy when inference can't show that the accumulator type stays
+# fixed. It runs that check starting from an empty reduction, which infers as `Union{}` for
+# ops with no `reduce_empty` (`max`, `min`, `extrema`, ...), so all of those end up here.
+# For a row-wise reduction of a CSC matrix that's O(m·n·log(nnz)). Redo the check starting
+# from an actual element, which is how a nonempty reduction starts, and use the single-pass
+# row-major method if the type is concrete and stable.
+function Base.mapreducedim_naive(f::F, op::OP, A::SparseMatrixCSCOrColumnSubset{T}, init,
+                                 is_inner_dim, inner, outer, alloc) where {F,OP,T}
+    if is_inner_dim == (false, true)
+        S = Base.promote_op(a1 -> _mapreduce_start(f, op, A, init, a1), T)
+        R = Base.promote_op((s, a) -> op(s, f(a)), S, T)
+        if isconcretetype(S) && R <: S
+            return Base.mapreducedim_rowmajor(f, op, A, init, is_inner_dim, inner, outer, alloc)
+        end
+    end
+    return invoke(Base.mapreducedim_naive, Tuple{Any,Any,Any,Any,Any,Any,Any,Any},
+                  f, op, A, init, is_inner_dim, inner, outer, alloc)
+end
+
+# LinearAlgebra already sends commutative whole-array reductions of `A'` to `parent(A)`.
+# Do the same for reductions along a dimension (and in-place ones, where `dims` is
+# `nothing`) by reducing the parent along the other dimension. Reducing over both dimensions
+# has to visit the elements in the order of `A'`, so that case makes a copy.
+const _NotColon = Union{Integer, Tuple, AbstractVector, Nothing}
+function Base.mapreducedim(f, op, A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}, init, dims::_NotColon,
+                           alloc=Base._MapReduceAllocator(A))
+    g = wrapperop(A)
+    if alloc isa Base._MapReduceInPlace
+        R = alloc.A
+        length(R) == 1 && return Base.mapreducedim(f, op, copy(A), init, dims, alloc)
+        Base.mapreducedim(f ∘ g, op, parent(A), init, dims, Base._MapReduceInPlace(_switch_dim12(R), op, alloc.update))
+        return R
+    end
+    1 in dims && 2 in dims && return Base.mapreducedim(f, op, copy(A), init, dims, alloc)
+    return permutedims(Base.mapreducedim(f ∘ g, op, parent(A), init, map(_switch_dim12, dims)), (2, 1))
+end
+_switch_dim12(d) = d == 1 ? 2 : d == 2 ? 1 : d
+# `R` with its first two dimensions swapped, to receive the parent's reduction
+_switch_dim12(R::AbstractArray{<:Any,0}) = R
+_switch_dim12(R::AbstractVector) = reshape(R, 1, length(R))
+_switch_dim12(R::AbstractArray) = PermutedDimsArray(R, (2, 1, ntuple(Base.Fix1(+, 2), ndims(R) - 2)...))
+
+# The parent of a row vector is a sparse vector. Reducing along dim 2 reduces the parent;
+# reducing along dim 1 just maps each element.
+function Base.mapreducedim(f, op, A::AdjOrTransSparseVectorOrView, init, dims::_NotColon,
+                           alloc=Base._MapReduceAllocator(A))
+    g = wrapperop(A)
+    if alloc isa Base._MapReduceInPlace
+        R = alloc.A
+        Base.mapreducedim(f ∘ g, op, parent(A), init, dims, Base._MapReduceInPlace(_switch_dim12(R), op, alloc.update))
+        return R
+    end
+    2 in dims && return fill(Base.mapreducedim(f ∘ g, op, parent(A), init, :), 1, 1)
+    # Along dim 1 (or any dim > 2) each element is its own slice. An empty row has nothing
+    # to seed the result with, so this throws like the dense method does.
+    isempty(A) && _mapreduce_start(f, op, A, init)
+    r = map(x -> _mapreduce_start(f, op, A, init, g(x)), parent(A))
+    return reshape(Array(r), 1, length(r))
+end
+
+# With `sparse = true` (#43), `sum(A; dims = 2, sparse = true)` and the other reductions
+# along a dimension return a `SparseMatrixCSC` (a `SparseVector` for vector input). It
+# stores an entry for each slice of `A` that stores something, or for every slice if an
+# empty slice reduces to a nonzero (e.g. when `f(0) != 0`), and takes
+# O(nnz(A) + length(result)) time. Base's `sum`, `prod`, `maximum` and `minimum` pass
+# unknown keywords on to `mapreduce`, so the `mapreduce` method covers them. `any`, `all`
+# and `count` don't, so they get their own methods. Views without compressed storage are
+# copied first.
 for T in (:SparseMatrixCSCOrSubArray, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
           :AdjOrTransSparseVectorOrView)
     @eval Base.@constprop :aggressive function Base.mapreduce(f, op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false)
-        sparse || return Base._mapreduce_dim(f, op, init, _compressed(A), dims)
+        sparse || return Base.mapreducedim(f, op, _compressed(A), init, dims)
         dims === (:) && throw(ArgumentError("a sparse result needs a reduction along a dimension, pass `dims`"))
         return _mapreduce_dim_sparse(f, op, init, _compressed(A), dims)
     end
+    # Base's `sum` of a `Bool` array calls `reduce` with `add_sum`
+    @eval Base.@constprop :aggressive Base.reduce(op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false) =
+        mapreduce(identity, op, A; dims, init, sparse)
     for (fname, _fname, op) in ((:any, :_any, :(Base.or_any)), (:all, :_all, :(Base.and_all)))
         @eval begin
             Base.$fname(A::$T; dims=:, sparse::Bool=false) = Base.$fname(identity, A; dims, sparse)
@@ -284,21 +606,22 @@ Base.@propagate_inbounds function _merge_step(f::F, Ai, Av::AbstractVector{Ta}, 
     end
 end
 
+### The sparse result of a reduction along a dimension
+
 # The slices are reduced the way Base's dense result is: seeded with `init` when given and
 # otherwise with `mapreduce_first` of their first element, with the entries a slice does not
 # store folded in through `_mapreducezeros`.
 _seed(f, op, ::Base._InitialValue, x) = Base.mapreduce_first(f, op, x)
 _seed(f, op, init, x) = op(init, f(x))
-# element type of the dense result, taken from Base's initialization of a 1 x 1 stand-in with
-# `A`'s element type. Base may map the stand-in's entry, so it is a zero only if `A` has one.
-_reduced_eltype(f, op, ::Base._InitialValue, A::AbstractArray{T}) where T =
-    eltype(Base.reducedim_init(f, op, fill!(Matrix{T}(undef, 1, 1), nnz(A) == length(A) > 0 ? _firststored(A) : zero(T)), 1))
-_reduced_eltype(f, op, init, A) = typeof(init)
+# The element type of the dense result, which is the type of each slice's seed. We seed from
+# `zero(T)` unless `A` stores every entry, in which case `T` might not have a zero, so we
+# use a stored value instead.
+_reduced_eltype(f, op, init, A::AbstractArray{T}) where T =
+    typeof(_seed(f, op, init, nnz(A) == length(A) > 0 ? _firststored(A) : zero(T)))
 _firststored(A::AbstractVector) = first(nonzeros(A))
 _firststored(A::AbstractMatrix) = getnzval(A)[first(getnzrange(A, 1))]
 # the reduction of a slice with no entries at all, as Base initializes the dense result
-_reduced_empty(f, op, ::Base._InitialValue, ::Type{T}) where T =
-    Base.reducedim_init(f, op, Matrix{T}(undef, 0, 1), 1)[1]
+_reduced_empty(f, op, ::Base._InitialValue, ::Type{T}) where T = Base.mapreduce_empty(f, op, T)
 _reduced_empty(f, op, init, ::Type{T}) where T = init
 # the reduction of a slice of length `len` that stores nothing
 _reduce_unstored(f, op, init, ::Type{T}, len) where T =
@@ -318,7 +641,6 @@ function _mapreduce_dim_sparse(f, op, init, A::AdjOrTrans, dims)
     g = A isa Adjoint ? adjoint : transpose
     return permutedims(_mapreduce_dim_sparse(f ∘ g, op, init, parent(A), map(_switch_dim12, dims)), (2, 1))
 end
-_switch_dim12(d) = d == 1 ? 2 : d == 2 ? 1 : d
 # the single row is the parent: reduced along the columns it folds the parent, and reduced
 # along the row alone there is an entry per element
 function _mapreduce_dim_sparse(f, op, init, A::AdjOrTransSparseVectorOrView, dims)
@@ -328,6 +650,8 @@ end
 
 function _mapreduce_dim_sparse(f, op, init, A::SparseVectorOrView{T,Ti}, dims) where {T,Ti}
     Base.reduced_indices(A, dims)   # validates `dims`
+    # An empty array gives the empty value, or throws, like a dense array
+    isempty(A) && _reduced_empty(f, op, init, T)
     Tr = _sparse_reduced_eltype(f, op, init, A)
     # a dimension beyond 1: every entry is a slice of its own
     1 in dims || return convert(SparseVector{Tr,Ti}, map(x -> _seed(f, op, init, x), A isa SubArray ? copy(A) : A))
@@ -338,6 +662,8 @@ end
 function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,Ti}, dims) where {T,Ti}
     m, n = size(A)
     rm, rn = map(length, Base.reduced_indices(A, dims))   # also validates `dims`
+    # An empty array gives the empty value, or throws, like a dense array
+    isempty(A) && _reduced_empty(f, op, init, T)
     Tr = _sparse_reduced_eltype(f, op, init, A)
     if rm == rn == 1
         R = spzeros(Tr, Ti, 1, 1)
@@ -449,207 +775,30 @@ function _mapreducecols_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrix
     return R
 end
 
-# General mapreducedim
-function _mapreducerows!(f, op, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where T
-    require_one_based_indexing(A, R)
-    rowval = getrowval(A)
-    nzval = getnzval(A)
-    m, n = size(A)
-    @inbounds for col in axes(A,2)
-        r = R[1, col]
-        @simd for j in getnzrange(A, col)
-            r = op(r, f(nzval[j]))
-        end
-        R[1, col] = _mapreducezeros(f, op, T, m-length(getnzrange(A, col)), r)
-    end
-    R
-end
+### findmin/findmax and argmin/argmax
 
-function _mapreducecols!(f, op, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
-    require_one_based_indexing(A, R)
-    rowval = getrowval(A)
-    nzval = getnzval(A)
-    m, n = size(A)
-    rownz = fill(convert(Ti, n), m)
-    @inbounds for col in axes(A,2)
-        @simd for j in getnzrange(A, col)
-            row = rowval[j]
-            R[row, 1] = op(R[row, 1], f(nzval[j]))
-            rownz[row] -= 1
-        end
-    end
-    @inbounds for i = 1:m
-        R[i, 1] = _mapreducezeros(f, op, Tv, Int(rownz[i]), R[i, 1])
-    end
-    R
-end
+# Fold over the stored values in column-major order, then compare the result with the first
+# zero in each slice. Base only replaces the current best with a strictly better value, so
+# ties go to the earliest position, and the first zero is the only one that can win.
 
-function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
-    require_one_based_indexing(A, R)
-    lsiz = Base.check_reducedims(R,A)
-    isempty(A) && return R
-
-    if size(R, 1) == size(R, 2) == 1
-        # Reduction along both columns and rows
-        R[1, 1] = op(R[1, 1], mapreduce(f, op, A))
-    elseif size(R, 1) == 1
-        # Reduction along rows
-        _mapreducerows!(f, op, R, A)
-    elseif size(R, 2) == 1
-        # Reduction along columns
-        _mapreducecols!(f, op, R, A)
-    else
-        # Reduction along a dimension > 2
-        # Compute op(R, f(A))
-        m, n = size(A)
-        rowval = getrowval(A)
-        nzval = getnzval(A)
-        if nnz(A) == m*n
-            # No zeros, so don't compute f(0) since it might throw
-            @inbounds for col in axes(A,2)
-                @simd for j in getnzrange(A, col)
-                    R[rowval[j], col] = op(R[rowval[j], col], f(nzval[j]))
-                end
-            end
-        else
-            zeroval = f(zero(T))
-            @inbounds for col in axes(A,2)
-                lastrow = 0
-                for j in getnzrange(A, col)
-                    row = rowval[j]
-                    @simd for i = lastrow+1:row-1 # Zeros before this nonzero
-                        R[i, col] = op(R[i, col], zeroval)
-                    end
-                    R[row, col] = op(R[row, col], f(nzval[j]))
-                    lastrow = row
-                end
-                @simd for i = lastrow+1:m         # Zeros at end
-                    R[i, col] = op(R[i, col], zeroval)
-                end
-            end
-        end
-    end
-    R
-end
-
-# LinearAlgebra forwards the commutative reductions of an adjoint or transpose to its parent;
-# this covers the others. Reducing both dimensions folds the elements in their order, which
-# the parent does not share.
-function Base._mapreducedim!(f, op, R::AbstractMatrix, A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset})
-    if size(R, 1) == size(R, 2) == 1
-        Base._mapreducedim!(f, op, R, copy(A))
-    else
-        Base._mapreducedim!(f ∘ (A isa Adjoint ? adjoint : transpose), op, PermutedDimsArray(R, (2, 1)), parent(A))
-    end
-    return R
-end
-
-# The single row is the parent, folded in its own order when the reduction is along the
-# columns, and mapped entry by entry when it is along the row alone.
-function Base._mapreducedim!(f, op, R::AbstractMatrix, A::AdjOrTransSparseVectorOrView)
-    Base.check_reducedims(R, A)
-    g = f ∘ wrapperop(A)
-    if size(R, 2) == 1
-        isempty(A) || (R[1, 1] = op(R[1, 1], Base._mapreduce(g, op, IndexCartesian(), parent(A))))
-    else
-        Base.mapreducedim!(g, op, vec(R), parent(A))
-    end
-    return R
-end
-
-# Specialized mapreducedim for + cols to avoid allocating a
-# temporary array when f(0) == 0
-function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
-    require_one_based_indexing(A, R)
-    rowval = getrowval(A)
-    nzval = getnzval(A)
-    m, n = size(A)
-    if nnz(A) == m*n
-        # No zeros, so don't compute f(0) since it might throw
-        @inbounds for col in axes(A,2)
-            @simd for j in getnzrange(A, col)
-                R[rowval[j], 1] = op(R[rowval[j], 1], f(nzval[j]))
-            end
-        end
-    else
-        zeroval = _widen(f(zero(Tv)), eltype(R))
-        if isequal(zeroval, zero(Tv))
-            # Case where f(0) == 0
-            @inbounds for col in axes(A,2)
-                @simd for j in getnzrange(A, col)
-                    R[rowval[j], 1] += f(nzval[j])
-                end
-            end
-        else
-            # Case where f(0) != 0
-            rownz = fill(convert(Ti, n), m)
-            @inbounds for col in axes(A,2)
-                @simd for j in getnzrange(A, col)
-                    row = rowval[j]
-                    R[row, 1] += f(nzval[j])
-                    rownz[row] -= 1
-                end
-            end
-            for i = 1:m
-                # a row stored in full has no `f(0)` to add, which need not be finite
-                rownz[i] == 0 || (R[i, 1] += _addzeros(zeroval, rownz[i]))
-            end
-        end
-    end
-    R
-end
-
-# any(pred, A, dims = 1) => mapreduce(pred, |, A, dims = 1)
-# final argument `post` is to allow post-mapping each columnar mapreduce
-function _mapreducerows!(pred::P, ::typeof(|), R::AbstractMatrix{Bool}, A::SparseMatrixCSCOrColumnSubset{Tv},
-                         post::F = identity) where {P, F, Tv}
-    nzval = getnzval(A)
-    m, n = size(A)
-    @inbounds for ii in axes(A,2)
-        rng = getnzrange(A, ii)
-        len = length(rng)
-        # An empty column is trivial
-        if len == 0
-            R[1, ii] = post(pred(zero(Tv)))
-            continue
-        end
-        # If predicate on zero is true, then sparse column can be short-circuited
-        if pred(zero(Tv)) && len < m
-            R[1, ii] = post(true)
-            continue
-        end
-        # Otherwise reduce over the stored values
-        r = false
-        for jj in rng
-            r = pred(nzval[jj])
-            r && break
-        end
-        R[1, ii] = post(r)
-    end
-    return R
-end
-# all(pred, A, dims = 1) => mapreduce(pred, &, A, dims = 1) == .!mapreduce(!pred, |, A, dims = 1)
-_mapreducerows!(pred::P, ::typeof(&), R::AbstractMatrix{Bool},
-                A::SparseMatrixCSCOrColumnSubset) where {P} = _mapreducerows!(!pred, |, R, A, !)
-
-# findmax/min and argmax/min methods
-# find the first entry of the sparse matrix that is not stored - return its cartesian index
-# A stored zero is not one of them: it may be a `-0.0`, which `isless` tells from `zero(Tv)`,
-# so `_findr` compares it like any other stored value.
+# find the first zero value in a sparse matrix, returning its CartesianIndex;
+# both implicit zeros and stored (numerically) zero values are considered.
+# Returns CartesianIndex(0, 0) when there is none.
 function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=axes(A,1), cols=axes(A,2)) where {Tv,Ti}
-    rowval = getrowval(A)
+    rowval = getrowval(A); nzval = getnzval(A)
     row = 0
     rowmin = rows[1]; rowmax = rows[end]
     allrows = (rows == axes(A,1))
     @inbounds for col in cols
-        r1::Int = first(nzrange(A, col))
-        r2::Int = last(nzrange(A, col))
+        rng = getnzrange(A, col)
+        r1::Int = first(rng)
+        r2::Int = last(rng)
         if !allrows && (r1 <= r2)
             r1 += searchsortedfirst(view(rowval, r1:r2), rowmin) - 1
-            (r1 <= r2 ) && (r2 = searchsortedlast(view(rowval, r1:r2), rowmax) + r1 - 1)
+            (r1 <= r2) && (r2 = searchsortedlast(view(rowval, r1:r2), rowmax) + r1 - 1)
         end
         row = rowmin
-        while (r1 <= r2) && (row == rowval[r1])
+        while (r1 <= r2) && (row == rowval[r1]) && _isnotzero(nzval[r1])
             r1 += 1
             row += 1
         end
@@ -658,95 +807,120 @@ function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=axes(A,1), cols=axes(A,2
     return CartesianIndex(0, 0)
 end
 
-function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
-    require_one_based_indexing(A)
-    Ti = eltype(keys(A))
-    i1 = first(keys(A))
-    N = nnz(A)
-    L = widelength(A)
-    if L == 0
-        if prod(map(length, Base.reduced_indices(A, region))) != 0
-            throw(ArgumentError("array slices must be non-empty"))
-        else
-            ri = Base.reduced_indices0(A, region)
-            return (zeros(Tv, ri), zeros(Ti, ri))
-        end
-    end
-
-    colptr = getcolptr(A); rowval = getrowval(A); nzval = getnzval(A); m = size(A, 1); n = size(A, 2)
-    zval = zero(Tv)
-    szA = size(A)
-
-    # Dense finds the first of the entries that compare equal, so a stored value replaces the
-    # zero of an unstored entry it ties with when it comes before it.
-    if region == 1 || region == (1,)
-        (N == 0) && (return (fill(zval,1,n), collect(CartesianIndices((1, n)))))
-        S = Vector{Tv}(undef, n); I = Vector{Ti}(undef, n)
-        @inbounds for i = 1 : n
-            Sc = zval; Ic = _findz(A, 1:m, i:i)
-            if Ic == CartesianIndex(0, 0)
-                j = colptr[i]
-                Ic = CartesianIndex(rowval[j], i)
-                Sc = nzval[j]
-            end
-            for j = nzrange(A, i)
-                if op(nzval[j], Sc) || (rowval[j] < Ic[1] && !op(Sc, nzval[j]))
-                    Sc = nzval[j]
-                    Ic = CartesianIndex(rowval[j], i)
-                end
-            end
-            S[i] = Sc; I[i] = Ic
-        end
-        return(reshape(S,1,n), reshape(I,1,n))
-    elseif region == 2 || region == (2,)
-        (N == 0) && (return (fill(zval,m,1), collect(CartesianIndices((m, 1)))))
-        S = Vector{Tv}(undef, m)
-        I = Vector{Ti}(undef, m)
-        @inbounds for row in 1:m
-            S[row] = zval; I[row] = _findz(A, row:row, 1:n)
-            if I[row] == CartesianIndex(0, 0)
-                I[row] = CartesianIndex(row, 1)
-                S[row] = A[row,1]
-            end
-        end
-        @inbounds for i = 1 : n, j = nzrange(A, i)
-            row = rowval[j]
-            if op(nzval[j], S[row]) || (i < I[row][2] && !op(S[row], nzval[j]))
-                S[row] = nzval[j]
-                I[row] = CartesianIndex(row, i)
-            end
-        end
-        return (reshape(S,m,1), reshape(I,m,1))
-    elseif region == (1,2)
-        (N == 0) && (return (fill(zval,1,1), fill(i1,1,1)))
-        hasz = nnz(A) != widelength(A)
-        Sv = hasz ? zval : nzval[1]
-        Iv::(Ti) = hasz ? _findz(A) : i1
-        @inbounds for i = 1 : size(A, 2), j = nzrange(A, i)
-            if op(nzval[j], Sv) || (CartesianIndex(rowval[j], i) < Iv && !op(Sv, nzval[j]))
-                Sv = nzval[j]
-                Iv = CartesianIndex(rowval[j], i)
-            end
-        end
-        return (fill(Sv,1,1), fill(Iv,1,1))
+# Pick between the best stored value `(fm, im)` and the first zero `(fz, zi)`. On a tie,
+# whichever comes first in column-major order wins.
+function _fm_merge(cmp::C, fm, im, fz, zi) where {C}
+    if (zi[2], zi[1]) < (im[2], im[1])
+        return cmp(fz, fm) ? (fm, im) : (fz, zi)
     else
-        throw(ArgumentError("invalid value for region; must be 1, 2, or (1,2)"))
+        return cmp(fm, fz) ? (fz, zi) : (fm, im)
     end
 end
 
-# whether `a` replaces the best value so far `b`, by the test of Base's dense `findmin` and
-# `findmax`, so that the result agrees with dense on `NaN`, `missing` and signed zeros
-_isless_fm(a, b)    = Base.isgreater(b, a)
-_isgreater_fm(a, b) = isless(b, a)
+# Whole array: fold the stored values in column-major order
+function _findminmax(f::F, cmp::C, A::AbstractSparseMatrixCSC{T}) where {F,C,T}
+    rowval = getrowval(A); nzval = getnzval(A)
+    best = nothing
+    @inbounds for col in axes(A, 2), j in getnzrange(A, col)
+        fx = f(nzval[j])
+        if best === nothing || cmp(best[1], fx)
+            best = (fx, CartesianIndex(rowval[j], col))
+        end
+    end
+    nnz(A) == widelength(A) && return best::Tuple
+    zi = _findz(A)
+    fz = f(zero(T))
+    best === nothing && return (fz, zi)
+    return _fm_merge(cmp, best[1], best[2], fz, zi)
+end
 
-findmin(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTuple{2,Integer}}) where {Tv} =
-    _findr(_isless_fm, A, region)
-findmax(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTuple{2,Integer}}) where {Tv} =
-    _findr(_isgreater_fm, A, region)
-findmin(A::AbstractSparseMatrixCSC; dims::Union{Nothing,Integer,Tuple{Integer},NTuple{2,Integer}} = nothing) =
-    isnothing(dims) ? (r = findmin(A, (1,2)); (r[1][1], r[2][1])) : findmin(A, dims)
-findmax(A::AbstractSparseMatrixCSC; dims::Union{Nothing,Integer,Tuple{Integer},NTuple{2,Integer}} = nothing) =
-    isnothing(dims) ? (r = findmax(A, (1,2)); (r[1][1], r[2][1])) : findmax(A, dims)
+function _findminmax_dims(cmp::C, A::AbstractSparseMatrixCSC{T}, region) where {C,T}
+    m, n = size(A)
+    rowval = getrowval(A); nzval = getnzval(A)
+    axs = Base.reduced_indices(A, region)
+    rval = Base.mapreduce_similar(A, eltype(A), axs)
+    rind = Base.mapreduce_similar(A, keytype(A), axs)
+    if region == 1 || region == (1,)
+        @inbounds for col in axes(A, 2)
+            js = getnzrange(A, col)
+            best = nothing
+            for j in js
+                fx = nzval[j]
+                if best === nothing || cmp(best[1], fx)
+                    best = (fx, CartesianIndex(rowval[j], col))
+                end
+            end
+            if length(js) < m
+                zi = _findz(A, axes(A, 1), col:col)
+                best = best === nothing ? (zero(T), zi) :
+                       _fm_merge(cmp, best[1], best[2], zero(T), zi)
+            end
+            rval[1, col] = best[1]
+            rind[1, col] = best[2]
+        end
+    else # region == 2 || region == (2,)
+        has = fill(false, m)
+        rownnz = fill(0, m)
+        @inbounds for col in axes(A, 2), j in getnzrange(A, col)
+            row = rowval[j]
+            fx = nzval[j]
+            rownnz[row] += 1
+            if !has[row] || cmp(rval[row, 1], fx)
+                rval[row, 1] = fx
+                rind[row, 1] = CartesianIndex(row, col)
+                has[row] = true
+            end
+        end
+        @inbounds for row in axes(A, 1)
+            rownnz[row] == n && continue  # no zeros in this row
+            zi = _findz(A, row:row, axes(A, 2))
+            if !has[row]
+                rval[row, 1] = zero(T)
+                rind[row, 1] = zi
+            else
+                v, i = _fm_merge(cmp, rval[row, 1], rind[row, 1], zero(T), zi)
+                rval[row, 1] = v
+                rind[row, 1] = i
+            end
+        end
+    end
+    return (rval, rind)
+end
 
-argmin(A::AbstractSparseMatrixCSC) = findmin(A)[2]
-argmax(A::AbstractSparseMatrixCSC) = findmax(A)[2]
+# `_findmin`/`_findmax` implement `findmin`, `findmax`, `argmin` and `argmax`, with or
+# without `dims`. Empty arrays, `dims` with an `f` other than `identity`, and unusual `dims`
+# use Base's generic methods, which also throw the errors for empty input.
+_fm_supported_region(region) =
+    region == 1 || region == (1,) || region == 2 || region == (2,) || region == (1, 2)
+
+function _findminmax_region(cmp::C, f::F, A::AbstractSparseMatrixCSC, region) where {C,F}
+    if region == (1, 2)
+        v, i = _findminmax(f, cmp, A)
+        axs = Base.reduced_indices(A, region)
+        rval = Base.mapreduce_similar(A, eltype(A), axs)
+        rind = Base.mapreduce_similar(A, keytype(A), axs)
+        rval[1, 1] = v
+        rind[1, 1] = i
+        return (rval, rind)
+    end
+    return _findminmax_dims(cmp, A, region)
+end
+
+function Base._findmin(f, A::AbstractSparseMatrixCSC, region::Colon)
+    isempty(A) && return invoke(Base._findmin, Tuple{Any,Any,Colon}, f, A, region)
+    return _findminmax(f, Base.isgreater, A)
+end
+function Base._findmax(f, A::AbstractSparseMatrixCSC, region::Colon)
+    isempty(A) && return invoke(Base._findmax, Tuple{Any,Any,Colon}, f, A, region)
+    return _findminmax(f, Base.isless, A)
+end
+function Base._findmin(f, A::AbstractSparseMatrixCSC, region)
+    (isempty(A) || f !== identity || !_fm_supported_region(region)) &&
+        return invoke(Base._findmin, Tuple{Any,Any,Any}, f, A, region)
+    return _findminmax_region(Base.isgreater, f, A, region)
+end
+function Base._findmax(f, A::AbstractSparseMatrixCSC, region)
+    (isempty(A) || f !== identity || !_fm_supported_region(region)) &&
+        return invoke(Base._findmax, Tuple{Any,Any,Any}, f, A, region)
+    return _findminmax_region(Base.isless, f, A, region)
+end

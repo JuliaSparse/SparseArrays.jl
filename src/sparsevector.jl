@@ -1512,38 +1512,6 @@ function _sparsedensesum(f::F, x::SparseVectorOrView, y::AbstractVecOrMat) where
 end
 
 ### Reduction
-Base.reducedim_initarray(A::Union{SparseVectorOrView,SparseVectorPartialView}, region, v0, ::Type{R}) where {R} =
-    fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
-
-function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorOrView) where {F,G}
-    T = eltype(A)
-    isempty(A) && return Base.mapreduce_empty(f, op, T)
-    z = nnz(A)
-    rest, ini = if z == 0
-        length(A)-z-1, f(zero(T))
-    else
-        length(A)-z, Base.mapreduce_impl(f, op, nonzeros(A), 1, z)
-    end
-    _mapreducezeros(f, op, T, rest, ini)
-end
-
-Base._any(f, A::SparseVectorOrView, ::Colon) =
-    iszero(length(A)) ? false : Base._mapreduce(_booleanpredicate(f), |, IndexCartesian(), A)
-Base._all(f, A::SparseVectorOrView, ::Colon) =
-    iszero(length(A)) ? true  : Base._mapreduce(_booleanpredicate(f), &, IndexCartesian(), A)
-
-function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorOrView) where {F,G}
-    isempty(A) && return R
-    # dim1 reduction could be safely replaced with a mapreduce
-    if length(R) == 1
-        I = firstindex(R)
-        v = Base._mapreduce(f, op, IndexCartesian(), A)
-        R[I] = op(R[I], v)
-        return R
-    end
-    # otherwise there's no reduction
-    map!((x, y) -> op(x, f(y)), R, R, A)
-end
 
 # The first index of a sparse vector that is not stored; the caller guarantees one exists.
 function _firstimplicitzero(nzinds::AbstractVector)

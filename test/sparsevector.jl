@@ -1197,6 +1197,99 @@ end
 end
 end
 
+@testset "reduction kernels: chunked ranges and implicit zeros" begin
+    @testset "all-zero vectors with f(0) != 0, straddling pairwise blocksize" begin
+        # Kernels may be called with sub-ranges of eachindex; zero counts must be
+        # relative to the requested chunk
+        for n in (500, 1023, 1024, 1025, 3000, 5000)
+            @test sum(x->x+1, spzeros(n)) == n
+            @test mapreduce(x->x+1, +, spzeros(n)) == n
+            @test count(iszero, spzeros(n)) == n
+            @test mapreduce(x->x+1, (a,b)->a+b, spzeros(n)) == n
+        end
+    end
+    @testset "non-commutative kernels: interior and trailing implicit zeros" begin
+        # prod dispatches to the non-commutative kernel; f(0) = 2 makes any
+        # zero-count error observable
+        @test prod(x->x+2, SparseVector(4, [1], [1.0])) == 3*2^3
+        @test prod(x->x+2, SparseVector(4, [2], [1.0])) == 3*2^3
+        @test prod(x->x+2, SparseVector(4, [4], [1.0])) == 3*2^3
+        @test prod(x->x+2, SparseVector(5, [2,4], [1.0,2.0])) == 3*4*2^3
+        @test mapreduce(x->x+2, (a,b)->a+b, SparseVector(4, [1], [1.0])) == 3+3*2
+    end
+    @testset "SparseVectorOrView members: views and fixed vectors" begin
+        Random.seed!(5678)
+        M = sprand(10, 10, 0.5)
+        for j in (1, 4, 10)
+            cv = view(M, :, j)   # SparseColumnView
+            dv = Vector(M[:, j])
+            @test sum(cv) ≈ sum(dv)
+            @test maximum(abs2, cv) == maximum(abs2, dv)
+        end
+        for n in (100, 5000)
+            v = sprand(n, 10/n)
+            vv = view(v, :)      # SparseVectorView
+            fv = SparseArrays.FixedSparseVector(v)
+            dv = Vector(v)
+            for r in (sum, maximum, minimum, prod)
+                @test r(vv) ≈ r(dv)
+                @test r(fv) ≈ r(dv)
+            end
+            @test sum(x->x+1, vv) ≈ sum(x->x+1, dv)
+            @test sum(x->x+1, fv) ≈ sum(x->x+1, dv)
+            @test count(!iszero, vv) == count(!iszero, dv)
+        end
+    end
+    @testset "in-place reductions into vector outputs" begin
+        # In-place reductions of a vector come in two shapes: reduce everything
+        # into a one-element output, or reduce nothing into a same-length
+        # output. Both must match dense, for both `init` settings.
+        Random.seed!(3690)
+        for (n, d) in ((100, 0.1), (2000, 0.01))
+            v = sprand(n, d)
+            dv = Vector(v)
+            @test sum!(fill(1.0, 1), v) ≈ sum!(fill(1.0, 1), dv)
+            @test sum!(fill(1.0, 1), v; init=false) ≈ sum!(fill(1.0, 1), dv; init=false)
+            @test maximum!(fill(-Inf, 1), v) == maximum!(fill(-Inf, 1), dv)
+            @test sum!(zeros(n), v) == sum!(zeros(n), dv)
+        end
+    end
+    @testset "randomized parity with dense" begin
+        Random.seed!(4321)
+        for (n, d) in ((5000, 0.001), (5000, 0.2), (1025, 0.5), (100, 0.1))
+            v = sprand(n, d)
+            dv = Vector(v)
+            for f in (identity, abs2, x->x+1), op in (+, max, (a,b)->a+b)
+                @test mapreduce(f, op, v) ≈ mapreduce(f, op, dv)
+            end
+            @test extrema(v) == extrema(dv)
+        end
+    end
+    @testset "whole-array any/all parity with dense" begin
+        Random.seed!(1470)
+        for (n, d) in ((10, 0.5), (5000, 0.01), (100, 1.0))
+            v = sprand(Bool, n, d)
+            dv = Vector(v)
+            @test any(v) == any(dv)
+            @test all(v) == all(dv)
+            @test any(!, v) == any(!, dv)
+            @test all(!, v) == all(!, dv)
+        end
+        M = sprand(Bool, 10, 10, 0.3)
+        for j in (1, 10)
+            cv = view(M, :, j)   # SparseColumnView
+            dv = Vector(M[:, j])
+            @test any(cv) == any(dv)
+            @test all(cv) == all(dv)
+        end
+        @test any(spzeros(Bool, 0)) == false
+        @test all(spzeros(Bool, 0)) == true
+        vm = SparseVector(3, [1], Vector{Union{Missing,Bool}}([missing]))
+        @test isequal(any(vm), missing)
+        @test all(vm) == false
+    end
+end
+
 @testset "maximum, minimum, findmax, findmin" begin
     spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     f = t -> abs(t) + one(t)

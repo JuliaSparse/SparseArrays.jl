@@ -6,6 +6,7 @@ using Test
 using SparseArrays
 using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, fixed, _is_fixed
 using LinearAlgebra
+using Random
 include("testhelpers.jl")
 
 # `@inferred` on a call with keywords compiles a wrapper per signature, so those go through this
@@ -171,20 +172,58 @@ along(f::F, X, dims) where {F} = f(X; dims)
             @test isequal(f(spzeros(0, 1), dims=(1, 2)), f(Matrix{Int}(I, 0, 1), dims=(1, 2)))
             @test isequal(f(spzeros(0, 1), dims=3), f(Matrix{Int}(I, 0, 1), dims=3))
         end
+        # an empty array has no value to seed even an empty result with: these throw along
+        # every dimension, as for dense input
         for f in (maximum, findmax, (@static COMPREHENSIVE ? (minimum, findmin) : ())...)
-            @test_throws errchecker f(spzeros(0, 1), dims=1)
-            @test isequal(f(spzeros(0, 1), dims=2), f(Matrix{Int}(I, 0, 1), dims=2))
-            @test_throws errchecker f(spzeros(0, 1), dims=(1, 2))
-            @test isequal(f(spzeros(0, 1), dims=3), f(Matrix{Int}(I, 0, 1), dims=3))
+            for dims in (1, 2, (1, 2), 3)
+                @test_throws errchecker f(Matrix{Int}(I, 0, 1); dims)
+                @test_throws errchecker f(spzeros(0, 1); dims)
+            end
         end
-        # the result along a dimension of an empty array is dense, as for dense input, and is
-        # inferred as such: Base takes `map` of the empty first slice, which would be sparse
         E = spzeros(3, 0)
         for (X, dims, f) in (Any[E, 1, minimum], Any[E', 2, maximum], Any[spzeros(0), 2, extrema], Any[spzeros(0)', 1, minimum],
             (@static COMPREHENSIVE ? (Any[E, 3, maximum], Any[view(E, :, 1:0), 1, extrema], Any[transpose(spzeros(0)), 3, maximum]) : ())...)
-            r, rd = f(X; dims), f(Array(X); dims)
-            @test typeof(r) == typeof(rd) && size(r) == size(rd)
-            @test typeof(@inferred along(f, X, dims)) == typeof(rd)
+            @test_throws errchecker f(Array(X); dims)
+            @test_throws errchecker f(X; dims)
+        end
+
+        some_exception(op) = try return (Some(op()), nothing); catch ex; return (nothing, ex); end
+        reduced_shape(sz, dims) = ntuple(d -> d in dims ? 1 : sz[d], length(sz))
+        # every reduction of an empty array gives the value, or the error, of the dense one
+        @testset "$r(spzeros($T, $sz); dims=$dims)" for
+            r in (minimum, maximum, findmin, findmax, extrema, sum, prod, mapreduce, all, any, count),
+            T in (Int, Union{Missing, Int}, Number, Union{Missing, Number}, Bool, Union{Missing, Bool}),
+            sz in ((0,), (0,1), (1,0), (0,0),),
+            dims in (1, 2, (1,2))
+
+            A = spzeros(T, sz...)
+            rsz = reduced_shape(sz, dims)
+
+            v, ex = some_exception() do; r(A); end
+            if isnothing(v)
+                @test_throws typeof(ex) r(A; dims)
+                @test_throws typeof(ex) r(zeros(T, sz...))
+                @test_throws typeof(ex) r(zeros(T, sz...); dims)
+            else
+                actual = fill(something(v), rsz)
+                @test something(v) === r(zeros(T, sz...))
+                @test isequal(r(A; dims), actual)
+                @test eltype(r(A; dims)) === eltype(actual)
+            end
+
+            for f in (identity, abs, abs2)
+                v, ex = some_exception() do; r(f, A); end
+                if isnothing(v)
+                    @test_throws typeof(ex) r(f, A; dims)
+                    @test_throws typeof(ex) r(f, zeros(T, sz...))
+                    @test_throws typeof(ex) r(f, zeros(T, sz...); dims)
+                else
+                    actual = fill(something(v), rsz)
+                    @test something(v) === r(f, zeros(T, sz...))
+                    @test isequal(r(f, A; dims), actual)
+                    @test eltype(r(f, A; dims)) === eltype(actual)
+                end
+            end
         end
     end
     @testset "seeds of minimum, maximum and extrema along a dimension" begin
@@ -206,6 +245,160 @@ along(f::F, X, dims) where {F} = f(X; dims)
             @test typeof(r) == typeof(rd) && isequal(r, rd)
         end
         @test maximum(N; dims = 1, sparse = true) isa SparseMatrixCSC && mismatch(maximum(N; dims = 1, sparse = true), maximum(Array(N); dims = 1)) === nothing
+    end
+end
+
+@testset "reduction kernels: chunked ranges and implicit zeros" begin
+    @testset "all-zero arrays with f(0) != 0, straddling pairwise blocksize" begin
+        # The mapreduce kernels may be called with sub-ranges of the full index
+        # space; zero counts must be relative to the requested chunk (sizes
+        # straddle Base's pairwise blocksizes of 1024/4096)
+        for (m, n) in ((60, 60), (1, 5000), (5000, 1), (33, 129), (3, 3))
+            @test sum(x->x+1, spzeros(m, n)) == m*n
+            @test mapreduce(x->x+1, +, spzeros(m, n)) == m*n
+            @test count(iszero, spzeros(m, n)) == m*n
+            @test mapreduce(x->x+1, (a,b)->a+b, spzeros(m, n)) == m*n
+        end
+    end
+    @testset "non-commutative kernels: interior and trailing implicit zeros" begin
+        # prod is dispatched as a non-commutative op; its kernel must not
+        # overcount trailing zeros (these all have f(0) = 2, so any zero
+        # miscounting changes the result)
+        @test prod(x->x+2, sparse([2],[1],[1.0],4,1)) == 3*2^3
+        @test prod(x->x+2, sparse([1,3],[1,1],[1.0,1.0],4,2)) == 3*3*2^6
+        @test prod(x->x+2, sparse([4],[2],[1.0],4,3)) == 3*2^11
+        @test mapreduce(x->x+2, (a,b)->a+b, sparse([2],[1],[1.0],2,2)) == 3+3*2
+    end
+    @testset "randomized parity with dense" begin
+        Random.seed!(1234)
+        f0 = x -> 1 + x/100
+        for (m, n, d) in ((5000, 1, 0.001), (5000, 1, 0.2), (3000, 3, 0.01),
+                          (50, 200, 0.05), (2049, 5, 0.3), (1024, 1024, 0.001))
+            A = sprand(m, n, d)
+            D = Array(A)
+            for f in (identity, abs2, x->x+1), op in (+, max, (a,b)->a+b)
+                @test mapreduce(f, op, A) ≈ mapreduce(f, op, D)
+            end
+            @test prod(f0, A) ≈ prod(f0, D)
+            @test extrema(A) == extrema(D)
+        end
+    end
+    @testset "row-wise (dims=2) reductions: single-pass rowmajor" begin
+        Random.seed!(2468)
+        for (m, n, d) in ((30, 40, 0.1), (2000, 100, 0.01), (7, 7, 0.9), (5, 1, 0.5),
+                          (3, 2000, 0.001), (1500, 1500, 0.002))
+            A = sprand(m, n, d)
+            D = Array(A)
+            @test sum(A; dims=2) ≈ sum(D; dims=2)
+            @test isequal(maximum(A; dims=2), maximum(D; dims=2))
+            @test sum(x->x+1, A; dims=2) ≈ sum(x->x+1, D; dims=2)
+            @test prod(x->1+x/10, A; dims=2) ≈ prod(x->1+x/10, D; dims=2)
+            @test count(!iszero, A; dims=2) == count(!iszero, D; dims=2)
+            # in-place, both update semantics
+            R = fill(1.0, m, 1)
+            @test sum!(R, A) ≈ sum(D; dims=2)
+            R = fill(1.0, m, 1)
+            @test sum!(R, A; init=false) ≈ sum(D; dims=2) .+ 1
+            R = fill(-Inf, m, 1)
+            @test isequal(maximum!(R, A), maximum(D; dims=2))
+            Rv = zeros(m)
+            @test sum!(Rv, A) ≈ vec(sum(D; dims=2))
+            S = A .> 0.5
+            Rb = fill(false, m, 1)
+            @test Base.mapreduce!(identity, |, Rb, S) == any(Array(S); dims=2)
+            # an op not known to commute folds each row's chain in order, in the same pass
+            @test mapreduce(x->2x, (a,b)->a+b, A; dims=2) ≈ mapreduce(x->2x, (a,b)->a+b, D; dims=2)
+            @test mapreduce(string, *, A; dims=2) == mapreduce(string, *, D; dims=2)
+        end
+        @test sum(x->x+1, spzeros(3, 500); dims=2) == fill(500.0, 3, 1)
+    end
+    @testset "prod kernels: zero powers must not mask NaN/Inf" begin
+        @test isequal(prod(SparseVector(3, [1], [NaN])), NaN)
+        @test isequal(prod(SparseVector(3, [1], [Inf])), NaN)
+        @test isequal(prod(sparse([1],[2],[NaN],2,2)), NaN)
+        @test prod(SparseVector(2, [1], [-1.0])) === -0.0
+        @test prod(spzeros(3, 3)) === 0.0
+        @test prod(sparse([1],[1],[3],2,2)) === 0
+        Random.seed!(8642)
+        f0 = x -> 1 + x/100
+        for (m, n, d) in ((4, 1, 0.5), (30, 40, 0.1), (2000, 10, 0.01), (100, 100, 0.9), (5000, 1, 0.001))
+            A = sprand(m, n, d)
+            D = Array(A)
+            @test prod(A) == prod(D)
+            @test prod(f0, A) ≈ prod(f0, D)
+            @test prod(f0, A; dims=1) ≈ prod(f0, D; dims=1)
+            v = sprand(m, d)
+            dv = Vector(v)
+            @test prod(v) == prod(dv)
+            @test prod(f0, v) ≈ prod(f0, dv)
+            @test prod(v; init=2.0) == prod(dv; init=2.0)
+        end
+    end
+    @testset "init is honored on every reduction path" begin
+        # Note: `init` must be a neutral element and may be used any number of
+        # times, so only neutral inits can be compared against dense exactly
+        Random.seed!(97531)
+        for (m, n, d) in ((40, 40, 0.2), (2049, 3, 0.1))
+            A = sprand(m, n, d)
+            D = Array(A)
+            @test mapreduce(x->x+1, +, A; init=0.0) ≈ mapreduce(x->x+1, +, D; init=0.0)
+            @test mapreduce(abs2, max, A; init=-Inf) == mapreduce(abs2, max, D; init=-Inf)
+            @test mapreduce(x->1+x/100, *, A; init=1.0) ≈ mapreduce(x->1+x/100, *, D; init=1.0)
+            for dims in (1, 2, (1,2))
+                @test mapreduce(abs2, +, A; dims, init=0.0) ≈ mapreduce(abs2, +, D; dims, init=0.0)
+                @test mapreduce(identity, max, A; dims, init=-Inf) == mapreduce(identity, max, D; dims, init=-Inf)
+            end
+            v = sprand(m, d)
+            dv = Vector(v)
+            @test mapreduce(x->x+1, +, v; init=0.0) ≈ mapreduce(x->x+1, +, dv; init=0.0)
+            @test sum(v; init=0.0) ≈ sum(dv; init=0.0)
+            @test maximum(v; init=-Inf) == maximum(dv; init=-Inf)
+        end
+    end
+    @testset "reduction cost scales with nnz, not logical length" begin
+        # hypersparse: 10^10 logical elements, ~100 stored values. Any strategy
+        # that walks — or even chunks over — the logical index space takes
+        # seconds to minutes here, while the nnz-aware kernels take microseconds.
+        # The generous bound keeps CI stable on slow machines.
+        H = sprand(100_000, 100_000, 100/1e10)
+        for r in (sum, maximum, minimum, prod, A->count(!iszero, A), extrema, findmin, findmax,
+                  A->any(!iszero, A), A->all(iszero, A))
+            r(H)  # compile & warm up
+            t = @elapsed r(H)
+            @test t < 0.5
+        end
+        @test sum(H) == sum(nonzeros(H))
+        @test count(!iszero, H) == count(!iszero, nonzeros(H))
+        # with f(0) != 0 the zero count shows up in the value, so this would
+        # catch a zero count that overflowed a 32-bit Int
+        @test sum(x->x+1, H) ≈ 1.0e10 + sum(nonzeros(H))
+    end
+    @testset "whole-array any/all parity with dense" begin
+        Random.seed!(24680)
+        for (m, n, d) in ((10, 10, 0.3), (100, 100, 0.01), (5, 1, 0.5), (3, 3, 1.0))
+            A = sprand(Bool, m, n, d)
+            D = Array(A)
+            @test any(A) == any(D)
+            @test all(A) == all(D)
+            @test any(!, A) == any(!, D)
+            @test all(!, A) == all(!, D)
+            F = sprand(m, n, d)
+            DF = Array(F)
+            @test any(x -> x > 0.5, F) == any(x -> x > 0.5, DF)
+            @test all(x -> x < 0.5, F) == all(x -> x < 0.5, DF)
+        end
+        # documented empty results, which mapreduce alone would error on
+        @test any(spzeros(Bool, 0, 0)) == false
+        @test all(spzeros(Bool, 0, 0)) == true
+        @test any(spzeros(Bool, 0, 3)) == false
+        @test all(spzeros(Bool, 3, 0)) == true
+        # missing keeps its documented three-valued behavior
+        for vals in ([missing, true], [missing, false])
+            M = sparse([1,2], [1,2], Vector{Union{Missing,Bool}}(vals), 3, 3)
+            DM = Array(M)
+            @test isequal(any(M), any(DM))
+            @test isequal(all(M), all(DM))
+        end
     end
 end
 
@@ -242,7 +435,7 @@ end
     @test isequal(findmax(sparse(D), dims=1), findmax(D, dims=1))
     end
     for m in [findmax, findmin]
-        @test_throws ArgumentError m(S, (4, 3))
+        @test_throws MethodError m(S, (4, 3))   # no positional `dims`, as for dense input
     end
     S = spzeros(10,8)
     A = Array(S)
@@ -261,6 +454,50 @@ end
     iA = try argmin(A); catch; end
     iS = try argmin(S); catch; end
     @test iA === iS === nothing
+
+    @testset "findmin/findmax parity with dense" begin
+        Random.seed!(1357)
+        cases = Any[
+            sparse([1.0 2; 3 4]),                       # fully stored
+            spzeros(3, 4),                              # all implicit zeros
+            sparse([2],[2],[5.0],3,3),                  # single stored value
+            sparse([2],[2],[-5.0],3,3),
+            sparse([1,2],[1,2],[0.0, -0.0],2,2),        # stored (explicit) zeros
+            sparse([1.0 NaN 6.0; NaN 2.0 4.0]),         # NaN, fully stored
+            sparse([2,1],[1,2],[NaN, NaN],2,3),         # NaN among implicit zeros
+            sparse([1],[3],[NaN],2,3),
+            sparse([1,2],[1,1],[missing, 1.0],2,2),     # missing
+            sparse([1],[1],[missing],2,2),
+        ]
+        for (m, n, d) in ((10, 10, 0.3), (50, 20, 0.1), (7, 3, 0.9),
+                          (100, 100, 0.01), (1, 5, 0.5), (5, 1, 0.5))
+            push!(cases, sprand(m, n, d))
+            push!(cases, -sprand(m, n, d))
+        end
+        for A in cases
+            D = Array(A)
+            for r in (findmin, findmax)
+                @test isequal(r(A), r(D))
+                for dims in (1, 2, (1,2), (2,), 3, (1,3))
+                    @test isequal(r(A; dims), r(D; dims))
+                end
+                if !(eltype(A) >: Missing)
+                    for f in (abs2, x->-x)
+                        @test isequal(r(f, A), r(f, D))
+                        @test isequal(r(f, A; dims=1), r(f, D; dims=1))
+                    end
+                end
+            end
+            @test isequal(argmin(A), argmin(D))
+            @test isequal(argmax(A), argmax(D))
+            @test isequal(argmin(A; dims=2), argmin(D; dims=2))
+        end
+        # eltype must be preserved exactly like dense
+        B = sparse([1],[1],Union{Missing,Float64}[2.0],3,3)
+        DB = Array(B)
+        @test typeof(findmin(B; dims=1)) == typeof(findmin(DB; dims=1))
+        @test typeof(findmin(B)) == typeof(findmin(DB))
+    end
 end
 
 @testset "findmin/findmax/minimum/maximum" begin
@@ -269,13 +506,13 @@ end
     for (tup, rval, rind) in [((1,), [1.0 2.0 4.0], [CartesianIndex(1,1) CartesianIndex(2,2) CartesianIndex(2,3)]),
                               ((2,), reshape([1.0,2.0], 2, 1), reshape([CartesianIndex(1,1),CartesianIndex(2,2)], 2, 1)),
                               ((1,2), fill(1.0,1,1),fill(CartesianIndex(1,1),1,1))]
-        @test findmin(A, tup) == (rval, rind)
+        @test findmin(A, dims=tup) == (rval, rind)
     end
 
     for (tup, rval, rind) in [((1,), [5.0 5.0 6.0], [CartesianIndex(2,1) CartesianIndex(1,2) CartesianIndex(1,3)]),
                               ((2,), reshape([6.0,5.0], 2, 1), reshape([CartesianIndex(1,3),CartesianIndex(2,1)], 2, 1)),
                               ((1,2), fill(6.0,1,1),fill(CartesianIndex(1,3),1,1))]
-        @test findmax(A, tup) == (rval, rind)
+        @test findmax(A, dims=tup) == (rval, rind)
     end
 
     #issue 23209
@@ -285,13 +522,13 @@ end
     for (tup, rval, rind) in [((1,), [NaN 2.0 4.0], [CartesianIndex(2,1) CartesianIndex(2,2) CartesianIndex(2,3)]),
                               ((2,), reshape([1.0, NaN], 2, 1), reshape([CartesianIndex(1,1),CartesianIndex(2,1)], 2, 1)),
                               ((1,2), fill(NaN,1,1),fill(CartesianIndex(2,1),1,1))]
-        @test isequal(findmin(A, tup), (rval, rind))
+        @test isequal(findmin(A, dims=tup), (rval, rind))
     end
 
     for (tup, rval, rind) in [((1,), [NaN 5.0 6.0], [CartesianIndex(2,1) CartesianIndex(1,2) CartesianIndex(1,3)]),
                               ((2,), reshape([6.0, NaN], 2, 1), reshape([CartesianIndex(1,3),CartesianIndex(2,1)], 2, 1)),
                               ((1,2), fill(NaN,1,1),fill(CartesianIndex(2,1),1,1))]
-        @test isequal(findmax(A, tup), (rval, rind))
+        @test isequal(findmax(A, dims=tup), (rval, rind))
     end
 
     A = sparse([1.0 NaN 6.0;
@@ -299,13 +536,13 @@ end
     for (tup, rval, rind) in [((1,), [NaN NaN 4.0], [CartesianIndex(2,1) CartesianIndex(1,2) CartesianIndex(2,3)]),
                               ((2,), reshape([NaN, NaN], 2, 1), reshape([CartesianIndex(1,2),CartesianIndex(2,1)], 2, 1)),
                               ((1,2), fill(NaN,1,1),fill(CartesianIndex(2,1),1,1))]
-        @test isequal(findmin(A, tup), (rval, rind))
+        @test isequal(findmin(A, dims=tup), (rval, rind))
     end
 
     for (tup, rval, rind) in [((1,), [NaN NaN 6.0], [CartesianIndex(2,1) CartesianIndex(1,2) CartesianIndex(1,3)]),
                               ((2,), reshape([NaN, NaN], 2, 1), reshape([CartesianIndex(1,2),CartesianIndex(2,1)], 2, 1)),
                               ((1,2), fill(NaN,1,1),fill(CartesianIndex(2,1),1,1))]
-        @test isequal(findmax(A, tup), (rval, rind))
+        @test isequal(findmax(A, dims=tup), (rval, rind))
     end
 
     A = sparse([Inf -Inf Inf  -Inf;
@@ -313,13 +550,13 @@ end
     for (tup, rval, rind) in [((1,), [Inf -Inf -Inf -Inf], [CartesianIndex(1,1) CartesianIndex(1,2) CartesianIndex(2,3) CartesianIndex(1,4)]),
                               ((2,), reshape([-Inf -Inf], 2, 1), reshape([CartesianIndex(1,2),CartesianIndex(2,3)], 2, 1)),
                               ((1,2), fill(-Inf,1,1),fill(CartesianIndex(1,2),1,1))]
-        @test isequal(findmin(A, tup), (rval, rind))
+        @test isequal(findmin(A, dims=tup), (rval, rind))
     end
 
     for (tup, rval, rind) in [((1,), [Inf Inf Inf -Inf], [CartesianIndex(1,1) CartesianIndex(2,2) CartesianIndex(1,3) CartesianIndex(1,4)]),
                               ((2,), reshape([Inf Inf], 2, 1), reshape([CartesianIndex(1,1),CartesianIndex(2,1)], 2, 1)),
                               ((1,2), fill(Inf,1,1),fill(CartesianIndex(1,1),1,1))]
-        @test isequal(findmax(A, tup), (rval, rind))
+        @test isequal(findmax(A, dims=tup), (rval, rind))
     end
 
     @static if COMPREHENSIVE
@@ -615,15 +852,17 @@ end
     for (m, n) in ((0, 4), (4, 0), (@static COMPREHENSIVE ? ((0, 0),) : ())...), dims in (1, 2, (1, 2))
         A = spzeros(m, n)
         @test sum(A; dims) == sum(Matrix(A); dims)
-        @test mismatch(sum(A; dims, sparse = true), sum(Matrix(A); dims)) === nothing
-        @test mismatch(prod(A; dims, sparse = true), prod(Matrix(A); dims)) === nothing
-        @test mismatch(sum(x -> x + 1, A; dims, sparse = true), sum(x -> x + 1, Matrix(A); dims)) === nothing
-        @test mismatch(all(A .> 0; dims, sparse = true), all(Matrix(A) .> 0; dims)) === nothing
-        md = try maximum(Matrix(A); dims) catch err; err end   # throws over an empty axis
-        if md isa ArgumentError
-            @test_throws ArgumentError maximum(A; dims, sparse = true)
-        else
-            @test mismatch(maximum(A; dims, sparse = true), md) === nothing
+        for (g, gs) in ((X -> sum(X; dims), X -> sum(X; dims, sparse = true)),
+                        (X -> prod(X; dims), X -> prod(X; dims, sparse = true)),
+                        (X -> sum(x -> x + 1, X; dims), X -> sum(x -> x + 1, X; dims, sparse = true)),
+                        (X -> all(X .> 0; dims), X -> all(X .> 0; dims, sparse = true)),
+                        (X -> maximum(X; dims), X -> maximum(X; dims, sparse = true)))
+            md = try g(Matrix(A)) catch err; err end   # may throw over an empty axis
+            if md isa ArgumentError
+                @test_throws ArgumentError gs(A)
+            else
+                @test mismatch(gs(A), md) === nothing
+            end
         end
     end
     @test_throws ArgumentError sum(spzeros(3, 3); dims = 0, sparse = true)
@@ -673,13 +912,13 @@ end
     @test (@allocated sum(A; dims = 2, sparse = true)) < 2^12
     # a column-range view goes through the sparse kernels, not the element-wise fallback (#377)
     V = view(A, :, 2:3)
-    @test which(Base._mapreducedim!, Base.typesof(identity, +, zeros(1, 1), V)).module == SparseArrays
-    @test which(Base._mapreduce, Base.typesof(identity, +, IndexCartesian(), V)).module == SparseArrays
+    @test which(Base.mapreduce_kernel, Base.typesof(identity, +, V, Base._InitialValue(), CartesianIndices(V))).module == SparseArrays
+    @test which(Base.mapreduce_pairwise, Base.typesof(identity, +, V, Base._InitialValue(), CartesianIndices(V))).module == SparseArrays
     @test nnz(sum(V; dims = 2, sparse = true)) == 2
     # the adjoint of a sparse vector is a row that reduces through its parent
     w = sparsevec([2, 4], [1.5, -2.0], 6)
-    @test which(Base._mapreducedim!, Base.typesof(identity, +, zeros(1, 1), w')).module == SparseArrays
-    @test which(Base._mapreducedim!, Base.typesof(identity, +, zeros(1, 6), transpose(w))).module == SparseArrays
+    @test which(Base.mapreducedim, Base.typesof(identity, +, w', Base._InitialValue(), 2)).module == SparseArrays
+    @test which(Base.mapreducedim, Base.typesof(identity, +, transpose(w), Base._InitialValue(), 1)).module == SparseArrays
     @test nnz(sum(w'; dims = 1, sparse = true)) == 2 && nnz(sum(w'; dims = 2, sparse = true)) == 1
     @test nnz(sum(x -> x + 1, w'; dims = 1, sparse = true)) == 6 && nnz(sum(spzeros(5)'; dims = 2, sparse = true)) == 0
     # adjoints, views of a column subset and sparse vectors reduce like their copy, calling `f`
