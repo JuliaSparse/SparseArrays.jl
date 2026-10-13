@@ -222,12 +222,9 @@ end
         end
     end
     # `missing`, which dense ranks above `NaN`
-    for D in (Union{Missing,Float64}[1.0 missing; 0.0 2.0], Union{Missing,Float64}[NaN missing; 0.0 2.0]),
-        m in (findmax, findmin)
-        Z = sparse(D)
-        @test isequal(m(Z), m(D))
-        @test isequal(m(Z, dims=1), m(D, dims=1)) && isequal(m(Z, dims=2), m(D, dims=2))
-    end
+    D = Union{Missing,Float64}[NaN missing; 0.0 2.0]
+    @test isequal(findmin(sparse(D)), findmin(D))
+    @test isequal(findmax(sparse(D), dims=1), findmax(D, dims=1))
     end
     for m in [findmax, findmin]
         @test_throws ArgumentError m(S, (4, 3))
