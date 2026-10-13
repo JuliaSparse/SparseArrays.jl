@@ -582,7 +582,8 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::SparseMatrixCSCO
                 end
             end
             for i = 1:m
-                R[i, 1] += _addzeros(zeroval, rownz[i])
+                # a row stored in full has no `f(0)` to add, which need not be finite
+                rownz[i] == 0 || (R[i, 1] += _addzeros(zeroval, rownz[i]))
             end
         end
     end
