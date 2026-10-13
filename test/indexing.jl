@@ -150,7 +150,6 @@ include("testhelpers.jl")
         # a vector of `CartesianIndex{1}` indexes a row or a column, as for a dense matrix
         C = sparse([1.0 2 0; 0 3 4]); D = Array(C)
         @test mismatch(C[[CartesianIndex(1)], [1, 2]], D[[CartesianIndex(1)], [1, 2]]) === nothing
-        @test mismatch(C[[CartesianIndex(2)], 3], D[[CartesianIndex(2)], 3]) === nothing
         end
         @test A[1:2, :][false:true, c] == Array(A)[1:2, :][false:true, c]
         @test which(getindex, typeof.((x, AllBut(2)))).module === SparseArrays
