@@ -776,8 +776,10 @@ function _checkconvertible(::Type{T}, vals::AbstractArray) where {T}
     end
     return nothing
 end
+# Whether an index type counts `nz` stored entries, whose count plus one is the last column pointer.
+_nnzfits(::Type{Ti}, nz::Integer) where {Ti} = !(Base.hastypemax(Ti) && nz >= typemax(Ti))
 _checknnzfits(::Type{Ti}, nz::Integer) where {Ti} =
-    Base.hastypemax(Ti) && nz >= typemax(Ti) &&
+    _nnzfits(Ti, nz) ||
         throw(ArgumentError(lazy"the index type $Ti cannot hold $nz stored entries; use a larger index type"))
 
 function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
