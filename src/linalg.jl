@@ -841,17 +841,12 @@ size; use `opnorm(Array(A))` when such a matrix is small enough.
 """
 function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
     m, n = size(A)
+    p in (1, 2, Inf) || throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, 2, Inf"))
     if m == 0 || n == 0 || isempty(A)
         return float(real(zero(eltype(A))))
     elseif m == 1
-        if p == 1
-            return norm(nzvalview(A), Inf)
-        elseif p == 2
-            return norm(nzvalview(A), 2)
-        elseif p == Inf
-            return norm(nzvalview(A), 1)
-        end
-    elseif n == 1 && p in (1, 2, Inf)
+        return norm(nzvalview(A), p == 1 ? Inf : p == 2 ? 2 : 1)
+    elseif n == 1
         return norm(nzvalview(A), p)
     else
         Tnorm = typeof(float(real(zero(eltype(A)))))
@@ -868,7 +863,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             return convert(Tnorm, nA)
         elseif p==2
             return convert(Tnorm, opnorm2est(A))
-        elseif p==Inf
+        else
             rowSum = zeros(Tsum,m)
             @inbounds for i in axes(getnzval(A),1)
                 rowSum[getrowval(A)[i]] += abs(getnzval(A)[i])
@@ -876,7 +871,6 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             return convert(Tnorm, maximum(rowSum))
         end
     end
-    throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, 2, Inf"))
 end
 
 # Largest singular value by Golub-Kahan-Lanczos bidiagonalization, stopped once the residual
