@@ -754,23 +754,33 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
     end
 end
 
-# Whether storing a value of type `T` in an array of eltype `TC` cannot throw: `TC` holds
-# every `T`, or both are machine numbers and `TC` is floating point, where a conversion
-# rounds or overflows to `Inf`.
+# Whether storing a value of type `T` in an array of eltype `TC` cannot throw: a `T` is a
+# `TC`, the range of an integer `TC` covers that of `T`, or both are machine numbers and
+# `TC` is floating point, where a conversion rounds or overflows to `Inf`. That `T`
+# promotes to `TC` does not show it: an `Int` promotes to `UInt`.
 const _MachineReal = Union{Base.IEEEFloat,Base.BitInteger,Bool}
-_storesafely(::Type{TC}, ::Type{T}) where {TC,T} = promote_type(T, TC) === TC
+_storesafely(::Type{TC}, ::Type{T}) where {TC,T} = T <: TC
+_storesafely(::Type{TC}, ::Type{T}) where {TC<:Union{Base.BitInteger,Bool},T<:Union{Base.BitInteger,Bool}} =
+    typemin(TC) <= typemin(T) && typemax(T) <= typemax(TC)
 _storesafely(::Type{<:Base.IEEEFloat}, ::Type{<:_MachineReal}) = true
 _storesafely(::Type{<:Complex{<:Base.IEEEFloat}}, ::Type{<:Union{_MachineReal,Complex{<:_MachineReal}}}) = true
 # The type of `P*alpha + C*beta` for a product `P` of eltype `TP`. The kernels below write
 # the pattern of `C` before the values; a result that may not convert is formed in a copy
-# of `C` with this eltype and converted before `C` changes, so that a throw leaves it as
-# it was.
+# of `C` that holds this type and converted before `C` changes, so that a throw leaves it
+# as it was.
 @inline function _diagmul_eltype(C, ::Type{TP}, alpha, beta) where {TP}
     Tα = isone(alpha) ? TP : promote_op(*, TP, typeof(alpha))
     return iszero(beta) ? Tα : promote_op(+, Tα, promote_op(*, eltype(C), typeof(beta)))
 end
-_diagmul_widened(C, ::Type{R}) where {R} =
-    SparseMatrixCSC(size(C)..., copy(getcolptr(C)), copy(getrowval(C)), convert(Vector{promote_type(R, eltype(C))}, getnzval(C)))
+# The copy holds the values of `C` as they are, next to the results when an `R` cannot
+# hold them, so that none is converted before the kernel reads it. The kernel adds the
+# pattern of `A` only for a nonzero `beta`; that is done here, where the eltype has a zero.
+function _diagmul_widened(C, A, ::Type{R}, beta) where {R}
+    W = SparseMatrixCSC(size(C)..., copy(getcolptr(C)), copy(getrowval(C)), copy(getnzval(C)))
+    iszero(beta) || mergeinds!(W, A)
+    T = _storesafely(R, eltype(C)) ? R : Union{R,eltype(C)}
+    return SparseMatrixCSC(size(C)..., getcolptr(W), getrowval(W), convert(Vector{T}, getnzval(W)))
+end
 function _diagmul_store!(C, W)
     nzval = convert(Vector{eltype(C)}, view(getnzval(W), 1:nnz(W)))
     return copyto!(C, SparseMatrixCSC(size(W)..., getcolptr(W), getrowval(W), nzval))
@@ -798,7 +808,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     iszero(alpha) && return _diagmul_scale!(C, beta)
     R = _diagmul_eltype(C, promote_op(matprod, eltype(A), eltype(D)), alpha, beta)
     _storesafely(eltype(C), R) ||
-        return _diagmul_store!(C, _spdiagmul!(_diagmul_widened(C, R), A, D, alpha, beta))
+        return _diagmul_store!(C, _spdiagmul!(_diagmul_widened(C, A, R, beta), A, D, alpha, beta))
     return _spdiagmul!(C, A, D, alpha, beta)
 end
 function _spdiagmul!(C, A, D, alpha, beta)
@@ -905,7 +915,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     iszero(alpha) && return _diagmul_scale!(C, beta)
     R = _diagmul_eltype(C, promote_op(matprod, eltype(D), eltype(A)), alpha, beta)
     _storesafely(eltype(C), R) ||
-        return _diagmul_store!(C, _diagspmul!(_diagmul_widened(C, R), D, A, alpha, beta))
+        return _diagmul_store!(C, _diagspmul!(_diagmul_widened(C, A, R, beta), D, A, alpha, beta))
     return _diagspmul!(C, D, A, alpha, beta)
 end
 function _diagspmul!(C, D, A, alpha, beta)
