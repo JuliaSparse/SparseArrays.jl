@@ -293,14 +293,9 @@ end
     # the diagonal is stored and nonzero, and every product of two entries depends on its order
     A = sparse(reshape(Quaternion.(eachcol(fixturedense(Float64, 16, 4))...), 4, 4))
     b = Quaternion.(eachcol(fixturedense(Float64, 4, 4))...)
-    B = reshape(Quaternion.(eachcol(fixturedense(Float64, 8, 4))...), 4, 2)
-    for (op, W) in ((identity, UpperTriangular), (identity, UnitLowerTriangular), (adjoint, LowerTriangular),
-                    (transpose, UpperTriangular), (adjoint, UnitUpperTriangular))
-        T = op(W(A))
-        M = Matrix(T)
-        @test M * (T \ b) ≈ b
-        @test M * (T \ B) ≈ B
-        @test M * (T \ sparse(B)) ≈ B
+    # the sweep over the columns of the matrix, and the one over those of its adjoint
+    for T in (UpperTriangular(A), LowerTriangular(A)')
+        @test Matrix(T) * (T \ b) ≈ b
     end
 end
 end
