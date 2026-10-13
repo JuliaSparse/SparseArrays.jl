@@ -597,6 +597,13 @@ end
         @test_throws BoundsError SparseArrays.dropstored!(A, [true, true], [1])
         # the bounds are checked even when nothing is stored
         @test_throws BoundsError SparseArrays.dropstored!(spzeros(2, 2), [5], [1])
+        # an index that is the matrix's own storage is read while the storage is compacted
+        A = sparse([11.0 21; 12 0])
+        SparseArrays.dropstored!(A, view(rowvals(A), 1:1), 1:2)
+        @test mismatch(A, [0.0 0; 12 0]) === nothing && nnz(A) == 1
+        # a `Bool` is not a scalar index
+        @test_throws ArgumentError SparseArrays.dropstored!(A, true, 1)
+        @test_throws ArgumentError SparseArrays.dropstored!(sparse([1, 2, 3]), true)
     end
 end
 
@@ -837,9 +844,6 @@ let
 end
 
 @static if COMPREHENSIVE
-# same pattern and stored values, so nothing was written
-unchanged(S, S0) = same_pattern(S, S0) && nonzeros(S) == nonzeros(S0)
-
 @testset "index kinds follow dense" begin
     A = sparse([1.0 2 0; 0 3 4]); D = Array(A)
     @testset "index arrays that are not vectors or matrices" begin
@@ -861,10 +865,24 @@ unchanged(S, S0) = same_pattern(S, S0) && nonzeros(S) == nonzeros(S0)
         @test As[fill(1)] == fill("a")
         @test As[ones(Int, 1, 1, 1)] == fill("a", 1, 1, 1)
         @test size(As[Array{Int}(undef, 0, 2, 2)]) == (0, 2, 2)
+        # the elements of the index array are indices of any kind, and nothing else
+        C3 = reshape([CartesianIndex(1, 1), CartesianIndex(2, 3)], 1, 1, 2)
+        @test A[C3] == D[C3] && A[fill(CartesianIndex(1, 2))] == fill(2.0)
+        C1 = reshape([CartesianIndex(1), CartesianIndex(3)], 1, 1, 2)
+        @test x[C1] == [1, 2, 3][C1]
+        @test_throws BoundsError A[reshape([CartesianIndex(3, 1)], 1, 1, 1)]
+        @test_throws ArgumentError A[reshape([1.0, 2.0], 1, 1, 2)]
+        @test_throws ArgumentError x[reshape([1.0, 3.0], 1, 1, 2)]
+        # the zero of an entry that is not stored may be of another type, as in `Array(A)`
+        Av = sparse([1], [1], [Variable(1)], 1, 2)
+        @test Av[reshape([1, 2], 1, 1, 2)]::Array{Expression,3} == Array(Av)[reshape([1, 2], 1, 1, 2)]
+        # the error is about the vector, not a matrix made of it
+        @test_throws "SparseVector" x[reshape([1, 4], 1, 1, 2)]
     end
     @testset "a Bool is a mask, not an index" begin
         @test A[false:true, 2] == D[false:true, 2] == [3.0]
         @test isempty(sparse(fill(5.0, 1, 1))[false:false, 1])
+        @test_throws ArgumentError A[true, 1]
         @test_throws ArgumentError setindex!(copy(A), 7.0, true, 1)
         @test_throws ArgumentError setindex!(copy(A), 7.0, 1, true)
         @test_throws ArgumentError sparse([1, 2, 3])[true]
@@ -882,7 +900,7 @@ unchanged(S, S0) = same_pattern(S, S0) && nonzeros(S) == nonzeros(S0)
                        ([true], [true, false, true]), ([1, 2], [true, false]), ([true], [1]))
             S = copy(A)
             @test_throws BoundsError S[I, J] = fill(9.0, count(!iszero, I), count(!iszero, J))
-            @test unchanged(S, A)
+            @test exact_equal(S, A)
             M = copy(D)
             @test_throws BoundsError M[I, J] = sparse(fill(9.0, count(!iszero, I), count(!iszero, J)))
             @test M == D
@@ -896,46 +914,59 @@ end
         for (L, x) in (([2, 4, 6], [7.0, 8.0, 8.5]), ([1, 5], [7.0, 8.5]), ([9, 2, 2], [7.0, 1.0, 8.5]))
             S = copy(S0)
             @test_throws InexactError S[L] = x
-            @test unchanged(S, S0)
+            @test exact_equal(S, S0)
         end
     end
     @testset "more stored entries than Ti counts" begin
         mk() = SparseMatrixCSC{Float64,Int8}(sparse(1.0I, 12, 12))
         S = mk()
         @test_throws ArgumentError fill!(view(S, :, :), 1.0)
-        @test unchanged(S, mk())
+        @test exact_equal(S, mk())
         @test_throws ArgumentError S[1:144] = ones(144)
-        @test unchanged(S, mk())
+        @test exact_equal(S, mk())
         @test_throws ArgumentError S[:, :] = ones(12, 12)
-        @test unchanged(S, mk())
+        @test exact_equal(S, mk())
+        @test_throws ArgumentError S[1:144] .= 1.0
+        @test exact_equal(S, mk())
+        @test_throws ArgumentError S[trues(12, 12)] .= 1.0
+        @test exact_equal(S, mk())
         # the count of what would be stored is exact: 122 entries fit, though the
         # stored entries and the assigned ones together number more than 127
         E = Matrix(mk()); E[1:10, :] .= 1.0
         S = mk(); fill!(view(S, 1:10, :), 1.0)
-        @test S == E && nnz(S) == 122
+        @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
         S = mk(); S[1:10, :] = ones(10, 12)
-        @test S == E && nnz(S) == 122
+        @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
         S = mk(); S[findall(!iszero, vec(E))] = ones(122)
-        @test S == E && nnz(S) == 122
+        @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
+        S = mk(); S[findall(!iszero, vec(E))] .= 1.0
+        @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
+        S = mk(); S[E .!= 0] .= 1.0
+        @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
+        # of a repeated index only the last write is stored, so 240 values make 120 entries
+        for V in (ones(20, 12), sparse(ones(20, 12)))
+            S = mk(); S[[1:10; 1:10], :] = V
+            @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
+        end
     end
     @testset "an index vector that is the matrix's own storage" begin
         S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
         E[[1, 2, 3, 4], 2] = [10.0, 20, 30, 40]
         S[rowvals(S), 2] = [10.0, 20, 30, 40]
-        @test S == E
+        @test mismatch(S, E) === nothing
         S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
         E[2, [1, 2, 3, 4]] = [10.0, 20, 30, 40]
         S[2, rowvals(S)] = [10.0, 20, 30, 40]
-        @test S == E
+        @test mismatch(S, E) === nothing
     end
     @testset "decreasing ranges through a view" begin
         S = sparse([1.0 2 0; 0 3 4; 5 0 6]); E = Matrix(S)
         S[3:-1:1, 1] .= 0.0; E[3:-1:1, 1] .= 0.0
-        @test S == E
+        @test mismatch(S, E) === nothing
         S[:, 3:-2:1] .= 2.0; E[:, 3:-2:1] .= 2.0
-        @test S == E
+        @test mismatch(S, E) === nothing
         fill!(view(S, 3:-1:2, 3:-1:1), 7.0); fill!(view(E, 3:-1:2, 3:-1:1), 7.0)
-        @test S == E
+        @test mismatch(S, E) === nothing
     end
 end
 end

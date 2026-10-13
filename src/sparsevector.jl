@@ -488,6 +488,7 @@ julia> SparseArrays.dropstored!(x, 2)
 ```
 """
 function dropstored!(x::AbstractCompressedVector, i::Integer)
+    _checkscalarindex(i)
     _checkpatternwritable(x, :dropstored!)
     if !(1 <= i <= length(x::SparseVector))
         throw(BoundsError(x, i))
@@ -1217,6 +1218,7 @@ getindex(x::AbstractSparseVector, I::AbstractArray{Bool}) = (checkbounds(x, I); 
 end
 
 function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
+    checkbounds(x, I)   # the error names `x`, not the one-column matrix below
     y = _unsafe_unfix(x)
     S = SparseMatrixCSC(length(y), 1, Ti[1,length(nonzeroinds(y))+1], nonzeroinds(y), nonzeros(y))
     return S[I]
