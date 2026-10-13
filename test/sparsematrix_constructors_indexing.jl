@@ -766,6 +766,13 @@ end
         end
     end
 
+    @testset "StepRangeLen row ranges" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Matrix(A)
+        for I in (StepRangeLen(2, -1, 2), StepRangeLen(1, 0, 3))
+            @test A[I, :] == D[I, :] && A[I, :] isa SparseMatrixCSC{Float64,Int}
+        end
+    end
+
     @testset "masks of the wrong length" begin
         A = sparse([1.0 2 0; 0 3 4]); D = Matrix(A)
         for (I, J) in (([true], 1), ([true, false, false], 1), (1, [true, false]),

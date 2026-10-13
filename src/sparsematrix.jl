@@ -2836,10 +2836,12 @@ function getindex_cols(A::AbstractSparseMatrixCSC{Tv,Ti}, J::AbstractVector) whe
 end
 
 getindex_traverse_col(::AbstractUnitRange, lo::Integer, hi::Integer) = lo:hi
-getindex_traverse_col(I::StepRange, lo::Integer, hi::Integer) = step(I) > 0 ? (lo:1:hi) : (hi:-1:lo)
+getindex_traverse_col(I::AbstractRange, lo::Integer, hi::Integer) = step(I) > 0 ? (lo:1:hi) : (hi:-1:lo)
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::AbstractVector) where {Tv,Ti<:Integer}
     require_one_based_indexing(A, I, J)
+    # `rangesearch` divides by the step, which is zero or not an integer for some ranges
+    (step(I) isa Integer && !iszero(step(I))) || return A[collect(I), J]
     # Ranges for indexing rows
     (m, n) = size(A)
     # whole columns:
