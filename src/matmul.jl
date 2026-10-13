@@ -103,10 +103,18 @@ function _spmatspmat_dense!(C, A, B, α, β)
         end
     end
 end
-# only the operands that `spdensemul!` reads in place; LinearAlgebra multiplies the others
-LinearAlgebra._mul!(C::StridedMatrix, A::Union{SparseMatrixCSCOrColumnSubset, MatrixWrappers{<:Any,<:SparseMatrixCSCOrColumnSubset}},
-                    B::AbstractTriangular, alpha::Number, beta::Number) =
-    spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
+function LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number)
+    tA, P = _trimul_factor(A)
+    return spdensemul!(C, tA, LinearAlgebra.wrapper_char(B), P, B, alpha, beta)
+end
+# The kernels read an adjoint, transpose, symmetric or Hermitian wrapper of compressed
+# storage in place. A triangle and an `UpperHessenberg` have no such kernel and are
+# materialized, which is O(nnz).
+_trimul_factor(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset},
+                        HermOrSym{<:Any,<:SparseMatrixCSCOrColumnSubset}}) =
+    LinearAlgebra.wrapper_char(A), LinearAlgebra._unwrap(A)
+_trimul_factor(A::UpperHessenberg) = 'N', _sparsehessenberg(A)
+_trimul_factor(A) = 'N', convert(SparseMatrixCSC, A)
 mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrSubArray, B::AbstractVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', _compressed(A), B, alpha, beta)
 # LinearAlgebra materializes the second of two symmetric/Hermitian factors, elementwise

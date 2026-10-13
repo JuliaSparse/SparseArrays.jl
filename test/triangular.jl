@@ -63,6 +63,15 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
             end
         end
     end
+    # sparse factors that the product kernels cannot read in place
+    @testset "materialized sparse factors" begin
+        S = _sparse_test_matrix(n, Float64)
+        T = _triangular_test_matrix(n, UpperTriangular, Float64)
+        for W in (UnitUpperTriangular(S), UpperHessenberg(S))
+            D = typeof(W).name.wrapper(Matrix(S))
+            @test mul!(ones(n, n), W, T, 2.0, 3.0) ≈ mul!(ones(n, n), D, T, 2.0, 3.0)
+        end
+    end
     end
 end
 
