@@ -12,10 +12,14 @@ The `SparseArrays` stdlib module provides sparse vectors and [sparse
 matrices](https://en.wikipedia.org/wiki/Sparse_matrix): arrays with enough zeros that
 storing only the other entries saves space and time compared to dense arrays.
 
-For other storage formats, multidimensional sparse arrays and more, see [Noteworthy External
-Sparse Packages](@ref).
+```@contents
+Pages = ["index.md", "SparseArrays.md"]
+Depth = 2:4
+```
 
-## [Compressed Sparse Column (CSC) Sparse Matrix Storage](@id man-csc)
+## [Sparse Vectors and Matrices](@id man-sparse-vectors-matrices)
+
+### [Compressed Sparse Column (CSC) Sparse Matrix Storage](@id man-csc)
 
 In Julia, sparse matrices are stored in the [Compressed Sparse Column (CSC) format](https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_column_.28CSC_or_CCS.29).
 Julia sparse matrices have the type [`SparseMatrixCSC{Tv,Ti}`](@ref), where `Tv` is the
@@ -104,7 +108,7 @@ julia> dropzeros(A)
  ⋅  ⋅  ⋅
 ```
 
-## Sparse Vector Storage
+### Sparse Vector Storage
 
 Sparse vectors are stored in a close analog of the CSC format. They have the type
 [`SparseVector{Tv,Ti}`](@ref), where `Tv` is the type of the stored values and `Ti` the
@@ -127,7 +131,7 @@ The length is stored in the index type, so `length(x)` and `size(x)` of a
 index type can overflow: for an `Int8`-indexed vector of length 100, `length(x) + length(x)`
 is `-56`. Convert with `Int(length(x))` before computing with it.
 
-## Sparse Vector and Matrix Constructors
+### Sparse Vector and Matrix Constructors
 
 The simplest way to create a sparse array is [`spzeros`](@ref), the equivalent of
 [`zeros`](@ref) for dense arrays:
@@ -223,7 +227,24 @@ julia> issparse(spzeros(5))
 true
 ```
 
-## Sparse matrix operations
+Other constructors build common matrices directly. `sparse(I, n, n)` is the identity,
+[`spdiagm`](@ref) places vectors on diagonals, and [`blockdiag`](@ref) puts matrices along
+the diagonal of a larger one. [`sprand`](@ref) and [`sprandn`](@ref) return a random vector
+or matrix in which each entry is stored with probability `d`, with uniformly or normally
+distributed values.
+
+```jldoctest
+julia> spdiagm(0 => [1, 2, 3], 1 => [4, 5])
+3×3 SparseMatrixCSC{Int64, Int64} with 5 stored entries:
+ 1  4  ⋅
+ ⋅  2  5
+ ⋅  ⋅  3
+
+julia> blockdiag(sparse(2I, 2, 2), sparse([3 4])) == [2 0 0 0; 0 2 0 0; 0 0 3 4]
+true
+```
+
+### Sparse matrix operations
 
 Arithmetic, indexing, assignment and concatenation work on sparse matrices as they do on
 dense matrices. Indexing, and especially assignment, is expensive one element at a time. It
@@ -237,7 +258,7 @@ entries rather than to the number of rows. `prod`, `maximum`, `minimum`, `count`
 `mapreduce` accept the keyword in the same way, as do adjoints and transposes of sparse matrices,
 views of a subset of their columns, and sparse vectors, for which the result is a `SparseVector`.
 
-### [Broadcasting and `map`](@id man-sparse-broadcast)
+#### [Broadcasting and `map`](@id man-sparse-broadcast)
 
 [`broadcast`](@ref) (including dot syntax such as `A .* B`) and [`map`](@ref) over sparse vectors
 and matrices return a sparse result when the function maps zeros to zero. To decide which entries to
@@ -400,7 +421,181 @@ julia> C
   ⋅  ⋅  0
 ```
 
-## [Requirements on the element type](@id man-sparse-eltype)
+### [Performance tips](@id man-sparse-performance)
+
+Sparse code is fast when its cost is proportional to the number of stored entries, and the
+[CSC layout](@ref man-csc) determines which operations have that property.
+
+#### Iterate over stored entries by column
+
+The stored entries of column `j` are located at the positions [`nzrange(A, j)`](@ref nzrange) of
+[`rowvals(A)`](@ref rowvals) and [`nonzeros(A)`](@ref nonzeros). Looping over the columns, and over
+that range within each column, visits every stored entry once and in memory order, without
+searching. For example, a matrix-vector product can be written as:
+
+```jldoctest perftips
+julia> A = sparse([1, 1, 2, 3], [1, 3, 2, 3], [1.0, 2.0, 3.0, 4.0]);
+
+julia> function mymul(A::SparseMatrixCSC, x::Vector)
+           y = zeros(promote_type(eltype(A), eltype(x)), size(A, 1))
+           rows, vals = rowvals(A), nonzeros(A)
+           for j in axes(A, 2), k in nzrange(A, j)
+               y[rows[k]] += vals[k] * x[j]
+           end
+           return y
+       end;
+
+julia> mymul(A, [1.0, 10.0, 100.0]) == A * [1.0, 10.0, 100.0]
+true
+```
+
+The same three accessors work on a [`SparseVector`](@ref) and on a column view `@view A[:, j]`,
+which are treated as a single column: `nzrange(x, 1)` covers all the stored entries, and
+`rowvals(x)` holds their indices.
+
+```jldoctest perftips
+julia> x = sparsevec([2, 5], [1.5, 2.5], 6);
+
+julia> [(rowvals(x)[k], nonzeros(x)[k]) for k in nzrange(x, 1)]
+2-element Vector{Tuple{Int64, Float64}}:
+ (2, 1.5)
+ (5, 2.5)
+```
+
+A view of all rows and some columns, `@view A[:, 2:3]` or `@view A[:, [3, 1]]`, and an
+`UpperTriangular`, `LowerTriangular`, `Symmetric` or `Hermitian` wrapper of a sparse matrix
+are matrices in their own right. Their `nonzeros` and `rowvals` are views of the parent's
+vectors, with `nnz` elements each, holding only their own entries (those of the stored
+triangle, for a symmetric or Hermitian wrapper). Their `nzrange` indexes these views, and
+writing to them mutates the parent. The accessors are O(1) for a range of columns. For an
+arbitrary column subset and for the wrappers, `nonzeros` and `rowvals` gather the positions
+of the entries once, and `nzrange(V, j)` costs O(`j`).
+
+In contrast, scalar indexing `A[i, j]` has to do a binary search of column `j` for row `i`. A
+loop over all `(i, j)` of an `m`-by-`n` matrix therefore performs `m * n` searches, however few
+entries are stored, instead of visiting the `nnz(A)` stored entries once.
+
+#### Build a matrix from its entries in one call
+
+Storing a value at a position that has no stored entry yet moves all the later entries of `rowvals(A)`
+and `nonzeros(A)` and updates the column pointers, so filling `spzeros(m, n)` one element at a time takes
+time proportional to `nnz(A)` for each insertion. `sizehint!(A, n)` reserves room for
+`n` stored entries, which avoids reallocating those vectors but not moving the entries. Instead, collect
+the row indices, column indices and values in three vectors and call [`sparse`](@ref) once. Entries with
+the same position are added together, or combined with the function passed as the last argument:
+
+```jldoctest perftips
+julia> I = [1, 1, 2]; J = [1, 1, 2]; V = [1.0, 2.0, 5.0];
+
+julia> sparse(I, J, V)
+2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+ 3.0   ⋅
+  ⋅   5.0
+
+julia> sparse(I, J, V, 2, 2, max)
+2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+ 2.0   ⋅
+  ⋅   5.0
+```
+
+#### Slice columns, not rows
+
+`A[:, j]` copies one contiguous range of the stored entries. `A[i, :]` has to search every column for
+row `i`, so its cost grows with the number of columns even when the row is empty. When an algorithm
+works row by row, transpose the matrix once and work on the columns of the result. `permutedims(A)`
+and `copy(transpose(A))` (equivalently `sparse(transpose(A))`) build the transposed matrix in time
+proportional to `nnz(A)`.
+
+```jldoctest perftips
+julia> At = permutedims(A);
+
+julia> At[:, 1] == A[1, :]
+true
+```
+
+#### Choose a smaller index type
+
+The index type `Ti` is used for the column pointers and for one row index per stored entry. With `Float64`
+values, `Int32` indices reduce the memory per stored entry from 16 to 12 bytes. `Ti` is taken from the
+index vectors given to [`sparse`](@ref), can be given to [`spzeros`](@ref), and an existing matrix is
+converted with the type constructor. Both dimensions have to be at most `typemax(Ti)`, and the number of
+stored entries has to be less than `typemax(Ti)`.
+
+```jldoctest perftips
+julia> A32 = SparseMatrixCSC{Float64,Int32}(A)
+3×3 SparseMatrixCSC{Float64, Int32} with 4 stored entries:
+ 1.0   ⋅   2.0
+  ⋅   3.0   ⋅
+  ⋅    ⋅   4.0
+
+julia> typeof(sparse(Int32[1, 2], Int32[1, 2], [1.0, 2.0])) == typeof(spzeros(Float64, Int32, 2, 2))
+true
+
+julia> spzeros(Float64, Int8, 200, 200)
+ERROR: ArgumentError: number of rows (m = 200) does not fit in Ti = Int8
+[...]
+```
+
+Operations between matrices with different index types promote to the wider one, so use one index type
+consistently.
+
+#### [Lazy `transpose` and `adjoint`](@id man-sparse-lazy-transpose)
+
+`transpose(A)` and `A'` do not copy; they return `Transpose` and `Adjoint` wrappers around
+`A`. What happens to a wrapper depends on the function:
+
+- Products with dense vectors and matrices (including `mul!`) and with sparse vectors, `\`,
+  `==`, and `A'[i, :]`, which is a column slice of `A`, work on the wrapper without
+  materializing the transpose.
+- Products with another sparse matrix, broadcasting (which includes `+` and `-`), `map`,
+  concatenation, `kron` and `findnz` first copy the wrapper into a new `SparseMatrixCSC`.
+  The copy takes time proportional to `nnz(A)`, on every call.
+- Other functions, such as `sum`, `norm` and indexing other than by row, reach generic
+  `AbstractMatrix` methods that visit the wrapper element by element.
+
+When a transposed matrix is used more than once, or is passed to code outside the first
+group, materialize it with `copy`, or with `sparse` when the argument may or may not be a
+wrapper.
+
+```jldoctest perftips
+julia> A' * [1.0, 10.0, 100.0]
+3-element Vector{Float64}:
+   1.0
+  30.0
+ 402.0
+
+julia> copy(A')
+3×3 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
+ 1.0   ⋅    ⋅
+  ⋅   3.0   ⋅
+ 2.0   ⋅   4.0
+```
+
+#### Keep results sparse and free of stored zeros
+
+A result stays sparse only if the operation maps zeros to zeros. `A .+ 1` and `exp.(A)` return a
+`Matrix`; apply such functions to `nonzeros(A)` instead when only the stored entries are meant. Assigning zero to a stored entry,
+and cancellation in a matrix product, leave explicitly stored zeros behind. They are harmless for correctness but
+are visited by every kernel. [`dropzeros!`](@ref) removes them, [`droptol!`](@ref) removes entries of small
+magnitude, and [`fkeep!`](@ref) keeps the entries for which a predicate of `(i, j, v)` is true, all in place.
+
+```jldoctest perftips
+julia> B = copy(A); B[1, 1] = 0; nnz(B)
+4
+
+julia> nnz(dropzeros!(B))
+3
+
+julia> fkeep!((i, j, v) -> i == j, B)
+3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+ ⋅   ⋅    ⋅
+ ⋅  3.0   ⋅
+ ⋅   ⋅   4.0
+```
+
+## [Specialized Sparse Arrays](@id man-sparse-specialized)
+
+### [User-defined element types](@id man-sparse-eltype)
 
 A sparse array can store values of any type `T`. Building one from indices and values,
 copying, slicing, concatenating and permuting it, and reading a stored entry call nothing
@@ -439,7 +634,7 @@ A type that defines `zero`, `+` and `*` is enough for most of the package, and e
   or rationals is converted to `Float64` first; a matrix of another element type, such
   as `BigFloat`, is rejected.
 
-## [Sparse arrays with a fixed pattern](@id man-sparse-fixed)
+### [Sparse arrays with a fixed pattern](@id man-sparse-fixed)
 
 !!! warning "Experimental"
     `fixed`, `FixedSparseCSC` and `FixedSparseVector` are experimental and not exported.
@@ -554,301 +749,66 @@ computes as zero, as it does for other sparse arrays (over a single array it kee
 pattern of its argument); write into a fixed destination to keep them.
 
 The factorizations accept a fixed matrix, which is what makes reusing a symbolic
-factorization safe: see "Reusing a factorization" in the solver manual.
+factorization safe: see [Reusing a factorization](@ref man-sparse-refactorize).
 
-## [Performance tips](@id man-sparse-performance)
+## [Sparse Linear Algebra](@id stdlib-sparse-linalg)
 
-Sparse code is fast when its cost is proportional to the number of stored entries, and the
-[CSC layout](@ref man-csc) determines which operations have that property.
+The functions of LinearAlgebra have methods for sparse arrays. Products, `dot`, `kron` and
+the norms are implemented in this package. The factorizations, and the solves that use
+them, call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse).
 
-### Iterate over stored entries by column
+### [Products and norms](@id man-sparse-products)
 
-The stored entries of column `j` are located at the positions [`nzrange(A, j)`](@ref nzrange) of
-[`rowvals(A)`](@ref rowvals) and [`nonzeros(A)`](@ref nonzeros). Looping over the columns, and over
-that range within each column, visits every stored entry once and in memory order, without
-searching. For example, a matrix-vector product can be written as:
+The result of `*` follows the other factor:
 
-```jldoctest perftips
-julia> A = sparse([1, 1, 2, 3], [1, 3, 2, 3], [1.0, 2.0, 3.0, 4.0]);
+| Product of a sparse matrix with | Result |
+|:--------------------------------|:-------|
+| a `Vector` or a `Matrix` | dense |
+| a sparse vector | `SparseVector` |
+| a sparse matrix | `SparseMatrixCSC` |
+| a `Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix | `SparseMatrixCSC` |
 
-julia> function mymul(A::SparseMatrixCSC, x::Vector)
-           y = zeros(promote_type(eltype(A), eltype(x)), size(A, 1))
-           rows, vals = rowvals(A), nonzeros(A)
-           for j in axes(A, 2), k in nzrange(A, j)
-               y[rows[k]] += vals[k] * x[j]
-           end
-           return y
-       end;
+`mul!(y, A, x)` writes the product into `y`, and `mul!(y, A, x, α, β)` computes
+`A*x*α + y*β` in place. Products with `A'` and `transpose(A)` do not materialize the
+transpose when the other factor is dense or a sparse vector: see
+[Lazy `transpose` and `adjoint`](@ref man-sparse-lazy-transpose).
 
-julia> mymul(A, [1.0, 10.0, 100.0]) == A * [1.0, 10.0, 100.0]
-true
-```
+- `dot(x, y)` of sparse or dense vectors and matrices visits the stored entries only, and
+  `dot(x, A, y)` computes `x' * A * y` without forming `A * y`.
+- `kron` of two sparse arrays, or of a sparse array and a dense or `Diagonal` matrix, is
+  sparse.
+- `norm(A, p)` treats `A` as a vector of its entries, so `norm(A)` is the Frobenius norm.
+  [`opnorm(A, p)`](@ref SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real))
+  is the operator norm for `p` equal to `1`, `2` or `Inf`; for `p = 2` it is an iterative
+  estimate.
+- `cond(A, 1)` and `cond(A, Inf)` estimate the norm of the inverse from an
+  [`lu`](@ref SparseArrays.UMFPACK.lu) factorization. The 2-norm condition number is not
+  available; use `cond(Array(A))` for a matrix small enough.
+- `tr`, `diag`, `triu` and `tril` work on the stored entries, and the last three return
+  sparse results.
 
-The same three accessors work on a [`SparseVector`](@ref) and on a column view `@view A[:, j]`,
-which are treated as a single column: `nzrange(x, 1)` covers all the stored entries, and
-`rowvals(x)` holds their indices.
+```jldoctest
+julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]); x = [1.0, 2.0, 3.0];
 
-```jldoctest perftips
-julia> x = sparsevec([2, 5], [1.5, 2.5], 6);
-
-julia> [(rowvals(x)[k], nonzeros(x)[k]) for k in nzrange(x, 1)]
-2-element Vector{Tuple{Int64, Float64}}:
- (2, 1.5)
- (5, 2.5)
-```
-
-A view of all rows and some columns, `@view A[:, 2:3]` or `@view A[:, [3, 1]]`, and an
-`UpperTriangular`, `LowerTriangular`, `Symmetric` or `Hermitian` wrapper of a sparse matrix
-are matrices in their own right. Their `nonzeros` and `rowvals` are views of the parent's
-vectors, with `nnz` elements each, holding only their own entries (those of the stored
-triangle, for a symmetric or Hermitian wrapper). Their `nzrange` indexes these views, and
-writing to them mutates the parent. The accessors are O(1) for a range of columns. For an
-arbitrary column subset and for the wrappers, `nonzeros` and `rowvals` gather the positions
-of the entries once, and `nzrange(V, j)` costs O(`j`).
-
-In contrast, scalar indexing `A[i, j]` has to do a binary search of column `j` for row `i`. A
-loop over all `(i, j)` of an `m`-by-`n` matrix therefore performs `m * n` searches, however few
-entries are stored, instead of visiting the `nnz(A)` stored entries once.
-
-### Build a matrix from its entries in one call
-
-Storing a value at a position that has no stored entry yet moves all the later entries of `rowvals(A)`
-and `nonzeros(A)` and updates the column pointers, so filling `spzeros(m, n)` one element at a time takes
-time proportional to `nnz(A)` for each insertion. `sizehint!(A, n)` reserves room for
-`n` stored entries, which avoids reallocating those vectors but not moving the entries. Instead, collect
-the row indices, column indices and values in three vectors and call [`sparse`](@ref) once. Entries with
-the same position are added together, or combined with the function passed as the last argument:
-
-```jldoctest perftips
-julia> I = [1, 1, 2]; J = [1, 1, 2]; V = [1.0, 2.0, 5.0];
-
-julia> sparse(I, J, V)
-2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
- 3.0   ⋅
-  ⋅   5.0
-
-julia> sparse(I, J, V, 2, 2, max)
-2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
- 2.0   ⋅
-  ⋅   5.0
-```
-
-### Slice columns, not rows
-
-`A[:, j]` copies one contiguous range of the stored entries. `A[i, :]` has to search every column for
-row `i`, so its cost grows with the number of columns even when the row is empty. When an algorithm
-works row by row, transpose the matrix once and work on the columns of the result. `permutedims(A)`
-and `copy(transpose(A))` (equivalently `sparse(transpose(A))`) build the transposed matrix in time
-proportional to `nnz(A)`.
-
-```jldoctest perftips
-julia> At = permutedims(A);
-
-julia> At[:, 1] == A[1, :]
-true
-```
-
-### Choose a smaller index type
-
-The index type `Ti` is used for the column pointers and for one row index per stored entry. With `Float64`
-values, `Int32` indices reduce the memory per stored entry from 16 to 12 bytes. `Ti` is taken from the
-index vectors given to [`sparse`](@ref), can be given to [`spzeros`](@ref), and an existing matrix is
-converted with the type constructor. Both dimensions have to be at most `typemax(Ti)`, and the number of
-stored entries has to be less than `typemax(Ti)`.
-
-```jldoctest perftips
-julia> A32 = SparseMatrixCSC{Float64,Int32}(A)
-3×3 SparseMatrixCSC{Float64, Int32} with 4 stored entries:
- 1.0   ⋅   2.0
-  ⋅   3.0   ⋅
-  ⋅    ⋅   4.0
-
-julia> typeof(sparse(Int32[1, 2], Int32[1, 2], [1.0, 2.0])) == typeof(spzeros(Float64, Int32, 2, 2))
-true
-
-julia> spzeros(Float64, Int8, 200, 200)
-ERROR: ArgumentError: number of rows (m = 200) does not fit in Ti = Int8
-[...]
-```
-
-Operations between matrices with different index types promote to the wider one, so use one index type
-consistently.
-
-### Lazy `transpose` and `adjoint`
-
-`transpose(A)` and `A'` do not copy; they return `Transpose` and `Adjoint` wrappers around
-`A`. What happens to a wrapper depends on the function:
-
-- Products with dense vectors and matrices (including `mul!`) and with sparse vectors, `\`,
-  `==`, and `A'[i, :]`, which is a column slice of `A`, work on the wrapper without
-  materializing the transpose.
-- Products with another sparse matrix, broadcasting (which includes `+` and `-`), `map`,
-  concatenation, `kron` and `findnz` first copy the wrapper into a new `SparseMatrixCSC`.
-  The copy takes time proportional to `nnz(A)`, on every call.
-- Other functions, such as `sum`, `norm` and indexing other than by row, reach generic
-  `AbstractMatrix` methods that visit the wrapper element by element.
-
-When a transposed matrix is used more than once, or is passed to code outside the first
-group, materialize it with `copy`, or with `sparse` when the argument may or may not be a
-wrapper.
-
-```jldoctest perftips
-julia> A' * [1.0, 10.0, 100.0]
+julia> y = similar(x); mul!(y, A, x)
 3-element Vector{Float64}:
-   1.0
-  30.0
- 402.0
+  4.0
+  9.0
+ 13.0
 
-julia> copy(A')
-3×3 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
- 1.0   ⋅    ⋅
-  ⋅   3.0   ⋅
- 2.0   ⋅   4.0
+julia> dot(x, A, x)
+61.0
+
+julia> kron(A, sparse(I, 2, 2)) isa SparseMatrixCSC
+true
+
+julia> norm(A, 1), opnorm(A, 1), opnorm(A, Inf)
+(12.0, 5.0, 5.0)
 ```
 
-### Keep results sparse and free of stored zeros
+### [Solving linear systems](@id man-sparse-solving)
 
-A result stays sparse only if the operation maps zeros to zeros. `A .+ 1` and `exp.(A)` return a
-`Matrix`; apply such functions to `nonzeros(A)` instead when only the stored entries are meant. Assigning zero to a stored entry,
-and cancellation in a matrix product, leave explicitly stored zeros behind. They are harmless for correctness but
-are visited by every kernel. [`dropzeros!`](@ref) removes them, [`droptol!`](@ref) removes entries of small
-magnitude, and [`fkeep!`](@ref) keeps the entries for which a predicate of `(i, j, v)` is true, all in place.
-
-```jldoctest perftips
-julia> B = copy(A); B[1, 1] = 0; nnz(B)
-4
-
-julia> nnz(dropzeros!(B))
-3
-
-julia> fkeep!((i, j, v) -> i == j, B)
-3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
- ⋅   ⋅    ⋅
- ⋅  3.0   ⋅
- ⋅   ⋅   4.0
-```
-
-## Correspondence of dense and sparse methods
-
-The table below pairs sparse matrix constructors with their dense counterparts. The sparse
-ones differ in that the result follows the sparsity pattern of a given sparse matrix `S`, or
-has density `d`: each element is nonzero with probability `d`. See the [SparseArrays
-API](@ref stdlib-sparse-arrays) for details.
-
-| Sparse                     | Dense                  | Description                                                                                                                                                           |
-|:-------------------------- |:---------------------- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`spzeros(m,n)`](@ref)     | [`zeros(m,n)`](@ref)   | Creates a *m*-by-*n* matrix of zeros. ([`spzeros(m,n)`](@ref) is empty.)                                                                                              |
-| [`sparse(I,n,n)`](@ref)  | [`Matrix(I,n,n)`](@ref)| Creates a *n*-by-*n* identity matrix.                                                                                                                                 |
-| [`sparse(A)`](@ref)        | [`Array(S)`](@ref)   | Interconverts between dense and sparse formats.                                                                                                                       |
-| [`sprand(m,n,d)`](@ref)    | [`rand(m,n)`](@ref)    | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed uniformly on the half-open interval ``[0, 1)``.                            |
-| [`sprandn(m,n,d)`](@ref)   | [`randn(m,n)`](@ref)   | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements distributed according to the standard normal (Gaussian) distribution.                  |
-| [`sprandn(rng,m,n,d)`](@ref) | [`randn(rng,m,n)`](@ref) | Creates a *m*-by-*n* random matrix (of density *d*) with iid non-zero elements generated with the `rng` random number generator.                                  |
-
-
-```@meta
-DocTestSetup = nothing
-```
-
-# [SparseArrays API](@id stdlib-sparse-arrays)
-
-```@docs
-SparseArrays
-SparseArrays.AbstractSparseArray
-SparseArrays.AbstractSparseVector
-SparseArrays.AbstractSparseMatrix
-SparseArrays.AbstractSparseMatrixCSC
-SparseArrays.AbstractCompressedVector
-SparseArrays.SparseVector
-SparseArrays.SparseMatrixCSC
-SparseArrays.sparse
-SparseArrays.sparse!
-SparseArrays.sparsevec
-Base.similar(::SparseArrays.AbstractSparseMatrixCSC, ::Type)
-SparseArrays.issparse
-SparseArrays.nnz
-SparseArrays.findnz
-SparseArrays.iternz
-SparseArrays.spzeros
-SparseArrays.spzeros!
-SparseArrays.spdiagm
-SparseArrays.sparse_hcat
-SparseArrays.sparse_vcat
-SparseArrays.sparse_hvcat
-SparseArrays.blockdiag
-SparseArrays.sprand
-SparseArrays.sprandn
-SparseArrays.getcolptr
-SparseArrays.getrowval
-SparseArrays.getnzval
-SparseArrays.indtype
-SparseArrays.nonzeros
-SparseArrays.rowvals
-SparseArrays.nzrange
-SparseArrays.droptol!
-SparseArrays.dropzeros!
-SparseArrays.dropzeros
-SparseArrays.dropstored!
-SparseArrays.fkeep!
-SparseArrays.permute
-Base.permute!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::AbstractVector{<:Integer}, ::AbstractVector{<:Integer}) where {Tv,Ti}
-SparseArrays.halfperm!
-SparseArrays.ftranspose!
-SparseArrays.transpose!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
-SparseArrays.adjoint!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
-Base.sort!(::SparseArrays.AbstractSparseMatrixCSC)
-Base.sort(::SparseArrays.AbstractSparseMatrixCSC)
-Base.sort!(::Union{SparseArrays.AbstractCompressedVector, SparseArrays.SparseColumnView})
-SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
-SparseArrays.fixed
-SparseArrays.FixedSparseCSC
-SparseArrays.FixedSparseVector
-SparseArrays.allowscalar
-```
-
-## Internals
-
-The helpers below are not part of the API: they are unexported and may change or disappear
-in any release. They are documented, incompletely, as a companion to the public API.
-
-```@docs
-SparseArrays.ReadOnly
-SparseArrays.ColumnIndices
-SparseArrays.iswrsparse
-SparseArrays.depth
-SparseArrays.sparse_with_lmul
-SparseArrays.rowcheck_index
-SparseArrays.mergeinds!
-SparseArrays.move_fixed
-SparseArrays._unsafe_unfix
-SparseArrays.@RCI
-SparseArrays._densify!
-SparseArrays.HigherOrderFns._map_zeropres!
-SparseArrays.HigherOrderFns._map_notzeropres!
-SparseArrays._spsetz_setindex!
-SparseArrays._spsetnz_setindex!
-SparseArrays.unchecked_noalias_permute!
-SparseArrays.unchecked_aliasing_permute!
-SparseArrays._computecolptrs_permute!
-SparseArrays._checkargs_sourcecompatperms_permute!
-SparseArrays._checkargs_permutationsvalid_permute!
-SparseArrays._checkargs_sourcecompatdest_permute!
-SparseArrays._checkargs_sourcecompatworkmat_permute!
-SparseArrays._checkargs_sourcecompatworkcolptr_permute!
-SparseArrays._computecolptrs_halfperm!
-SparseArrays._distributevals_halfperm!
-```
-
-```@meta
-DocTestSetup = nothing
-```
-
-# [Sparse Linear Algebra](@id stdlib-sparse-linalg)
-
-```@meta
-DocTestSetup = :(using LinearAlgebra, SparseArrays)
-```
-
-Sparse factorizations call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse):
+Sparse factorizations call SuiteSparse:
 
 | Function | Returns | Library |
 |:---------|:--------|:--------|
@@ -856,8 +816,6 @@ Sparse factorizations call [SuiteSparse](https://github.com/DrTimothyAldenDavis/
 | [`lu`](@ref SparseArrays.UMFPACK.lu) | [`UMFPACK.UmfpackLU`](@ref SparseArrays.UMFPACK.UmfpackLU) | UMFPACK |
 | [`qr`](@ref SparseArrays.SPQR.qr) | [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | SPQR |
 | [`lq`](@ref SparseArrays.SPQR.lq) | [`SPQR.AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse), the adjoint of `qr(A')` | SPQR |
-
-## [Solving linear systems](@id man-sparse-solving)
 
 For a sparse `A` and a dense `b`, `A \ b` picks a method from the structure of `A` and
 returns a dense result. `factorize(A)` makes the same choice and returns the
@@ -888,7 +846,7 @@ julia> qr(A) \ b ≈ [1.0, 2.0, 0.0, 0.0]
 true
 ```
 
-### Reusing a factorization
+#### [Reusing a factorization](@id man-sparse-refactorize)
 
 To solve several systems with one matrix, factorize once. `F \ B` takes a vector or a
 matrix of right-hand sides, and `ldiv!(x, F, b)` writes into `x`.
@@ -938,7 +896,7 @@ julia> F \ b ≈ x / 2
 true
 ```
 
-### Extracting the factors
+#### Extracting the factors
 
 The factorizations permute rows and columns to reduce fill-in, so the factors reproduce a
 permuted `A`. Using `F.L` as if it were a factor of `A` gives wrong answers. Solve with
@@ -969,7 +927,7 @@ julia> C.UP \ (C.PtL \ b) ≈ S \ b
 true
 ```
 
-### Failures
+#### Failures
 
 `cholesky` and `ldlt` take a `Symmetric` or `Hermitian` view, which reads one triangle,
 or a matrix that is itself symmetric or Hermitian. Any other matrix throws an
@@ -986,41 +944,7 @@ julia> issuccess(cholesky(N; check = false)), issuccess(ldlt(N; check = false))
 (false, true)
 ```
 
-```@docs
-SparseArrays.CHOLMOD.Factor
-SparseArrays.CHOLMOD.Sparse
-SparseArrays.CHOLMOD.Dense
-SparseArrays.UMFPACK.UmfpackLU
-SparseArrays.SPQR.QRSparse
-SparseArrays.SPQR.AdjointQRSparse
-SparseArrays.CHOLMOD.cholesky(::Union{SparseArrays.SparseMatrixCSC{T}, SparseArrays.SparseMatrixCSC{Complex{T}}, SparseArrays.LinearAlgebra.Symmetric{T,<:SparseArrays.SparseMatrixCSC}, SparseArrays.LinearAlgebra.Hermitian{Complex{T},<:SparseArrays.SparseMatrixCSC}, SparseArrays.LinearAlgebra.Hermitian{T,<:SparseArrays.SparseMatrixCSC}}) where {T<:Real}
-SparseArrays.CHOLMOD.cholesky!(::SparseArrays.CHOLMOD.Factor, ::SparseArrays.SparseMatrixCSC{Float64})
-SparseArrays.CHOLMOD.lowrankupdate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankupdate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankdowndate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankdowndate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankupdowndate!
-SparseArrays.CHOLMOD.ldlt(::Union{SparseArrays.SparseMatrixCSC{T}, SparseArrays.SparseMatrixCSC{Complex{T}}, SparseArrays.LinearAlgebra.Symmetric{T,<:SparseArrays.SparseMatrixCSC{T}}, SparseArrays.LinearAlgebra.Hermitian{Complex{T},<:SparseArrays.SparseMatrixCSC{Complex{T}}}, SparseArrays.LinearAlgebra.Hermitian{T,<:SparseArrays.SparseMatrixCSC{T}}}) where {T<:Real}
-SparseArrays.CHOLMOD.ldlt!(::SparseArrays.CHOLMOD.Factor, ::SparseArrays.SparseMatrixCSC{Float64})
-SparseArrays.CHOLMOD.rcond
-SparseArrays.SPQR.qr(::SparseArrays.SparseMatrixCSC{Tv,Ti}) where {Ti<:Union{Int32,Int64}, Tv<:Union{Float64,ComplexF64}}
-SparseArrays.SPQR.lq(::SparseArrays.SparseMatrixCSC)
-Base.:\(::SparseArrays.SPQR.QRSparse, ::AbstractVecOrMat)
-Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::AbstractVecOrMat)
-SparseArrays.UMFPACK.lu(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Union{Float64,ComplexF64}, Ti<:Union{Int32,Int64}}
-SparseArrays.UMFPACK.lu!(::SparseArrays.UMFPACK.UmfpackLU, ::SparseArrays.AbstractSparseMatrixCSC)
-SparseArrays.UMFPACK.rcond
-SparseArrays.UMFPACK.UmfpackWS
-SparseArrays.CHOLMOD.CholmodWS
-SparseArrays.SPQR.SpqrWS
-SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
-SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
-Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
-Base.copy(::SparseArrays.SPQR.QRSparse)
-SparseArrays.LibSuiteSparse.init_suitesparse
-```
-
-## Multithreading and thread safety
+### Multithreading and thread safety
 
 A solve (`\` or `ldiv!`, with `F`, `F'` or `transpose(F)`) only reads the factorization and
 takes no lock, and neither do `det`, `logabsdet`, `logdet` and the factor properties. Any
@@ -1070,11 +994,11 @@ structure. SparseArrays creates one lazily for each Julia task (and index type) 
 it in task-local storage, so factorizing different matrices from different tasks needs no
 coordination.
 
-## Tuning the factorizations
+### Tuning the factorizations
 
 The defaults suit most problems. These keywords change them.
 
-### `cholesky` and `ldlt`
+#### `cholesky` and `ldlt`
 
 - `perm`: a permutation of `1:size(A, 1)` to use instead of CHOLMOD's AMD ordering.
   `perm = 1:size(A, 1)` disables reordering, which usually increases fill-in.
@@ -1094,7 +1018,7 @@ julia> issuccess(cholesky(B; check = false)), issuccess(cholesky(B; shift = 1.0)
 (false, true)
 ```
 
-### `lu`
+#### `lu`
 
 - `q`: an initial column ordering, which UMFPACK may still refine. `F.q` is the final one.
 - `control`: UMFPACK's `Control` array. Get the defaults with
@@ -1117,7 +1041,7 @@ F = lu(A; control)
 `SparseArrays.UMFPACK.show_umf_info(F)` prints UMFPACK's statistics for it, such as
 fill-in, flop count and a condition estimate.
 
-### `qr`
+#### `qr`
 
 - `ordering`: the fill-reducing column ordering, one of the `SparseArrays.SPQR.ORDERING_*`
   constants: `DEFAULT` (SPQR's choice), `FIXED` and `NATURAL` (no fill-reducing
@@ -1137,26 +1061,171 @@ julia> rank(qr(A)), rank(qr(A; tol = 1e-8))
 (2, 1)
 ```
 
-## Using a different SuiteSparse build
+### Using a different SuiteSparse build
 
 By default the solvers use the SuiteSparse libraries bundled with Julia. To use another
 build, such as one with GPU support, point SparseArrays at a directory holding all of
 `libsuitesparseconfig`, `libamd`, `libcamd`, `libcolamd`, `libccolamd`, `libcholmod`,
 `libspqr` and `libumfpack`, with the bundled file names and the same major SuiteSparse
-version. Either call `SparseArrays.LibSuiteSparse.set_libdir!(dir)` before the first
-solver call, or set `JULIA_SUITESPARSE_LIBDIR` before starting Julia; `set_libdir!` wins.
+version. Either call
+[`SparseArrays.LibSuiteSparse.set_libdir!(dir)`](@ref SparseArrays.LibSuiteSparse.set_libdir!)
+before the first solver call, or set `JULIA_SUITESPARSE_LIBDIR` before starting Julia; `set_libdir!` wins.
 Packages that call `SuiteSparse_jll` directly are not affected.
+
+```@meta
+DocTestSetup = nothing
+```
+
+## [SparseArrays API](@id stdlib-sparse-arrays)
+
+```@docs
+SparseArrays
+SparseArrays.AbstractSparseArray
+SparseArrays.AbstractSparseVector
+SparseArrays.AbstractSparseMatrix
+SparseArrays.AbstractSparseMatrixCSC
+SparseArrays.AbstractCompressedVector
+SparseArrays.SparseVector
+SparseArrays.SparseMatrixCSC
+SparseArrays.sparse
+SparseArrays.sparse!
+SparseArrays.sparsevec
+Base.similar(::SparseArrays.AbstractSparseMatrixCSC, ::Type)
+SparseArrays.issparse
+SparseArrays.nnz
+SparseArrays.findnz
+SparseArrays.iternz
+SparseArrays.spzeros
+SparseArrays.spzeros!
+SparseArrays.spdiagm
+SparseArrays.sparse_hcat
+SparseArrays.sparse_vcat
+SparseArrays.sparse_hvcat
+SparseArrays.blockdiag
+SparseArrays.sprand
+SparseArrays.sprandn
+SparseArrays.getcolptr
+SparseArrays.getrowval
+SparseArrays.getnzval
+SparseArrays.indtype
+SparseArrays.nonzeros
+SparseArrays.rowvals
+SparseArrays.nzrange
+SparseArrays.droptol!
+SparseArrays.dropzeros!
+SparseArrays.dropzeros
+SparseArrays.dropstored!
+SparseArrays.fkeep!
+SparseArrays.permute
+Base.permute!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::AbstractVector{<:Integer}, ::AbstractVector{<:Integer}) where {Tv,Ti}
+SparseArrays.halfperm!
+SparseArrays.ftranspose!
+SparseArrays.transpose!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+SparseArrays.adjoint!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+Base.sort!(::SparseArrays.AbstractSparseMatrixCSC)
+Base.sort(::SparseArrays.AbstractSparseMatrixCSC)
+Base.sort!(::Union{SparseArrays.AbstractCompressedVector, SparseArrays.SparseColumnView})
+SparseArrays.fixed
+SparseArrays.FixedSparseCSC
+SparseArrays.FixedSparseVector
+SparseArrays.allowscalar
+```
+
+## [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
+
+### Norms
+
+```@docs
+SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
+```
+
+### CHOLMOD
+
+```@docs
+SparseArrays.CHOLMOD.Factor
+SparseArrays.CHOLMOD.Sparse
+SparseArrays.CHOLMOD.Dense
+SparseArrays.CHOLMOD.cholesky(::Union{SparseArrays.SparseMatrixCSC{T}, SparseArrays.SparseMatrixCSC{Complex{T}}, SparseArrays.LinearAlgebra.Symmetric{T,<:SparseArrays.SparseMatrixCSC}, SparseArrays.LinearAlgebra.Hermitian{Complex{T},<:SparseArrays.SparseMatrixCSC}, SparseArrays.LinearAlgebra.Hermitian{T,<:SparseArrays.SparseMatrixCSC}}) where {T<:Real}
+SparseArrays.CHOLMOD.cholesky!(::SparseArrays.CHOLMOD.Factor, ::SparseArrays.SparseMatrixCSC{Float64})
+SparseArrays.CHOLMOD.ldlt(::Union{SparseArrays.SparseMatrixCSC{T}, SparseArrays.SparseMatrixCSC{Complex{T}}, SparseArrays.LinearAlgebra.Symmetric{T,<:SparseArrays.SparseMatrixCSC{T}}, SparseArrays.LinearAlgebra.Hermitian{Complex{T},<:SparseArrays.SparseMatrixCSC{Complex{T}}}, SparseArrays.LinearAlgebra.Hermitian{T,<:SparseArrays.SparseMatrixCSC{T}}}) where {T<:Real}
+SparseArrays.CHOLMOD.ldlt!(::SparseArrays.CHOLMOD.Factor, ::SparseArrays.SparseMatrixCSC{Float64})
+SparseArrays.CHOLMOD.lowrankupdate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
+SparseArrays.CHOLMOD.lowrankupdate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
+SparseArrays.CHOLMOD.lowrankdowndate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
+SparseArrays.CHOLMOD.lowrankdowndate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
+SparseArrays.CHOLMOD.lowrankupdowndate!
+SparseArrays.CHOLMOD.rcond
+SparseArrays.CHOLMOD.CholmodWS
+```
+
+### UMFPACK
+
+```@docs
+SparseArrays.UMFPACK.UmfpackLU
+SparseArrays.UMFPACK.lu(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv<:Union{Float64,ComplexF64}, Ti<:Union{Int32,Int64}}
+SparseArrays.UMFPACK.lu!(::SparseArrays.UMFPACK.UmfpackLU, ::SparseArrays.AbstractSparseMatrixCSC)
+SparseArrays.UMFPACK.rcond
+SparseArrays.UMFPACK.UmfpackWS
+Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
+```
+
+### SPQR
+
+```@docs
+SparseArrays.SPQR.QRSparse
+SparseArrays.SPQR.AdjointQRSparse
+SparseArrays.SPQR.qr(::SparseArrays.SparseMatrixCSC{Tv,Ti}) where {Ti<:Union{Int32,Int64}, Tv<:Union{Float64,ComplexF64}}
+SparseArrays.SPQR.lq(::SparseArrays.SparseMatrixCSC)
+SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
+SparseArrays.SPQR.rank(::SparseArrays.SparseMatrixCSC)
+SparseArrays.SPQR.SpqrWS
+Base.:\(::SparseArrays.SPQR.QRSparse, ::AbstractVecOrMat)
+Base.:\(::SparseArrays.SPQR.AdjointQRSparse, ::AbstractVecOrMat)
+Base.copy(::SparseArrays.SPQR.QRSparse)
+```
+
+### SuiteSparse libraries
 
 ```@docs
 SparseArrays.LibSuiteSparse.set_libdir!
 SparseArrays.LibSuiteSparse.libdir
 ```
 
-```@meta
-DocTestSetup = nothing
+## Internal API
+
+The helpers below are not part of the API: they are unexported and may change or disappear
+in any release. They are documented, incompletely, as a companion to the public API.
+
+```@docs
+SparseArrays.ReadOnly
+SparseArrays.ColumnIndices
+SparseArrays.iswrsparse
+SparseArrays.depth
+SparseArrays.sparse_with_lmul
+SparseArrays.rowcheck_index
+SparseArrays.mergeinds!
+SparseArrays.move_fixed
+SparseArrays._unsafe_unfix
+SparseArrays.@RCI
+SparseArrays._densify!
+SparseArrays.HigherOrderFns._map_zeropres!
+SparseArrays.HigherOrderFns._map_notzeropres!
+SparseArrays._spsetz_setindex!
+SparseArrays._spsetnz_setindex!
+SparseArrays.unchecked_noalias_permute!
+SparseArrays.unchecked_aliasing_permute!
+SparseArrays._computecolptrs_permute!
+SparseArrays._checkargs_sourcecompatperms_permute!
+SparseArrays._checkargs_permutationsvalid_permute!
+SparseArrays._checkargs_sourcecompatdest_permute!
+SparseArrays._checkargs_sourcecompatworkmat_permute!
+SparseArrays._checkargs_sourcecompatworkcolptr_permute!
+SparseArrays._computecolptrs_halfperm!
+SparseArrays._distributevals_halfperm!
+SparseArrays.LibSuiteSparse.init_suitesparse
 ```
 
-# Noteworthy External Sparse Packages
+## Noteworthy External Sparse Packages
 
 Several other Julia packages provide sparse matrix implementations that should be mentioned:
 
