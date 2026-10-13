@@ -836,8 +836,7 @@ setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::In
 
 function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::Union{Integer, AbstractVector{<:Integer}, Colon}, Jx::Union{Integer, AbstractVector{<:Integer}, Colon}) where {Tv,Ti<:Integer}
     require_one_based_indexing(A, V, Ix, Jx)
-    (I, J) = Base.ensure_indexable(to_indices(A, (Ix, Jx)))
-    checkbounds(A, I, J)
+    (I, J) = _lower_indices(A, Ix, Jx)
     @static if VERSION >= v"1.14.0-DEV.3614"
         Base.setindex_shape_check(V, Base.index_sizes(I, J))
     else
@@ -847,9 +846,6 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     B = _to_same_csc(A, V, I, J)
 
     m, n = size(A)
-    if (!isempty(I) && (I[1] < 1 || I[end] > m)) || (!isempty(J) && (J[1] < 1 || J[end] > n))
-        throw(BoundsError(A, (I, J)))
-    end
     if isempty(I) || isempty(J)
         return A
     end
@@ -960,11 +956,12 @@ end
 
 # Logical setindex!
 
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = setindex!(A, Array(x), I, findall(J))
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = setindex!(A, Array(x), findall(I), J)
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = setindex!(A, Array(x), findall(I), findall(J))
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{<:Integer}, J::AbstractVector{Bool}) = setindex!(A, Array(x), I, findall(J))
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{<:Integer}) = setindex!(A, Array(x), findall(I), J)
+# `findall` drops the length of a mask, so the bounds are checked first
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = (checkbounds(A, I, J); setindex!(A, Array(x), I, findall(J)))
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = (checkbounds(A, I, J); setindex!(A, Array(x), findall(I), J))
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = (checkbounds(A, I, J); setindex!(A, Array(x), findall(I), findall(J)))
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{<:Integer}, J::AbstractVector{Bool}) = (checkbounds(A, I, J); setindex!(A, Array(x), I, findall(J)))
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{<:Integer}) = (checkbounds(A, I, J); setindex!(A, Array(x), findall(I), J))
 
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatrix{Bool})
     require_one_based_indexing(A, x, I)
@@ -1241,16 +1238,16 @@ function dropstored!(A::AbstractSparseMatrixCSC,
         I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
     require_one_based_indexing(A, I, J)
     _checkpatternwritable(A, :dropstored!)
-    m, n = size(A)
+    I, J = _lower_indices(A, I, J)   # checks the bounds, and turns a mask into indices
+    # the kernel reads the indices while it compacts the storage
+    I = _unalias_setindex(A, I)
+    J = _unalias_setindex(A, J)
+    n = size(A, 2)
     nnzA = nnz(A)
     (nnzA == 0) && (return A)
 
     !issorted(I) && (I = sort(I))
     !issorted(J) && (J = sort(J))
-
-    if (!isempty(I) && (I[1] < 1 || I[end] > m)) || (!isempty(J) && (J[1] < 1 || J[end] > n))
-        throw(BoundsError(A, (I, J)))
-    end
 
     if isempty(I) || isempty(J)
         return A
