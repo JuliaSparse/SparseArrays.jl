@@ -223,6 +223,22 @@ end
     end
 end
 
+@testset "symmetric/Hermitian sparse mul! into a dense destination" begin
+    isdefined(Main, :Quaternions) ||
+        Base.include(Main, joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testhelpers", "Quaternions.jl"))
+    Quaternion = Main.Quaternions.Quaternion
+    q(v) = [Quaternion(a, a + 1, 2a - 1, 3 - a) for a in v]
+    # `alpha` multiplies from the right, as in `A*B*alpha`
+    W = Hermitian(sparse(reshape(q(1.0:9.0), 3, 3)))
+    B = reshape(q(-2.0:3.0), 3, 2)
+    α = Quaternion(0.5, -1.0, 2.0, 1.5)
+    @test mul!(zeros(eltype(B), 3, 2), W, B, α, false) ≈ Matrix(W) * B * α
+    # `alpha === false` is a strong zero, so a NaN in `B` does not reach `C`
+    @test mul!(ones(2, 2), Symmetric(sparse([1.0 2; 3 4])), [NaN 1; 1 1], false, 1.0) == ones(2, 2)
+    # the scalars keep their own type, so an integer destination takes any result it can hold
+    @test mul!(zeros(Int, 2, 2), Symmetric(sparse([1 2; 3 4])), [2 2; 4 4], 0.5, 1) == [5 5; 10 10]
+end
+
 @testset "Symmetric of view of sparse matrix mul! dense vector" begin
     rng = Random.MersenneTwister(1)
     n = 1000
