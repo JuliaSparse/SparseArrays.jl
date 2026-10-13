@@ -766,6 +766,19 @@ end
         end
     end
 
+    @testset "masks of the wrong length" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Matrix(A)
+        for (I, J) in (([true], 1), ([true, false, false], 1), (1, [true, false]),
+                       ([true], [true, false, true]), ([1, 2], [true, false]), ([true], [1]))
+            S = copy(A)
+            @test_throws BoundsError S[I, J] = fill(9.0, count(!iszero, I), count(!iszero, J))
+            @test S == A && nnz(S) == nnz(A)
+            M = copy(D)
+            @test_throws BoundsError M[I, J] = sparse(fill(9.0, count(!iszero, I), count(!iszero, J)))
+            @test M == D
+        end
+    end
+
     @testset "heap-allocated zero (#389)" begin
         for T in (BigFloat, Complex{BigFloat})
             A = spzeros(T, 3, 3)
