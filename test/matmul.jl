@@ -209,6 +209,32 @@ end
 end
 
 @static if COMPREHENSIVE
+@testset "products with a wrapped operand follow the dense or banded factor" begin
+    S = sparse(ComplexF64[1 2+3im 1im; 0 5 2-im; 3+im 0 7])
+    D = Matrix(S) .+ 1
+    H = Hermitian(S + S')
+    x = sparsevec([1.0 + im, 0, 2])
+    banded = (Bidiagonal([1.0, 2, 3], [4.0, 5], :U), Tridiagonal(real(D)), SymTridiagonal([1.0, 2, 3], [4.0, 5]))
+    # sparse times banded stays sparse on either side
+    for A in (UpperTriangular(S)', transpose(UnitLowerTriangular(S)), transpose(H), Symmetric(S)',
+              view(S, [2, 1, 3], :)), B in banded
+        # a triangle that the product keeps is wrapped around the sparse result
+        for (P, Pd) in ((A * B, Matrix(A) * B), (B * A, B * Matrix(A)))
+            @test mismatch(P isa LinearAlgebra.AbstractTriangular ? parent(P) : P, Pd; approx=true) === nothing
+        end
+    end
+    # sparse times dense is dense on either side
+    for A in (transpose(H), Symmetric(S)'), B in (D, Symmetric(D), Hermitian(D + D'))
+        @test (A * B)::Matrix{ComplexF64} ≈ Matrix(A) * B
+        @test (B * A)::Matrix{ComplexF64} ≈ B * Matrix(A)
+    end
+    for A in (UpperTriangular(D)', transpose(UnitLowerTriangular(D)), Symmetric(D)', transpose(Hermitian(D + D')))
+        @test (A * x)::Vector{ComplexF64} ≈ Matrix(A) * Vector(x)
+    end
+end
+end
+
+@static if COMPREHENSIVE
 @testset "Symmetric of sparse matrix mul! dense vector" begin
     n = 1000
     p = 0.02

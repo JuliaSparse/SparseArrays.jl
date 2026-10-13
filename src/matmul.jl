@@ -40,13 +40,13 @@ end
 
 matop_dest(::typeof(*), A::QuasiStridedMatrix, b::AbstractSparseVector) =
     Vector{promote_op(matprod, eltype(A), eltype(b))}(undef, size(A, 1))
-matop_dest(::typeof(*), A, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A, B::QuasiSparseMatrix) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
 # sparse products with banded matrices should return sparse arrays
-matop_dest(::typeof(*), A::BiTriSym, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A::BiTriSym, B::QuasiSparseMatrix) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 # needed for disambiguation with LinearAlgebra
-matop_dest(::typeof(*), A::Diagonal, B::Union{QuasiSparseMatrix,SparseMatrixCSCSubArray,SparseAdjOrTransTriangular}) =
+matop_dest(::typeof(*), A::Diagonal, B::QuasiSparseMatrix) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))
 matop_dest(::typeof(*), A::Diagonal, B::AbstractSparseMatrixCSC) =
     similar(B, promote_op(matprod, eltype(A), eltype(B)), size(B))

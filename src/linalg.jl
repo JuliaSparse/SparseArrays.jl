@@ -417,10 +417,13 @@ matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, b::AbstractSparseVect
     Vector{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(b))}(undef, length(b))
 matop_dest(::typeof(\), A::Diagonal, b::AbstractSparseVector) =
     similar(b , promote_op(\, eltype(A), eltype(b)))
+# solves return dense
 matop_dest(::typeof(\), A, B::QuasiSparseMatrix) =
     Matrix{promote_op(\, eltype(A), eltype(B))}(undef, size(B))
+# a `Diagonal` keeps the structure of the sparse operand, and its triangle
 matop_dest(::typeof(\), A::Diagonal, B::QuasiSparseMatrix) =
-    similar(B , promote_op(\, eltype(A), eltype(B)), size(B))
+    B isa SparseAdjOrTransTriangular ? similar(B, promote_op(\, eltype(A), eltype(B))) :
+                                       similar(B, promote_op(\, eltype(A), eltype(B)), size(B))
 matop_dest(::typeof(\), A::UnitUpperOrUnitLowerTriangular, B::QuasiSparseMatrix) =
     Matrix{LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))}(undef, size(B))
 matop_dest(::typeof(/), A::QuasiSparseMatrix, B) =
@@ -428,7 +431,8 @@ matop_dest(::typeof(/), A::QuasiSparseMatrix, B) =
 matop_dest(::typeof(/), A::QuasiSparseMatrix, B::UnitUpperOrUnitLowerTriangular) =
     Matrix{LinearAlgebra._inner_type_promotion(/, eltype(A), eltype(B))}(undef, size(A))
 matop_dest(::typeof(/), A::QuasiSparseMatrix, B::Diagonal) =
-    similar(A , promote_op(/, eltype(A), eltype(B)), size(A))
+    A isa SparseAdjOrTransTriangular ? similar(A, promote_op(/, eltype(A), eltype(B))) :
+                                       similar(A, promote_op(/, eltype(A), eltype(B)), size(A))
 ## end of triangular
 
 # symmetric/Hermitian
