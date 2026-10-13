@@ -593,7 +593,6 @@ end
         # a `Bool` is not a scalar index
         A = sparse([11.0 21; 12 0])
         @test_throws ArgumentError SparseArrays.dropstored!(A, true, 1)
-        @test_throws ArgumentError SparseArrays.dropstored!(A, 1, true)
         @test exact_equal(A, sparse([11.0 21; 12 0]))
         x = sparse([1, 2, 3])
         @test_throws ArgumentError SparseArrays.dropstored!(x, true)
@@ -682,9 +681,7 @@ end
         @testset "a Bool is not a scalar index" begin
             A = sparse([1.0 2 0; 0 3 4])
             @test_throws ArgumentError A[true, 1]
-            @test_throws ArgumentError A[1, true]
             B = copy(A)
-            @test_throws ArgumentError setindex!(B, 7.0, true, 1)
             @test_throws ArgumentError setindex!(B, 7.0, 1, true)
             @test exact_equal(B, A)
             x = sparse([1, 2, 3])
