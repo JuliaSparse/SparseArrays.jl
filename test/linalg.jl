@@ -218,6 +218,14 @@ end
     MAi = Array(Ai)
     end
     @test opnorm(Ac,1) ≈ opnorm(MAc,1)
+    @static if COMPREHENSIVE
+    # only the 1, 2 and Inf norms exist, for an empty matrix as well
+    for A in (Ac, spzeros(0, 0), spzeros(3, 0), spzeros(1, 4), spzeros(4, 1))
+        @test_throws ArgumentError opnorm(A, 3)
+        @test_throws ArgumentError opnorm(Matrix(A), 3)
+    end
+    @test opnorm(spzeros(0, 0), 1) === opnorm(zeros(0, 0), 1) === 0.0
+    end
     @test opnorm(Ac,Inf) ≈ opnorm(MAc,Inf)
     @test norm(Ac) ≈ norm(MAc)
     @static if COMPREHENSIVE
