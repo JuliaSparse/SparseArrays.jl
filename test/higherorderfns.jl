@@ -887,6 +887,29 @@ end
     end
 end
 
+@static if COMPREHENSIVE
+@testset "broadcast! and map! leave a valid destination when `f` throws" begin
+    A = sparse([1.0 0 0; 0 2.0 0; 0 0 3.0])
+    boom = (x, y) -> x == 2 ? error("boom") : x + y
+    for B in (copy(A), A[:, 1])   # the `map!` dispatcher, and the `broadcast!` one for another shape
+        C = copy(A)
+        @test_throws ErrorException C .= boom.(A, B)
+        @test nnz(C) == 0 && iszero(Array(C))
+    end
+    # one argument with the pattern of the destination: partly written, as a dense one is
+    C = copy(A)
+    @test_throws ErrorException C .= (x -> x == 2 ? error("boom") : 2x).(C)
+    @test mismatch(C, [2.0 0 0; 0 2.0 0; 0 0 3.0]) === nothing
+    # a function that fills the zeros throws after every entry was stored
+    C = copy(A)
+    @test_throws ErrorException map!(x -> x == 2 ? error("boom") : x + 1, C, A)
+    @test nnz(C) == 0 && iszero(Array(C))
+    calls = Ref(0)
+    @test_throws ErrorException C .= (() -> (calls[] += 1) > 2 ? error("boom") : 1.0).()
+    @test nnz(C) == 0 && iszero(Array(C))
+end
+end
+
 @testset "aliasing and indexed assignment or broadcast!" begin
     A = sparsevec([0, 0, 1, 1])
     B = sparsevec([1, 1, 0, 0])
