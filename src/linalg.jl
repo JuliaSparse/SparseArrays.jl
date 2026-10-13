@@ -1735,6 +1735,7 @@ norm(A::AbstractSparseMatrixCSC, p::Real=2) = norm(view(nonzeros(A), 1:nnz(A)), 
 
 function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
     m, n = size(A)
+    p in (1, 2, Inf) || throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, Inf"))
     if m == 0 || n == 0 || isempty(A)
         return float(real(zero(eltype(A))))
     elseif m == 1

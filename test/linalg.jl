@@ -294,6 +294,8 @@ end
     Ai = ceil.(Int, Ar*100)
     MAi = Array(Ai)
     @test opnorm(Ac,1) ≈ opnorm(MAc,1)
+    # only the 1, 2 and Inf norms exist, for an empty matrix as well
+    @test_throws ArgumentError opnorm(spzeros(0, 0), 3)
     @test opnorm(Ac,Inf) ≈ opnorm(MAc,Inf)
     @test norm(Ac) ≈ norm(MAc)
     @test opnorm(Ar,1) ≈ opnorm(MAr,1)
