@@ -8,9 +8,9 @@ EditURL = "https://github.com/JuliaSparse/SparseArrays.jl/blob/main/docs/src/ind
 DocTestSetup = :(using SparseArrays, LinearAlgebra)
 ```
 
-The `SparseArrays` stdlib module provides sparse vectors and [sparse
-matrices](https://en.wikipedia.org/wiki/Sparse_matrix): arrays with enough zeros that
-storing only the other entries saves space and time compared to dense arrays.
+The `SparseArrays` stdlib module provides sparse vectors and
+[sparse matrices](https://en.wikipedia.org/wiki/Sparse_matrix): arrays with enough zeros
+that storing only the other entries saves space and time compared to dense arrays.
 
 ```@contents
 Pages = ["index.md", "SparseArrays.md"]
@@ -38,8 +38,8 @@ end
 
 CSC storage makes access to the entries of a column fast, and access by row considerably
 slower. Inserting previously unstored entries one at a time is slow as well, because every
-entry beyond the point of insertion has to be moved one place over. See [Performance
-tips](@ref man-sparse-performance).
+entry beyond the point of insertion has to be moved one place over. See
+[Performance tips](@ref man-sparse-performance).
 
 Data in CSC format from another application or library can be wrapped directly with
 `SparseMatrixCSC(m, n, colptr, rowval, nzval)`. The arrays are not copied, so the matrix
@@ -142,8 +142,8 @@ julia> spzeros(3)
 ```
 
 [`sparse`](@ref) builds a sparse matrix from a vector `I` of row indices, a vector `J` of
-column indices and a vector `V` of stored values, known as the [COO (coordinate)
-format](https://en.wikipedia.org/wiki/Sparse_matrix#Coordinate_list_.28COO.29):
+column indices and a vector `V` of stored values, known as the
+[COO (coordinate) format](https://en.wikipedia.org/wiki/Sparse_matrix#Coordinate_list_.28COO.29):
 `sparse(I,J,V)` returns `S` such that `S[I[k], J[k]] = V[k]`. Its vector equivalent
 [`sparsevec`](@ref) takes the index vector `I` and the values `V`, and returns `R` such that
 `R[I[k]] = V[k]`.
