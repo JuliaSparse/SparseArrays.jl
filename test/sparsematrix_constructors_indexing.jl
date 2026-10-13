@@ -766,6 +766,12 @@ end
         end
     end
 
+    @testset "fill! through a view with decreasing ranges" begin
+        S = sparse([1.0 2 0; 0 3 4; 5 0 6]); E = Matrix(S)
+        fill!(view(S, 3:-1:2, 3:-1:1), 7.0); fill!(view(E, 3:-1:2, 3:-1:1), 7.0)
+        @test S == E
+    end
+
     @testset "a Bool unit range is a mask" begin
         M = sparse([1.0 2 0; 0 3 4])
         @test M[false:true, 2] == Array(M)[false:true, 2] && M[false:true, 2] isa SparseVector
