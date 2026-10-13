@@ -147,6 +147,9 @@ include("testhelpers.jl")
         @test A[to_indices(A, (m,))...] == Array(A)[m]
         @static if COMPREHENSIVE
         @test A[to_indices(A, (vec(m),))...] == Array(A)[m]
+        # a vector of `CartesianIndex{1}` indexes a row or a column, as for a dense matrix
+        C = sparse([1.0 2 0; 0 3 4]); D = Array(C)
+        @test mismatch(C[[CartesianIndex(1)], [1, 2]], D[[CartesianIndex(1)], [1, 2]]) === nothing
         end
         @test A[1:2, :][false:true, c] == Array(A)[1:2, :][false:true, c]
         @test which(getindex, typeof.((x, AllBut(2)))).module === SparseArrays

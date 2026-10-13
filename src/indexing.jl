@@ -26,8 +26,11 @@ end
 @inline function _lower_indices(A, I...)
     L = to_indices(A, I)
     @boundscheck checkbounds(A, L...)
-    return Base.ensure_indexable(L)
+    return map(_integer_indices, Base.ensure_indexable(L))
 end
+# `to_indices` leaves an array of `CartesianIndex{1}` as it is; the kernels compare integers
+_integer_indices(I) = I
+_integer_indices(I::AbstractArray{CartesianIndex{1}}) = map(first ∘ Tuple, I)
 
 # Index types no method below matches (`CartesianIndex`, custom indices) are lowered and
 # dispatched again; indices that are already lowered fall back to Base.
