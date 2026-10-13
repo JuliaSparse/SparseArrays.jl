@@ -223,6 +223,12 @@ end
             @test mismatch(P isa LinearAlgebra.AbstractTriangular ? parent(P) : P, Pd; approx=true) === nothing
         end
     end
+    # from the stored entries of both factors, not LinearAlgebra's kernel over every entry
+    for A in (S, UpperHessenberg(S), view(S, [2, 1, 3], :))
+        @test which(*, typeof.((A, banded[1]))).module === SparseArrays
+        @test which(*, typeof.((banded[2], A))).module === SparseArrays
+    end
+    @test UpperHessenberg(S) * banded[2] == Matrix(UpperHessenberg(S)) * banded[2]
     # sparse times dense is dense on either side
     for A in (transpose(H), Symmetric(S)'), B in (D, Symmetric(D), Hermitian(D + D'))
         @test (A * B)::Matrix{ComplexF64} ≈ Matrix(A) * B

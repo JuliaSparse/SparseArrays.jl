@@ -60,6 +60,16 @@ function _adjtrans_dest(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, ::Type{T
 end
 matop_dest(::typeof(*), A::QuasiSparseMatrix, B::BiTriSym) =
     similar(A, promote_op(matprod, eltype(A), eltype(B)), (size(A, 1), size(B, 2)))
+# A banded factor has O(n) entries, so the product is formed from the stored entries of both
+# factors; LinearAlgebra's kernel for a banded factor visits every entry of the other one.
+*(A::QuasiSparseMatrix, B::BiTriSym) = _bandedmul(A, B)
+*(A::BiTriSym, B::QuasiSparseMatrix) = _bandedmul(A, B)
+_bandedmul(A, B) = LinearAlgebra.postop_proc(*, _bandedfactor(A) * _bandedfactor(B), A, B)
+_bandedfactor(A::AbstractSparseMatrixCSC) = A
+_bandedfactor(A::UpperHessenberg) = _sparsehessenberg(A)
+_bandedfactor(A) = convert(SparseMatrixCSC, A)
+# the generic conversion of an `UpperHessenberg` visits every entry
+_sparsehessenberg(A::UpperHessenberg) = triu(convert(SparseMatrixCSC, parent(A)), -1)
 
 
 # The dense factor arrives with its adjoint/transpose/symmetric/Hermitian wrapper stripped,
