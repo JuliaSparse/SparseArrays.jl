@@ -63,6 +63,22 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
             end
         end
     end
+    # sparse factors that the product kernels cannot read in place, a triangle and an
+    # `UpperHessenberg`, of a matrix and of a view of permuted columns
+    @testset "materialized sparse factors" begin
+        S = _sparse_test_matrix(n, Float64)
+        V = view(S, :, [2, 1, 3, 5, 4])
+        T = _triangular_test_matrix(n, UpperTriangular, Float64)
+        for W in (UpperTriangular(S), UnitUpperTriangular(S), UnitLowerTriangular(S), UpperHessenberg(S),
+                  UpperTriangular(V), UnitLowerTriangular(V), Symmetric(V), UpperHessenberg(V))
+            D = typeof(W).name.wrapper(Matrix(parent(W)))
+            @test Matrix(W * T) ≈ D * T
+            @test mul!(ones(n, n), W, T, 2.0, 3.0) ≈ mul!(ones(n, n), D, T, 2.0, 3.0)
+        end
+        @test UnitUpperTriangular(S) * T isa UpperTriangular{Float64,Matrix{Float64}}
+        @test mul!(zeros(n, n), UnitUpperTriangular(S), UpperTriangular(S)) ≈
+            UnitUpperTriangular(Matrix(S)) * UpperTriangular(Matrix(S))
+    end
     end
 end
 
