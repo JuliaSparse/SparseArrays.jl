@@ -526,6 +526,8 @@ end
     end
     # a run of unstored entries has the type `op` gives it, not that of `f(0)`
     @test mapreduce(!iszero, (a, b) -> a + b, sparse([0.0 0.0 0.0 1.0])) === 1
+    # `op` is not called on two copies of `f(0)` when no two unstored entries are adjacent
+    @test mapreduce(v -> fill(v, 2, 3), *, spzeros(1)) == zeros(2, 3)
     # `|` and `&` commute for one array and for two
     @test SparseArrays._commutes(!iszero, |, Float64) && SparseArrays._commutes(>, &, Float64, Float64)
 end

@@ -91,7 +91,7 @@ function _mapreduce_ordered(f::F, op::G, A::SparseMatrixCSCOrColumnSubset{T}) wh
     rf = Base.BottomRF(op)
     rowval, nzval = getrowval(A), getnzval(A)
     m = size(A, 1)
-    z, idem = _unstoredvalue(f, op, T)
+    z, idem = _unstoredvalue(f, op, T, nnz(A), 1, widelength(A))
     v = Base._InitialValue()
     unstored = Int64(0)   # unstored positions since the last stored one
     @inbounds for col in axes(A, 2)
@@ -108,7 +108,7 @@ end
 function _mapreduce_ordered(f::F, op::G, A::SparseVectorOrView{T}) where {F,G,T}
     rf = Base.BottomRF(op)
     nzind, nzval = nonzeroinds(A), nonzeros(A)
-    z, idem = _unstoredvalue(f, op, T)
+    z, idem = _unstoredvalue(f, op, T, nnz(A), 1, length(A))
     v = Base._InitialValue()
     prev = 0
     @inbounds for k in eachindex(nzind, nzval)
@@ -120,15 +120,19 @@ function _mapreduce_ordered(f::F, op::G, A::SparseVectorOrView{T}) where {F,G,T}
     return n == 0 ? v : rf(v, _foldunstored(op, z, idem, n))
 end
 # `f(0)` as `op` first sees it, and whether folding it with itself leaves it as it is, in
-# value and in type, which makes a run of any length that one value
-function _unstoredvalue(f::F, op::G, ::Type{T}) where {F,G,T}
+# value and in type, which makes a run of any length that one value. That is asked only when
+# two unstored entries are sure to be adjacent, as `nslices` slices of length `len` that
+# store `nstored` entries between them are too sparse to keep theirs apart: `op(z, z)` is
+# not part of a reduction whose unstored entries all stand alone, and might throw.
+function _unstoredvalue(f::F, op::G, ::Type{T}, nstored::Integer, nslices::Integer, len::Integer) where {F,G,T}
     z = Base.reduce_first(op, f(zero(T)))
+    2 * Int128(nstored) < Int128(nslices) * (Int128(len) - 1) || return z, nothing
     zz = op(z, z)
     return z, typeof(zz) === typeof(z) && isequal(zz, z)
 end
 # `z` folded over `n > 0` consecutive positions, in O(log(n)) calls of `op`
-@inline function _foldunstored(op::G, z, idem::Bool, n) where {G}
-    (idem || n == 1) && return z
+@inline function _foldunstored(op::G, z, idem::Union{Nothing,Bool}, n) where {G}
+    (idem === true || n == 1) && return z
     p = r = z
     n -= 1
     while n > 0
@@ -139,7 +143,7 @@ end
     return r
 end
 # the stored value `x` with the `n` unstored positions before it folded in
-@inline _afterunstored(op::G, z, idem::Bool, n, x) where {G} = n == 0 ? x : op(_foldunstored(op, z, idem, n), x)
+@inline _afterunstored(op::G, z, idem::Union{Nothing,Bool}, n, x) where {G} = n == 0 ? x : op(_foldunstored(op, z, idem, n), x)
 
 # Specialized mapreduce for +/*/min/max/_extrema_rf. The entries a sparse array does not
 # store are folded in at once, as `reduce_first` of `f(0)` (an `Int` for `sum` and `prod` of
@@ -592,7 +596,7 @@ function _mapreducerows_ordered!(f::F, op::G, R::AbstractArray, A::SparseMatrixC
     require_one_based_indexing(A, R)
     rowval, nzval = getrowval(A), getnzval(A)
     m = size(A, 1)
-    z, idem = _unstoredvalue(f, op, T)
+    z, idem = _unstoredvalue(f, op, T, nnz(A), size(A, 2), m)
     @inbounds for col in axes(A, 2)
         r = R[1, col]
         prev = 0
@@ -609,7 +613,7 @@ function _mapreducecols_ordered!(f::F, op::G, R::AbstractArray, A::SparseMatrixC
     require_one_based_indexing(A, R)
     rowval, nzval = getrowval(A), getnzval(A)
     m, n = size(A)
-    z, idem = _unstoredvalue(f, op, T)
+    z, idem = _unstoredvalue(f, op, T, nnz(A), m, n)
     lastcol = zeros(Int, m)   # the last column folded into each row
     @inbounds for col in axes(A, 2), j in getnzrange(A, col)
         row = rowval[j]
