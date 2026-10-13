@@ -112,8 +112,7 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
         _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc in ('S', 'H')
         rangefun, diagop, odiagop = _symherm_ops(tA)
-        T = eltype(C)
-        _symherm_mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), T(alpha), T(beta))
+        _symherm_mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), alpha, beta)
     else
         LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
     end
@@ -651,31 +650,33 @@ function _mattrimul!(C, upper::Bool, unit::Bool, f::Function, X, B)
 end
 
 
-function _symherm_mul!(rangefun::Function, diagop::Function, odiagop::Function, C::StridedVecOrMat{T}, A, B, α, β) where T
+function _symherm_mul!(rangefun::R, diagop::D, odiagop::O, C::StridedVecOrMat, A, B, α::Number, β::Number) where {R<:Function,D<:Function,O<:Function}
     n = size(A, 2)
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
     rv = getrowval(A)
     nzv = getnzval(A)
-    let z = T(0), sumcol=z, αxj=z, aarc=z, α = α
-        isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-        @inbounds for k in axes(B,2)
-            for col in axes(B,1)
-                αxj = B[col,k] * α
-                sumcol = z
-                for j = rangefun(A, col)
-                    row = rv[j]
-                    aarc = nzv[j]
-                    if row == col
-                        sumcol += diagop(aarc) * B[row,k]
-                    else
-                        C[row,k] += aarc * αxj
-                        sumcol += odiagop(aarc) * B[row,k]
-                    end
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
+    z = zero(eltype(C))
+    @inbounds for k in axes(B,2)
+        for col in axes(B,1)
+            αxj = α isa Bool ? B[col,k] : B[col,k] * α
+            sumcol = z
+            for j = rangefun(A, col)
+                row = rv[j]
+                aarc = nzv[j]
+                if row == col
+                    sumcol += diagop(aarc) * B[row,k]
+                else
+                    C[row,k] += aarc * αxj
+                    sumcol += odiagop(aarc) * B[row,k]
                 end
-                C[col,k] += α * sumcol
             end
+            C[col,k] += α isa Bool ? sumcol : sumcol * α
         end
     end
 end

@@ -251,6 +251,29 @@ end
 end
 
 @static if COMPREHENSIVE
+@testset "symmetric/Hermitian sparse mul! into a dense destination" begin
+    Quaternion = quaternion_type()
+    q(i) = Quaternion.(eachcol(fixturedense(Float64, i, 4))...)
+    # `alpha` multiplies from the right, as in `A*B*alpha`
+    H = sparse(reshape(q(9), 3, 3))
+    B = reshape(q(6), 3, 2)
+    α = q(1)[1]
+    for W in (Hermitian(H, :U), Symmetric(H, :L))
+        @test mul!(zeros(eltype(B), 3, 2), W, B, α, false) ≈ Matrix(W) * B * α
+        @test mul!(zeros(eltype(B), 3), W, B[:, 1], α, false) ≈ Matrix(W) * B[:, 1] * α
+    end
+    # `alpha === false` is a strong zero, so a NaN in `B` does not reach `C`
+    S = Symmetric(sparse([1.0 2; 3 4]))
+    @test mul!(ones(2, 2), S, [NaN 1; 1 1], false, 1.0) == ones(2, 2)
+    @test mul!(ones(2), S, [NaN, 1], false, 2.0) == [2.0, 2.0]
+    # the scalars keep their own type, so an integer destination takes any result it can hold
+    Si = Symmetric(sparse([1 2; 3 4]))
+    @test mul!(zeros(Int, 2, 2), Si, [2 2; 4 4], 0.5, 1) == [5 5; 10 10]
+    @test mul!(ones(Int, 2, 2), Si, [2 2; 4 4], 0.5, 1) == mul!(ones(Int, 2, 2), Symmetric([1 2; 3 4]), [2 2; 4 4], 0.5, 1)
+end
+end
+
+@static if COMPREHENSIVE
 @testset "Dense times symmetric/Hermitian sparse matrix multiplication" begin
     @static if COMPREHENSIVE
     A = [1 3; 2 4]
