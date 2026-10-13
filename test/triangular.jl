@@ -197,6 +197,21 @@ begin
         @test_throws SingularException(1) LowerTriangular(Al) \ ones(2)
         @test UnitUpperTriangular(Au) \ ones(2) == [-1.0, 1.0]
         @test UnitLowerTriangular(Al) \ ones(2) == [1.0, -1.0]
+        @static if COMPREHENSIVE
+        # a stored zero on the diagonal is singular as well, in the column and the row sweep
+        Az = SparseMatrixCSC(2, 2, [1, 2, 4], [1, 1, 2], [1.0, 2.0, 0.0])
+        @test_throws SingularException(2) UpperTriangular(Az) \ ones(2)
+        @test_throws SingularException(2) UpperTriangular(Az)' \ ones(2)
+        # solving in place finds the first singular column before it overwrites the
+        # right-hand side
+        T = UpperTriangular(sparse([1.0 2 3; 0 0 4; 0 0 0]))
+        C = ones(3, 3)
+        @test_throws SingularException(2) ldiv!(T, C)
+        @test C == ones(3, 3)
+        # the other forms report the same column, with no right-hand side as well
+        @test_throws SingularException(2) T \ ones(3)
+        @test_throws SingularException(2) T \ ones(3, 0)
+        end
     end
     # a transpose of an adjoint is a conjugate, which the solve applies to the stored values
     ad = copy(a)
