@@ -516,6 +516,21 @@ end
         end
     end
 
+    @static if COMPREHENSIVE
+    @testset "masks of the wrong length" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Matrix(A)
+        for (I, J) in (([true], 1), ([true, false, false], 1), (1, [true, false]),
+                       ([true], [true, false, true]), ([1, 2], [true, false]), ([true], [1]))
+            S = copy(A)
+            @test_throws BoundsError S[I, J] = fill(9.0, count(!iszero, I), count(!iszero, J))
+            @test exact_equal(S, A)
+            M = copy(D)
+            @test_throws BoundsError M[I, J] = sparse(fill(9.0, count(!iszero, I), count(!iszero, J)))
+            @test M == D
+        end
+    end
+    end
+
     @testset "signed zero in scalar setindex! (#389)" begin
         A = spzeros(2, 2)
         A[1, 1] = -0.0
