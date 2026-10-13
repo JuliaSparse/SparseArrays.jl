@@ -260,6 +260,18 @@ end
         @test mismatch(A, D) === nothing && nnz(A) == 7
     end
 
+    @static if COMPREHENSIVE
+    @testset "decreasing ranges through a view" begin
+        S = sparse([1.0 2 0; 0 3 4; 5 0 6]); E = Matrix(S)
+        S[3:-1:1, 1] .= 0.0; E[3:-1:1, 1] .= 0.0
+        @test mismatch(S, E) === nothing
+        S[:, 3:-2:1] .= 2.0; E[:, 3:-2:1] .= 2.0
+        @test mismatch(S, E) === nothing
+        fill!(view(S, 3:-1:2, 3:-1:1), 7.0); fill!(view(E, 3:-1:2, 3:-1:1), 7.0)
+        @test mismatch(S, E) === nothing
+    end
+    end
+
     @testset "-0.0 handling in non-scalar setindex" begin
         negzeros(A) = count(v -> iszero(v) && signbit(v), nonzeros(A))
         A = spzeros(3, 3); A[1:2, 2:3] = fill(-0.0, 2, 2)
