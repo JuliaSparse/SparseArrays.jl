@@ -650,6 +650,27 @@ _strictlysorted(I::AbstractRange) = step(I) > zero(step(I)) ? I : step(I) < zero
 # lt=≤ to check for strict sorting
 _strictlysorted(I::AbstractVector) = issorted(I, lt=≤) ? I : unique!(sort!(collect(I)))
 
+# `A[I] .= x` for linear indices or a mask `I`, which `view` turns into a view of a reshaped
+# `A` or into a vector of `CartesianIndex`. The scalar method stores one entry at a time, so
+# whether the result fits the index type is checked for all of them first.
+Base.fill!(V::SubArray{Tv, 1, <:Base.ReshapedArray{Tv, 1, <:AbstractSparseMatrixCSC{Tv}}, <:Tuple{AbstractVector{<:Integer}}}, x) where Tv =
+    (_fill_scattered!(parent(parent(V)), V.indices[1], x); V)
+Base.fill!(V::SubArray{Tv, 1, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{AbstractVector{CartesianIndex{2}}}}, x) where Tv =
+    (_fill_scattered!(parent(V), V.indices[1], x); V)
+function _fill_scattered!(A::AbstractSparseMatrixCSC{Tv,Ti}, I, x) where {Tv,Ti}
+    x = convert(Tv, x)
+    if !_is_fixed(A) && !_isimplicitzero(x, Tv) && !_nnzfits(Ti, nnz(A) + length(I))
+        _checknnzfits(Ti, nnz(A) + count(i -> !Base.isstored(A, _scatteredrowcol(A, i)...), unique(I)))
+    end
+    for i in I
+        row, col = _scatteredrowcol(A, i)
+        A[row, col] = x
+    end
+    return A
+end
+_scatteredrowcol(A, i::Integer) = Tuple(CartesianIndices(A)[i])
+_scatteredrowcol(A, i::CartesianIndex{2}) = Tuple(i)
+
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
     A = parent(V)
     I, J = V.indices

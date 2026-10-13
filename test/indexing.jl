@@ -432,6 +432,8 @@ end
     S = mk()
     @test_throws ArgumentError S[1:144] = ones(144)
     @test exact_equal(S, mk())
+    @test_throws ArgumentError S[trues(12, 12)] .= 1.0
+    @test exact_equal(S, mk())
     # of a repeated index only the last write is stored, so 240 values make 122 entries
     S = mk(); S[[1:10; 1:10], :] = ones(20, 12)
     @test mismatch(S, E; Ti=Int8) === nothing
@@ -440,6 +442,8 @@ end
     @test_throws ArgumentError fill!(view(S, :, :), 1.0)
     @test exact_equal(S, mk())
     S = mk(); S[findall(!iszero, vec(E))] = ones(122)
+    @test mismatch(S, E; Ti=Int8) === nothing
+    S = mk(); S[findall(!iszero, vec(E))] .= 1.0
     @test mismatch(S, E; Ti=Int8) === nothing
     S = mk()
     @test_throws ArgumentError S[:, :] = sparse(ones(12, 12))
