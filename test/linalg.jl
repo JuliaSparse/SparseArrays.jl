@@ -239,6 +239,24 @@ end
     @test mul!(zeros(Int, 2, 2), Symmetric(sparse([1 2; 3 4])), [2 2; 4 4], 0.5, 1) == [5 5; 10 10]
 end
 
+@testset "mul! into a dense destination that is an operand throws" begin
+    S = sparse([1.0 2 0; 0 3 4; 5 0 6])
+    D = [1.0 2 3; 4 5 6; 7 8 10]
+    # one aliased call for each kernel that reads a dense operand, and one through a wrapper
+    for f in (C -> mul!(C, S, C), C -> mul!(C, S', C), C -> mul!(C, C, S), C -> mul!(C, C', S),
+              C -> mul!(C, transpose(C), transpose(S)), C -> mul!(C, Symmetric(S), C),
+              C -> mul!(C, UpperTriangular(S), C'), C -> mul!(C, S, UpperTriangular(C)))
+        C = copy(D)
+        @test_throws ArgumentError f(C)
+        @test C == D
+    end
+    # a `false` `alpha` leaves the operand unread, and views of one array that do not
+    # overlap are distinct operands
+    @test mul!((C = copy(D); C), S, C, false, 2.0) == 2D
+    X = [D D]
+    @test mul!(view(X, :, 1:3), S, UpperTriangular(view(X, :, 4:6))) == S * UpperTriangular(D)
+end
+
 @testset "Symmetric of view of sparse matrix mul! dense vector" begin
     rng = Random.MersenneTwister(1)
     n = 1000

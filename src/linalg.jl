@@ -149,6 +149,18 @@ end
     return mC, nC, mA, nA, mB, nB
 end
 
+# As for a dense product: the kernels read the dense operand while they write `C`. Its
+# wrappers are stripped first, so that views of one array are compared by their indices.
+# A `false` `α` leaves the operand unread.
+_densestorage(B::DenseViewWrappers) = _densestorage(parent(B))
+_densestorage(B) = B
+@inline function _checknoalias(C, B, α)
+    α isa Bool && !α && return
+    Base.mightalias(C, _densestorage(B)) &&
+        throw(ArgumentError("output matrix must not be aliased with input matrix"))
+    return
+end
+
 @inline _matmul_size_AB(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('N'))
 @inline _matmul_size_AtB(C, A, B) = _matmul_size(C, A, B, Val('T'), Val('N'))
 @inline _matmul_size_ABt(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('T'))
@@ -157,6 +169,7 @@ function _spmatmul!(C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
+    _checknoalias(C, B, α)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -180,6 +193,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AtB(C, A, B)
+    _checknoalias(C, B, α)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -218,6 +232,7 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
+    _checknoalias(C, X, α)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -239,6 +254,7 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
     Xax1 = axes(X, 1)
     Cax2 = axes(C, 2)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
+    _checknoalias(C, X, α)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -265,6 +281,7 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
+    _checknoalias(C, A, α)
     rv = rowvals(B)
     nzv = nonzeros(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -892,6 +909,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
         throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
     end
     nrowB, ncolB  = size(B, 1), size(B, 2)
+    C === B || _checknoalias(C, B, true)
     C !== B && copyto!(C, B)
     aa = getnzval(A)
     ja = getrowval(A)
@@ -1022,6 +1040,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
     if nrowC != ncol
         throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
     end
+    C === B || _checknoalias(C, B, true)
     C !== B && copyto!(C, B)
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -1331,6 +1350,7 @@ function _mul!(nzrang::R, diagop::D, odiagop::O, C::StridedVecOrMat, A, B, α::N
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
+    _checknoalias(C, B, α)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
