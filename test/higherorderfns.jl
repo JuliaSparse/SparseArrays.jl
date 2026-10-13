@@ -862,6 +862,8 @@ end
     # wrappers and banded matrices count as sparse arguments
     @test cos.(S')::Matrix{Float64} == cos.(fS')
     @test isequal((S[1:2, :] ./ Diagonal([1.0, 2.0]))::Matrix{Float64}, fS[1:2, :] ./ Diagonal([1.0, 2.0]))
+    # a `-0.0` on the diagonal keeps its sign
+    @test isequal(Array(sparse(ones(2, 2)) ./ Diagonal([-0.0, 1.0])), ones(2, 2) ./ Diagonal([-0.0, 1.0]))
     # `map` and a sparse destination keep the result sparse
     @test map(cos, S)::SparseMatrixCSC == cos.(fS)
     @test broadcast!(cos, similar(S), S)::SparseMatrixCSC == cos.(fS)

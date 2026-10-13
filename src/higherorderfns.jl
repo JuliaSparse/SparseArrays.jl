@@ -1448,6 +1448,12 @@ _densifysparse(x) = x
 _sparsifystructured(M::AbstractMatrix) = _isdenselike(M) ? _fullystored(M) : SparseMatrixCSC(M)
 _sparsifystructured(V::AbstractVector) = _isdenselike(V) ? _fullystored(V) : SparseVector(V)
 _sparsifystructured(S::SparseVecOrMat) = S
+# stores the whole diagonal, as for the other banded types: a kernel that read a `-0.0` there
+# as a structural zero would lose its sign
+function _sparsifystructured(D::Diagonal)
+    n = size(D, 1)
+    return SparseMatrixCSC(n, n, collect(1:(n + 1)), collect(1:n), copyto!(Vector{eltype(D)}(undef, n), D.diag))
+end
 _sparsifystructured(S::SparseViewOfColumns) = copy(S)
 _sparsifystructured(x) = x
 
