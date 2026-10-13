@@ -197,19 +197,42 @@ _aliasesbuffers(Cbuffers, b) = isempty(b) ? any(c -> c === b, Cbuffers) : any(c 
     # Avoid calculating f(zero) unless necessary as it may fail.
     let r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            _iszeroresult(fofzeros) ? _map_zeropres!(f, C, A, Bs...) :
+            _iszeroresult(fofzeros) ? _guardpattern(_map_zeropres!, f, C, A, Bs...) :
                 _guardfill(_map_notzeropres!, f, fofzeros, C, A, Bs...)
         else
-            _map_zeropres!(f, C, A, Bs...)
+            _guardpattern(_map_zeropres!, f, C, A, Bs...)
         end
     return r
 end
+# A zero-preserving kernel rebuilds the pattern of C as it goes. When `f` or the conversion
+# of its result throws part-way, a C that had the pattern of the result is left partly
+# written, as a dense destination is, and any other C structurally empty rather than with a
+# pattern that is half its own. A fixed C keeps its pattern throughout.
+function _guardpattern(kernel!::K, f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {K,Tf,N}
+    try
+        return kernel!(f, C, As...)
+    catch
+        _is_fixed(C) || _keepspattern(C, As...) || _emptypattern!(C)
+        rethrow()
+    end
+end
+# The result of one argument of the shape of C has the pattern of that argument, so C held
+# it all along if it still does. The pattern of another result depends on its values.
+_keepspattern(C, A) = _aresameshape(C, A) && _samepattern(C, A)
+_keepspattern(C, As...) = false
+_emptypattern!(C) = (trimstorage!(C, 0); _finishempty!(C))
 # A kernel that fills C stores every entry of it first. What can be checked is checked before
-# that, the conversion of the fill value included, and leaves C as it was.
+# that, the conversion of the fill value included, and leaves C as it was. A later failure
+# leaves a C that is not fixed structurally empty, as its values are no longer its own.
 function _guardfill(kernel!::K, f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {K,Tf,N}
     _checkdensestructure(C)
     isempty(C) || convert(eltype(C), fillvalue)
-    return kernel!(f, fillvalue, C, As...)
+    try
+        return kernel!(f, fillvalue, C, As...)
+    catch
+        _is_fixed(C) || _emptypattern!(C)
+        rethrow()
+    end
 end
 
 # Whether `f` at the zeros is a zero. A value of a type that has none, such as a `String`,
@@ -257,9 +280,14 @@ copy(bc::SpBroadcasted1) = _asksthezeros(bc) && _fillszeros(bc.f, bc.args[1]) ?
     else # f() is nonzero, so densify C and fill with independent calls to f()
         _checkdensestructure(C)
         firstvalue = convert(eltype(C), fofnoargs)
-        _densestructure!(C)
-        storedvals(C)[1] = firstvalue
-        broadcast!(f, view(storedvals(C), 2:length(storedvals(C))))
+        try
+            _densestructure!(C)
+            storedvals(C)[1] = firstvalue
+            broadcast!(f, view(storedvals(C), 2:length(storedvals(C))))
+        catch
+            _is_fixed(C) || _emptypattern!(C)
+            rethrow()
+        end
     end
     return _checkbuffers(C)
 end
@@ -1213,10 +1241,10 @@ end
     Base.Broadcast.check_broadcast_axes(axes(dest), As...)
     _is_fixed(dest) && return _copyto_fixed_broadcast!(f, dest, As...)
     # Avoid calculating f(zero) unless necessary as it may fail.
-    all(_haszeros, As) || return _broadcast_zeropres!(f, dest, As...)
+    all(_haszeros, As) || return _guardpattern(_broadcast_zeropres!, f, dest, As...)
     fofzeros = f(_zeros_eltypes(As...)...)
     if _iszeroresult(fofzeros)
-        return _broadcast_zeropres!(f, dest, As...)
+        return _guardpattern(_broadcast_zeropres!, f, dest, As...)
     else
         return _guardfill(_broadcast_notzeropres!, f, fofzeros, dest, As...)
     end
