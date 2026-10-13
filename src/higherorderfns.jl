@@ -1410,8 +1410,12 @@ end
 function _densenonzero(bc::Broadcasted, f::F, args::Vararg{Any,N}) where {F,N}
     T = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, args)...))
     (isconcretetype(T) && T !== Bool) || return _densebroadcast(bc)
-    return _storedasdense(_copy(f, map(_sparsifystructured, args)...))
+    As = map(_sparsifystructured, args)
+    # the kernels store every entry, which the index type of the arguments may not address
+    _addresses(_promote_indtype(As...), map(length, axes(bc))) || return _densebroadcast(bc)
+    return _storedasdense(_copy(f, As...))
 end
+_addresses(::Type{Ti}, shape) where {Ti} = !(Ti <: Base.BitInteger) || prod(Int64, shape) < typemax(Ti)
 _storedasdense(C::Union{SparseVector,SparseMatrixCSC}) =
     length(getnzval(C)) == nnz(C) == length(C) ? reshape(getnzval(C), size(C)) : Array(C)
 _storedasdense(C) = Array(C)
