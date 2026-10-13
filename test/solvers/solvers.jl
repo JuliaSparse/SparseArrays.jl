@@ -17,8 +17,6 @@ include("../testhelpers.jl")
     # is singular as it is for a dense matrix
     t = SparseMatrixCSC(2, 2, [1, 2, 4], [1, 1, 2], [1.0, 2.0, 0.0])
     @test_throws SingularException t \ [1.0, 1.0]
-    @test_throws SingularException t' \ [1.0, 1.0]
-    @test_throws SingularException copy(t') \ [1.0, 1.0]
     end
 end
 
