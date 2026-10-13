@@ -917,6 +917,8 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     pI = _setindex_lastwrites(I)
     pJ = _setindex_lastwrites(J)
     if pI !== nothing || pJ !== nothing
+        # a value that is overwritten still has to convert
+        _checkconvertible(Tv, V isa AbstractSparseMatrixCSC ? getnzval(V) : V)
         V = _lastwrites(V, length(I), length(J), pI, pJ)
         pI === nothing || (I = I[pI])
         pJ === nothing || (J = J[pJ])

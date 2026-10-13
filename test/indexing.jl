@@ -448,6 +448,10 @@ end
         S = mk(); S[[1:10; 1:10], :] = V
         @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
     end
+    # a value that a later write replaces still has to convert
+    A = spzeros(Int, 1, 1)
+    @test_throws InexactError A[[1, 1], [1]] = reshape([1.5, 2.0], 2, 1)
+    @test nnz(A) == 0
     # scalar `setindex!` reports the same error
     D = ones(12, 12); D[1:18] .= 0.0
     S = SparseMatrixCSC{Float64,Int8}(sparse(D)); S0 = copy(S)
