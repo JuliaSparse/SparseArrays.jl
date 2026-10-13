@@ -113,8 +113,7 @@ end
 _trimul_factor(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset},
                         HermOrSym{<:Any,<:SparseMatrixCSCOrColumnSubset}}) =
     LinearAlgebra.wrapper_char(A), LinearAlgebra._unwrap(A)
-# the generic conversion of an `UpperHessenberg` visits every entry
-_trimul_factor(A::UpperHessenberg) = 'N', triu(convert(SparseMatrixCSC, parent(A)), -1)
+_trimul_factor(A::UpperHessenberg) = 'N', _sparsehessenberg(A)
 _trimul_factor(A) = 'N', convert(SparseMatrixCSC, A)
 mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrSubArray, B::AbstractVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', _compressed(A), B, alpha, beta)
