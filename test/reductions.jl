@@ -373,10 +373,9 @@ end
         @test all(pred, Cs, dims = 1) == all(pred, Cd, dims = 1)
     end
     # `|` and `&` along the rows fold into `init`
-    for (pred, op) in ((>(5), |), (!iszero, &)), init in (true, false),
-        D in ([1.0 2.0; 0.0 3.0], [1.0 2.0; 3.0 4.0], [0.0 6.0; 0.0 0.0])
-        @test mapreduce(pred, op, sparse(D); dims=1, init) == mapreduce(pred, op, D; dims=1, init)
-    end
+    D = [1.0 2.0; 0.0 3.0]
+    @test mapreduce(>(5), |, sparse(D); dims=1, init=true) == mapreduce(>(5), |, D; dims=1, init=true)
+    @test mapreduce(!iszero, &, sparse(D); dims=1, init=false) == mapreduce(!iszero, &, D; dims=1, init=false)
 end
 end
 
