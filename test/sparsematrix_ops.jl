@@ -255,6 +255,10 @@ dA = Array(sA)
         @test mapreduce(f, +, A; dims = 2, init = 0) == [900; 900;;]
         @test mapreduce(f, *, A; dims = 2, init = 1) == mapreduce(f, *, Array(A); dims = 2, init = 1)
         @test mapreduce(x -> iszero(x) ? Int8(100) : 1000.0, +, sparse([1, 0, 0])) === 1200.0
+        # a stored `Inf` or `NaN` is not absorbed by an unstored zero
+        @test isnan(prod(sparse([0.0 Inf; 1.0 2.0])))
+        # nor is an unstored zero lost when the product of the stored entries overflows
+        @test prod(sparse([0.0 1e200; 1e200 1.0])) === 0.0
     end
 
     @testset "logical reductions" begin

@@ -2497,8 +2497,12 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
         Base._mapreduce(f, op, nzvalview(A))
     else
         v = Base.reduce_first(op, f(zero(T)))^nzeros
-        # Bail out early if initial reduction value is zero or if there are no stored elements
-        (_iszero(v) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
+        (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) && return v
+        r = v*Base._mapreduce(f, op, nzvalview(A))
+        # A zero ends the product unless a stored `Inf` or `NaN` makes it `NaN`. The product
+        # of the stored entries may also have overflowed to one; folding them into the zero
+        # instead cannot.
+        (_iszero(r) || !_iszero(v)) ? r : mapfoldl(f, op, nzvalview(A); init=v)
     end
 end
 
