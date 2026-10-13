@@ -188,7 +188,7 @@ const AdjOrTransMatrixWrappers{MT} = Union{UpperOrLowerTriangular{<:Any,<:AdjOrT
 const QuasiSparseMatrix = Union{SparseMatrixCSCOrSubArray, MatrixWrappers{<:Any,<:SparseMatrixCSCOrColumnSubset},
     AdjOrTransMatrixWrappers{Union{SparseMatrixCSCOrColumnSubset, AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}}}}
 const QuasiStridedMatrix = Union{StridedMatrix, MatrixWrappers{<:Any,<:StridedMatrix},
-    AdjOrTransMatrixWrappers{StridedMatrix}}
+    AdjOrTransMatrixWrappers{<:StridedMatrix}}
 
 # LinearAlgebra's BiTriSym (Bidiagonal/Tridiagonal/SymTridiagonal) and BandedMatrix (those
 # plus Diagonal) are imported for the banded special matrices.
