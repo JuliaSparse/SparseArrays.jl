@@ -581,6 +581,10 @@ end
         @test B[row] ≈ sum(A[row, :])
     end
     @test B ≈ mapreduce(identity, +, Matrix(A), dims=2)
+    # `f(0)` is not added to a row that stores every entry
+    f = x -> x == 0 ? Inf : x
+    D = [1.0 2.0; 0.0 3.0]
+    @test isequal(mapreduce(f, +, sparse(D); dims=2), mapreduce(f, +, D; dims=2))
 end
 
 @testset "oneunit of sparse matrix" begin
