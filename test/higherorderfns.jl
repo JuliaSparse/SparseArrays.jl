@@ -819,4 +819,12 @@ end
     @test S8 == S0 && nnz(S8) == nnz(S0) && length(SparseArrays.rowvals(S8)) == 1
 end
 
+@testset "Sparse outer product keeps a non-finite value times an unstored zero" begin
+    # a non-finite entry of the column vector, then of the row vector
+    for (x, y) in ((sparsevec([Inf, 0.0, 2.0]), sparsevec([0.0, 1.0, 3.0])),
+                   (sparsevec([1.0, 0.0, 2.0]), sparsevec([0.0, NaN, 3.0])))
+        @test isequal(Array(@inferred x .* y'), Array(x) .* Array(y)')
+    end
+end
+
 end # module

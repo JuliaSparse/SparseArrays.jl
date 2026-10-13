@@ -865,7 +865,14 @@ _finishempty!(C::AbstractCompressedVector) = C
 _finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)
 
 # special case - vector outer product
-_copy(f::typeof(*), x::SparseVectorUnion, y::AdjOrTransSparseVectorUnion) = _outer(x, y)
+_copy(f::typeof(*), x::SparseVectorUnion, y::AdjOrTransSparseVectorUnion) =
+    _outerkeepszeros(x, y) ? _outer(x, y) : _copy(f, _sparsifystructured(x), _sparsifystructured(y))
+# `_outer` multiplies stored entries with stored entries alone, which gives the product when
+# every stored entry times a zero is a zero. An `Inf` or a `NaN` times a zero is not.
+function _outerkeepszeros(x, y)
+    zx, zy, op = zero(eltype(x)), zero(eltype(y)), LinearAlgebra.wrapperop(y)
+    return all(v -> _iszero(v * zy), nonzeros(x)) && all(v -> _iszero(zx * op(v)), nonzeros(parent(y)))
+end
 @inline _outer(x::SparseVectorUnion, y::Adjoint) = return _outer(conj, x, parent(y))
 @inline _outer(x::SparseVectorUnion, y::Transpose) = return _outer(identity, x, parent(y))
 function _outer(trans::Tf, x, y) where Tf
