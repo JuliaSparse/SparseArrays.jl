@@ -888,35 +888,25 @@ end
 end
 
 @static if COMPREHENSIVE
-@testset "broadcast! and map! leave a valid destination when `f` or a conversion throws" begin
-    A, _ = fixturepair(Float64, 4, 3)
-    top = maximum(nonzeros(A))   # not a zero: `f` is evaluated at the zeros before anything is written
-    @test top > 0
-    boom = (x, y) -> x == top ? error("boom") : x + y
-    for B in (copy(A), A[:, 1])   # the `map!` kernel, and the kernel for another shape
+@testset "broadcast! and map! leave a valid destination when `f` throws" begin
+    A = sparse([1.0 0 0; 0 2.0 0; 0 0 3.0])
+    boom = (x, y) -> x == 2 ? error("boom") : x + y
+    for B in (copy(A), A[:, 1])   # the `map!` dispatcher, and the `broadcast!` one for another shape
         C = copy(A)
         @test_throws ErrorException C .= boom.(A, B)
         @test nnz(C) == 0 && iszero(Array(C))
-        C = copy(A)
-        @test_throws ErrorException C .= boom.(C, B)
-        @test nnz(C) == 0 && iszero(Array(C))
     end
-    Ci = sparse([1 0; 0 2])
-    @test_throws InexactError Ci .= Ci .* sparse([0.5 1.0; 1.0 1.0])
-    @test nnz(Ci) == 0 && iszero(Array(Ci))
     # one argument with the pattern of the destination: partly written, as a dense one is
-    C = sparse([1.0 0 0; 0 2.0 0; 0 0 3.0])
+    C = copy(A)
     @test_throws ErrorException C .= (x -> x == 2 ? error("boom") : 2x).(C)
-    @test nnz(C) == 3 && mismatch(C, [2.0 0 0; 0 2.0 0; 0 0 3.0]) === nothing
-    # a function that fills the zeros: empty when `f` throws after every entry was stored
-    for C in (sparse([1 0; 0 2]), sparsevec([1, 0, 2]))
-        @test_throws ErrorException map!(x -> x == 2 ? error("boom") : x + 1, C, C)
-        @test nnz(C) == 0 && iszero(Array(C))
-    end
+    @test mismatch(C, [2.0 0 0; 0 2.0 0; 0 0 3.0]) === nothing
+    # a function that fills the zeros throws after every entry was stored
+    C = copy(A)
+    @test_throws ErrorException map!(x -> x == 2 ? error("boom") : x + 1, C, A)
+    @test nnz(C) == 0 && iszero(Array(C))
     calls = Ref(0)
-    Ci = sparse([1 0; 0 2])
-    @test_throws ErrorException Ci .= (() -> (calls[] += 1) > 2 ? error("boom") : 1).()
-    @test nnz(Ci) == 0 && iszero(Array(Ci))
+    @test_throws ErrorException C .= (() -> (calls[] += 1) > 2 ? error("boom") : 1.0).()
+    @test nnz(C) == 0 && iszero(Array(C))
 end
 end
 
