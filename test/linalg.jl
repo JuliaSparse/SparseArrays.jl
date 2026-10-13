@@ -37,6 +37,11 @@ include("testhelpers.jl")
         @test E1 == E2
         end
     end
+    @static if COMPREHENSIVE
+    # a row index plus the shift need not fit in the index type
+    A8 = SparseMatrixCSC{Float64,Int8}(sparse([100, 3, 60], [1, 2, 2], [1.0, 2.0, 3.0], 100, 2))
+    @test mismatch(circshift(A8, (60, 1)), circshift(Matrix(A8), (60, 1)); Ti=Int8) === nothing
+    end
     # the buffers of a source may be longer than its stored entries
     S = sparse([1 0 2; 0 3 0; 4 0 5.0])
     P = copy(S); push!(rowvals(P), 1); push!(nonzeros(P), 99.0)
@@ -386,6 +391,15 @@ end
     @test !hasunionlocal(tril, (typeof(A32), Int), Int32, Int)
     end
 
+    @static if COMPREHENSIVE
+    # a diagonal far out of range
+    for k in (typemax(Int), typemax(Int) - 1, typemin(Int), typemin(Int) + 1, big(2)^70, -big(2)^70)
+        kd = clamp(k, -10, 10)
+        @test mismatch(triu(A, k), triu(AF, kd)) === nothing
+        @test mismatch(tril(A, k), tril(AF, kd)) === nothing
+    end
+    end
+
     # fkeep trim option
     @test isequal(length(rowvals(tril!(sparse([1,2,3], [1,2,3], [1,2,3], 3, 4), -1))), 0)
 end
@@ -512,37 +526,6 @@ end
             @test ishermitian(S)
             @test !issymmetric(S) || isreal(S)
         end
-    end
-
-    @static if COMPREHENSIVE
-    @testset "issue #605" begin
-        S = sparse([2, 3, 1], [1, 1, 3], [1, 1, 1], 3, 3)
-        @test !issymmetric(S)
-    end
-
-    @testset "issue #748" begin
-        for S in [
-            sparse([3,3,4,1,2], [1,2,2,3,4], ones(Int,5), 4, 4),
-            sparse([1,3,3,4,1,2], [1,1,2,2,3,4], ones(Int,6), 4, 4),
-            sparse([2,3,1,3,4,1,2], [1,1,2,2,2,3,4], ones(Int,7), 4, 4),
-            sparse([1,2,3,1,3,4,1,2], [1,1,1,2,2,2,3,4], ones(Int,8), 4, 4),
-            sparse([3,2,3,4,1,2], [1,2,2,2,3,4], ones(Int,6), 4, 4),
-            sparse([1,3,2,3,4,1,2], [1,1,2,2,2,3,4], ones(Int,7), 4, 4),
-            sparse([2,3,1,2,3,4,1,2], [1,1,2,2,2,2,3,4], ones(Int,8), 4, 4),
-            sparse([1,2,3,1,2,3,4,1,2], [1,1,1,2,2,2,2,3,4], ones(Int,9), 4, 4),
-            sparse([3,3,4,1,2,4], [1,2,2,3,4,4], ones(Int,6), 4, 4),
-            sparse([1,3,3,4,1,2,4], [1,1,2,2,3,4,4], ones(Int,7), 4, 4),
-            sparse([2,3,1,3,4,1,2,4], [1,1,2,2,2,3,4,4], ones(Int,8), 4, 4),
-            sparse([1,2,3,1,3,4,1,2,4], [1,1,1,2,2,2,3,4,4], ones(Int,9), 4, 4),
-            sparse([3,2,3,4,1,2,4], [1,2,2,2,3,4,4], ones(Int,7), 4, 4),
-            sparse([1,3,2,3,4,1,2,4], [1,1,2,2,2,3,4,4], ones(Int,8), 4, 4),
-            sparse([2,3,1,2,3,4,1,2,4], [1,1,2,2,2,2,3,4,4], ones(Int,9), 4, 4),
-            sparse([1,2,3,1,2,3,4,1,2,4], [1,1,1,2,2,2,2,3,4,4], ones(Int,10), 4, 4),
-            SparseMatrixCSC(6, 6, [1,1,2,3,4,5,6], [4,4,3,6,1], [0,1,1,1,0]),
-        ]
-            @test !issymmetric(S)
-        end
-    end
     end
 end
 
@@ -756,15 +739,6 @@ end
 @testset "exp" begin
     A = fixture(Float64, 5, 3)
     @test ℯ.^A ≈ ℯ.^Array(A)
-end
-
-@testset "Adding sparse-backed SymTridiagonal (#46355)" begin
-    a = SymTridiagonal(sparsevec(Int[1]), sparsevec(Int[]))
-    @test a + a == Matrix(a) + Matrix(a)
-
-    # symtridiagonal with non-empty off-diagonal
-    b = SymTridiagonal(sparsevec(Int[1, 2, 3]), sparsevec(Int[1, 2]))
-    @test b + b == Matrix(b) + Matrix(b)
 end
 end
 

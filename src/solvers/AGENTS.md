@@ -29,16 +29,36 @@ on the GPL libraries; see the Layout section there.
 - Initialization is lazy and process-once, done before the first C call rather than in
   `__init__`. Library handles belong to `LibSuiteSparse`; every submodule imports each
   symbol it uses explicitly, and never references a library by bare symbol.
-- Each factorization has one plain `ReentrantLock` field, named `lock` on `UmfpackLU`
-  and `CHOLMOD.Factor` and `_lock` on `QRSparse`. Every call that touches its mutable
-  state (C factor objects, matrix arrays, status, control and info) holds that lock for
-  the whole call, including argument checks that read the factor and any `issuccess`
-  check after refactorization. Read-only calls serialize too. Where a locked method
-  calls another, rely on reentrancy or split out an unlocked kernel, whichever keeps hot
-  paths to one acquisition.
+- A factorization that can change after it is constructed (`UmfpackLU`, `CHOLMOD.Factor`)
+  has one plain `ReentrantLock` field, named `lock`. Every call that writes to its
+  mutable state (C factor objects, matrix arrays, status, control and info) holds that
+  lock for the whole call, including argument checks that read the factor and any
+  `issuccess` check after refactorization: `lu!`, `cholesky!`, `ldlt!`,
+  `lowrankupdate!`. So does `copy`, and with it everything that copies the factor
+  internally, such as `sparse(F)` and `nnz(F)` of a `CHOLMOD.Factor`.
+- A call that only reads the factorization takes no lock, so that tasks can use one
+  shared factor in parallel: solves (`\`, `ldiv!`), and `det`, `logabsdet`, `logdet`,
+  `diag` and the factor properties. A factor must not be modified while another task
+  reads it; that is the caller's to arrange, and the docs say so.
+- A lock-free call writes nothing to the factorization. With UMFPACK a solve writes its
+  statistics to the `info` of its `UmfpackWS` and `det` passes no `Info`, neither
+  touches `F.info`, and both take the lock only to compute numeric factors that are
+  missing. CHOLMOD's solve writes to the factor when it is given a `Bset`, so a
+  lock-free solve must not pass one. Before making another C call lock-free, check in
+  the SuiteSparse source that it does not write to the factor object.
+- The three solvers offer the same calls: `copy` and `deepcopy` of `F`, `F'` and
+  `transpose(F)`; `ldiv!` with two or three arguments, a `workspace`, and a complex
+  right-hand side for a real factorization; a workspace built from `F`, `F'` or
+  `transpose(F)`, and `similar` of a workspace. A method added to one goes to all three.
+- Where a locked method calls another, rely on reentrancy or split out an unlocked
+  kernel, whichever keeps hot paths to one acquisition.
+- A `QRSparse` is immutable and nothing writes to its arrays after `qr` returns, so it
+  has no lock and its solves run in parallel on one shared object. Keep it that way: a
+  method that modifies a `QRSparse` in place would need a lock on every solve again.
 - `copy(F)` is fully independent: it shares nothing that any call modifies, and it
-  holds the source's lock while it reads any of that state. Parallel work uses one copy
-  per task; document threading in the docs.
+  holds the source's lock while it reads any of that state. Parallel solves share
+  one factor; a task that refactorizes it works on its own copy. Document threading in
+  the docs.
 - Never hold the locks of two factorizations at once: lock the source, make the private
   copy, release, then work on the copy. Finalizers never lock; an explicit `free!`
   locks and the finalizer calls an unlocked helper.

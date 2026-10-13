@@ -168,24 +168,25 @@ getcolptr(S::FixedSparseCSC) = getfield(S, :colptr)
 getcolptr(S::SparseMatrixCSCView) = view(getcolptr(parent(S)), first(parentindices(S)[2]):(last(parentindices(S)[2]) + 1))
 getcolptr(S::SparseMatrixCSCColumnSubset) = error("getcolptr not well-defined for $(typeof(S))")
 
-# The kernels address the storage behind `S` through `getcolptr`, `getrowval`, `getnzval`
-# and `getnzrange`: for a view or a wrapper these are the parent's vectors and the
-# positions of column `j` of `S` within them, so `getnzval(S)[getnzrange(S, j)]` holds
-# column `j` whatever `S` is. The public `nonzeros`, `rowvals` and `nzrange` instead
-# describe the entries of `S` itself, which for a view or wrapper are a subset of the
-# parent's; for a `SparseMatrixCSC` the two agree.
+# The kernels address the storage behind `S` through `getrowval`, `getnzval` and
+# `getnzrange`: for a view these are the parent's vectors and the positions of column `j`
+# of `S` within them, so `getnzval(S)[getnzrange(S, j)]` holds column `j`. A triangular or
+# symmetric/Hermitian wrapper has no `getrowval` or `getnzval`, and `getnzrange` of one
+# gives positions in the vectors of `_storageparent(S)`. The public `nonzeros`, `rowvals`
+# and `nzrange` instead describe the entries of `S` itself, which for a view are a subset
+# of the parent's; for a `SparseMatrixCSC` the two agree. A wrapper has none of the three.
 Base.@propagate_inbounds getnzrange(S::AbstractSparseMatrixCSC, col::Integer) = nzrange(S, col)
 Base.@propagate_inbounds getnzrange(S::SparseMatrixCSCColumnSubset, col::Integer) = getnzrange(parent(S), parentindices(S)[2][col])
 getnzrange(S::UpperTriangular{<:Any,<:SparseMatrixCSCOrView}, i::Integer) = nzrangeup(S.data, i)
 getnzrange(S::LowerTriangular{<:Any,<:SparseMatrixCSCOrView}, i::Integer) = nzrangelo(S.data, i)
 getnzrange(S::SparseMatrixCSCSymmHerm, i::Integer) = (S.uplo == 'U' ? nzrangeup : nzrangelo)(S.data, i)
 # The triangular and symmetric/Hermitian wrappers keep the entries of one triangle of the
-# parent, which sit at scattered positions of its storage like the entries of a view of an
-# arbitrary column subset; the public accessors gather them the same way.
+# parent, which sit at scattered positions of its storage.
 const _SparseTriOrSymHerm{Tv,Ti} = Union{UpperTriangular{Tv,<:SparseMatrixCSCOrView{Tv,Ti}},
                                         LowerTriangular{Tv,<:SparseMatrixCSCOrView{Tv,Ti}},
                                         SparseMatrixCSCSymmHerm{Tv,Ti}}
-const _SparseScatteredStorage{Tv,Ti} = Union{SparseMatrixCSCColumnSubset{Tv,Ti}, _SparseTriOrSymHerm{Tv,Ti}}
+_storageparent(S) = S
+_storageparent(S::_SparseTriOrSymHerm) = parent(S)
 """
     getrowval(A)
 
@@ -197,8 +198,10 @@ stored internally can be useful in conjunction with iterating over structural
 nonzero values. See also [`getnzval`](@ref) and [`nzrange`](@ref).
 
 For a `SparseMatrixCSC` or a `SparseVector`, `getrowval` is equivalent to
-[`rowvals`](@ref). For a column view or a triangular or symmetric wrapper of a sparse matrix it
-returns the parent's vector, of which `rowvals(A)` is the part belonging to `A`.
+[`rowvals`](@ref). For a view of all rows and some columns of a sparse matrix it returns
+the parent's vector, of which `rowvals(A)` is the part belonging to `A`. It is not
+defined for a triangular, `Symmetric` or `Hermitian` wrapper of a sparse matrix; use
+`getrowval(parent(A))`, which also holds the entries outside the wrapper's triangle.
 
 # Examples
 ```jldoctest
@@ -225,7 +228,6 @@ getrowval(S::FixedSparseCSC) = getfield(S, :rowval)
 # a subtype may implement the longer-exported `rowvals` instead
 getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
 getrowval(S::SparseMatrixCSCColumnSubset) = getrowval(parent(S))
-getrowval(S::_SparseTriOrSymHerm) = getrowval(S.data)
 
 """
     getnzval(A)
@@ -237,8 +239,10 @@ to the internal nonzero storage of `A`, and any modifications to the returned ve
 will mutate `A` as well. See also [`getrowval`](@ref) and [`nzrange`](@ref).
 
 For a `SparseMatrixCSC` or a `SparseVector`, `getnzval` is equivalent to
-[`nonzeros`](@ref). For a column view or a triangular or symmetric wrapper of a sparse matrix it
-returns the parent's vector, of which `nonzeros(A)` is the part belonging to `A`.
+[`nonzeros`](@ref). For a view of all rows and some columns of a sparse matrix it returns
+the parent's vector, of which `nonzeros(A)` is the part belonging to `A`. It is not
+defined for a triangular, `Symmetric` or `Hermitian` wrapper of a sparse matrix; use
+`getnzval(parent(A))`, which also holds the entries outside the wrapper's triangle.
 
 # Examples
 ```jldoctest
@@ -265,9 +269,8 @@ getnzval(S::FixedSparseCSC) = getfield(S, :nzval)
 # a subtype may implement the longer-exported `nonzeros` instead
 getnzval(S::AbstractSparseMatrixCSC) = nonzeros(S)
 getnzval(S::SparseMatrixCSCColumnSubset) = getnzval(parent(S))
-getnzval(S::_SparseTriOrSymHerm) = getnzval(S.data)
 nzvalview(S::AbstractSparseMatrixCSC) = view(getnzval(S), 1:nnz(S))
-nzvalview(S::_SparseScatteredStorage) = nonzeros(S)
+nzvalview(S::SparseMatrixCSCColumnSubset) = nonzeros(S)
 # where the stored entries of `S` sit in `getnzval(S)`: a contiguous range for a column range
 _storedinds(S::AbstractSparseMatrixCSC) = 1:nnz(S)
 function _storedinds(S::SparseMatrixCSCView)
@@ -276,7 +279,7 @@ function _storedinds(S::SparseMatrixCSCView)
     colptr = getcolptr(parent(S))
     return Int(colptr[first(cols)]):Int(colptr[last(cols)+1]) - 1
 end
-function _storedinds(S::_SparseScatteredStorage)
+function _storedinds(S::SparseMatrixCSCColumnSubset)
     inds = Int[]
     for col in axes(S, 2)
         append!(inds, getnzrange(S, col))
@@ -295,8 +298,7 @@ _compressed(A::SparseMatrixCSCSubArray) = A isa SparseMatrixCSCColumnSubset ? A 
 Returns the number of stored (filled) elements in a sparse array. For a column view
 or a triangular, `Symmetric` or `Hermitian` wrapper of a sparse matrix, it is the number
 of the parent's stored entries that belong to the view or wrapper (for a symmetric or
-Hermitian wrapper, those of the stored triangle), which is the length of its
-[`nonzeros`](@ref).
+Hermitian wrapper, those of the stored triangle).
 
 # Examples
 ```jldoctest
@@ -313,13 +315,16 @@ julia> nnz(A)
 nnz(S::AbstractSparseMatrixCSC) = @inbounds Int(getcolptr(S)[size(S, 2) + 1]) - 1
 nnz(S::ReshapedArray{<:Any,1,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
 nnz(S::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = nnz(parent(S))
-nnz(S::_SparseScatteredStorage) = nnz1(S)
+nnz(S::Union{SparseMatrixCSCColumnSubset,_SparseTriOrSymHerm}) = nnz1(S)
 nnz(S::SparseMatrixCSCView) = length(_storedinds(S))
 nnz1(S) = @inbounds sum(length.(getnzrange.(Ref(S), axes(S, 2))))
 
 function Base._simple_count(pred, S::SparseMatrixCSCOrColumnSubset, init::T) where T
     init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
 end
+# the entries of a lazy adjoint or transpose are those of its parent, each under the wrapper
+Base._simple_count(pred, S::AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}, init) =
+    Base._simple_count(pred ∘ wrapperop(S), parent(S), init)
 
 """
     nonzeros(A)
@@ -330,13 +335,15 @@ vector points directly to the internal nonzero storage of `A`, and any
 modifications to the returned vector will mutate `A` as well. See
 [`rowvals`](@ref) and [`nzrange`](@ref).
 
-For a view of all rows and some columns of a sparse matrix, and for an `UpperTriangular`,
-`LowerTriangular`, `Symmetric` or `Hermitian` wrapper of one, `nonzeros` returns a view
-of the parent's storage holding the entries of `A` only (for a symmetric or Hermitian
-wrapper, those of the stored triangle), so `length(nonzeros(A))` is `nnz(A)` and writes
-to it mutate the parent. For a view of a range of columns the view is contiguous; the
-others gather the positions of the stored entries, which takes time proportional to
-`nnz(A)`.
+For a view of all rows and some columns of a sparse matrix, `nonzeros` returns a view
+of the parent's storage holding the entries of `A` only, so `length(nonzeros(A))` is
+`nnz(A)` and writes to it mutate the parent. For a view of a range of columns the view is
+contiguous; for another column subset it gathers the positions of the stored entries,
+which takes time proportional to `nnz(A)`.
+
+`nonzeros`, [`rowvals`](@ref) and [`nzrange`](@ref) are not defined for a triangular,
+`Symmetric` or `Hermitian` wrapper of a sparse matrix, whose entries are not a compressed
+column structure of their own. Convert the wrapper with `sparse`, or work on `parent(A)`.
 
 # Examples
 ```jldoctest
@@ -360,7 +367,7 @@ julia> nonzeros(view(A, :, 2:3))
 """
 nonzeros(S::SparseMatrixCSC) = getnzval(S)
 nonzeros(S::FixedSparseCSC) = getnzval(S)
-nonzeros(S::_SparseScatteredStorage) = view(getnzval(S), _storedinds(S))
+nonzeros(S::SparseMatrixCSCColumnSubset) = view(getnzval(S), _storedinds(S))
 
 """
     rowvals(A)
@@ -385,9 +392,9 @@ julia> rowvals(A)
  3
 ```
 
-For a view of all rows and some columns of a sparse matrix, and for a triangular,
-`Symmetric` or `Hermitian` wrapper of one, `rowvals` returns a view of the parent's
-vector holding the row indices of the entries of `A` only, matching [`nonzeros`](@ref). For a sparse vector or a column view of a sparse matrix, `rowvals`
+For a view of all rows and some columns of a sparse matrix, `rowvals` returns a view of
+the parent's vector holding the row indices of the entries of `A` only, matching
+[`nonzeros`](@ref). For a sparse vector or a column view of a sparse matrix, `rowvals`
 returns the indices of the stored entries:
 
 ```jldoctest
@@ -399,7 +406,7 @@ julia> rowvals(sparsevec([2, 5], [1.5, 2.5], 6))
 """
 rowvals(S::SparseMatrixCSC) = getrowval(S)
 rowvals(S::FixedSparseCSC) = getrowval(S)
-rowvals(S::_SparseScatteredStorage) = view(getrowval(S), _storedinds(S))
+rowvals(S::SparseMatrixCSCColumnSubset) = view(getrowval(S), _storedinds(S))
 
 """
     nzrange(A, col::Integer)
@@ -420,11 +427,10 @@ of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
        end
     end
 
-The same loop works on a view of all rows and some columns of `A`, and on an
-`UpperTriangular`, `LowerTriangular`, `Symmetric` or `Hermitian` wrapper of `A`, whose
-`nzrange` indexes the `rowvals` and `nonzeros` of the view or wrapper. For a view of a
-range of columns each call is O(1); for the others `nzrange(A, col)` sums the lengths
-of the preceding columns, so it is O(`col`).
+The same loop works on a view of all rows and some columns of `A`, whose `nzrange`
+indexes the `rowvals` and `nonzeros` of the view. For a view of a range of columns each
+call is O(1); for another column subset `nzrange(A, col)` sums the lengths of the
+preceding columns, so it is O(`col`).
 
 !!! warning
     Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
@@ -435,7 +441,7 @@ Base.@propagate_inbounds function nzrange(S::SparseMatrixCSCView, col::Integer)
     off = first(_storedinds(S)) - 1
     return (first(r) - off):(last(r) - off)
 end
-function nzrange(S::_SparseScatteredStorage, col::Integer)
+function nzrange(S::SparseMatrixCSCColumnSubset, col::Integer)
     @boundscheck checkbounds(axes(S, 2), col)
     off = 0
     @inbounds for k in 1:col-1
@@ -759,11 +765,26 @@ copy(S::AbstractSparseMatrixCSC) =
     SparseMatrixCSC(size(S, 1), size(S, 2), copy(getcolptr(S)), copy(getrowval(S)), copy(getnzval(S)))
 copy(S::FixedSparseCSC) =
     FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), getrowval(S), copy(getnzval(S)))
+# Throw the conversion error of `copyto!(dest, vals)` before a caller rewrites the pattern
+# that goes with `dest`. A loop that cannot throw compiles away.
+_checkconvertible(::Type{T}, vals::AbstractVector{<:T}) where {T} = nothing
+function _checkconvertible(::Type{T}, vals::AbstractVector) where {T}
+    for v in vals
+        convert(T, v)
+    end
+    return nothing
+end
+_checknnzfits(::Type{Ti}, nz::Integer) where {Ti} =
+    Base.hastypemax(Ti) && nz >= typemax(Ti) &&
+        throw(ArgumentError(lazy"the index type $Ti cannot hold $nz stored entries; use a larger index type"))
+
 function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     _is_fixed(A) && return _copyto_fixed!(A, B)
+    _checkconvertible(eltype(A), getnzval(B))
     # If the two matrices have the same length then all the
     # elements in A will be overwritten.
     if widelength(A) == widelength(B)
+        _checknnzfits(indtype(A), length(getnzval(B)))
         resize!(getnzval(A), length(getnzval(B)))
         resize!(getrowval(A), length(getrowval(B)))
         if size(A) == size(B)
@@ -788,6 +809,7 @@ function copyto!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
             lastmodptrA += 1
         end
         lastmodptrA -= 1
+        _checknnzfits(indtype(A), nnzB + nnzA - lastmodptrA)
         if lastmodptrA >= nnzB
             # A will have fewer non-zero elements; unmodified elements are kept at the end.
             deleteat!(getrowval(A), nnzB+1:lastmodptrA)
@@ -818,6 +840,7 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
     checkbounds(dest, Rdest)
     checkbounds(src, Rsrc)
     src′ = Base.unalias(dest, src)
+    _is_fixed(dest) && _checkfixedcopyto(dest, Rdest, src′, Rsrc)
     for I in Rdest
         @inbounds dest[I] = zero(T) # implicitly convert to eltype(dest), throw if not possible
     end
@@ -832,6 +855,26 @@ function copyto!(dest::AbstractMatrix, Rdest::CartesianIndices{2},
         end
     end
     return dest
+end
+
+# A fixed destination takes a stored entry of `src` only where it has one itself. Find the
+# entry that does not fit, or does not convert, before the block is zeroed.
+function _checkfixedcopyto(dest::AbstractSparseMatrixCSC{Tv}, Rdest::CartesianIndices{2},
+                           src::AbstractSparseMatrixCSC{T}, Rsrc::CartesianIndices{2}) where {Tv,T}
+    convert(Tv, zero(T))
+    rows, cols = Rsrc.indices
+    lin = LinearIndices(Base.IdentityUnitRange.(Rsrc.indices))
+    destrows = getrowval(dest)
+    for col in cols, ptr in nzrange(src, col)
+        row = getrowval(src)[ptr]
+        row in rows || continue
+        v = convert(Tv, getnzval(src)[ptr])
+        i, j = Tuple(Rdest[lin[row, col]])
+        r = nzrange(dest, j)
+        k = searchsortedfirst(view(destrows, r), i) + first(r) - 1
+        (k <= last(r) && destrows[k] == i) || _isimplicitzero(v, Tv) || _throwfixedinsert(dest, i, j)
+    end
+    return nothing
 end
 
 ## similar
@@ -864,14 +907,12 @@ the original sparse matrix, except in the case where dimensions of the
 output matrix are different from the output.
 
 The output matrix has zeros in the same locations as the input, but
-uninitialized values for the nonzero locations. A `FixedSparseCSC` input keeps
-its fixed pattern only in the structure-preserving form; the forms taking a
-shape return a `SparseMatrixCSC`.
+uninitialized values for the nonzero locations. The result is a writable
+`SparseMatrixCSC` also when `A` is a `FixedSparseCSC`; `copy` keeps a fixed pattern.
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
-    @if_move_fixed S _sparsesimilar(S, TvNew, Ti)
+    _sparsesimilar(S, TvNew, Ti)
 
-# a new shape carries no pattern over, so the result is never fixed
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}, dims::Union{Dims{1},Dims{2}}) where {Ti,TvNew} =
     _sparsesimilar(S, TvNew, Ti, dims)
 
@@ -921,6 +962,7 @@ beyond that passed in.
 """
 function halfperm!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{TvA,Ti},
         q::AbstractVector{<:Integer}, f::F = identity) where {Tv,TvA,Ti,F<:Function}
+    _is_fixed(X) && return _copyto_fixed!(X, halfperm!(spzeros(Tv, Ti, size(A, 2), size(A, 1)), A, q, f))
     _computecolptrs_halfperm!(X, A)
     _distributevals_halfperm!(X, A, q, f)
     return X
@@ -1014,13 +1056,13 @@ See `halfperm!`
 adjoint!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, conj)
 
 # manually specifying eltype allows to avoid calling return_type of f on TvA
-function ftranspose(A::AbstractSparseMatrixCSC{TvA,Ti}, f::Function, eltype::Type{Tv} = TvA) where {Tv,TvA,Ti}
+function ftranspose(A::AbstractSparseMatrixCSC{TvA,Ti}, f::F, eltype::Type{Tv} = TvA) where {Tv,TvA,Ti,F<:Function}
     X = SparseMatrixCSC(size(A, 2), size(A, 1),
                         ones(Ti, size(A, 1)+1),
                         Vector{Ti}(undef, 0),
                         Vector{Tv}(undef, 0))
     sizehint!(X, nnz(A))
-    return @if_move_fixed A halfperm!(X, A, axes(A,2), f)
+    return halfperm!(X, A, axes(A,2), f)
 end
 
 adjoint(A::AbstractSparseMatrixCSC) = Adjoint(A)
@@ -1033,7 +1075,7 @@ Base.copy(A::Transpose{<:Any,<:AbstractSparseMatrixCSC}) =
     ftranspose(parent(A), _adjtrans_fun(A), eltype(A))
 function Base.permutedims(A::AbstractSparseMatrixCSC, (a,b))
     (a, b) == (2, 1) && return ftranspose(A, identity)
-    (a, b) == (1, 2) && return copy(A)
+    (a, b) == (1, 2) && return _writablecopy(A)
     throw(ArgumentError("no valid permutation of dimensions"))
 end
 
@@ -1156,7 +1198,6 @@ Checks compatibility of source argument `A` and destination argument `X`.
 """
 function _checkargs_sourcecompatdest_permute!(A::AbstractSparseMatrixCSC{Tv,Ti},
         X::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
-    _is_fixed(X) && _readonly_error(getcolptr(X))
     if size(X, 1) != size(A, 1)
         throw(DimensionMismatch(string("destination argument `X`'s row count, ",
             "`size(X, 1) (= $(size(X, 1)))`, must match source argument `A`'s row count, `size(A, 1) (= $(size(A, 1)))`")))
@@ -1195,6 +1236,28 @@ function _checkargs_sourcecompatworkmat_permute!(A::AbstractSparseMatrixCSC{Tv,T
             "or equal to source argument `A`'s allocated entry count, `nnz(A)` (= $(nnz(A)))")))
     end
 end
+# Helper method for `permute!` methods operating on `SparseMatrixCSC`s.
+# Checks that no two of the arguments share memory: the kernels write each one while reading
+# another.
+function _checkargs_noalias_permute!(names::NTuple{N,Symbol}, args::Vararg{AbstractSparseMatrixCSC,N}) where {N}
+    for i in 1:N, j in i+1:N
+        _sharebuffers_permute!(args[i], args[j]) &&
+            throw(ArgumentError(string("arguments `", names[i], "` and `", names[j], "` must not share memory")))
+    end
+end
+# Empty buffers share one `Memory` and would report as aliased. The column pointers are
+# never empty, and a `ReadOnly` reports no data ids, so compare the buffers it wraps.
+function _sharebuffers_permute!(X::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
+    Xbuffers = map(_unwrapreadonly, _storagebuffers(X))
+    return any(_storagebuffers(A)) do b
+        a = _unwrapreadonly(b)
+        !isempty(a) && any(x -> !isempty(x) && Base.mightalias(x, a), Xbuffers)
+    end
+end
+# Scratch for checking `q` in the methods taking a destination `X`. `C`'s column pointers
+# are free again once `p` is checked, and long enough unless `A` is wide.
+_qcheckspace_permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
+    size(A, 2) <= length(getcolptr(C)) ? getcolptr(C) : Vector{Ti}(undef, size(A, 2))
 """
 Helper method for `permute` and `permute!` methods operating on `SparseMatrixCSC`s.
 Checks compatibility of source argument `A` and workspace argument `workcolptr`.
@@ -1240,26 +1303,31 @@ See also [`permute`](@ref).
 function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti},
         p::AbstractVector{<:Integer}, q::AbstractVector{<:Integer}) where {Tv,Ti}
     _checkargs_sourcecompatdest_permute!(A, X)
+    _is_fixed(X) && return _copyto_fixed!(X, permute(A, p, q))
     _checkargs_sourcecompatperms_permute!(A, p, q)
     # bypass strict buffer checking
     C = spzeros(Tv, Ti, size(A,2), size(A,1))
     resize!(getrowval(C), nnz(A))
     resize!(getnzval(C), nnz(A))
 
-    _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, getcolptr(X))
+    _checkargs_noalias_permute!((:X, :A), X, A)
+    _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, _qcheckspace_permute!(A, C))
     unchecked_noalias_permute!(X, A, p, q, C)
 end
 function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti},
         p::AbstractVector{<:Integer}, q::AbstractVector{<:Integer},
         C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     _checkargs_sourcecompatdest_permute!(A, X)
+    _is_fixed(X) && return _copyto_fixed!(X, permute(A, p, q))
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
-    _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, getcolptr(X))
+    _checkargs_noalias_permute!((:X, :A, :C), X, A, C)
+    _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, _qcheckspace_permute!(A, C))
     unchecked_noalias_permute!(X, A, p, q, C)
 end
 function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer},
         q::AbstractVector{<:Integer}) where {Tv,Ti}
+    _checkpatternwritable(A, :permute!)
     _checkargs_sourcecompatperms_permute!(A, p, q)
     C = spzeros(Tv, Ti, size(A,2), size(A,1))
     resize!(getrowval(C), nnz(A))
@@ -1270,8 +1338,10 @@ function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer
 end
 function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer},
         q::AbstractVector{<:Integer}, C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+    _checkpatternwritable(A, :permute!)
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
+    _checkargs_noalias_permute!((:A, :C), A, C)
     workcolptr = Vector{Ti}(undef, size(A, 2) + 1)
     _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, workcolptr)
     unchecked_aliasing_permute!(A, p, q, C, workcolptr)
@@ -1279,9 +1349,13 @@ end
 function permute!(A::AbstractSparseMatrixCSC{Tv,Ti}, p::AbstractVector{<:Integer},
         q::AbstractVector{<:Integer}, C::AbstractSparseMatrixCSC{Tv,Ti},
         workcolptr::Vector{Ti}) where {Tv,Ti}
+    _checkpatternwritable(A, :permute!)
     _checkargs_sourcecompatperms_permute!(A, p, q)
     _checkargs_sourcecompatworkmat_permute!(A, C)
     _checkargs_sourcecompatworkcolptr_permute!(A, workcolptr)
+    _checkargs_noalias_permute!((:A, :C), A, C)
+    (Base.mightalias(workcolptr, getcolptr(A)) || Base.mightalias(workcolptr, getcolptr(C))) &&
+        throw(ArgumentError("argument `workcolptr` must not share memory with `A` or `C`"))
     _checkargs_permutationsvalid_permute!(p, getcolptr(C), q, workcolptr)
     unchecked_aliasing_permute!(A, p, q, C, workcolptr)
 end
@@ -1356,9 +1430,7 @@ that do not distinguish stored values from zero (such as `by = iszero`).
 The remaining keyword arguments are those of `sort!` for a `Vector`.
 """
 function Base.sort!(A::AbstractSparseMatrixCSC; dims::Integer, kws...)
-    if _is_fixed(A)
-        throw(ArgumentError("cannot sort! a FixedSparseCSC in place, its row indices are read-only"))
-    end
+    _checkpatternwritable(A, :sort!)
     if dims == 1
         _sortcolumns!(A; kws...)
     elseif dims == 2
@@ -1395,13 +1467,14 @@ equal to zero.
 """
 Base.sort(A::AbstractSparseMatrixCSC; kws...) =
     # the generic `Base.sort` for matrices goes through `permutedims`/`reshape` and does
-    # not return a `SparseMatrixCSC` for `dims = 1`; `copy` of a `FixedSparseCSC` shares
-    # its read-only structure, so convert to a writable `SparseMatrixCSC` in that case
-    sort!(_is_fixed(A) ? SparseMatrixCSC(A) : copy(A); kws...)
+    # not return a `SparseMatrixCSC` for `dims = 1`
+    sort!(_writablecopy(A); kws...)
 
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
-function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
+# The predicates of `tril!`, `droptol!` and the other children do not throw, and call this
+# with no `progress`. `fkeep!` passes one for a caller's `f`: see `_fkeep_guarded!`.
+function _fkeep!(f::F, A::AbstractSparseMatrixCSC, progress::P=nothing) where {F<:Function,P}
     An = size(A, 2)
     Acolptr = getcolptr(A)
     Arowval = getrowval(A)
@@ -1415,6 +1488,7 @@ function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
         for Ak in oldAcolptrAj:(Acolptr[Aj+1]-1)
             Ai = Arowval[Ak]
             Ax = Anzval[Ak]
+            progress === nothing || (progress[] = (Aj, Int(Ak), Awritepos))
             # If this element should be kept, rewrite in new position
             if f(Ai, Aj, Ax)
                 if Awritepos != Ak
@@ -1433,6 +1507,32 @@ function _fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
     resize!(Arowval, Annz)
     resize!(Anzval, Annz)
 
+    return A
+end
+
+# When `f` throws at entry `Ak` of column `Aj`, the entries kept so far are packed up to
+# `Awritepos` and the column pointers after `Aj` are stale. Keep that entry and every later
+# one, which leaves `A` valid, and rethrow. Tracking the position costs a store per entry.
+function _fkeep_guarded!(f::F, A::AbstractSparseMatrixCSC) where F<:Function
+    progress = Ref((1, 1, 1))
+    try
+        _fkeep!(f, A, progress)
+    catch
+        Aj, Ak, Awritepos = progress[]
+        Acolptr, Arowval, Anzval = getcolptr(A), getrowval(A), getnzval(A)
+        shift = Ak - Awritepos
+        if shift != 0
+            Annz = Int(Acolptr[end]) - 1
+            copyto!(Arowval, Awritepos, Arowval, Ak, Annz - Ak + 1)
+            copyto!(Anzval, Awritepos, Anzval, Ak, Annz - Ak + 1)
+            for j in Aj+1:size(A, 2)+1
+                Acolptr[j] -= shift
+            end
+            resize!(Arowval, Annz - shift)
+            resize!(Anzval, Annz - shift)
+        end
+        rethrow()
+    end
     return A
 end
 
@@ -1465,7 +1565,7 @@ julia> SparseArrays.fkeep!((i, j, v) -> isodd(v), A)
  ⋅  ⋅  ⋅  ⋅
 ```
 """
-fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = _is_fixed(A) ? _fkeep!_fixed(f, A) : _fkeep!(f, A)
+fkeep!(f::F, A::AbstractSparseMatrixCSC) where F<:Function = (_checkpatternwritable(A, :fkeep!); _fkeep_guarded!(f, A))
 
 # deprecated syntax
 function fkeep!(x::SparseVecOrMat, f::F) where F<:Function
@@ -1475,9 +1575,9 @@ end
 
 
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    fkeep!((i, j, x) -> i + k >= j, A)
+    (_checkpatternwritable(A, :tril!); _fkeep!((i, j, x) -> j - i <= k, A))
 triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    fkeep!((i, j, x) -> j >= i + k, A)
+    (_checkpatternwritable(A, :triu!); _fkeep!((i, j, x) -> j - i >= k, A))
 
 """
     droptol!(A::AbstractSparseMatrixCSC, tol)
@@ -1485,7 +1585,7 @@ triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
 Removes stored values from `A` whose absolute value is less than or equal to `tol`.
 """
 droptol!(A::AbstractSparseMatrixCSC, tol) =
-    fkeep!((i, j, x) -> abs(x) > tol, A)
+    (_checkpatternwritable(A, :droptol!); _fkeep!((i, j, x) -> abs(x) > tol, A))
 
 """
     dropzeros!(A::AbstractSparseMatrixCSC;)
@@ -1496,7 +1596,7 @@ For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
 
-dropzeros!(A::AbstractSparseMatrixCSC) = _is_fixed(A) ? A : fkeep!((i, j, x) -> _isnotzero(x), A)
+dropzeros!(A::AbstractSparseMatrixCSC) = (_checkpatternwritable(A, :dropzeros!); _fkeep!((i, j, x) -> _isnotzero(x), A))
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)
@@ -1520,7 +1620,7 @@ julia> dropzeros(A)
   ⋅   ⋅  1.0
 ```
 """
-dropzeros(A::AbstractSparseMatrixCSC) = dropzeros!(copy(A))
+dropzeros(A::AbstractSparseMatrixCSC) = dropzeros!(_writablecopy(A))
 
 ## Find methods
 
@@ -1684,8 +1784,7 @@ end
 function (-)(A::AbstractSparseMatrixCSC)
     nzval = similar(getnzval(A), typeof(-zero(eltype(A))))
     map!(-, view(nzval, 1:nnz(A)), nzvalview(A))
-    _is_fixed(A) && return FixedSparseCSC(size(A, 1), size(A, 2), getcolptr(A), getrowval(A), nzval)
-    return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(getrowval(A)), nzval)
+    return SparseMatrixCSC(size(A, 1), size(A, 2), Vector(getcolptr(A)), Vector(getrowval(A)), nzval)
 end
 
 # the rest of real, conj, imag are handled correctly via AbstractArray methods
@@ -1816,6 +1915,19 @@ end
     _iseq(==, A, B)
 Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(isequal, A, B)
+# A view against a lazy adjoint or transpose, or an adjoint or transpose of a view against
+# a matrix, would be compared entry by entry: compare the sparse copies of the views.
+for eq in (:(==), :(Base.isequal))
+    @eval begin
+        $eq(A::SparseMatrixCSCSubArray, B::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}) = $eq(_unview(A), _unview(B))
+        $eq(A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}, B::SparseMatrixCSCSubArray) = $eq(_unview(A), _unview(B))
+        $eq(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}) = $eq(A, _unview(B))
+        $eq(A::AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}, B::AbstractSparseMatrixCSC) = $eq(_unview(A), B)
+    end
+end
+_unview(A::SparseMatrixCSCSubArray) = copy(A)
+_unview(A::AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}) = wrapperop(A)(copy(parent(A)))
+_unview(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = A
 # Peel off `Adjoint` and `Transpose` from first argument
 ==(A::Adjoint{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
     A' == B'
@@ -1827,9 +1939,18 @@ Base.isequal(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatr
     isequal(transpose(A), transpose(B))
 
 ## Structure query functions
-issymmetric(A::SparseMatrixCSCOrView) = is_hermsym(A, transpose)
+issymmetric(A::AbstractSparseMatrixCSC) = is_hermsym(A, transpose)
+issymmetric(A::SparseMatrixCSCSubArray) = is_hermsym(_colptrstorage(A), transpose)
 
-ishermitian(A::SparseMatrixCSCOrView) = is_hermsym(A, adjoint)
+ishermitian(A::AbstractSparseMatrixCSC) = is_hermsym(A, adjoint)
+ishermitian(A::SparseMatrixCSCSubArray) = is_hermsym(_colptrstorage(A), adjoint)
+
+# a lazy adjoint or transpose is symmetric, or Hermitian, exactly when its parent is
+issymmetric(A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}) = issymmetric(parent(A))
+ishermitian(A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}) = ishermitian(parent(A))
+
+# `A` itself where `getcolptr` works on it, otherwise its sparse copy
+_colptrstorage(A::SparseMatrixCSCSubArray) = A isa SparseMatrixCSCView ? A : copy(A)
 
 function is_hermsym(A::SparseMatrixCSCOrView, check::Function)
     m, n = size(A)
@@ -2017,19 +2138,25 @@ end
 # the pattern and the buffers may hold unused capacity beyond nnz
 rot180(A::AbstractSparseMatrixCSC) = _reverse!(SparseMatrixCSC(size(A)..., Vector(getcolptr(A)),
     Vector(view(getrowval(A), 1:nnz(A))), Vector(view(getnzval(A), 1:nnz(A)))), Colon())
-rotr90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 2)
-rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), identity), 1)
+rotr90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(A, identity), 2)
+rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(A, identity), 1)
+# Base returns `copy(A)` for a whole number of turns, which is fixed for a fixed `A`
+rot180(A::FixedSparseCSC, k::Integer) = isodd(k) ? rot180(A) : SparseMatrixCSC(A)
+function rotl90(A::FixedSparseCSC, k::Integer)
+    k = mod(k, 4)
+    return k == 1 ? rotl90(A) : k == 2 ? rot180(A) : k == 3 ? rotr90(A) : SparseMatrixCSC(A)
+end
+rotr90(A::FixedSparseCSC, k::Integer) = rotl90(A, -k)
 
 ## Uniform matrix arithmetic
 
-(+)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} =
-    A + sparse(T, Ti, J, size(A)...)
-(+)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} =
-    sparse(T, Ti, J, size(A)...) + A
-(-)(A::AbstractSparseMatrixCSC{Tv, Ti}, J::UniformScaling{T}) where {T<:Number, Tv, Ti} =
-    A - sparse(T, Ti, J, size(A)...)
-(-)(J::UniformScaling{T}, A::AbstractSparseMatrixCSC{Tv, Ti}) where {T<:Number, Tv, Ti} =
-    sparse(T, Ti, J, size(A)...) - A
+_uniformscaling(A::AbstractSparseMatrixCSC{Tv,Ti}, J::UniformScaling{T}) where {T,Tv,Ti} =
+    sparse(T, Ti, J, checksquare(A), size(A, 2))
+
+(+)(A::AbstractSparseMatrixCSC, J::UniformScaling{<:Number}) = A + _uniformscaling(A, J)
+(+)(J::UniformScaling{<:Number}, A::AbstractSparseMatrixCSC) = _uniformscaling(A, J) + A
+(-)(A::AbstractSparseMatrixCSC, J::UniformScaling{<:Number}) = A - _uniformscaling(A, J)
+(-)(J::UniformScaling{<:Number}, A::AbstractSparseMatrixCSC) = _uniformscaling(A, J) - A
 
 
 
@@ -2038,7 +2165,6 @@ rotl90(A::AbstractSparseMatrixCSC) = _reverse!(ftranspose(_unsafe_unfix(A), iden
 function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c)::Base.DimsInteger{2})
     size(O) == size(X) || throw(DimensionMismatch(LazyString("cannot shift a matrix of size ",
         size(X), " into a ", nameof(typeof(O)), " of size ", size(O))))
-    # a fixed destination keeps its pattern, which `_copyto_fixed!` checks before writing
     _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r, c)))
     nz = nnz(X)
 
@@ -2086,9 +2212,8 @@ end
 
 circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,)::Base.DimsInteger{1}) = circshift!(O, X, (r,0))
 circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, r::Real) = circshift!(O, X, (Integer(r),0))
-# a fixed X keeps its pattern under `similar`, so shift into a plain copy instead
-circshift(X::AbstractSparseMatrixCSC, s::Base.DimsInteger) = circshift!(similar(_unsafe_unfix(X)), X, s)
-circshift(X::AbstractSparseMatrixCSC, s::Real) = circshift!(similar(_unsafe_unfix(X)), X, (Integer(s),))
+circshift(X::AbstractSparseMatrixCSC, s::Base.DimsInteger) = circshift!(similar(X), X, s)
+circshift(X::AbstractSparseMatrixCSC, s::Real) = circshift!(similar(X), X, (Integer(s),))
 
 ## swaprows! / swapcols!
 macro swap(a, b)
@@ -2096,6 +2221,7 @@ macro swap(a, b)
 end
 
 function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
+    _checkpatternwritable(A, :swapcols!)
     i == j && return
 
     # For simplicity, let i denote the smaller of the two columns
@@ -2137,6 +2263,10 @@ function Base.swapcols!(A::AbstractSparseMatrixCSC, i, j)
 end
 
 function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
+    _checkpatternwritable(A, :swaprows!)
+    for k in (i, j)
+        k in axes(A, 1) || throw(BoundsError(A, (k, :)))
+    end
     # For simplicity, let i denote the smaller of the two rows
     j < i && @swap(i, j)
 
@@ -2176,13 +2306,11 @@ function Base.swaprows!(A::AbstractSparseMatrixCSC, i, j)
     return nothing
 end
 
-reverse(A::AbstractSparseMatrixCSC; dims=:) = _reverse!(copy(_unsafe_unfix(A)), _reversedims(dims))
+reverse(A::AbstractSparseMatrixCSC; dims=:) = _reverse!(_writablecopy(A), _reversedims(dims))
 function reverse!(S::AbstractSparseMatrixCSC; dims=:)
     d = _reversedims(dims)
-    _is_fixed(S) || return _reverse!(S, d)
-    _reversalkeepspattern(S, d) ||
-        throw(ArgumentError(lazy"cannot reverse a $(nameof(typeof(S))) in place along dims=$dims: its sparsity pattern is read-only and the reversal would change it; use reverse(A; dims) for a new array"))
-    return _reversevals!(S, d)
+    _checkpatternwritable(S, :reverse!)
+    return _reverse!(S, d)
 end
 
 _reversedims(::Colon) = Colon()
@@ -2225,35 +2353,6 @@ function _reverse!(S::AbstractSparseMatrixCSC, dims::Int)
     return S
 end
 
-# A reversal keeps a read-only pattern when it maps the pattern onto itself: every column
-# onto its mirror column with the same row set (dims=2), the rows of each column onto
-# themselves mirrored (dims=1), or both at once (dims=:). Then only the values move.
-function _reversalkeepspattern(S::AbstractSparseMatrixCSC, dims)
-    rowinds = getrowval(S)
-    m, n = size(S)
-    for j in axes(S, 2)
-        r = nzrange(S, j)
-        r2 = dims == 1 ? r : nzrange(S, n + 1 - j)
-        length(r) == length(r2) || return false
-        for t in 0:Int(length(r))-1
-            i = rowinds[first(r) + t]
-            mirrored = dims == 2 ? rowinds[first(r2) + t] : m + 1 - rowinds[last(r2) - t]
-            i == mirrored || return false
-        end
-    end
-    return true
-end
-_reversevals!(S::AbstractSparseMatrixCSC, ::Colon) = (reverse!(getnzval(S)); S)
-function _reversevals!(S::AbstractSparseMatrixCSC, dims::Int)
-    nzval = getnzval(S)
-    for j in axes(S, 2)
-        r = nzrange(S, j)
-        reverse!(nzval, Int(first(r)), Int(last(r)))
-    end
-    dims == 2 && reverse!(nzval)
-    return S
-end
-
 function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
     Base.require_one_based_indexing(M, S)
     if !(uplo == 'U' || uplo == 'L')
@@ -2275,4 +2374,34 @@ function copytrito!(M::AbstractMatrix, S::AbstractSparseMatrixCSC, uplo::Char)
         end
     end
     return M
+end
+
+## Views and lazy adjoints and transposes of a sparse matrix
+#
+# The generic methods for these visit every entry. The sparse copy of the argument costs
+# O(nnz), and the kernels above do the rest.
+
+_writablecopy(A::SparseMatrixCSCSubArray) = copy(A)
+_writablecopy(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) =
+    ftranspose(parent(A), _adjtrans_fun(A), eltype(A))
+
+for T in (:SparseMatrixCSCSubArray, :(AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}))
+    @eval begin
+        reverse(A::$T; dims=:) = _reverse!(_writablecopy(A), _reversedims(dims))
+        rot180(A::$T) = _reverse!(_writablecopy(A), Colon())
+        rotr90(A::$T) = rotr90(_writablecopy(A))
+        rotl90(A::$T) = rotl90(_writablecopy(A))
+        circshift(X::$T, s::Base.DimsInteger) = circshift(_writablecopy(X), s)
+        circshift(X::$T, s::Real) = circshift(_writablecopy(X), s)
+        Base.permutedims(A::$T, perm) = permutedims(_writablecopy(A), perm)
+        Base.sort(A::$T; kws...) = sort!(_writablecopy(A); kws...)
+        copy(R::ReshapedArray{<:Any,2,<:$T}) = copy(reshape(_writablecopy(parent(R)), size(R)))
+    end
+end
+
+for op in (:+, :-)
+    @eval begin
+        ($op)(A::SparseMatrixCSCSubArray, J::UniformScaling{<:Number}) = (checksquare(A); ($op)(_writablecopy(A), J))
+        ($op)(J::UniformScaling{<:Number}, A::SparseMatrixCSCSubArray) = (checksquare(A); ($op)(J, _writablecopy(A)))
+    end
 end

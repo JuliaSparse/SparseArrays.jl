@@ -23,8 +23,12 @@ const LIBDIR_ENV = "JULIA_SUITESPARSE_LIBDIR"
 const _libdir = Ref{Union{Nothing,String}}(nothing)
 const _libdir_lock = ReentrantLock()
 
-# Path SuiteSparse_jll would load for library `name`, without loading it.
-_jll_path(name::Symbol) = string((getfield(SuiteSparse_jll, name)::LazyLibrary).path)
+# Path SuiteSparse_jll would load for a library, without loading it.
+function _jll_path(lib::LazyLibrary)
+    path = lib.path
+    return path isa String ? path : string(path::Libdl.LazyLibraryPath)
+end
+_jll_path(name::Symbol) = _jll_path(getfield(SuiteSparse_jll, name)::LazyLibrary)
 
 function _override_dir()
     # Nothing loaded while generating a pkgimage may be cached in it.
@@ -40,14 +44,21 @@ function _override_dir()
     end
 end
 
-struct SuiteSparseLibPath
-    name::Symbol
+@static if isdefined(Libdl, :LazyLibraryCallback)
+    struct SuiteSparseLibPath <: Libdl.LazyLibraryCallback
+        jll::LazyLibrary
+    end
+else
+    struct SuiteSparseLibPath
+        jll::LazyLibrary
+    end
 end
 function Base.string(p::SuiteSparseLibPath)
-    path = _jll_path(p.name)
+    path = _jll_path(p.jll)
     dir = _override_dir()
     return isempty(dir) ? path : joinpath(dir, basename(path))
 end
+(p::SuiteSparseLibPath)() = string(p)
 Base.print(io::IO, p::SuiteSparseLibPath) = print(io, string(p))
 
 # The BLAS/LAPACK and compiler runtime libraries SuiteSparse_jll declares as dependencies.
@@ -57,16 +68,25 @@ const _system_deps = LazyLibrary[getfield(SuiteSparse_jll, n)
     for n in (:libblastrampoline, :libstdcxx, :libgcc_s)
     if isdefined(SuiteSparse_jll, n)]
 
-const libsuitesparseconfig = LazyLibrary(SuiteSparseLibPath(:libsuitesparseconfig))
-const libamd     = LazyLibrary(SuiteSparseLibPath(:libamd);     dependencies = [libsuitesparseconfig])
-const libcamd    = LazyLibrary(SuiteSparseLibPath(:libcamd);    dependencies = [libsuitesparseconfig])
-const libcolamd  = LazyLibrary(SuiteSparseLibPath(:libcolamd);  dependencies = [libsuitesparseconfig])
-const libccolamd = LazyLibrary(SuiteSparseLibPath(:libccolamd); dependencies = [libsuitesparseconfig])
-const libcholmod = LazyLibrary(SuiteSparseLibPath(:libcholmod);
+function _suitesparse_library(jll::LazyLibrary; dependencies = LazyLibrary[])
+    path = SuiteSparseLibPath(jll)
+    @static if isdefined(Libdl, :dlid)
+        return LazyLibrary(path; dependencies, id = Libdl.dlid(jll))
+    else
+        return LazyLibrary(path; dependencies)
+    end
+end
+
+const libsuitesparseconfig = _suitesparse_library(SuiteSparse_jll.libsuitesparseconfig)
+const libamd     = _suitesparse_library(SuiteSparse_jll.libamd;     dependencies = [libsuitesparseconfig])
+const libcamd    = _suitesparse_library(SuiteSparse_jll.libcamd;    dependencies = [libsuitesparseconfig])
+const libcolamd  = _suitesparse_library(SuiteSparse_jll.libcolamd;  dependencies = [libsuitesparseconfig])
+const libccolamd = _suitesparse_library(SuiteSparse_jll.libccolamd; dependencies = [libsuitesparseconfig])
+const libcholmod = _suitesparse_library(SuiteSparse_jll.libcholmod;
     dependencies = [libsuitesparseconfig, libamd, libcamd, libccolamd, libcolamd, _system_deps...])
-const libspqr    = LazyLibrary(SuiteSparseLibPath(:libspqr);
+const libspqr    = _suitesparse_library(SuiteSparse_jll.libspqr;
     dependencies = [libsuitesparseconfig, libcholmod, _system_deps...])
-const libumfpack = LazyLibrary(SuiteSparseLibPath(:libumfpack);
+const libumfpack = _suitesparse_library(SuiteSparse_jll.libumfpack;
     dependencies = [libsuitesparseconfig, libamd, libcholmod, _system_deps...])
 
 const SUITESPARSE_LIBRARIES = (; libsuitesparseconfig, libamd, libcamd, libcolamd, libccolamd,
@@ -141,61 +161,56 @@ Internal function which is used to initialize the SuiteSparse libraries to the c
     GraphBLAS, or LAGraph.
 """
 const init_suitesparse = Base.OncePerProcess{Nothing}() do
-    try
-        ### Check if the linked library is compatible with the Julia code
-        current_version_array = Vector{Cint}(undef, 3)
-        SuiteSparse_version(current_version_array)
-        (major, minor, patch) = current_version_array
-        current_version = VersionNumber(major, minor, patch)
+    ### Check if the linked library is compatible with the Julia code
+    current_version_array = Vector{Cint}(undef, 3)
+    SuiteSparse_version(current_version_array)
+    (major, minor, patch) = current_version_array
+    current_version = VersionNumber(major, minor, patch)
 
-        if current_version < SUITESPARSE_MIN_VERSION
-            @warn """
-                SuiteSparse version incompatibility
+    if current_version < SUITESPARSE_MIN_VERSION
+        @warn """
+            SuiteSparse version incompatibility
 
-                Julia was compiled with SuiteSparse version $BUILD_VERSION. It is
-                currently linked with a version older than
-                $(SUITESPARSE_MIN_VERSION) from $(Libdl.dlpath(libsuitesparseconfig)).
-                This might cause Julia to
-                terminate when working with sparse matrix factorizations,
-                e.g. solving systems of equations with \\.
+            Julia was compiled with SuiteSparse version $BUILD_VERSION. It is
+            currently linked with a version older than
+            $(SUITESPARSE_MIN_VERSION) from $(Libdl.dlpath(libsuitesparseconfig)).
+            This might cause Julia to
+            terminate when working with sparse matrix factorizations,
+            e.g. solving systems of equations with \\.
 
-                It is recommended that you use Julia with a recent version
-                of SuiteSparse, or download the generic binaries
-                from www.julialang.org, which ship with the correct
-                versions of all dependencies.
-                """
-        elseif BUILD_VERSION.major != current_version.major
-            @warn """
-                SuiteSparse version incompatibility
+            It is recommended that you use Julia with a recent version
+            of SuiteSparse, or download the generic binaries
+            from www.julialang.org, which ship with the correct
+            versions of all dependencies.
+            """
+    elseif BUILD_VERSION.major != current_version.major
+        @warn """
+            SuiteSparse version incompatibility
 
-                Julia was compiled with SuiteSparse version $BUILD_VERSION. It is
-                currently linked with version $current_version from
-                $(Libdl.dlpath(libsuitesparseconfig)).
-                This might cause Julia to terminate when working with
-                sparse matrix factorizations, e.g. solving systems of
-                equations with \\.
+            Julia was compiled with SuiteSparse version $BUILD_VERSION. It is
+            currently linked with version $current_version from
+            $(Libdl.dlpath(libsuitesparseconfig)).
+            This might cause Julia to terminate when working with
+            sparse matrix factorizations, e.g. solving systems of
+            equations with \\.
 
-                It is recommended that you use Julia with the same major
-                version of SuiteSparse as the one used during the build, or
-                download the generic binaries from www.julialang.org,
-                which ship with the correct versions of all dependencies.
-                """
-        end
+            It is recommended that you use Julia with the same major
+            version of SuiteSparse as the one used during the build, or
+            download the generic binaries from www.julialang.org,
+            which ship with the correct versions of all dependencies.
+            """
+    end
 
-        SuiteSparse_start()
+    SuiteSparse_start()
 
-        # Register the gc tracked allocator
-        SuiteSparse_config_malloc_func_set(cglobal(:jl_malloc, Ptr{Cvoid}))
-        SuiteSparse_config_calloc_func_set(cglobal(:jl_calloc, Ptr{Cvoid}))
-        SuiteSparse_config_realloc_func_set(cglobal(:jl_realloc, Ptr{Cvoid}))
-        SuiteSparse_config_free_func_set(cglobal(:jl_free, Ptr{Cvoid}))
+    # Register the gc tracked allocator
+    SuiteSparse_config_malloc_func_set(cglobal(:jl_malloc, Ptr{Cvoid}))
+    SuiteSparse_config_calloc_func_set(cglobal(:jl_calloc, Ptr{Cvoid}))
+    SuiteSparse_config_realloc_func_set(cglobal(:jl_realloc, Ptr{Cvoid}))
+    SuiteSparse_config_free_func_set(cglobal(:jl_free, Ptr{Cvoid}))
 
-        atexit() do
-            SuiteSparse_finish()
-        end
-
-    catch ex
-        @error "Error during initialization of module LibSuiteSparse" exception=ex,catch_backtrace()
+    atexit() do
+        SuiteSparse_finish()
     end
     return nothing
 end

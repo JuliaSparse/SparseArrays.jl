@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module SparseProcessTests
-using Test, SparseArrays, LinearAlgebra
+using Test, SparseArrays, LinearAlgebra, Serialization
 include("../testhelpers.jl")
 
 include("testprocess.jl")
@@ -23,6 +23,24 @@ end
 end
 end
 
+@static if COMPREHENSIVE
+@testset "a deserialized UmfpackLU initializes SuiteSparse before its first C call" begin
+    mktemp() do path, io
+        serialize(io, lu(sparse([4.0 1; 1 3])))
+        close(io)
+        script = """
+            using LinearAlgebra, Serialization
+            F = deserialize($(repr(path)))
+            @test F \\ [1.0, 2.0] ≈ [4.0 1; 1 3] \\ [1.0, 2.0]
+            L = SparseArrays.LibSuiteSparse
+            # the allocator is no longer the C library's, which it is until initialization
+            @test L.SuiteSparse_config_malloc_func_get() != cglobal(:malloc)
+            """
+        @test success(pipeline(testprocess(script); stdout, stderr))
+    end
+end
+end
+
 @testset "SuiteSparse library directory override (#250)" begin
     L = SparseArrays.LibSuiteSparse
     original_dir = L.libdir()
@@ -31,6 +49,13 @@ end
     @test samefile(L.libdir(), original_dir)
     @static if COMPREHENSIVE
     mktempdir() do dir
+        failure = """
+            L = SparseArrays.LibSuiteSparse
+            @test_throws ErrorException L.init_suitesparse()
+            @test_throws ErrorException L.init_suitesparse()
+            @test !any(L._isloaded, values(L.SUITESPARSE_LIBRARIES))
+            """
+        @test success(pipeline(testprocess(failure; env=[L.LIBDIR_ENV => dir]); stdout, stderr))
         for name in keys(L.SUITESPARSE_LIBRARIES)
             src = L._jll_path(name)
             cp(src, joinpath(dir, basename(src)); follow_symlinks=true)

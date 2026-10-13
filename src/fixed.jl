@@ -1,8 +1,10 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # The experimental fixed-pattern arrays: the read-only index vector behind them, the types,
-# `fixed`/`move_fixed`, and the kernels that exist only for them. Checks for a fixed operand
-# inside general kernels stay with those kernels.
+# `fixed`/`move_fixed`, and the kernels that exist only for them. A fixed array is a
+# destination whose pattern never changes. As an operand it reads as the plain array that
+# shares its buffers and the result is a plain array, so only kernels that write their
+# argument check for one, and those checks stay with the kernels.
 
 """
    `ReadOnly{T,N,<:AbstractArray{T,N,V<:AbstractArray{T,N}}} <: AbstractArray{T,N}`
@@ -55,19 +57,26 @@ nnz(x::ReadOnly) = nnz(parent(x))
 indtype(x::ReadOnly) = indtype(parent(x))
 
 @inline _is_fixed(::AbstractArray) = false
-@inline _is_fixed(A::AbstractArray, Bs::Vararg{Any,N}) where N = _is_fixed(A) || (N > 0 && _is_fixed(Bs...))
 @noinline _throwfixedinsert(A, I::Vararg{Integer,N}) where {N} =
     throw(ArgumentError("cannot store a new entry at ($(join(I, ", "))) in a $(nameof(typeof(A))), its sparsity pattern is read-only"))
-macro if_move_fixed(a...)
-    length(a) <= 1 && error("@if_move_fixed needs at least two arguments")
-    h, v = esc.(a[1:end - 1]), esc(a[end])
-    :(_is_fixed($(h...)) ? move_fixed($v) : $v)
-end
+# `f!` exists to change the pattern of its argument, which a fixed array does not allow
+@noinline _throwfixedchange(A, f!::Symbol) =
+    throw(ArgumentError("cannot `$(f!)` a $(nameof(typeof(A))): it would change the sparsity pattern, which is read-only; apply it to a writable copy, `$(A isa AbstractVector ? :SparseVector : :SparseMatrixCSC)(A)`"))
+@inline _checkpatternwritable(A, f!::Symbol) = _is_fixed(A) && _throwfixedchange(A, f!)
+# `copy` of a fixed array is fixed and shares its pattern; an out-of-place kernel that
+# goes on to change the pattern of its copy starts from this one
+_writablecopy(A::Union{AbstractSparseMatrixCSC,AbstractSparseVector}) = copy(A)
 
 """
     FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
 
-Experimental AbstractSparseMatrixCSC whose non-zero index are fixed.
+Experimental. A sparse matrix in CSC format whose sparsity pattern is read-only: stored
+values can be overwritten, but no entry can be added or removed.
+
+A `FixedSparseCSC` is a destination for in-place writes. As an operand it behaves as the
+[`SparseMatrixCSC`](@ref) with the same entries, and results are not fixed; only `copy`
+returns a `FixedSparseCSC`, which shares the pattern. See
+[Sparse arrays with a fixed pattern](@ref man-sparse-fixed).
 """
 struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     m::Int                  # Number of rows
@@ -96,14 +105,15 @@ FixedSparseCSC{Tv,Ti}(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector
     FixedSparseCSC{Tv,Ti}(m, n, ReadOnly(colptr), ReadOnly(rowval), nzval)
 FixedSparseCSC(m::Integer, n::Integer, colptr::Vector{Ti}, rowval::Vector{Ti}, nzval::Vector{Tv}) where {Tv,Ti} =
     FixedSparseCSC{Tv,Ti}(m, n, ReadOnly(colptr), ReadOnly(rowval), nzval)
-FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} =
-    FixedSparseCSC{Tv,Ti}(size(x, 1), size(x, 2),
-        getcolptr(x), getrowval(x), getnzval(x))
-# shares x's buffers when the types already match, converts them otherwise
+# These copy `x`: a pattern shared with a writable `x` could be changed through it.
+# `move_fixed` reuses the buffers.
+FixedSparseCSC(x::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = FixedSparseCSC{Tv,Ti}(x)
+# a fixed `x` shares its read-only pattern, as with `copy`
+FixedSparseCSC{Tv,Ti}(x::FixedSparseCSC{Tv,Ti}) where {Tv,Ti} = copy(x)
 function FixedSparseCSC{Tv,Ti}(x::AbstractSparseMatrixCSC) where {Tv,Ti}
     y = _unsafe_unfix(x)
     FixedSparseCSC{Tv,Ti}(size(y, 1), size(y, 2),
-        convert(Vector{Ti}, getcolptr(y)), convert(Vector{Ti}, getrowval(y)), convert(Vector{Tv}, getnzval(y)))
+        Vector{Ti}(getcolptr(y)), Vector{Ti}(getrowval(y)), Vector{Tv}(getnzval(y)))
 end
 
 """
@@ -111,6 +121,33 @@ end
 
 Experimental. Like `sparse` but returns a sparse array whose sparsity pattern is read-only:
 stored entries can change value, but none can be added or removed.
+
+`fixed(A)` of a writable sparse array `A` copies it, so the result shares no memory with
+`A`. Use [`move_fixed`](@ref SparseArrays.move_fixed) to reuse the buffers of `A` instead.
+`fixed(F)` of a fixed array is `copy(F)`: it copies the values and shares the pattern.
+
+A write into the result keeps every stored entry and throws an `ArgumentError`, before
+changing anything, when it needs an entry outside the pattern. A function whose purpose is
+to change the pattern, such as `dropzeros!` or `tril!`, throws. Operations that read the
+result return ordinary arrays: of the out-of-place functions only `copy` returns a fixed
+array, sharing the pattern. See [Sparse arrays with a fixed pattern](@ref man-sparse-fixed).
+
+# Examples
+```jldoctest
+julia> W = SparseArrays.fixed(sparse([1.0 2; 0 3]));
+
+julia> W .= 0 .* W
+2×2 SparseArrays.FixedSparseCSC{Float64, Int64} with 3 stored entries:
+ 0.0  0.0
+  ⋅   0.0
+
+julia> W[2, 1] = 1.0
+ERROR: ArgumentError: cannot store a new entry at (2, 1) in a FixedSparseCSC, its sparsity pattern is read-only
+[...]
+
+julia> typeof(W + W)
+SparseMatrixCSC{Float64, Int64}
+```
 """
 fixed(x...) = move_fixed(sparse(x...))
 fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
@@ -119,6 +156,7 @@ fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(x)
     move_fixed(x::AbstractSparseMatrixCSC)
 
 Experimental, unsafe. Make a `FixedSparseCSC` by reusing the colptr, rowvals and nonzeros of `x`.
+The pattern of the result is read-only only as long as `x` is not used to change it.
 """
 move_fixed(x::AbstractSparseMatrixCSC) = FixedSparseCSC(size(x)..., getcolptr(x), getrowval(x), getnzval(x))
 """
@@ -128,33 +166,32 @@ Experimental, unsafe. Returns a modifiable version of `x` for compatibility with
 """
 _unsafe_unfix(x::FixedSparseCSC) = SparseMatrixCSC(size(x)..., parent(getcolptr(x)), parent(getrowval(x)), getnzval(x))
 _unsafe_unfix(x::AbstractSparseMatrixCSC) = x
+_writablecopy(A::FixedSparseCSC) = SparseMatrixCSC(A)
 
-# A fixed destination keeps its pattern: B's stored entries must lie in it and A's other
-# entries become zero. The pattern is checked in full before anything is written.
+# A fixed destination keeps its pattern: A's entries that B does not store become zero, and
+# an entry of B outside the pattern must be one that `setindex!` would not store. The
+# pattern and the values are checked in full before anything is written.
 function _copyto_fixed!(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     size(A) == size(B) || throw(DimensionMismatch(lazy"cannot copy a matrix of size $(size(B)) into a fixed one of size $(size(A))"))
     Arv, Brv, Anz, Bnz = getrowval(A), getrowval(B), getnzval(A), getnzval(B)
+    _checkconvertible(eltype(A), Bnz)
     for write in (false, true)
-        write && fill!(Anz, zero(eltype(A)))
+        if write
+            # B's pattern lies in A's, so with one value buffer the two patterns are equal
+            Anz === Bnz && return A
+            Bnz = Base.unalias(Anz, Bnz)
+            fill!(Anz, zero(eltype(A)))
+        end
         @inbounds for j in axes(A, 2)
             k, kend = Int(first(nzrange(A, j))), Int(last(nzrange(A, j)))
             for p in nzrange(B, j)
                 i = Brv[p]
                 while k <= kend && Arv[k] < i; k += 1; end
-                (k <= kend && Arv[k] == i) || _throwfixedinsert(A, i, j)
+                if !(k <= kend && Arv[k] == i)
+                    _isimplicitzero(convert(eltype(A), Bnz[p]), eltype(A)) || _throwfixedinsert(A, i, j)
+                    continue
+                end
                 write && (Anz[k] = Bnz[p])
-            end
-        end
-    end
-    return A
-end
-
-function _fkeep!_fixed(f::F, A::AbstractSparseMatrixCSC) where F<:Function
-    @inbounds for j in axes(A,2)
-        for k in nzrange(A, j)
-            # If this element should be kept, rewrite in new position
-            if !f(getrowval(A)[k], j, getnzval(A)[k])
-                getnzval(A)[k] = zero(eltype(A))
             end
         end
     end
@@ -164,7 +201,11 @@ end
 """
     FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
 
-Experimental AbstractCompressedVector whose non-zero index are fixed.
+Experimental. A sparse vector whose sparsity pattern is read-only: stored values can be
+overwritten, but no entry can be added or removed.
+
+It follows the rules of [`SparseArrays.FixedSparseCSC`](@ref): a destination for in-place
+writes, an ordinary [`SparseVector`](@ref) as an operand.
 """
 struct FixedSparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
@@ -186,6 +227,9 @@ FixedSparseVector(n::Integer, nzind::Vector{<:Integer}, nzval::Vector) =
     FixedSparseVector(n, ReadOnly(nzind), nzval)
 
 FixedSparseVector(s::AbstractSparseVector) = FixedSparseVector(length(s), copy(nonzeroinds(s)), copy(nonzeros(s)))
+# a fixed `s` shares its read-only pattern, as with `copy`
+FixedSparseVector(s::FixedSparseVector) = copy(s)
+FixedSparseVector{Tv,Ti}(s::FixedSparseVector{Tv,Ti}) where {Tv,Ti} = copy(s)
 FixedSparseVector{Tv,Ti}(s::AbstractSparseVector) where {Tv,Ti} =
     FixedSparseVector{Tv,Ti}(length(s), ReadOnly(Vector{Ti}(nonzeroinds(s))), Vector{Tv}(nonzeros(s)))
 
@@ -194,6 +238,7 @@ inverse of fixed, should not allocate
 """
 _unsafe_unfix(s::AbstractSparseVector) = s
 _unsafe_unfix(s::FixedSparseVector) = SparseVector(length(s), parent(nonzeroinds(s)), nonzeros(s))
+_writablecopy(s::FixedSparseVector) = copy(_unsafe_unfix(s))
 
 fixed(x::AbstractSparseVector) = FixedSparseVector(x)
 move_fixed(x::AbstractSparseVector) = FixedSparseVector(length(x), nonzeroinds(x), nonzeros(x))
@@ -202,23 +247,31 @@ move_fixed(x::AbstractSparseVector) = FixedSparseVector(length(x), nonzeroinds(x
 function _copyto_fixed!(A::AbstractCompressedVector, B::AbstractCompressedVector)
     length(A) == length(B) || throw(DimensionMismatch(lazy"cannot copy a vector of length $(length(B)) into a fixed one of length $(length(A))"))
     Ai, Bi, Anz, Bnz = nonzeroinds(A), nonzeroinds(B), nonzeros(A), nonzeros(B)
+    _checkconvertible(eltype(A), Bnz)
     for write in (false, true)
-        write && fill!(Anz, zero(eltype(A)))
+        if write
+            Anz === Bnz && return A
+            Bnz = Base.unalias(Anz, Bnz)
+            fill!(Anz, zero(eltype(A)))
+        end
         k = 1
         @inbounds for p in eachindex(Bi)
             i = Bi[p]
             while k <= length(Ai) && Ai[k] < i; k += 1; end
-            (k <= length(Ai) && Ai[k] == i) || _throwfixedinsert(A, i)
+            if !(k <= length(Ai) && Ai[k] == i)
+                _isimplicitzero(convert(eltype(A), Bnz[p]), eltype(A)) || _throwfixedinsert(A, i)
+                continue
+            end
             write && (Anz[k] = Bnz[p])
         end
     end
     return A
 end
 
-# Base's `cumsum`, `cumprod` and `accumulate` allocate their result with `similar(A, T)`,
-# which keeps a fixed pattern, so compute them on the plain array and return that.
-for f in (:cumsum, :cumprod)
-    @eval Base.$f(A::FixedSparseCSC; dims::Integer) = $f(_unsafe_unfix(A); dims)
-    @eval Base.$f(x::FixedSparseVector; dims::Integer=1) = $f(_unsafe_unfix(x); dims)
-end
-Base.accumulate(op, A::Union{FixedSparseCSC,FixedSparseVector}; kw...) = accumulate(op, _unsafe_unfix(A); kw...)
+Base.setindex!(x::FixedSparseVector, v::AbstractVector, ::Colon) = setindex!(x, v, axes(x, 1))
+# Base's methods never reach a sparse kernel that could check: `circshift!` goes through
+# `reverse!` and `permute!` assigns a permuted copy
+Base.circshift!(x::FixedSparseVector, ::Integer) = _throwfixedchange(x, :circshift!)
+Base.permute!(x::FixedSparseVector, ::AbstractVector) = _throwfixedchange(x, :permute!)
+Base.invpermute!(x::FixedSparseVector, ::AbstractVector) = _throwfixedchange(x, :invpermute!)
+sparsevec(x::FixedSparseVector) = _writablecopy(x)

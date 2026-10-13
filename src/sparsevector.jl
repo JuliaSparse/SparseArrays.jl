@@ -177,8 +177,7 @@ function _sparsesimilar(S::SparseVector, ::Type{TvNew}, ::Type{TiNew}, dims::Dim
 end
 
 _sparsesimilar(S::FixedSparseVector, ::Type{TvNew}, ::Type{TiNew}) where {TvNew,TiNew} =
-    move_fixed(_sparsesimilar(_unsafe_unfix(S), TvNew, TiNew))
-# a new shape carries no pattern over, so the result is never fixed
+    _sparsesimilar(_unsafe_unfix(S), TvNew, TiNew)
 _sparsesimilar(S::FixedSparseVector, ::Type{TvNew}, ::Type{TiNew}, dims::Dims) where {TvNew,TiNew} =
     _sparsesimilar(_unsafe_unfix(S), TvNew, TiNew, dims)
 
@@ -425,6 +424,46 @@ function setindex!(x::AbstractCompressedVector, v::AbstractVector, I::AbstractUn
     return x
 end
 
+function setindex!(x::AbstractCompressedVector, v::AbstractVector, I::AbstractVector{<:Integer})
+    require_one_based_indexing(x, v, I)
+    if I isa AbstractVector{Bool}
+        checkbounds(x, I)
+        return setindex!(x, v, findall(I))
+    end
+    I = Base.unalias(x, I)
+    _is_fixed(x) && return _setindex_fixed!(x, v, I)
+    checkbounds(x, I)
+    Base.setindex_shape_check(v, length(I))
+    v = Base.unalias(x, v)
+    for (k, i) in enumerate(I)
+        x[i] = v[k]
+    end
+    return x
+end
+
+# Assignment at an index vector into a fixed pattern: every index is located, and a value
+# that would be stored outside the pattern rejected, before any entry is written.
+function _setindex_fixed!(x::AbstractCompressedVector{Tv}, v::AbstractVector, I::AbstractVector{<:Integer}) where Tv
+    checkbounds(x, I)
+    Base.setindex_shape_check(v, length(I))
+    v = Base.unalias(x, v)
+    nzind = nonzeroinds(x); nzval = nonzeros(x)
+    pos = Vector{Int}(undef, length(I))
+    for (k, i) in enumerate(I)
+        p = searchsortedfirst(nzind, i)
+        if p <= length(nzind) && nzind[p] == i
+            pos[k] = p
+        else
+            _isimplicitzero(convert(Tv, v[k]), Tv) || _throwfixedinsert(x, i)
+            pos[k] = 0
+        end
+    end
+    for k in eachindex(pos)
+        pos[k] == 0 || (nzval[pos[k]] = v[k])
+    end
+    return x
+end
+
 
 ### dropstored!
 """
@@ -449,18 +488,15 @@ julia> SparseArrays.dropstored!(x, 2)
 ```
 """
 function dropstored!(x::AbstractCompressedVector, i::Integer)
-    if _is_fixed(x)
-        x[i] = zero(eltype(x))
-    else
-        if !(1 <= i <= length(x::SparseVector))
-            throw(BoundsError(x, i))
-        end
-        searchk = searchsortedfirst(nonzeroinds(x), i)
-        if searchk <= length(nonzeroinds(x)) && nonzeroinds(x)[searchk] == i
-            # Entry x[i] is stored. Drop and return.
-            deleteat!(nonzeroinds(x), searchk)
-            deleteat!(nonzeros(x), searchk)
-        end
+    _checkpatternwritable(x, :dropstored!)
+    if !(1 <= i <= length(x::SparseVector))
+        throw(BoundsError(x, i))
+    end
+    searchk = searchsortedfirst(nonzeroinds(x), i)
+    if searchk <= length(nonzeroinds(x)) && nonzeroinds(x)[searchk] == i
+        # Entry x[i] is stored. Drop and return.
+        deleteat!(nonzeroinds(x), searchk)
+        deleteat!(nonzeros(x), searchk)
     end
     return x
 end
@@ -473,8 +509,8 @@ end
 # convert SparseMatrixCSC to SparseVector
 function SparseVector{Tv,Ti}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti<:Integer}
     size(s, 2) == 1 || throw(ArgumentError("The input argument must have a single-column."))
-    # the vector's pattern is writable, so it cannot share the read-only one of a fixed matrix
-    SparseVector(size(s, 1), _is_fixed(s) ? Vector(getrowval(s)) : getrowval(s), getnzval(s))
+    # the vector's pattern is writable, so it cannot share the buffers of the matrix
+    SparseVector(size(s, 1), Vector(getrowval(s)), copy(getnzval(s)))
 end
 
 SparseVector{Tv}(s::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
@@ -506,7 +542,7 @@ sparsevec(a::AbstractSparseMatrixCSC) = a[:]
 sparsevec(a::AbstractSparseVector) = vec(a)
 sparse(a::AbstractVector) = sparsevec(a)
 
-function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray{Tv}) where {Tv,Ti}
+function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray) where {Tv,Ti}
     require_one_based_indexing(s)
     cap = length(nzind)
     @assert cap == length(nzval)
@@ -531,22 +567,22 @@ function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray{T
     return (nzind, nzval)
 end
 
-function _dense2sparsevec(s::AbstractArray{Tv}, initcap::Ti) where {Tv,Ti}
+function _dense2sparsevec(::Type{Tv}, s::AbstractArray, initcap::Ti) where {Tv,Ti}
     nzind, nzval = _dense2indval!(Vector{Ti}(undef, initcap), Vector{Tv}(undef, initcap), s)
     SparseVector(length(s), nzind, nzval)
 end
 
-SparseVector{Tv,Ti}(s::AbstractVector{Tv}) where {Tv,Ti} =
-    _dense2sparsevec(s, convert(Ti, max(8, div(length(s), 8))))
+SparseVector{Tv,Ti}(s::AbstractVector) where {Tv,Ti} =
+    _dense2sparsevec(Tv, s, convert(Ti, max(8, div(length(s), 8))))
 
-SparseVector{Tv}(s::AbstractVector{Tv}) where {Tv} = SparseVector{Tv,Int}(s)
+SparseVector{Tv}(s::AbstractVector) where {Tv} = SparseVector{Tv,Int}(s)
 
 SparseVector(s::AbstractVector{Tv}) where {Tv} = SparseVector{Tv,Int}(s)
 
 # copy-constructors
 SparseVector(s::AbstractCompressedVector{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
 SparseVector{Tv}(s::AbstractCompressedVector{<:Any,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
-function SparseVector{Tv,Ti}(s::SparseVector) where {Tv,Ti}
+function SparseVector{Tv,Ti}(s::AbstractCompressedVector) where {Tv,Ti}
     copyind = Vector{Ti}(nonzeroinds(s))
     copynz = Vector{Tv}(nonzeros(s))
     SparseVector{Tv,Ti}(length(s), copyind, copynz)
@@ -590,15 +626,31 @@ function prep_sparsevec_copy_dest!(A::AbstractCompressedVector, lB, nnzB)
     end
 end
 
+# The stored indices and values of `B` in the types of `A`'s buffers. A conversion that
+# can throw is made here, before `A` is resized; buffers of the right types are returned
+# as they are.
+_converted_storage(A::AbstractCompressedVector{Tv,Ti}, B::AbstractCompressedVector{Tv,Ti}) where {Tv,Ti} =
+    nonzeroinds(B), nonzeros(B)
+_converted_storage(A::AbstractCompressedVector{Tv,Ti}, B::AbstractCompressedVector) where {Tv,Ti} =
+    convert(Vector{Ti}, nonzeroinds(B)), convert(Vector{Tv}, nonzeros(B))
+
 function copyto!(A::AbstractCompressedVector, B::AbstractCompressedVector)
     _is_fixed(A) && return _copyto_fixed!(A, B)
-    prep_sparsevec_copy_dest!(A, length(B), nnz(B))
-    copyto!(nonzeroinds(A), nonzeroinds(B))
-    copyto!(nonzeros(A), nonzeros(B))
+    length(A) >= length(B) || throw(BoundsError())
+    Binds, Bvals = _converted_storage(A, B)
+    prep_sparsevec_copy_dest!(A, length(B), length(Binds))
+    copyto!(nonzeroinds(A), Binds)
+    copyto!(nonzeros(A), Bvals)
     return A
 end
 
-copyto!(A::AbstractCompressedVector, B::AbstractVector) = copyto!(A, sparsevec(B))
+# a dense source keeps what `setindex!` would store, such as `-0.0`, as it does for a view
+# of a sparse vector and for a sparse matrix
+function copyto!(A::AbstractCompressedVector{Tv,Ti}, B::AbstractVector) where {Tv,Ti}
+    length(A) >= length(B) || throw(BoundsError())
+    inds, vals = _splice_source(B, Ti, Tv)
+    return copyto!(A, SparseVector{Tv,Ti}(length(B), inds, vals))
+end
 
 function copyto!(A::AbstractCompressedVector, B::AbstractSparseMatrixCSC)
     _is_fixed(A) && return _copyto_fixed!(A, copyto!(spzeros(eltype(A), indtype(A), length(B)), B))
@@ -650,7 +702,10 @@ function _splice_entries!(x::AbstractSparseArray, inds::AbstractVector, vals::Ab
         k = k1
         for (i, v) in zip(newinds, newvals)
             while k <= k2 && inds[k] < i; k += 1; end
-            (k <= k2 && inds[k] == i) || _throwfixedinsert(x, i)
+            if !(k <= k2 && inds[k] == i)
+                _isimplicitzero(v, eltype(vals)) || _throwfixedinsert(x, i)
+                continue
+            end
             write && (vals[k] = v)
         end
     end
@@ -724,6 +779,7 @@ sprandn(::Type{T}, n::Integer, p::AbstractFloat) where T = sprand(default_rng(),
 sprandn(r::AbstractRNG, ::Type{T}, n::Integer, p::AbstractFloat) where T = sprand(r, n, p, (r, i) -> randn(r, T, i))
 
 Base.copy(a::SubArray{<:Any,<:Any,<:Union{SparseVector, AbstractSparseMatrixCSC}}) = parent(a)[a.indices...]
+Base.copy(a::SubArray{<:Any,0,<:Union{SparseVector, AbstractSparseMatrixCSC}}) = fill(parent(a)[a.indices...])
 
 function findall(x::SparseVectorOrView)
     return findall(identity, x)
@@ -1039,6 +1095,7 @@ function _iseq_dense(eq::F, A::SparseMatrixCSCOrColumnSubset, D::AbstractMatrix,
         i = 1
         for k in getnzrange(A, j)
             r = Int(rv[k])
+            checkbounds(D, r, j)
             for ii in i:r-1
                 c = _implicit_eq(eq, za, D[ii, j])
                 c === false && return false
@@ -1073,6 +1130,7 @@ function _iseq_dense(eq::F, x::Union{SparseVectorOrView,SparseVectorPartialView}
     i = 1
     @inbounds for k in eachindex(ix, vx)
         r = Int(ix[k])
+        checkbounds(D, r)
         for ii in i:r-1
             c = _implicit_eq(eq, za, D[ii])
             c === false && return false
@@ -1143,27 +1201,27 @@ function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractUnitRange) where {T
             rval[c] = xnzval[j]
         end
     end
-    return @if_move_fixed x SparseVector(length(I), rind, rval)
+    return SparseVector(length(I), rind, rval)
 end
 
 getindex(x::AbstractSparseVector, I::AbstractVector{Bool}) = (checkbounds(x, I); x[findall(I)])
 getindex(x::AbstractSparseVector, I::AbstractArray{Bool}) = (checkbounds(x, I); x[LinearIndices(I)[findall(I)]])
 # SparseMatrixCSC has a nicely optimized routine for this; punt. The scratch matrix
 # shares the buffers of the unfixed vector, since a ReadOnly index vector is not a
-# valid SparseMatrixCSC field, and the result is refixed to match the input.
+# valid SparseMatrixCSC field.
 @inline function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
     y = _unsafe_unfix(x)
     S = SparseMatrixCSC(length(y), 1, Ti[1,length(nonzeroinds(y))+1], nonzeroinds(y), nonzeros(y))
-    return @if_move_fixed x S[I, 1]
+    return S[I, 1]
 end
 
 function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
     y = _unsafe_unfix(x)
     S = SparseMatrixCSC(length(y), 1, Ti[1,length(nonzeroinds(y))+1], nonzeroinds(y), nonzeros(y))
-    return @if_move_fixed x S[I]
+    return S[I]
 end
 
-getindex(x::AbstractSparseVector, ::Colon) = copy(x)
+getindex(x::AbstractSparseVector, ::Colon) = _writablecopy(x)
 
 function Base.isstored(x::AbstractSparseVector, i::Integer)
     @boundscheck checkbounds(x, i)
@@ -1251,10 +1309,14 @@ float(x::AbstractSparseVector) = _withnonzeros(x, float(nonzeros(x)))
 complex(x::AbstractSparseVector{<:Complex}) = x
 complex(x::AbstractSparseVector) = _withnonzeros(x, complex(nonzeros(x)))
 
-# a vector with the index pattern of `x` (shared, as `copy` of a fixed vector shares it)
-# and `nzval` as its stored values
-_withnonzeros(x::AbstractSparseVector, nzval) = SparseVector(length(x), nonzeroinds(x), nzval)
-_withnonzeros(x::FixedSparseVector, nzval) = FixedSparseVector(length(x), nonzeroinds(x), nzval)
+# A vector with the index pattern of `x` and `nzval` as its stored values. The pattern is
+# shared only when `nzval` is the value buffer of `x` too, see
+# `_withnonzeros(::SparseMatrixCSC, nzval)`.
+_withnonzeros(x::AbstractSparseVector, nzval) =
+    SparseVector(length(x), nzval === nonzeros(x) ? nonzeroinds(x) : Vector(nonzeroinds(x)), nzval)
+# a fixed vector that already has the eltype is returned as it is, pattern and all
+_withnonzeros(x::FixedSparseVector, nzval) = nzval === nonzeros(x) ? x :
+    SparseVector(length(x), Vector(nonzeroinds(x)), nzval)
 
 
 ### math functions
@@ -1262,8 +1324,7 @@ _withnonzeros(x::FixedSparseVector, nzval) = FixedSparseVector(length(x), nonzer
 ### Unary Map
 
 # zero-preserving functions (z->z, nz->nz)
--(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
--(x::FixedSparseVector) = FixedSparseVector(length(x), nonzeroinds(x), -nonzeros(x))
+-(x::AbstractCompressedVector) = SparseVector(length(x), Vector(nonzeroinds(x)), -nonzeros(x))
 
 # functions f with f(0) == 0: the result keeps the pattern of x, as `f.(x)` does, even where
 # f(x) is zero for a stored x
@@ -1288,7 +1349,7 @@ end
 
 # the rest of real, conj, imag are handled correctly via AbstractArray methods
 @unarymap_nz2z_z2z real Complex
-conj(x::AbstractCompressedVector{<:Complex}) = typeof(x)(length(x), copy(nonzeroinds(x)), conj(nonzeros(x)))
+conj(x::AbstractCompressedVector{<:Complex}) = SparseVector(length(x), Vector(nonzeroinds(x)), conj(nonzeros(x)))
 imag(x::AbstractSparseVector{Tv,Ti}) where {Tv<:Real,Ti<:Integer} = SparseVector(length(x), Ti[], Tv[])
 @unarymap_nz2z_z2z imag Complex
 
@@ -1403,36 +1464,28 @@ end
 # definition of a few known broadcasted/mapped binary functions — all others defer to HigherOrderFunctions
 
 _bcast_binary_map(f, x, y, mode) = length(x) == length(y) ? _binarymap(f, x, y, mode) : HigherOrderFns._diffshape_broadcast(f, x, y)
-_getmode(::typeof(*), ::Type, ::Type) = 0
-_getmode(::typeof(*), ::Type{Union{Missing, T}}, ::Type) where {T} = 2
-_getmode(::typeof(*), ::Type, ::Type{Union{Missing, T}}) where {T} = 2
-_getmode(::typeof(*), ::Type{Union{Missing, T}}, ::Type{Union{Missing, S}}) where {T,S} = 2
-_getmode(::typeof(min), ::Type, ::Type) = 2
-_getmode(::typeof(max), ::Type, ::Type) = 2
+# An entry stored in one argument only is computed against the other's zero, also for `*`:
+# an infinite or NaN value times zero is not zero.
 for fun in (:*, :min, :max)
     @eval begin
-        map(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
-            _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
-        map(::typeof($fun), x::AbstractCompressedVector{Tx}, y::AbstractCompressedVector{Ty}) where {Tx, Ty} =
-            _binarymap($fun, x, y, _getmode($fun, Tx, Ty))
-        broadcast(::typeof($fun), x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty}) where {Tx, Ty} =
-            _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
-        broadcast(::typeof($fun), x::AbstractCompressedVector{Tx}, y::AbstractCompressedVector{Ty}) where {Tx, Ty} =
-            _bcast_binary_map($fun, x, y, _getmode($fun, Tx, Ty))
+        map(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) =
+            _binarymap($fun, x, y, 2)
+        map(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) =
+            _binarymap($fun, x, y, 2)
+        broadcast(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) =
+            _bcast_binary_map($fun, x, y, 2)
+        broadcast(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) =
+            _bcast_binary_map($fun, x, y, 2)
     end
 end
 
 # `+` and `-` store an entry where the computed value is nonzero, the rule of the
 # HigherOrderFns kernels behind `.+`; plain compressed vectors use the merge above, which is
-# about twice as fast as the generic kernel, fixed inputs keep their pattern through the kernel,
-# and a view is read as the sparse vector it stores.
+# about twice as fast as the generic kernel, and a view is read as the sparse vector it stores.
 for fun in (:+, :-)
     @eval begin
         map(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($fun, x, y, 2)
-        map(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) =
-            _is_fixed(x) || _is_fixed(y) ?
-                (HigherOrderFns._checksameshape(x, y); HigherOrderFns._noshapecheck_map($fun, x, y)) :
-                _binarymap($fun, x, y, 2)
+        map(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) = _binarymap($fun, x, y, 2)
         $(fun)(x::AbstractSparseVector, y::AbstractSparseVector) = map($fun, x, y)
         $(fun)(x::Union{SparseVectorOrView,SparseVectorPartialView}, y::Union{SparseVectorOrView,SparseVectorPartialView}) =
             map($fun, _sparsevector(x), _sparsevector(y))
@@ -1449,14 +1502,14 @@ function _sparsedensesum(f::F, x::SparseVectorOrView, y::AbstractVecOrMat) where
     Base.promote_shape(axes(x), axes(y))
     length(x) > nnz(x) || return f.(Array(x), y)
     C = f.(Ref(zero(eltype(x))), y)
-    @inbounds for (i, v) in zip(nonzeroinds(x), nonzeros(x))
+    for (i, v) in zip(nonzeroinds(x), nonzeros(x))
         C = _setindexwiden!(C, f(v, y[i]), i)
     end
     return C
 end
 
 ### Reduction
-Base.reducedim_initarray(A::SparseVectorOrView, region, v0, ::Type{R}) where {R} =
+Base.reducedim_initarray(A::Union{SparseVectorOrView,SparseVectorPartialView}, region, v0, ::Type{R}) where {R} =
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 
 function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorOrView) where {F,G}
@@ -1478,6 +1531,7 @@ Base._all(f, A::SparseVectorOrView, ::Colon) =
     iszero(length(A)) ? true  : Base._mapreduce(_booleanpredicate(f), &, IndexCartesian(), A)
 
 function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorOrView) where {F,G}
+    isempty(A) && return R
     # dim1 reduction could be safely replaced with a mapreduce
     if length(R) == 1
         I = firstindex(R)
@@ -1518,7 +1572,11 @@ for (fun, replaces, word) in ((:findmin, :(Base.isgreater), "minimum"), (:findma
     end
 end
 
-norm(x::SparseVectorOrView, p::Real=2) = norm(nonzeros(x), p)
+function norm(x::SparseVectorOrView, p::Real=2)
+    r = norm(nonzeros(x), p)
+    # a negative `p` makes an entry that is not stored decide the norm
+    return p < 0 && length(x) > nnz(x) && !isnan(r) ? zero(r) : r
+end
 
 ### linalg.jl
 
@@ -1535,6 +1593,8 @@ function LinearAlgebra.axpy!(a::Number, x::SparseVectorOrView, y::AbstractVector
     require_one_based_indexing(x, y)
     length(x) == length(y) || throw(DimensionMismatch(
         "Vector x has a length $(length(x)) but y has a length $(length(y))"))
+    # the loops below write `y` entry by entry
+    _is_fixed(y) && return copyto!(y, axpy!(a, x, Vector(y)))
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     m = length(nzind)
@@ -1562,8 +1622,11 @@ function LinearAlgebra.axpy!(a::Number, x::SparseVectorOrView, y::AbstractVector
 end
 
 
-(/)(x::SparseVectorOrView, a::Number) =
-    @if_move_fixed x SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) / a)
+function (/)(x::SparseVectorOrView, a::Number)
+    # an entry that is not stored divides to `0 / a`, which is not zero for a zero or NaN `a`
+    (iszero(a) || a != a) && return x ./ a
+    return SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) / a)
+end
 # dot
 function dot(x::AbstractVector, y::SparseVectorOrView)
     require_one_based_indexing(x, y)
@@ -1573,7 +1636,7 @@ function dot(x::AbstractVector, y::SparseVectorOrView)
     nzind = nonzeroinds(y)
     nzval = nonzeros(y)
     s = _dot_zero(eltype(x), eltype(y))
-    @inbounds for i = 1:length(nzind)
+    for i in eachindex(nzind, nzval)
         s += dot(x[nzind[i]], nzval[i])
     end
     return s
@@ -1587,7 +1650,7 @@ function dot(x::SparseVectorOrView, y::AbstractVector)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     s = _dot_zero(eltype(x), eltype(y))
-    @inbounds for i = 1:length(nzind)
+    for i in eachindex(nzind, nzval)
         s += dot(nzval[i], y[nzind[i]])
     end
     return s
@@ -1597,7 +1660,7 @@ function _spdot(f::Function,
                 xj::Int, xj_last::Int, xnzind, xnzval,
                 yj::Int, yj_last::Int, ynzind, ynzval)
     # dot product between ranges of non-zeros,
-    s = zero(promote_op(f, eltype(xnzval), eltype(ynzval)))
+    s = _spdotzero(f, eltype(xnzval), eltype(ynzval))
     @inbounds while xj <= xj_last && yj <= yj_last
         ix = xnzind[xj]
         iy = ynzind[yj]
@@ -1614,8 +1677,25 @@ function _spdot(f::Function,
     s
 end
 
+# The zero a sum of `f(x, y)` starts from. No result type is inferred for an abstract
+# eltype such as `Real`, and then the zero is that of a value.
+function _spdotzero(f::F, ::Type{Tx}, ::Type{Ty}) where {F,Tx,Ty}
+    R = promote_op(f, Tx, Ty)
+    return isconcretetype(R) ? zero(R) : zero(f(zero(Tx), zero(Ty)))
+end
+
 function dot(x::SparseVectorOrView, y::SparseVectorOrView)
-    x === y && return sum(abs2, x)
+    if x === y
+        # Every stored entry meets itself. The sum starts from a value, so that an
+        # abstract eltype, for which no result type can be inferred, needs no `zero` of it.
+        xnzval = nonzeros(x)
+        isempty(xnzval) && return _spdotzero(dot, eltype(xnzval), eltype(xnzval))
+        s = dot(first(xnzval), first(xnzval))
+        @inbounds @simd for k in firstindex(xnzval)+1:lastindex(xnzval)
+            s += dot(xnzval[k], xnzval[k])
+        end
+        return s
+    end
     n = length(x)
     length(y) == n || throw(DimensionMismatch(
         "Vector x has a length $n but y has a length $(length(y))"))
@@ -1636,11 +1716,14 @@ end
 # lowrankupdate (BLAS.ger! like)
 function LinearAlgebra.lowrankupdate!(A::StridedMatrix, x::AbstractVector, y::SparseVectorOrView, α::Number = 1)
     require_one_based_indexing(A, x, y)
+    size(A) == (length(x), length(y)) || throw(DimensionMismatch(LazyString(
+        "A has size ", size(A), " but x has length ", length(x), " and y has length ", length(y))))
     nzi = nonzeroinds(y)
     nzv = nonzeros(y)
-    @inbounds for (j,v) in zip(nzi,nzv)
+    for (j,v) in zip(nzi,nzv)
+        checkbounds(A, :, j)
         αv = α*conj(v)
-        for i in axes(x, 1)
+        @inbounds for i in axes(x, 1)
             A[i,j] += x[i]*αv
         end
     end
@@ -1674,7 +1757,23 @@ for tri in (:LowerTriangular, :UnitLowerTriangular, :UpperTriangular, :UnitUpper
     @eval _rewrap(::$tri, A::AbstractMatrix) = $tri(A)
 end
 
+# What a dense triangular solve checks whatever the right-hand side holds: the shapes, and
+# that no diagonal entry is zero. The solve on the active block alone sees neither a
+# right-hand side of another length nor the diagonal outside the block.
+function _checktrisolve(xA::UpperOrLowerTriangular, b::AbstractVector)
+    n = LinearAlgebra.checksquare(xA)
+    length(b) == n || throw(DimensionMismatch(LazyString(
+        "the triangular matrix has ", n, " rows but the right-hand side has length ", length(b))))
+    xA isa UnitUpperOrUnitLowerTriangular && return nothing
+    A = parent(xA)
+    for i in 1:n
+        iszero(A[i, i]) && throw(SingularException(i))
+    end
+    return nothing
+end
+
 function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
+    _checktrisolve(xA, b)
     TAb = xA isa UnitUpperOrUnitLowerTriangular ?
         typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb)) :
         typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))
@@ -1687,6 +1786,7 @@ function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector
 end
 
 function ldiv!(xA::StridedTriangularMaybeAdjOrTrans, b::AbstractCompressedVector)
+    _checktrisolve(xA, b)
     nnz(b) == 0 && return b
     active = _activerange(xA, b)
     # store the whole active section up front rather than entry by entry during the solve,
@@ -1751,9 +1851,7 @@ how [`sort!`](@ref) of a sparse matrix sorts each column.
 stored indices are read-only.
 """
 function sort!(x::Union{AbstractCompressedVector, SparseColumnView}; kws...)
-    if _is_fixed(x) || (x isa SubArray && _is_fixed(parent(x)))
-        throw(ArgumentError("cannot sort! a fixed sparse array in place, its stored indices are read-only"))
-    end
+    _checkpatternwritable(x isa SubArray ? parent(x) : x, :sort!)
     nz = nonzeros(x)
     I = nonzeroinds(x)
     Base.require_one_based_indexing(x, nz, I)
@@ -1770,41 +1868,32 @@ function sort!(x::Union{AbstractCompressedVector, SparseColumnView}; kws...)
     x
 end
 
-# `copy` of a fixed sparse vector is fixed, so sort into a writable copy instead
 Base.sort(x::AbstractCompressedVector; kws...) =
-    sort!(_is_fixed(x) ? SparseVector(length(x), copy(parent(nonzeroinds(x))), copy(nonzeros(x))) :
-                         copy(x); kws...)
+    sort!(_writablecopy(x); kws...)
 
 function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
-    if _is_fixed(x)
-        for i in 1:nnz(x)
-            if !f(nonzeroinds(x)[i], nonzeros(x)[i])
-                nonzeros(x)[i] = zero(Tv)
-            end
-        end
-    else
-        nzind = nonzeroinds(x)
-        nzval = nonzeros(x)
+    _checkpatternwritable(x, :fkeep!)
+    nzind = nonzeroinds(x)
+    nzval = nonzeros(x)
 
-        x_writepos = 1
-        @inbounds for xk in 1:nnz(x)
-            xi = nzind[xk]
-            xv = nzval[xk]
-            # If this element should be kept, rewrite in new position
-            if f(xi, xv)
-                if x_writepos != xk
-                    nzind[x_writepos] = xi
-                    nzval[x_writepos] = xv
-                end
-                x_writepos += 1
+    x_writepos = 1
+    @inbounds for xk in 1:nnz(x)
+        xi = nzind[xk]
+        xv = nzval[xk]
+        # If this element should be kept, rewrite in new position
+        if f(xi, xv)
+            if x_writepos != xk
+                nzind[x_writepos] = xi
+                nzval[x_writepos] = xv
             end
+            x_writepos += 1
         end
-
-        # Trim x's storage if necessary
-        x_nnz = x_writepos - 1
-        resize!(nzval, x_nnz)
-        resize!(nzind, x_nnz)
     end
+
+    # Trim x's storage if necessary
+    x_nnz = x_writepos - 1
+    resize!(nzval, x_nnz)
+    resize!(nzind, x_nnz)
     return x
 end
 
@@ -1815,7 +1904,7 @@ end
 
 Removes stored values from `x` whose absolute value is less than or equal to `tol`.
 """
-droptol!(x::AbstractCompressedVector, tol) = fkeep!((i, x) -> abs(x) > tol, x)
+droptol!(x::AbstractCompressedVector, tol) = (_checkpatternwritable(x, :droptol!); fkeep!((i, x) -> abs(x) > tol, x))
 
 """
     dropzeros!(x::AbstractCompressedVector)
@@ -1825,7 +1914,7 @@ Removes stored numerical zeros from `x`.
 For an out-of-place version, see [`dropzeros`](@ref). For
 algorithmic information, see `fkeep!`.
 """
-dropzeros!(x::AbstractCompressedVector) = _is_fixed(x) ? x : fkeep!((i, x) -> _isnotzero(x), x)
+dropzeros!(x::AbstractCompressedVector) = (_checkpatternwritable(x, :dropzeros!); fkeep!((i, x) -> _isnotzero(x), x))
 
 
 """
@@ -1849,20 +1938,16 @@ julia> dropzeros(A)
   [3]  =  1.0
 ```
 """
-dropzeros(x::AbstractCompressedVector) = dropzeros!(copy(x))
+dropzeros(x::AbstractCompressedVector) = dropzeros!(_writablecopy(x))
 
 function copy!(dst::AbstractCompressedVector, src::AbstractCompressedVector)
     length(dst) == length(src) || throw(ArgumentError("Sparse vectors should have the same length for copy!"))
-    copy!(nonzeros(dst), nonzeros(src))
-    copy!(nonzeroinds(dst), nonzeroinds(src))
-    return dst
+    return copyto!(dst, src)
 end
 
 function copy!(dst::AbstractCompressedVector, src::AbstractVector)
     length(dst) == length(src) || throw(ArgumentError("Sparse vector should have the same length as source for copy!"))
-    _is_fixed(dst) && return copyto!(dst, src)
-    _dense2indval!(nonzeroinds(dst), nonzeros(dst), src)
-    return dst
+    return copyto!(dst, src)
 end
 
 _densifiable(A::SparseVecOrMat) = !_is_fixed(A) || nnz(A) == widelength(A)
@@ -1870,9 +1955,17 @@ _densifiable(A::SparseVecOrMat) = !_is_fixed(A) || nnz(A) == widelength(A)
 _checkdensifiable(A::SparseVecOrMat) = _densifiable(A) ||
     throw(ArgumentError("cannot store a nonzero f(0) into a $(nameof(typeof(A))), its sparsity pattern is read-only"))
 
+# What `_densestructure!` checks before it writes anything.
+_checkdensestructure(A::AbstractCompressedVector) = _checkdensifiable(A)
+function _checkdensestructure(A::AbstractSparseMatrixCSC)
+    _checkdensifiable(A)
+    _is_fixed(A) || convert(indtype(A), size(A, 1) * size(A, 2) + 1)   # the last column pointer
+    return true
+end
+
 # Store every position of `A`; the values beyond the former `nnz(A)` are left for the caller to fill.
 function _densestructure!(A::AbstractCompressedVector)
-    _checkdensifiable(A)
+    _checkdensestructure(A)
     _is_fixed(A) && return A   # passed the check above, so already full
     n = length(A)
     resize!(nonzeroinds(A), n)
@@ -1881,10 +1974,9 @@ function _densestructure!(A::AbstractCompressedVector)
     return A
 end
 function _densestructure!(A::AbstractSparseMatrixCSC)
-    _checkdensifiable(A)
+    _checkdensestructure(A)
     _is_fixed(A) && return A
     m, n = size(A)
-    convert(indtype(A), m * n + 1)   # the last column pointer: throws before anything is written
     resize!(getrowval(A), m * n)
     resize!(getnzval(A), m * n)
     colptr = resize!(getcolptr(A), n + 1)
@@ -1910,14 +2002,17 @@ end
 
 # in-place shifts a sparse subvector by r. Used also by sparsematrix.jl
 function subvector_shifter!(R::AbstractVector, V::AbstractVector, start::Integer, fin::Integer, m::Integer, r::Integer)
+    # `0 <= r < m`. An index moves up by `r`, or wraps around, down by `m - r`; neither
+    # leaves `1:m`, where `R[j] + r` can leave the index type.
+    up = convert(eltype(R), r)
+    down = convert(eltype(R), m - r)
     split = fin
     @inbounds for j = start:fin
-        # shift positions ...
-        R[j] += r
-        if R[j] <= m
+        if R[j] <= down
+            R[j] += up
             split = j
         else
-            R[j] -= m
+            R[j] -= down
         end
     end
     # ...but rowval should be sorted within columns
@@ -1926,7 +2021,6 @@ function subvector_shifter!(R::AbstractVector, V::AbstractVector, start::Integer
 end
 
 function circshift!(O::AbstractCompressedVector, X::AbstractCompressedVector, (r,)::Base.DimsInteger{1})
-    # a fixed destination keeps its pattern, which `_copyto_fixed!` checks before writing
     _is_fixed(O) && return _copyto_fixed!(O, circshift(X, (r,)))
     copy!(O, X)
     iszero(length(X)) && return O
@@ -1935,37 +2029,26 @@ function circshift!(O::AbstractCompressedVector, X::AbstractCompressedVector, (r
 end
 
 circshift!(O::AbstractCompressedVector, X::AbstractCompressedVector, r::Real) = circshift!(O, X, (Integer(r),))
-# a fixed X keeps its pattern under `similar`, so shift into a plain copy instead
-circshift(X::AbstractCompressedVector, s::Base.DimsInteger{1}) = circshift!(similar(_unsafe_unfix(X)), X, s)
-circshift(X::AbstractCompressedVector, s::Real) = circshift!(similar(_unsafe_unfix(X)), X, (Integer(s),))
+circshift(X::AbstractCompressedVector, s::Base.DimsInteger{1}) = circshift!(similar(X), X, s)
+circshift(X::AbstractCompressedVector, s::Real) = circshift!(similar(X), X, (Integer(s),))
 
 reverse(x::Union{AbstractSparseVector, SparseColumnView, SparseVectorView, SparseVectorPartialView},
         start::Integer=firstindex(x), stop::Integer=lastindex(x)) =
-    reverse!(_reversecopy(x), start, stop)
+    reverse!(_writablecopy(x), start, stop)
 
-# a writable `SparseVector` with the same index type that shares no buffer with `x`
-_reversecopy(x::AbstractSparseVector) = copy(_unsafe_unfix(x))
-_reversecopy(x::Union{SparseColumnView, SparseVectorView, SparseVectorPartialView}) =
+_writablecopy(x::Union{SparseColumnView, SparseVectorView, SparseVectorPartialView}) =
     SparseVector(length(x), Vector{indtype(x)}(nonzeroinds(x)), Vector{eltype(x)}(nonzeros(x)))
 
 function reverse!(x::AbstractSparseVector, start::Integer=firstindex(x), stop::Integer=lastindex(x))
+    _checkpatternwritable(x, :reverse!)
     checkbounds(x, start:stop)
     nzinds = nonzeroinds(x)
     lo, hi = searchsortedfirst(nzinds, start), searchsortedlast(nzinds, stop)
     s = start + stop
-    if _is_fixed(x)
-        # the pattern is read-only: the reversal must map the stored indices in
-        # `start:stop` onto themselves, and then only the values move
-        for t in 0:(hi - lo)
-            nzinds[hi - t] == s - nzinds[lo + t] ||
-                throw(ArgumentError(lazy"cannot reverse a $(nameof(typeof(x))) in place over $start:$stop: its sparsity pattern is read-only and the reversal would change it; use reverse(x, start, stop) for a new array"))
-        end
-    else
-        for k in lo:hi
-            nzinds[k] = s - nzinds[k]
-        end
-        reverse!(nzinds, lo, hi)
+    for k in lo:hi
+        nzinds[k] = s - nzinds[k]
     end
+    reverse!(nzinds, lo, hi)
     reverse!(nonzeros(x), lo, hi)
     return x
 end

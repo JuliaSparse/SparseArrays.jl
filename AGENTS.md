@@ -35,6 +35,13 @@ Being a stdlib shapes everything below:
 - No new dependencies.
 - Loading the package is measured in sysimage invalidations. Do not define methods
   Base or LinearAlgebra already provide generically.
+- Julia's manual includes `docs/src/index.md` and the docstrings it lists, and no other
+  page. All documentation goes in that one file; an `@ref` to anything outside it breaks
+  Julia's docs build. So does a `@docs` entry for a function that LinearAlgebra's page
+  lists too, such as `lu` or `cholesky`, unless it carries the method signature of the
+  sparse docstring.
+  The page's `@contents` block names it as both `index.md` and `SparseArrays.md`, its
+  file name in Julia's manual; under any other name the table of contents comes out empty.
 - Every source and test file starts with the Julia MIT license banner.
 
 ## Layout
@@ -72,8 +79,9 @@ The `ambiguous` and `aqua` suites run only when selected by name. The commands f
 trimmed app are in the `trim` job of `.github/workflows/ci.yml`.
 The tests run in two modes, described in `test/AGENTS.md`. Standard mode is what
 `Pkg.test`, Julia's own CI and every CI job but the coverage job run. Comprehensive mode
-also runs the tests guarded with `@static if COMPREHENSIVE` and `test/issues.jl`; only the
-coverage job runs it, so run it locally before a PR that touches a kernel.
+also runs the tests guarded with `@static if COMPREHENSIVE`, `test/issues.jl` and
+`test/solvers/issues.jl`; only the coverage job runs it, so run it locally before a PR
+that touches a kernel.
 
 ## Style
 
@@ -130,9 +138,16 @@ coverage job runs it, so run it locally before a PR that touches a kernel.
   `invoke` chains.
 - **Errors name the type and the reason**, and the working alternative when there is
   one. `ArgumentError` for bad values, `DimensionMismatch` for shapes.
-- **Fixed-pattern arrays stay experimental and unexported.** Their pattern is
-  read-only, `copy` shares it, and only shape-taking `similar` returns a writable
-  array.
+- **A fixed-pattern array is a destination, not a kind of value.** Read
+  "Sparse arrays with a fixed pattern" in `docs/src/index.md` before touching one. A
+  kernel that writes its argument stores inside the pattern or throws before changing
+  anything; one whose purpose is to change the pattern calls `_checkpatternwritable`. As
+  an operand a fixed array reads as the plain array, and no result is fixed except
+  `copy`, so an out-of-place kernel never checks `_is_fixed` on an input and starts from
+  `_writablecopy` when it mutates a copy. Do not add a method to make another operation
+  return a fixed array. A method on a fixed type is only for a function whose generic
+  method in Base or LinearAlgebra never reaches a kernel of this package that could check.
+- **Fixed-pattern arrays stay experimental and unexported.**
 - **`@inbounds` only after the bounds are provably guarded.** Performance PRs include a
   before/after table of time and allocations at realistic sizes.
 
@@ -141,9 +156,11 @@ coverage job runs it, so run it locally before a PR that touches a kernel.
 `test/AGENTS.md` has the detail: the two modes, the fixtures and helpers, and what test
 time costs. In short:
 
-- A new test is a comprehensive test: put it next to the feature it exercises, in an
-  existing testset when one fits, inside `@static if COMPREHENSIVE ... end`. An
-  unguarded test is only for new code, and one representative case of it.
+- A new test is a comprehensive test. Put a standalone issue reproducer in
+  `test/issues.jl`, or `test/solvers/issues.jl` if it uses a sparse solver. Put additional
+  feature cases next to the feature, in an existing testset when one fits, inside
+  `@static if COMPREHENSIVE ... end`. An unguarded feature test is only for new code,
+  and one representative case of it; retain existing standard regression coverage.
 - Test time is compilation, so it grows with the number of type combinations a test
   compiles. Cover real and complex eltypes, vector and matrix, with `Int` indices, and
   take any other type or helper from `test/SparseTestHelpers.jl`.

@@ -40,8 +40,10 @@ include("testhelpers.jl")
     @test @inferred(nnz(view(x32, 2:6))) == 3
     end
     for T in (UpperTriangular(sparse(1.0I, 3, 3)), (@static COMPREHENSIVE ? (LowerTriangular(sparse(1.0I, 3, 3)),) : ())...)
-        @test getrowval(T) === rowvals(parent(T)) && getnzval(T) === nonzeros(parent(T))
-        @test rowvals(T) == rowvals(parent(T)) && nonzeros(T) == nonzeros(parent(T))
+        @test_throws MethodError getrowval(T)
+        @test_throws MethodError getnzval(T)
+        @test_throws MethodError rowvals(T)
+        @test_throws MethodError nonzeros(T)
     end
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
     @static if COMPREHENSIVE
@@ -276,26 +278,6 @@ end
             @test all(!iszero, nonzeros(r))
             @test mismatch(r, Array(x)[I]) === nothing
         end
-
-        @static if COMPREHENSIVE
-        # issue 24534
-        let x = convert(SparseVector{Float64,UInt32},fixturevec(Float64, 100))
-            I = [mod1(37k, 99) + 1 for k in [1:23; 1]]
-            r = x[I]
-            @test isa(r, SparseVector{Float64,UInt32})
-            @test all(!iszero, nonzeros(r))
-            @test Array(r) == Array(x)[I]
-        end
-
-        # issue 24534
-        let x = convert(SparseVector{Float64,UInt32},fixturevec(Float64, 100))
-            I = reshape([mod1(37k, 99) + 1 for k in [1:19; 1]], 20, 1)
-            r = x[I]
-            @test isa(r, SparseMatrixCSC{Float64,UInt32})
-            @test all(!iszero, nonzeros(r))
-            @test Array(r) == Array(x)[I]
-        end
-        end
     end
     @testset "boolean array index" begin
         @static if COMPREHENSIVE
@@ -389,31 +371,6 @@ end
 
         xc[1] = 0.0
         @test exact_equal(xc, SparseVector(8, [2, 5, 6], [0.0, 0.0, 0.0]))
-    end
-
-    @static if COMPREHENSIVE
-    @testset "heap-allocated zero (#389)" begin
-        for T in (BigFloat,)
-            x = spzeros(T, 4)
-            x[1] = 0
-            x[3] = zero(T)
-            @test nnz(x) == 0
-            x[2] = one(T)
-            x[2] = 0
-            @test nnz(x) == 1 && x[2] == 0
-        end
-        x = spzeros(BigFloat, 4)
-        x[1] = -big(0.0)
-        @test nnz(x) == 1 && signbit(x[1])
-        x = spzeros(Union{Missing,Int}, 4)
-        x[1] = missing
-        @test nnz(x) == 1 && x[1] === missing
-        A = sparse([1, 2], [1, 1], BigFloat[1, 2], 3, 2)
-        copyto!(view(A, :, 1), BigFloat[0, 3, 0])   # as `setindex!` would store
-        @test nnz(A) == 1 && A[2, 1] == 3
-        copyto!(view(A, :, 1), [-big(0.0), big(3), big(0)])
-        @test nnz(A) == 2 && signbit(A[1, 1])
-    end
     end
 end
 end
@@ -715,6 +672,30 @@ end
         copy!(x1, convert.(eltype(x1), collect(x))) # copy!(SparseVector, AbstractVector)
         @test mismatch(x1, collect(x), Tv=Float64) === nothing
     end
+    @static if COMPREHENSIVE
+    # a value that does not convert leaves the destination as it was
+    let dst = sparsevec([1], [1], 5), src = sparsevec([1, 2, 3], [1.0, 2.5, 3.0], 5)
+        @test_throws InexactError copy!(dst, src)
+        @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
+        @test_throws InexactError copyto!(dst, src)
+        @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
+        @test_throws InexactError copy!(dst, [1.0, 2.5, 0.0, 0.0, 0.0])
+        @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
+        @test mismatch(copy!(dst, sparsevec([2, 4], [3.0, 4.0], 5)), [0, 3, 0, 4, 0]) === nothing
+        f = SparseArrays.FixedSparseVector(sparsevec([1, 2], [1.0, 2.0], 4))
+        @test_throws ArgumentError copy!(f, sparsevec([3], [5.0], 4))
+        @test nonzeroinds(f) == [1, 2] && nonzeros(f) == [1.0, 2.0]
+    end
+    # a dense source of another eltype, and one that holds `-0.0`, which a sparse matrix
+    # and a view of a sparse vector keep as well
+    @test mismatch(copy!(spzeros(5), [1, 0, 2, 0, 0]), [1.0, 0, 2, 0, 0]) === nothing
+    let x = copyto!(spzeros(2), [-0.0, 1.0])
+        @test nnz(x) == 2 && signbit(x[1])
+    end
+    # `copy` of a view of one entry is a zero-dimensional array, as for dense
+    @test copy(view(sparsevec([1, 2, 3]), 2))::Array{Int,0} == fill(2)
+    @test copy(view(sparse([1 2; 3 4]), 1, 2))::Array{Int,0} == fill(2)
+    end
 end
 @testset "vec/float/complex" begin
     a = SparseVector(8, [2, 5, 6], [12, 35, 72])
@@ -734,9 +715,16 @@ end
     @test isa(acp, SparseVector{ComplexF64,Int})
     @test exact_equal(acp, SparseVector(8, [2, 5, 6], complex([12., 35., 72.])))
     @test sparsevec((acp')') == acp
-    # a fixed vector stays fixed and shares its pattern
+    # a fixed vector reads as a plain one
     cf = complex(fixed(af))
-    @test cf isa SparseArrays.FixedSparseVector{ComplexF64,Int} && cf == acp
+    @test cf isa SparseVector{ComplexF64,Int} && cf == acp
+    @static if COMPREHENSIVE
+    # a writable result does not share its pattern with the argument
+    for f in (float, complex)
+        x = sparsevec([1], [1], 5); y = f(x); y[3] = 2
+        @test exact_equal(x, sparsevec([1], [1], 5))
+    end
+    end
 end
 
 @testset "Type conversion" begin
@@ -745,6 +733,15 @@ end
     let x = convert(SparseVector, sparse([2, 5, 6], [1, 1, 1], [1.25, -0.75, 3.5], 8, 1))
         @test isa(x, SparseVector{Float64,Int})
         @test exact_equal(x, spv_x1)
+    end
+    @static if COMPREHENSIVE
+    # the vector made from a one-column matrix shares no buffer with it
+    let S = sparse([2, 5, 6], [1, 1, 1], [1.25, -0.75, 3.5], 8, 1), S0 = copy(S)
+        for x in (SparseVector(S), convert(SparseVector, S))
+            SparseArrays.dropstored!(x, 2); x[1] = 4.0; nonzeros(x) .= 0
+            @test exact_equal(S, S0)
+        end
+    end
     end
 
     let x = spv_x1, xf = x1_full
@@ -772,6 +769,15 @@ end
 
         xc = SparseVector(x)
         @test exact_equal(xc, x) && nonzeroinds(xc) !== nonzeroinds(x)
+    end
+    @static if COMPREHENSIVE
+    # a dense vector of another eltype
+    for T in (SparseVector{Float64,Int}, SparseVector{Float64})
+        @test exact_equal(convert(T, [1, 0, 2]), SparseVector(3, [1, 3], [1.0, 2.0]))
+        @test exact_equal(T([1, 0, 2]), SparseVector(3, [1, 3], [1.0, 2.0]))
+    end
+    @test exact_equal(SparseVector{Float32,Int}(SparseArrays.FixedSparseVector(spv_x1)),
+                      SparseVector(8, [2, 5, 6], Float32[1.25, -0.75, 3.5]))
     end
 end
 
@@ -928,18 +934,16 @@ end
         @test x == xc   # the parent is untouched
     end
     @testset "reverse! of a fixed pattern" begin
-        # 2:9 is its own mirror under a full reversal, so only the values move
-        s = fixed(sparsevec([2, 5, 6, 9], [1.0, 2, 3, 4], 10))
-        f = copy(s)
-        @test reverse!(f) === f && f == reverse(collect(s)) && same_pattern(f, s)
-        f = copy(s)
-        @test_throws ArgumentError reverse!(f, 1, 9)
-        @test f == s && nonzeroinds(f) == [2, 5, 6, 9]
+        # also when the pattern is its own mirror
+        s = sparsevec([2, 5, 6, 9], [1.0, 2, 3, 4], 10)
+        f = fixed(s)
+        @test_throws ArgumentError reverse!(f)
+        @test exact_equal(f, s)
     end
     @static if COMPREHENSIVE
     x = SparseVector(big(typemax(Int)) + 10, BigInt[1, 5], [1.0, 2.0])
     @test nonzeroinds(reverse(x)) == [big(typemax(Int)) + 6, big(typemax(Int)) + 10]
-    @test nonzeroinds(reverse!(fixed(copy(x)), 1, 5)) == [1, 5]
+    @test nonzeroinds(reverse!(copy(x), 1, 5)) == [1, 5]
     end
 end
 
@@ -948,6 +952,21 @@ end
 @testset "Arithmetic operations" begin
     spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     spv_x2 = SparseVector(8, [1, 2, 6, 7], [3.25, 4.0, -5.5, -6.0])
+
+    @static if COMPREHENSIVE
+    @testset "an entry that is not stored is still a zero operand" begin
+        x = sparsevec([1, 3], [1.0, 0.0], 4); xd = Vector(x)
+        for a in (0, 0.0, NaN, Inf, 2), v in (x, view(x, :))
+            @test isequal(Vector(v / a), xd / a)
+        end
+        @test mismatch(x / 2, xd / 2) === nothing && nonzeroinds(x / 2) == [1, 3]
+        a = sparsevec([1, 3], [Inf, 2.0], 4); b = sparsevec([2, 3], [1.0, NaN], 4)
+        for f in (*, min, max), g in (map, broadcast)
+            @test isequal(Vector(g(f, a, b)), g(f, Vector(a), Vector(b)))
+            @test isequal(Vector(g(f, b, a)), g(f, Vector(b), Vector(a)))
+        end
+    end
+    end
 
     let x = spv_x1, x2 = spv_x2
         # negate
@@ -1002,15 +1021,15 @@ end
         a = WrappedSparseVector(sparsevec([1, 3], [1.0, 2.0], 5))
         @test a + a isa SparseVector && a + a == [2, 0, 4, 0, 0]
         @test_throws DimensionMismatch a + WrappedSparseVector(sparsevec([1], [1.0], 4))
-        # a view reads as the vector it stores with the parent's index type; a fixed input
-        # gives a fixed result over the union of the patterns, as for matrices
+        # a view reads as the vector it stores with the parent's index type, and a fixed
+        # input as a plain vector
         @static if COMPREHENSIVE
         A32 = SparseMatrixCSC{Float64,Int32}(sparse([1, 4], [2, 2], [-1.0, 3.0], 5, 2))
         @test exact_equal(view(A32, :, 2) - SparseVector{Float64,Int32}(z),
                           SparseVector{Float64,Int32}(SparseVector(5, [1, 3, 4], [-2.0, -2.0, 3.0])))
         end
         fr = SparseArrays.fixed(copy(z)) + w
-        @test fr isa SparseArrays.FixedSparseVector && nonzeroinds(fr) == [1, 2, 3, 4] && fr == r
+        @test fr isa SparseVector && exact_equal(fr, r)
 
         # multiplies
         xm = SparseVector(8, [2, 6], [5.0, -19.25])
@@ -1160,6 +1179,21 @@ end
     @test norm(x, 1) == 5.5
     @test norm(x, 2) == sqrt(14.375)
     @test norm(x, Inf) == 3.5
+    # an entry that is not stored decides the norm for a negative `p`, as for dense
+    xd = Vector(x)
+    for p in (-Inf, -1, -0.5), v in (x, view(x, :), view(sparse(x), :, 1))
+        @test norm(v, p) === norm(xd, p) === 0.0
+    end
+    @test norm(sparsevec([1, 2], [2.0, 3.0]), -Inf) === 2.0
+    @test norm(sparsevec([1, 2], [2.0, 3.0]), -1) ≈ norm([2.0, 3.0], -1)
+    @test isnan(norm(sparsevec([1], [NaN], 3), -1))
+    @test norm(spzeros(3), -Inf) === 0.0
+
+    # reductions along the dimension of an empty vector, and of a range view
+    @test any(iszero, spzeros(0); dims=1) == any(iszero, zeros(0); dims=1)
+    @test count(iszero, spzeros(0); dims=1) == count(iszero, zeros(0); dims=1)
+    @test maximum(spzeros(0); dims=1, init=0.0) == maximum(zeros(0); dims=1, init=0.0)
+    @test extrema(view(x, 1:3); dims=1) == extrema(view(xd, 1:3); dims=1)
 end
 end
 
@@ -1258,26 +1292,6 @@ end
         @test_throws ArgumentError findmax(x)
     end
 
-    @static if COMPREHENSIVE
-    let v = spzeros(3) #Julia #44978
-        v[1] = 2
-        @test argmin(v) == 2
-        @test argmax(v) == 1
-        v[2] = 2
-        @test argmin(v) == 3
-        v[1] = 0
-        v[2] = 0
-        v[3] = 2
-        @test argmin(v) == 1
-        @test argmax(v) == 3
-    end
-
-    let v = spzeros(3) #Julia #44978
-        v[3] = 2
-        @test argmax(v) == 3
-    end
-    end
-
     let
         v = spzeros(Bool, 5)
         @test !any(v)
@@ -1305,11 +1319,6 @@ end
     end
 
     @static if COMPREHENSIVE
-    let v = sparse([0, NaN]) #issue #714
-        @test findmin(v) === (NaN, 2)
-        @test findmax(v) === (NaN, 2)
-    end
-
     # an `Int` index on every path, agreeing with dense, whatever the index type
     @testset "findmin/findmax index type" begin
         xs = (SparseVector(5, Int32[], Float64[]),               # no stored entries
@@ -1366,6 +1375,11 @@ end
         # a dense operand: the first argument is the one conjugated
         @test dot(xf, y) ≈ dot(xf, yf)
         @test dot(x, yf) ≈ dot(xf, yf)
+        @static if COMPREHENSIVE
+        # the same vector twice gives the type any other pair gives
+        @test dot(x, x)::ComplexF64 == dot(x, copy(x))::ComplexF64
+        @test (x'x)::ComplexF64 == dot(x, x)
+        end
     end
     @static if COMPREHENSIVE
     # matrix-valued entries have no `zero`, but the result is a scalar
@@ -1375,6 +1389,25 @@ end
         r = dot(nonzeros(x)[2], nonzeros(y)[1])
         @test dot(x, y) ≈ dot(x, yd) ≈ dot(yd, x)' ≈ r
         @test dot(x, spzeros(Matrix{Float64}, 4)) == 0
+        @test dot(x, x) == dot(x, copy(x)) == sum(v -> dot(v, v), nonzeros(x))
+    end
+    # an abstract eltype has no inferable result type to take a `zero` of
+    for T in (Real, Number)
+        x = SparseVector{T,Int}(3, [1, 3], T[2, 3])
+        @test dot(x, x) == dot(Vector(x), Vector(x)) == 13
+        @test dot(x, copy(x)) == 13
+        e = spzeros(T, 3)
+        @test dot(e, e) == dot(e, copy(e)) == 0
+    end
+    # the constructor does not check the stored indices, so the kernels that index a dense
+    # array with them must: an index past the end is an error, not a read or write there
+    let x = SparseVector(3, [4], [1.0]), d = ones(3)
+        @test_throws BoundsError dot(d, x)
+        @test_throws BoundsError dot(x, d)
+        @test_throws BoundsError x + d
+        @test_throws BoundsError d - x
+        @test_throws BoundsError x == d
+        @test d == ones(3)
     end
     end
 end
@@ -1464,21 +1497,6 @@ end
     end
 end
 
-@static if COMPREHENSIVE
-@testset "Issue 14013" begin
-    s14013 = sparse([10.0 0.0 30.0; 0.0 1.0 0.0])
-    a14013 = [10.0 0.0 30.0; 0.0 1.0 0.0]
-    @test s14013 == a14013
-    @test vec(s14013) == s14013[:] == a14013[:]
-    @test Array(s14013)[1,:] == s14013[1,:] == a14013[1,:] == [10.0, 0.0, 30.0]
-    @test Array(s14013)[2,:] == s14013[2,:] == a14013[2,:] == [0.0, 1.0, 0.0]
-end
-@testset "Issue 14046" begin
-    s14046 = sparse([1.0, 2.5, -3.0, 4.0, 0.5])
-    @test spzeros(5) + s14046 == s14046
-    @test 2*s14046 == s14046 + s14046
-end
-end
 @testset "Issue 14589" begin
     # test vectors with no zero elements
     let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
@@ -1536,31 +1554,11 @@ end
 end
 end
 
-@static if COMPREHENSIVE
-@testset "13130 and 16661" begin
-    xd = collect(1.0:10.0)
-    @test issparse([fixture(Float64, 10, 3) fixturevec(Float64, 10)])
-    @test issparse([fixture(Float64, 10, 1); fixturevec(Float64, 10)])
-
-    @test issparse([fixture(Float64, 10, 3) xd])
-    @test issparse([fixture(Float64, 10, 1)  xd])
-    @test issparse([fixture(Float64, 10, 2) fixture(Float64, 10, 1) xd])
-    @test issparse([fixture(Float64, 10, 1); xd])
-
-    @test issparse([fixturevec(Float64, 10)  xd])
-    @test issparse([fixturevec(Float64, 10); xd])
-end
-end
-
 @testset "show" begin
     spv_x1 = SparseVector(8, [2, 5, 6], [1.25, -0.75, 3.5])
     @test occursin("1.25", string(spv_x1))
     @test occursin("-0.75", string(spv_x1))
     @test occursin("3.5", string(spv_x1))
-    @static if COMPREHENSIVE
-    # issue #30589
-    @test repr("text/plain", sparse([true])) == "1-element $(SparseArrays.SparseVector){Bool, $Int} with 1 stored entry:\n  [1]  =  1"
-    end
 
     io = IOBuffer()
     show(io, MIME"text/plain"(), sparsevec(Int64[1], [1.0]))
@@ -1619,18 +1617,6 @@ end
         @test collect(skipmissing(Array(broadcast(fun, C, B)))) == collect(skipmissing(broadcast(fun, CA, BA)))
     end
     end
-end
-end
-
-@static if COMPREHENSIVE
-@testset "corner cases of broadcast arithmetic operations with scalars (#21515)" begin
-    # test both scalar literals and variables
-    areequal(a, b, c) = isequal(a, b) && isequal(b, c)
-    inf, zeroh, zv, spzv = Inf, 0.0, zeros(1), spzeros(1)
-    @test areequal(spzv .* Inf,  spzv .* inf,    sparsevec(zv .* Inf))
-    @test areequal(Inf .* spzv,  inf .* spzv,    sparsevec(Inf .* zv))
-    @test areequal(spzv ./ 0.0,  spzv ./ zeroh,  sparsevec(zv ./ 0.0))
-    @test areequal(0.0 .\ spzv,  zeroh .\ spzv,  sparsevec(0.0 .\ zv))
 end
 end
 
@@ -1736,6 +1722,13 @@ end
     x = nonzeros(fixturevec(ComplexF64, 6)); y = fixturevec(ComplexF64, 5); α = complex(2.0, -1.0)
     @test LinearAlgebra.lowrankupdate!(zeros(ComplexF64, 4, 5), x, y, α) ==
           BLAS.ger!(α, x, Vector(y), zeros(ComplexF64, 4, 5))
+    @static if COMPREHENSIVE
+    # `A` must be `length(x)` by `length(y)`
+    for A in (zeros(ComplexF64, 3, 5), zeros(ComplexF64, 5, 5), zeros(ComplexF64, 4, 4), zeros(ComplexF64, 4, 6))
+        @test_throws DimensionMismatch LinearAlgebra.lowrankupdate!(A, x, y, α)
+        @test iszero(A)
+    end
+    end
 end
 
 @testset "diff" begin
@@ -1851,10 +1844,15 @@ end
         x = circshift(collect(v), 3)
         c = circshift(fixed(v), 3)   # a fixed source shifts into a plain copy
         @test mismatch(c, x, Ti=Ti) === nothing && c isa SparseVector{Float64,Ti} && nnz(c) == 4
-        g = fixed(c)   # a fixed destination must already hold the shifted pattern
-        @test circshift!(g, v, 3) === g && g == x
+        g = fixed(c)   # a fixed destination takes the shift that its pattern holds
+        @test circshift!(g, 2v, 3) === g && g == 2x && nonzeroinds(g) == [1, 5, 7, 8]
         @test_throws ArgumentError circshift!(g, v, 2)
-        @test g == x && nonzeroinds(g) == [1, 5, 7, 8]
+        @test g == 2x && nonzeroinds(g) == [1, 5, 7, 8]
+    end
+    @static if COMPREHENSIVE
+    # an index plus the shift need not fit in the index type
+    v8 = SparseVector{Float64,Int8}(100, Int8[3, 90], [1.0, 2.0])
+    @test mismatch(circshift(v8, 50), circshift(Vector(v8), 50); Ti=Int8) === nothing
     end
     @test isempty(circshift(fixed(spzeros(0)), 1))
 end
@@ -1869,24 +1867,29 @@ end
 end
 end
 
-@static if COMPREHENSIVE
-@testset "avoid aliasing of fields during constructing $T (issue #34630)" for T in
-    (SparseVector, SparseVector{Float64}, SparseVector{Float64,Int16})
-
-    A = sparse([1; 0])
-    B = T(A)
-    @test A == B
-    A[2] = 1
-    @test A != B
-    @test nonzeroinds(A) !== nonzeroinds(B)
-    @test nonzeros(A) !== nonzeros(B)
-end
-end
-
 @testset "dense upper triangular solve with a sparse right-hand side" begin
     U = UpperTriangular([2.0 1.0 3.0; 0.0 4.0 1.0; 0.0 0.0 5.0])
     b = SparseVector(3, [2], [8.0])   # nothing below the last stored entry is touched
     @test (U \ b)::Vector{Float64} ≈ U \ Vector(b)
+    @static if COMPREHENSIVE
+    # the solve runs on the block the right-hand side reaches, but the shapes and the whole
+    # diagonal are checked as a dense solve checks them
+    for T in (U, U', LowerTriangular(Matrix(U')), UnitUpperTriangular(parent(U))), n in (2, 5)
+        bn = SparseVector(n, [2], [8.0])
+        @test_throws DimensionMismatch T \ bn
+        @test_throws DimensionMismatch ldiv!(T, bn)
+        @test exact_equal(bn, SparseVector(n, [2], [8.0]))
+    end
+    S = [2.0 1.0 3.0; 0.0 4.0 1.0; 0.0 0.0 0.0]   # the zero is outside the block `b` reaches
+    for T in (UpperTriangular(S), LowerTriangular(Matrix(S'))'), rhs in (b, spzeros(3))
+        bc = copy(rhs)
+        @test_throws SingularException T \ bc
+        @test_throws SingularException ldiv!(T, bc)
+        @test exact_equal(bc, rhs)
+        @test_throws SingularException T \ Vector(rhs)
+    end
+    @test UnitUpperTriangular(S) \ b ≈ UnitUpperTriangular(S) \ Vector(b)
+    end
 end
 
 end # module

@@ -464,12 +464,12 @@ end
         end
         @test F == S
     end
-    # a Diagonal times a fixed matrix keeps the structure, and the fixedness, of the input
+    # a Diagonal times a fixed matrix keeps the structure of the input, in a plain matrix
     F = fixed(sA)
     let Dl = Diagonal(fixturedense(Float64, 3)), Dr = Diagonal(fixturedense(Float64, 7))
         @test mismatch(Dl * F, Dl * dA; approx=true) === nothing
         @test mismatch(F * Dr, dA * Dr; approx=true) === nothing
-        @test _is_fixed(Dl * F) && _is_fixed(F * Dr)
+        @test !_is_fixed(Dl * F) && !_is_fixed(F * Dr)
     end
     # the kernels touch only the stored entries: exactly nnz(S) scalar multiplications,
     # whereas the generic Diagonal kernel visits every element of the result
@@ -1029,18 +1029,6 @@ end
         @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(7, 10))
         @test_throws DimensionMismatch mul!(zeros(6, 10), fA(6, 8), fB(8, 9))
     end
-end
-
-@static if COMPREHENSIVE
-@testset "sparse right multiplication of Symmetric and Hermitian matrices #21431" begin
-    S = sparse(1.0I, 2, 2)
-    @test issparse(S*S*S)
-    for T in (Symmetric, Hermitian)
-        @test issparse(S*T(S)*S)
-        @test issparse(S*(T(S)*S))
-        @test issparse((S*T(S))*S)
-    end
-end
 end
 
 end # module

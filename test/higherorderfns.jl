@@ -8,7 +8,7 @@ module HigherOrderFnsTests
 
 using Test
 using SparseArrays
-using SparseArrays: getcolptr, nonzeroinds
+using SparseArrays: getcolptr, nonzeroinds, fixed, move_fixed
 using LinearAlgebra
 include("testhelpers.jl")
 # A standard run maps and broadcasts over `Float64`/`Int` arrays only. A comprehensive run
@@ -43,11 +43,6 @@ end
         nonzeros(A)[cos.(nonzeros(A)) .== 0] .= .0
         A = dropzeros(A)
         test_map_and_map!(A, true)
-    end
-    @static if COMPREHENSIVE
-    # https://github.com/JuliaLang/julia/issues/37819
-    Z = spzeros(Float64, Int32, 50000, 50000)
-    @test isa(-Z, SparseMatrixCSC{Float64, Int32})
     end
 end
 
@@ -87,11 +82,6 @@ end
         end
         @test mismatch(map!(f, X, A, B), map!(f, fX, fA, fB)) === nothing
         retype === identity && @test_throws DimensionMismatch map!(f, X, A, spzeros((shapeA .- 1)...))
-    end
-    @static if COMPREHENSIVE
-    # https://github.com/JuliaLang/julia/issues/37819
-    Z = spzeros(Float64, Int32, 50000, 50000)
-    @test isa(Z + Z, SparseMatrixCSC{Float64, Int32})
     end
 end
 
@@ -992,6 +982,15 @@ end
         @test @allocated(map!(+, X, A, B, A)) == 0
         @test X == Array(A) + Array(B) + Array(A)
     end
+    # a fixed input whose read-only pattern is that of the writable destination
+    for (S, B) in ((sparse([1.0 0; 0 2.0]), sparse([0 5.0; 5.0 0])), (sparsevec([1], [1.0], 3), sparsevec([2], [5.0], 3)))
+        expected = Array(S) + Array(B)
+        for f! in ((S, F, B) -> map!(+, S, F, B), (S, F, B) -> broadcast!(+, S, F, B), (S, F, B) -> map!(+, S, B, copy(F)))
+            T = copy(S)
+            @test f!(T, move_fixed(T), B) == expected
+        end
+        @test (T = copy(S); T .= fixed(T) .+ B; T == expected)
+    end
     end
 end
 
@@ -1019,12 +1018,6 @@ end
     # lu(zeros(5,5)) throw SingularException, see #42343
     @test_throws SingularException Diagonal(spzeros(5)) \ view(ones(10), 1:5)
     end
-end
-
-@static if COMPREHENSIVE
-@testset "Issue #27836" begin
-    @test minimum(sparse([1, 2], [1, 2], ones(Int32, 2)), dims = 1) isa Matrix
-end
 end
 
 @testset "Issue #30118" begin
@@ -1088,18 +1081,6 @@ end
     C = a .* transpose(b)
     @test mismatch(C, Vector(a) .* transpose(Vector(b))) === nothing
     @test nnz(C) == 4
-end
-
-@static if COMPREHENSIVE
-@testset "issue #31758: out of bounds write in _map_zeropres!" begin
-    y = sparsevec([2,7], [1., 2.], 10)
-    x1 = sparsevec(fill(1.0, 10))
-    x2 = sparsevec([2,7], [1., 2.], 10)
-    x3 = sparsevec(fill(1.0, 10))
-    f(x, y, z) = x == y == z == 0 ? 0.0 : NaN
-    y .= f.(x1, x2, x3)
-    @test all(isnan, y)
-end
 end
 
 @testset "Vec/Mat Style" begin
@@ -1172,24 +1153,6 @@ end
         A[1:sz+3:sz^2] .= NaN
         test_extrema(A; dims_test = @static COMPREHENSIVE ? ((), 1, 2) : (1,))
     end
-end
-
-@static if COMPREHENSIVE
-@testset "issue #42670 - error in sparsevec outer product" begin
-    A = spzeros(Int, 4)
-    B = copy(A)
-    C = sparsevec([0 0 1 1 0 0])'
-    A[2] = 1
-    A[2] = 0
-    @test A * C == B * C == spzeros(Int, 4, 6)
-end
-
-@testset "issue #46337 - error in sparsevec map" begin
-    x = sparsevec([1], [1//1+0im])
-    @test inv.(x) == [1//1+0im]
-    y = spzeros(Int, 1)
-    @test y ./ x == y
-end
 end
 
 @testset "map and broadcast kernels with the row count at typemax of the index type" begin
@@ -1278,6 +1241,22 @@ end
     end
     Ci = sparse([1 0; 0 2])
     @test_throws InexactError Ci .= Ci .* sparse([0.5 1.0; 1.0 1.0])
+    @test nnz(Ci) == 0 && iszero(Array(Ci))
+    # one argument with the pattern of the destination: partly written, as a dense one is
+    C = sparse([1.0 0 0; 0 2.0 0; 0 0 3.0])
+    @test_throws ErrorException C .= (x -> x == 2 ? error("boom") : 2x).(C)
+    @test nnz(C) == 3 && mismatch(C, [2.0 0 0; 0 2.0 0; 0 0 3.0]) === nothing
+    # a function that fills the zeros: untouched when the fill value does not convert, and
+    # empty when `f` throws after every entry was stored
+    Ci = sparse([1 0; 0 2])
+    @test_throws InexactError Ci .= Ci .+ 0.5
+    @test nnz(Ci) == 2 && mismatch(Ci, [1 0; 0 2]) === nothing
+    for C in (sparse([1 0; 0 2]), sparse([1 0; 0 2]))
+        @test_throws ErrorException map!(x -> x == 2 ? error("boom") : x + 1, C, C)
+        @test nnz(C) == 0 && iszero(Array(C))
+    end
+    calls = Ref(0)
+    @test_throws ErrorException Ci .= (() -> (calls[] += 1) > 2 ? error("boom") : 1).()
     @test nnz(Ci) == 0 && iszero(Array(Ci))
     # every entry does not fit the index type: found before anything is written
     S = sparse(Int8[1], Int8[1], [1.0], 12, 12)

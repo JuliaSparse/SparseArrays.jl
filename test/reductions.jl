@@ -744,6 +744,9 @@ end
         @test isequal(prod(sparse(D); dims), prod(D; dims))
     end
     @test prod(sparse([0 3; 1 2])) === 0
+    # nor is an unstored zero lost when the product of the stored entries overflows
+    @test prod(sparse([0.0 1e200; 1e200 1.0])) === 0.0
+    @test prod(x -> x == 0 ? 0.0 : 1e200, sparse([0 1; 1 1])) === 0.0
     # `f(0)` is not added to a row that stores every entry
     f = x -> x == 0 ? Inf : x
     D = [1.0 2.0; 0.0 3.0]
@@ -774,6 +777,24 @@ end
     calls = Ref(0)
     mapreduce(v -> (calls[] += 1; v), takelast, A)
     @test calls[] == nnz(A) + 1
+    calls[] = 0
+    mapreduce(v -> (calls[] += 1; v), takelast, A; dims=1, init=7.0, sparse=true)
+    @test calls[] == nnz(A) + 1
+    # a run of unstored entries has the type `op` gives it, not that of `f(0)`
+    plus = (a, b) -> a + b
+    for S in (spzeros(2, 2), spzeros(4), sparse([0.0 0.0 0.0 1.0]))
+        @test mapreduce(!iszero, plus, S) === mapreduce(!iszero, plus, Array(S))
+    end
+    # `|` and `&` commute for one array and for two
+    @test SparseArrays._commutes(!iszero, |, Float64) && SparseArrays._commutes(>, &, Float64, Float64)
+    @test mapreduce(>, |, A, 2A) === mapreduce(>, |, Ad, 2Ad)
+    # a stored `-0.0` ranks below the zero of an unstored entry
+    for S in (sparse([1, 2], [1, 1], [-0.0, 0.0], 2, 2), sparse([2], [1], [-0.0], 2, 2), sparse([1], [2], [-0.0], 2, 2)),
+        fm in (findmin, findmax)
+        D = Array(S)
+        @test isequal(fm(S), fm(D))
+        @test isequal(fm(S; dims=1), fm(D; dims=1)) && isequal(fm(S; dims=2), fm(D; dims=2))
+    end
     # `missing` in `findmin` and `findmax`, which dense ranks above `NaN`
     for D in (Union{Missing,Float64}[1.0 missing; 0.0 2.0], Union{Missing,Float64}[NaN missing; 0.0 2.0],
               Union{Missing,Float64}[0.0 NaN; -1.0 0.0]), fm in (findmin, findmax)

@@ -36,6 +36,32 @@ using ..CHOLMOD: change_stype!, free!
 
 import ..LibSuiteSparse: cholmod_l_free, cholmod_free
 
+# Release a permutation that SPQR allocated, through the Common that counts its memory,
+# and clear the handle so that it is released once.
+function _free_perm!(ref::Ref{Ptr{Ti}}, len::Integer) where {Ti<:CHOLMOD.ITypes}
+    p = ref[]
+    p == C_NULL && return nothing
+    ref[] = C_NULL
+    Ti === Int64 ?
+        cholmod_l_free(len, sizeof(Ti), p, CHOLMOD.getcommon(Ti)) :
+        cholmod_free(len, sizeof(Ti), p, CHOLMOD.getcommon(Ti))
+    return nothing
+end
+_free_perm!(::Ptr{Cvoid}, ::Integer) = nothing
+
+# Copy a permutation that SPQR allocated into a one-based vector and release it. A null
+# handle is the identity, returned as an empty vector.
+function _take_perm!(ref::Ref{Ptr{Ti}}, len::Integer) where {Ti<:CHOLMOD.ITypes}
+    p = ref[]
+    p == C_NULL && return Vector{Ti}()
+    v = Vector{Ti}(undef, len)
+    for i in 1:len
+        @inbounds v[i] = unsafe_load(p, i) + 1
+    end
+    _free_perm!(ref, len)
+    return v
+end
+
 function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
         A::Sparse{Tv, Ti},
         Bsparse::Union{Sparse{Tv, Ti}                      , Ptr{Cvoid}} = C_NULL,
@@ -54,61 +80,41 @@ function _qr!(ordering::Integer, tol::Real, econ::Integer, getCTX::Integer,
     spqr_call = Ti === Int32 ? SuiteSparseQR_i_C : SuiteSparseQR_C
     AA   = unsafe_load(pointer(A))
     m, n = AA.nrow, AA.ncol
-    rnk  = CHOLMOD.@checked spqr_call(
-        ordering,       # all, except 3:given treated as 0:fixed
-        tol,            # columns with 2-norm <= tol treated as 0
-        econ,           # e = max(min(m,econ),rank(A))
-        getCTX,         # 0: Z=C (e-by-k), 1: Z=C', 2: Z=X (e-by-k)
-        A,              # m-by-n sparse matrix to factorize
-        Bsparse,        # sparse m-by-k B
-        Bdense,         # dense  m-by-k B
-        # /* outputs: */
-        Zsparse,        # sparse Z
-        Zdense,         # dense Z
-        R,              # e-by-n sparse matrix */
-        E,              # size n column perm, NULL if identity */
-        H,              # m-by-nh Householder vectors
-        HPinv,          # size m row permutation
-        HTau,           # 1-by-nh Householder coefficients
-        CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
+    local rnk
+    try
+        rnk = CHOLMOD.@checked spqr_call(
+            ordering,       # all, except 3:given treated as 0:fixed
+            tol,            # columns with 2-norm <= tol treated as 0
+            econ,           # e = max(min(m,econ),rank(A))
+            getCTX,         # 0: Z=C (e-by-k), 1: Z=C', 2: Z=X (e-by-k)
+            A,              # m-by-n sparse matrix to factorize
+            Bsparse,        # sparse m-by-k B
+            Bdense,         # dense  m-by-k B
+            # /* outputs: */
+            Zsparse,        # sparse Z
+            Zdense,         # dense Z
+            R,              # e-by-n sparse matrix */
+            E,              # size n column perm, NULL if identity */
+            H,              # m-by-nh Householder vectors
+            HPinv,          # size m row permutation
+            HTau,           # 1-by-nh Householder coefficients
+            CHOLMOD.getcommon(Ti)) # /* workspace and parameters */
 
-    if rnk < 0
-        # A negative status has already been raised by `@checked`, so what is
-        # left is a failure SPQR reports through its return value only.
-        throw(CHOLMOD.CHOLMODException(string("SuiteSparseQR failed on a ", m, "×", n,
-            " matrix: rank ", rnk, ", status ", CHOLMOD.getcommon(Ti)[].status)))
+        if rnk < 0
+            # A negative status has already been raised by `@checked`, so what is
+            # left is a failure SPQR reports through its return value only.
+            throw(CHOLMOD.CHOLMODException(string("SuiteSparseQR failed on a ", m, "×", n,
+                " matrix: rank ", rnk, ", status ", CHOLMOD.getcommon(Ti)[].status)))
+        end
+    catch
+        # the caller frees the matrices it asked for; the permutations are owned here
+        _free_perm!(E, n)
+        _free_perm!(HPinv, m)
+        rethrow()
     end
 
-    e = E[]
-    if e == C_NULL
-        _E = Vector{Ti}()
-    else
-        _E = Vector{Ti}(undef, n)
-        for i in 1:n
-            @inbounds _E[i] = unsafe_load(e, i) + 1
-        end
-        # Free memory allocated by SPQR. This call will make sure that the
-        # correct deallocator function is called and that the memory count in
-        # the common struct is updated
-        Ti === Int64 ?
-            cholmod_l_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti)) :
-            cholmod_free(n, sizeof(Ti), e, CHOLMOD.getcommon(Ti))
-    end
-    hpinv = HPinv[]
-    if hpinv == C_NULL
-        _HPinv = Vector{Ti}()
-    else
-        _HPinv = Vector{Ti}(undef, m)
-        for i in 1:m
-            @inbounds _HPinv[i] = unsafe_load(hpinv, i) + 1
-        end
-        # Free memory allocated by SPQR. This call will make sure that the
-        # correct deallocator function is called and that the memory count in
-        # the common struct is updated
-        Ti === Int64 ?
-            cholmod_l_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti)) :
-            cholmod_free(m, sizeof(Ti), hpinv, CHOLMOD.getcommon(Ti))
-    end
+    _E = _take_perm!(E, n)
+    _HPinv = _take_perm!(HPinv, m)
 
     return rnk, _E, _HPinv
 end
@@ -153,9 +159,8 @@ columns enter the product.
 and `F'`, which is the LQ factorization
 [`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `ldiv!`, with `F`
 or `F'`, takes an optional [`SPQR.SpqrWS`](@ref SparseArrays.SPQR.SpqrWS) to avoid
-allocating. Solves with one `F` take an internal lock, so they are safe
-from several tasks but run one at a time. For parallel solves, give each task its own
-`copy(F)`.
+allocating. `F` is never modified once `qr` has returned and a solve only reads it, so
+several tasks can solve with one `F` at the same time.
 
 # Examples
 ```jldoctest
@@ -177,8 +182,6 @@ struct QRSparse{Tv,Ti} <: LinearAlgebra.Factorization{Tv}
     Q::QRSparseQ{Tv,Ti}
     cpiv::Vector{Ti}
     rpivinv::Vector{Ti}
-
-    _lock::ReentrantLock
 end
 
 function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
@@ -186,7 +189,7 @@ function QRSparse{Tv}(F::QRSparse{<:Number, Ti}) where {Tv, Ti}
     newτ = convert(Vector{Tv}, F.τ)
     newR = convert(SparseMatrixCSC{Tv}, F.R)
     newQ = QRSparseQ{Tv,Ti}(newfactors, newτ, size(newR, 2))
-    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv, ReentrantLock())
+    return QRSparse{Tv,Ti}(newfactors, newτ, newR, newQ, F.cpiv, F.rpivinv)
 end
 
 Base.size(F::QRSparse) = (size(F.factors, 1), size(F.R, 2))
@@ -261,9 +264,8 @@ With `ordering=ORDERING_FIXED`, `F.pcol` is the identity unless `A` is rank defi
 which case the columns that SPQR finds dependent are moved to the end.
 
 !!! note
-    Solves with the returned `QRSparse` object take an internal lock, so concurrent solves
-    with one object run one at a time. For parallel solves, create a separate copy of
-    this object for each task with `copy(F)`.
+    Solves with the returned `QRSparse` object only read it, so several tasks can solve
+    with one object at the same time.
 
 !!! note
     `qr(A::SparseMatrixCSC)` uses the SPQR library that is part of [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
@@ -287,7 +289,11 @@ julia> A = sparse([1,2,3,4], [1,1,2,2], [1.0,1.0,1.0,1.0])
 julia> qr(A)
 SparseArrays.SPQR.QRSparse{Float64, Int64}
 Q factor:
-4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}
+4×4 SparseArrays.SPQR.QRSparseQ{Float64, Int64}:
+ -0.707107   0.0        0.0       -0.707107
+  0.0       -0.707107  -0.707107   0.0
+  0.0       -0.707107   0.707107   0.0
+ -0.707107   0.0        0.0        0.707107
 R factor:
 2×2 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
  -1.41421      ⋅
@@ -347,8 +353,7 @@ function LinearAlgebra.qr(A::SparseMatrixCSC{Tv, Ti}; tol=_default_tol(A), order
 
     return QRSparse(factors, τ, R,
                     QRSparseQ(factors, τ, size(R, 2)),
-                    p, hpinv,
-                    ReentrantLock())
+                    p, hpinv)
 end
 LinearAlgebra.qr(A::SparseMatrixCSC{Tv}; tol=_default_tol(A), ordering=ORDERING_DEFAULT) where {Tv<:Union{Float16, Float32}} =
     QRSparse{Tv}(qr(convert(SparseMatrixCSC{Float64}, A); tol, ordering))
@@ -503,11 +508,18 @@ end
 """
     copy(F::QRSparse)
 
-A copy of `F` for solving in parallel, one copy per task. The copy shares the factors and
-permutations, which no call modifies, and has its own lock, so its solves never wait for
-those of `F`.
+Return an independent copy of `F`, with its own factors and permutations. `deepcopy(F)`
+does the same. Solving in parallel does not need a copy: tasks can share one `F`.
 """
-Base.copy(F::QRSparse) = QRSparse(F.factors, F.τ, F.R, F.Q, F.cpiv, F.rpivinv, ReentrantLock())
+function Base.copy(F::QRSparse)
+    factors = copy(F.factors)
+    τ = copy(F.τ)
+    QRSparse(factors, τ, copy(F.R), QRSparseQ(factors, τ, F.Q.n), copy(F.cpiv),
+             copy(F.rpivinv))
+end
+Base.copy(F::AdjointFactorization{<:Any,<:QRSparse}) = AdjointFactorization(copy(parent(F)))
+Base.copy(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) =
+    LinearAlgebra.TransposeFactorization(copy(parent(F)))
 
 function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     summary(io, F); println(io)
@@ -534,6 +546,7 @@ LinearAlgebra.rank(F::QRSparse) = reduce(max, view(getrowval(F.R), 1:nnz(F.R)), 
 Calculate rank of `S` by calculating its QR factorization. Values smaller than `tol` are considered as zero. See SPQR's manual.
 """
 LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
+LinearAlgebra.rank(S::FixedSparseCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 
 # With a real lhs and complex rhs with the same precision, we can reinterpret
 # the complex rhs as a real rhs with twice the number of columns
@@ -656,6 +669,7 @@ end
 SpqrWS(F::QRSparse{Tv}) where {Tv} = SpqrWS{Tv}(Tv[])
 SpqrWS(F::LinearAlgebra.AdjointFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
 SpqrWS(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
+Base.similar(ws::SpqrWS{Tv}) where {Tv} = SpqrWS{Tv}(similar(ws.w))
 
 function _get_ldiv_workspace(workspace, F::QRSparse{Tv}, B::StridedVecOrMat) where Tv
     m, n = size(F)
@@ -717,48 +731,46 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVe
     m = size(F, 1)
     n = size(F, 2)
 
-    @lock F._lock begin
-        W = _get_ldiv_workspace(workspace, F, B)
+    W = _get_ldiv_workspace(workspace, F, B)
 
-        # Apply left permutation to B and store in W
-        for j in axes(B, 2)
-            for i in 1:length(F.rpivinv)
-                W[F.rpivinv[i], j] = B[i, j]
-            end
+    # Apply left permutation to B and store in W
+    for j in axes(B, 2)
+        for i in 1:length(F.rpivinv)
+            W[F.rpivinv[i], j] = B[i, j]
         end
+    end
 
-        # Make a view into W corresponding to the size of B
-        W0 = @view W[Base.OneTo(m), :]
+    # Make a view into W corresponding to the size of B
+    W0 = @view W[Base.OneTo(m), :]
 
-        # Apply Q' to permuted B
-        lmul!(adjoint(F.Q), W0)
+    # Apply Q' to permuted B
+    lmul!(adjoint(F.Q), W0)
 
-        # Solve R*X = Q'*P*B
-        #
-        # We call generic_trimatdiv! directly instead of going through
-        # ldiv!(UpperTriangular(R_sub), ...) for two reasons:
-        # 1. UpperTriangular requires a square matrix, but F.R is m×n
-        #    so we can only take a column view R[:, 1:rnk] (which is
-        #    m×rnk, not square). A row+column view R[1:rnk, 1:rnk]
-        #    would be square but doesn't match SparseMatrixCSCView,
-        #    causing dispatch to a slow generic fallback.
-        # 2. generic_trimatdiv! is what UpperTriangular ldiv! dispatches
-        #    to anyway — calling it directly with uploc='U', isunitc='N',
-        #    tfun=identity is equivalent. The back-substitution loop
-        #    iterates over axes(B,1) = 1:rnk and searchsortedlast
-        #    excludes entries with row > j, so the extra rows in the
-        #    column view are never accessed.
-        W_rnk = @view(W0[Base.OneTo(rnk), :])
-        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', identity,
-                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
+    # Solve R*X = Q'*P*B
+    #
+    # We call generic_trimatdiv! directly instead of going through
+    # ldiv!(UpperTriangular(R_sub), ...) for two reasons:
+    # 1. UpperTriangular requires a square matrix, but F.R is m×n
+    #    so we can only take a column view R[:, 1:rnk] (which is
+    #    m×rnk, not square). A row+column view R[1:rnk, 1:rnk]
+    #    would be square but doesn't match SparseMatrixCSCView,
+    #    causing dispatch to a slow generic fallback.
+    # 2. generic_trimatdiv! is what UpperTriangular ldiv! dispatches
+    #    to anyway — calling it directly with uploc='U', isunitc='N',
+    #    tfun=identity is equivalent. The back-substitution loop
+    #    iterates over axes(B,1) = 1:rnk and searchsortedlast
+    #    excludes entries with row > j, so the extra rows in the
+    #    column view are never accessed.
+    W_rnk = @view(W0[Base.OneTo(rnk), :])
+    LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', identity,
+                                     @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
 
-        # Apply right permutation: scatter solved rows into X using cpiv directly.
-        # Zero X first so free variables (beyond rank) are zero in the basic solution.
-        fill!(X, zero(T))
-        for j in axes(W, 2)
-            for i in 1:rnk
-                X[F.cpiv[i], j] = W[i, j]
-            end
+    # Apply right permutation: scatter solved rows into X using cpiv directly.
+    # Zero X first so free variables (beyond rank) are zero in the basic solution.
+    fill!(X, zero(T))
+    for j in axes(W, 2)
+        for i in 1:rnk
+            X[F.cpiv[i], j] = W[i, j]
         end
     end
 
@@ -834,38 +846,36 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B:
     rnk = rank(F)
 
     # With A[prow, pcol] == Q*R we have A' == Pcol*R'*Q'*Prow, so x = Prow'*Q*(R' \ Pcol'*b)
-    @lock F._lock begin
-        W = _get_ldiv_workspace(workspace, F, B)
+    W = _get_ldiv_workspace(workspace, F, B)
 
-        # Gather the column permutation of B into the leading n rows of W
-        for j in axes(W, 2)
-            for i in 1:n
-                W[i, j] = B[F.cpiv[i], j]
-            end
+    # Gather the column permutation of B into the leading n rows of W
+    for j in axes(W, 2)
+        for i in 1:n
+            W[i, j] = B[F.cpiv[i], j]
         end
+    end
 
-        # Zero the free variables so that Q*W is the minimum-norm solution. When A is
-        # rank deficient this also drops the equations that the leading block of R
-        # cannot represent, which is the counterpart of the basic solution above.
-        for j in axes(W, 2)
-            for i in (rnk + 1):m
-                W[i, j] = zero(T)
-            end
+    # Zero the free variables so that Q*W is the minimum-norm solution. When A is
+    # rank deficient this also drops the equations that the leading block of R
+    # cannot represent, which is the counterpart of the basic solution above.
+    for j in axes(W, 2)
+        for i in (rnk + 1):m
+            W[i, j] = zero(T)
         end
+    end
 
-        # Solve R'*W = Pcol'*B by forward substitution. See the ldiv! above for why
-        # generic_trimatdiv! is called directly rather than through LowerTriangular.
-        W_rnk = @view(W[Base.OneTo(rnk), :])
-        LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', adjoint,
-                                         @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
+    # Solve R'*W = Pcol'*B by forward substitution. See the ldiv! above for why
+    # generic_trimatdiv! is called directly rather than through LowerTriangular.
+    W_rnk = @view(W[Base.OneTo(rnk), :])
+    LinearAlgebra.generic_trimatdiv!(W_rnk, 'U', 'N', adjoint,
+                                     @view(F.R[:, Base.OneTo(rnk)]), W_rnk)
 
-        # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W. W has
-        # exactly m rows, which is what Q acts on.
-        lmul!(F.Q, W)
-        for j in axes(W, 2)
-            for i in 1:m
-                X[i, j] = W[F.rpivinv[i], j]
-            end
+    # Multiply by Q and undo the row permutation, i.e. X[prow] = Q*W. W has
+    # exactly m rows, which is what Q acts on.
+    lmul!(F.Q, W)
+    for j in axes(W, 2)
+        for i in 1:m
+            X[i, j] = W[F.rpivinv[i], j]
         end
     end
 
@@ -882,9 +892,21 @@ LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedV
                     workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Complex} =
     conj!(ldiv!(X, parent(Ft)', conj(B); workspace))
 
+# A complex right-hand side with a real factorization is solved for its real and its
+# imaginary part. The first solve checks the sizes, before X is written.
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{Complex{T}},
+                             F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
+                             B::StridedVecOrMat{Complex{T}};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Real}
+    Xr = ldiv!(similar(X, T), F, real(B); workspace)
+    Xi = ldiv!(similar(X, T), F, imag(B); workspace)
+    return map!(complex, X, Xr, Xi)
+end
+
 # In place, only for a square A, whose solution has the size of B.
 function LinearAlgebra.ldiv!(F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
-                             B::StridedVecOrMat{T}; workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
+                             B::StridedVecOrMat{<:Union{T,Complex{T}}};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     LinearAlgebra.checksquare(F)
     return copyto!(B, ldiv!(similar(B), F, B; workspace))
 end

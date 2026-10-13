@@ -76,11 +76,12 @@ end
 # Whether `op` may fold the mapped values out of their order. It is taken to be associative,
 # and to be commutative only where it is known to be: a product commutes when its factors are
 # real or complex numbers, which is asked of inference.
+# `f` takes an element of each of the types given, one for each array that is reduced.
 _commutes(f, ::Union{typeof(+),typeof(Base.add_sum),typeof(max),typeof(min),typeof(|),typeof(&),
-                     typeof(Base.or_any),typeof(Base.and_all),typeof(Base._extrema_rf)}, ::Type) = true
-_commutes(f::F, ::Union{typeof(*),typeof(Base.mul_prod)}, ::Type{T}) where {F,T} =
-    Base.promote_op(f, T) <: Union{Real,Complex}
-_commutes(f, op, ::Type) = false
+                     typeof(Base.or_any),typeof(Base.and_all),typeof(Base._extrema_rf)}, ::Vararg{Type,N}) where {N} = true
+_commutes(f::F, ::Union{typeof(*),typeof(Base.mul_prod)}, Ts::Vararg{Type,N}) where {F,N} =
+    Base.promote_op(f, Ts...) <: Union{Real,Complex}
+_commutes(f, op, ::Vararg{Type,N}) where {N} = false
 
 # An `op` not known to commute is folded over the positions in their order. `A` has an
 # unstored entry, so `f(0)` is taken once. A run of unstored entries is folded into the stored
@@ -118,11 +119,12 @@ function _mapreduce_ordered(f::F, op::G, A::SparseVectorOrView{T}) where {F,G,T}
     n = length(A) - prev
     return n == 0 ? v : rf(v, _foldunstored(op, z, idem, n))
 end
-# `f(0)` as `op` first sees it, and whether folding it with itself leaves it as it is, which
-# makes a run of any length that one value
+# `f(0)` as `op` first sees it, and whether folding it with itself leaves it as it is, in
+# value and in type, which makes a run of any length that one value
 function _unstoredvalue(f::F, op::G, ::Type{T}) where {F,G,T}
     z = Base.reduce_first(op, f(zero(T)))
-    return z, isequal(op(z, z), z)
+    zz = op(z, z)
+    return z, typeof(zz) === typeof(z) && isequal(zz, z)
 end
 # `z` folded over `n > 0` consecutive positions, in O(log(n)) calls of `op`
 @inline function _foldunstored(op::G, z, idem::Bool, n) where {G}
@@ -180,9 +182,12 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
         _mapreduce_ordered(f, op, A)
     else
         v = Base.reduce_first(op, f(zero(T)))^nzeros
-        # A zero ends the product only among integers: a stored `Inf` or `NaN` makes it `NaN`
-        (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) ? v :
-            v*Base._mapreduce(f, op, nzvalview(A))
+        (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) && return v
+        r = v*Base._mapreduce(f, op, nzvalview(A))
+        # A zero ends the product unless a stored `Inf` or `NaN` makes it `NaN`. The product
+        # of the stored entries may also have overflowed to one; folding them into the zero
+        # instead cannot.
+        (_iszero(r) || !_iszero(v)) ? r : mapfoldl(f, op, nzvalview(A); init=v)
     end
 end
 
@@ -228,12 +233,6 @@ for T in (:SparseVectorOrView, :SparseMatrixCSCOrColumnSubset)
                                                          _mapreduce_ordered(f, op, init, A, B)
     end
 end
-# A product commutes when its factors are real or complex numbers, which is asked of inference:
-# the answer picks between two kernels that agree for such factors.
-_commutes(f, ::Union{typeof(+),typeof(Base.add_sum),typeof(max),typeof(min)}, ::Type, ::Type) = true
-_commutes(f::F, ::Union{typeof(*),typeof(Base.mul_prod)}, ::Type{Ta}, ::Type{Tb}) where {F,Ta,Tb} =
-    Base.promote_op(f, Ta, Tb) <: Union{Real,Complex}
-_commutes(f, op, ::Type, ::Type) = false
 
 # An `op` not known to commute is folded over the positions in their order. A zero is taken
 # only where an entry is not stored, as an array that stores every entry need not have one.
@@ -433,18 +432,20 @@ function _mapreduce_dim_sparse_ordered(f, op, init, A::SparseMatrixCSCOrColumnSu
                                        alongrows::Bool) where {T,Ti,Tr}
     m, n = size(A)
     D = Base._mapreduce_dim(f, op, init, A, dims)
-    slicelen, nslices = alongrows ? (m, n) : (n, m)
-    z = zero(Tr)
-    zunstored = nnz(A) == m*n && slicelen > 0 ? z : _reduce_unstored(f, op, init, T, slicelen)
-    stores = fill(!isequal(zunstored, z), nslices)
+    stores = fill(false, alongrows ? n : m)
     if alongrows
         @inbounds for col in 1:n
-            stores[col] |= !isempty(getnzrange(A, col))
+            stores[col] = !isempty(getnzrange(A, col))
         end
     else
         @inbounds for i in view(getrowval(A), _storedinds(A))
             stores[i] = true
         end
+    end
+    # a slice that stores nothing is kept when its reduction is not a zero
+    z = zero(Tr)
+    @inbounds for i in eachindex(stores)
+        stores[i] || (stores[i] = !isequal(D[i], z))
     end
     inds = convert(Vector{Ti}, findall(stores))
     vals = Tr[D[i] for i in inds]

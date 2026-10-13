@@ -39,7 +39,7 @@ end
 @propagate_inbounds _getindex_lowered(A, I::T, ::T) where {T} =
     invoke(getindex, Tuple{AbstractArray,Vararg{Any}}, A, I...)
 
-getindex(A::AbstractSparseMatrixCSC, ::Colon, ::Colon) = copy(A)
+getindex(A::AbstractSparseMatrixCSC, ::Colon, ::Colon) = _writablecopy(A)
 getindex(A::AbstractSparseMatrixCSC, i, ::Colon)       = getindex(A, i, axes(A,2))
 getindex(A::AbstractSparseMatrixCSC, ::Colon, i)       = getindex(A, axes(A,1), i)
 
@@ -74,7 +74,7 @@ function getindex_cols(A::AbstractSparseMatrixCSC{Tv,Ti}, J::AbstractVector) whe
             nzvalS[ptrS] = nzvalA[k]
         end
     end
-    return @if_move_fixed A SparseMatrixCSC(m, nJ, colptrS, rowvalS, nzvalS)
+    return SparseMatrixCSC(m, nJ, colptrS, rowvalS, nzvalS)
 end
 
 getindex_traverse_col(::AbstractUnitRange, lo::Integer, hi::Integer) = lo:hi
@@ -126,7 +126,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::Abstra
         end
     end
 
-    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -219,7 +219,7 @@ function getindex_I_sorted_bsearch_A(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
             end
         end
     end
-    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted_linear(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -279,7 +279,7 @@ function getindex_I_sorted_linear(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstract
             ptrA += 1
         end
     end
-    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector, J::AbstractVector) where {Tv,Ti}
@@ -349,7 +349,7 @@ function getindex_I_sorted_bsearch_I(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstr
         end
         colptrS[j+1] = ptrS
     end
-    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 # First position at or after `ptrI` in the sorted `I` whose value is not less than `row`.
@@ -423,7 +423,7 @@ function getindex_I_sorted_nocache(A::AbstractSparseMatrixCSC{Tv,Ti}, I::Abstrac
             (ptrI > nI) && break
         end
     end
-    return @if_move_fixed A SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
+    return SparseMatrixCSC(nI, nJ, colptrS, rowvalS, nzvalS)
 end
 
 function permute_rows!(S::AbstractSparseMatrixCSC{Tv,Ti}, pI::Vector{Int}) where {Tv,Ti}
@@ -476,9 +476,7 @@ function getindex_general(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Abst
     require_one_based_indexing(A, I, J)
     pI = sortperm(I)
     @inbounds Is = I[pI]
-    # the rows of each column are reordered in place, so fix the pattern only afterwards
-    S = permute_rows!(getindex_I_sorted(_unsafe_unfix(A), Is, J), pI)
-    return @if_move_fixed A S
+    return permute_rows!(getindex_I_sorted(A, Is, J), pI)
 end
 
 # the general case:
@@ -539,7 +537,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
         deleteat!(nzvalB, idxB:n)
         deleteat!(rowvalB, idxB:n)
     end
-    @if_move_fixed A SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
+    SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
 end
 
 # a range of `Bool` is a mask, not a range of rows
@@ -598,7 +596,11 @@ function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tupl
     A = parent(V)
     I, J = V.indices
     if isempty(I) || isempty(J); return V; end
-    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
+    # a zero only overwrites stored entries, below; a nonzero must find every entry stored
+    if _is_fixed(A) && !_isimplicitzero(convert(Tv, x), Tv)
+        for j in J, i in I
+            Base.isstored(A, i, j) || _throwfixedinsert(A, i, j)
+        end
         for j in J, i in I
             A[i, j] = x
         end
@@ -830,15 +832,12 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     require_one_based_indexing(A, V, Ix, Jx)
     (I, J) = Base.ensure_indexable(to_indices(A, (Ix, Jx)))
     checkbounds(A, I, J)
-    nJ = length(J)
-    Base.setindex_shape_check(V, length(I), nJ)
-    if _is_fixed(A)   # the scalar path keeps the pattern and throws outside it
-        k = 0
-        for j in J, i in I
-            A[i, j] = V[k += 1]
-        end
-        return A
+    @static if VERSION >= v"1.14.0-DEV.3614"
+        Base.setindex_shape_check(V, Base.index_sizes(I, J))
+    else
+        Base.setindex_shape_check(V, length(I), length(J))
     end
+    _is_fixed(A) && return _setindex_fixed!(A, V, I, J)
     B = _to_same_csc(A, V, I, J)
 
     m, n = size(A)
@@ -1119,6 +1118,31 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     return _checkbuffers(A)
 end
 
+# Block assignment into a fixed pattern: a first pass converts every value and rejects one
+# that would be stored outside the pattern, and only the second pass writes.
+function _setindex_fixed!(A::AbstractSparseMatrixCSC{Tv}, V::AbstractVecOrMat, I, J) where Tv
+    V = Base.unalias(A, V)
+    rowvalA = getrowval(A); nzvalA = getnzval(A)
+    for write in (false, true)
+        k = 0
+        for j in J
+            r1 = Int(first(nzrange(A, j)))
+            r2 = Int(last(nzrange(A, j)))
+            for i in I
+                k += 1
+                v = convert(Tv, V[k])
+                p = searchsortedfirst(view(rowvalA, r1:r2), i) + r1 - 1
+                if p <= r2 && rowvalA[p] == i
+                    write && (nzvalA[p] = v)
+                else
+                    _isimplicitzero(v, Tv) || _throwfixedinsert(A, i, j)
+                end
+            end
+        end
+    end
+    return A
+end
+
 # Linear-index assignment into a fixed pattern: every index is located, and a nonzero
 # value outside the pattern rejected, before any entry is written.
 function _setindex_fixed!(A::AbstractSparseMatrixCSC{Tv}, x::AbstractArray, I::AbstractVector{<:Integer}) where Tv
@@ -1166,8 +1190,7 @@ function dropstored!(A::AbstractSparseMatrixCSC, i::Integer, j::Integer)
     if !((1 <= i <= size(A, 1)) & (1 <= j <= size(A, 2)))
         throw(BoundsError(A, (i,j)))
     end
-    # a fixed pattern keeps the entry and stores a zero, as `dropstored!` of a fixed vector does
-    _is_fixed(A) && (A[i, j] = zero(eltype(A)); return A)
+    _checkpatternwritable(A, :dropstored!)
     coljfirstk = Int(getcolptr(A)[j])
     coljlastk = Int(getcolptr(A)[j+1] - 1)
     searchk = searchsortedfirst(view(getrowval(A), coljfirstk:coljlastk), i) + coljfirstk - 1
@@ -1210,6 +1233,7 @@ julia> SparseArrays.dropstored!(A, [1, 2], [1, 1])
 function dropstored!(A::AbstractSparseMatrixCSC,
         I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
     require_one_based_indexing(A, I, J)
+    _checkpatternwritable(A, :dropstored!)
     m, n = size(A)
     nnzA = nnz(A)
     (nnzA == 0) && (return A)
@@ -1286,7 +1310,7 @@ function getindex(x::AbstractSparseMatrixCSC, ::Colon, j::Integer)
     # not specialize on `:` (a `Function`), so `juliac --trim` cannot resolve that call
     checkbounds(Bool, x, :, j) || throw(BoundsError(x, (:, j)))
     nzr = nzrange(x, j)
-    return @if_move_fixed x SparseVector(size(x, 1), getrowval(x)[nzr], getnzval(x)[nzr])
+    return SparseVector(size(x, 1), getrowval(x)[nzr], getnzval(x)[nzr])
 end
 
 function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
@@ -1298,14 +1322,14 @@ function getindex(x::AbstractSparseMatrixCSC, I::AbstractUnitRange, j::Integer)
     # Restrict to the selected rows
     r1 = searchsortedfirst(view(getrowval(x), c1:c2), first(I)) + c1 - 1
     r2 = searchsortedlast(view(getrowval(x), c1:c2), last(I)) + c1 - 1
-    return @if_move_fixed x SparseVector(length(I), Ti[getrowval(x)[i] - first(I) + 1 for i = r1:r2], getnzval(x)[r1:r2])
+    return SparseVector(length(I), Ti[getrowval(x)[i] - first(I) + 1 for i = r1:r2], getnzval(x)[r1:r2])
 end
 
 # Nonscalar indexing of an adjoint or transpose indexes the parent with the indices swapped
 @propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, I, J) =
     _getindex_adjtrans(M, (I, J), _lower_indices(M, I, J)...)
 # resolves the ambiguity with LinearAlgebra's scalar method
-@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Int, j::Int) =
+@propagate_inbounds getindex(M::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, i::Signed, j::Signed) =
     wrapperop(M)(parent(M)[j, i])
 _getindex_adjtrans(M, _, i::AbstractVector, j::AbstractVector) = copy(wrapperop(M)(parent(M)[j, i]))
 _getindex_adjtrans(M, _, i::Integer, j::AbstractVector) = map!(wrapperop(M), parent(M)[j, i])
@@ -1315,8 +1339,8 @@ _getindex_adjtrans(M, _, i::AbstractVector, j::Integer) = map!(wrapperop(M), par
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
-    let M = _unsafe_unfix(A)[I, [J]]
-        @if_move_fixed A SparseVector(size(M, 1), getrowval(M), getnzval(M))
+    let M = A[I, [J]]
+        SparseVector(size(M, 1), getrowval(M), getnzval(M))
     end
 
 # Row slices
@@ -1348,7 +1372,7 @@ function Base.getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, i::Integer, J::Abstrac
             ptrI += 1
         end
     end
-    @if_move_fixed A SparseVector(nJ, nzinds, nzvals)
+    SparseVector(nJ, nzinds, nzvals)
 end
 
 
@@ -1392,7 +1416,7 @@ function _logical_index(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray{Bool}) 
         deleteat!(nzvalB, c:nnzB)
         deleteat!(rowvalB, c:nnzB)
     end
-    return @if_move_fixed A I SparseVector(n, rowvalB, nzvalB)
+    return SparseVector(n, rowvalB, nzvalB)
 end
 
 # TODO: further optimizations are available for ::Colon and other types of AbstractRange
@@ -1436,7 +1460,7 @@ function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
             deleteat!(rowvalB, idxB:nnzB)
         end
     end
-    @if_move_fixed A SparseVector(n, rowvalB, nzvalB)
+    SparseVector(n, rowvalB, nzvalB)
 end
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
@@ -1476,5 +1500,5 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {T
         deleteat!(nzvalB, idxB:nnzB)
         deleteat!(rowvalB, idxB:nnzB)
     end
-    return @if_move_fixed A SparseVector(n, rowvalB, nzvalB)
+    return SparseVector(n, rowvalB, nzvalB)
 end
