@@ -746,6 +746,26 @@ end
 end
 end
 
+@static if COMPREHENSIVE
+@testset "kronecker product with a view of a sparse matrix is sparse" begin
+    S = fixture(Float64, 4, 4)
+    Sd = Matrix(S)
+    V = view(S, [4, 1], [2, 2, 3])
+    W = view(S, [4, 1, 2, 3], :)
+    c = view(S, :, 3)
+    @test mismatch(kron(V, S), kron(Matrix(V), Sd)) === nothing
+    @test mismatch(kron(S, UpperTriangular(W')), kron(Sd, Matrix(UpperTriangular(W')))) === nothing
+    @test mismatch(kron(c, S), kron(Vector(c), Sd)) === nothing
+    @test mismatch(kron(c, c), kron(Vector(c), Vector(c))) === nothing
+    C = spzeros(8, 12)
+    @test kron!(C, V, S) === C && mismatch(C, kron(Matrix(V), Sd)) === nothing
+    # with a number, a wrapped view gives what the wrapped matrix does
+    @test mismatch(kron(2.0, V'), 2 * Matrix(V')) === nothing
+    K = kron(Symmetric(W), 2.0)
+    @test K isa Symmetric{Float64,<:SparseMatrixCSC} && K == 2 * Matrix(Symmetric(W))
+end
+end
+
 @testset "kronecker product" begin
     for (m,n) in ((5,10),)
         a = fixture(ComplexF64, m, 3); a_d = Matrix(a)

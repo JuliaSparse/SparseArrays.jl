@@ -1120,9 +1120,26 @@ function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(
 end
 
 ## kron
-const _SparseKronGroup = Union{SparseVecOrMatMaybeAdjOrTrans,
-                               HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
-                               UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
+# a sparse vector or matrix or a view of one, its adjoint or transpose, and a symmetric,
+# Hermitian or triangular wrapper of any of those
+const _SparseKronMaybeAdjOrTrans = Union{SparseVecOrMat, SparseVectorOrView, SparseMatrixCSCSubArray,
+    AdjOrTrans{<:Any,<:Union{SparseVecOrMat, SparseVectorOrView, SparseMatrixCSCSubArray}}}
+const _SparseKronGroup = Union{_SparseKronMaybeAdjOrTrans,
+                               HermOrSym{<:Any,<:_SparseKronMaybeAdjOrTrans},
+                               UpperOrLowerTriangular{<:Any,<:_SparseKronMaybeAdjOrTrans}}
+_kronmatrix(A) = convert(SparseMatrixCSC, A)
+_kronmatrix(x::Union{SparseColumnView,SparseVectorView}) = convert(SparseMatrixCSC, SparseVector(x))
+# A number scales a view of a sparse matrix, or a wrapper of one, into a dense matrix unless
+# the view selects whole columns. Scaling the sparse matrix it converts to, under the same
+# wrapper, gives what the number gives with a sparse matrix that is not a view.
+const _SparseKronView = Union{SparseMatrixCSCSubArray, AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}}
+_kronscaled(b) = b
+_kronscaled(b::_SparseKronView) = convert(SparseMatrixCSC, b)
+_kronscaled(b::Symmetric{<:Any,<:_SparseKronView}) = Symmetric(_kronscaled(parent(b)), sym_uplo(b.uplo))
+_kronscaled(b::Hermitian{<:Any,<:_SparseKronView}) = Hermitian(_kronscaled(parent(b)), sym_uplo(b.uplo))
+for T in (:UpperTriangular, :LowerTriangular, :UnitUpperTriangular, :UnitLowerTriangular)
+    @eval _kronscaled(b::$T{<:Any,<:_SparseKronView}) = $T(_kronscaled(parent(b)))
+end
 const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, BandedMatrix,
                               HermOrSym{<:Any,<:Matrix}, UpperOrLowerTriangular{<:Any,<:Matrix}}
 
@@ -1183,18 +1200,18 @@ end
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_DenseKronGroup) = kron!(C, A, sparse(B))
 kron!(C::SparseMatrixCSC, A::_DenseKronGroup, B::_SparseKronGroup) = kron!(C, sparse(A), B)
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::_SparseKronGroup) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+    kron!(C, _kronmatrix(A), _kronmatrix(B))
 kron!(C::SparseMatrixCSC, A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) =
     broadcast!(*, C, A, B)
 # disambiguation
 kron!(C::SparseMatrixCSC, A::_SparseKronGroup, B::Diagonal) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+    kron!(C, _kronmatrix(A), _kronmatrix(B))
 kron!(C::SparseMatrixCSC, A::Diagonal, B::_SparseKronGroup) =
-    kron!(C, convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+    kron!(C, _kronmatrix(A), _kronmatrix(B))
 kron!(C::SparseMatrixCSC, A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) =
     broadcast!(*, C, A, B)
-kron!(c::SparseMatrixCSC, a::Number, b::_SparseKronGroup) = mul!(c, a, b)
-kron!(c::SparseMatrixCSC, a::_SparseKronGroup, b::Number) = mul!(c, a, b)
+kron!(c::SparseMatrixCSC, a::Number, b::_SparseKronGroup) = mul!(c, a, _kronscaled(b))
+kron!(c::SparseMatrixCSC, a::_SparseKronGroup, b::Number) = mul!(c, _kronscaled(a), b)
 
 function kron(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A)
@@ -1216,14 +1233,15 @@ function kron(x::AbstractCompressedVector, y::AbstractCompressedVector)
 end
 # extend to annotated sparse arrays, but leave out the (dense ⊗ dense)-case
 kron(A::_SparseKronGroup, B::_SparseKronGroup) =
-    kron(convert(SparseMatrixCSC, A), convert(SparseMatrixCSC, B))
+    kron(_kronmatrix(A), _kronmatrix(B))
 kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
 kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
+kron(x::SparseVectorOrView, y::SparseVectorOrView) = kron(SparseVector(x), SparseVector(y))
 kron(A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
-kron(a::Number, b::_SparseKronGroup) = a * b
-kron(a::_SparseKronGroup, b::Number) = a * b
+kron(a::Number, b::_SparseKronGroup) = a * _kronscaled(b)
+kron(a::_SparseKronGroup, b::Number) = _kronscaled(a) * b
 
 ## det, inv, cond
 
