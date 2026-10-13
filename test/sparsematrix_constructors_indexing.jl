@@ -766,6 +766,19 @@ end
         end
     end
 
+    @testset "index arrays that are not vectors or matrices" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Array(A)
+        I3 = reshape([1, 3, 4, 6, 1, 3, 4, 6], 2, 2, 2)
+        @test A[I3] == D[I3] && A[I3] isa Array{Float64,3}
+        C3 = reshape([CartesianIndex(1, 1), CartesianIndex(2, 3)], 1, 1, 2)
+        @test A[C3] == D[C3]
+        # a stored entry is copied; only an unstored one needs a `zero`
+        As = SparseMatrixCSC(1, 1, [1, 2], [1], ["a"])
+        @test As[fill(1)] == fill("a")
+        # the error is about the vector, not a matrix made of it
+        @test_throws "SparseVector" sparse([1, 2, 3])[reshape([1, 4], 1, 1, 2)]
+    end
+
     @testset "a value that does not convert" begin
         S0 = sparse([1 0 0; 0 2 0; 0 0 3])
         S = copy(S0)

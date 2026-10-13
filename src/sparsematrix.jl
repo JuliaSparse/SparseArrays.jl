@@ -3184,6 +3184,7 @@ end
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
     require_one_based_indexing(A, I)
+    ndims(I) == 2 || return _getindex_dense(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
     colptrA = getcolptr(A)
@@ -3227,6 +3228,31 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     end
     @if_move_fixed A SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
 end
+
+# There is no sparse array of the shape of an index array that is not a vector or a
+# matrix, so the result is dense, as it is for a dense `A`.
+function _getindex_dense(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray) where {Tv}
+    (L,) = to_indices(A, (I,))
+    checkbounds(A, L)
+    B = Array{Tv}(undef, size(L))
+    rowval = rowvals(A)
+    nzval = nonzeros(A)
+    # a stored entry is copied, so that indexing only stored entries needs no `zero`
+    for (k, i) in zip(eachindex(B), L)
+        row, col = _rowcol(A, i)
+        r = nzrange(A, col)
+        p = searchsortedfirst(rowval, row, Int(first(r)), Int(last(r)), Base.Order.Forward)
+        B[k] = p <= last(r) && rowval[p] == row ? nzval[p] : zero(Tv)
+    end
+    return B
+end
+# The row and column of one element of an index array, whose bounds are checked. Anything
+# that is not an index, such as a `Bool` or a float, throws in `to_index`.
+_rowcol(A, i::Integer) = Tuple(CartesianIndices(A)[i])
+_rowcol(A, i::Bool) = _rowcol(A, Base.to_index(A, i))
+_rowcol(A, i::CartesianIndex{2}) = Tuple(i)
+_rowcol(A, i::CartesianIndex) = _rowcol(A, LinearIndices(A)[i])
+_rowcol(A, i) = _rowcol(A, Base.to_index(A, i))
 
 # logical getindex
 getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{Bool}) = error("Cannot index with AbstractRange{Bool}")
