@@ -3496,6 +3496,9 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     L = to_indices(A, (Ix, Jx))
     checkbounds(A, L...)
     (I, J) = Base.ensure_indexable(L)
+    # the kernel reads the indices while it rewrites the storage
+    I = _unalias_setindex(A, I)
+    J = _unalias_setindex(A, J)
     nJ = length(J)
     Base.setindex_shape_check(V, length(I), nJ)
     B = _to_same_csc(A, V, I, J)

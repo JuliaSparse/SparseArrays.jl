@@ -766,6 +766,17 @@ end
         end
     end
 
+    @testset "an index vector that is the matrix's own storage" begin
+        S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
+        E[[1, 2, 3, 4], 2] = [10.0, 20, 30, 40]
+        S[rowvals(S), 2] = [10.0, 20, 30, 40]
+        @test S == E
+        S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
+        E[2, [1, 2, 3, 4]] = [10.0, 20, 30, 40]
+        S[2, rowvals(S)] = [10.0, 20, 30, 40]
+        @test S == E
+    end
+
     @testset "fill! through a view with decreasing ranges" begin
         S = sparse([1.0 2 0; 0 3 4; 5 0 6]); E = Matrix(S)
         fill!(view(S, 3:-1:2, 3:-1:1), 7.0); fill!(view(E, 3:-1:2, 3:-1:1), 7.0)
