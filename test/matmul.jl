@@ -231,6 +231,14 @@ end
     for A in (UpperTriangular(D)', transpose(UnitLowerTriangular(D)), Symmetric(D)', transpose(Hermitian(D + D')))
         @test (A * x)::Vector{ComplexF64} ≈ Matrix(A) * Vector(x)
     end
+    # and so is a product with a dense triangle, which LinearAlgebra may wrap in a triangle
+    for A in (UpperTriangular(S)', transpose(UnitLowerTriangular(S)), transpose(H), Symmetric(S)',
+              view(S, [2, 1, 3], :)), T in (UpperTriangular(D), UnitLowerTriangular(D))
+        P = A * T
+        @test (P isa LinearAlgebra.AbstractTriangular ? parent(P) : P) isa Matrix{ComplexF64}
+        @test P ≈ Matrix(A) * Matrix(T)
+        @test mul!(ones(ComplexF64, 3, 3), A, T, 2.0, 3.0) ≈ 2 * Matrix(A) * Matrix(T) .+ 3
+    end
 end
 end
 

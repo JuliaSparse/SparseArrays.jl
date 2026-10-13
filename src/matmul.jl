@@ -93,7 +93,9 @@ function _spmatspmat_dense!(C, A, B, α, β)
         end
     end
 end
-LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number) =
+# only the operands that `spdensemul!` reads in place; LinearAlgebra multiplies the others
+LinearAlgebra._mul!(C::StridedMatrix, A::Union{SparseMatrixCSCOrColumnSubset, MatrixWrappers{<:Any,<:SparseMatrixCSCOrColumnSubset}},
+                    B::AbstractTriangular, alpha::Number, beta::Number) =
     spdensemul!(C, LinearAlgebra.wrapper_char(A), LinearAlgebra.wrapper_char(B), LinearAlgebra._unwrap(A), B, alpha, beta)
 mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrSubArray, B::AbstractVector, alpha::Number, beta::Number) =
     spdensemul!(C, tA, 'N', _compressed(A), B, alpha, beta)
