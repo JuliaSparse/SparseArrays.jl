@@ -495,6 +495,11 @@ end
         @test check(broadcast(fn, A, B), broadcast(fn, fA, fB))
         @test check(broadcast(fn, B, A), broadcast(fn, fB, fA))
     end
+    # a result type without a `zero` is not a zero, and fills the result
+    C, fC = fixturepair(Float64, 4, 3)
+    @test map(string, C) == map(string, fC)
+    @test string.(C) == string.(fC) && string.(C) isa Matrix{String}
+    @test (C .=> 1) == (fC .=> 1)
     for fn in (intorfloat_zeropres,)
         @test mismatch(broadcast(fn, A, B, A), broadcast(fn, fA, fB, fA); Tv=Real) === nothing
     end
