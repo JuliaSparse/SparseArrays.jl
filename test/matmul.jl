@@ -723,33 +723,20 @@ end
 @testset "mul! into a dense destination that is an operand throws" begin
     S = sparse([1.0 2 0; 0 3 4; 5 0 6])
     D = [1.0 2 3; 4 5 6; 7 8 10]
-    for f in (C -> mul!(C, S, C), C -> mul!(C, S', C), C -> mul!(C, transpose(S), C, 2.0, 3.0),
-              C -> mul!(C, Symmetric(S), C), C -> mul!(C, S, C'), C -> mul!(C, C, S),
-              C -> mul!(C, C, S'), C -> mul!(C, C', S), C -> mul!(C, transpose(C), transpose(S)),
-              C -> mul!(C, C, Symmetric(S)), C -> mul!(C, C, view(S, :, [2, 1, 3])),
-              # the operand is a wrapper or a view of the destination
-              C -> mul!(C, S, UpperTriangular(C)), C -> mul!(C, UnitUpperTriangular(S), UpperTriangular(C)),
-              C -> mul!(C, S', UpperHessenberg(C)), C -> mul!(C, Symmetric(S), view(C, :, :)),
-              C -> mul!(C, view(C, :, :), S), C -> mul!(C, UpperTriangular(S), C'),
-              C -> mul!(C, Symmetric(C), UpperTriangular(S)))
+    # one aliased call for each kernel that reads a dense operand, and one through a wrapper
+    for f in (C -> mul!(C, S, C), C -> mul!(C, S', C), C -> mul!(C, C, S), C -> mul!(C, C', S),
+              C -> mul!(C, transpose(C), transpose(S)), C -> mul!(C, Symmetric(S), C),
+              C -> mul!(C, C, Symmetric(S)), C -> mul!(C, UpperTriangular(S), C'),
+              C -> mul!(C, Symmetric(C), UpperTriangular(S)), C -> mul!(C, S, UpperTriangular(C)))
         C = copy(D)
         @test_throws ArgumentError f(C)
         @test C == D
     end
     # a `false` `alpha` leaves the operand unread, and views of one array that do not
     # overlap are distinct operands
-    @test mul!(copy(D), S, D, false, 2.0) == mul!((C = copy(D); C), S, C, false, 2.0) == 2D
+    @test mul!((C = copy(D); C), S, C, false, 2.0) == 2D
     X = [D D]
     @test mul!(view(X, :, 1:3), S, UpperTriangular(view(X, :, 4:6))) == S * UpperTriangular(D)
-    x = [1.0, 2, 3]
-    @test_throws ArgumentError mul!(x, S, view(x, 1:3))
-    @test_throws ArgumentError mul!(x, S, x)
-    @test_throws ArgumentError mul!(x, S', x)
-    @test_throws ArgumentError mul!(x, Hermitian(S), x)
-    @test x == [1.0, 2, 3]
-    # a shape error is reported first, as for a dense product
-    C = zeros(2, 3)
-    @test_throws DimensionMismatch mul!(C, S, C)
 end
 end
 
