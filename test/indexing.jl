@@ -149,6 +149,12 @@ include("testhelpers.jl")
         @test A[to_indices(A, (vec(m),))...] == Array(A)[m]
         end
         @test A[1:2, :][false:true, c] == Array(A)[1:2, :][false:true, c]
+        @static if COMPREHENSIVE
+        M = sparse([1.0 2 0; 0 3 4])
+        @test mismatch(M[false:true, 2], Array(M)[false:true, 2]) === nothing
+        @test M[false:true, 2] == [3.0]
+        @test isempty(sparse(fill(5.0, 1, 1))[false:false, 1])
+        end
         @test which(getindex, typeof.((x, AllBut(2)))).module === SparseArrays
         @test x[AllBut(2)] == Array(x)[AllBut(2)]
         @test x[to_indices(x, (c,))...] == Array(x)[c]

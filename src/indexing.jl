@@ -542,6 +542,7 @@ end
 
 # a range of `Bool` is a mask, not a range of rows
 getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector) = A[collect(I), J]
+getindex(A::AbstractSparseMatrixCSC, I::AbstractUnitRange{Bool}, j::Integer) = A[collect(I), j]
 
 ## setindex!
 
