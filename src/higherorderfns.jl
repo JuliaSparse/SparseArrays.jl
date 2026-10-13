@@ -197,7 +197,7 @@ _aliasesbuffers(Cbuffers, b) = isempty(b) ? any(c -> c === b, Cbuffers) : any(c 
     # Avoid calculating f(zero) unless necessary as it may fail.
     let r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            _iszero(fofzeros) ? _map_zeropres!(f, C, A, Bs...) :
+            _iszeroresult(fofzeros) ? _map_zeropres!(f, C, A, Bs...) :
                 _guardfill(_map_notzeropres!, f, fofzeros, C, A, Bs...)
         else
             _map_zeropres!(f, C, A, Bs...)
@@ -212,13 +212,25 @@ function _guardfill(kernel!::K, f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{
     return kernel!(f, fillvalue, C, As...)
 end
 
+# Whether `f` at the zeros is a zero. A value of a type that has none, such as a `String`,
+# a `Tuple` or `nothing`, is not one, and fills the result like any other nonzero.
+_iszeroresult(x::Union{Number,AbstractArray,Missing}) = _iszero(x)
+function _iszeroresult(x)
+    try
+        return _iszero(x)
+    catch e
+        e isa MethodError || rethrow()
+        return false
+    end
+end
+
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
     # Avoid calculating f(zero) unless necessary as it may fail.
     entrytypeC = Base.promote_typejoin_union(Base.promote_op(f, map(eltype, (A, Bs...))...))
     indextypeC = _promote_indtype(A, Bs...)
     r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            fpreszeros = _iszero(fofzeros)
+            fpreszeros = _iszeroresult(fofzeros)
             maxnnzC = Int(fpreszeros ? min(widelength(A), _sumnnzs(A, Bs...)) : widelength(A))
             C = _allocres(size(A), indextypeC, entrytypeC, maxnnzC)
             fpreszeros ? _map_zeropres!(f, C, A, Bs...) :
@@ -239,7 +251,7 @@ copy(bc::SpBroadcasted1) = _asksthezeros(bc) && _fillszeros(bc.f, bc.args[1]) ?
     isempty(C) && return _finishempty!(C)
     f = bc.f
     fofnoargs = f()
-    if _iszero(fofnoargs) # f() is zero, so empty C
+    if _iszeroresult(fofnoargs) # f() is zero, so empty C
         trimstorage!(C, 0)
         _finishempty!(C)
     else # f() is nonzero, so densify C and fill with independent calls to f()
@@ -263,7 +275,7 @@ function _diffshape_broadcast(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMa
     # Avoid calculating f(zero) unless necessary as it may fail.
     r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
-            _iszero(fofzeros) ?
+            _iszeroresult(fofzeros) ?
                 _broadcast_zeropres!(f, _allocres(shapeC, indextypeC, entrytypeC, maxnnzC), A, Bs...) :
                 _broadcast_notzeropres!(f, fofzeros, _allocres(shapeC, indextypeC, entrytypeC, _densennz(shapeC)), A, Bs...)
         else
@@ -1203,7 +1215,7 @@ end
     # Avoid calculating f(zero) unless necessary as it may fail.
     all(_haszeros, As) || return _broadcast_zeropres!(f, dest, As...)
     fofzeros = f(_zeros_eltypes(As...)...)
-    if _iszero(fofzeros)
+    if _iszeroresult(fofzeros)
         return _broadcast_zeropres!(f, dest, As...)
     else
         return _guardfill(_broadcast_notzeropres!, f, fofzeros, dest, As...)
@@ -1344,11 +1356,13 @@ _fillszeros(f, args...) = false
 # A function that throws at the zeros, or an element type without a zero, is left to the
 # sparse kernels, which evaluate the function there only if some entry is not stored.
 function _preserveszeros(f::F, args::Vararg{Any,N}) where {F,N}
+    local fofzeros
     try
-        return _iszero(f(_zeros_eltypes(args...)...))
+        fofzeros = f(_zeros_eltypes(args...)...)
     catch
         return true
     end
+    return _iszeroresult(fofzeros)
 end
 
 # The sparse kernels evaluate the function once at the zeros and then at the stored entries
