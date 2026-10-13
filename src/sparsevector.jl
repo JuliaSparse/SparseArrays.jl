@@ -1954,9 +1954,17 @@ _densifiable(A::SparseVecOrMat) = !_is_fixed(A) || nnz(A) == widelength(A)
 _checkdensifiable(A::SparseVecOrMat) = _densifiable(A) ||
     throw(ArgumentError("cannot store a nonzero f(0) into a $(nameof(typeof(A))), its sparsity pattern is read-only"))
 
+# What `_densestructure!` checks before it writes anything.
+_checkdensestructure(A::AbstractCompressedVector) = _checkdensifiable(A)
+function _checkdensestructure(A::AbstractSparseMatrixCSC)
+    _checkdensifiable(A)
+    _is_fixed(A) || convert(indtype(A), size(A, 1) * size(A, 2) + 1)   # the last column pointer
+    return true
+end
+
 # Store every position of `A`; the values beyond the former `nnz(A)` are left for the caller to fill.
 function _densestructure!(A::AbstractCompressedVector)
-    _checkdensifiable(A)
+    _checkdensestructure(A)
     _is_fixed(A) && return A   # passed the check above, so already full
     n = length(A)
     resize!(nonzeroinds(A), n)
@@ -1965,7 +1973,7 @@ function _densestructure!(A::AbstractCompressedVector)
     return A
 end
 function _densestructure!(A::AbstractSparseMatrixCSC)
-    _checkdensifiable(A)
+    _checkdensestructure(A)
     _is_fixed(A) && return A
     m, n = size(A)
     resize!(getrowval(A), m * n)

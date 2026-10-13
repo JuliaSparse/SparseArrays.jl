@@ -15,7 +15,7 @@ using ..SparseArrays: SparseVector, SparseMatrixCSC, FixedSparseCSC, SparseMatri
                       SparseMatrixCSCColumnSubset, SparseColumnView, SparseVectorView, SparseVectorPartialView,
                       indtype, fixed, move_fixed, nnz, nzrange, spzeros, ftranspose,
                       nonzeroinds, nonzeros, rowvals, getcolptr, getrowval, getnzval, widelength,
-                      _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, _copyto_fixed!,
+                      _iszero, _isnotzero, _is_fixed, _checkbuffers, _densestructure!, _checkdensestructure, _copyto_fixed!,
                       ReadOnly, _storagebuffers, _unaliasedcopy
 using Base.Broadcast: BroadcastStyle, Broadcasted, flatten
 using LinearAlgebra
@@ -198,11 +198,18 @@ _aliasesbuffers(Cbuffers, b) = isempty(b) ? any(c -> c === b, Cbuffers) : any(c 
     let r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
             _iszero(fofzeros) ? _map_zeropres!(f, C, A, Bs...) :
-                _map_notzeropres!(f, fofzeros, C, A, Bs...)
+                _guardfill(_map_notzeropres!, f, fofzeros, C, A, Bs...)
         else
             _map_zeropres!(f, C, A, Bs...)
         end
     return r
+end
+# A kernel that fills C stores every entry of it first. What can be checked is checked before
+# that, the conversion of the fill value included, and leaves C as it was.
+function _guardfill(kernel!::K, f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {K,Tf,N}
+    _checkdensestructure(C)
+    isempty(C) || convert(eltype(C), fillvalue)
+    return kernel!(f, fillvalue, C, As...)
 end
 
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
@@ -236,8 +243,10 @@ copy(bc::SpBroadcasted1) = _asksthezeros(bc) && _fillszeros(bc.f, bc.args[1]) ?
         trimstorage!(C, 0)
         _finishempty!(C)
     else # f() is nonzero, so densify C and fill with independent calls to f()
+        _checkdensestructure(C)
+        firstvalue = convert(eltype(C), fofnoargs)
         _densestructure!(C)
-        storedvals(C)[1] = fofnoargs
+        storedvals(C)[1] = firstvalue
         broadcast!(f, view(storedvals(C), 2:length(storedvals(C))))
     end
     return _checkbuffers(C)
@@ -1197,7 +1206,7 @@ end
     if _iszero(fofzeros)
         return _broadcast_zeropres!(f, dest, As...)
     else
-        return _broadcast_notzeropres!(f, fofzeros, dest, As...)
+        return _guardfill(_broadcast_notzeropres!, f, fofzeros, dest, As...)
     end
 end
 
