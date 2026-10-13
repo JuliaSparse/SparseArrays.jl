@@ -195,6 +195,24 @@ include("testhelpers.jl")
         @test isa(r2, SparseMatrixCSC{eltype(S1290),eltype(rowvals(S1290))})
     # end
 
+    @static if COMPREHENSIVE
+    @testset "index arrays that are not vectors or matrices" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Array(A)
+        I3 = reshape([1, 3, 4, 6, 1, 3, 4, 6], 2, 2, 2)
+        @test A[I3] == D[I3] && A[I3] isa Array{Float64,3}
+        C3 = reshape([CartesianIndex(1, 1), CartesianIndex(2, 3)], 1, 1, 2)
+        @test A[C3] == D[C3]
+        # a stored entry is copied; only an unstored one needs a `zero`
+        As = SparseMatrixCSC(1, 1, [1, 2], [1], ["a"])
+        @test As[fill(1)] == fill("a")
+        # the zero of an entry that is not stored may be of another type, as in `Array(A)`
+        Av = sparse([1], [1], [Variable(1)], 1, 2)
+        @test Av[reshape([1, 2], 1, 1, 2)]::Array{Expression,3} == Array(Av)[reshape([1, 2], 1, 1, 2)]
+        # the error is about the vector, not a matrix made of it
+        @test_throws "SparseVector" sparse([1, 2, 3])[reshape([1, 4], 1, 1, 2)]
+    end
+    end
+
     @testset "empty sparse matrix indexing" begin
         for k = (@static COMPREHENSIVE ? (0:3) : (3,))
             @test issparse(spzeros(k,0)[:])

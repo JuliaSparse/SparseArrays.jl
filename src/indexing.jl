@@ -503,6 +503,7 @@ end
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
     require_one_based_indexing(A, I)
+    ndims(I) == 2 || return _getindex_dense(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
     rowvalA = getrowval(A)
@@ -545,6 +546,43 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     end
     SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
 end
+
+# There is no sparse array of the shape of an index array that is not a vector or a
+# matrix, so the result is dense, as it is for a dense `A`. Its elements are those of `A`
+# unless the zero of an entry that is not stored is of another type, as in `Array(A)`.
+function _getindex_dense(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray) where {Tv}
+    (L,) = to_indices(A, (I,))
+    checkbounds(A, L)
+    B = _getindex_dense!(Array{Tv}(undef, size(L)), A, L)
+    B === nothing || return B
+    return _getindex_dense!(Array{promote_type(Tv, typeof(_densezero(A)))}(undef, size(L)), A, L)
+end
+# `nothing` if the zero of an entry that is not stored does not fit `B`. A stored entry is
+# copied, so that indexing only stored entries needs no `zero`.
+function _getindex_dense!(B::Array{T}, A::AbstractSparseMatrixCSC, L) where {T}
+    rowval = getrowval(A)
+    nzval = getnzval(A)
+    for (k, i) in zip(eachindex(B), L)
+        row, col = _rowcol(A, i)
+        r = nzrange(A, col)
+        p = searchsortedfirst(rowval, row, Int(first(r)), Int(last(r)), Base.Order.Forward)
+        if p <= last(r) && rowval[p] == row
+            B[k] = nzval[p]
+        else
+            z = _densezero(A)
+            z isa T || return nothing
+            B[k] = z
+        end
+    end
+    return B
+end
+# The row and column of one element of an index array, whose bounds are checked. Anything
+# that is not an index, such as a `Bool` or a float, throws in `to_index`.
+_rowcol(A, i::Integer) = Tuple(CartesianIndices(A)[i])
+_rowcol(A, i::Bool) = _rowcol(A, Base.to_index(A, i))
+_rowcol(A, i::CartesianIndex{2}) = Tuple(i)
+_rowcol(A, i::CartesianIndex) = _rowcol(A, LinearIndices(A)[i])
+_rowcol(A, i) = _rowcol(A, Base.to_index(A, i))
 
 # a range of `Bool` is a mask, not a range of rows
 getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector) = A[collect(I), J]
