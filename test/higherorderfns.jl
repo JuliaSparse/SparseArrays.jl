@@ -865,6 +865,9 @@ end
     B = sparse(BigFloat[1 0; 0 2])
     @test @inferred(broadcast(*, B, B))::SparseMatrixCSC == Array(B) .* Array(B)
     @test cos.(B)::Matrix{BigFloat} == cos.(Array(B))
+    # an index type that cannot address every entry of the dense result
+    S8 = sparse(Int8[1], Int8[1], [1.0], 12, 12)
+    @test cos.(S8)::Matrix{Float64} == cos.(Array(S8))
     # a function that throws at zero is left to the sparse kernels: only a matrix with a
     # structural zero evaluates it there
     shifted(x) = sqrt(x - 1)
