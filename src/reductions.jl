@@ -92,6 +92,8 @@ function _mapreduce_ordered(f::F, op::G, A::SparseMatrixCSCOrColumnSubset{T}) wh
     rowval, nzval = getrowval(A), getnzval(A)
     m = size(A, 1)
     z, idem = _unstoredvalue(f, op, T, nnz(A), 1, widelength(A))
+    v, dropout = _foldstored(f, op, z, nzvalview(A))
+    dropout && return v
     v = Base._InitialValue()
     unstored = Int64(0)   # unstored positions since the last stored one
     @inbounds for col in axes(A, 2)
@@ -109,6 +111,8 @@ function _mapreduce_ordered(f::F, op::G, A::SparseVectorOrView{T}) where {F,G,T}
     rf = Base.BottomRF(op)
     nzind, nzval = nonzeroinds(A), nonzeros(A)
     z, idem = _unstoredvalue(f, op, T, nnz(A), 1, length(A))
+    v, dropout = _foldstored(f, op, z, nzval)
+    dropout && return v
     v = Base._InitialValue()
     prev = 0
     @inbounds for k in eachindex(nzind, nzval)
@@ -119,6 +123,37 @@ function _mapreduce_ordered(f::F, op::G, A::SparseVectorOrView{T}) where {F,G,T}
     n = length(A) - prev
     return n == 0 ? v : rf(v, _foldunstored(op, z, idem, n))
 end
+# The mapped stored values folded in their order, and whether the unstored entries drop out
+# of the reduction, which is then that fold: they do when `z` leaves every mapped stored
+# value as it is, in value and in type, from the left and from the right. `op` is seen
+# through, so that a fold the compiler can vectorize, an anonymous `(a, b) -> a + b`, is
+# not held to one call of `op` after another. The fold is pairwise, as Base's is.
+function _foldstored(f::F, op::G, z, nzval::AbstractVector) where {F,G}
+    isempty(nzval) && return z, false
+    # an `op` that grows its value, `vcat`, is found out on the first entry
+    _isidentity(op, z, f(@inbounds nzval[1])) || return z, false
+    return _foldstored(f, op, z, nzval, firstindex(nzval), lastindex(nzval))
+end
+function _foldstored(f::F, op::G, z, nzval::AbstractVector, lo::Int, hi::Int) where {F,G}
+    if hi - lo < 1024
+        x = f(@inbounds nzval[lo])
+        dropout = _isidentity(op, z, x)
+        v = Base.reduce_first(op, x)
+        @inbounds @simd for k in lo+1:hi
+            x = f(nzval[k])
+            dropout &= _isidentity(op, z, x)
+            v = op(v, x)
+        end
+        return v, dropout
+    end
+    mid = (lo + hi) >>> 1
+    v, dropout = _foldstored(f, op, z, nzval, lo, mid)
+    dropout || return v, false
+    w, dropout = _foldstored(f, op, z, nzval, mid + 1, hi)
+    return op(v, w), dropout
+end
+@inline _isidentity(op::G, z, x) where {G} = _sameas(op(z, x), x) & _sameas(op(x, z), x)
+@inline _sameas(y, x) = typeof(y) === typeof(x) && (isbits(x) ? y === x : isequal(y, x))
 # `f(0)` as `op` first sees it, and whether folding it with itself leaves it as it is, in
 # value and in type, which makes a run of any length that one value. That is asked only when
 # two unstored entries are sure to be adjacent, as `nslices` slices of length `len` that
