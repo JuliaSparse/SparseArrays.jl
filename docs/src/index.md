@@ -699,7 +699,7 @@ ERROR: ArgumentError: cannot store a nonzero f(0) into a FixedSparseCSC, its spa
 
 **A function that exists to change the pattern throws.** [`dropzeros!`](@ref),
 [`droptol!`](@ref), [`SparseArrays.fkeep!`](@ref), `tril!`, `triu!`,
-[`SparseArrays.dropstored!`](@ref), `sort!`, `permute!`, `invpermute!`, `reverse!`,
+`SparseArrays.dropstored!`, `sort!`, `permute!`, `invpermute!`, `reverse!`,
 `circshift!`, `SparseArrays.swaprows!` and `SparseArrays.swapcols!` refuse a fixed array
 as the argument they change. None of them does something else that happens to fit the
 pattern. Their out-of-place forms (`dropzeros`, `tril`, `sort`, ...) work, because of the
@@ -1115,7 +1115,6 @@ Base.similar(::SparseArrays.AbstractSparseMatrixCSC, ::Type)
 SparseArrays.issparse
 SparseArrays.nnz
 SparseArrays.findnz
-SparseArrays.iternz
 SparseArrays.nonzeros
 SparseArrays.rowvals
 SparseArrays.nzrange
@@ -1123,7 +1122,6 @@ SparseArrays.getcolptr
 SparseArrays.getrowval
 SparseArrays.getnzval
 SparseArrays.indtype
-SparseArrays.allowscalar
 ```
 
 ### Removing stored entries
@@ -1133,7 +1131,6 @@ SparseArrays.dropzeros
 SparseArrays.dropzeros!
 SparseArrays.droptol!
 SparseArrays.fkeep!
-SparseArrays.dropstored!
 ```
 
 ### Permuting, transposing and sorting
@@ -1163,7 +1160,6 @@ SparseArrays.sparse_hvcat
 SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
-SparseArrays.move_fixed
 ```
 
 ## [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
@@ -1188,7 +1184,6 @@ SparseArrays.CHOLMOD.lowrankupdate(::SparseArrays.CHOLMOD.Factor, ::AbstractArra
 SparseArrays.CHOLMOD.lowrankupdate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
 SparseArrays.CHOLMOD.lowrankdowndate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
 SparseArrays.CHOLMOD.lowrankdowndate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankupdowndate!
 SparseArrays.CHOLMOD.rcond
 SparseArrays.CHOLMOD.CholmodWS
 ```

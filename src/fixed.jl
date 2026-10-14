@@ -123,7 +123,7 @@ Experimental. Like `sparse` but returns a sparse array whose sparsity pattern is
 stored entries can change value, but none can be added or removed.
 
 `fixed(A)` of a writable sparse array `A` copies it, so the result shares no memory with
-`A`. Use [`move_fixed`](@ref SparseArrays.move_fixed) to reuse the buffers of `A` instead.
+`A`. Use `SparseArrays.move_fixed` to reuse the buffers of `A` instead.
 `fixed(F)` of a fixed array is `copy(F)`: it copies the values and shares the pattern.
 
 A write into the result keeps every stored entry and throws an `ArgumentError`, before
