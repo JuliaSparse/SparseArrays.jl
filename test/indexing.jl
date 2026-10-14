@@ -424,6 +424,7 @@ end
     @test count(!iszero, A) == nA
     @test A == B
 end
+end
 
 @testset "more stored entries than Ti counts" begin
     mk() = SparseMatrixCSC{Float64,Int8}(sparse(1.0I, 12, 12))
@@ -449,7 +450,6 @@ end
     @test_throws InexactError A[[1, 1], [1]] = reshape([1.5, 2.0], 2, 1)
     @test nnz(A) == 0
     end
-end
 end
 
 @testset "linear and logical setindex!" begin
