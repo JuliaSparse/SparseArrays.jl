@@ -391,6 +391,10 @@ end
         @test all(pred, Bs, dims = 1) == all(pred, Bd, dims = 1)
         @test all(pred, Cs, dims = 1) == all(pred, Cd, dims = 1)
     end
+    # `|` and `&` along the rows fold into `init`
+    D = [1.0 2.0; 0.0 3.0]
+    @test mapreduce(>(5), |, sparse(D); dims=1, init=true) == mapreduce(>(5), |, D; dims=1, init=true)
+    @test mapreduce(!iszero, &, sparse(D); dims=1, init=false) == mapreduce(!iszero, &, D; dims=1, init=false)
 end
 end
 
