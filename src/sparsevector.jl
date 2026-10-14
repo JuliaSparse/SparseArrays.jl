@@ -13,25 +13,28 @@ using LinearAlgebra: wrapperop
 """
     SparseVector{Tv,Ti<:Integer} <: AbstractSparseVector{Tv,Ti}
 
-Vector type for storing sparse vectors. Can be created by passing the length of the vector,
-a *sorted* vector of non-zero indices, and a vector of non-zero values.
+A sparse vector, with stored values of type `Tv` at indices of type `Ti`.
+`SparseVector(n, nzind, nzval)` wraps, without copying, a vector `nzind` of indices, which
+must be sorted and unique, and the vector `nzval` of the values at those indices, as a
+vector of length `n`. [`sparsevec`](@ref) builds one from unsorted indices, and
+[`sparse`](@ref) from a dense vector.
 
-For instance, the vector `[5, 6, 0, 7]` can be represented as
+The length is stored as a `Ti`, so `length(x)` and `size(x)` return values of type `Ti`
+rather than `Int`. A vector can then be longer than `typemax(Int)` when `Ti` is `BigInt`,
+but arithmetic on the length of a vector with a small index type can overflow; convert
+it with `Int(length(x))` first.
 
-```julia
-SparseVector(4, [1, 2, 4], [5, 6, 7])
+# Examples
+```jldoctest
+julia> x = SparseVector(4, [1, 2, 4], [5, 6, 7])
+4-element SparseVector{Int64, Int64} with 3 stored entries:
+  [1]  =  5
+  [2]  =  6
+  [4]  =  7
+
+julia> x == sparse([5, 6, 0, 7])
+true
 ```
-
-This indicates that the element at index 1 is 5, at index 2 is 6, at index 3 is `zero(Int)`,
-and at index 4 is 7.
-
-It may be more convenient to create sparse vectors directly from dense vectors using `sparse` as
-
-```julia
-sparse([5, 6, 0, 7])
-```
-
-yields the same sparse vector.
 """
 struct SparseVector{Tv,Ti<:Integer} <: AbstractCompressedVector{Tv,Ti}
     n::Ti              # Length of the sparse vector
@@ -78,8 +81,19 @@ nnz(x::AdjOrTransSparseVectorOrView) = nnz(parent(x))
 """
     nzrange(x::SparseVectorOrView, col)
 
-Give the range of indices to the structural nonzero values of a sparse vector.
-The column index `col` is ignored (assumed to be `1`).
+Return the range of positions of the stored entries of the sparse vector `x` in
+[`rowvals(x)`](@ref rowvals) and [`nonzeros(x)`](@ref nonzeros). A vector is treated as a
+single column, and `col` is ignored.
+
+# Examples
+```jldoctest
+julia> x = sparsevec([2, 5], [1.5, 2.5], 6);
+
+julia> [(rowvals(x)[k], nonzeros(x)[k]) for k in nzrange(x, 1)]
+2-element Vector{Tuple{Int64, Float64}}:
+ (2, 1.5)
+ (5, 2.5)
+```
 """
 function nzrange(x::SparseVectorOrView, j::Integer)
     j == 1 ? (1:nnz(x)) : throw(BoundsError(x, (":", j)))
@@ -1904,17 +1918,17 @@ end
 """
     droptol!(x::AbstractCompressedVector, tol)
 
-Removes stored values from `x` whose absolute value is less than or equal to `tol`.
+Remove from `x`, in place, the stored values whose absolute value is less than or equal
+to `tol`, and return `x`.
 """
 droptol!(x::AbstractCompressedVector, tol) = (_checkpatternwritable(x, :droptol!); fkeep!((i, x) -> abs(x) > tol, x))
 
 """
     dropzeros!(x::AbstractCompressedVector)
 
-Removes stored numerical zeros from `x`.
+Remove the stored zeros from `x`, in place, and return `x`.
 
-For an out-of-place version, see [`dropzeros`](@ref). For
-algorithmic information, see `fkeep!`.
+See also [`dropzeros`](@ref), which returns a copy, and [`droptol!`](@ref).
 """
 dropzeros!(x::AbstractCompressedVector) = (_checkpatternwritable(x, :dropzeros!); fkeep!((i, x) -> _isnotzero(x), x))
 

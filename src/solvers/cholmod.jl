@@ -1715,7 +1715,22 @@ factorization `F`. `A` must be a [`SparseMatrixCSC`](@ref) or a [`Symmetric`](@r
 [`Hermitian`](@ref) view of a `SparseMatrixCSC`. Note that if `A` doesn't
 have the type tag, it must itself be symmetric or Hermitian.
 
+`A` must have the sparsity pattern of the matrix that `F` was computed from, since only
+the numerical factorization is redone.
+
 See also [`cholesky`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse([4.0 1 0; 1 4 1; 0 1 4]); b = [1.0, 2.0, 3.0];
+
+julia> F = cholesky(A);
+
+julia> cholesky!(F, 2A);
+
+julia> F \\ b ≈ (2A) \\ b
+true
+```
 
 !!! note
     This method uses the CHOLMOD library from SuiteSparse, which only supports
@@ -1890,7 +1905,22 @@ Compute the ``LDL'`` factorization of `A`, reusing the symbolic factorization `F
 view of a `SparseMatrixCSC`. Note that if `A` doesn't
 have the type tag, it must itself be symmetric or Hermitian.
 
+`A` must have the sparsity pattern of the matrix that `F` was computed from, since only
+the numerical factorization is redone.
+
 See also [`ldlt`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse([4.0 1 0; 1 -4 1; 0 1 4]); b = [1.0, 2.0, 3.0];
+
+julia> F = ldlt(A);
+
+julia> ldlt!(F, 2A);
+
+julia> F \\ b ≈ (2A) \\ b
+true
+```
 
 !!! note
     This method uses the CHOLMOD library from [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse),
@@ -1953,13 +1983,20 @@ factor, which stores `L` with its unit diagonal overwritten by the diagonal of
 `D`. Solving with it is therefore not the same as solving with `F.LD`. Unpack it
 as
 
-```julia
-LD = sparse(F.LD)
-D = Diagonal(diag(LD))   # equivalently, Diagonal(diag(F))
-L = tril(LD, -1) + I     # unit lower triangular
+```jldoctest
+julia> A = sparse([4.0 1 0; 1 -4 1; 0 1 4]); F = ldlt(A);
+
+julia> LD = sparse(F.LD);
+
+julia> D = Diagonal(diag(LD));  # equivalently, Diagonal(diag(F))
+
+julia> L = tril(LD, -1) + I;    # unit lower triangular
+
+julia> L * D * L' ≈ A[F.p, F.p]
+true
 ```
 
-after which `L*D*L' == A[F.p, F.p]`. The remaining components cannot be
+so that `L*D*L' == A[F.p, F.p]`. The remaining components cannot be
 materialized directly, but can be reconstructed from `L`, `D` and `F.p`.
 
 Unlike the related Cholesky factorization, the ``LDL'`` factorization does not
@@ -2044,6 +2081,18 @@ Update an `LDLt` or `LLt` Factorization `F` of `A` to a factorization of `A + C*
 Only real factorizations are supported; CHOLMOD cannot update or downdate a complex one.
 
 See also [`lowrankupdate`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse([4.0 1 0; 1 4 1; 0 1 4]); c = [1.0, 0.0, 2.0]; b = [1.0, 2.0, 3.0];
+
+julia> F = cholesky(A);
+
+julia> lowrankupdate!(F, c);
+
+julia> F \\ b ≈ (A + c * c') \\ b
+true
+```
 """
 function lowrankupdate!(F::Factor{Tv, Ti}, V::AbstractArray) where {Tv<:VTypes, Ti}
     @lock F.lock begin
@@ -2082,6 +2131,18 @@ The returned factor is always an `LDLt` factorization.
 Only real factorizations are supported; CHOLMOD cannot update or downdate a complex one.
 
 See also [`lowrankupdate!`](@ref), [`lowrankdowndate`](@ref), [`lowrankdowndate!`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse([4.0 1 0; 1 4 1; 0 1 4]); c = [1.0, 0.0, 2.0]; b = [1.0, 2.0, 3.0];
+
+julia> F = cholesky(A);
+
+julia> G = lowrankupdate(F, c);
+
+julia> G \\ b ≈ (A + c * c') \\ b, lowrankdowndate(G, c) \\ b ≈ A \\ b
+(true, true)
+```
 """
 lowrankupdate(F::Factor{Tv}, V::AbstractArray{Tv2}) where {Tv, Tv2} =
     lowrankupdate!(

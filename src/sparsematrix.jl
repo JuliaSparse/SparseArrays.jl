@@ -411,21 +411,22 @@ rowvals(S::SparseMatrixCSCColumnSubset) = view(getrowval(S), _storedinds(S))
 """
     nzrange(A, col::Integer)
 
-Return the range of indices to the structural nonzero values of column `col`
-of sparse array `A`. In conjunction with [`nonzeros`](@ref) and
-[`rowvals`](@ref), this allows for convenient iterating over a sparse matrix :
+Return the range of positions of the stored entries of column `col` of the sparse matrix
+`A` in [`rowvals(A)`](@ref rowvals) and [`nonzeros(A)`](@ref nonzeros). Looping over the
+columns and over this range visits every stored entry once, in storage order.
 
-    A = sparse(I,J,V)
-    rows = rowvals(A)
-    vals = nonzeros(A)
-    m, n = size(A)
-    for j = 1:n
-       for i in nzrange(A, j)
-          row = rows[i]
-          val = vals[i]
-          # perform sparse wizardry...
-       end
-    end
+# Examples
+```jldoctest
+julia> A = sparse([1, 3, 2], [1, 1, 3], [10, 30, 20]);
+
+julia> rows, vals = rowvals(A), nonzeros(A);
+
+julia> [(rows[k], j, vals[k]) for j in axes(A, 2) for k in nzrange(A, j)]
+3-element Vector{Tuple{Int64, Int64, Int64}}:
+ (1, 1, 10)
+ (3, 1, 30)
+ (2, 3, 20)
+```
 
 The same loop works on a view of all rows and some columns of `A`, whose `nzrange`
 indexes the `rowvals` and `nonzeros` of the view. For a view of a range of columns each
@@ -433,7 +434,8 @@ call is O(1); for another column subset `nzrange(A, col)` sums the lengths of th
 preceding columns, so it is O(`col`).
 
 !!! warning
-    Adding or removing nonzero elements to the matrix may invalidate the `nzrange`, one should not mutate the matrix while iterating.
+    Adding or removing a stored entry invalidates the range, so do not change the
+    pattern of the matrix while iterating.
 """
 Base.@propagate_inbounds nzrange(S::AbstractSparseMatrixCSC, col::Integer) = getcolptr(S)[col]:(getcolptr(S)[col+1]-1)
 Base.@propagate_inbounds function nzrange(S::SparseMatrixCSCView, col::Integer)
@@ -900,15 +902,31 @@ _sparsesimilar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, dims::D
 """
     similar(A::AbstractSparseMatrixCSC{Tv,Ti}, [::Type{TvNew}, ::Type{TiNew}, m::Integer, n::Integer]) where {Tv,Ti}
 
-Create an uninitialized mutable array with the given element type,
-index type, and size, based upon the given source
-`SparseMatrixCSC`. The new sparse matrix maintains the structure of
-the original sparse matrix, except in the case where dimensions of the
-output matrix are different from the output.
+Create a `SparseMatrixCSC` with the given element type, index type and size, based on `A`.
+Each of them defaults to that of `A`.
 
-The output matrix has zeros in the same locations as the input, but
-uninitialized values for the nonzero locations. The result is a writable
-`SparseMatrixCSC` also when `A` is a `FixedSparseCSC`; `copy` keeps a fixed pattern.
+When no size is given, the result stores the same entries as `A`, with uninitialized
+values. When a size is given, the result stores no entries, and has room for as many as
+`A` stores.
+
+The result is a writable `SparseMatrixCSC` also when `A` is a `FixedSparseCSC`; `copy`
+keeps a fixed pattern.
+
+# Examples
+```jldoctest
+julia> A = sparse([1, 2], [1, 2], [1.5, 2.5]);
+
+julia> B = similar(A, Int);
+
+julia> rowvals(B) == rowvals(A), eltype(B)
+(true, Int64)
+
+julia> similar(A, 3, 4)
+3×4 SparseMatrixCSC{Float64, Int64} with 0 stored entries:
+ ⋅  ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅  ⋅
+ ⋅  ⋅  ⋅  ⋅
+```
 """
 similar(S::AbstractSparseMatrixCSC{<:Any,Ti}, ::Type{TvNew}) where {Ti,TvNew} =
     _sparsesimilar(S, TvNew, Ti)
@@ -1011,11 +1029,23 @@ end
 """
     ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::Function) where {Tv,Ti}
 
-Transpose `A` and store it in `X` while applying the function `f` to the non-zero elements.
-Does not remove the zeros created by `f`. `size(X)` must be equal to `size(transpose(A))`.
-No additional memory is allocated other than resizing the rowval and nzval of `X`, if needed.
+Store the transpose of `A` in `X`, applying the function `f` to each stored value, and
+return `X`. A zero that `f` returns stays stored. `size(X)` must equal
+`size(transpose(A))`, and `X` must not share memory with `A`. Nothing is allocated beyond
+growing the row indices and values of `X` when they are too short.
 
-See `halfperm!`
+See also [`transpose!`](@ref) and [`adjoint!`](@ref), which are `ftranspose!` with
+`identity` and `conj`.
+
+# Examples
+```jldoctest
+julia> A = sparse([1, 1, 2], [1, 2, 2], [1.0, 2.0, 3.0]);
+
+julia> ftranspose!(similar(A), A, x -> 10x)
+2×2 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
+ 10.0    ⋅
+ 20.0  30.0
+```
 """
 function ftranspose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}, f::F) where {Tv,Ti,F<:Function}
     # Check compatibility of source argument A and destination argument X
@@ -1036,22 +1066,22 @@ end
 """
     transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
-Transpose the matrix `A` and stores it in the matrix `X`.
-`size(X)` must be equal to `size(transpose(A))`.
-No additional memory is allocated other than resizing the rowval and nzval of `X`, if needed.
+Store the transpose of `A` in `X` and return `X`. `size(X)` must equal
+`size(transpose(A))`, and `X` must not share memory with `A`. Nothing is allocated beyond
+growing the row indices and values of `X` when they are too short.
 
-See `halfperm!`
+See also [`ftranspose!`](@ref).
 """
 transpose!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, identity)
 
 """
     adjoint!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
-Transpose the matrix `A` and stores the adjoint of the elements in the matrix `X`.
-`size(X)` must be equal to `size(transpose(A))`.
-No additional memory is allocated other than resizing the rowval and nzval of `X`, if needed.
+Store the adjoint of `A` in `X` and return `X`. `size(X)` must equal
+`size(transpose(A))`, and `X` must not share memory with `A`. Nothing is allocated beyond
+growing the row indices and values of `X` when they are too short.
 
-See `halfperm!`
+See also [`ftranspose!`](@ref).
 """
 adjoint!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = ftranspose!(X, A, conj)
 
@@ -1294,11 +1324,18 @@ count (`length(q) == size(A, 2)`). Row-permutation `p`'s length must match `A`'s
 must have enough storage to accommodate all allocated entries in `A` (`length(rowvals(C)) >= nnz(A)`
 and `length(nonzeros(C)) >= nnz(A)`).
 
-For additional (algorithmic) information, and for versions of these methods that forgo
-argument checking, see (unexported) parent methods `unchecked_noalias_permute!`
-and `unchecked_aliasing_permute!`.
-
 See also [`permute`](@ref).
+
+# Examples
+```jldoctest
+julia> A = sparse([1, 2, 3], [1, 2, 3], [1.0, 2.0, 3.0]); X = similar(A);
+
+julia> permute!(X, A, [3, 1, 2], [2, 3, 1])
+3×3 SparseMatrixCSC{Float64, Int64} with 3 stored entries:
+  ⋅   3.0   ⋅
+  ⋅    ⋅   1.0
+ 2.0   ⋅    ⋅
+```
 """
 function permute!(X::AbstractSparseMatrixCSC{Tv,Ti}, A::AbstractSparseMatrixCSC{Tv,Ti},
         p::AbstractVector{<:Integer}, q::AbstractVector{<:Integer}) where {Tv,Ti}
@@ -1582,20 +1619,30 @@ triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
 """
     droptol!(A::AbstractSparseMatrixCSC, tol)
 
-Removes stored values from `A` whose absolute value is less than or equal to `tol`.
+Remove from `A`, in place, the stored values whose absolute value is less than or equal
+to `tol`, and return `A`.
+
+# Examples
+```jldoctest
+julia> A = sparse([1, 2, 3], [1, 2, 3], [1.0, 1e-9, -2.0]);
+
+julia> droptol!(A, 1e-6)
+3×3 SparseMatrixCSC{Float64, Int64} with 2 stored entries:
+ 1.0  ⋅    ⋅
+  ⋅   ⋅    ⋅
+  ⋅   ⋅  -2.0
+```
 """
 droptol!(A::AbstractSparseMatrixCSC, tol) =
     (_checkpatternwritable(A, :droptol!); _fkeep!((i, j, x) -> abs(x) > tol, A))
 
 """
-    dropzeros!(A::AbstractSparseMatrixCSC;)
+    dropzeros!(A::AbstractSparseMatrixCSC)
 
-Removes stored numerical zeros from `A`.
+Remove the stored zeros from `A`, in place, and return `A`.
 
-For an out-of-place version, see [`dropzeros`](@ref). For
-algorithmic information, see `fkeep!`.
+See also [`dropzeros`](@ref), which returns a copy, and [`droptol!`](@ref).
 """
-
 dropzeros!(A::AbstractSparseMatrixCSC) = (_checkpatternwritable(A, :dropzeros!); _fkeep!((i, j, x) -> _isnotzero(x), A))
 
 """

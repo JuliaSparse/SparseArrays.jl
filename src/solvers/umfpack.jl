@@ -396,12 +396,12 @@ The `control` vector defaults to the Julia SparseArrays package's default config
 disable iterative refinement), but can be changed by passing a vector of length `UMFPACK_CONTROL`, see the UMFPACK manual for possible configurations.
 For example to reenable iterative refinement:
 
-    umfpack_control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int64) # read Julia default configuration for a Float64 sparse matrix
-    SparseArrays.UMFPACK.show_umf_ctrl(umfpack_control) # optional - display values
-    umfpack_control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0 # reenable iterative refinement (2 is UMFPACK default max iterative refinement steps)
-
-    Alu = lu(A; control = umfpack_control)
-    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement
+```julia
+control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int64)  # the defaults for a Float64 matrix
+control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0  # UMFPACK's default number of refinement steps
+F = lu(A; control)
+x = F \\ b   # solves with iterative refinement
+```
 
 The individual components of the factorization `F` can be accessed by indexing:
 
@@ -424,6 +424,19 @@ The relation between `F` and `A` is
 - [`det`](@ref)
 
 See also [`lu!`](@ref)
+
+# Examples
+```jldoctest
+julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]); b = [1.0, 2.0, 3.0];
+
+julia> F = lu(A);
+
+julia> F \\ b ≈ A \\ b
+true
+
+julia> F.L * F.U ≈ (F.Rs .* A)[F.p, F.q]
+true
+```
 
 !!! note
     `lu(A::AbstractSparseMatrixCSC)` uses the UMFPACK[^ACM832] library that is part of

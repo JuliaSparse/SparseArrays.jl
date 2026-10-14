@@ -1,7 +1,10 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 """
-Support for sparse arrays. Provides `AbstractSparseArray` and subtypes.
+Sparse vectors and matrices: [`SparseVector`](@ref) and [`SparseMatrixCSC`](@ref), which
+store only some of their entries and treat the others as zero. Build them with
+[`sparse`](@ref), [`sparsevec`](@ref) and [`spzeros`](@ref); the functions of Base and
+LinearAlgebra, including `\\` and the factorizations, have methods for them.
 """
 module SparseArrays
 
@@ -88,7 +91,9 @@ const AbstractSparseVector{Tv,Ti} = AbstractSparseArray{Tv,Ti,1}
 """
     AbstractCompressedVector{Tv,Ti}
 
-Supertype for vectors stored using a compressed map.
+Supertype of the sparse vectors that store a sorted vector of indices and a vector of the
+values at those indices, as [`SparseVector`](@ref) does. Their methods reach the two
+through [`rowvals`](@ref) and [`nonzeros`](@ref).
 """
 abstract type AbstractCompressedVector{Tv,Ti} <: AbstractSparseVector{Tv,Ti} end
 
