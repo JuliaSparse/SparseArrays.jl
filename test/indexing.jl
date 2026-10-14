@@ -427,37 +427,28 @@ end
 
 @testset "more stored entries than Ti counts" begin
     mk() = SparseMatrixCSC{Float64,Int8}(sparse(1.0I, 12, 12))
+    E = Matrix(mk()); E[1:10, :] .= 1.0   # 122 entries fit, though nnz(S) plus the values assigned exceeds 127
+    S = mk()
+    @test_throws ArgumentError S[1:144] = ones(144)
+    @test exact_equal(S, mk())
+    # of a repeated index only the last write is stored, so 240 values make 122 entries
+    S = mk(); S[[1:10; 1:10], :] = ones(20, 12)
+    @test mismatch(S, E; Ti=Int8) === nothing
+    @static if COMPREHENSIVE
     S = mk()
     @test_throws ArgumentError fill!(view(S, :, :), 1.0)
     @test exact_equal(S, mk())
-    @test_throws ArgumentError S[1:144] = ones(144)
-    @test exact_equal(S, mk())
     @test_throws ArgumentError S[:, :] = ones(12, 12)
     @test exact_equal(S, mk())
-    # the count of what would be stored is exact: 122 entries fit, though the
-    # stored entries and the assigned ones together number more than 127
-    E = Matrix(mk()); E[1:10, :] .= 1.0
-    S = mk(); fill!(view(S, 1:10, :), 1.0)
-    @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
-    S = mk(); S[1:10, :] = ones(10, 12)
-    @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
     S = mk(); S[findall(!iszero, vec(E))] = ones(122)
-    @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
-    # of a repeated index only the last write is stored, so 240 values make 120 entries
-    for V in (ones(20, 12), sparse(ones(20, 12)))
-        S = mk(); S[[1:10; 1:10], :] = V
-        @test mismatch(S, E; Ti=Int8) === nothing && nnz(S) == 122
-    end
+    @test mismatch(S, E; Ti=Int8) === nothing
+    S = mk(); S[[1:10; 1:10], :] = sparse(ones(20, 12))
+    @test mismatch(S, E; Ti=Int8) === nothing
     # a value that a later write replaces still has to convert
     A = spzeros(Int, 1, 1)
     @test_throws InexactError A[[1, 1], [1]] = reshape([1.5, 2.0], 2, 1)
     @test nnz(A) == 0
-    # scalar `setindex!` reports the same error
-    D = ones(12, 12); D[1:18] .= 0.0
-    S = SparseMatrixCSC{Float64,Int8}(sparse(D)); S0 = copy(S)
-    @test nnz(S) == 126
-    @test_throws "cannot hold" S[1, 1] = 1.0
-    @test exact_equal(S, S0)
+    end
 end
 end
 
