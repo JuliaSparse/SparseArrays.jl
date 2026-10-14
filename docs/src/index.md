@@ -699,7 +699,7 @@ ERROR: ArgumentError: cannot store a nonzero f(0) into a FixedSparseCSC, its spa
 
 **A function that exists to change the pattern throws.** [`dropzeros!`](@ref),
 [`droptol!`](@ref), [`SparseArrays.fkeep!`](@ref), `tril!`, `triu!`,
-[`SparseArrays.dropstored!`](@ref), `sort!`, `permute!`, `invpermute!`, `reverse!`,
+`SparseArrays.dropstored!`, `sort!`, `permute!`, `invpermute!`, `reverse!`,
 `circshift!`, `SparseArrays.swaprows!` and `SparseArrays.swapcols!` refuse a fixed array
 as the argument they change. None of them does something else that happens to fit the
 pattern. Their out-of-place forms (`dropzeros`, `tril`, `sort`, ...) work, because of the
@@ -815,7 +815,7 @@ Sparse factorizations call SuiteSparse:
 | [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky), [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt) | [`CHOLMOD.Factor`](@ref SparseArrays.CHOLMOD.Factor) | CHOLMOD |
 | [`lu`](@ref SparseArrays.UMFPACK.lu) | [`UMFPACK.UmfpackLU`](@ref SparseArrays.UMFPACK.UmfpackLU) | UMFPACK |
 | [`qr`](@ref SparseArrays.SPQR.qr) | [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | SPQR |
-| [`lq`](@ref SparseArrays.SPQR.lq) | [`SPQR.AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse), the adjoint of `qr(A')` | SPQR |
+| [`lq`](@ref SparseArrays.SPQR.lq) | `SPQR.AdjointQRSparse`, the adjoint of `qr(A')` | SPQR |
 
 For a sparse `A` and a dense `b`, `A \ b` picks a method from the structure of `A` and
 returns a dense result. `factorize(A)` makes the same choice and returns the
@@ -1080,55 +1080,85 @@ DocTestSetup = nothing
 
 ```@docs
 SparseArrays
+```
+
+### Types
+
+```@docs
 SparseArrays.AbstractSparseArray
 SparseArrays.AbstractSparseVector
 SparseArrays.AbstractSparseMatrix
 SparseArrays.AbstractSparseMatrixCSC
-SparseArrays.AbstractCompressedVector
 SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
+```
+
+### Constructors
+
+```@docs
 SparseArrays.sparse
 SparseArrays.sparse!
 SparseArrays.sparsevec
-Base.similar(::SparseArrays.AbstractSparseMatrixCSC, ::Type)
-SparseArrays.issparse
-SparseArrays.nnz
-SparseArrays.findnz
-SparseArrays.iternz
 SparseArrays.spzeros
 SparseArrays.spzeros!
 SparseArrays.spdiagm
-SparseArrays.sparse_hcat
-SparseArrays.sparse_vcat
-SparseArrays.sparse_hvcat
 SparseArrays.blockdiag
 SparseArrays.sprand
 SparseArrays.sprandn
+Base.similar(::SparseArrays.AbstractSparseMatrixCSC, ::Type)
+```
+
+### Stored entries
+
+```@docs
+SparseArrays.issparse
+SparseArrays.nnz
+SparseArrays.findnz
+SparseArrays.nonzeros
+SparseArrays.rowvals
+SparseArrays.nzrange
 SparseArrays.getcolptr
 SparseArrays.getrowval
 SparseArrays.getnzval
 SparseArrays.indtype
-SparseArrays.nonzeros
-SparseArrays.rowvals
-SparseArrays.nzrange
-SparseArrays.droptol!
-SparseArrays.dropzeros!
+```
+
+### Removing stored entries
+
+```@docs
 SparseArrays.dropzeros
-SparseArrays.dropstored!
+SparseArrays.dropzeros!
+SparseArrays.droptol!
 SparseArrays.fkeep!
+```
+
+### Permuting, transposing and sorting
+
+```@docs
 SparseArrays.permute
 Base.permute!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::AbstractVector{<:Integer}, ::AbstractVector{<:Integer}) where {Tv,Ti}
-SparseArrays.halfperm!
 SparseArrays.ftranspose!
 SparseArrays.transpose!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 SparseArrays.adjoint!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 Base.sort!(::SparseArrays.AbstractSparseMatrixCSC)
 Base.sort(::SparseArrays.AbstractSparseMatrixCSC)
 Base.sort!(::Union{SparseArrays.AbstractCompressedVector, SparseArrays.SparseColumnView})
+```
+
+### Concatenation
+
+```@docs
+SparseArrays.sparse_hcat
+SparseArrays.sparse_vcat
+SparseArrays.sparse_hvcat
+```
+
+### Fixed pattern (experimental)
+
+```@docs
 SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
-SparseArrays.allowscalar
 ```
 
 ## [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
@@ -1153,7 +1183,6 @@ SparseArrays.CHOLMOD.lowrankupdate(::SparseArrays.CHOLMOD.Factor, ::AbstractArra
 SparseArrays.CHOLMOD.lowrankupdate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
 SparseArrays.CHOLMOD.lowrankdowndate(::SparseArrays.CHOLMOD.Factor, ::AbstractArray)
 SparseArrays.CHOLMOD.lowrankdowndate!(::SparseArrays.CHOLMOD.Factor{Float64}, ::AbstractArray)
-SparseArrays.CHOLMOD.lowrankupdowndate!
 SparseArrays.CHOLMOD.rcond
 SparseArrays.CHOLMOD.CholmodWS
 ```
@@ -1173,7 +1202,6 @@ Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
 
 ```@docs
 SparseArrays.SPQR.QRSparse
-SparseArrays.SPQR.AdjointQRSparse
 SparseArrays.SPQR.qr(::SparseArrays.SparseMatrixCSC{Tv,Ti}) where {Ti<:SparseArrays.CHOLMOD.ITypes, Tv<:Union{Float64,ComplexF64}}
 SparseArrays.SPQR.lq(::SparseArrays.SparseMatrixCSC)
 SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)
@@ -1189,39 +1217,6 @@ Base.copy(::SparseArrays.SPQR.QRSparse)
 ```@docs
 SparseArrays.LibSuiteSparse.set_libdir!
 SparseArrays.LibSuiteSparse.libdir
-```
-
-## Internal API
-
-The helpers below are not part of the API: they are unexported and may change or disappear
-in any release. They are documented, incompletely, as a companion to the public API.
-
-```@docs
-SparseArrays.ReadOnly
-SparseArrays.ColumnIndices
-SparseArrays.iswrsparse
-SparseArrays.depth
-SparseArrays.sparse_with_lmul
-SparseArrays.rowcheck_index
-SparseArrays.mergeinds!
-SparseArrays.move_fixed
-SparseArrays._unsafe_unfix
-SparseArrays.@RCI
-SparseArrays._densify!
-SparseArrays.HigherOrderFns._map_zeropres!
-SparseArrays.HigherOrderFns._map_notzeropres!
-SparseArrays._spsetz_setindex!
-SparseArrays._spsetnz_setindex!
-SparseArrays.unchecked_noalias_permute!
-SparseArrays.unchecked_aliasing_permute!
-SparseArrays._computecolptrs_permute!
-SparseArrays._checkargs_sourcecompatperms_permute!
-SparseArrays._checkargs_permutationsvalid_permute!
-SparseArrays._checkargs_sourcecompatdest_permute!
-SparseArrays._checkargs_sourcecompatworkmat_permute!
-SparseArrays._checkargs_sourcecompatworkcolptr_permute!
-SparseArrays._computecolptrs_halfperm!
-SparseArrays._distributevals_halfperm!
 SparseArrays.LibSuiteSparse.init_suitesparse
 ```
 
