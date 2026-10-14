@@ -37,6 +37,9 @@ jobs:
             julia-arch: aarch64
             julia-version: 'nightly'
             check-bounds: 'yes'
+          - os: ubuntu-26.04-arm
+            julia-arch: aarch64
+            julia-version: 'nightly'
           - os: ubuntu-latest
             julia-arch: x64
             julia-version: 'nightly'
