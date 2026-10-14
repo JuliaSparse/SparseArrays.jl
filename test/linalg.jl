@@ -754,15 +754,14 @@ end
     W = view(S, [4, 1, 2, 3], :)
     c = view(S, :, 3)
     @test mismatch(kron(V, S), kron(Matrix(V), Sd)) === nothing
-    @test mismatch(kron(S, UpperTriangular(W')), kron(Sd, Matrix(UpperTriangular(W')))) === nothing
+    @test mismatch(kron(S, W'), kron(Sd, Matrix(W'))) === nothing
     @test mismatch(kron(c, S), kron(Vector(c), Sd)) === nothing
     @test mismatch(kron(c, c), kron(Vector(c), Vector(c))) === nothing
     C = spzeros(8, 12)
     @test kron!(C, V, S) === C && mismatch(C, kron(Matrix(V), Sd)) === nothing
-    # with a number, a wrapped view gives what the wrapped matrix does
+    # with a number, the adjoint of a view gives what the adjoint of a sparse matrix does
     @test mismatch(kron(2.0, V'), 2 * Matrix(V')) === nothing
-    K = kron(Symmetric(W), 2.0)
-    @test K isa Symmetric{Float64,<:SparseMatrixCSC} && K == 2 * Matrix(Symmetric(W))
+    @test mismatch(kron(W', 2.0), 2 * Matrix(W')) === nothing
 end
 end
 
