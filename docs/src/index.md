@@ -1080,6 +1080,11 @@ DocTestSetup = nothing
 
 ```@docs
 SparseArrays
+```
+
+### Types
+
+```@docs
 SparseArrays.AbstractSparseArray
 SparseArrays.AbstractSparseVector
 SparseArrays.AbstractSparseMatrix
@@ -1087,48 +1092,78 @@ SparseArrays.AbstractSparseMatrixCSC
 SparseArrays.AbstractCompressedVector
 SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
+```
+
+### Constructors
+
+```@docs
 SparseArrays.sparse
 SparseArrays.sparse!
 SparseArrays.sparsevec
+SparseArrays.spzeros
+SparseArrays.spzeros!
+SparseArrays.spdiagm
+SparseArrays.blockdiag
+SparseArrays.sprand
+SparseArrays.sprandn
 Base.similar(::SparseArrays.AbstractSparseMatrixCSC, ::Type)
+```
+
+### Stored entries
+
+```@docs
 SparseArrays.issparse
 SparseArrays.nnz
 SparseArrays.findnz
 SparseArrays.iternz
-SparseArrays.spzeros
-SparseArrays.spzeros!
-SparseArrays.spdiagm
-SparseArrays.sparse_hcat
-SparseArrays.sparse_vcat
-SparseArrays.sparse_hvcat
-SparseArrays.blockdiag
-SparseArrays.sprand
-SparseArrays.sprandn
+SparseArrays.nonzeros
+SparseArrays.rowvals
+SparseArrays.nzrange
 SparseArrays.getcolptr
 SparseArrays.getrowval
 SparseArrays.getnzval
 SparseArrays.indtype
-SparseArrays.nonzeros
-SparseArrays.rowvals
-SparseArrays.nzrange
-SparseArrays.droptol!
-SparseArrays.dropzeros!
+SparseArrays.allowscalar
+```
+
+### Removing stored entries
+
+```@docs
 SparseArrays.dropzeros
-SparseArrays.dropstored!
+SparseArrays.dropzeros!
+SparseArrays.droptol!
 SparseArrays.fkeep!
+SparseArrays.dropstored!
+```
+
+### Permuting, transposing and sorting
+
+```@docs
 SparseArrays.permute
 Base.permute!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::AbstractVector{<:Integer}, ::AbstractVector{<:Integer}) where {Tv,Ti}
-SparseArrays.halfperm!
 SparseArrays.ftranspose!
 SparseArrays.transpose!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 SparseArrays.adjoint!(::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}, ::SparseArrays.AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 Base.sort!(::SparseArrays.AbstractSparseMatrixCSC)
 Base.sort(::SparseArrays.AbstractSparseMatrixCSC)
 Base.sort!(::Union{SparseArrays.AbstractCompressedVector, SparseArrays.SparseColumnView})
+```
+
+### Concatenation
+
+```@docs
+SparseArrays.sparse_hcat
+SparseArrays.sparse_vcat
+SparseArrays.sparse_hvcat
+```
+
+### Fixed pattern (experimental)
+
+```@docs
 SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
-SparseArrays.allowscalar
+SparseArrays.move_fixed
 ```
 
 ## [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
@@ -1189,40 +1224,6 @@ Base.copy(::SparseArrays.SPQR.QRSparse)
 ```@docs
 SparseArrays.LibSuiteSparse.set_libdir!
 SparseArrays.LibSuiteSparse.libdir
-```
-
-## Internal API
-
-The helpers below are not part of the API: they are unexported and may change or disappear
-in any release. They are documented, incompletely, as a companion to the public API.
-
-```@docs
-SparseArrays.ReadOnly
-SparseArrays.ColumnIndices
-SparseArrays.iswrsparse
-SparseArrays.depth
-SparseArrays.sparse_with_lmul
-SparseArrays.rowcheck_index
-SparseArrays.mergeinds!
-SparseArrays.move_fixed
-SparseArrays._unsafe_unfix
-SparseArrays.@RCI
-SparseArrays._densify!
-SparseArrays.HigherOrderFns._map_zeropres!
-SparseArrays.HigherOrderFns._map_notzeropres!
-SparseArrays._spsetz_setindex!
-SparseArrays._spsetnz_setindex!
-SparseArrays.unchecked_noalias_permute!
-SparseArrays.unchecked_aliasing_permute!
-SparseArrays._computecolptrs_permute!
-SparseArrays._checkargs_sourcecompatperms_permute!
-SparseArrays._checkargs_permutationsvalid_permute!
-SparseArrays._checkargs_sourcecompatdest_permute!
-SparseArrays._checkargs_sourcecompatworkmat_permute!
-SparseArrays._checkargs_sourcecompatworkcolptr_permute!
-SparseArrays._computecolptrs_halfperm!
-SparseArrays._distributevals_halfperm!
-SparseArrays.LibSuiteSparse.init_suitesparse
 ```
 
 ## Noteworthy External Sparse Packages
