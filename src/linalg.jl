@@ -1154,22 +1154,25 @@ end
 
 ## kron
 # a sparse vector or matrix or a view of one, its adjoint or transpose, and a symmetric,
-# Hermitian or triangular wrapper of a sparse vector or matrix or its adjoint or transpose.
-# Views stay out of the wrappers: each such wrapped view in these signatures makes loading
-# the package much slower, as Julia compares it with LinearAlgebra's triangular methods.
-const _SparseKronGroup = Union{SparseVectorOrView, SparseMatrixCSCSubArray,
-                               AdjOrTrans{<:Any,<:Union{SparseVectorOrView, SparseMatrixCSCSubArray}},
-                               SparseVecOrMatMaybeAdjOrTrans,
-                               HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
-                               UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
+# Hermitian or triangular wrapper of any of those
+const _SparseKronMaybeAdjOrTrans = Union{SparseVecOrMat, SparseVectorOrView, SparseMatrixCSCSubArray,
+    AdjOrTrans{<:Any,<:Union{SparseVecOrMat, SparseVectorOrView, SparseMatrixCSCSubArray}}}
+const _SparseKronGroup = Union{_SparseKronMaybeAdjOrTrans,
+                               HermOrSym{<:Any,<:_SparseKronMaybeAdjOrTrans},
+                               UpperOrLowerTriangular{<:Any,<:_SparseKronMaybeAdjOrTrans}}
 _kronmatrix(A) = convert(SparseMatrixCSC, A)
 _kronmatrix(x::Union{SparseColumnView,SparseVectorView}) = convert(SparseMatrixCSC, SparseVector(x))
-# A number scales a view of a sparse matrix into a dense matrix unless the view selects
-# whole columns. Scaling the sparse matrix it converts to gives what the number gives with
-# a sparse matrix that is not a view.
+# A number scales a view of a sparse matrix, or a wrapper of one, into a dense matrix unless
+# the view selects whole columns. Scaling the sparse matrix it converts to, under the same
+# wrapper, gives what the number gives with a sparse matrix that is not a view.
 const _SparseKronView = Union{SparseMatrixCSCSubArray, AdjOrTrans{<:Any,<:SparseMatrixCSCSubArray}}
 _kronscaled(b) = b
 _kronscaled(b::_SparseKronView) = convert(SparseMatrixCSC, b)
+_kronscaled(b::Symmetric{<:Any,<:_SparseKronView}) = Symmetric(_kronscaled(parent(b)), sym_uplo(b.uplo))
+_kronscaled(b::Hermitian{<:Any,<:_SparseKronView}) = Hermitian(_kronscaled(parent(b)), sym_uplo(b.uplo))
+for T in (:UpperTriangular, :LowerTriangular, :UnitUpperTriangular, :UnitLowerTriangular)
+    @eval _kronscaled(b::$T{<:Any,<:_SparseKronView}) = $T(_kronscaled(parent(b)))
+end
 const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, BandedMatrix,
                               HermOrSym{<:Any,<:Matrix}, UpperOrLowerTriangular{<:Any,<:Matrix}}
 
