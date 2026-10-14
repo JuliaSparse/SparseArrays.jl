@@ -260,8 +260,17 @@ end
 Compute the `QR` factorization of a sparse matrix `A`. Fill-reducing row and column permutations
 are used such that `F.R = F.Q'*A[F.prow,F.pcol]`. The main application of this type is to
 solve least squares or underdetermined problems with [`\\`](@ref). The function calls the C library SPQR[^ACM933].
-With `ordering=ORDERING_FIXED`, `F.pcol` is the identity unless `A` is rank deficient, in
-which case the columns that SPQR finds dependent are moved to the end.
+
+- `tol`: a column whose norm falls to `tol` or below during the factorization is treated
+  as zero, which is how rank deficiency is detected. The default is
+  `20 * (m + n) * eps() * maximum(norm, eachcol(A))` for an `m × n` matrix.
+- `ordering`: the fill-reducing column ordering, one of the constants
+  `SPQR.ORDERING_DEFAULT` (SPQR's choice), `ORDERING_FIXED` and `ORDERING_NATURAL` (no
+  fill-reducing ordering), `ORDERING_COLAMD`, `ORDERING_AMD` (on `A'A`), `ORDERING_METIS`,
+  `ORDERING_CHOLMOD`, `ORDERING_BEST` (the best of COLAMD, AMD and METIS) and
+  `ORDERING_BESTAMD` (the best of COLAMD and AMD). With `ORDERING_FIXED`, `F.pcol` is the
+  identity unless `A` is rank deficient, in which case the columns that SPQR finds
+  dependent are moved to the end.
 
 !!! note
     Solves with the returned `QRSparse` object only read it, so several tasks can solve
@@ -534,16 +543,27 @@ function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
 end
 
 """
-    rank(::QRSparse{Tv,Ti}) -> Ti
+    rank(F::QRSparse{Tv,Ti}) -> Ti
 
-Return the rank of the QR factorization
+Return the numerical rank of the matrix that `F` factorizes, as SPQR found it with the
+`tol` given to [`qr`](@ref SparseArrays.SPQR.qr).
+
+# Examples
+```jldoctest
+julia> A = sparse([1.0 1; 1 1; 1 1 + 1e-10]);
+
+julia> rank(qr(A)), rank(qr(A; tol = 1e-8))
+(2, 1)
+```
 """
 LinearAlgebra.rank(F::QRSparse) = reduce(max, view(getrowval(F.R), 1:nnz(F.R)), init = eltype(getrowval(F.R))(0))
 
 """
     rank(S::SparseMatrixCSC{Tv,Ti}; [tol::Real]) -> Ti
 
-Calculate rank of `S` by calculating its QR factorization. Values smaller than `tol` are considered as zero. See SPQR's manual.
+Return the numerical rank of `S`, computed as `rank(qr(S; tol))`. A column whose norm
+falls to `tol` or below during the factorization is treated as zero; see
+[`qr`](@ref SparseArrays.SPQR.qr) for the default.
 """
 LinearAlgebra.rank(S::SparseMatrixCSC; tol=_default_tol(S)) = rank(qr(S; tol))
 LinearAlgebra.rank(S::FixedSparseCSC; tol=_default_tol(S)) = rank(qr(S; tol))

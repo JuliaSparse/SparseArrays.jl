@@ -77,6 +77,22 @@ A `FixedSparseCSC` is a destination for in-place writes. As an operand it behave
 [`SparseMatrixCSC`](@ref) with the same entries, and results are not fixed; only `copy`
 returns a `FixedSparseCSC`, which shares the pattern. See
 [Sparse arrays with a fixed pattern](@ref man-sparse-fixed).
+
+A write stores a value at each stored entry, a zero included, and throws an
+`ArgumentError` when it needs an entry that the pattern does not have. That holds for
+`W .= ...`, `map!`, `copyto!`, `mul!`, `fill!`, `rmul!`, `lmul!`, `rdiv!`, scalar and block
+`setindex!`, assignment through a column view, and for a result written into a fixed
+destination by `transpose!`, `permute!` or `circshift!`. The kernels of this package check
+before they change any value. Where the package has no method for a sparse destination,
+Julia's generic one writes one entry at a time: a broadcast into a `view`, a dense source
+as in `W .= D` or `copyto!(W, D)`, `axpy!(a, A, W)`, or `mul!` with a dense factor. Such a
+write stops at the first entry outside the pattern, with the entries before it already
+written. Writing through `nonzeros(W)` is always allowed.
+
+A function whose purpose is to change the pattern throws for a fixed argument:
+`dropzeros!`, `droptol!`, `fkeep!`, `tril!`, `triu!`, `dropstored!`, `sort!`, `permute!`,
+`invpermute!`, `reverse!`, `circshift!`, `swaprows!` and `swapcols!`. Their out-of-place
+forms work, and return an ordinary array.
 """
 struct FixedSparseCSC{Tv,Ti<:Integer} <: AbstractSparseMatrixCSC{Tv,Ti}
     m::Int                  # Number of rows

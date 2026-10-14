@@ -159,6 +159,26 @@ const UMFVTypes = Union{Float64,ComplexF64}
 
 ## UMFPACK
 
+"""
+    UMFPACK.get_umfpack_control(Tv, Ti) -> Vector{Float64}
+
+Return the `Control` vector that [`lu`](@ref SparseArrays.UMFPACK.lu) uses by default for
+a matrix with element type `Tv` (`Float64` or `ComplexF64`) and index type `Ti`. It holds
+UMFPACK's defaults, except that iterative refinement is turned off. Change an entry at one
+of the one-based indices `UMFPACK.JL_UMFPACK_*`, such as `JL_UMFPACK_PIVOT_TOLERANCE`,
+`JL_UMFPACK_ORDERING` or `JL_UMFPACK_IRSTEP`, and pass the vector as the `control` keyword
+of `lu`. The UMFPACK user guide describes each entry.
+
+# Examples
+```jldoctest
+julia> control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int);
+
+julia> control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP]
+0.0
+```
+"""
+function get_umfpack_control end
+
 function show_umf_ctrl(control::Vector{Float64}, level::Real = 2.0)
     old_prt::Float64 = control[1]
     control[1] = Float64(level)
@@ -365,10 +385,26 @@ end
 
 Base.transpose(F::UmfpackLU) = TransposeFactorization(F)
 
+"""
+    UMFPACK.show_umf_ctrl(F::UmfpackLU, level::Real = 2.0)
+    UMFPACK.show_umf_ctrl(control::Vector{Float64}, level::Real = 2.0)
+
+Print UMFPACK's settings, those of the factorization `F` or those in a `control` vector
+from [`UMFPACK.get_umfpack_control`](@ref SparseArrays.UMFPACK.get_umfpack_control).
+`level` is UMFPACK's print level: a higher one prints more.
+"""
 show_umf_ctrl(F::UmfpackLU, level::Real=2.0) =
     @lock F.lock show_umf_ctrl(F.control, level)
 
+"""
+    UMFPACK.show_umf_info(F::UmfpackLU, level::Real = 2.0)
+    UMFPACK.show_umf_info(F::UmfpackLU, workspace::UmfpackWS, level::Real = 2.0)
 
+Print UMFPACK's statistics for the factorization `F`, such as its fill-in, flop count and
+an estimate of the condition number. With a
+[`UMFPACK.UmfpackWS`](@ref SparseArrays.UMFPACK.UmfpackWS), print the statistics of the
+last solve that used that workspace instead. `level` is UMFPACK's print level.
+"""
 show_umf_info(F::UmfpackLU, level::Real=2.0) =
     @lock F.lock show_umf_info(F.control, F.info, level)
 show_umf_info(F::UmfpackLU, workspace::UmfpackWS, level::Real=2.0) =
@@ -396,12 +432,12 @@ The `control` vector defaults to the Julia SparseArrays package's default config
 disable iterative refinement), but can be changed by passing a vector of length `UMFPACK_CONTROL`, see the UMFPACK manual for possible configurations.
 For example to reenable iterative refinement:
 
-    umfpack_control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int64) # read Julia default configuration for a Float64 sparse matrix
-    SparseArrays.UMFPACK.show_umf_ctrl(umfpack_control) # optional - display values
-    umfpack_control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0 # reenable iterative refinement (2 is UMFPACK default max iterative refinement steps)
-
-    Alu = lu(A; control = umfpack_control)
-    x = Alu \\ b   # solve Ax = b, including UMFPACK iterative refinement
+```julia
+control = SparseArrays.UMFPACK.get_umfpack_control(Float64, Int64)  # the defaults for a Float64 matrix
+control[SparseArrays.UMFPACK.JL_UMFPACK_IRSTEP] = 2.0  # UMFPACK's default number of refinement steps
+F = lu(A; control)
+x = F \\ b   # solves with iterative refinement
+```
 
 The individual components of the factorization `F` can be accessed by indexing:
 
@@ -424,6 +460,19 @@ The relation between `F` and `A` is
 - [`det`](@ref)
 
 See also [`lu!`](@ref)
+
+# Examples
+```jldoctest
+julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]); b = [1.0, 2.0, 3.0];
+
+julia> F = lu(A);
+
+julia> F \\ b ≈ A \\ b
+true
+
+julia> F.L * F.U ≈ (F.Rs .* A)[F.p, F.q]
+true
+```
 
 !!! note
     `lu(A::AbstractSparseMatrixCSC)` uses the UMFPACK[^ACM832] library that is part of

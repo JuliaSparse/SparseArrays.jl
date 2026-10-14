@@ -1167,6 +1167,9 @@ SparseArrays.UMFPACK.lu!(::SparseArrays.UMFPACK.UmfpackLU, ::SparseArrays.Abstra
 SparseArrays.UMFPACK.rcond
 SparseArrays.UMFPACK.UmfpackWS
 Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
+SparseArrays.UMFPACK.get_umfpack_control
+SparseArrays.UMFPACK.show_umf_ctrl
+SparseArrays.UMFPACK.show_umf_info
 ```
 
 ### SPQR
