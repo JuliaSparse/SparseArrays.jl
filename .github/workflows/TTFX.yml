@@ -1,0 +1,27 @@
+name: TTFX
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ttfx:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: 'nightly'
+      - uses: julia-actions/julia-ttfx-check@main
+        with:
+          workload: 'using LinearAlgebra; S = sprand(200, 200, 0.05); kron(S, S); S * rand(200)'
+          dependents: |
+            Krylov
+            SparseMatrixColorings
