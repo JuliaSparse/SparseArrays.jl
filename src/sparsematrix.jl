@@ -1096,7 +1096,7 @@ to generate intermediate result `(AQ)^T` (`transpose(A[:,q])`) in `C`. (2) Colum
 
 The first step is a call to `halfperm!`, and the second is a variant on `halfperm!` that
 avoids an unnecessary length-`nnz(A)` array-sweep and associated recomputation of column
-pointers. See [`halfperm!`](@ref) for additional algorithmic
+pointers. See `halfperm!` for additional algorithmic
 information.
 
 See also `unchecked_aliasing_permute!`.

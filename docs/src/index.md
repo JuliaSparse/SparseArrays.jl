@@ -1217,6 +1217,7 @@ Base.copy(::SparseArrays.SPQR.QRSparse)
 ```@docs
 SparseArrays.LibSuiteSparse.set_libdir!
 SparseArrays.LibSuiteSparse.libdir
+SparseArrays.LibSuiteSparse.init_suitesparse
 ```
 
 ## Noteworthy External Sparse Packages

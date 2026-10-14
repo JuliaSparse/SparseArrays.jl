@@ -12,7 +12,7 @@ makedocs(
     # The same limits as Julia's manual, which renders `index.md` as one page.
     format = Documenter.HTML(size_threshold = 800 * 2^10, size_threshold_warn = 200 * 2^10),
     warnonly = [:cross_references],
-    checkdocs = :exports,
+    checkdocs = :public,
     )
 
 deploydocs(repo = "github.com/JuliaSparse/SparseArrays.jl.git")
