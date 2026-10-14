@@ -4,7 +4,7 @@ module SparseTests
 
 using Test
 using SparseArrays
-using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero
+using SparseArrays: getcolptr, nonzeroinds, _show_with_braille_patterns, _isnotzero, _isimplicitzero
 using LinearAlgebra
 using Printf: @printf # for debug
 using Random
@@ -22,6 +22,19 @@ include("simplesmatrix.jl")
     @test _isnotzero(1.0)
 end
 
+
+@testset "_isimplicitzero" begin
+    @test _isimplicitzero(0, Int)
+    @test !_isimplicitzero(1, Int)
+    @test _isimplicitzero(0.0, Float64)
+    @test !_isimplicitzero(-0.0, Float64)   # egality keeps the sign of a zero
+    @test !_isimplicitzero(missing, Union{Missing,Int})
+    @test _isimplicitzero(big(0.0), BigFloat)
+    @test !_isimplicitzero(-big(0.0), BigFloat)
+    @test _isimplicitzero(zero(Complex{BigFloat}), Complex{BigFloat})
+    @test !_isimplicitzero(Complex{BigFloat}(0, 1), Complex{BigFloat})
+    @test !_isimplicitzero([0.0], Vector{Float64})   # array elements are always stored
+end
 
 @testset "issparse" begin
     @test issparse(sparse(fill(1,5,5)))
@@ -46,6 +59,12 @@ end
     @test !isone(spzeros(3, 3))     # test failure for too few stored entries
     @test !isone(sparse(2I, 3, 3))  # test failure for non-one diagonal entries
     @test !isone(sparse(Bidiagonal(fill(1, 3), fill(1, 2), :U))) # test failure for non-zero off-diag entries
+    # issue #763: stored zeros must not be counted towards the diagonal
+    M = sparse([1 0; 1 1]) * sparse([1 0; -1 0])
+    @test nnz(M) == 2 && !isone(M) && !isone(Matrix(M))
+    @test !isone(SparseMatrixCSC(2, 2, [1, 3, 3], [1, 2], [1, 0]))
+    @test !isone(SparseMatrixCSC(2, 2, [1, 2, 3], [1, 1], [1, 0]))
+    @test isone(SparseMatrixCSC(2, 2, [1, 3, 4], [1, 2, 2], [1, 0, 1]))  # stored zero off-diagonal is fine
 end
 
 @testset "indtype" begin
@@ -208,6 +227,40 @@ dA = Array(sA)
         # @test f(x->sqrt(x-1), pA .+ 1, dims=3) ≈ f(pA)
     end
 
+    @testset "small integers: the entries not stored widen as for dense" begin
+        # `sum` and `prod` of small integers give an `Int`, `mapreduce` with `+` or `*` keeps
+        # the element type and wraps, and `Bool` products stay `Bool`, as for dense input
+        for T in (Int8, Bool), A in (sparse(T[1 1; 1 0]), sparse(T[1 0 0; 0 0 1])', spzeros(T, 2, 2), sparsevec(T[1, 0, 1]))
+            A isa AbstractMatrix && (A[1, 2] = zero(T))   # a stored zero
+            M = Array(A)
+            for f in (abs2, x -> x + one(T)), op in (+, *)
+                @test @inferred(mapreduce(f, op, A)) === mapreduce(f, op, M)
+                A isa SparseMatrixCSC || continue   # the `dims` kernels are the matrix ones
+                for dims in (1, 2)
+                    r, rd = mapreduce(f, op, A; dims), mapreduce(f, op, M; dims)
+                    @test typeof(r) == typeof(rd) && r == rd
+                end
+            end
+            @test @inferred(sum(A)) === sum(M) && @inferred(prod(A)) === prod(M)
+        end
+        # the unstored entries wrap with `+` and `*` as the stored ones do, widen for `sum`,
+        # and take the type of `init` or of another mapped value
+        f = x -> x + Int8(3)
+        A = spzeros(Int8, 2, 300)
+        @test mapreduce(f, +, A) === mapreduce(f, +, zeros(Int8, 600)) === Int8(8)
+        @test mapreduce(f, *, A) === mapreduce(f, *, zeros(Int8, 600))
+        @test mapreduce(f, +, A; dims = 2) == mapreduce(f, +, Array(A); dims = 2)
+        @test sum(f, A) === 1800 && sum(f, A; dims = 2) == [900; 900;;]
+        @test mapreduce(f, +, A; init = 0) === 1800
+        @test mapreduce(f, +, A; dims = 2, init = 0) == [900; 900;;]
+        @test mapreduce(f, *, A; dims = 2, init = 1) == mapreduce(f, *, Array(A); dims = 2, init = 1)
+        @test mapreduce(x -> iszero(x) ? Int8(100) : 1000.0, +, sparse([1, 0, 0])) === 1200.0
+        # a stored `Inf` or `NaN` is not absorbed by an unstored zero
+        @test isnan(prod(sparse([0.0 Inf; 1.0 2.0])))
+        # nor is an unstored zero lost when the product of the stored entries overflows
+        @test prod(sparse([0.0 1e200; 1e200 1.0])) === 0.0
+    end
+
     @testset "logical reductions" begin
         v = spzeros(Bool, 5, 2)
         @test !any(v)
@@ -259,6 +312,28 @@ dA = Array(sA)
             @test isequal(f(spzeros(0, 1), dims=2), f(Matrix{Int}(I, 0, 1), dims=2))
             @test_throws errchecker f(spzeros(0, 1), dims=(1, 2))
             @test isequal(f(spzeros(0, 1), dims=3), f(Matrix{Int}(I, 0, 1), dims=3))
+        end
+        # the result along a dimension of an empty array is dense, as for dense input, and is
+        # inferred as such: Base takes `map` of the empty first slice, which would be sparse
+        E = spzeros(3, 0)
+        for (X, dims) in ((E, 1), (E, 3), (spzeros(0), 2)), f in (minimum, maximum, extrema)
+            r, rd = f(X; dims), f(Array(X); dims)
+            @test typeof(r) == typeof(rd) && size(r) == size(rd)
+            @test typeof(@inferred f(X; dims)) == typeof(rd)
+        end
+    end
+    @testset "seeds of minimum, maximum and extrema along a dimension" begin
+        # NaN, missing and the `abs`/`abs2` zero seed are handled as for dense input
+        N = sparse([NaN 1.0; 2.0 3.0])
+        M = sparse(Union{Missing,Float64}[missing 1.0; 2.0 3.0])
+        C = sparse(ComplexF64[1+im 0; 0 -2])
+        for X in (N, M, sparsevec([NaN, 1.0])), dims in (1, 2), f in (minimum, maximum, extrema)
+            r, rd = f(X; dims), f(Array(X); dims)
+            @test typeof(r) == typeof(rd) && isequal(r, rd)
+        end
+        for X in (N, C, spzeros(0, 3)), dims in (1, 2), g in (abs, abs2)
+            r, rd = maximum(g, X; dims), maximum(g, Array(X); dims)   # no throw for the empty axis
+            @test typeof(r) == typeof(rd) && isequal(r, rd)
         end
     end
 end
@@ -339,6 +414,10 @@ end
     for region in [(1,), (2,), (1,2)], m in [findmax, findmin]
         @test m(S, dims=region) == m(A, dims=region)
     end
+    # `missing`, which dense ranks above `NaN`
+    D = Union{Missing,Float64}[NaN missing; 0.0 2.0]
+    @test isequal(findmin(sparse(D)), findmin(D))
+    @test isequal(findmax(sparse(D), dims=1), findmax(D, dims=1))
     for m in [findmax, findmin]
         @test_throws ArgumentError m(S, (4, 3))
     end
@@ -510,6 +589,10 @@ end
         @test B[row] ≈ sum(A[row, :])
     end
     @test B ≈ mapreduce(identity, +, Matrix(A), dims=2)
+    # `f(0)` is not added to a row that stores every entry
+    f = x -> x == 0 ? Inf : x
+    D = [1.0 2.0; 0.0 3.0]
+    @test isequal(mapreduce(f, +, sparse(D); dims=2), mapreduce(f, +, D; dims=2))
 end
 
 @testset "oneunit of sparse matrix" begin

@@ -994,6 +994,8 @@ convert(T::Type{<:UpperTriangular}, m::AbstractSparseMatrixCSC) = m isa T ? m :
 
 float(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
 complex(S::SparseMatrixCSC) = SparseMatrixCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
+float(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), float(nonzeros(S)))
+complex(S::FixedSparseCSC) = FixedSparseCSC(size(S, 1), size(S, 2), getcolptr(S), rowvals(S), complex(nonzeros(S)))
 
 """
     sparse(A::Union{AbstractVector, AbstractMatrix})
@@ -2231,9 +2233,19 @@ Base.iszero(A::AbstractSparseMatrixCSC) = iszero(nzvalview(A))
 function Base.isone(A::AbstractSparseMatrixCSC)
     m, n = size(A)
     m == n && getcolptr(A)[n+1] >= n+1 || return false
-    for j in axes(A,2), k in getcolptr(A)[j]:(getcolptr(A)[j+1] - 1)
-        i, x = rowvals(A)[k], nonzeros(A)[k]
-        ifelse(i == j, isone(x), iszero(x)) || return false
+    for j in axes(A,2)
+        founddiag = false
+        for k in getcolptr(A)[j]:(getcolptr(A)[j+1] - 1)
+            i, x = rowvals(A)[k], nonzeros(A)[k]
+            if i == j
+                isone(x) || return false
+                founddiag = true
+            else
+                iszero(x) || return false
+            end
+        end
+        # every column must have a stored diagonal entry equal to one
+        founddiag || return false
     end
     return true
 end
@@ -2251,6 +2263,7 @@ end
 function (-)(A::AbstractSparseMatrixCSC)
     nzval = similar(nonzeros(A), typeof(-zero(eltype(A))))
     map!(-, view(nzval, 1:nnz(A)), nzvalview(A))
+    _is_fixed(A) && return FixedSparseCSC(size(A, 1), size(A, 2), getcolptr(A), rowvals(A), nzval)
     return SparseMatrixCSC(size(A, 1), size(A, 2), copy(getcolptr(A)), copy(rowvals(A)), nzval)
 end
 
@@ -2395,6 +2408,27 @@ function Base.reducedim_initarray(A::AbstractSparseMatrixCSC, region, v0, ::Type
     fill!(Array{R}(undef, Base.to_shape(Base.reduced_indices(A, region))), v0)
 end
 
+# Base seeds `maximum`, `minimum` and `extrema` along a dimension from the first slice and,
+# when `A` is empty, takes `map(f, slice)` as the result, which for a sparse `A` is sparse.
+# Seeding from a dense copy of the slice (one row, column or element) keeps the result an
+# `Array` either way.
+function _reducedim_init_dense(f, op, A, region)
+    ri = Base.reduced_indices(A, region)   # also validates `region`
+    any(i -> isempty(axes(A, i)), region) && Base._empty_reduce_error()
+    return Base.reducedim_init(f, op, Array(view(A, ri...)), region)
+end
+for T in (:AbstractSparseMatrixCSC, :AbstractCompressedVector)
+    @eval begin
+        Base.reducedim_init(f, op::typeof(max), A::$T, region) = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f, op::typeof(min), A::$T, region) = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), A::$T, region) =
+            _reducedim_init_dense(f, op, A, region)
+        # Base seeds these with zero, from no slice; disambiguates from the `max` method above
+        Base.reducedim_init(f::Union{typeof(abs),typeof(abs2)}, op::typeof(max), A::$T, region) =
+            Base.reducedim_initarray(A, region, zero(f(zero(eltype(A)))), Base._realtype(f, eltype(A)))
+    end
+end
+
 # General mapreduce
 function _mapreducezeros(f::F, op::G, ::Type{T}, nzeros::Integer, v0) where {F,G,T}
     nzeros == 0 && return v0
@@ -2429,11 +2463,21 @@ function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::AbstractSparseMa
     end
 end
 
-# Specialized mapreduce for +/*/min/max/_extrema_rf
+# Specialized mapreduce for +/*/min/max/_extrema_rf. The entries a sparse array does not
+# store are folded in at once, as `reduce_first` of `f(0)` (an `Int` for `sum` and `prod` of
+# small integers, as for dense input) times or to the power of their count, in the type the
+# accumulator `v0` has reached: `init` or another mapped value may have widened it.
 _mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? op(zero(v0), v0) : op(f(zero(T))*nzeros, v0)
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_addzeros(_unstored(op, f, T, v0), nzeros), v0)
 _mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? op(one(v0), v0) : op(f(zero(T))^nzeros, v0)
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_unstored(op, f, T, v0)^nzeros, v0)
+_unstored(op, f, ::Type{T}, v0) where T = _widen(Base.reduce_first(op, f(zero(T))), v0)
+_widen(z, v0) = _widen(z, typeof(v0))
+_widen(z, ::Type{S}) where S = convert(promote_type(typeof(z), S), z)
+# `nzeros` copies of `z` added up, in the type `+` keeps for them: a small integer wraps
+# rather than widening to the count's `Int`, as when dense input is summed with `+`
+_addzeros(z, nzeros) = z * nzeros
+_addzeros(z::Base.BitInteger, nzeros) = z * (nzeros % typeof(z))
 _mapreducezeros(f::F, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
@@ -2452,9 +2496,13 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
         # No zeros, so don't compute f(0) since it might throw
         Base._mapreduce(f, op, nzvalview(A))
     else
-        v = f(zero(T))^(nzeros)
-        # Bail out early if initial reduction value is zero or if there are no stored elements
-        (_iszero(v) || nnzA == 0) ? v : v*Base._mapreduce(f, op, nzvalview(A))
+        v = Base.reduce_first(op, f(zero(T)))^nzeros
+        (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) && return v
+        r = v*Base._mapreduce(f, op, nzvalview(A))
+        # A zero ends the product unless a stored `Inf` or `NaN` makes it `NaN`. The product
+        # of the stored entries may also have overflowed to one; folding them into the zero
+        # instead cannot.
+        (_iszero(r) || !_iszero(v)) ? r : mapfoldl(f, op, nzvalview(A); init=v)
     end
 end
 
@@ -2560,7 +2608,7 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::AbstractSparseMa
     else
         colptr = getcolptr(A)
         rowval = rowvals(A)
-        zeroval = f(zero(Tv))
+        zeroval = _widen(f(zero(Tv)), eltype(R))
         if isequal(zeroval, zero(Tv))
             # Case where f(0) == 0
             @inbounds for col in axes(A,2)
@@ -2579,7 +2627,8 @@ function _mapreducecols!(f, op::typeof(+), R::AbstractArray, A::AbstractSparseMa
                 end
             end
             for i = 1:m
-                R[i, 1] += rownz[i]*zeroval
+                # a row stored in full has no `f(0)` to add, which need not be finite
+                rownz[i] == 0 || (R[i, 1] += _addzeros(zeroval, rownz[i]))
             end
         end
     end
@@ -2719,8 +2768,10 @@ function _findr(op, A::AbstractSparseMatrixCSC{Tv}, region) where {Tv}
     end
 end
 
-_isless_fm(a, b)    =  b == b && ( a != a || isless(a, b) )
-_isgreater_fm(a, b) =  b == b && ( a != a || isless(b, a) )
+# whether `a` replaces the best value so far `b`, by the test of Base's dense `findmin` and
+# `findmax`, so that the result agrees with dense on `NaN`, `missing` and signed zeros
+_isless_fm(a, b)    = Base.isgreater(b, a)
+_isgreater_fm(a, b) = isless(b, a)
 
 findmin(A::AbstractSparseMatrixCSC{Tv}, region::Union{Integer,Tuple{Integer},NTuple{2,Integer}}) where {Tv} =
     _findr(_isless_fm, A, region)
@@ -2791,10 +2842,12 @@ function getindex_cols(A::AbstractSparseMatrixCSC{Tv,Ti}, J::AbstractVector) whe
 end
 
 getindex_traverse_col(::AbstractUnitRange, lo::Integer, hi::Integer) = lo:hi
-getindex_traverse_col(I::StepRange, lo::Integer, hi::Integer) = step(I) > 0 ? (lo:1:hi) : (hi:-1:lo)
+getindex_traverse_col(I::AbstractRange, lo::Integer, hi::Integer) = step(I) > 0 ? (lo:1:hi) : (hi:-1:lo)
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractRange, J::AbstractVector) where {Tv,Ti<:Integer}
     require_one_based_indexing(A, I, J)
+    # `rangesearch` divides by the step, which is zero or not an integer for some ranges
+    (step(I) isa Integer && !iszero(step(I))) || return A[collect(I), J]
     # Ranges for indexing rows
     (m, n) = size(A)
     # whole columns:
@@ -3102,7 +3155,9 @@ function getindex_general(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Abst
     require_one_based_indexing(A, I, J)
     pI = sortperm(I)
     @inbounds Is = I[pI]
-    return permute_rows!(getindex_I_sorted(A, Is, J), pI)
+    # the rows of each column are reordered in place, so fix the pattern only afterwards
+    S = permute_rows!(getindex_I_sorted(_unsafe_unfix(A), Is, J), pI)
+    return @if_move_fixed A S
 end
 
 # the general case:
@@ -3133,6 +3188,7 @@ end
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
     require_one_based_indexing(A, I)
+    ndims(I) == 2 || return _getindex_dense(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
     colptrA = getcolptr(A)
@@ -3177,6 +3233,31 @@ function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv
     @if_move_fixed A SparseMatrixCSC(outm, outn, colptrB, rowvalB, nzvalB)
 end
 
+# There is no sparse array of the shape of an index array that is not a vector or a
+# matrix, so the result is dense, as it is for a dense `A`.
+function _getindex_dense(A::AbstractSparseMatrixCSC{Tv}, I::AbstractArray) where {Tv}
+    (L,) = to_indices(A, (I,))
+    checkbounds(A, L)
+    B = Array{Tv}(undef, size(L))
+    rowval = rowvals(A)
+    nzval = nonzeros(A)
+    # a stored entry is copied, so that indexing only stored entries needs no `zero`
+    for (k, i) in zip(eachindex(B), L)
+        row, col = _rowcol(A, i)
+        r = nzrange(A, col)
+        p = searchsortedfirst(rowval, row, Int(first(r)), Int(last(r)), Base.Order.Forward)
+        B[k] = p <= last(r) && rowval[p] == row ? nzval[p] : zero(Tv)
+    end
+    return B
+end
+# The row and column of one element of an index array, whose bounds are checked. Anything
+# that is not an index, such as a `Bool` or a float, throws in `to_index`.
+_rowcol(A, i::Integer) = Tuple(CartesianIndices(A)[i])
+_rowcol(A, i::Bool) = _rowcol(A, Base.to_index(A, i))
+_rowcol(A, i::CartesianIndex{2}) = Tuple(i)
+_rowcol(A, i::CartesianIndex) = _rowcol(A, LinearIndices(A)[i])
+_rowcol(A, i) = _rowcol(A, Base.to_index(A, i))
+
 # logical getindex
 getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{Bool}) = error("Cannot index with AbstractRange{Bool}")
 getindex(A::AbstractSparseMatrixCSC{<:Any,<:Integer}, I::AbstractRange{Bool}, J::AbstractVector{<:Integer}) = error("Cannot index with AbstractRange{Bool}")
@@ -3187,6 +3268,8 @@ getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = A[fi
 getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = A[findall(I),findall(J)]
 getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{<:Integer}, J::AbstractVector{Bool}) = A[I,findall(J)]
 getindex(A::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{<:Integer}) = A[findall(I),J]
+# a unit range of `Bool` is a mask, not a range of rows
+getindex(A::AbstractSparseMatrixCSC, I::AbstractUnitRange{Bool}, j::Integer) = A[collect(I), j]
 
 ## setindex!
 
@@ -3208,9 +3291,8 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
         nonzeros(A)[searchk] = v
         return A
     end
-    # Column j does not contain entry A[i,j]. If v is nonzero, insert entry A[i,j] = v
-    # and return. If to the contrary v is zero, then simply return.
-    if v isa AbstractArray || v !== zero(eltype(A)) # stricter than iszero to support A[i] = -0.0
+    # Column j does not contain entry A[i,j].
+    if !_isimplicitzero(v, Tv)
         nz = getcolptr(A)[size(A, 2)+1]
         # throw exception before state is partially modified
         !isbitstype(Ti) || nz < typemax(Ti) ||
@@ -3237,13 +3319,21 @@ function _insert!(v::Vector, pos::Integer, item, nz::Integer)
     end
 end
 
+# The indices of `I` in increasing order without repeats. Each method returns the type it
+# is given where it can, so that the caller stays type-stable; a range cannot be sorted in
+# place.
+_strictlysorted(I::Integer) = I
+_strictlysorted(I::AbstractUnitRange) = I
+_strictlysorted(I::AbstractRange) = step(I) > zero(step(I)) ? I : step(I) < zero(step(I)) ? reverse(I) : I[1:min(1, length(I))]
+# lt=≤ to check for strict sorting
+_strictlysorted(I::AbstractVector) = issorted(I, lt=≤) ? I : unique!(sort!(collect(I)))
+
 function Base.fill!(V::SubArray{Tv, <:Any, <:AbstractSparseMatrixCSC{Tv}, <:Tuple{Vararg{Union{Integer, AbstractVector{<:Integer}},2}}}, x) where Tv
     A = V.parent
     I, J = V.indices
-    if isempty(I) || isempty(J); return A; end
-    # lt=≤ to check for strict sorting
-    if !issorted(I, lt=≤); I = sort!(unique(I)); end
-    if !issorted(J, lt=≤); J = sort!(unique(J)); end
+    if isempty(I) || isempty(J); return V; end
+    I = _strictlysorted(I)
+    J = _strictlysorted(J)
     if (I[1] < 1 || I[end] > size(A, 1)) || (J[1] < 1 || J[end] > size(A, 2))
         throw(BoundsError(A, (I, J)))
     end
@@ -3412,37 +3502,57 @@ _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractMatrix, I...) where {
 _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractMatrix, i::Integer, J) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, (1, length(J))))
 _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVector, I...) where {Tv,Ti} = convert(SparseMatrixCSC{Tv,Ti}, reshape(V, map(length, I)))
 
+# The positions of `I` that a sorted merge has to visit, in increasing order of index:
+# of a repeated index only the last position, whose write wins. `nothing` if `I` is
+# already strictly increasing.
+function _setindex_lastwrites(I)
+    issorted(I, lt=≤) && return nothing
+    # a decreasing range has no repeats, and indexing by its range permutation is cheaper
+    I isa AbstractRange && !iszero(step(I)) && return sortperm(I)
+    p = issorted(I) ? collect(eachindex(I)) : sortperm(I)   # stable, so repeats keep their order
+    n = length(p)
+    k = 0
+    @inbounds for t in 1:n
+        (t < n && I[p[t]] == I[p[t+1]]) && continue
+        p[k += 1] = p[t]
+    end
+    return resize!(p, k)
+end
+
 setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::Integer) where {Tv} = _setindex_scalar!(A, B, I, J)
 
 function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::Union{Integer, AbstractVector{<:Integer}, Colon}, Jx::Union{Integer, AbstractVector{<:Integer}, Colon}) where {Tv,Ti<:Integer}
     require_one_based_indexing(A, V, Ix, Jx)
-    (I, J) = Base.ensure_indexable(to_indices(A, (Ix, Jx)))
-    checkbounds(A, I, J)
+    # Bounds are checked before `ensure_indexable`, which collects a mask's
+    # `Base.LogicalIndex` and drops the mask's length.
+    L = to_indices(A, (Ix, Jx))
+    checkbounds(A, L...)
+    (I, J) = Base.ensure_indexable(L)
+    # the kernel reads the indices while it rewrites the storage
+    I = _unalias_setindex(A, I)
+    J = _unalias_setindex(A, J)
     nJ = length(J)
     Base.setindex_shape_check(V, length(I), nJ)
     B = _to_same_csc(A, V, I, J)
 
     m, n = size(A)
-    if (!isempty(I) && (I[1] < 1 || I[end] > m)) || (!isempty(J) && (J[1] < 1 || J[end] > n))
-        throw(BoundsError(A, (I, J)))
-    end
     if isempty(I) || isempty(J)
         return A
     end
 
-    issortedI = issorted(I)
-    issortedJ = issorted(J)
-    if !issortedI && !issortedJ
-        pI = sortperm(I); @inbounds I = I[pI]
-        pJ = sortperm(J); @inbounds J = J[pJ]
+    pI = _setindex_lastwrites(I)
+    pJ = _setindex_lastwrites(J)
+    if pI !== nothing && pJ !== nothing
+        I = I[pI]; J = J[pJ]
         B = B[pI, pJ]
-    elseif !issortedI
-        pI = sortperm(I); @inbounds I = I[pI]
-        B = B[pI,:]
-    elseif !issortedJ
-        pJ = sortperm(J); @inbounds J = J[pJ]
+    elseif pI !== nothing
+        I = I[pI]
+        B = B[pI, :]
+    elseif pJ !== nothing
+        J = J[pJ]
         B = B[:, pJ]
     end
+    nJ = length(J)
 
     colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
     colptrB = getcolptr(B); rowvalB = rowvals(B); nzvalB = nonzeros(B)
@@ -3536,118 +3646,76 @@ end
 
 # Logical setindex!
 
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = setindex!(A, Array(x), I, findall(J))
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = setindex!(A, Array(x), findall(I), J)
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = setindex!(A, Array(x), findall(I), findall(J))
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{<:Integer}, J::AbstractVector{Bool}) = setindex!(A, Array(x), I, findall(J))
-setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{<:Integer}) = setindex!(A, Array(x), findall(I), J)
+# `findall` drops the length of a mask, so the bounds are checked first
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = (checkbounds(A, I, J); setindex!(A, Array(x), I, findall(J)))
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = (checkbounds(A, I, J); setindex!(A, Array(x), findall(I), J))
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = (checkbounds(A, I, J); setindex!(A, Array(x), findall(I), findall(J)))
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{<:Integer}, J::AbstractVector{Bool}) = (checkbounds(A, I, J); setindex!(A, Array(x), I, findall(J)))
+setindex!(A::Matrix, x::AbstractSparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{<:Integer}) = (checkbounds(A, I, J); setindex!(A, Array(x), findall(I), J))
 
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, I::AbstractMatrix{Bool})
     require_one_based_indexing(A, x, I)
     checkbounds(A, I)
-    n = sum(I)
-    (n == 0) && (return A)
+    return setindex!(A, x, _masklinearindices(I))
+end
 
-    colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A)
-    colptrB = colptrA; rowvalB = rowvalA; nzvalB = nzvalA
-    nadd = 0
-    bidx = xidx = 1
-    r1 = r2 = 0
-
-    @inbounds for col in axes(A,2)
-        r1 = Int(colptrA[col])
-        r2 = Int(colptrA[col+1]-1)
-
-        for row in axes(A,1)
-            if I[row, col]
-                v = x[xidx]
-                xidx += 1
-
-                if r1 <= r2
-                    copylen = searchsortedfirst(view(rowvalA, r1:r2), row) - 1
-                    if (copylen > 0)
-                        if (nadd > 0)
-                            copyto!(rowvalB, bidx, rowvalA, r1, copylen)
-                            copyto!(nzvalB, bidx, nzvalA, r1, copylen)
-                        end
-                        bidx += copylen
-                        r1 += copylen
-                    end
-                end
-
-                # 0: no change, 1: update, 2: add new
-                mode = ((r1 <= r2) && (rowvalA[r1] == row)) ? 1 : ((v == 0) ? 0 : 2)
-
-                if (mode > 1) && (nadd == 0)
-                    # copy storage to take changes
-                    colptrA = copy(colptrB)
-                    memreq = (x == 0) ? 0 : n
-                    # this x == 0 check and approach doesn't jive with use of v above
-                    # and may not make sense generally, as scalar x == 0 probably
-                    # means this section should never be called. also may not be generic.
-                    # TODO: clean this up, maybe separate scalar and array X cases
-                    rowvalA = copy(rowvalB)
-                    nzvalA = copy(nzvalB)
-                    resize!(rowvalB, length(rowvalA)+memreq)
-                    resize!(nzvalB, length(rowvalA)+memreq)
-                end
-                if mode == 1
-                    rowvalB[bidx] = row
-                    nzvalB[bidx] = v
-                    bidx += 1
-                    r1 += 1
-                elseif mode == 2
-                    rowvalB[bidx] = row
-                    nzvalB[bidx] = v
-                    bidx += 1
-                    nadd += 1
-                end
-                (xidx > n) && break
-            end # if I[row, col]
-        end # for row in axes(A,1)
-
-        if (nadd != 0)
-            l = r2-r1+1
-            if l > 0
-                copyto!(rowvalB, bidx, rowvalA, r1, l)
-                copyto!(nzvalB, bidx, nzvalA, r1, l)
-                bidx += l
-            end
-            colptrB[col+1] = bidx
-
-            if (xidx > n) && (length(colptrB) > (col+1))
-                diff = nadd
-                colptrB[(col+2):end] = colptrA[(col+2):end] .+ diff
-                r1 = colptrA[col+1]
-                r2 = colptrA[end]-1
-                l = r2-r1+1
-                if l > 0
-                    copyto!(rowvalB, bidx, rowvalA, r1, l)
-                    copyto!(nzvalB, bidx, nzvalA, r1, l)
-                    bidx += l
-                end
-            end
-        else
-            bidx = colptrA[col+1]
-        end
-        (xidx > n) && break
-    end # for col in axes(A,2)
-
-    if (nadd != 0)
-        n = length(nzvalB)
-        if n > (bidx-1)
-            deleteat!(nzvalB, bidx:n)
-            deleteat!(rowvalB, bidx:n)
+# The linear indices of the true entries of a mask, in ascending order. Sparse masks and
+# their transposes are walked by stored entry.
+_masklinearindices(I::AbstractMatrix{Bool}) = findall(vec(I))
+function _masklinearindices(I::AbstractSparseMatrixCSC{Bool})
+    m = size(I, 1)
+    rowvalI = rowvals(I); nzvalI = nonzeros(I)
+    L = Int[]
+    sizehint!(L, nnz(I))
+    for j in axes(I, 2)
+        offset = (j - 1) * m
+        for k in nzrange(I, j)
+            nzvalI[k] && push!(L, offset + Int(rowvalI[k]))
         end
     end
-    return _checkbuffers(A)
+    return L
+end
+function _masklinearindices(I::AdjOrTrans{Bool,<:AbstractSparseMatrixCSC{Bool}})
+    P = parent(I)
+    mI = size(I, 1)
+    rowvalP = rowvals(P); nzvalP = nonzeros(P)
+    L = Int[]
+    sizehint!(L, nnz(P))
+    for j in axes(P, 2)
+        for k in nzrange(P, j)
+            nzvalP[k] && push!(L, (Int(rowvalP[k]) - 1) * mI + j)
+        end
+    end
+    return sort!(L)
+end
+
+# A copy of `v` when it may share storage with a buffer the kernel writes; the kernel reads
+# the indices and values while it rewrites the storage.
+function _unalias_setindex(A::AbstractSparseMatrixCSC, v)
+    (Base.mightalias(v, nonzeros(A)) || Base.mightalias(v, rowvals(A)) ||
+        Base.mightalias(v, getcolptr(A))) && return Base.unaliascopy(v)
+    return v
+end
+
+# Throw the conversion error of writing `vals` into storage of eltype `T` before a caller
+# rewrites the pattern. A loop that cannot throw compiles away.
+_checkconvertible(::Type{T}, vals::AbstractArray{<:T}) where {T} = nothing
+function _checkconvertible(::Type{T}, vals::AbstractArray) where {T}
+    for v in vals
+        convert(T, v)
+    end
+    return nothing
 end
 
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVector{<:Integer})
     require_one_based_indexing(A, x, Ix)
+    # to_indices does not compare a Bool mask's length with A's
+    Ix isa AbstractVector{Bool} && checkbounds(A, Ix)
     (I,) = Base.ensure_indexable(to_indices(A, (Ix,)))
-    # We check bounds after sorting I
+    I = _unalias_setindex(A, I)
+    x = _unalias_setindex(A, x)
     n = length(I)
+    setindex_shape_check(x, n)
     (n == 0) && (return A)
 
     colptrA = getcolptr(A); rowvalA = rowvals(A); nzvalA = nonzeros(A); szA = size(A)
@@ -3658,11 +3726,11 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     S = issorted(I) ? (1:n) : sortperm(I)
     sxidx = r1 = r2 = 0
 
-    if (!isempty(I) && (I[S[1]] < 1 || I[S[end]] > widelength(A)))
+    if (I[S[1]] < 1 || I[S[end]] > widelength(A))
         throw(BoundsError(A, I))
     end
-
-    isa(x, AbstractArray) && setindex_shape_check(x, length(I))
+    # a value that does not convert throws before any write
+    _checkconvertible(eltype(A), x)
 
     CartIndsA = CartesianIndices(szA)
 
@@ -3670,7 +3738,7 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     (nrowA, ncolA) = szA
     @inbounds for xidx in 1:n
         sxidx = S[xidx]
-        (sxidx < n) && (I[sxidx] == I[sxidx+1]) && continue
+        (xidx < n) && (I[sxidx] == I[S[xidx+1]]) && continue
 
         row,col = Tuple(CartIndsA[I[sxidx]])
         v = x[sxidx]
@@ -3714,12 +3782,10 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
         if (mode > 1) && (nadd == 0)
             # copy storage to take changes
             colptrA = copy(colptrB)
-            memreq = (x == 0) ? 0 : n
-            # see comment/TODO for same statement in preceding logical setindex! method
             rowvalA = copy(rowvalB)
             nzvalA = copy(nzvalB)
-            resize!(rowvalB, length(rowvalA)+memreq)
-            resize!(nzvalB, length(rowvalA)+memreq)
+            resize!(rowvalB, length(rowvalA)+n)
+            resize!(nzvalB, length(rowvalA)+n)
         end
         if mode == 1
             rowvalB[bidx] = row
@@ -3820,16 +3886,20 @@ julia> SparseArrays.dropstored!(A, [1, 2], [1, 1])
 function dropstored!(A::AbstractSparseMatrixCSC,
         I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
     require_one_based_indexing(A, I, J)
-    m, n = size(A)
+    # Lower indices as Base does. Bounds are checked first because a mask lowers to a
+    # `Base.LogicalIndex`, which `ensure_indexable` collects, dropping the mask's length.
+    L = to_indices(A, (I, J))
+    checkbounds(A, L...)
+    I, J = Base.ensure_indexable(L)
+    # the kernel reads the indices while it compacts the storage
+    I = _unalias_setindex(A, I)
+    J = _unalias_setindex(A, J)
+    n = size(A, 2)
     nnzA = nnz(A)
     (nnzA == 0) && (return A)
 
     !issorted(I) && (I = sort(I))
     !issorted(J) && (J = sort(J))
-
-    if (!isempty(I) && (I[1] < 1 || I[end] > m)) || (!isempty(J) && (J[1] < 1 || J[end] > n))
-        throw(BoundsError(A, (I, J)))
-    end
 
     if isempty(I) || isempty(J)
         return A
@@ -4010,11 +4080,17 @@ end
 
 function Base.repeat(A::AbstractSparseMatrixCSC, m, n)
     B = repeat(A, m)
-    nnz_per_column = diff(getcolptr(B))
-    colptr = cumsum(vcat(1, repeat(nnz_per_column, n)))
+    nB = size(B, 2)
+    nnzB = nnz(B)
+    colptrB = getcolptr(B)
+    colptr = similar(colptrB, nB * n + 1)
+    colptr[1] = 1
+    for k = 0 : (n - 1), c = 1 : nB
+        colptr[k * nB + c + 1] = colptrB[c + 1] + k * nnzB
+    end
     rowval = repeat(rowvals(B), n)
     nzval = repeat(nonzeros(B), n)
-    SparseMatrixCSC(size(B, 1), size(B, 2) * n, colptr, rowval, nzval)
+    SparseMatrixCSC(size(B, 1), nB * n, colptr, rowval, nzval)
 end
 
 
@@ -4087,7 +4163,9 @@ function is_hermsym(A::AbstractSparseMatrixCSC, check::Function)
     colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval = nonzeros(A)
-    tracker = copy(getcolptr(A))
+    # `Vector`, not `copy`: a fixed matrix's column pointers are `ReadOnly` and `copy`
+    # keeps that wrapper, but the tracker is advanced below
+    tracker = Vector(getcolptr(A))
     @inbounds for col in axes(A,2)
         # `tracker` is updated such that, for symmetric matrices,
         # the loop below starts from an element at or below the
@@ -4168,11 +4246,15 @@ end
 
 function istriu(A::AbstractSparseMatrixCSC, k::Integer=0)
     m, n = size(A)
+    k <= 1-m && return true
+    k >= n && return iszero(A)
     colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
-    @inbounds for col = 1:min(n, m-1)
+    # Compare before adding k to avoid overflowing the last column of the band.
+    lastcol = k >= n-m+1 ? n : m-1+k
+    for col = 1:lastcol
         l1 = colptr[col+1]-1
         for i = 0 : (l1 - colptr[col])
             if rowval[l1-i] <= col - k
@@ -4189,11 +4271,14 @@ end
 
 function istril(A::AbstractSparseMatrixCSC, k::Integer=0)
     m, n = size(A)
+    k >= n-1 && return true
+    k <= -m && return iszero(A)
     colptr = getcolptr(A)
     rowval = rowvals(A)
     nzval  = nonzeros(A)
 
-    @inbounds for col = 2:n
+    # column j has entries above the band only when j - k > 1
+    for col = max(1, k+2):n
         for i = colptr[col] : (colptr[col+1]-1)
             if rowval[i] >= col - k
                 # subsequent rows would also lie below the band
@@ -4243,7 +4328,7 @@ spdiagm_eltype(p::Pair, q::Pair, rest::Pair...) =
     (@inline; promote_type(promote_type(eltype(p.second), eltype(q.second)),
                            spdiagm_eltype(rest...)))
 spdiagm_eltype(p::Pair, q::Pair) = promote_type(eltype(p.second), eltype(q.second))
-spdiagm_eltype(kv::Pair{<:Integer,<:AbstractVector{T}}...) where {T} = T
+spdiagm_eltype(::Pair{<:Integer,<:AbstractVector{T}}, ::Pair{<:Integer,<:AbstractVector{T}}...) where {T} = T
 
 function spdiagm_internal(kv::Pair{<:Integer,<:AbstractVector}...)
     ncoeffs = 0
@@ -4335,6 +4420,7 @@ julia> spdiagm(sparse([1,0,3]))
 spdiagm(v::AbstractVector) = _spdiagm(nothing, 0 => v)
 spdiagm(m::Integer, n::Integer, v::AbstractVector) = _spdiagm((Int(m), Int(n)), 0 => v)
 
+_spdiagm(size) = spzeros(Bool, something(size, (0,0))...) # eltype as `diagm(m, n)`
 function _spdiagm(size, kv::Pair{<:Integer,<:AbstractVector}...)
     I, J, V, mmax, nmax = spdiagm_internal(kv...)
     mnmax = max(mmax, nmax)

@@ -121,6 +121,27 @@ end
     @test struct_eq(t, x)
 end
 
+@testset "structure queries and unary maps keep the fixed pattern" begin
+    same_pattern(X::AbstractVector, Y) = nonzeroinds(X) == nonzeroinds(Y)
+    same_pattern(X, Y) = getcolptr(X) == getcolptr(Y) && rowvals(X) == rowvals(Y)
+    # `issymmetric`/`ishermitian` advance a copy of the column pointers, which are
+    # read-only in a fixed matrix
+    S = fixed(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+    @test issymmetric(S) && ishermitian(S)
+    @test !issymmetric(fixed(sparse([4.0 1 0; 2 4 1; 0 1 4])))
+    @test ishermitian(fixed(sparse(ComplexF64[4 1+im 0; 1-im 4 1; 0 1 4])))
+    A = sparse([1, 2, 2], [1, 1, 2], [1, 2, 0], 3, 3)
+    x = sparsevec([1, 3], [1, 0], 4)
+    F, y = fixed(A), fixed(x)
+    @test which(-, (typeof(F),)).module === SparseArrays
+    for f in (-, float, complex)
+        R, r = f(F), f(y)
+        @test R isa FixedSparseCSC && r isa FixedSparseVector
+        @test R == f(A) && same_pattern(R, A) && r == f(x) && same_pattern(r, x)
+    end
+    @test getcolptr(-F) === getcolptr(F) && nonzeroinds(-y) === nonzeroinds(y)
+end
+
 @testset "Issue #190" begin
     J = move_fixed(sparse(Diagonal(ones(4))))
     W = move_fixed(sparse(Diagonal(ones(4))))
@@ -148,6 +169,58 @@ end
         @test _is_fixed(A) == _is_fixed(A[1:3])
     end
 end
+@testset "getindex with unsorted indices keeps the pattern read-only" begin
+    S = sparse([1, 2, 3, 1], [1, 2, 3, 3], [1.0, 2.0, 3.0, 4.0])
+    F = fixed(S)
+    pattern = (copy(parent(getcolptr(F))), copy(parent(rowvals(F))), copy(nonzeros(F)))
+    mask = [true, false, true]
+    for (I, J) in (([2, 1], [1, 2]), ([3, 1, 2], :), (:, [3, 1]), ([2, 1], mask), (mask, [3, 1]),
+                   ([3, 1, 2], 3))
+        R = F[I, J]
+        @test R == S[I, J]
+        @test _is_fixed(R)
+        @test size(R) == size(S[I, J])
+    end
+    @test (parent(getcolptr(F)), parent(rowvals(F)), nonzeros(F)) == pattern
+end
+
+@testset "cumsum, cumprod and accumulate return a writable copy" begin
+    for T in (Float64, ComplexF64)
+        S = sparse([1, 2, 3, 1], [1, 2, 3, 3], T[1, 2, 3, 4])
+        F = fixed(S)
+        pattern = (copy(parent(getcolptr(F))), copy(parent(rowvals(F))), copy(nonzeros(F)))
+        @test which(cumsum, (typeof(F),)).module === SparseArrays
+        @test which(cumprod, (typeof(F),)).module === SparseArrays
+        @test which(accumulate, (typeof(+), typeof(F))).module === SparseArrays
+        for d in (1, 2)
+            for f in (cumsum, cumprod)
+                R = f(F, dims=d)
+                @test R == f(S, dims=d) == f(Array(S), dims=d)
+                @test R isa SparseMatrixCSC{T} && !_is_fixed(R)
+            end
+            R = accumulate(+, F, dims=d, init=one(T))
+            @test R == accumulate(+, S, dims=d, init=one(T)) == accumulate(+, Array(S), dims=d, init=one(T))
+            @test R isa SparseMatrixCSC{T} && !_is_fixed(R)
+        end
+        @test accumulate(-, F) == accumulate(-, S)
+        @test (parent(getcolptr(F)), parent(rowvals(F)), nonzeros(F)) == pattern
+
+        s = sparsevec([1, 3], T[1, 2], 4)
+        v = fixed(s)
+        vpattern = (copy(parent(nonzeroinds(v))), copy(nonzeros(v)))
+        @test which(cumsum, (typeof(v),)).module === SparseArrays
+        for f in (cumsum, cumprod)
+            r = f(v)
+            @test r == f(s) == f(Array(s)) == f(v, dims=1)
+            @test r isa SparseVector{T} && !_is_fixed(r)
+        end
+        r = accumulate(+, v, init=one(T))
+        @test r == accumulate(+, s, init=one(T)) == accumulate(+, Array(s), init=one(T))
+        @test r isa SparseVector{T} && !_is_fixed(r)
+        @test (parent(nonzeroinds(v)), nonzeros(v)) == vpattern
+    end
+end
+
 
 @testset "Test factorization" begin
     b = sprandn(10, 10, 0.99) + I
@@ -157,6 +230,16 @@ end
     @test b == a
     @test (qr(a + a') \ randn(10); true)
     @test b == a
+end
+
+@testset "FixedSparseVector getindex with index vectors" begin
+    x = sparsevec([1, 3, 6], [1.0, 2.0, 3.0], 8)
+    v = fixed(x)
+    for I in ([3, 1], Int[], [true, false, true, false, false, true, false, true])
+        r = v[I]
+        @test r isa FixedSparseVector{Float64,Int} && r == x[I]
+    end
+    @test nonzeroinds(v) == [1, 3, 6] && nonzeros(v) == [1.0, 2.0, 3.0]
 end
 
 always_false(x...) = false

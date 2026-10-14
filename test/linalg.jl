@@ -223,6 +223,40 @@ end
     end
 end
 
+@testset "symmetric/Hermitian sparse mul! into a dense destination" begin
+    isdefined(Main, :Quaternions) ||
+        Base.include(Main, joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testhelpers", "Quaternions.jl"))
+    Quaternion = Main.Quaternions.Quaternion
+    q(v) = [Quaternion(a, a + 1, 2a - 1, 3 - a) for a in v]
+    # `alpha` multiplies from the right, as in `A*B*alpha`
+    W = Hermitian(sparse(reshape(q(1.0:9.0), 3, 3)))
+    B = reshape(q(-2.0:3.0), 3, 2)
+    α = Quaternion(0.5, -1.0, 2.0, 1.5)
+    @test mul!(zeros(eltype(B), 3, 2), W, B, α, false) ≈ Matrix(W) * B * α
+    # `alpha === false` is a strong zero, so a NaN in `B` does not reach `C`
+    @test mul!(ones(2, 2), Symmetric(sparse([1.0 2; 3 4])), [NaN 1; 1 1], false, 1.0) == ones(2, 2)
+    # the scalars keep their own type, so an integer destination takes any result it can hold
+    @test mul!(zeros(Int, 2, 2), Symmetric(sparse([1 2; 3 4])), [2 2; 4 4], 0.5, 1) == [5 5; 10 10]
+end
+
+@testset "mul! into a dense destination that is an operand throws" begin
+    S = sparse([1.0 2 0; 0 3 4; 5 0 6])
+    D = [1.0 2 3; 4 5 6; 7 8 10]
+    # one aliased call for each kernel that reads a dense operand, and one through a wrapper
+    for f in (C -> mul!(C, S, C), C -> mul!(C, S', C), C -> mul!(C, C, S), C -> mul!(C, C', S),
+              C -> mul!(C, transpose(C), transpose(S)), C -> mul!(C, Symmetric(S), C),
+              C -> mul!(C, UpperTriangular(S), C'), C -> mul!(C, S, UpperTriangular(C)))
+        C = copy(D)
+        @test_throws ArgumentError f(C)
+        @test C == D
+    end
+    # a `false` `alpha` leaves the operand unread, and views of one array that do not
+    # overlap are distinct operands
+    @test mul!((C = copy(D); C), S, C, false, 2.0) == 2D
+    X = [D D]
+    @test mul!(view(X, :, 1:3), S, UpperTriangular(view(X, :, 4:6))) == S * UpperTriangular(D)
+end
+
 @testset "Symmetric of view of sparse matrix mul! dense vector" begin
     rng = Random.MersenneTwister(1)
     n = 1000
@@ -294,6 +328,8 @@ end
     Ai = ceil.(Int, Ar*100)
     MAi = Array(Ai)
     @test opnorm(Ac,1) ≈ opnorm(MAc,1)
+    # only the 1, 2 and Inf norms exist, for an empty matrix as well
+    @test_throws ArgumentError opnorm(spzeros(0, 0), 3)
     @test opnorm(Ac,Inf) ≈ opnorm(MAc,Inf)
     @test norm(Ac) ≈ norm(MAc)
     @test opnorm(Ar,1) ≈ opnorm(MAr,1)
@@ -367,6 +403,24 @@ end
 
         v = sprand(eltype(D), size(D,1), 0.1)
         @test ldiv!(D, copy(v)) == D \ Array(v)
+    end
+
+    # `D \ A` and `A / D` returned `Inf` for a singular `D`; the zero is not the first entry,
+    # so a kernel that checked while scaling would leave the destination modified
+    @testset "D \\ A and A / D" begin
+        A = sparse([1.0+im 0 2; 0 3 0]); MA = Matrix(A); v = sparsevec([2], [1.0+im], 2)
+        Dl = Diagonal([2.0, 1+im]); Dr = Diagonal([1.0, 2im, 3])
+        @test Dl \ A isa SparseMatrixCSC && Dl \ A ≈ Dl \ MA
+        @test A / Dr isa SparseMatrixCSC && A / Dr ≈ MA / Dr
+        @test ldiv!(Dl, copy(v)) ≈ Dl \ Vector(v)
+        Dl0 = Diagonal([1.0, 0]); Dr0 = Diagonal([1.0, 2, 0]); B = copy(A)
+        @test_throws SingularException(2) Dl0 \ A
+        @test_throws SingularException(2) ldiv!(Dl0, B)
+        @test B == A
+        @test_throws SingularException(3) A / Dr0
+        @test_throws SingularException(3) rdiv!(B, Dr0)
+        @test B == A
+        @test_throws DimensionMismatch Dr \ A
     end
 end
 
@@ -536,6 +590,44 @@ end
     @test !istriu(sparse(A))
     @test istril(sparse(tril(A)))
     @test !istril(sparse(A))
+
+    @testset "extreme band offsets" begin
+        S = sparse([1], [1], [1.0], 3, 3)
+        for k in (typemax(Int)-1, typemax(Int))
+            @test !istriu(S, k)
+            @test istril(S, k)
+        end
+        @test istriu(S, typemin(Int))
+        @test !istril(S, typemin(Int))
+        nonzeros(S)[1] = 0
+        for k in (typemin(Int), typemax(Int))
+            @test istriu(S, k) && istril(S, k)
+        end
+        S = SparseMatrixCSC(typemax(Int), 3, [1, 2, 2, 2], [1], [1.0])
+        @test !istriu(S, 2)
+    end
+
+    @testset "band offset k, $T $(m)x$(n)" for T in (Float64, ComplexF64), (m, n) in ((1, 2), (2, 1), (3, 5), (5, 3), (0, 3), (3, 0))
+        @test which(istriu, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
+        @test which(istril, (SparseMatrixCSC{T,Int}, Int)).module === SparseArrays
+        v = T <: Complex ? T(2 + im) : T(2)
+        full = sparse(fill(v, m, n))
+        for k in -3:3
+            @test istriu(full, k) == istriu(Matrix(full), k)
+            @test istril(full, k) == istril(Matrix(full), k)
+            for i in 1:m, j in 1:n
+                S = sparse([i], [j], [v], m, n)
+                for X in (S, adjoint(S), transpose(S))
+                    @test istriu(X, k) == istriu(Matrix(X), k)
+                    @test istril(X, k) == istril(Matrix(X), k)
+                end
+                # a stored zero is not a nonzero
+                nonzeros(S)[1] = zero(T)
+                @test istriu(S, k) && istril(S, k)
+                @test istriu(adjoint(S), k) && istril(transpose(S), k)
+            end
+        end
+    end
 end
 
 @testset "trace" begin
@@ -561,6 +653,10 @@ end
     # sparse eltypes should infer well, even for a `Vararg` tail of unknown length
     @test Base.infer_return_type(SparseArrays.spdiagm_eltype,
               Tuple{Vararg{Pair{Int,Vector{Float64}}}}) === Core.Typeof(Float64)
+
+    # no diagonals
+    @test spdiagm(3, 4)::SparseMatrixCSC{Bool,Int} == diagm(3, 4)
+    @test spdiagm()::SparseMatrixCSC{Bool,Int} == diagm()
 
     # convenience constructor
     @test spdiagm(x)::SparseMatrixCSC == diagm(x)

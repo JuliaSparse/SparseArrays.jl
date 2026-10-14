@@ -103,8 +103,7 @@ Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
         rangefun = isuppercase(tA) ? nzrangeup : nzrangelo
         diagop = tA_uc == 'S' ? identity : real
         odiagop = tA_uc == 'S' ? transpose : adjoint
-        T = eltype(C)
-        _mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), T(alpha), T(beta))
+        _mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), alpha, beta)
     else
         LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
     end
@@ -150,6 +149,18 @@ end
     return mC, nC, mA, nA, mB, nB
 end
 
+# As for a dense product: the kernels read the dense operand while they write `C`. Its
+# wrappers are stripped first, so that views of one array are compared by their indices.
+# A `false` `α` leaves the operand unread.
+_densestorage(B::DenseViewWrappers) = _densestorage(parent(B))
+_densestorage(B) = B
+@inline function _checknoalias(C, B, α)
+    α isa Bool && !α && return
+    Base.mightalias(C, _densestorage(B)) &&
+        throw(ArgumentError("output matrix must not be aliased with input matrix"))
+    return
+end
+
 @inline _matmul_size_AB(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('N'))
 @inline _matmul_size_AtB(C, A, B) = _matmul_size(C, A, B, Val('T'), Val('N'))
 @inline _matmul_size_ABt(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('T'))
@@ -158,6 +169,7 @@ function _spmatmul!(C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
+    _checknoalias(C, B, α)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -181,6 +193,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AtB(C, A, B)
+    _checknoalias(C, B, α)
     nzv = nonzeros(A)
     rv = rowvals(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -219,6 +232,7 @@ function _spmul!(C::StridedMatrix, X::DenseMatrixUnion, A::SparseMatrixCSCUnion2
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
+    _checknoalias(C, X, α)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -240,6 +254,7 @@ function _spmul!(C::StridedMatrix, X::AdjOrTrans{<:Any,<:DenseMatrixUnion}, A::S
     Xax1 = axes(X, 1)
     Cax2 = axes(C, 2)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
+    _checknoalias(C, X, α)
     rv = rowvals(A)
     nzv = nonzeros(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -266,6 +281,7 @@ function _A_mul_Bt_or_Bc!(tfun::Function, C::StridedMatrix, A::AbstractMatrix, B
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
+    _checknoalias(C, A, α)
     rv = rowvals(B)
     nzv = nonzeros(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -893,6 +909,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, tf
         throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
     end
     nrowB, ncolB  = size(B, 1), size(B, 2)
+    C === B || _checknoalias(C, B, true)
     C !== B && copyto!(C, B)
     aa = getnzval(A)
     ja = getrowval(A)
@@ -1023,6 +1040,7 @@ function LinearAlgebra.generic_trimatmul!(C::StridedVecOrMat, uploc, isunitc, ::
     if nrowC != ncol
         throw(DimensionMismatch("A has $(ncol) columns and B has $(nrowC) rows"))
     end
+    C === B || _checknoalias(C, B, true)
     C !== B && copyto!(C, B)
     nrowB, ncolB  = size(B, 1), size(B, 2)
     aa = getnzval(A)
@@ -1327,31 +1345,34 @@ end
 
 # symmetric/Hermitian
 
-function _mul!(nzrang::Function, diagop::Function, odiagop::Function, C::StridedVecOrMat{T}, A, B, α, β) where T
+function _mul!(nzrang::R, diagop::D, odiagop::O, C::StridedVecOrMat, A, B, α::Number, β::Number) where {R<:Function,D<:Function,O<:Function}
     n = size(A, 2)
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
+    _checknoalias(C, B, α)
     rv = rowvals(A)
     nzv = nonzeros(A)
-    let z = T(0), sumcol=z, αxj=z, aarc=z, α = α
-        isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-        @inbounds for k in axes(B,2)
-            for col in axes(B,1)
-                αxj = B[col,k] * α
-                sumcol = z
-                for j = nzrang(A, col)
-                    row = rv[j]
-                    aarc = nzv[j]
-                    if row == col
-                        sumcol += diagop(aarc) * B[row,k]
-                    else
-                        C[row,k] += aarc * αxj
-                        sumcol += odiagop(aarc) * B[row,k]
-                    end
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    if α isa Bool && !α
+        return
+    end
+    z = zero(eltype(C))
+    @inbounds for k in axes(B,2)
+        for col in axes(B,1)
+            αxj = α isa Bool ? B[col,k] : B[col,k] * α
+            sumcol = z
+            for j = nzrang(A, col)
+                row = rv[j]
+                aarc = nzv[j]
+                if row == col
+                    sumcol += diagop(aarc) * B[row,k]
+                else
+                    C[row,k] += aarc * αxj
+                    sumcol += odiagop(aarc) * B[row,k]
                 end
-                C[col,k] += α * sumcol
             end
+            C[col,k] += α isa Bool ? sumcol : sumcol * α
         end
     end
 end
@@ -1459,39 +1480,81 @@ end
 
 \(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::Vector) = copy(A) \ B
 
-function rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal)
-    dd = D.diag
-    if (k = length(dd)) ≠ size(A, 2)
-        throw(DimensionMismatch("size(A, 2)=$(size(A, 2)) should be size(D, 1)=$k"))
-    end
-    nonz = nonzeros(A)
-    @inbounds for j in 1:k
-        ddj = dd[j]
-        if iszero(ddj)
-            throw(LinearAlgebra.SingularException(j))
+## diagonal scaling
+
+# Scale the stored entries of `A` into `C`, which either is `A` or takes its pattern:
+# `C[i, j] = op(A[i, j], d[j])` columnwise, `C[i, j] = op(d[i], A[i, j])` rowwise. The
+# argument order of `op` is kept for non-commutative eltypes. The callers check that
+# `length(d)` matches the scaled dimension and that `size(C) == size(A)`.
+function _scalecols!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
+    copyinds!(C, A)
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
+    resize!(Cnzval, length(Anzval))
+    @inbounds for col in axes(A, 2)
+        dcol = d[col]
+        for p in nzrange(A, col)
+            Cnzval[p] = op(Anzval[p], dcol)
         end
-        for i in nzrange(A, j)
-            nonz[i] /= ddj
-        end
     end
-    A
+    return C
 end
 
-function ldiv!(D::Diagonal, A::Union{AbstractSparseMatrixCSC, AbstractSparseVector})
-    # require_one_based_indexing(A)
-    if size(A, 1) != length(D.diag)
-        throw(DimensionMismatch("diagonal matrix is $(length(D.diag)) by $(length(D.diag)) but right hand side has $(size(A, 1)) rows"))
-    end
-    nonz = nonzeros(A)
+function _scalerows!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
+    copyinds!(C, A)
+    Cnzval = nonzeros(C)
+    Anzval = nonzeros(A)
     Arowval = rowvals(A)
-    b = D.diag
-    @inbounds for i=axes(b,1)
-        iszero(b[i]) && throw(SingularException(i))
+    resize!(Cnzval, length(Anzval))
+    @inbounds for col in axes(A, 2), p in nzrange(A, col)
+        Cnzval[p] = op(d[Arowval[p]], Anzval[p])
     end
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-        nonz[p] = b[Arowval[p]] \ nonz[p]
+    return C
+end
+
+function _scalerows!(x::AbstractSparseVector, d::AbstractVector, op::F) where {F}
+    xnzval = nonzeros(x)
+    xnzind = nonzeroinds(x)
+    @inbounds for p in eachindex(xnzind, xnzval)
+        xnzval[p] = op(d[xnzind[p]], xnzval[p])
     end
-    A
+    return x
+end
+
+function _checkscaledims(C, A, D::Diagonal, dim::Int)
+    n = size(A, dim)
+    k = length(D.diag)
+    n == k || throw(DimensionMismatch("A has size $(size(A)) but D has size ($k, $k)"))
+    size(C) == size(A) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
+    return nothing
+end
+
+function _checknonsingular(D::Diagonal)
+    i = findfirst(iszero, D.diag)
+    isnothing(i) || throw(SingularException(i))
+    return nothing
+end
+
+function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
+    _checkscaledims(C, A, D, 2)
+    _checknonsingular(D)
+    return _scalecols!(C, A, D.diag, /)
+end
+
+rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal) = LinearAlgebra._rdiv!(A, A, D)
+
+function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
+    _checkscaledims(C, A, D, 1)
+    _checknonsingular(D)
+    return _scalerows!(C, A, D.diag, \)
+end
+
+ldiv!(D::Diagonal, A::AbstractSparseMatrixCSC) = ldiv!(A, D, A)
+
+function ldiv!(D::Diagonal, x::AbstractSparseVector)
+    _checkscaledims(x, x, D, 1)
+    _checknonsingular(D)
+    return _scalerows!(x, D.diag, \)
 end
 
 ## triu, tril
@@ -1693,6 +1756,7 @@ norm(A::AbstractSparseMatrixCSC, p::Real=2) = norm(view(nonzeros(A), 1:nnz(A)), 
 
 function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
     m, n = size(A)
+    p in (1, 2, Inf) || throw(ArgumentError("invalid operator p-norm p=$p. Valid: 1, Inf"))
     if m == 0 || n == 0 || isempty(A)
         return float(real(zero(eltype(A))))
     elseif m == 1
@@ -2273,62 +2337,23 @@ function lmul!(b::Number, A::AbstractSparseMatrixCSC)
 end
 
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
-    m, n = size(A)
-    szD = size(D, 1)
-    (n == szD) || throw(DimensionMismatch("A has size ($m, $n) but D has size ($szD, $szD)"))
-    Anzval = nonzeros(A)
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-         Anzval[p] = Anzval[p] * D.diag[col]
-    end
-    return A
+    _checkscaledims(A, A, D, 2)
+    return _scalecols!(A, A, D.diag, *)
 end
 
 function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
-    m, n = size(A)
-    ds2 = size(D, 2)
-    (m == ds2) || throw(DimensionMismatch("D has size ($ds2, $ds2) but A has size ($m, $n)"))
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
-    @inbounds for col in axes(A,2), p in nzrange(A, col)
-        Anzval[p] = D.diag[Arowval[p]] * Anzval[p]
-    end
-    return A
+    _checkscaledims(A, A, D, 1)
+    return _scalerows!(A, A, D.diag, *)
 end
 
-function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
-    m, n = size(A)
-    b    = D.diag
-    lb = length(b)
-    m==lb || throw(DimensionMismatch("D has size ($lb, $lb) but A has size ($m, $n)"))
-    szC = size(C)
-    size(A) == szC || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $szC"))
-    copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    Arowval = rowvals(A)
-    resize!(Cnzval, length(Anzval))
-    for col in axes(A,2), p in nzrange(A, col)
-        @inbounds Cnzval[p] = b[Arowval[p]] \ Anzval[p]
-    end
-    C
-end
-
-function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal)
-    m, n = size(A)
-    b    = D.diag
-    lb = length(b)
-    n == lb || throw(DimensionMismatch("A has size ($m, $n) but D has size ($lb, $lb)"))
-    szC = size(C)
-    size(A) == szC || throw(DimensionMismatch("A has size ($m, $n), D has size ($lb, $lb), C has size $szC"))
-    copyinds!(C, A)
-    Cnzval = nonzeros(C)
-    Anzval = nonzeros(A)
-    resize!(Cnzval, length(Anzval))
-    for col in axes(A,2), p in nzrange(A, col)
-        @inbounds Cnzval[p] = Anzval[p] / b[col]
-    end
-    C
-end
+# For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
+# LinearAlgebra's generic `factorize(::HermOrSym)`, a dense Bunch-Kaufman in
+# `Rational{BigInt}`, so they take the `lu` branch instead, which converts to floating
+# point like dense `\` does. Every other eltype keeps its path: floating point goes to
+# the sparse Cholesky/LDLt, and `Rational` stays exact through the generic factorization.
+# A sparse right-hand side keeps the generic path, since UMFPACK does not solve with one.
+_hermitian_solve(A::AbstractSparseMatrixCSC, B=nothing) =
+    (B isa AbstractSparseArray || !(eltype(A) <: Union{Integer, Complex{<:Integer}})) && ishermitian(A)
 
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
@@ -2343,7 +2368,7 @@ function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
         elseif istriu(A)
             return \(UpperTriangular(A), B)
         end
-        if ishermitian(A)
+        if _hermitian_solve(A, B)
             return \(Hermitian(A), B)
         end
         return convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, \(lu(A), B))
@@ -2367,7 +2392,7 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
                 elseif istriu(A)
                     return \(LowerTriangular($xformop(A)), B)
                 end
-                if ishermitian(A)
+                if _hermitian_solve(A, B)
                     return \($xformop(Hermitian(A)), B)
                 end
                 return \($xformop(lu(A)), B)
@@ -2390,7 +2415,7 @@ function factorize(A::AbstractSparseMatrixCSC)
         elseif istriu(A)
             return UpperTriangular(A)
         end
-        if ishermitian(A)
+        if _hermitian_solve(A)
             return factorize(Hermitian(A))
         end
         return lu(A)

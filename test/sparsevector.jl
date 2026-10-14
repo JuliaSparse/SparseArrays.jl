@@ -216,6 +216,17 @@ end
                 @test all(nonzeros(xr) .> 0.0)
             end
         end
+        # as documented, `rfn` takes `k` without an rng and `(rng, k)` with one, as for matrices
+        let rfn1 = k -> rand(Int8, k), rfn2 = (r, k) -> rand(r, Int8, k)
+            Random.seed!(1234)
+            xv = sprand(20, 0.5, rfn1)
+            Random.seed!(1234)
+            xr = sprand(Random.default_rng(), 20, 0.5, rfn2)
+            @test xv isa SparseVector{Int8,Int} && xr isa SparseVector{Int8,Int}
+            @test xv == xr
+            @test sprand(20, 1, 0.5, rfn1) isa SparseMatrixCSC{Int8,Int}
+            @test sprand(MersenneTwister(5), 20, 1, 0.5, rfn2) isa SparseMatrixCSC{Int8,Int}
+        end
     end
 
     @testset "Undef initializer" begin
@@ -334,6 +345,24 @@ end
 
         xc[1] = 0.0
         @test exact_equal(xc, SparseVector(8, [2, 5, 6], [0.0, 0.0, 0.0]))
+    end
+
+    @testset "heap-allocated zero (#389)" begin
+        for T in (BigFloat, Complex{BigFloat})
+            x = spzeros(T, 4)
+            x[1] = 0
+            x[3] = zero(T)
+            @test nnz(x) == 0
+            x[2] = one(T)
+            x[2] = 0
+            @test nnz(x) == 1 && x[2] == 0
+        end
+        x = spzeros(BigFloat, 4)
+        x[1] = -big(0.0)
+        @test nnz(x) == 1 && signbit(x[1])
+        x = spzeros(Union{Missing,Int}, 4)
+        x[1] = missing
+        @test nnz(x) == 1 && x[1] === missing
     end
 end
 @testset "dropstored!" begin
@@ -1056,6 +1085,28 @@ end
     let v = sparse([0, NaN]) #issue #714
         @test findmin(v) === (NaN, 2)
         @test findmax(v) === (NaN, 2)
+    end
+
+    # an `Int` index on every path, agreeing with dense, whatever the index type
+    @testset "findmin/findmax index type" begin
+        xs = (SparseVector(5, Int32[], Float64[]),               # no stored entries
+              SparseVector(5, Int32[2, 4], [2.0, -1.0]),          # implicit zero first
+              SparseVector(5, Int32[1, 2, 4], [2.0, 0.0, -1.0]),  # stored zero before the implicit one
+              SparseVector(3, Int32[1, 2, 3], [-1.0, 2.0, 3.0]),  # all stored
+              SparseVector(3, Int32[3], [-0.0]),
+              SparseVector(3, Int32[2], [NaN]))
+        fs = (t -> t^2 - t, t -> t == 0 ? NaN : t)   # ties with `f(0)`, NaN at the implicit zero
+        for x in xs, (fun, arg) in ((findmin, argmin), (findmax, argmax))
+            d = Vector(x)
+            @test @inferred(fun(x)) === fun(d)
+            @test @inferred(arg(x)) === arg(d)
+            for f in fs
+                @test @inferred(fun(f, x)) === fun(f, d)
+            end
+        end
+        xc = SparseVector(5, Int32[2, 4], [1.0 + 2.0im, 0.0im])
+        @test @inferred(findmax(abs2, xc)) === findmax(abs2, Vector(xc))
+        @test @inferred(findmin(t -> t + 1, SparseVector(3, Int32[], Float64[]))) === (1.0, 1)
     end
 end
 

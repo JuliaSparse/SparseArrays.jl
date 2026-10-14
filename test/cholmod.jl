@@ -315,6 +315,16 @@ end
     @test_throws DimensionMismatch ldiv!(x2, factor, B)
 end
 
+
+@testset "ldiv! with aliased solution and right-hand side $Ti" begin
+    local A, F, B
+    A = SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1 0; 1 4 1; 0 1 4]))
+    F = cholesky(A)
+    B = A * Tv[1 2; 3 4; 5 6]
+    @test ldiv!(view(B, :, 1), F, view(vec(B), 1:3)) ≈ [1, 3, 5]
+    B = A * Tv[1 2 3; 4 5 6; 7 8 9]
+    @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2)) ≈ [1 2; 4 5; 7 8]
+end
 end #end for Ti ∈ itypes
 
 for Tv ∈ (Float32, Float64)
@@ -591,7 +601,7 @@ end
         Fs = cholesky(As, perm=[1:3;])
         @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :p, :ptr])
         @test Fs.p == [1:3;]
-        @test sparse(Fs.L) ≈ Lf
+        @test @inferred(sparse(Fs.L))::SparseMatrixCSC{Tv, Int} ≈ Lf
         @test sparse(Fs) ≈ As
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.U)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :L on LLt factorizations") sparse(Fs.PtL)
@@ -651,7 +661,7 @@ end
         Fs = ldlt(As, perm=[1:3;])
         @test sort(collect(propertynames(Fs))) == sort([:L, :U, :PtL, :UP, :D, :LD, :DU, :PtLD, :DUP, :p, :ptr])
         @test Fs.p == [1:3;]
-        @test sparse(Fs.LD) ≈ LDf
+        @test @inferred(sparse(Fs.LD))::SparseMatrixCSC{Tv, Int} ≈ LDf
         @test sparse(Fs) ≈ As
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.L)
         @test_throws CHOLMOD.CHOLMODException("sparse: supported only for :LD on LDLt factorizations") sparse(Fs.U)
@@ -723,6 +733,17 @@ end
     @testset "Element promotion and type inference" begin
         @inferred cholesky(As)\fill(1, size(As, 1))
         @inferred ldlt(As)\fill(1, size(As, 1))
+        # the factor components are inferred from the property name, so a solve through
+        # them is inferred too (the `F.UP \ (F.PtL \ b)` idiom of the docs)
+        b = rand(Tv, 3)
+        F = cholesky(As)
+        for (sym, component) in ((:L, F -> F.L), (:PtL, F -> F.PtL), (:UP, F -> F.UP), (:U, F -> F.L'))
+            @test @inferred(component(F)) isa CHOLMOD.FactorComponent{Tv, sym, Int}
+        end
+        @test @inferred((F -> F.UP \ (F.PtL \ b))(F))::Vector{Tv} ≈ Matrix(As) \ b
+        F = ldlt(As)
+        @test @inferred((F -> F.D)(F)) isa CHOLMOD.FactorComponent{Tv, :D, Int}
+        @test @inferred((F -> F.DUP \ (F.PtL \ b))(F))::Vector{Tv} ≈ Matrix(As) \ b
     end
 end
 
@@ -804,6 +825,18 @@ end
     @test chI \ sparseb ≈ sparseb
     @test chI \ sparseB ≈ sparseB
     @test chI \ sparseI ≈ sparseI
+    # a sparse right-hand side gives a `SparseMatrixCSC`, never a `Symmetric` or
+    # `Hermitian` wrapper, so the solve is inferred
+    A = sparse(Tv[4 1 0; 1 3 1; 0 1 2])
+    B = sparse(Tv[1 0 0; 0 2 0; 3 0 1])
+    Ad, Bd = Matrix(A), Matrix(B)
+    for F in (cholesky(A), ldlt(A))
+        @test @inferred(F \ B)::SparseMatrixCSC{Tv, Int} ≈ Ad \ Bd
+        @test @inferred(F \ B')::SparseMatrixCSC{Tv, Int} ≈ Ad \ Bd'
+        @test @inferred(F.PtL \ B)::SparseMatrixCSC{Tv, Int} ≈ F.PtL \ Bd
+    end
+    Ac = sparse(Complex{Tv}[4 1+im 0; 1-im 3 1; 0 1 2])
+    @test @inferred(cholesky(Ac) \ B)::SparseMatrixCSC{Complex{Tv}, Int} ≈ Matrix(Ac) \ Bd
 end
 
 @testset "Issue 630" begin
@@ -1053,6 +1086,31 @@ end
     @test F \ B ≈ F \ Bt'
     @test F \ B ≈ F \ Bts'
     @test issparse(F \ Bts')
+end
+
+@testset "getindex with unsorted or unpacked buffers (#758), Ti = $Ti" for Ti ∈ itypes
+    # the product of two matrices with sorted row indices need not be sorted
+    A = sparse(Ti[2, 1, 2], Ti[1, 2, 2], Tv[1, 2, 3])
+    S = CHOLMOD.Sparse(A)
+    P = S'S
+    @test Array(P) == Matrix(sparse(P)) == Matrix(A'A)
+    @test P[1, 2] == (A'A)[1, 2]
+    @test_throws BoundsError P[0, 1]
+    @test_throws BoundsError P[1, 3]
+
+    # a matrix that is both unsorted and unpacked: room for three entries is
+    # reserved in every column, column 1 stores rows 3 and 1 in that order,
+    # column 2 stores row 2 and column 3 is empty
+    U = CHOLMOD.allocate_sparse(3, 3, 9, false, false, 0, Tv, Ti)
+    s = unsafe_load(CHOLMOD.typedpointer(U))
+    unsafe_wrap(Array, s.p, 4) .= Ti[0, 3, 6, 9]
+    unsafe_wrap(Array, s.nz, 3) .= Ti[2, 1, 0]
+    rowval = unsafe_wrap(Array, s.i, 9)
+    nzval = unsafe_wrap(Array, Ptr{Tv}(s.x), 9)
+    rowval[1], nzval[1] = 2, 10 # U[3, 1]
+    rowval[2], nzval[2] = 0, 20 # U[1, 1]
+    rowval[4], nzval[4] = 1, 30 # U[2, 2]
+    @test Array(U) == Tv[20 0 0; 0 30 0; 10 0 0]
 end
 
 end # for Tv ∈ (Float32, Float64)

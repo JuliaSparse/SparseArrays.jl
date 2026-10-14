@@ -122,8 +122,8 @@ const SpBroadcasted2{Style<:SPVM,Axes,F,Args<:Tuple{SparseVecOrMat,SparseVecOrMa
 @inline columns(A::AbstractSparseMatrixCSC) = axes(A,2)
 @inline colrange(A::AbstractCompressedVector, j) = 1:length(nonzeroinds(A))
 Base.@propagate_inbounds colrange(A::AbstractSparseMatrixCSC, j) = nzrange(A, j)
-@inline colstartind(A::AbstractCompressedVector, j) = one(indtype(A))
-@inline colboundind(A::AbstractCompressedVector, j) = convert(indtype(A), length(nonzeroinds(A)) + 1)
+@inline colstartind(A::AbstractCompressedVector, j) = 1
+@inline colboundind(A::AbstractCompressedVector, j) = length(nonzeroinds(A)) + 1
 @inline colstartind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j]
 @inline colboundind(A::AbstractSparseMatrixCSC, j) = getcolptr(A)[j + 1]
 @inline storedinds(A::AbstractCompressedVector) = nonzeroinds(A)
@@ -165,11 +165,18 @@ map!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) 
     let r = if _haszeros(A) && all(_haszeros, Bs)
             fofzeros = f(_zeros_eltypes(A, Bs...)...)
             _iszero(fofzeros) ? _map_zeropres!(f, C, A, Bs...) :
-                _map_notzeropres!(f, fofzeros, C, A, Bs...)
+                _guardfill(_map_notzeropres!, f, fofzeros, C, A, Bs...)
         else
             _map_zeropres!(f, C, A, Bs...)
         end
     return @if_move_fixed A Bs... r
+end
+# A kernel that fills C stores every entry of it first. What can be checked is checked before
+# that, the conversion of the fill value included, and leaves C as it was.
+function _guardfill(kernel!::K, f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {K,Tf,N}
+    _checkdensestructure(C)
+    isempty(C) || convert(eltype(C), fillvalue)
+    return kernel!(f, fillvalue, C, As...)
 end
 
 function _noshapecheck_map(f::Tf, A::SparseVecOrMat, Bs::Vararg{SparseVecOrMat,N}) where {Tf,N}
@@ -202,8 +209,10 @@ copy(bc::SpBroadcasted1) = _noshapecheck_map(bc.f, bc.args[1])
         trimstorage!(C, 0)
         _finishempty!(C)
     else # f() is nonzero, so densify C and fill with independent calls to f()
+        _checkdensestructure(C)
+        firstvalue = convert(eltype(C), fofnoargs)
         _densestructure!(C)
-        storedvals(C)[1] = fofnoargs
+        storedvals(C)[1] = firstvalue
         broadcast!(f, view(storedvals(C), 2:length(storedvals(C))))
     end
     return _checkbuffers(C)
@@ -286,12 +295,15 @@ Densifies `C`, storing `fillvalue` in place of each unstored entry in `A` and
 function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMat) where Tf
     # Build dense matrix structure in C, expanding storage if necessary
     _densestructure!(C)
+    # Below, and in the other `notzeropres` kernels, a value is left as filled only when it is
+    # identical to `fillvalue`: one that compares equal may be of another type or sign, and
+    # the comparison itself may be `missing`.
     # Populate values
     fill!(storedvals(C), fillvalue)
     @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
         for Ak in colrange(A, j)
             Cx = f(storedvals(A)[Ak])
-            Cx != fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
+            Cx !== fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
         end
     end
     # NOTE: Combining the fill! above into the loop above to avoid multiple sweeps over /
@@ -301,12 +313,20 @@ end
 # helper functions for these methods and some of those below
 @inline _densecoloffsets(A::AbstractCompressedVector) = 0
 @inline _densecoloffsets(A::AbstractSparseMatrixCSC) = 0:size(A, 1):(size(A, 1)*(size(A, 2) - 1))
+# What `_densestructure!` checks before it writes anything.
+_checkdensestructure(A::AbstractCompressedVector) = true
+function _checkdensestructure(A::AbstractSparseMatrixCSC)
+    _is_fixed(A) || convert(indtype(A), size(A, 1) * size(A, 2) + 1)   # the last column pointer
+    return true
+end
 function _densestructure!(A::AbstractCompressedVector)
+    _checkdensestructure(A)
     expandstorage!(A, length(A))
     copyto!(nonzeroinds(A), 1:length(A))
     return A
 end
 function _densestructure!(A::AbstractSparseMatrixCSC)
+    _checkdensestructure(A)
     nnzA = size(A, 1) * size(A, 2)
     expandstorage!(A, nnzA)
     copyto!(getcolptr(A), 1:size(A, 1):(nnzA + 1))
@@ -321,27 +341,28 @@ end
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::SparseVecOrMat) where Tf
     isfixed = _is_fixed(C, A, B)
     spaceC::Int = length(nonzeros(C))
-    rowsentinelA = convert(indtype(A), numrows(C) + 1)
-    rowsentinelB = convert(indtype(B), numrows(C) + 1)
+    W = promote_type(Int, _promote_indtype(A, B))
+    rowsentinelA = W(numrows(C)) + one(W)
+    rowsentinelB = W(numrows(C)) + one(W)
     Ck = 1
     @inbounds for j in columns(C)
         setcolptr!(C, j, Ck)
         Ak, stopAk = colstartind(A, j), colboundind(A, j)
         Bk, stopBk = colstartind(B, j), colboundind(B, j)
-        Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-        Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+        Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+        Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
         while true
             if Ai == Bi
                 Ai == rowsentinelA && break # column complete
-                Cx, Ci::indtype(C) = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
-                Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                Cx, Ci = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
+                Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+                Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
             elseif Ai < Bi
                 Cx, Ci = f(storedvals(A)[Ak], zero(eltype(B))), Ai
-                Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
+                Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
             else # Bi < Ai
                 Cx, Ci = f(zero(eltype(A)), storedvals(B)[Bk]), Bi
-                Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
             end
             # NOTE: The ordering of the conditional chain above impacts which matrices this
             # method performs best for. In the map situation (arguments have same shape, and
@@ -368,27 +389,28 @@ function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseVecOrMa
     fill!(storedvals(C), fillvalue)
     # NOTE: Combining this fill! into the loop below to avoid multiple sweeps over /
     # nonsequential access of storedvals(C) does not appear to improve performance.
-    rowsentinelA = convert(indtype(A), numrows(A) + 1)
-    rowsentinelB = convert(indtype(B), numrows(B) + 1)
+    W = promote_type(Int, _promote_indtype(A, B))
+    rowsentinelA = W(numrows(A)) + one(W)
+    rowsentinelB = W(numrows(B)) + one(W)
     @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
         Ak, stopAk = colstartind(A, j), colboundind(A, j)
         Bk, stopBk = colstartind(B, j), colboundind(B, j)
-        Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-        Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+        Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+        Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
         while true
             if Ai == Bi
                 Ai == rowsentinelA && break # column complete
-                Cx, Ci::indtype(C) = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
-                Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                Cx, Ci = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
+                Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+                Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
             elseif Ai < Bi
                 Cx, Ci = f(storedvals(A)[Ak], zero(eltype(B))), Ai
-                Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
+                Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
             else # Bi < Ai
                 Cx, Ci = f(zero(eltype(A)), storedvals(B)[Bk]), Bi
-                Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
             end
-            Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+            Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
         end
     end
     return _checkbuffers(C)
@@ -399,7 +421,8 @@ end
 function _map_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMat,N}) where {Tf,N}
     spaceC::Int = length(nonzeros(C))
     isfixed = _is_fixed(As...)
-    rowsentinel = numrows(C) + 1
+    W = promote_type(Int, _promote_indtype(As...))
+    rowsentinel = W(numrows(C)) + one(W)
     Ck = 1
     stopks = _colstartind_all(1, As)
     @inbounds for j in columns(C)
@@ -431,7 +454,8 @@ function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{Spars
     fill!(storedvals(C), fillvalue)
     # NOTE: Combining this fill! into the loop below to avoid multiple sweeps over /
     # nonsequential access of nonzeros(C) does not appear to improve performance.
-    rowsentinel = numrows(C) + 1
+    W = promote_type(Int, _promote_indtype(As...))
+    rowsentinel = W(numrows(C)) + one(W)
     stopks = _colstartind_all(1, As)
     @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
         ks = stopks
@@ -441,7 +465,7 @@ function _map_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg{Spars
         while activerow < rowsentinel
             vals, ks, rows = _fusedupdate_all(rowsentinel, activerow, rows, ks, stopks, As)
             Cx = f(vals...)
-            Cx != fillvalue && (storedvals(C)[jo + activerow] = Cx)
+            Cx !== fillvalue && (storedvals(C)[jo + activerow] = Cx)
             activerow = min(rows...)
         end
     end
@@ -460,7 +484,7 @@ end
     _colboundind(j, first(As)),
     _colboundind_all(j, tail(As))...)
 @inline _rowforind(rowsentinel, k, stopk, A) =
-    k < stopk ? storedinds(A)[k] : convert(indtype(A), rowsentinel)
+    k < stopk ? oftype(rowsentinel, storedinds(A)[k]) : rowsentinel
 @inline _rowforind_all(rowsentinel, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
 @inline _rowforind_all(rowsentinel, ks, stopks, As) = (
     _rowforind(rowsentinel, first(ks), first(stopks), first(As)),
@@ -470,7 +494,7 @@ end
     # returns (val, nextk, nextrow)
     if row == activerow
         nextk = k + oneunit(k)
-        (storedvals(A)[k], nextk, (nextk < stopk ? storedinds(A)[nextk] : oftype(row, rowsentinel)))
+        (storedvals(A)[k], nextk, (nextk < stopk ? oftype(rowsentinel, storedinds(A)[nextk]) : rowsentinel))
     else
         (zero(eltype(A)), k, row)
     end
@@ -523,7 +547,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat) where
             # nothing in C's jth column. if to the contrary fofAx is nonzero, then we must
             # densely populate C's jth column with fofAx.
             if isfixed || _isnotzero(fofAx)
-                for Ci::indtype(C) in 1:numrows(C)
+                for Ci in 1:numrows(C)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = fofAx
@@ -548,7 +572,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             bccolrangejA = numcols(A) == 1 ? colrange(A, 1) : colrange(A, j)
             for Ak in bccolrangejA
                 Cx, Ci = f(storedvals(A)[Ak]), storedinds(A)[Ak]
-                Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
             end
         end
     # Cases with vertical expansion
@@ -558,7 +582,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
             Ax = Ak < stopAk ? svA[Ak] : zero(eltype(A))
             fofAx = f(Ax)
-            if fofAx != fillvalue
+            if fofAx !== fillvalue
                 for i in (jo + 1):(jo + numrows(C))
                     svC[i] = fofAx
                 end
@@ -574,8 +598,9 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
     isempty(C) && return _finishempty!(C)
     isfixed = _is_fixed(A, B)
     spaceC::Int = length(nonzeros(C))
-    rowsentinelA = convert(indtype(A), numrows(C) + 1)
-    rowsentinelB = convert(indtype(B), numrows(C) + 1)
+    W = promote_type(Int, _promote_indtype(A, B))
+    rowsentinelA = W(numrows(C)) + one(W)
+    rowsentinelB = W(numrows(C)) + one(W)
     # C, A, and B cannot all have the same shape, as we directed that case to map in broadcast's
     # entry point; here we need efficiently handle only heterogeneous combinations of mats/vecs
     # with no singleton dimensions, one singleton dimension, and two singleton dimensions.
@@ -599,23 +624,23 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
             Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
             # Restructuring this k/stopk code to avoid unnecessary colptr retrievals does
             # not improve performance signicantly. Leave in this less complex form.
-            Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-            Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+            Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+            Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
             while true
                 if Ai != Bi
                     if Ai < Bi
                         Cx, Ci = f(storedvals(A)[Ak], zero(eltype(B))), Ai
-                        Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
+                        Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
                     else # Ai > Bi
                         Cx, Ci = f(zero(eltype(A)), storedvals(B)[Bk]), Bi
-                        Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                        Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
                     end
                 elseif #= Ai == Bi && =# Ai == rowsentinelA
                     break # column complete
                 else #= Ai == Bi != rowsentinel =#
-                    Cx, Ci::indtype(C) = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
-                    Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                    Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                    Cx, Ci = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
+                    Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+                    Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
                 end
                 # NOTE: The ordering of the conditional chain above impacts which matrices
                 # this method perform best for. In contrast to the map situation (arguments
@@ -644,7 +669,7 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
             Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
             Cx = f(Ax, Bx)
             if isfixed || _isnotzero(Cx)
-                for Ci::indtype(C) in 1:numrows(C)
+                for Ci in 1:numrows(C)
                     Ck > spaceC && (spaceC = expandstorage!(C, _unchecked_maxnnzbcres(size(C), A, B)))
                     storedinds(C)[Ck] = Ci
                     storedvals(C)[Ck] = Cx
@@ -676,11 +701,11 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
             else
                 # A's jth column is nonempty and f(Ax, zero(eltype(B))) is not zero, so
                 # we must store (likely) every entry in C's jth column
-                Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-                for Ci::indtype(C) in 1:numrows(C)
+                Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
+                for Ci in 1:numrows(C)
                     if Bi == Ci
                         Cx = f(Ax, storedvals(B)[Bk])
-                        Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                        Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
                     else
                         Cx = fvAzB
                     end
@@ -717,11 +742,11 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, A::SparseVecOrMat, B::Sp
             else
                 # B's jth column is nonempty and f(zero(eltype(A)), Bx) is not zero, so
                 # we must store (likely) every entry in C's jth column
-                Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                for Ci::indtype(C) in 1:numrows(C)
+                Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+                for Ci in 1:numrows(C)
                     if Ai == Ci
                         Cx = f(storedvals(A)[Ak], Bx)
-                        Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
+                        Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
                     else
                         Cx = fzAvB
                     end
@@ -745,30 +770,31 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
     _densestructure!(C)
     # Populate values
     fill!(storedvals(C), fillvalue)
-    rowsentinelA = convert(indtype(A), numrows(C) + 1)
-    rowsentinelB = convert(indtype(B), numrows(C) + 1)
+    W = promote_type(Int, _promote_indtype(A, B))
+    rowsentinelA = W(numrows(C)) + one(W)
+    rowsentinelB = W(numrows(C)) + one(W)
     # Cases without vertical expansion
     if numrows(A) == numrows(B) == numrows(C)
         @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
             Ak, stopAk = numcols(A) == 1 ? (colstartind(A, 1), colboundind(A, 1)) : (colstartind(A, j), colboundind(A, j))
             Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
-            Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-            Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+            Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+            Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
             while true
                 if Ai < Bi
                     Cx, Ci = f(storedvals(A)[Ak], zero(eltype(B))), Ai
-                    Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
+                    Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
                 elseif Ai > Bi
                     Cx, Ci = f(zero(eltype(A)), storedvals(B)[Bk]), Bi
-                    Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                    Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
                 elseif #= Ai == Bi && =# Ai == rowsentinelA
                     break # column complete
                 else #= Ai == Bi != rowsentinel =#
-                    Cx, Ci::indtype(C) = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
-                    Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                    Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                    Cx, Ci = f(storedvals(A)[Ak], storedvals(B)[Bk]), Ai
+                    Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+                    Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
                 end
-                Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
             end
         end
     # Cases with vertical expansion
@@ -779,7 +805,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
             Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
             Cx = f(Ax, Bx)
-            if Cx != fillvalue
+            if Cx !== fillvalue
                 for Ck::Int in (jo + 1):(jo + numrows(C))
                     storedvals(C)[Ck] = Cx
                 end
@@ -791,22 +817,22 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
             Ax = Ak < stopAk ? storedvals(A)[Ak] : zero(eltype(A))
             fvAzB = f(Ax, zero(eltype(B)))
-            if fvAzB == fillvalue
+            if fvAzB === fillvalue
                 while Bk < stopBk
                     Cx = f(Ax, storedvals(B)[Bk])
-                    Cx != fillvalue && (storedvals(C)[jo + storedinds(B)[Bk]] = Cx)
+                    Cx !== fillvalue && (storedvals(C)[jo + storedinds(B)[Bk]] = Cx)
                     Bk += oneunit(Bk)
                 end
             else
-                Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
-                for Ci::indtype(C) in 1:numrows(C)
+                Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
+                for Ci in 1:numrows(C)
                     if Bi == Ci
                         Cx = f(Ax, storedvals(B)[Bk])
-                        Bk += oneunit(Bk); Bi = Bk < stopBk ? storedinds(B)[Bk] : rowsentinelB
+                        Bk += oneunit(Bk); Bi = Bk < stopBk ? W(storedinds(B)[Bk]) : rowsentinelB
                     else
                         Cx = fvAzB
                     end
-                    Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                    Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
                 end
             end
         end
@@ -816,22 +842,22 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, A::SparseV
             Bk, stopBk = numcols(B) == 1 ? (colstartind(B, 1), colboundind(B, 1)) : (colstartind(B, j), colboundind(B, j))
             Bx = Bk < stopBk ? storedvals(B)[Bk] : zero(eltype(B))
             fzAvB = f(zero(eltype(A)), Bx)
-            if fzAvB == fillvalue
+            if fzAvB === fillvalue
                 while Ak < stopAk
                     Cx = f(storedvals(A)[Ak], Bx)
-                    Cx != fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
+                    Cx !== fillvalue && (storedvals(C)[jo + storedinds(A)[Ak]] = Cx)
                     Ak += oneunit(Ak)
                 end
             else
-                Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
-                for Ci::indtype(C) in 1:numrows(C)
+                Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
+                for Ci in 1:numrows(C)
                     if Ai == Ci
                         Cx = f(storedvals(A)[Ak], Bx)
-                        Ak += oneunit(Ak); Ai = Ak < stopAk ? storedinds(A)[Ak] : rowsentinelA
+                        Ak += oneunit(Ak); Ai = Ak < stopAk ? W(storedinds(A)[Ak]) : rowsentinelA
                     else
                         Cx = fzAvB
                     end
-                    Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                    Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
                 end
             end
         end
@@ -842,7 +868,14 @@ _finishempty!(C::AbstractCompressedVector) = C
 _finishempty!(C::AbstractSparseMatrixCSC) = (fill!(getcolptr(C), 1); C)
 
 # special case - vector outer product
-_copy(f::typeof(*), x::SparseVectorUnion, y::AdjOrTransSparseVectorUnion) = _outer(x, y)
+_copy(f::typeof(*), x::SparseVectorUnion, y::AdjOrTransSparseVectorUnion) =
+    _outerkeepszeros(x, y) ? _outer(x, y) : _copy(f, _sparsifystructured(x), _sparsifystructured(y))
+# `_outer` multiplies stored entries with stored entries alone, which gives the product when
+# every stored entry times a zero is a zero. An `Inf` or a `NaN` times a zero is not.
+function _outerkeepszeros(x, y)
+    zx, zy, op = zero(eltype(x)), zero(eltype(y)), LinearAlgebra.wrapperop(y)
+    return all(v -> _iszero(v * zy), nonzeros(x)) && all(v -> _iszero(zx * op(v)), nonzeros(parent(y)))
+end
 @inline _outer(x::SparseVectorUnion, y::Adjoint) = return _outer(conj, x, parent(y))
 @inline _outer(x::SparseVectorUnion, y::Transpose) = return _outer(identity, x, parent(y))
 function _outer(trans::Tf, x, y) where Tf
@@ -899,7 +932,8 @@ function _broadcast_zeropres!(f::Tf, C::SparseVecOrMat, As::Vararg{SparseVecOrMa
     spaceC::Int = length(nonzeros(C))
     expandsverts = _expandsvert_all(C, As)
     expandshorzs = _expandshorz_all(C, As)
-    rowsentinel = numrows(C) + 1
+    W = promote_type(Int, _promote_indtype(As...))
+    rowsentinel = W(numrows(C)) + one(W)
     Ck = 1
     @inbounds for j in columns(C)
         setcolptr!(C, j, Ck)
@@ -954,7 +988,8 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg
     fill!(storedvals(C), fillvalue)
     expandsverts = _expandsvert_all(C, As)
     expandshorzs = _expandshorz_all(C, As)
-    rowsentinel = numrows(C) + 1
+    W = promote_type(Int, _promote_indtype(As...))
+    rowsentinel = W(numrows(C)) + one(W)
     @inbounds for (j, jo) in zip(columns(C), _densecoloffsets(C))
         ks = _startindforbccol_all(j, expandshorzs, As)
         stopks = _stopindforbccol_all(j, expandshorzs, As)
@@ -965,11 +1000,11 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg
         rows = _initrowforcol_all(j, rowsentinel, isemptys, expandsverts, ks, As)
         defaultCx = f(defargs...)
         activerow = min(rows...)
-        if defaultCx == fillvalue # fillvalue-preserving column scan
+        if defaultCx === fillvalue # fillvalue-preserving column scan
             while activerow < rowsentinel
                 args, ks, rows = _fusedupdatebc_all(rowsentinel, activerow, rows, defargs, ks, stopks, As)
                 Cx = f(args...)
-                Cx != fillvalue && (storedvals(C)[jo + activerow] = Cx)
+                Cx !== fillvalue && (storedvals(C)[jo + activerow] = Cx)
                 activerow = min(rows...)
             end
         else # fillvalue-non-preserving column scan
@@ -981,7 +1016,7 @@ function _broadcast_notzeropres!(f::Tf, fillvalue, C::SparseVecOrMat, As::Vararg
                 else
                     Cx = defaultCx
                 end
-                Cx != fillvalue && (storedvals(C)[jo + Ci] = Cx)
+                Cx !== fillvalue && (storedvals(C)[jo + Ci] = Cx)
             end
         end
     end
@@ -1011,7 +1046,7 @@ end
     _isemptycol(first(ks), first(stopks)),
     _isemptycol_all(tail(ks), tail(stopks))...)
 @inline _initrowforcol(j, rowsentinel, isempty, expandsvert, k, A) =
-    expandsvert || isempty ? convert(indtype(A), rowsentinel) : storedinds(A)[k]
+    expandsvert || isempty ? rowsentinel : oftype(rowsentinel, storedinds(A)[k])
 @inline _initrowforcol_all(j, rowsentinel, ::Tuple{}, ::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
 @inline _initrowforcol_all(j, rowsentinel, isemptys, expandsverts, ks, As) = (
     _initrowforcol(j, rowsentinel, first(isemptys), first(expandsverts), first(ks), first(As)),
@@ -1026,7 +1061,7 @@ end
     # returns (val, nextk, nextrow)
     if row == activerow
         nextk = k + oneunit(k)
-        (storedvals(A)[k], nextk, (nextk < stopk ? storedinds(A)[nextk] : oftype(row, rowsentinel)))
+        (storedvals(A)[k], nextk, (nextk < stopk ? oftype(rowsentinel, storedinds(A)[nextk]) : rowsentinel))
     else
         (defarg, k, row)
     end
@@ -1078,7 +1113,7 @@ end
     if _iszero(fofzeros)
         return _broadcast_zeropres!(f, dest, As...)
     else
-        return _broadcast_notzeropres!(f, fofzeros, dest, As...)
+        return _guardfill(_broadcast_notzeropres!, f, fofzeros, dest, As...)
     end
 end
 

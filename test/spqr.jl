@@ -42,6 +42,8 @@ itypes = sizeof(Int) == 4 ? (Int32,) : (Int32, Int64)
         @test istriu(F.R)
         @test isperm(F.pcol)
         @test isperm(F.prow)
+        @test @inferred((F -> F.pcol)(F)) isa Vector{iltyA}
+        @test @inferred((F -> F.prow)(F)) isa Vector{iltyA}
         @test_throws isdefined(Base, :FieldError) ? FieldError : ErrorException F.T
     end
 

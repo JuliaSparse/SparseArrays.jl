@@ -211,6 +211,14 @@ end
 
 _sparsesimilar(S::FixedSparseVector, x...) = move_fixed(_sparsesimilar(_unsafe_unfix(S), x...))
 
+# Base's `cumsum`, `cumprod` and `accumulate` allocate their result with `similar(A, T)`,
+# which keeps a fixed pattern, so compute them on the plain array and return that.
+for f in (:cumsum, :cumprod)
+    @eval Base.$f(A::FixedSparseCSC; dims::Integer) = $f(_unsafe_unfix(A); dims)
+    @eval Base.$f(x::FixedSparseVector; dims::Integer=1) = $f(_unsafe_unfix(x); dims)
+end
+Base.accumulate(op, A::Union{FixedSparseCSC,FixedSparseVector}; kw...) = accumulate(op, _unsafe_unfix(A); kw...)
+
 # The following methods hook into the AbstractArray similar hierarchy. The first method
 # covers similar(A[, Tv]) calls, which preserve stored-entry structure, and the latter
 # methods cover similar(A[, Tv], shape...) calls, which preserve nothing if the dims
@@ -437,7 +445,7 @@ end
     if 1 <= k <= m && nzind[k] == i  # i found
         nzval[k] = v
     else  # i not found
-        if v isa AbstractArray || v !== zero(eltype(x)) # stricter than iszero to support v[i] = -0.0
+        if !_isimplicitzero(v, Tv)
             insert!(nzind, k, i)
             insert!(nzval, k, v)
         end
@@ -643,7 +651,7 @@ function sprand(r::AbstractRNG, n::Integer, p::AbstractFloat, rfn::Function, ::T
     SparseVector(n, I, V)
 end
 
-sprand(n::Integer, p::AbstractFloat, rfn::Function) = sprand(default_rng(), n, p, rfn)
+sprand(n::Integer, p::AbstractFloat, rfn::Function) = sprand(default_rng(), n, p, (r, i) -> rfn(i))
 function sprand(r::AbstractRNG, n::Integer, p::AbstractFloat, rfn::Function)
     I = randsubseq(r, 1:convert(Int, n), p)
     V = rfn(r, length(I))
@@ -685,7 +693,7 @@ end
 
 # In the general case, we piggy back upon SparseMatrixCSC's optimized solution
 @inline getindex(A::AbstractSparseMatrixCSC, I::AbstractVector, J::Integer) =
-    let M = A[I, [J]]
+    let M = _unsafe_unfix(A)[I, [J]]
         @if_move_fixed A SparseVector(size(M, 1), rowvals(M), nonzeros(M))
     end
 
@@ -1023,16 +1031,20 @@ end
 
 getindex(x::AbstractSparseVector, I::AbstractVector{Bool}) = x[findall(I)]
 getindex(x::AbstractSparseVector, I::AbstractArray{Bool}) = x[LinearIndices(I)[findall(I)]]
+# SparseMatrixCSC has a nicely optimized routine for this; punt. The scratch matrix
+# shares the buffers of the unfixed vector, since a ReadOnly index vector is not a
+# valid SparseMatrixCSC field, and the result is refixed to match the input.
 @inline function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
-    # SparseMatrixCSC has a nicely optimized routine for this; punt
-    S = SparseMatrixCSC(length(x), 1, Ti[1,length(nonzeroinds(x))+1], nonzeroinds(x), nonzeros(x))
-    return S[I, 1]
+    y = _unsafe_unfix(x)
+    S = SparseMatrixCSC(length(y), 1, Ti[1,length(nonzeroinds(y))+1], nonzeroinds(y), nonzeros(y))
+    return @if_move_fixed x S[I, 1]
 end
 
 function getindex(x::AbstractSparseVector{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
-    # punt to SparseMatrixCSC
-    S = SparseMatrixCSC(length(x), 1, Ti[1,length(nonzeroinds(x))+1], nonzeroinds(x), nonzeros(x))
-    return S[I]
+    checkbounds(x, I)   # the error names `x`, not the one-column matrix below
+    y = _unsafe_unfix(x)
+    S = SparseMatrixCSC(length(y), 1, Ti[1,length(nonzeroinds(y))+1], nonzeroinds(y), nonzeros(y))
+    return @if_move_fixed x S[I]
 end
 
 getindex(x::AbstractSparseVector, ::Colon) = copy(x)
@@ -1134,12 +1146,15 @@ copy(x::AbstractSparseVector) = if _is_fixed(x)
     end
 
 float(x::AbstractSparseVector{<:AbstractFloat}) = x
-float(x::AbstractSparseVector) =
-    SparseVector(length(x), nonzeroinds(x), float(nonzeros(x)))
+float(x::AbstractSparseVector) = _withnonzeros(x, float(nonzeros(x)))
 
 complex(x::AbstractSparseVector{<:Complex}) = x
-complex(x::AbstractSparseVector) =
-    SparseVector(length(x), nonzeroinds(x), complex(nonzeros(x)))
+complex(x::AbstractSparseVector) = _withnonzeros(x, complex(nonzeros(x)))
+
+# a vector with the index pattern of `x` (shared, as `copy` of a fixed vector shares it)
+# and `nzval` as its stored values
+_withnonzeros(x::AbstractSparseVector, nzval) = SparseVector(length(x), nonzeroinds(x), nzval)
+_withnonzeros(x::FixedSparseVector, nzval) = FixedSparseVector(length(x), nonzeroinds(x), nzval)
 
 
 ### Concatenation
@@ -1191,7 +1206,8 @@ function vcat(Xin::AbstractSparseVector...)
         end)(SparseVector{Tv,Ti})
     return @if_move_fixed Xin... r
 end
-function _absspvec_vcat(X::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
+function _absspvec_vcat(X1::AbstractSparseVector{Tv,Ti}, Xs::AbstractSparseVector{Tv,Ti}...) where {Tv,Ti}
+    X = (X1, Xs...)
     # check sizes
     n = length(X)
     tnnz = 0
@@ -1398,6 +1414,7 @@ end
 
 # zero-preserving functions (z->z, nz->nz)
 -(x::SparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -nonzeros(x))
+-(x::FixedSparseVector) = FixedSparseVector(length(x), nonzeroinds(x), -nonzeros(x))
 
 for QT in (:LinAlgLeftQs, :LQPackedQ)
     @eval (*)(Q::$QT, B::AbstractSparseVector) = Q * Vector(B)
@@ -1693,29 +1710,32 @@ function Base.mapreducedim!(f::F, op::G, R::AbstractVector, A::SparseVectorUnion
     map!((x, y) -> op(x, f(y)), R, R, A)
 end
 
-for (fun, comp, word) in ((:findmin, :(<), "minimum"), (:findmax, :(>), "maximum"))
+# The first index of a sparse vector that is not stored; the caller guarantees one exists.
+function _firstimplicitzero(nzinds::AbstractVector)
+    @inbounds for k in eachindex(nzinds)
+        nzinds[k] == k || return k
+    end
+    return length(nzinds) + 1
+end
+
+# `replaces(best, new)` is the test Base's dense `findmin`/`findmax` scan uses to move on
+# to a later element, so the sparse result agrees with dense on ties, NaN and signed zeros.
+for (fun, replaces, word) in ((:findmin, :(Base.isgreater), "minimum"), (:findmax, :isless, "maximum"))
     @eval function $fun(f, x::AbstractSparseVector{T}) where {T}
         n = length(x)
         n > 0 || throw(ArgumentError($word * " over empty array is not allowed"))
         nzvals = nonzeros(x)
         m = length(nzvals)
-        m == 0 && return zero(T), firstindex(x)
+        m == 0 && return f(zero(T)), Int(firstindex(x))
         val, index = $fun(f, nzvals)
         m == n && return val, index
-        nzinds = nonzeroinds(x)
+        index = Int(nonzeroinds(x)[index])
         zeroval = f(zero(T))
-        ($comp(val, zeroval) || isnan(val)) && return val, nzinds[index]
-        # we need to find the first zero, which could be stored or implicit
-        # we try to avoid findfirst(iszero, x)
-        sindex = findfirst(_iszero, nzvals) # first stored zero, if any
-        zindex = findfirst(i -> i < nzinds[i], eachindex(nzinds)) # first non-stored zero
-        index = if isnothing(sindex)
-            # non-stored zero are contiguous and at the end
-            isnothing(zindex) && last(nzinds) < lastindex(x) ? last(nzinds) + 1 : zindex
-        else
-            min(sindex, zindex)
+        zindex = _firstimplicitzero(nonzeroinds(x))
+        if $replaces(val, zeroval) || (zindex < index && !$replaces(zeroval, val))
+            return zeroval, zindex
         end
-        return zeroval, index
+        return val, index
     end
 end
 
@@ -2380,6 +2400,9 @@ end
 
 function _fillnonzero!(arr::AbstractSparseMatrixCSC{Tv, Ti}, val) where {Tv,Ti}
     m, n = size(arr)
+    # checked before anything is resized, so that a throw leaves `arr` as it was
+    convert(Ti, m * n + 1)   # the last column pointer
+    val = convert(Tv, val)
     resize!(getcolptr(arr), n+1)
     resize!(rowvals(arr), m*n)
     resize!(nonzeros(arr), m*n)
@@ -2397,6 +2420,7 @@ end
 
 function _fillnonzero!(arr::AbstractCompressedVector{Tv,Ti}, val) where {Tv,Ti}
     n = length(arr)
+    val = convert(Tv, val)   # before anything is resized
     resize!(nonzeroinds(arr), n)
     resize!(nonzeros(arr), n)
     @inbounds for i in 1:n

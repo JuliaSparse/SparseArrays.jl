@@ -334,7 +334,10 @@ end
 function FactorComponent{Tv, S}(F::Factor{Tv, Ti}) where {Tv, S, Ti}
     return FactorComponent{Tv, S, Ti}(F)
 end
-function FactorComponent(F::Factor{Tv, Ti}, sym::Symbol) where {Tv, Ti}
+# Constant propagation of `sym` from `getproperty(F, :L)` and friends is what lets `F.L \ b`
+# infer; without it the component's `S` parameter is unknown and every solve through
+# a component dispatches dynamically.
+Base.@constprop :aggressive function FactorComponent(F::Factor{Tv, Ti}, sym::Symbol) where {Tv, Ti}
     FactorComponent{Tv, sym, Ti}(F)
 end
 
@@ -1220,9 +1223,9 @@ function sparse(FC::FactorComponent{Tv,:L}) where Tv
     if s.is_ll == 0
         _sparse_exception(F)
     end
-    sparse(Sparse(F))
+    SparseMatrixCSC(Sparse(F))
 end
-sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = sparse(Sparse(Factor(FC)))
+sparse(FC::FactorComponent{Tv,:LD}) where {Tv} = SparseMatrixCSC(Sparse(Factor(FC)))
 sparse(FC::FactorComponent{Tv}) where {Tv} = _sparse_exception(Factor(FC))
 function _sparse_exception(F::Factor)
     s = unsafe_load(pointer(F))
@@ -1315,11 +1318,24 @@ function getindex(A::Sparse{T}, i0::Integer, i1::Integer) where T
     s.stype < 0 && i0 < i1 && return conj(A[i1,i0])
     s.stype > 0 && i0 > i1 && return conj(A[i1,i0])
 
+    # in an unpacked matrix the entries of column `i1` stop after `nz[i1]`
+    # entries rather than at `p[i1 + 1]`
     r1 = Int(unsafe_load(s.p, i1) + 1)
-    r2 = Int(unsafe_load(s.p, i1 + 1))
+    r2 = s.packed != 0 ? Int(unsafe_load(s.p, i1 + 1)) :
+                         r1 + Int(unsafe_load(s.nz, i1)) - 1
     (r1 > r2) && return zero(T)
-    r1 += Int(searchsortedfirst(view(unsafe_wrap(Array, s.i, (s.nzmax,), own = false), r1:r2), i0 - 1) - 1)
-    ((r1 > r2) || (unsafe_load(s.i, r1) + 1 != i0)) ? zero(T) : unsafe_load(Ptr{T}(s.x), r1)
+
+    # CHOLMOD only guarantees that the row indices of a column are sorted when
+    # `sorted` is set, so a binary search is only valid in that case
+    rows = view(unsafe_wrap(Array, s.i, (s.nzmax,), own = false), r1:r2)
+    if s.sorted != 0
+        k = searchsortedfirst(rows, i0 - 1)
+        (k > length(rows) || rows[k] + 1 != i0) && return zero(T)
+    else
+        k = findfirst(==(i0 - 1), rows)
+        k === nothing && return zero(T)
+    end
+    return unsafe_load(Ptr{T}(s.x), r1 + k - 1)
 end
 
 @inline function getproperty(F::Factor, sym::Symbol)
@@ -1846,8 +1862,11 @@ end
 function (\)(L::FactorComponent, B::SparseVector)
     sparsevec(L\Sparse(B))
 end
+# The solution of a sparse right-hand side, and a factor extracted as a sparse matrix, are
+# always unsymmetric (`stype == 0`), so `SparseMatrixCSC(::Sparse)` applies and, unlike
+# `sparse(::Sparse)`, is type-stable; it throws if CHOLMOD ever marks one symmetric.
 function (\)(L::FactorComponent, B::SparseMatrixCSC)
-    sparse(L\Sparse(B,0))
+    SparseMatrixCSC(L\Sparse(B,0))
 end
 (\)(L::FactorComponent, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::FactorComponent, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
@@ -1869,7 +1888,7 @@ end
 
 (\)(L::Factor, B::Sparse) = spsolve(CHOLMOD_A, L, B)
 # When right hand side is sparse, we have to ensure that the rhs is not marked as symmetric.
-(\)(L::Factor, B::SparseMatrixCSC) = sparse(spsolve(CHOLMOD_A, L, Sparse(B, 0)))
+(\)(L::Factor, B::SparseMatrixCSC) = SparseMatrixCSC(spsolve(CHOLMOD_A, L, Sparse(B, 0)))
 (\)(L::Factor, B::Adjoint{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::Factor, B::Transpose{<:Any,<:SparseMatrixCSC}) = L \ copy(B)
 (\)(L::Factor, B::SparseVector) = sparsevec(spsolve(CHOLMOD_A, L, Sparse(B)))
@@ -1920,9 +1939,8 @@ for TI in IndexTypes
     @eval function ldiv!(x::StridedVecOrMat{T},
                          L::Factor{T, $TI},
                          b::StridedVecOrMat{T}) where {T<:VTypes}
-        if x === b
-            throw(ArgumentError("output array must not be aliased with input array"))
-        end
+        # a call with the copy rather than rebinding `b`, which would make it type-unstable
+        Base.mightalias(x, b) && return ldiv!(x, L, copy(b))
         if size(L, 1) != size(b, 1)
             throw(DimensionMismatch("Factorization and RHS should have the same number of rows. " *
                 "Factorization has $(size(L, 2)) rows, but RHS has $(size(b, 1)) rows."))

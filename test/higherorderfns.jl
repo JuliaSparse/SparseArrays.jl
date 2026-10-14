@@ -776,4 +776,73 @@ end
     @test y ./ x == y
 end
 
+# Whether the unoptimized inferred code of `f(types...)` has a local whose type is a Union
+# containing both `T1` and `T2` (from test/testhelpers.jl on main)
+function hasunionlocal(f, types, T1, T2)
+    ci, _ = only(Base.code_typed(f, types; optimize=false))
+    slots = ci.slottypes === nothing ? Any[] : ci.slottypes
+    any(T -> T isa Union && T1 <: T && T2 <: T, Iterators.flatten((slots, ci.ssavaluetypes)))
+end
+
+@testset "map and broadcast kernels with the row count at typemax of the index type" begin
+    A = SparseMatrixCSC(127, 1, Int8[1, 2], Int8[1], [1.0])
+    x = SparseVector(127, Int8[1], [1.0])
+    for S in (A, x), (R, dR) in ((map(+, S, S), 2Array(S)), (S .+ S, 2Array(S)),
+                                 (map(+, S, S, S), 3Array(S)), (broadcast(+, S, S, S), 3Array(S)))
+        @test R == dR && SparseArrays.indtype(R) == Int8
+    end
+    # a dense-structured 127-row Int8 matrix needs a column pointer of 128, so only the vector fits
+    @test map((a, b) -> a + b + 1, x, x) == 2Array(x) .+ 1 && x .+ x .+ 1 == 2Array(x) .+ 1
+    y = SparseVector(127, Int8.(1:127), ones(127))   # nnz + 1 does not fit the index type either
+    @test y .+ y == 2Array(y) && map(+, y, y) == 2Array(y) && SparseArrays.indtype(y .+ y) == Int8
+    n = Int128(typemax(Int)) + 1; w = SparseVector(n, [n], [1.0])   # indices wider than Int stay
+    @test SparseArrays.nonzeroinds(map!(+, SparseVector(n, [n], [0.0]), w, w)) == [n]
+    for Ti in (Int8, Int32)
+        M = SparseMatrixCSC{Float64,Ti}
+        @test !hasunionlocal(SparseArrays.HigherOrderFns._map_zeropres!, (typeof(+), M, M, M), Ti, Int)
+        @test !hasunionlocal(SparseArrays.HigherOrderFns._broadcast_zeropres!, (typeof(+), M, M, M), Ti, Int)
+    end
+end
+
+@testset "a destination that cannot take the result is left untouched" begin
+    # the fill value does not convert, or every entry does not fit the index type
+    Ci = sparse([1 0; 0 2])
+    @test_throws InexactError Ci .= Ci .+ 0.5
+    @test nnz(Ci) == 2 && Ci == [1 0; 0 2]
+    @test_throws InexactError map!(x -> x + 0.5, Ci, Ci)
+    @test nnz(Ci) == 2 && Ci == [1 0; 0 2]
+    S8 = sparse(Int8[1], Int8[1], [1.0], 12, 12)
+    S0 = copy(S8)
+    @test_throws InexactError S8 .= 1.0
+    @test S8 == S0 && nnz(S8) == nnz(S0) && length(SparseArrays.rowvals(S8)) == 1
+    @test_throws InexactError S8 .= S8 .+ 1.0
+    @test S8 == S0 && nnz(S8) == nnz(S0) && length(SparseArrays.rowvals(S8)) == 1
+end
+
+@testset "Sparse outer product keeps a non-finite value times an unstored zero" begin
+    # a non-finite entry of the column vector, then of the row vector
+    for (x, y) in ((sparsevec([Inf, 0.0, 2.0]), sparsevec([0.0, 1.0, 3.0])),
+                   (sparsevec([1.0, 0.0, 2.0]), sparsevec([0.0, NaN, 3.0])))
+        @test isequal(Array(@inferred x .* y'), Array(x) .* Array(y)')
+    end
+end
+
+@testset "map and broadcast of a function whose values are `missing` or equal f(0) in another type" begin
+    Ad = [1.0 0 2; 0 3 0; 4 0 0; 0 5 6]
+    A = sparse(Ad)
+    f = x -> x == 0 ? 1.0 : missing
+    @test isequal(map(f, A), map(f, Ad))
+    g = (x, y) -> x == 0 ? 1.0 : missing
+    @test isequal(map(g, A, A), map(g, Ad, Ad))
+    g3 = (x, y, z) -> x == 0 ? 1.0 : missing
+    @test isequal(map(g3, A, A, A), map(g3, Ad, Ad, Ad))
+    # a sparse destination
+    C = similar(A, Union{Missing,Float64})
+    @test isequal(broadcast!(f, C, A[:, 1]), broadcast!(f, similar(Ad, Union{Missing,Float64}), Ad[:, 1]))
+    @test isequal(broadcast!(g, C, A, A[:, 1]), broadcast(g, Ad, Ad[:, 1]))
+    @test isequal(broadcast!(g3, C, A, A, A[:, 1]), broadcast(g3, Ad, Ad, Ad[:, 1]))
+    h = x -> x == 0 ? 1 : 1.0
+    @test typeof.(map(h, A)) == typeof.(map(h, Ad))
+end
+
 end # module

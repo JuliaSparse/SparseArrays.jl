@@ -313,6 +313,15 @@ end
             @test repeat(A, m, n) == repeat(A_full, m, n)
         end
     end
+    # a non-Int index type is kept, including in the column pointers
+    A32 = SparseMatrixCSC{ComplexF64,Int32}(sprand(ComplexF64, 5, 3, 0.5))
+    A32_full = Matrix(A32)
+    for m = 0:2, n = 0:3
+        R = repeat(A32, m, n)
+        @test R isa SparseMatrixCSC{ComplexF64,Int32}
+        @test R == repeat(A32_full, m, n)
+        @test repeat(A32, m) isa SparseMatrixCSC{ComplexF64,Int32}
+    end
 end
 
 @testset "copyto!" begin
@@ -720,6 +729,129 @@ end
     A = spzeros(10, 10)
     A[Is] = [0.1, 0.5]
     @test nnz(A) == 2
+
+    @testset "logical mask setindex!" begin
+        # (2, 2) is a stored zero; the mask updates (1, 1) and (2, 2), inserts (2, 1) and
+        # (4, 4), and leaves (3, 3) unstored because its value is zero
+        A0 = sparse([1, 3, 2, 4, 1], [1, 1, 2, 3, 4], [1.0, 2.0, 0.0, 3.0, 4.0], 4, 4)
+        M = BitMatrix([1 0 0 0; 1 1 0 0; 0 0 1 0; 0 0 0 1])
+        Ms = sparse([1, 2, 2, 3, 3, 4], [1, 1, 2, 2, 3, 4], Bool[1, 1, 1, 0, 1, 1], 4, 4)   # a stored false
+        x = [10.0, 20, 30, 0, 50]
+        D = Matrix(A0); D[M] = x
+        for mask in (M, Ms)   # findall(vec(I)), and the column walk of a sparse mask
+            A = copy(A0)
+            A[mask] = x
+            @test A == D && nnz(A) == nnz(A0) + 2
+        end
+        # the value's length and the mask's shape are checked before anything is written
+        A = copy(A0)
+        @test_throws DimensionMismatch A[M] = ones(4)
+        @test_throws DimensionMismatch A[falses(4, 4)] = [1.0]
+        @test_throws BoundsError A[trues(15)] = ones(15)
+        @test A == A0 && nnz(A) == nnz(A0)
+        # indices or values aliased with the storage are copied before the kernel writes
+        A = sparse(reshape([2, 1], 2, 1)); A[nonzeros(A)] = [20, 10]
+        @test A == [10; 20;;]
+        A = sparse(reshape([1, 2], 2, 1))
+        A[trues(2, 1)] = view(nonzeros(A), 2:-1:1)
+        @test A == [2; 1;;]
+        # transposes of a sparse mask are walked by stored entry too
+        M2 = sparse([1, 4, 2], [2, 3, 3], [true, true, false], 4, 4)
+        for mask in (view(M2, :, 2:3), view(M2, :, [3, 1, 2]), transpose(M2), M2', transpose(view(M2, :, 2:3)))
+            mask isa LinearAlgebra.AdjOrTrans{Bool,<:SparseMatrixCSC} &&
+                @test which(SparseArrays._masklinearindices, (typeof(mask),)) !==
+                      which(SparseArrays._masklinearindices, (Matrix{Bool},))
+            A = spzeros(size(mask)); A[mask] = 1:count(mask)
+            @test A == setindex!(zeros(size(mask)), 1:count(mask), Matrix(mask)) && nnz(A) == count(mask)
+        end
+    end
+
+    @testset "index arrays that are not vectors or matrices" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Array(A)
+        I3 = reshape([1, 3, 4, 6, 1, 3, 4, 6], 2, 2, 2)
+        @test A[I3] == D[I3] && A[I3] isa Array{Float64,3}
+        C3 = reshape([CartesianIndex(1, 1), CartesianIndex(2, 3)], 1, 1, 2)
+        @test A[C3] == D[C3]
+        # a stored entry is copied; only an unstored one needs a `zero`
+        As = SparseMatrixCSC(1, 1, [1, 2], [1], ["a"])
+        @test As[fill(1)] == fill("a")
+        # the error is about the vector, not a matrix made of it
+        @test_throws "SparseVector" sparse([1, 2, 3])[reshape([1, 4], 1, 1, 2)]
+    end
+
+    @testset "a value that does not convert" begin
+        S0 = sparse([1 0 0; 0 2 0; 0 0 3])
+        S = copy(S0)
+        @test_throws InexactError S[[2, 4, 6]] = [7.0, 8.0, 8.5]
+        @test S == S0 && nnz(S) == nnz(S0)
+    end
+
+    @testset "an index vector that is the matrix's own storage" begin
+        S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
+        E[[1, 2, 3, 4], 2] = [10.0, 20, 30, 40]
+        S[rowvals(S), 2] = [10.0, 20, 30, 40]
+        @test S == E
+        S = sparse(Diagonal([1.0, 2, 3, 4])); E = Matrix(S)
+        E[2, [1, 2, 3, 4]] = [10.0, 20, 30, 40]
+        S[2, rowvals(S)] = [10.0, 20, 30, 40]
+        @test S == E
+    end
+
+    @testset "fill! through a view with decreasing ranges" begin
+        S = sparse([1.0 2 0; 0 3 4; 5 0 6]); E = Matrix(S)
+        fill!(view(S, 3:-1:2, 3:-1:1), 7.0); fill!(view(E, 3:-1:2, 3:-1:1), 7.0)
+        @test S == E
+    end
+
+    @testset "a Bool unit range is a mask" begin
+        M = sparse([1.0 2 0; 0 3 4])
+        @test M[false:true, 2] == Array(M)[false:true, 2] && M[false:true, 2] isa SparseVector
+    end
+
+    @testset "StepRangeLen row ranges" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Matrix(A)
+        for I in (StepRangeLen(2, -1, 2), StepRangeLen(1, 0, 3))
+            @test A[I, :] == D[I, :] && A[I, :] isa SparseMatrixCSC{Float64,Int}
+        end
+    end
+
+    @testset "masks of the wrong length" begin
+        A = sparse([1.0 2 0; 0 3 4]); D = Matrix(A)
+        for (I, J) in (([true], 1), ([true, false, false], 1), (1, [true, false]),
+                       ([true], [true, false, true]), ([1, 2], [true, false]), ([true], [1]))
+            S = copy(A)
+            @test_throws BoundsError S[I, J] = fill(9.0, count(!iszero, I), count(!iszero, J))
+            @test S == A && nnz(S) == nnz(A)
+            M = copy(D)
+            @test_throws BoundsError M[I, J] = sparse(fill(9.0, count(!iszero, I), count(!iszero, J)))
+            @test M == D
+        end
+    end
+
+    @testset "heap-allocated zero (#389)" begin
+        for T in (BigFloat, Complex{BigFloat})
+            A = spzeros(T, 3, 3)
+            A[1, 1] = 0
+            A[2, 3] = zero(T)
+            @test nnz(A) == 0
+            A[2, 2] = one(T)
+            A[2, 2] = 0         # an existing entry is overwritten in place
+            @test nnz(A) == 1 && A[2, 2] == 0
+        end
+        A = spzeros(BigFloat, 2, 2)
+        A[1, 1] = -big(0.0)     # the sign of a zero is not reconstructible
+        @test nnz(A) == 1 && signbit(A[1, 1])
+        A[2, 2] = -0.0
+        @test nnz(A) == 2 && signbit(A[2, 2])
+        A = spzeros(2, 2)
+        A[1, 1] = -0.0
+        A[2, 2] = 0.0
+        @test nnz(A) == 1 && signbit(A[1, 1])
+        M = Matrix(Diagonal(BigFloat[1, 2, 3, 4]))
+        S = spzeros(BigFloat, 4, 4)
+        S .= M                  # the generic broadcast assigns every element
+        @test nnz(S) == 4 && S == M
+    end
 end
 
 @testset "dropstored!" begin
@@ -779,6 +911,20 @@ end
     @test nnz(A) == 50
     SparseArrays.dropstored!(A, :, :)
     @test nnz(A) == 0
+    # a mask selects rows, it is not a vector of the indices 0 and 1
+    A = sparse(1.0I, 3, 3)
+    SparseArrays.dropstored!(A, [true, false, true], [1, 3])
+    @test A == [0.0 0 0; 0 1 0; 0 0 0] && nnz(A) == 1
+    @test_throws BoundsError SparseArrays.dropstored!(A, [true, true], [1])
+    @test A == [0.0 0 0; 0 1 0; 0 0 0] && nnz(A) == 1
+    # the bounds are checked even when nothing is stored
+    A = spzeros(2, 2)
+    @test_throws BoundsError SparseArrays.dropstored!(A, [5], [1])
+    @test A == zeros(2, 2) && nnz(A) == 0
+    # an index that is the matrix's own storage is read while the storage is compacted
+    A = sparse([11.0 21; 12 0])
+    SparseArrays.dropstored!(A, view(rowvals(A), 1:1), 1:2)
+    @test A == [0.0 0; 12 0] && nnz(A) == 1
 end
 
 @testset "sparsevec from matrices" begin
@@ -1299,6 +1445,27 @@ _length_or_count_or_five(x) = length(x)
         b[[6, 8, 13, 15, 23]] .= false
         @test setindex!(spzeros(5, 5), X, b) == setindex!(zeros(5, 5), X, b)
     end
+    # of a repeated index the last write wins and the pattern stays valid, see #811
+    for Tv in (Float64, ComplexF64)
+        S = sparse(Tv[1 0 2 0; 0 3 0 0; 4 0 0 5; 0 0 6 0])
+        rowssorted(A) = all(j -> issorted(view(rowvals(A), nzrange(A, j)), lt=≤), axes(A, 2))
+        for (I, J) in (([1, 1], [1]), ([2], [3, 3]), ([3, 1, 3, 1], [4, 2, 4]), ([1, 2, 2, 4], [1, 3, 3]))
+            for V in (reshape(Tv.(1:length(I)*length(J)), length(I), length(J)),
+                      sparse(Tv[iseven(i + j) for i in eachindex(I), j in eachindex(J)]))
+                A = setindex!(copy(S), V, I, J)
+                @test rowssorted(A)
+                @test A == Matrix(A) == setindex!(Matrix(S), V, I, J)
+            end
+        end
+        A = setindex!(copy(S), Tv[5, 6], [1, 1], 2)
+        @test rowssorted(A) && A[1, 2] == 6 && nnz(A) == nnz(S) + 1
+        for L in ([2, 7, 2], [16, 2, 16, 2, 5], [3, 3, 9, 9])
+            x = Tv.(eachindex(L))
+            A = setindex!(copy(S), x, L)
+            @test rowssorted(A)
+            @test A == Matrix(A) == setindex!(Matrix(S), x, L)
+        end
+    end
 end
 
 #testing the sparse matrix/vector access functions nnz, nzrange, rowvals, nonzeros
@@ -1386,6 +1553,12 @@ end
     @test sa_filled === sa
     b[1:10, 2:3] .= 0.0
     @test a == b
+    sb = view(a, 1:2, 1:2)
+    @test (@inferred fill!(sb, 1.0)) === sb
+    for empty in (view(a, 1:0, 1:2), view(a, 1:2, 1:0))
+        @test (@inferred fill!(empty, 3.0)) === empty
+    end
+    @test a[1:2, 1:2] == fill(1.0, 2, 2)
     A = sparse([1], [1], [Vector{Float64}(undef, 3)], 3, 3)
     A[1,1] = [1.0, 2.0, 3.0]
     B = deepcopy(A)

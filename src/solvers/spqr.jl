@@ -358,11 +358,12 @@ end
 (*)(Q::QRSparseQ, B::SparseMatrixCSC) = sparse(Q) * B
 (*)(A::SparseMatrixCSC, Q::QRSparseQ) = A * sparse(Q)
 
+# `getfield` rather than `F.rpivinv`: a recursive `getproperty` call is not inferred.
 @inline function Base.getproperty(F::QRSparse, d::Symbol)
     if d === :prow
-        return invperm(F.rpivinv)
+        return invperm(getfield(F, :rpivinv))
     elseif d === :pcol
-        return F.cpiv
+        return getfield(F, :cpiv)
     else
         getfield(F, d)
     end
