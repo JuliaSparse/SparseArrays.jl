@@ -815,7 +815,7 @@ Sparse factorizations call SuiteSparse:
 | [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky), [`ldlt`](@ref SparseArrays.CHOLMOD.ldlt) | [`CHOLMOD.Factor`](@ref SparseArrays.CHOLMOD.Factor) | CHOLMOD |
 | [`lu`](@ref SparseArrays.UMFPACK.lu) | [`UMFPACK.UmfpackLU`](@ref SparseArrays.UMFPACK.UmfpackLU) | UMFPACK |
 | [`qr`](@ref SparseArrays.SPQR.qr) | [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | SPQR |
-| [`lq`](@ref SparseArrays.SPQR.lq) | [`SPQR.AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse), the adjoint of `qr(A')` | SPQR |
+| [`lq`](@ref SparseArrays.SPQR.lq) | `SPQR.AdjointQRSparse`, the adjoint of `qr(A')` | SPQR |
 
 For a sparse `A` and a dense `b`, `A \ b` picks a method from the structure of `A` and
 returns a dense result. `factorize(A)` makes the same choice and returns the
@@ -1089,7 +1089,6 @@ SparseArrays.AbstractSparseArray
 SparseArrays.AbstractSparseVector
 SparseArrays.AbstractSparseMatrix
 SparseArrays.AbstractSparseMatrixCSC
-SparseArrays.AbstractCompressedVector
 SparseArrays.SparseVector
 SparseArrays.SparseMatrixCSC
 ```
@@ -1203,7 +1202,6 @@ Base.copy(::SparseArrays.UMFPACK.UmfpackLU)
 
 ```@docs
 SparseArrays.SPQR.QRSparse
-SparseArrays.SPQR.AdjointQRSparse
 SparseArrays.SPQR.qr(::SparseArrays.SparseMatrixCSC{Tv,Ti}) where {Ti<:SparseArrays.CHOLMOD.ITypes, Tv<:Union{Float64,ComplexF64}}
 SparseArrays.SPQR.lq(::SparseArrays.SparseMatrixCSC)
 SparseArrays.SPQR.rank(::SparseArrays.SPQR.QRSparse)

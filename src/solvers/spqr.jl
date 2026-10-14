@@ -157,7 +157,7 @@ columns enter the product.
 
 `F` supports `\\` and `ldiv!` for least squares and minimum-norm solutions, `rank`, `copy`,
 and `F'`, which is the LQ factorization
-[`AdjointQRSparse`](@ref SparseArrays.SPQR.AdjointQRSparse) of `A'`. `ldiv!`, with `F`
+`AdjointQRSparse` of `A'`. `ldiv!`, with `F`
 or `F'`, takes an optional [`SPQR.SpqrWS`](@ref SparseArrays.SPQR.SpqrWS) to avoid
 allocating. `F` is never modified once `qr` has returned and a solve only reads it, so
 several tasks can solve with one `F` at the same time.
