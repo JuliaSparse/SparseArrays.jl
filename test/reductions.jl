@@ -524,12 +524,12 @@ end
         @test mapreduce(identity, takelast, A; dims, init=7.0) == rd
         @test mismatch(mapreduce(identity, takelast, A; dims, init=7.0, sparse=true), rd) === nothing
     end
-    # a run of unstored entries has the type `op` gives it, not that of `f(0)`
+    # a run of unstored values is folded with `op`, so it is an `Int` here, not a `Bool`
     @test mapreduce(!iszero, (a, b) -> a + b, sparse([0.0 0.0 0.0 1.0])) === 1
-    # `op` is not called on two copies of `f(0)` when no two unstored entries are adjacent
+    # `op(f(0), f(0))`, which throws here, is not computed when no two unstored entries are adjacent
     @test mapreduce(v -> fill(v, 2, 3), *, spzeros(1)) == zeros(2, 3)
-    # the stored values are folded alone where `f(0)` is an identity of `op` for each of them,
-    # which it is not for a stored `-0.0`, nor for an `op` that keeps its arguments apart
+    # the unstored entries drop out only if `f(0)` is an identity for every stored value:
+    # not for a stored `-0.0` (`0.0 + -0.0 === 0.0`), and never for `vcat`
     add = (a, b) -> a + b
     @test SparseArrays._foldstored(identity, add, 0.0, [1.0, 2.0]) === (3.0, true)
     @test !SparseArrays._foldstored(identity, add, 0.0, [1.0, -0.0])[2]
