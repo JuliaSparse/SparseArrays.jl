@@ -660,6 +660,24 @@ end
                 @test mismatch(mul!(copy(sA2), D, sA, alpha, beta), D * dA * alpha + sA2 * beta; approx=true) === nothing
             end
         end
+        @static if COMPREHENSIVE
+        @testset "Diagonal mul! into a sparse destination converts before it writes" begin
+            S = sparse([1.0 2 0; 0 3 4; 5 0 6])
+            Si = sparse([1 2 0; 0 3 4; 5 0 6])
+            C0 = sparse([2 0 0; 0 1 1; 1 0 0])
+            D = Diagonal([0.5, 1, 1])
+            for f in (C -> mul!(C, S, D), C -> mul!(C, D, S),
+                      C -> mul!(C, Si', Diagonal([1, 1, 1]), 0.5, false), C -> mul!(C, S, D, 0, 0.5))
+                C = copy(C0)
+                @test_throws InexactError f(C)
+                @test mismatch(C, C0) === nothing
+            end
+            D = Diagonal([2, 4, 6])
+            @test mismatch(mul!(copy(C0), S, D, 0.5, 1), mul!(Matrix(C0), Matrix(S), D, 0.5, 1)) === nothing
+            # with a zero `beta`, the old `-1` in `C` is never converted to the product's eltype `UInt`
+            @test mismatch(mul!(sparse(reshape([-1], 1, 1)), sparse(reshape(UInt[1], 1, 1)), Diagonal(UInt[1])), reshape([1], 1, 1)) === nothing
+        end
+        end
     end
 
     @testset "scale" begin
