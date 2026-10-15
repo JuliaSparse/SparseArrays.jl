@@ -510,6 +510,36 @@ end
     @test mapreduce(+, +, c, c) === mapreduce(+, +, C, C) === 6
     @test mapreduce(+, +, c, sparse([3, 4]); init = 0.5) === 10.5
 end
+
+@testset "mapreduce folds the elements in their order unless `op` is known to commute" begin
+    takelast = (a, b) -> b
+    A = sparse([0.0 1.0 0.0; 2.0 0.0 3.0])
+    Ad = Array(A)
+    x = sparsevec([0.0, 1.0, 0.0, 2.0])
+    @test mapreduce(v -> [v], vcat, A) == mapreduce(v -> [v], vcat, Ad)
+    @test mapreduce(v -> [v], vcat, x) == mapreduce(v -> [v], vcat, Vector(x))
+    @test mapreduce(string, *, A) == mapreduce(string, *, Ad)
+    for dims in (1, 2)
+        rd = mapreduce(identity, takelast, Ad; dims, init=7.0)
+        @test mapreduce(identity, takelast, A; dims, init=7.0) == rd
+        @test mismatch(mapreduce(identity, takelast, A; dims, init=7.0, sparse=true), rd) === nothing
+    end
+    # a run of unstored values is folded with `op`, so it is an `Int` here, not a `Bool`
+    @test mapreduce(!iszero, (a, b) -> a + b, sparse([0.0 0.0 0.0 1.0])) === 1
+    # `op(f(0), f(0))`, which throws here, is not computed when no two unstored entries are adjacent
+    @test mapreduce(v -> fill(v, 2, 3), *, spzeros(1)) == zeros(2, 3)
+    # the unstored entries drop out only if `f(0)` is an identity for every stored value:
+    # not for a stored `-0.0` (`0.0 + -0.0 === 0.0`), and never for `vcat`
+    add = (a, b) -> a + b
+    @test SparseArrays._foldstored(identity, add, 0.0, [1.0, 2.0]) === (3.0, true)
+    @test !SparseArrays._foldstored(identity, add, 0.0, [1.0, -0.0])[2]
+    @test !SparseArrays._foldstored(v -> [v], vcat, [0.0], [1.0, 2.0])[2]
+    @test mapreduce(identity, add, x) === 3.0
+    @test mapreduce(identity, add, sparsevec([1], [-0.0], 2)) === 0.0
+    @test mapreduce(identity, add, sparsevec([2, 3], [-0.0, 1.0], 3)) === 1.0
+    # `|` and `&` commute for one array and for two
+    @test SparseArrays._commutes(!iszero, |, Float64) && SparseArrays._commutes(>, &, Float64, Float64)
+end
 end
 
 @testset "reductions along a dimension: dense by default, sparse with `sparse = true` (#43), column views (#377)" begin

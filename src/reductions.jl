@@ -61,16 +61,124 @@ end
 function Base._mapreduce(f::F, op::G, ::Base.IndexCartesian, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
     z = nnz(A)
     n = widelength(A)
-    if z == 0
-        if n == 0
-            Base.mapreduce_empty(f, op, T)
-        else
-            _mapreducezeros(f, op, T, n-z-1, f(zero(T)))
-        end
+    if n == 0
+        Base.mapreduce_empty(f, op, T)
+    elseif !_commutes(f, op, T)
+        # every entry is stored, so skip `f(0)`: it might throw
+        z == n ? Base._mapreduce(f, op, nzvalview(A)) : _mapreduce_ordered(f, op, A)
+    elseif z == 0
+        _mapreducezeros(f, op, T, n-z-1, f(zero(T)))
     else
         _mapreducezeros(f, op, T, n-z, Base._mapreduce(f, op, nzvalview(A)))
     end
 end
+
+# Whether the kernels may reorder the values `f` produces before combining them with `op`.
+# Every `op` is assumed associative, but only these are trusted to commute. `*` commutes only
+# when `f` returns real or complex numbers, which is decided from the inferred type.
+# There is one type argument per array being reduced.
+_commutes(f, ::Union{typeof(+),typeof(Base.add_sum),typeof(max),typeof(min),typeof(|),typeof(&),
+                     typeof(Base.or_any),typeof(Base.and_all),typeof(Base._extrema_rf)}, ::Vararg{Type,N}) where {N} = true
+_commutes(f::F, ::Union{typeof(*),typeof(Base.mul_prod)}, Ts::Vararg{Type,N}) where {F,N} =
+    Base.promote_op(f, Ts...) <: Union{Real,Complex}
+_commutes(f, op, ::Vararg{Type,N}) where {N} = false
+
+# Reduction for an `op` that may not commute: every position is visited in order, stored or
+# not. Each run of unstored positions is collapsed into one value (`_foldunstored`) and
+# combined with the stored entry after it, so the accumulator takes one call of `op` per
+# stored entry. The caller ensures `A` has an unstored entry, so `f(0)` can be evaluated.
+function _mapreduce_ordered(f::F, op::G, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
+    rf = Base.BottomRF(op)
+    rowval, nzval = getrowval(A), getnzval(A)
+    m = size(A, 1)
+    z, idem = _unstoredvalue(f, op, T, nnz(A), 1, widelength(A))
+    v, dropout = _foldstored(f, op, z, nzvalview(A))
+    dropout && return v
+    v = Base._InitialValue()
+    unstored = Int64(0)   # spans columns, so it can exceed typemax(Int32)
+    @inbounds for col in axes(A, 2)
+        prev = 0
+        for k in getnzrange(A, col)
+            row = Int(rowval[k])
+            v = rf(v, _afterunstored(op, z, idem, unstored + (row - prev - 1), f(nzval[k])))
+            unstored, prev = Int64(0), row
+        end
+        unstored += m - prev
+    end
+    return unstored == 0 ? v : rf(v, _foldunstored(op, z, idem, unstored))
+end
+function _mapreduce_ordered(f::F, op::G, A::SparseVectorOrView{T}) where {F,G,T}
+    rf = Base.BottomRF(op)
+    nzind, nzval = nonzeroinds(A), nonzeros(A)
+    z, idem = _unstoredvalue(f, op, T, nnz(A), 1, length(A))
+    v, dropout = _foldstored(f, op, z, nzval)
+    dropout && return v
+    v = Base._InitialValue()
+    prev = 0
+    @inbounds for k in eachindex(nzind, nzval)
+        i = Int(nzind[k])
+        v = rf(v, _afterunstored(op, z, idem, i - prev - 1, f(nzval[k])))
+        prev = i
+    end
+    n = length(A) - prev
+    return n == 0 ? v : rf(v, _foldunstored(op, z, idem, n))
+end
+# Fast path of `_mapreduce_ordered`: fold the stored values alone, in order, and check in the
+# same pass whether `z = f(0)` is a two-sided identity for each of them, in value and type.
+# If it is, the unstored entries cannot change the result wherever they lie, and the flag
+# returned is `true`. The loop is `@simd`, so that a plain `op` such as `(a, b) -> a + b`
+# vectorizes; chunks are combined pairwise, as in Base's reductions.
+function _foldstored(f::F, op::G, z, nzval::AbstractVector) where {F,G}
+    isempty(nzval) && return z, false
+    # an `op` with no identity, such as `vcat`, fails here before the full pass
+    _isidentity(op, z, f(@inbounds nzval[1])) || return z, false
+    return _foldstored(f, op, z, nzval, firstindex(nzval), lastindex(nzval))
+end
+function _foldstored(f::F, op::G, z, nzval::AbstractVector, lo::Int, hi::Int) where {F,G}
+    if hi - lo < 1024
+        x = f(@inbounds nzval[lo])
+        dropout = _isidentity(op, z, x)
+        v = Base.reduce_first(op, x)
+        @inbounds @simd for k in lo+1:hi
+            x = f(nzval[k])
+            dropout &= _isidentity(op, z, x)
+            v = op(v, x)
+        end
+        return v, dropout
+    end
+    mid = (lo + hi) >>> 1
+    v, dropout = _foldstored(f, op, z, nzval, lo, mid)
+    dropout || return v, false
+    w, dropout = _foldstored(f, op, z, nzval, mid + 1, hi)
+    return op(v, w), dropout
+end
+@inline _isidentity(op::G, z, x) where {G} = _sameas(op(z, x), x) & _sameas(op(x, z), x)
+@inline _sameas(y, x) = typeof(y) === typeof(x) && (isbits(x) ? y === x : isequal(y, x))
+# Returns `z`, which is `f(0)` as `op` first sees it, and `idem`, whether `op(z, z)` is `z` in
+# value and type, in which case a run of unstored entries of any length is just `z`.
+# `op(z, z)` is evaluated only if two unstored entries must be adjacent, because `nslices`
+# slices of length `len` holding `nstored` entries cannot separate them all. Otherwise
+# the dense reduction would never compute it, and it might throw; `idem` is then `nothing`.
+function _unstoredvalue(f::F, op::G, ::Type{T}, nstored::Integer, nslices::Integer, len::Integer) where {F,G,T}
+    z = Base.reduce_first(op, f(zero(T)))
+    2 * Int128(nstored) < Int128(nslices) * (Int128(len) - 1) || return z, nothing
+    zz = op(z, z)
+    return z, typeof(zz) === typeof(z) && isequal(zz, z)
+end
+# `z` folded with itself over `n > 0` consecutive positions, by repeated squaring
+@inline function _foldunstored(op::G, z, idem::Union{Nothing,Bool}, n) where {G}
+    (idem === true || n == 1) && return z
+    p = r = z
+    n -= 1
+    while n > 0
+        isodd(n) && (r = op(r, p))
+        n >>= 1
+        n > 0 && (p = op(p, p))
+    end
+    return r
+end
+# a run of `n` unstored positions folded, then combined with the stored value `x` after it
+@inline _afterunstored(op::G, z, idem::Union{Nothing,Bool}, n, x) where {G} = n == 0 ? x : op(_foldunstored(op, z, idem, n), x)
 
 # Specialized mapreduce for +/*/min/max/_extrema_rf. The entries a sparse array does not
 # store are folded in at once, as `reduce_first` of `f(0)` (an `Int` for `sum` and `prod` of
@@ -109,6 +217,8 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
     if nzeros == 0
         # No zeros, so don't compute f(0) since it might throw
         Base._mapreduce(f, op, nzvalview(A))
+    elseif !_commutes(f, op, T)
+        _mapreduce_ordered(f, op, A)
     else
         v = Base.reduce_first(op, f(zero(T)))^nzeros
         (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) && return v
@@ -162,12 +272,6 @@ for T in (:SparseVectorOrView, :SparseMatrixCSCOrColumnSubset)
                                                          _mapreduce_ordered(f, op, init, A, B)
     end
 end
-# A product commutes when its factors are real or complex numbers, which is asked of inference:
-# the answer picks between two kernels that agree for such factors.
-_commutes(f, ::Union{typeof(+),typeof(Base.add_sum),typeof(max),typeof(min)}, ::Type, ::Type) = true
-_commutes(f::F, ::Union{typeof(*),typeof(Base.mul_prod)}, ::Type{Ta}, ::Type{Tb}) where {F,Ta,Tb} =
-    Base.promote_op(f, Ta, Tb) <: Union{Real,Complex}
-_commutes(f, op, ::Type, ::Type) = false
 
 # An `op` not known to commute is folded over the positions in their order. A zero is taken
 # only where an entry is not stored, as an array that stores every entry need not have one.
@@ -348,6 +452,8 @@ function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,T
             getcolptr(R)[2] = 2
         end
         return R
+    elseif (rm == 1 || rn == 1) && !_inorder(f, op, A)
+        return _mapreduce_dim_sparse_ordered(f, op, init, A, dims, Tr, rm == 1)
     elseif rm == 1
         return _mapreducerows_sparse!(f, op, init, spzeros(Tr, Ti, 1, n), A)
     elseif rn == 1
@@ -356,6 +462,40 @@ function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,T
         # a dimension beyond 2: every entry is a slice of its own
         return convert(SparseMatrixCSC{Tr,Ti}, map(x -> _seed(f, op, init, x), A isa SubArray ? copy(A) : A))
     end
+end
+
+# `sparse = true` for an `op` that may not commute. The two sparse kernels below fold each
+# slice's stored entries before its unstored ones, so they cannot be used. The dense
+# reduction folds in order, in time proportional to nnz(A) + length(result) as well; its
+# result is stored in the pattern those kernels would give.
+function _mapreduce_dim_sparse_ordered(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,Ti}, dims, ::Type{Tr},
+                                       alongrows::Bool) where {T,Ti,Tr}
+    m, n = size(A)
+    D = Base._mapreduce_dim(f, op, init, A, dims)
+    stores = fill(false, alongrows ? n : m)
+    if alongrows
+        @inbounds for col in 1:n
+            stores[col] = !isempty(getnzrange(A, col))
+        end
+    else
+        @inbounds for i in view(getrowval(A), _storedinds(A))
+            stores[i] = true
+        end
+    end
+    # a slice that stores nothing is kept when its reduction is not a zero
+    z = zero(Tr)
+    @inbounds for i in eachindex(stores)
+        stores[i] || (stores[i] = !isequal(D[i], z))
+    end
+    inds = convert(Vector{Ti}, findall(stores))
+    vals = Tr[D[i] for i in inds]
+    alongrows || return SparseMatrixCSC(m, 1, Ti[1, length(inds) + 1], inds, vals)
+    colptr = Vector{Ti}(undef, n + 1)
+    colptr[1] = 1
+    @inbounds for col in 1:n
+        colptr[col + 1] = colptr[col] + stores[col]
+    end
+    return SparseMatrixCSC(1, n, colptr, fill!(inds, 1), vals)
 end
 
 # `R` is a structurally empty `1 x n` sparse matrix: its columns are built in order
@@ -484,6 +624,44 @@ function _mapreducecols!(f, op, R::AbstractArray, A::SparseMatrixCSCOrColumnSubs
     R
 end
 
+# The kernels above fold each slice's stored entries first and its unstored ones last. That
+# matches element order only when `op` commutes or every entry is stored; otherwise the
+# kernels below fold the unstored entries where they lie.
+_inorder(f, op, A::AbstractArray{T}) where {T} = _commutes(f, op, T) || nnz(A) == length(A)
+function _mapreducerows_ordered!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
+    require_one_based_indexing(A, R)
+    rowval, nzval = getrowval(A), getnzval(A)
+    m = size(A, 1)
+    z, idem = _unstoredvalue(f, op, T, nnz(A), size(A, 2), m)
+    @inbounds for col in axes(A, 2)
+        r = R[1, col]
+        prev = 0
+        for j in getnzrange(A, col)
+            row = Int(rowval[j])
+            r = op(r, _afterunstored(op, z, idem, row - prev - 1, f(nzval[j])))
+            prev = row
+        end
+        R[1, col] = prev == m ? r : op(r, _foldunstored(op, z, idem, m - prev))
+    end
+    R
+end
+function _mapreducecols_ordered!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
+    require_one_based_indexing(A, R)
+    rowval, nzval = getrowval(A), getnzval(A)
+    m, n = size(A)
+    z, idem = _unstoredvalue(f, op, T, nnz(A), m, n)
+    lastcol = zeros(Int, m)   # the last column folded into each row
+    @inbounds for col in axes(A, 2), j in getnzrange(A, col)
+        row = rowval[j]
+        R[row, 1] = op(R[row, 1], _afterunstored(op, z, idem, col - lastcol[row] - 1, f(nzval[j])))
+        lastcol[row] = col
+    end
+    @inbounds for i in 1:m
+        lastcol[i] == n || (R[i, 1] = op(R[i, 1], _foldunstored(op, z, idem, n - lastcol[i])))
+    end
+    R
+end
+
 function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
     require_one_based_indexing(A, R)
     lsiz = Base.check_reducedims(R,A)
@@ -494,10 +672,10 @@ function Base._mapreducedim!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOr
         R[1, 1] = op(R[1, 1], mapreduce(f, op, A))
     elseif size(R, 1) == 1
         # Reduction along rows
-        _mapreducerows!(f, op, R, A)
+        _inorder(f, op, A) ? _mapreducerows!(f, op, R, A) : _mapreducerows_ordered!(f, op, R, A)
     elseif size(R, 2) == 1
         # Reduction along columns
-        _mapreducecols!(f, op, R, A)
+        _inorder(f, op, A) ? _mapreducecols!(f, op, R, A) : _mapreducecols_ordered!(f, op, R, A)
     else
         # Reduction along a dimension > 2
         # Compute op(R, f(A))

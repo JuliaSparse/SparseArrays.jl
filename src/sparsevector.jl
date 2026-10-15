@@ -1533,6 +1533,7 @@ function Base._mapreduce(f::F, op::G, ::IndexCartesian, A::SparseVectorOrView) w
     T = eltype(A)
     isempty(A) && return Base.mapreduce_empty(f, op, T)
     z = nnz(A)
+    (z == length(A) || _commutes(f, op, T)) || return _mapreduce_ordered(f, op, A)
     rest, ini = if z == 0
         length(A)-z-1, f(zero(T))
     else
