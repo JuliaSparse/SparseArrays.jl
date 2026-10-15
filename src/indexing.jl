@@ -617,8 +617,7 @@ function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _
     if !_isimplicitzero(v, Tv)
         nz = getcolptr(A)[size(A, 2)+1]
         # throw exception before state is partially modified
-        !isbitstype(Ti) || nz < typemax(Ti) ||
-            throw(ArgumentError("nnz(A) going to exceed typemax(Ti) = $(typemax(Ti))"))
+        _checknnzfits(Ti, nz)
 
         _is_fixed(A) && _throwfixedinsert(A, i, j)
         # if nnz(A) < length(rowval/nzval): no need to grow rowval and preserve values
@@ -732,6 +731,14 @@ function _spsetnz_setindex!(A::AbstractSparseMatrixCSC{Tv}, x::Tv,
     rowvalA = getrowval(A)
     nzvalA = getnzval(A)
 
+    if !_nnzfits(indtype(A), nnzA)
+        nstored = 0
+        for col in J, k in nzrange(A, col)
+            nstored += _insorted(rowvalA[k], I)
+        end
+        _checknnzfits(indtype(A), nnzA - nstored)
+    end
+
     rowidx = 1
     nadd = 0
     shift = 0   # the unread old entries sit `shift` places further along once the buffers grow
@@ -842,9 +849,10 @@ end
 # Nonscalar A[I,J] = B: Convert B to a SparseMatrixCSC of the appropriate shape first
 # (reshape also fixes a 1×n V assigned to A[:, j], which the shape check allows; see #569)
 # a dense `V` keeps what scalar `setindex!` would store, such as `-0.0`, which `sparse` drops
-function _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I, J) where {Tv,Ti}
+function _to_same_csc(A::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I, J) where {Tv,Ti}
     M = reshape(V, length(I), length(J))
     nz = count(x -> !_isimplicitzero(convert(Tv, x), Tv), M)
+    _checknnzfits(Ti, nz)   # every nonzero of `V` ends up stored in `A`: no index repeats
     colptr = Vector{Ti}(undef, size(M, 2) + 1)
     rowval = Vector{Ti}(undef, nz)
     nzval = Vector{Tv}(undef, nz)
@@ -864,8 +872,15 @@ function _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I,
     return SparseMatrixCSC{Tv,Ti}(size(M)..., colptr, rowval, nzval)
 end
 # a sparse `V` is copied through its storage; converting the lazy reshape would visit every element
-_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I, J) where {Tv,Ti} =
-    SparseMatrixCSC{Tv,Ti}(size(V) == (length(I), length(J)) ? V : copy(reshape(V, length(I), length(J))))
+function _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I, J) where {Tv,Ti}
+    W = size(V) == (length(I), length(J)) ? V : copy(reshape(V, length(I), length(J)))
+    if !_nnzfits(Ti, nnz(W))
+        # the merge drops the stored zeros of `V`, so only its nonzeros have to fit `Ti`
+        W = fkeep!((i, j, x) -> !_isimplicitzero(x, Tv), _writablecopy(SparseMatrixCSC{Tv}(W)))
+        _checknnzfits(Ti, nnz(W))
+    end
+    return SparseMatrixCSC{Tv,Ti}(W)
+end
 
 # The positions of `I` that a sorted merge has to visit, in increasing order of index:
 # of a repeated index only the last position, whose write wins. `nothing` if `I` is
@@ -884,6 +899,13 @@ function _setindex_lastwrites(I)
     return resize!(p, k)
 end
 
+# `V`, shaped `nI × nJ`, restricted to the positions `pI` and `pJ` of `_setindex_lastwrites`
+_lastwrites(V::AbstractVecOrMat, nI, nJ, pI, pJ) = view(reshape(V, nI, nJ), _orcolon(pI), _orcolon(pJ))
+_lastwrites(V::AbstractSparseMatrixCSC, nI, nJ, pI, pJ) =
+    (size(V) == (nI, nJ) ? V : copy(reshape(V, nI, nJ)))[_orcolon(pI), _orcolon(pJ)]
+_orcolon(::Nothing) = Colon()
+_orcolon(p) = p
+
 setindex!(A::AbstractSparseMatrixCSC{Tv}, B::AbstractVecOrMat, I::Integer, J::Integer) where {Tv} = _setindex_scalar!(A, B, I, J)
 
 function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::Union{Integer, AbstractVector{<:Integer}, Colon}, Jx::Union{Integer, AbstractVector{<:Integer}, Colon}) where {Tv,Ti<:Integer}
@@ -898,24 +920,21 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
         Base.setindex_shape_check(V, length(I), length(J))
     end
     _is_fixed(A) && return _setindex_fixed!(A, V, I, J)
+    # of a repeated index only the last write is kept, before the entries are counted
+    pI = _setindex_lastwrites(I)
+    pJ = _setindex_lastwrites(J)
+    if pI !== nothing || pJ !== nothing
+        # a value that is overwritten still has to convert
+        _checkconvertible(Tv, V isa AbstractSparseMatrixCSC ? getnzval(V) : V)
+        V = _lastwrites(V, length(I), length(J), pI, pJ)
+        pI === nothing || (I = I[pI])
+        pJ === nothing || (J = J[pJ])
+    end
     B = _to_same_csc(A, V, I, J)
 
     m, n = size(A)
     if isempty(I) || isempty(J)
         return A
-    end
-
-    pI = _setindex_lastwrites(I)
-    pJ = _setindex_lastwrites(J)
-    if pI !== nothing && pJ !== nothing
-        I = I[pI]; J = J[pJ]
-        B = B[pI, pJ]
-    elseif pI !== nothing
-        I = I[pI]
-        B = B[pI, :]
-    elseif pJ !== nothing
-        J = J[pJ]
-        B = B[:, pJ]
     end
     nJ = length(J)
 
@@ -923,6 +942,7 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     colptrB = getcolptr(B); rowvalB = getrowval(B); nzvalB = getnzval(B)
 
     nnzS = nnz(A) + nnz(B)
+    _nnzfits(Ti, nnzS) || _checknnzfits(Ti, _setindex_nnz(A, B, I, J))
 
     colptrS = copy(getcolptr(A))
     rowvalS = copy(getrowval(A))
@@ -1009,6 +1029,25 @@ function setindex!(A::AbstractSparseMatrixCSC{Tv,Ti}, V::AbstractVecOrMat, Ix::U
     return _checkbuffers(A)
 end
 
+# The entries `A[I, J] = B` leaves stored, counted without writing: every entry of `A`
+# stays, and each nonzero of `B` at a position `A` does not store is added. `I` and `J`
+# are strictly increasing.
+function _setindex_nnz(A::AbstractSparseMatrixCSC{Tv}, B::AbstractSparseMatrixCSC, I, J) where {Tv}
+    rowvalA = getrowval(A); rowvalB = getrowval(B); nzvalB = getnzval(B)
+    nnzS = nnz(A)
+    for (colB, col) in enumerate(J)
+        rA = nzrange(A, col)
+        for k in nzrange(B, colB)
+            _isimplicitzero(nzvalB[k], Tv) && continue
+            nnzS += !insorted(I[rowvalB[k]], view(rowvalA, rA))
+        end
+    end
+    return nnzS
+end
+
+_insorted(i, I::Integer) = i == I
+_insorted(i, I::AbstractVector) = insorted(i, I)
+
 # Logical setindex!
 
 # `findall` drops the length of a mask, so the bounds are checked first
@@ -1087,6 +1126,8 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     end
     # a value that does not convert throws before any write
     _checkconvertible(eltype(A), x)
+    # an entry too many for `Ti` throws before any write
+    _nnzfits(indtype(A), nnz(A) + n) || _checknnzfits(indtype(A), _setindex_linear_nnz(A, x, I, S))
 
     CartIndsA = CartesianIndices(szA)
 
@@ -1201,6 +1242,23 @@ function _setindex_fixed!(A::AbstractSparseMatrixCSC{Tv}, V::AbstractVecOrMat, I
         end
     end
     return A
+end
+
+# The entries `A[I] = x` leaves stored, counted without writing. `S` sorts `I`, and of a
+# repeated index the last position is the one written.
+function _setindex_linear_nnz(A::AbstractSparseMatrixCSC{Tv}, x::AbstractArray, I::AbstractVector, S) where {Tv}
+    rowvalA = getrowval(A)
+    CartIndsA = CartesianIndices(size(A))
+    n = length(I)
+    nnzS = nnz(A)
+    for xidx in 1:n
+        sxidx = S[xidx]
+        (xidx < n) && (I[sxidx] == I[S[xidx+1]]) && continue
+        _isimplicitzero(convert(Tv, x[sxidx]), Tv) && continue
+        row, col = Tuple(CartIndsA[I[sxidx]])
+        nnzS += !insorted(row, view(rowvalA, nzrange(A, col)))
+    end
+    return nnzS
 end
 
 # Linear-index assignment into a fixed pattern: every index is located, and a nonzero

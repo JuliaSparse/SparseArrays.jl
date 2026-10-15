@@ -426,6 +426,35 @@ end
 end
 end
 
+@testset "more stored entries than Ti counts" begin
+    mk() = SparseMatrixCSC{Float64,Int8}(sparse(1.0I, 12, 12))
+    E = Matrix(mk()); E[1:10, :] .= 1.0   # 122 entries fit, though nnz(S) plus the values assigned exceeds 127
+    S = mk()
+    @test_throws ArgumentError S[1:144] = ones(144)
+    @test exact_equal(S, mk())
+    # of a repeated index only the last write is stored, so 240 values make 122 entries
+    S = mk(); S[[1:10; 1:10], :] = ones(20, 12)
+    @test mismatch(S, E; Ti=Int8) === nothing
+    @static if COMPREHENSIVE
+    S = mk()
+    @test_throws ArgumentError fill!(view(S, :, :), 1.0)
+    @test exact_equal(S, mk())
+    S = mk(); S[findall(!iszero, vec(E))] = ones(122)
+    @test mismatch(S, E; Ti=Int8) === nothing
+    S = mk()
+    @test_throws ArgumentError S[:, :] = sparse(ones(12, 12))
+    @test exact_equal(S, mk())
+    # stored zeros of a sparse right-hand side are not counted
+    V = sparse(ones(12, 12)); nonzeros(V)[1:30] .= 0
+    S = mk(); S[:, :] = V
+    @test mismatch(S, Matrix(V); Ti=Int8) === nothing
+    # a value that a later write replaces still has to convert
+    A = spzeros(Int, 1, 1)
+    @test_throws InexactError A[[1, 1], [1]] = reshape([1.5, 2.0], 2, 1)
+    @test nnz(A) == 0
+    end
+end
+
 @testset "linear and logical setindex!" begin
     A = sparse(1.0I, 5, 5)
     lininds = 1:10
