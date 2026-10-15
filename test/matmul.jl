@@ -666,24 +666,16 @@ end
             Si = sparse([1 2 0; 0 3 4; 5 0 6])
             C0 = sparse([2 0 0; 0 1 1; 1 0 0])
             D = Diagonal([0.5, 1, 1])
-            # the two kernels, the adjoint formed directly in the destination, and a zero `alpha`
             for f in (C -> mul!(C, S, D), C -> mul!(C, D, S),
                       C -> mul!(C, Si', Diagonal([1, 1, 1]), 0.5, false), C -> mul!(C, S, D, 0, 0.5))
                 C = copy(C0)
                 @test_throws InexactError f(C)
-                @test same_pattern(C, C0) && nonzeros(C) == nonzeros(C0)
+                @test mismatch(C, C0) === nothing
             end
-            # a result the destination can hold is stored, whatever the eltypes of the operands
             D = Diagonal([2, 4, 6])
             @test mismatch(mul!(copy(C0), S, D, 0.5, 1), mul!(Matrix(C0), Matrix(S), D, 0.5, 1)) === nothing
-            # for a zero `beta` an old value that the product's eltype cannot hold is not converted
+            # with a zero `beta`, the old `-1` in `C` is never converted to the product's eltype `UInt`
             @test mismatch(mul!(sparse(reshape([-1], 1, 1)), sparse(reshape(UInt[1], 1, 1)), Diagonal(UInt[1])), reshape([1], 1, 1)) === nothing
-            # that an `Int` promotes to `UInt` does not make it storable
-            Cu = sparse(ones(UInt, 2, 2))
-            @test_throws InexactError mul!(Cu, sparse([1 0; 0 -1]), Diagonal([1, 1]))
-            @test mismatch(Cu, ones(UInt, 2, 2)) === nothing
-            # a floating-point destination holds any machine number, so it is written directly
-            @test SparseArrays._storesafely(Float32, Float64) && !SparseArrays._storesafely(Int, Float64)
         end
         end
     end

@@ -754,27 +754,24 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
     end
 end
 
-# Whether storing a value of type `T` in an array of eltype `TC` cannot throw: a `T` is a
-# `TC`, the range of an integer `TC` covers that of `T`, or both are machine numbers and
-# `TC` is floating point, where a conversion rounds or overflows to `Inf`. That `T`
-# promotes to `TC` does not show it: an `Int` promotes to `UInt`.
+# Whether `convert(TC, x)` succeeds for every `x::T`. Promotion is not enough: `Int` promotes
+# to `UInt`, but `-1` does not convert. Any machine number converts to a float, at worst
+# rounding or overflowing to `Inf`.
 const _MachineReal = Union{Base.IEEEFloat,Base.BitInteger,Bool}
 _storesafely(::Type{TC}, ::Type{T}) where {TC,T} = T <: TC
 _storesafely(::Type{TC}, ::Type{T}) where {TC<:Union{Base.BitInteger,Bool},T<:Union{Base.BitInteger,Bool}} =
     typemin(TC) <= typemin(T) && typemax(T) <= typemax(TC)
 _storesafely(::Type{<:Base.IEEEFloat}, ::Type{<:_MachineReal}) = true
 _storesafely(::Type{<:Complex{<:Base.IEEEFloat}}, ::Type{<:Union{_MachineReal,Complex{<:_MachineReal}}}) = true
-# The type of `P*alpha + C*beta` for a product `P` of eltype `TP`. The kernels below write
-# the pattern of `C` before the values; a result that may not convert is formed in a copy
-# of `C` that holds this type and converted before `C` changes, so that a throw leaves it
-# as it was.
 @inline function _diagmul_eltype(C, ::Type{TP}, alpha, beta) where {TP}
     Tα = isone(alpha) ? TP : promote_op(*, TP, typeof(alpha))
     return iszero(beta) ? Tα : promote_op(+, Tα, promote_op(*, eltype(C), typeof(beta)))
 end
-# The copy holds the values of `C` as they are, next to the results when an `R` cannot
-# hold them, so that none is converted before the kernel reads it. The kernel adds the
-# pattern of `A` only for a nonzero `beta`; that is done here, where the eltype has a zero.
+# The kernels change the pattern of `C` before they write its values, so a value that fails
+# to convert to `eltype(C)` would leave `C` corrupted. When that can happen, `mul!` runs the
+# kernel on this copy of `C` instead, whose eltype holds both the results (`R`) and the old
+# values of `C`, then converts it into `C` with `_diagmul_store!`. The pattern of `A` is
+# merged in here because doing it inserts zeros, and a `Union` eltype has no `zero`.
 function _diagmul_widened(C, A, ::Type{R}, beta) where {R}
     W = SparseMatrixCSC(size(C)..., copy(getcolptr(C)), copy(getrowval(C)), copy(getnzval(C)))
     iszero(beta) || mergeinds!(W, A)
@@ -785,8 +782,6 @@ function _diagmul_store!(C, W)
     nzval = convert(Vector{eltype(C)}, view(getnzval(W), 1:nnz(W)))
     return copyto!(C, SparseMatrixCSC(size(W)..., getcolptr(W), getrowval(W), nzval))
 end
-# `C = C*beta`, the result for a zero `alpha`: the product is not formed, so a non-finite
-# entry of it cannot turn up in `C`. A scaling that may not convert is checked in full first.
 function _diagmul_scale!(C, beta)
     Cnzval = getnzval(C)
     TC = eltype(C)
