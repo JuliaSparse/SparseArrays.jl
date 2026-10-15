@@ -872,8 +872,15 @@ function _to_same_csc(A::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractVecOrMat, I
     return SparseMatrixCSC{Tv,Ti}(size(M)..., colptr, rowval, nzval)
 end
 # a sparse `V` is copied through its storage; converting the lazy reshape would visit every element
-_to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I, J) where {Tv,Ti} =
-    SparseMatrixCSC{Tv,Ti}(size(V) == (length(I), length(J)) ? V : copy(reshape(V, length(I), length(J))))
+function _to_same_csc(::AbstractSparseMatrixCSC{Tv, Ti}, V::AbstractSparseMatrixCSC, I, J) where {Tv,Ti}
+    W = size(V) == (length(I), length(J)) ? V : copy(reshape(V, length(I), length(J)))
+    if !_nnzfits(Ti, nnz(W))
+        # the merge drops the stored zeros of `V`, so only its nonzeros have to fit `Ti`
+        W = fkeep!((i, j, x) -> !_isimplicitzero(x, Tv), _writablecopy(SparseMatrixCSC{Tv}(W)))
+        _checknnzfits(Ti, nnz(W))
+    end
+    return SparseMatrixCSC{Tv,Ti}(W)
+end
 
 # The positions of `I` that a sorted merge has to visit, in increasing order of index:
 # of a repeated index only the last position, whose write wins. `nothing` if `I` is

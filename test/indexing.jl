@@ -445,6 +445,13 @@ end
     @test mismatch(S, E; Ti=Int8) === nothing
     S = mk(); S[[1:10; 1:10], :] = sparse(ones(20, 12))
     @test mismatch(S, E; Ti=Int8) === nothing
+    S = mk()
+    @test_throws ArgumentError S[:, :] = sparse(ones(12, 12))
+    @test exact_equal(S, mk())
+    # stored zeros of a sparse right-hand side are not counted
+    V = sparse(ones(12, 12)); nonzeros(V)[1:30] .= 0
+    S = mk(); S[:, :] = V
+    @test mismatch(S, Matrix(V); Ti=Int8) === nothing
     # a value that a later write replaces still has to convert
     A = spzeros(Int, 1, 1)
     @test_throws InexactError A[[1, 1], [1]] = reshape([1.5, 2.0], 2, 1)
