@@ -194,6 +194,18 @@ begin
         vAW = tr(wr(view([zero(A)+I A], :, (n+1):2n)))
         @test vAW \ B ≈ AW \ B
     end
+    @static if COMPREHENSIVE
+    @testset "the diagonal of a stored triangle is found without a search" begin
+        # column 5 of an upper triangle, of a lower one, and of a matrix that stores both
+        ja = CountedReads([1, 3, 5, 5, 7, 9, 1, 5, 9])
+        @test SparseArrays._tridiagindex(true, ja, 1, 3, 5) == (3, true)
+        @test SparseArrays._tridiagindex(false, ja, 4, 6, 5) == (4, true)
+        # a column that stores nothing reads nothing
+        @test SparseArrays._tridiagindex(true, ja, 4, 3, 5) == (3, false)
+        @test ja.reads[] == 2
+        @test SparseArrays._tridiagindex(true, ja, 7, 9, 5) == (8, true)
+    end
+    end
     @testset "triangular singular exceptions" begin
         A = LowerTriangular(sparse([0 2.0;0 1]))
         @test_throws SingularException(1) A \ ones(2)
