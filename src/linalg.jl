@@ -386,7 +386,8 @@ function _trisingular(upper::Bool, A)
 end
 # A diagonal entry that is not stored or is a stored zero is singular, as a zero on the
 # diagonal of a dense triangle is, and the first such column is the one reported, whichever
-# the sweep meets first.
+# the sweep meets first. The elements of `A` multiply and divide from the left, as they do
+# in `M * X == B`.
 function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {upper}
     n = size(A, 2)
     aa = getnzval(A)
@@ -403,7 +404,7 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                 if !unit
                     d = f(aa[ii])
                     iszero(d) && throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
-                    cj /= LinearAlgebra._ustrip(d)
+                    cj = LinearAlgebra._ustrip(d) \ cj
                     C[j,k] = cj
                 end
                 ii += upper ? -1 : 1
@@ -411,7 +412,7 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                 throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
             end
             for i in (upper ? (ii:-1:i1) : (ii:i2))
-                C[ja[i],k] -= cj * LinearAlgebra._ustrip(f(aa[i]))
+                C[ja[i],k] -= LinearAlgebra._ustrip(f(aa[i])) * cj
             end
         else
             akku = C[j,k]
@@ -420,14 +421,14 @@ function _trimatdiv!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
                 jai = Int(ja[ii])
                 d = upper ? j - jai : jai - j
                 if d > 0
-                    akku -= C[jai,k] * f(aa[ii])
+                    akku -= f(aa[ii]) * C[jai,k]
                 elseif d == 0
                     if unit
-                        akku /= oneunit(eltype(A))
+                        akku = oneunit(eltype(A)) \ akku
                     else
                         a = f(aa[ii])
                         iszero(a) && throw(LinearAlgebra.SingularException(_trisingular(upper, A)))
-                        akku /= a
+                        akku = a \ akku
                     end
                     done = true
                     break

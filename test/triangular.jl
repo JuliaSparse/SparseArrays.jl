@@ -287,6 +287,17 @@ end
     H = transpose(Hermitian(S + S'))
     @test (H / L)::Matrix{ComplexF64} ≈ Matrix(H) / Matrix(L)
 end
+
+@testset "triangular solves with a non-commutative eltype" begin
+    Quaternion = quaternion_type()
+    # the diagonal is stored and nonzero, and every product of two entries depends on its order
+    A = sparse(reshape(Quaternion.(eachcol(fixturedense(Float64, 16, 4))...), 4, 4))
+    b = Quaternion.(eachcol(fixturedense(Float64, 4, 4))...)
+    # the sweep over the columns of the matrix, and the one over those of its adjoint
+    for T in (UpperTriangular(A), LowerTriangular(A)')
+        @test Matrix(T) * (T \ b) ≈ b
+    end
+end
 end
 
 @testset "triangular kernel dispatch and shape checks" begin
