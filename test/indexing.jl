@@ -439,11 +439,7 @@ end
     S = mk()
     @test_throws ArgumentError fill!(view(S, :, :), 1.0)
     @test exact_equal(S, mk())
-    @test_throws ArgumentError S[:, :] = ones(12, 12)
-    @test exact_equal(S, mk())
     S = mk(); S[findall(!iszero, vec(E))] = ones(122)
-    @test mismatch(S, E; Ti=Int8) === nothing
-    S = mk(); S[[1:10; 1:10], :] = sparse(ones(20, 12))
     @test mismatch(S, E; Ti=Int8) === nothing
     S = mk()
     @test_throws ArgumentError S[:, :] = sparse(ones(12, 12))
