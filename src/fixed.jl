@@ -37,9 +37,7 @@ Base.elsize(::Type{ReadOnly{T,N,V}}) where {T,N,V} = Base.elsize(V)
     throw(ArgumentError("cannot modify a $(nameof(typeof(x))) array, the sparsity pattern of a fixed sparse array is read-only"))
 Base.@propagate_inbounds @inline Base.setindex!(x::ReadOnly, v, ind::Vararg{Integer}) =
     v == getindex(parent(x), ind...) ? v : _readonly_error(x)
-for i in [:IteratorSize, :IndexStyle]
-    @eval(@inline Base.$i(::Type{ReadOnly{T,N,V}}) where {T,N,V} = Base.$i(V))
-end
+@inline Base.IndexStyle(::Type{ReadOnly{T,N,V}}) where {T,N,V} = Base.IndexStyle(V)
 @inline Base.resize!(x::ReadOnly, l) = l == length(parent(x)) ? x : _readonly_error(x)
 Base.copy(x::ReadOnly) = ReadOnly(copy(parent(x)))
 (==)(x::ReadOnly, y::AbstractVector) = parent(x) == y
