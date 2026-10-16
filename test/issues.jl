@@ -1133,6 +1133,33 @@ end
     @test mismatch(NaN * x, NaN * xd) === nothing
 end
 
+@testset "concatenation with a dense array keeps the stored zeros of a sparse one" begin
+    A = sparse([1, 2], [1, 2], [1.0, 0.0])  # a stored zero
+    v = sparsevec([1, 2], [1.0, 0.0])       # a stored zero
+    D = [1.0 2.0; 0.0 4.0]                  # a zero, which is not stored
+    dv = [0.0, 3.0]
+    Ad, vd = Matrix(A), Vector(v)
+    # the result, its dense reference, and the stored zeros it keeps
+    for (S, R, z) in (
+            (hcat(A, D), hcat(Ad, D), 1), (hcat(D, A), hcat(D, Ad), 1),
+            (vcat(A, D), vcat(Ad, D), 1), (vcat(D, A), vcat(D, Ad), 1),
+            ([A D; D A], [Ad D; D Ad], 2), (hcat(A', D), hcat(Ad', D), 1),
+            (hcat(A, dv), hcat(Ad, dv), 1), (vcat(A, dv'), vcat(Ad, dv'), 1),
+            (hcat(A, v), hcat(Ad, vd), 2), (hcat(v, dv), hcat(vd, dv), 1),
+            (hcat(A, I), hcat(Ad, Matrix(I, 2, 2)), 1), (vcat(A, I), vcat(Ad, Matrix(I, 2, 2)), 1),
+            (hcat(A, Diagonal(dv)), hcat(Ad, Diagonal(dv)), 1),
+            (cat(A, D; dims=1), cat(Ad, D; dims=1), 1), (cat(A, D; dims=2), cat(Ad, D; dims=2), 1),
+            (cat(A, D; dims=(1, 2)), cat(Ad, D; dims=(1, 2)), 1),
+            (cat(A, 3.0; dims=(1, 2)), cat(Ad, 3.0; dims=(1, 2)), 1),
+            (cat(A, A; dims=1), cat(Ad, Ad; dims=1), 2), (cat(v, v; dims=2), cat(vd, vd; dims=2), 2),
+            (sparse_hcat(A, D), hcat(Ad, D), 1), (sparse_vcat(A, D), vcat(Ad, D), 1),
+            (sparse_hcat(A, A), hcat(Ad, Ad), 2), (sparse_hcat(A, I), hcat(Ad, Matrix(I, 2, 2)), 1))
+        @test mismatch(S, R; Ti=Int) === nothing
+        @test count(iszero, nonzeros(S)) == z
+        @test nnz(S) == z + count(!iszero, R)
+    end
+end
+
 end # SparseTestsBase
 
 end # module

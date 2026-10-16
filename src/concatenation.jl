@@ -174,6 +174,7 @@ function _blockdiag(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where
     colptr = Vector{Ti}(undef, n+1)
     nnzX = Int[ nnz(x) for x in X ]
     nnz_res = sum(nnzX)
+    _checknnzfits(Ti, nnz_res)
     rowval = Vector{Ti}(undef, nnz_res)
     nzval = Vector{Tv}(undef, nnz_res)
 
@@ -182,8 +183,9 @@ function _blockdiag(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where
     mX_sofar = 0
     for i = 1 : num
         colptr[(1 : nX[i] + 1) .+ nX_sofar] = getcolptr(X[i]) .+ nnz_sofar
-        rowval[(1 : nnzX[i]) .+ nnz_sofar] = getrowval(X[i]) .+ mX_sofar
-        nzval[(1 : nnzX[i]) .+ nnz_sofar] = getnzval(X[i])
+        # the row and value arrays may be longer than `nnz`
+        rowval[(1 : nnzX[i]) .+ nnz_sofar] = view(getrowval(X[i]), 1:nnzX[i]) .+ mX_sofar
+        nzval[(1 : nnzX[i]) .+ nnz_sofar] = view(getnzval(X[i]), 1:nnzX[i])
         nnz_sofar += nnzX[i]
         nX_sofar += nX[i]
         mX_sofar += mX[i]
@@ -347,6 +349,8 @@ function _catdest(::Type{T}, shape, X1::Number, X...) where {T}
     A = _catleader(X1, X...)
     return similar(A, T, promote_type(Int, indtype(A)), shape)
 end
+_catidxtype(X1::AbstractArray, X...) = indtype(X1)
+_catidxtype(X1::Number, X...) = promote_type(Int, indtype(_catleader(X1, X...)))
 # The compiled method serves every value of `dims`, so `dims2cat(dims)` has an unknown
 # length, and `similar` of a sparse array cannot be resolved for a shape of unknown length,
 # which `juliac --trim` rejects. A sparse result has one or two dimensions, so each gets a
@@ -360,26 +364,38 @@ Base.@constprop :aggressive function _sparse_cat_t(dims, ::Type{T}, X...) where 
     end
     return Base._cat_t(dims, T, map(_catdense, X)...)
 end
-function _sparse_cat_t_shaped(catdims::Tuple{Vararg{Bool}}, ::Type{T}, X...) where {T}
+# Base's `__cat` writes each block into the destination with `setindex!`, which does not
+# store a zero, so a matrix result is assembled from the stored entries of the blocks. It
+# keeps the stored zeros of a sparse block, as `hcat` and `vcat` of sparse matrices do.
+function _sparse_cat_t_shaped(catdims::Tuple{Vararg{Bool}}, ::Type{T}, X::Vararg{Any,N}) where {T,N}
     shape = Base.cat_size_shape(catdims, X...)
-    A = _catdest(T, shape, X...)
-    if count(catdims) > 1
-        fill!(A, zero(T))
+    length(shape) == 1 && return Base.__cat(_catdest(T, shape, X...), shape, catdims, X...)
+    Ti = _catidxtype(X...)
+    sparse_check_Ti(shape[1], shape[2], Ti)
+    vertical, horizontal = catdims[1], length(catdims) == 2 && catdims[2]
+    # a number fills its block, which spans the result in a dimension not concatenated
+    m, n = vertical ? 1 : Int(shape[1]), horizontal ? 1 : Int(shape[2])
+    B = map(x -> _catblock(T, Ti, x, m, n), X)
+    if !horizontal
+        return _hvcat_csc(T, Ti, ntuple(Returns(1), Val(N)), B...)
+    elseif !vertical
+        return _hvcat_csc(T, Ti, (N,), B...)
     end
-    return Base.__cat(A, shape, catdims, X...)
+    return _blockdiag(T, Ti, B...)
+end
+_catblock(::Type{Tv}, ::Type{Ti}, x, m, n) where {Tv,Ti} = _hvcat_block(Tv, Ti, x)
+function _catblock(::Type{Tv}, ::Type{Ti}, x::Number, m, n) where {Tv,Ti}
+    v = convert(Tv, x)
+    _isimplicitzero(v, Tv) && return SparseMatrixCSC(m, n, ones(Ti, n + 1), Ti[], Tv[])
+    _checknnzfits(Ti, m * n)
+    return SparseMatrixCSC(m, n, Vector{Ti}(1:m:(m * n + 1)), Vector{Ti}(repeat(1:m, n)), fill(v, m * n))
 end
 _catdense(x::AbstractArray) = Array(x)
 _catdense(x) = x
-# with only arrays, `typed_hcat`/`typed_vcat` reach the same destination through `similar`
-# of the first, now sparse, array; a number among them takes the `cat` path as in Base
-_sparse_typed_hcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_hcat(T, X...)
 _sparse_typed_hcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(2), T, X...)
+# with only vectors the result is a vector, which Base's `typed_vcat` builds by assigning
+# whole sparse vectors, which keeps their stored zeros
 _sparse_typed_vcat(::Type{T}, X::AbstractVector...) where {T} = Base.typed_vcat(T, X...)
-_sparse_typed_vcat(::Type{T}, X::AbstractVecOrMat...) where {T} = Base.typed_vcat(T, map(_introws, X)...)
-# Base stacks vectors on matrices with `size(x, 1)::Int`, and the length of a sparse vector
-# is of its index type; as a one-column matrix it has `Int` dimensions
-_introws(x::AbstractCompressedVector) = size(x, 1) isa Int ? x : SparseMatrixCSC(x)
-_introws(x) = x
 _sparse_typed_vcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(1), T, X...)
 
 # `Vararg{_SparseConcatGroup,N}` makes Julia compile `cat_internal` for each argument
@@ -477,6 +493,7 @@ function _hvcat_csc(::Type{Tv}, ::Type{Ti}, rows::Tuple{Vararg{Int}}, X::Vararg{
     for x in X
         nnzres += nnz(x)
     end
+    _checknnzfits(Ti, nnzres)
     colptr = Vector{Ti}(undef, n + 1)
     rowval = Vector{Ti}(undef, nnzres)
     nzval = Vector{Tv}(undef, nnzres)
