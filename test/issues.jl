@@ -1133,6 +1133,22 @@ end
     @test mismatch(NaN * x, NaN * xd) === nothing
 end
 
+@testset "concatenation with a dense array keeps the stored zeros of a sparse one" begin
+    A = sparse([1, 2], [1, 2], [1.0, 0.0])  # a stored zero
+    D = [1.0 2.0; 0.0 4.0]
+    Ad = Matrix(A)
+    for (S, R) in ((hcat(A, D), hcat(Ad, D)), (vcat(A, D), vcat(Ad, D)),
+                   (cat(A, D; dims=(1, 2)), cat(Ad, D; dims=(1, 2))),
+                   (cat(A, 3.0; dims=(1, 2)), cat(Ad, 3.0; dims=(1, 2))),
+                   (hcat(A, I), hcat(Ad, Matrix(I, 2, 2))))
+        @test mismatch(S, R; Ti=Int) === nothing
+        @test count(iszero, nonzeros(S)) == 1
+    end
+    # blocks of different types, as `I` gives, are not boxed once per column
+    allocs(n) = (S = sparse(1.0I, n, n); hcat(S, I); @allocations(hcat(S, I)))
+    @test allocs(1000) == allocs(2000)
+end
+
 end # SparseTestsBase
 
 end # module
