@@ -476,4 +476,6 @@ zero(a::AbstractSparseArray{Tv,Ti}) where {Tv,Ti} = spzeros(Tv, Ti, size(a)...)
 LinearAlgebra.diagzero(D::Diagonal{<:AbstractSparseMatrix{T}},i,j) where {T} =
     spzeros(T, size(D.diag[i], 1), size(D.diag[j], 2))
 
+include("precompile.jl")
+
 end
