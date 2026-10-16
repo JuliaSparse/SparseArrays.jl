@@ -347,6 +347,10 @@ julia> norm(A, 1), opnorm(A, 1), opnorm(A, Inf)
 (12.0, 5.0, 5.0)
 ```
 
+```@docs
+SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
+```
+
 ### [Performance tips](@id man-sparse-performance)
 
 Sparse code is fast when its cost is proportional to the number of stored entries, and the
@@ -678,12 +682,6 @@ SparseArrays.sparse_hvcat
 SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
-```
-
-### Norms
-
-```@docs
-SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
 ```
 
 ## Noteworthy External Sparse Packages
