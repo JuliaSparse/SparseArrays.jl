@@ -201,6 +201,57 @@ the number of stored entries. `prod`, `maximum`, `minimum`, `count`, `any`, `all
 Indexing, and especially assignment, is expensive one element at a time. See
 [Performance tips](@ref man-sparse-performance).
 
+#### [Products and norms](@id man-sparse-products)
+
+The functions of LinearAlgebra have methods for sparse arrays. Products, `dot`, `kron` and
+the norms are implemented in this package. The factorizations, and the solves that use
+them, call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse) and are
+described on the Sparse Linear Solvers page.
+
+The result of `*` follows the other factor:
+
+| Product of a sparse matrix with | Result |
+|:--------------------------------|:-------|
+| a `Vector` or a `Matrix` | dense |
+| a sparse vector | `SparseVector` |
+| a sparse matrix | `SparseMatrixCSC` |
+| a `Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix | `SparseMatrixCSC` |
+
+`mul!(y, A, x)` writes the product into `y`, and `mul!(y, A, x, α, β)` computes
+`A*x*α + y*β` in place. Products with `A'` and `transpose(A)` do not materialize the
+transpose when the other factor is dense or a sparse vector: see
+[Lazy `transpose` and `adjoint`](@ref man-sparse-lazy-transpose).
+
+- `dot(x, y)` of sparse or dense vectors and matrices visits the stored entries only, and
+  `dot(x, A, y)` computes `x' * A * y` without forming `A * y`.
+- `kron` of two sparse arrays, or of a sparse array and a dense or `Diagonal` matrix, is
+  sparse.
+- `norm(A, p)` treats `A` as a vector of its entries, so `norm(A)` is the Frobenius norm.
+  [`opnorm(A, p)`](@ref SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real))
+  is the operator norm for `p` equal to `1`, `2` or `Inf`; for `p = 2` it is an iterative
+  estimate.
+- `cond(A, 1)` and `cond(A, Inf)` estimate the norm of the inverse from an `lu`
+  factorization. The 2-norm condition number is not
+  available; use `cond(Array(A))` for a matrix small enough.
+- `tr`, `diag`, `triu` and `tril` work on the stored entries, and the last three return
+  sparse results.
+
+```jldoctest
+julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]); x = [1.0, 2.0, 3.0];
+
+julia> y = similar(x); mul!(y, A, x)
+3-element Vector{Float64}:
+  4.0
+  9.0
+ 13.0
+
+julia> dot(x, A, x)
+61.0
+
+julia> norm(A, 1), opnorm(A, 1), opnorm(A, Inf)
+(12.0, 5.0, 5.0)
+```
+
 #### [Broadcasting and `map`](@id man-sparse-broadcast)
 
 [`broadcast`](@ref) (including dot syntax such as `A .* B`) and [`map`](@ref) over sparse
@@ -540,59 +591,6 @@ true
 The factorizations accept a fixed matrix, which is what makes reusing a symbolic
 factorization safe: see "Reusing a factorization" on the Sparse Linear Solvers page.
 
-## [Sparse Linear Algebra](@id stdlib-sparse-linalg)
-
-The functions of LinearAlgebra have methods for sparse arrays. Products, `dot`, `kron` and
-the norms are implemented in this package. The factorizations, and the solves that use
-them, call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse) and are
-described on the Sparse Linear Solvers page.
-
-### [Products and norms](@id man-sparse-products)
-
-The result of `*` follows the other factor:
-
-| Product of a sparse matrix with | Result |
-|:--------------------------------|:-------|
-| a `Vector` or a `Matrix` | dense |
-| a sparse vector | `SparseVector` |
-| a sparse matrix | `SparseMatrixCSC` |
-| a `Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix | `SparseMatrixCSC` |
-
-`mul!(y, A, x)` writes the product into `y`, and `mul!(y, A, x, α, β)` computes
-`A*x*α + y*β` in place. Products with `A'` and `transpose(A)` do not materialize the
-transpose when the other factor is dense or a sparse vector: see
-[Lazy `transpose` and `adjoint`](@ref man-sparse-lazy-transpose).
-
-- `dot(x, y)` of sparse or dense vectors and matrices visits the stored entries only, and
-  `dot(x, A, y)` computes `x' * A * y` without forming `A * y`.
-- `kron` of two sparse arrays, or of a sparse array and a dense or `Diagonal` matrix, is
-  sparse.
-- `norm(A, p)` treats `A` as a vector of its entries, so `norm(A)` is the Frobenius norm.
-  [`opnorm(A, p)`](@ref SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real))
-  is the operator norm for `p` equal to `1`, `2` or `Inf`; for `p = 2` it is an iterative
-  estimate.
-- `cond(A, 1)` and `cond(A, Inf)` estimate the norm of the inverse from an `lu`
-  factorization. The 2-norm condition number is not
-  available; use `cond(Array(A))` for a matrix small enough.
-- `tr`, `diag`, `triu` and `tril` work on the stored entries, and the last three return
-  sparse results.
-
-```jldoctest
-julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]); x = [1.0, 2.0, 3.0];
-
-julia> y = similar(x); mul!(y, A, x)
-3-element Vector{Float64}:
-  4.0
-  9.0
- 13.0
-
-julia> dot(x, A, x)
-61.0
-
-julia> norm(A, 1), opnorm(A, 1), opnorm(A, Inf)
-(12.0, 5.0, 5.0)
-```
-
 ```@meta
 DocTestSetup = nothing
 ```
@@ -681,8 +679,6 @@ SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
 ```
-
-## [Sparse Linear Algebra API](@id stdlib-sparse-linalg-api)
 
 ### Norms
 
