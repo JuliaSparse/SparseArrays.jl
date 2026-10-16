@@ -974,6 +974,18 @@ end
 # TODO rank
 
 # cond
+"""
+    cond(A::AbstractSparseMatrixCSC, p::Real=2)
+
+Condition number of the sparse matrix `A` in the operator `p`-norm, for `p` equal to `1` or
+`Inf`.
+
+The norm of `A` is exact, and that of its inverse is estimated with the block 1-norm
+estimator of Higham and Tisseur, from a factorization of `A` by `factorize` and without
+forming the inverse, so the result can fall below the exact condition number. `p = 2`, the
+default, throws an `ArgumentError`, so `cond(A)` does too: use `cond(Array(A))` for a matrix
+small enough to store dense.
+"""
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
     # as for a dense matrix; the estimator of the inverse's norm needs at least one column
     (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(real(float(eltype(A))))
@@ -1178,6 +1190,19 @@ _kronscaled(b::_SparseKronView) = convert(SparseMatrixCSC, b)
 const _DenseKronGroup = Union{Number, Vector, Matrix, AdjOrTrans{<:Any,<:VecOrMat}, BandedMatrix,
                               HermOrSym{<:Any,<:Matrix}, UpperOrLowerTriangular{<:Any,<:Matrix}}
 
+"""
+    kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
+
+Store the Kronecker product of `A` and `B` in `C`, replacing its sparsity pattern, and
+return `C`. `C` must have size `(size(A, 1) * size(B, 1), size(A, 2) * size(B, 2))`, and
+its buffers are resized to hold `nnz(A) * nnz(B)` entries, so a `C` from an earlier call
+with operands of the same number of stored entries is reused without growing.
+
+`C` must be a `SparseMatrixCSC`, and a `SparseVector` for two sparse vectors. A
+fixed-pattern destination is not accepted, since the pattern of `C` is replaced. The other
+factors accepted by [`kron`](@ref kron(::SparseArrays.AbstractSparseMatrixCSC, ::SparseArrays.AbstractSparseMatrixCSC))
+are accepted here too.
+"""
 @inline function kron!(C::SparseMatrixCSC, A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A); mB, nB = size(B)
     mC, nC = mA*mB, nA*nB
@@ -1248,6 +1273,28 @@ kron!(C::SparseMatrixCSC, A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:Abs
 kron!(c::SparseMatrixCSC, a::Number, b::_SparseKronGroup) = mul!(c, a, _kronscaled(b))
 kron!(c::SparseMatrixCSC, a::_SparseKronGroup, b::Number) = mul!(c, _kronscaled(a), b)
 
+"""
+    kron(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
+
+Kronecker product of two sparse matrices, a `SparseMatrixCSC` with `nnz(A) * nnz(B)`
+stored entries, stored zeros included.
+
+With a dense or `Diagonal` matrix, a dense vector or a number as the other factor, the
+result is sparse too; a dense factor is first converted with `sparse`, which stores only its
+nonzeros. The Kronecker product of two sparse vectors
+is a `SparseVector`, and that of a sparse vector with the adjoint or transpose of one is a
+`SparseMatrixCSC`.
+
+# Examples
+```jldoctest
+julia> kron(sparse([1 0; 0 2]), [1 2; 0 3])
+4×4 SparseMatrixCSC{Int64, Int64} with 6 stored entries:
+ 1  2  ⋅  ⋅
+ ⋅  3  ⋅  ⋅
+ ⋅  ⋅  2  4
+ ⋅  ⋅  ⋅  6
+```
+"""
 function kron(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
     mA, nA = size(A)
     mB, nB = size(B)
@@ -1280,6 +1327,14 @@ kron(a::_SparseKronGroup, b::Number) = _kronscaled(a) * b
 
 ## det, inv, cond
 
+"""
+    inv(A::AbstractSparseMatrixCSC)
+
+Throw an error rather than invert a sparse matrix: the inverse is usually dense, even when
+`A` has few stored entries, and can exhaust memory. Solve with `A \\ B` instead, which
+factorizes `A` without forming its inverse, or use `inv(Matrix(A))` for a matrix small
+enough to store dense.
+"""
 inv(A::AbstractSparseMatrixCSC) = error("The inverse of a sparse matrix can often be dense and can cause the computer to run out of memory. If you are sure you have enough memory, please either convert your matrix to a dense matrix, e.g. by calling `Matrix` or if `A` can be factorized, use `\\` on the dense identity matrix, e.g. `A \\ Matrix{eltype(A)}(I, size(A)...)` restrictions of `\\` on sparse lhs applies. Alternatively, `A\\b` is generally preferable to `inv(A)*b`")
 
 # TODO

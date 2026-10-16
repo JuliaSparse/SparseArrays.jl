@@ -368,6 +368,32 @@ end
 *(A::SparseTriangular, B::SparseVectorOrView) = spmatmulv(A, B)
 *(A::SparseMatrixCSCView, B::SparseVectorOrView) = spmatmulv(A, B)
 *(A::AbstractSparseMatrixCSC, B::Union{SparseColumnView,SparseVectorView}) = spmatmulv(A, B)
+"""
+    *(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
+
+Product of two sparse matrices, a `SparseMatrixCSC` whose index type is the promotion of
+those of `A` and `B`.
+
+The cost is proportional to the number of products of stored entries, not to the size of
+the result. An entry is stored wherever such a product contributes, even when the
+contributions cancel or a factor holds a stored zero; [`dropzeros!`](@ref) removes them.
+
+The kind of array returned follows the other factor: a sparse matrix times a dense
+`Vector` or `Matrix` is dense, and times a sparse vector or a `Diagonal`, `Bidiagonal`,
+`Tridiagonal` or `SymTridiagonal` matrix it is sparse. The adjoint or transpose of a sparse
+factor is read in place when the other factor is dense, and materialized, at a cost
+proportional to its number of stored entries, when the other factor is sparse too.
+
+# Examples
+```jldoctest
+julia> A = sparse([1.0 1.0; 0.0 1.0]); B = sparse([1.0 0.0; -1.0 1.0]);
+
+julia> A * B
+2×2 SparseMatrixCSC{Float64, Int64} with 4 stored entries:
+  0.0  1.0
+ -1.0  1.0
+```
+"""
 *(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView) = spmatmul(A,B)
 *(A::SparseTriangular, B::SparseMatrixCSCOrView) = spmatmul(A,B)
 *(A::SparseMatrixCSCOrView, B::SparseTriangular) = spmatmul(A,B)
@@ -794,6 +820,23 @@ function _diagmul_scale!(C, beta)
 end
 
 # multiply by diagonal matrix as vector
+"""
+    mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, α, β)
+    mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC, α, β)
+
+Store `A*D*α + C*β`, or `D*A*α + C*β`, in the sparse matrix `C`, and return `C`: the
+columns, or the rows, of `A` scaled by the diagonal of `D`.
+
+Unlike a dense destination, `C` takes a new sparsity pattern: that of `A` when `β` is zero,
+and otherwise the union of the patterns of `A` and `C`. A fixed-pattern `C` keeps its
+pattern instead, and `mul!` throws, with `C` unchanged, if a nonzero of the result falls
+outside it.
+
+A sparse destination is supported for scaling only, by a `Diagonal` here or by a number
+with `mul!(C, A, b)`. Form other products of sparse matrices with `*`. With a dense
+destination, `mul!(C, A, B, α, β)` takes a sparse `A` and a dense `B`, or the other way
+round, and reads the adjoint or transpose of a sparse factor in place.
+"""
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, alpha::Number, beta::Number)
     m, n = size(A)
     b = D.diag

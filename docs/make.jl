@@ -7,8 +7,10 @@ makedocs(
     modules = [SparseArrays],
     sitename = "SparseArrays",
     pages = Any[
-        "SparseArrays" => "index.md",
-        "Sparse Linear Solvers" => "solvers.md",
+        "SparseArrays" => Any[
+            "index.md",
+            "Sparse Linear Solvers" => "solvers.md",
+            ],
         ];
     # The same limits as Julia's manual, which renders each of these as one page.
     format = Documenter.HTML(size_threshold = 800 * 2^10, size_threshold_warn = 200 * 2^10),
