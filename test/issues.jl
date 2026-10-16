@@ -1120,6 +1120,19 @@ end
     end
 end
 
+@testset "scaling by NaN reaches the entries that are not stored" begin
+    A, Ad = fixturepair(Float64, 5, 3)
+    x, xd = fixturepair(Float64, 7)
+    @test mismatch(rmul!(copy(A), NaN), Ad * NaN) === nothing
+    @test mismatch(lmul!(NaN, copy(A)), NaN * Ad) === nothing
+    @test mismatch(mul!(similar(A), A, NaN), Ad * NaN) === nothing
+    @test mismatch(mul!(similar(A), NaN, A), NaN * Ad) === nothing
+    @test mismatch(rmul!(copy(x), NaN), xd * NaN) === nothing
+    @test mismatch(lmul!(NaN, copy(x)), NaN * xd) === nothing
+    @test mismatch(x * NaN, xd * NaN) === nothing
+    @test mismatch(NaN * x, NaN * xd) === nothing
+end
+
 end # SparseTestsBase
 
 end # module
