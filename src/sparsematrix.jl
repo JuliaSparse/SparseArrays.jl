@@ -1613,8 +1613,28 @@ function fkeep!(x::SparseVecOrMat, f::F) where F<:Function
 end
 
 
+"""
+    tril!(A::AbstractSparseMatrixCSC, k::Integer=0)
+
+Remove from `A`, in place, the stored entries above its `k`th diagonal, and return `A`.
+Stored zeros on and below that diagonal are kept.
+
+A dense matrix has those entries set to zero; a sparse one drops them, which changes its
+sparsity pattern, so a fixed-pattern matrix throws an `ArgumentError`. `tril(A, k)` returns a
+new `SparseMatrixCSC` instead.
+"""
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
     (_checkpatternwritable(A, :tril!); _fkeep!((i, j, x) -> j - i <= k, A))
+"""
+    triu!(A::AbstractSparseMatrixCSC, k::Integer=0)
+
+Remove from `A`, in place, the stored entries below its `k`th diagonal, and return `A`.
+Stored zeros on and above that diagonal are kept.
+
+A dense matrix has those entries set to zero; a sparse one drops them, which changes its
+sparsity pattern, so a fixed-pattern matrix throws an `ArgumentError`. `triu(A, k)` returns a
+new `SparseMatrixCSC` instead.
+"""
 triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
     (_checkpatternwritable(A, :triu!); _fkeep!((i, j, x) -> j - i >= k, A))
 
@@ -2151,6 +2171,21 @@ function isdiag(A::SparseMatrixCSCOrView)
     return true
 end
 
+"""
+    diag(A::AbstractSparseMatrixCSC, k::Integer=0)
+
+The `k`th diagonal of the sparse matrix `A`, as a `SparseVector` with the index type of
+`A` that holds the entries stored on that diagonal, stored zeros included. A dense matrix
+gives a `Vector` instead.
+
+# Examples
+```jldoctest
+julia> diag(sparse([1, 3], [1, 3], [5.0, 0.0]))
+3-element SparseVector{Float64, Int64} with 2 stored entries:
+  [1]  =  5.0
+  [3]  =  0.0
+```
+"""
 function diag(A::SparseMatrixCSCOrView{Tv,Ti}, d::Integer=0) where {Tv,Ti}
     m, n = size(A)
     k = Int(d)

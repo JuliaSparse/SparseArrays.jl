@@ -179,27 +179,48 @@ true
 
 ### Sparse matrix operations
 
-Arithmetic, indexing, assignment and concatenation work on sparse arrays as they do on
-dense arrays. A result is sparse unless it would store every entry:
+Sparse arrays support the operations of dense arrays, and a result is sparse unless it
+would store every entry. The subsections below give the rules for each kind of operation.
+[`indtype`](@ref) returns the index type `Ti` of a sparse array.
+
+#### [Arithmetic](@id man-sparse-arithmetic)
 
 | Operation | Result |
 |:----------|:-------|
-| `A + B`, `A - B`, `A * B`, `kron(A, B)` of sparse arrays | sparse |
-| `A + D`, `A - D`, `A * D` with a dense array `D` | dense |
-| `A[I, J]`, `A[:, j]`, `A[i, :]` | sparse |
-| `[A B]`, `[A; B]` with at least one sparse argument | sparse |
-| `sum(A; dims)` and the other reductions along a dimension | dense, or sparse with `sparse = true` |
+| `A + B`, `A - B` of sparse arrays, or with a `Diagonal` or `I` | sparse, without the zeros it computes |
+| `A + D`, `A - D` with a dense array `D` | dense |
+| `-A`, `2A`, `A / 2` | sparse, with the stored entries of `A` |
+| `A / 0` | sparse with every entry stored, as `0 / 0` is `NaN` |
 
-A reduction along a dimension with `sparse = true`, such as `sum(A; dims = 2, sparse = true)`,
-stores an entry only for the rows of `A` that store one, and its cost is proportional to
-the number of stored entries. `prod`, `maximum`, `minimum`, `count`, `any`, `all` and
-`mapreduce` accept the keyword too.
+Elementwise operations written with dot syntax, such as `A .* B` or `A .+ 1`, follow the
+rules of [Broadcasting and `map`](@ref man-sparse-broadcast).
 
-[`permute`](@ref) applies a row and a column permutation in one pass, and
-[`indtype`](@ref) returns the index type `Ti` of a sparse array.
+#### [Indexing and assignment](@id man-sparse-indexing)
 
-Indexing, and especially assignment, is expensive one element at a time. See
-[Performance tips](@ref man-sparse-performance).
+Indexing with ranges, vectors, colons or a logical mask returns a sparse array: `A[I, J]`
+is a `SparseMatrixCSC`, and `A[:, j]`, `A[i, :]`, `A[:]` and `A[mask]` are `SparseVector`s.
+A scalar index returns the element, which is zero when it is not stored.
+
+Assigning to a stored entry overwrites its value, even with zero: the entry stays stored
+until [`dropzeros!`](@ref) removes it. Assigning zero to an entry that is not stored
+changes nothing, and assigning any other value inserts the entry, which moves every stored
+entry after it. Indexing, and especially assignment, is therefore expensive one element at a
+time; see [Performance tips](@ref man-sparse-performance).
+
+#### [Concatenation](@id man-sparse-concatenation)
+
+`[A B]`, `[A; B]` and `[A B; C D]` return a sparse array when at least one argument is
+sparse. A dense argument contributes its nonzeros, and a `Diagonal` or `I` its diagonal.
+[`sparse_hcat`](@ref), [`sparse_vcat`](@ref) and [`sparse_hvcat`](@ref) return a sparse
+array even when no argument is sparse.
+
+#### [Reductions](@id man-sparse-reductions)
+
+`sum(A)` and the other reductions over all entries visit the stored entries only. Along a
+dimension, as in `sum(A; dims = 2)`, the result is dense. With `sparse = true`, such as
+`sum(A; dims = 2, sparse = true)`, it is sparse instead: it stores an entry only for the
+rows of `A` that store one, and its cost is proportional to the number of stored entries.
+`prod`, `maximum`, `minimum`, `count`, `any`, `all` and `mapreduce` accept the keyword too.
 
 #### [Broadcasting and `map`](@id man-sparse-broadcast)
 
@@ -296,14 +317,17 @@ julia> C
   ⋅  ⋅  0
 ```
 
-#### [Products and norms](@id man-sparse-products)
+#### [Products](@id man-sparse-products)
 
 The functions of LinearAlgebra have methods for sparse arrays. Products, `dot`, `kron` and
-the norms are implemented in this package. The factorizations, and the solves that use
+the norms are implemented in this package, and the docstrings of those that behave
+differently for sparse arrays are listed under
+[Linear algebra](@ref stdlib-sparse-linalg-api). The factorizations, and the solves that use
 them, call [SuiteSparse](https://github.com/DrTimothyAldenDavis/SuiteSparse) and are
 described on the Sparse Linear Solvers page.
 
-The result of `*` follows the other factor:
+The result of [`*`](@ref Base.:*(::SparseArrays.SparseMatrixCSCOrView, ::SparseArrays.SparseMatrixCSCOrView))
+follows the other factor:
 
 | Product of a sparse matrix with | Result |
 |:--------------------------------|:-------|
@@ -313,25 +337,18 @@ The result of `*` follows the other factor:
 | a `Diagonal`, `Bidiagonal`, `Tridiagonal` or `SymTridiagonal` matrix | `SparseMatrixCSC` |
 
 `mul!(y, A, x)` writes the product into `y`, and `mul!(y, A, x, α, β)` computes
-`A*x*α + y*β` in place. Products with `A'` and `transpose(A)` do not materialize the
-transpose when the other factor is dense or a sparse vector: see
+`A*x*α + y*β` in place. A sparse destination is supported only for
+[scaling by a `Diagonal`](@ref SparseArrays.mul!(::SparseArrays.AbstractSparseMatrixCSC, ::SparseArrays.AbstractSparseMatrixCSC, ::SparseArrays.Diagonal, ::Number, ::Number))
+or a number. Products with `A'` and `transpose(A)` do not materialize the transpose when
+the other factor is dense or a sparse vector: see
 [Lazy `transpose` and `adjoint`](@ref man-sparse-lazy-transpose).
 
 - `dot(x, y)` of sparse or dense vectors and matrices visits the stored entries only, and
   `dot(x, A, y)` computes `x' * A * y` without forming `A * y`.
-- `kron` of two sparse arrays, or of a sparse array and a dense or `Diagonal` matrix, is
-  sparse.
-- `norm(A, p)` treats `A` as a vector of its entries, so `norm(A)` is the Frobenius norm.
-  [`opnorm(A, p)`](@ref SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real))
-  is the operator norm for `p` equal to `1`, `2` or `Inf`; for `p = 2` it is an iterative
-  estimate.
-- `cond(A, 1)` and `cond(A, Inf)` estimate the norm of the inverse from an `lu`
-  factorization. The 2-norm condition number is not
-  available; use `cond(Array(A))` for a matrix small enough.
-- `tr`, `diag`, `triu` and `tril` work on the stored entries, and the last three return
-  sparse results.
+- [`kron`](@ref kron(::SparseArrays.AbstractSparseMatrixCSC, ::SparseArrays.AbstractSparseMatrixCSC)) of two sparse arrays, or of a sparse array and a dense or `Diagonal`
+  matrix, is sparse.
 
-```jldoctest
+```jldoctest sparselinalg
 julia> A = sparse([2.0 1 0; 0 3 1; 1 0 4]); x = [1.0, 2.0, 3.0];
 
 julia> y = similar(x); mul!(y, A, x)
@@ -342,14 +359,34 @@ julia> y = similar(x); mul!(y, A, x)
 
 julia> dot(x, A, x)
 61.0
+```
 
+#### [Norms and condition numbers](@id man-sparse-norms)
+
+- `norm(A, p)` treats `A` as a vector of its entries, so `norm(A)` is the Frobenius norm.
+  [`opnorm(A, p)`](@ref SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real))
+  is the operator norm for `p` equal to `1`, `2` or `Inf`; for `p = 2` it is an iterative
+  estimate.
+- [`cond(A, p)`](@ref SparseArrays.cond(::SparseArrays.AbstractSparseMatrixCSC, ::Real))
+  for `p` equal to `1` or `Inf` estimates the norm of the inverse from a factorization. The
+  2-norm condition number is not available; use `cond(Array(A))` for a matrix small enough.
+- [`inv(A)`](@ref inv(::SparseArrays.AbstractSparseMatrixCSC)) throws, since the inverse
+  is usually dense: solve with `A \ B` instead.
+
+```jldoctest sparselinalg
 julia> norm(A, 1), opnorm(A, 1), opnorm(A, Inf)
 (12.0, 5.0, 5.0)
 ```
 
-```@docs
-SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
-```
+#### [Diagonals, triangles and permutations](@id man-sparse-structure)
+
+- `tr(A)` sums the diagonal, and [`diag(A, k)`](@ref SparseArrays.diag(::SparseArrays.SparseMatrixCSCOrView{Tv,Ti}, ::Integer) where {Tv,Ti})
+  returns the `k`th diagonal as a `SparseVector` of the entries stored on it.
+- `triu(A, k)` and `tril(A, k)` return a new `SparseMatrixCSC` with the stored entries of a
+  triangle, stored zeros included. [`triu!`](@ref SparseArrays.triu!(::SparseArrays.AbstractSparseMatrixCSC, ::Integer))
+  and [`tril!`](@ref SparseArrays.tril!(::SparseArrays.AbstractSparseMatrixCSC, ::Integer))
+  remove the other entries from `A` in place, changing its sparsity pattern.
+- [`permute`](@ref) applies a row and a column permutation in one pass.
 
 ### [Performance tips](@id man-sparse-performance)
 
@@ -682,6 +719,21 @@ SparseArrays.sparse_hvcat
 SparseArrays.fixed
 SparseArrays.FixedSparseCSC
 SparseArrays.FixedSparseVector
+```
+
+### [Linear algebra](@id stdlib-sparse-linalg-api)
+
+```@docs
+Base.:*(::SparseArrays.SparseMatrixCSCOrView, ::SparseArrays.SparseMatrixCSCOrView)
+SparseArrays.mul!(::SparseArrays.AbstractSparseMatrixCSC, ::SparseArrays.AbstractSparseMatrixCSC, ::SparseArrays.Diagonal, ::Number, ::Number)
+Base.kron(::SparseArrays.AbstractSparseMatrixCSC, ::SparseArrays.AbstractSparseMatrixCSC)
+Base.kron!(::SparseArrays.SparseMatrixCSC, ::SparseArrays.AbstractSparseMatrixCSC, ::SparseArrays.AbstractSparseMatrixCSC)
+SparseArrays.diag(::SparseArrays.SparseMatrixCSCOrView{Tv,Ti}, ::Integer) where {Tv,Ti}
+SparseArrays.tril!(::SparseArrays.AbstractSparseMatrixCSC, ::Integer)
+SparseArrays.triu!(::SparseArrays.AbstractSparseMatrixCSC, ::Integer)
+SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
+SparseArrays.cond(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
+Base.inv(::SparseArrays.AbstractSparseMatrixCSC)
 ```
 
 ## Noteworthy External Sparse Packages
