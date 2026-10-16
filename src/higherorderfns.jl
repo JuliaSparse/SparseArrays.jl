@@ -1216,7 +1216,7 @@ end
 
 # broadcast entry points for combinations of sparse arrays and other (scalar) types
 @inline function copy(bc::Broadcasted{<:SparseVecOrMatStyle})
-    _isdensesum(bc) && return _densebroadcast(bc)
+    _isdensesum(bc) && return _densesum(bc)
     bcf = flatten(bc)
     _asksthezeros(bc) && _fillszeros(bcf.f, bcf.args...) && return _densenonzero(bc, bcf.f, bcf.args...)
     return _copy(bcf.f, bcf.args...)
@@ -1360,7 +1360,7 @@ broadcast(f::Tf, A::AbstractSparseMatrixCSC, ::Type{T}) where {Tf,T} = broadcast
 # which is sparse, and inferable, for every element type.
 
 function copy(bc::Broadcasted{PromoteToSparse})
-    _isdensesum(bc) && return _densebroadcast(bc)
+    _isdensesum(bc) && return _densesum(bc)
     bcf = flatten(bc)
     _asksthezeros(bc) && _fillszeros(bcf.f, bcf.args...) && return _densenonzero(bc, bcf.f, bcf.args...)
     if can_skip_sparsification(bcf.f, bcf.args...)
@@ -1382,6 +1382,75 @@ end
 end
 
 _isdensesum(bc::Broadcasted) = _issumtree(bc) && _anydensifying(bc.args...)
+
+# A dense sum of sparse arrays and scalars evaluates the broadcast with each sparse argument
+# replaced by its implicit zero, which gives every entry that no stored entry reaches without a
+# dense copy of the argument, then evaluates it again where a stored entry is broadcast to. The
+# function is a sum, so evaluating it twice there is unobservable. Number entries keep the
+# element type of the copy that they replace; a result type known only from the values is left
+# to dense broadcast, and so is a sum with a dense array, which the copy costs little beside.
+function _densesum(bc::Broadcasted)
+    ax = axes(bc)
+    any(isempty, ax) && return _densebroadcast(bc)
+    _sparseandscalars(bc) || return _densebroadcast(bc)
+    # each entry evaluated again looks up every sparse argument, which costs as much as about
+    # thirty-two entries of the dense copy of an argument
+    len = prod(map(length, ax))
+    nsparse, reached = _sparsereach(len, bc.args...)
+    32 * nsparse * reached <= len || return _densebroadcast(bc)
+    zbc = Broadcasted{Broadcast.DefaultArrayStyle{length(ax)}}(bc.f, map(_zerosparse, bc.args), ax)
+    isconcretetype(Broadcast.combine_eltypes(zbc.f, zbc.args)) || return _densebroadcast(bc)
+    C = copy(Broadcast.instantiate(zbc))
+    _storedentries!(C, bc, bc.args...)
+    return C
+end
+_zerosparse(bc::Broadcasted) = Broadcasted(bc.f, map(_zerosparse, bc.args))
+_zerosparse(S::SparseVecOrMat) = _densezero(S)
+_zerosparse(x) = x
+# the number of sparse arguments, and of the entries of the result their stored entries reach
+_sparsereach(len) = (0, 0)
+function _sparsereach(len, x, rest::Vararg{Any,N}) where {N}
+    n, r = _sparsereach(len, x)
+    n2, r2 = _sparsereach(len, rest...)
+    return (n + n2, r + r2)
+end
+_sparsereach(len, x::Broadcasted) = _sparsereach(len, x.args...)
+_sparsereach(len, S::SparseVecOrMat) = (1, nnz(S) * (len ÷ length(S)))
+_sparsereach(len, x) = (0, 0)
+_sparseandscalars(bc::Broadcasted) = all(_sparseandscalars, bc.args)
+_sparseandscalars(S::SparseVecOrMat) = eltype(S) <: Number
+_sparseandscalars(x::Union{AbstractArray,Tuple}) = false
+_sparseandscalars(x) = true
+
+_storedentries!(C, bc) = C
+function _storedentries!(C, bc, x, rest::Vararg{Any,N}) where {N}
+    _storedentries!(C, bc, x)
+    return _storedentries!(C, bc, rest...)
+end
+_storedentries!(C, bc, x::Broadcasted) = _storedentries!(C, bc, x.args...)
+_storedentries!(C, bc, x) = C
+function _storedentries!(C, bc, S::AbstractCompressedVector)
+    for i in nonzeroinds(S)
+        _reevaluate!(C, bc, map(Int, size(S)), (Int(i),))
+    end
+    return C
+end
+function _storedentries!(C, bc, S::AbstractSparseMatrixCSC)
+    rv = getrowval(S)
+    for j in axes(S, 2), k in nzrange(S, j)
+        _reevaluate!(C, bc, map(Int, size(S)), (Int(rv[k]), j))
+    end
+    return C
+end
+# the entries of `C` that the stored entry at `I` of an argument of size `sz` is broadcast to
+function _reevaluate!(C, bc, sz::NTuple{M,Int}, I::NTuple{M,Int}) where {M}
+    ranges = ntuple(d -> d > M || sz[d] == 1 ? UnitRange(axes(C, d)) : (I[d]:I[d]), Val(ndims(C)))
+    for J in CartesianIndices(ranges)
+        C[J] = bc[J]
+    end
+    return C
+end
+
 function _densebroadcast(bc::Broadcasted)
     # an empty result reads no entry, so the sparse arguments are left as they are
     dbc = any(isempty, axes(bc)) ? bc : Broadcast.instantiate(_densifysparse(bc))

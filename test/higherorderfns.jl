@@ -808,6 +808,10 @@ densesum(x, y) = x .+ y
     @test @inferred(broadcast(+, s, d))::Vector{Float64} == fs + d
     @test @inferred(broadcast(-, D, S))::Matrix{Float64} == D - fS
     @test @inferred(broadcast(+, s, 1))::Vector{Float64} == fs .+ 1
+    # a sum of a sparse array with few stored entries and a scalar makes no dense copy of it
+    L = sparse([2, 400], [1, 3], [-0.0, NaN], 400, 3)
+    @test isequal(@inferred(densesum(L, 1))::Matrix{Float64}, Array(L) .+ 1)
+    @test @allocated(densesum(L, 1)) < 2 * sizeof(Array(L))
     # the other broadcasts with a dense array or a scalar, and sums without one, stay sparse
     @test (S .* D)::SparseMatrixCSC == fS .* D
     @test (S .- S)::SparseMatrixCSC == fS .- fS
@@ -830,6 +834,8 @@ densesum(x, y) = x .+ y
     @test @inferred(broadcast(-, 1, S))::Matrix{Float64} == 1 .- fS
     @test (s .+ fill(1.0))::Vector{Float64} == fs .+ 1
     @test (S .+ s .- Ref(2))::Matrix{Float64} == fS .+ fs .- 2
+    l = sparsevec([5], [2.0], 400)
+    @test isequal((L .+ l .- 2)::Matrix{Float64}, Array(L) .+ Array(l) .- 2)
     @test (.-s)::SparseVector == .-fs
     # a sparse destination keeps the result sparse
     x = copy(s); x .+= d; x .-= 1
