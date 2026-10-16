@@ -493,7 +493,9 @@ function _hvcat_csc(::Type{Tv}, ::Type{Ti}, rows::Tuple{Vararg{Int}}, X::Vararg{
     for x in X
         nnzres += nnz(x)
     end
+    sparse_check_Ti(m, n, Ti)
     _checknnzfits(Ti, nnzres)
+    Y = _sameblocks(Tv, Ti, X)
     colptr = Vector{Ti}(undef, n + 1)
     rowval = Vector{Ti}(undef, nnzres)
     nzval = Vector{Tv}(undef, nnzres)
@@ -503,15 +505,20 @@ function _hvcat_csc(::Type{Tv}, ::Type{Ti}, rows::Tuple{Vararg{Int}}, X::Vararg{
         for b in 1:nbr
             while j > lastcol[b]
                 blk[b] += 1
-                lastcol[b] += size(X[blk[b]], 2)
+                lastcol[b] += size(Y[blk[b]], 2)
             end
-            B = X[blk[b]]
+            B = Y[blk[b]]
             p = _hvcat_copycol!(rowval, nzval, p, B, j - lastcol[b] + size(B, 2), rowoff[b])
         end
         colptr[j + 1] = p
     end
     return SparseMatrixCSC(m, n, colptr, rowval, nzval)
 end
+# The copy loop picks a block by an index known only at run time, which boxes the block
+# when the blocks are of different types, so they are converted to the type of the result
+_sameblocks(::Type, ::Type, X::Tuple{Vararg{T}}) where {T} = X
+_sameblocks(::Type{Tv}, ::Type{Ti}, X::Tuple) where {Tv,Ti} =
+    map(x -> convert(SparseMatrixCSC{Tv,Ti}, x)::SparseMatrixCSC{Tv,Ti}, X)
 # `c` is a column of `B` and `p` stays within the `nnz` of all the blocks, by the shape
 # checks in `_hvcat_csc`
 function _hvcat_copycol!(rowval, nzval, p, B, c, i0)

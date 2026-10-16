@@ -1158,6 +1158,9 @@ end
         @test count(iszero, nonzeros(S)) == z
         @test nnz(S) == z + count(!iszero, R)
     end
+    # blocks of different types, as `I` gives, are not boxed once per column
+    allocs(n) = (S = sparse(1.0I, n, n); hcat(S, I); [S I; I S]; (@allocations(hcat(S, I)), @allocations([S I; I S])))
+    @test allocs(1000) == allocs(2000)
 end
 
 end # SparseTestsBase
