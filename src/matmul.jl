@@ -969,9 +969,16 @@ function _diagspmul!(C, D, A, alpha, beta)
     C
 end
 
+# An entry that is not stored multiplies to `0 * b`, which is not zero for an infinite or
+# NaN `b`. An eltype without a `zero` (`Any`, a matrix type) has only its stored values scaled.
+_storesall(A::AbstractSparseMatrixCSC) = nnz(A) == widelength(A)
+_storesall(x::SparseVectorOrView) = nnz(x) == length(x)
+_rmulkeepszeros(A, b::Number) = (z = _implicit_zero(A); z isa UnknownZero || _iszero(z * b) || _storesall(A))
+_lmulkeepszeros(b::Number, A) = (z = _implicit_zero(A); z isa UnknownZero || _iszero(b * z) || _storesall(A))
+
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
-    _is_fixed(C) && return broadcast!(*, C, A, b)
+    (_is_fixed(C) || !_rmulkeepszeros(A, b)) && return broadcast!(*, C, A, b)
     copyinds!(C, A)
     resize!(getnzval(C), length(getnzval(A)))
     mul!(getnzval(C), getnzval(A), b)
@@ -980,22 +987,17 @@ end
 
 function mul!(C::AbstractSparseMatrixCSC, b::Number, A::AbstractSparseMatrixCSC)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
-    _is_fixed(C) && return broadcast!(*, C, b, A)
+    (_is_fixed(C) || !_lmulkeepszeros(b, A)) && return broadcast!(*, C, b, A)
     copyinds!(C, A)
     resize!(getnzval(C), length(getnzval(A)))
     mul!(getnzval(C), b, getnzval(A))
     C
 end
 
-function rmul!(A::AbstractSparseMatrixCSC, b::Number)
-    rmul!(getnzval(A), b)
-    return A
-end
-
-function lmul!(b::Number, A::AbstractSparseMatrixCSC)
-    lmul!(b, getnzval(A))
-    return A
-end
+rmul!(A::AbstractSparseMatrixCSC, b::Number) =
+    _rmulkeepszeros(A, b) ? (rmul!(getnzval(A), b); A) : broadcast!(*, A, A, b)
+lmul!(b::Number, A::AbstractSparseMatrixCSC) =
+    _lmulkeepszeros(b, A) ? (lmul!(b, getnzval(A)); A) : broadcast!(*, A, b, A)
 
 # an entry that is not stored divides to `0 / b`, which is not zero for a zero or NaN `b`
 _divkeepszeros(A, b::Number) = nnz(A) == widelength(A) || _iszero(_densezero(A) / b)
@@ -1018,19 +1020,15 @@ end
 
 # scaling
 
-function rmul!(x::SparseVectorOrView, a::Number)
-    rmul!(nonzeros(x), a)
-    return x
-end
-function lmul!(a::Number, x::SparseVectorOrView)
-    lmul!(a, nonzeros(x))
-    return x
-end
+rmul!(x::SparseVectorOrView, a::Number) =
+    _rmulkeepszeros(x, a) ? (rmul!(nonzeros(x), a); x) : broadcast!(*, x, x, a)
+lmul!(a::Number, x::SparseVectorOrView) =
+    _lmulkeepszeros(a, x) ? (lmul!(a, nonzeros(x)); x) : broadcast!(*, x, a, x)
 
-(*)(x::SparseVectorOrView, a::Number) =
-    SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) * a)
-(*)(a::Number, x::SparseVectorOrView) =
-    SparseVector(length(x), Vector(nonzeroinds(x)), a * nonzeros(x))
+(*)(x::SparseVectorOrView, a::Number) = _rmulkeepszeros(x, a) ?
+    SparseVector(length(x), Vector(nonzeroinds(x)), nonzeros(x) * a) : x .* a
+(*)(a::Number, x::SparseVectorOrView) = _lmulkeepszeros(a, x) ?
+    SparseVector(length(x), Vector(nonzeroinds(x)), a * nonzeros(x)) : a .* x
 
 # * and mul!
 

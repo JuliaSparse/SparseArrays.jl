@@ -1120,6 +1120,35 @@ end
     end
 end
 
+@testset "scaling by a NaN or infinite number reaches the entries that are not stored" begin
+    @testset for T in (Float64, ComplexF64), b in (NaN, -Inf)
+        A, Ad = fixturepair(T, 5, 3)
+        x, xd = fixturepair(T, 7)
+        @test mismatch(rmul!(copy(A), b), Ad * b) === nothing
+        @test mismatch(lmul!(b, copy(A)), b * Ad) === nothing
+        @test mismatch(mul!(similar(A), A, b), Ad * b) === nothing
+        @test mismatch(mul!(similar(A), b, A), b * Ad) === nothing
+        @test mismatch(rmul!(copy(x), b), xd * b) === nothing
+        @test mismatch(lmul!(b, copy(x)), b * xd) === nothing
+        @test mismatch(x * b, xd * b) === nothing
+        @test mismatch(b * x, b * xd) === nothing
+        @test mismatch(view(A, :, 3) * b, Ad[:, 3] * b) === nothing
+        C, Cd = copy(A), copy(Ad)
+        rmul!(view(C, :, 3), b); rmul!(view(Cd, :, 3), b)
+        @test mismatch(C, Cd) === nothing
+        # a finite number scales the stored values alone and keeps the stored zero
+        @test nnz(rmul!(copy(A), 2)) == nnz(A) && nnz(x * 2) == nnz(x)
+        F, f = SparseArrays.fixed(A), SparseArrays.fixed(x)
+        @test_throws ArgumentError rmul!(F, b)
+        @test_throws ArgumentError mul!(F, b, A)
+        @test_throws ArgumentError lmul!(b, f)
+        @test exact_equal(F, A) && exact_equal(f, x)
+    end
+    # an eltype without a `zero` has its stored values scaled
+    A = sparse([1, 2], [1, 2], Any[1, 2.0])
+    @test rmul!(A, NaN) === A && nnz(A) == 2 && all(isnan, nonzeros(A))
+end
+
 end # SparseTestsBase
 
 end # module
