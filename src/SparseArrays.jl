@@ -122,9 +122,13 @@ are sorted, unique and in `1:size(S, 1)`. Everything else, such as [`nnz`](@ref)
 [`nzrange`](@ref), indexing, `copy`, `similar` and the sparse linear algebra, is derived
 from these. [`rowvals`](@ref) and [`nonzeros`](@ref) are not defined for such a subtype.
 
-Subtypes written while `rowvals` and `nonzeros` were the only exported accessors implement
-those in place of `getrowval` and `getnzval`, which fall back to them. This remains
-supported, but is planned to stop being supported in SparseArrays 2.0.
+!!! note "Legacy interface"
+    A subtype that implements `rowvals` and `nonzeros` in place of `getrowval` and
+    `getnzval` uses the legacy interface, which is deprecated. It keeps working, because
+    `getrowval` and `getnzval` fall back to `rowvals` and `nonzeros`, with a deprecation
+    warning when Julia runs with `--depwarn=yes` and an error with `--depwarn=error`. The
+    fallback will be removed in SparseArrays 2.0. To migrate, rename the two methods to
+    `SparseArrays.getrowval` and `SparseArrays.getnzval`.
 """
 abstract type AbstractSparseMatrixCSC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti} end
 
