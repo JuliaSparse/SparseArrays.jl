@@ -836,6 +836,8 @@ densesum(x, y) = x .+ y
     @test (S .+ s .- Ref(2))::Matrix{Float64} == fS .+ fs .- 2
     l = sparsevec([5], [2.0], 400)
     @test isequal((L .+ l .- 2)::Matrix{Float64}, Array(L) .+ Array(l) .- 2)
+    R = SparseMatrixCSC{Real,Int}(400, 3, [1, 2, 2, 2], [7], Real[1.5])
+    @test (R .+ 1)::Matrix{Real} == Array(R) .+ 1
     @test (.-s)::SparseVector == .-fs
     # a sparse destination keeps the result sparse
     x = copy(s); x .+= d; x .-= 1

@@ -1399,7 +1399,9 @@ function _densesum(bc::Broadcasted)
     nsparse, reached = _sparsereach(len, bc.args...)
     32 * nsparse * reached <= len || return _densebroadcast(bc)
     zbc = Broadcasted{Broadcast.DefaultArrayStyle{length(ax)}}(bc.f, map(_zerosparse, bc.args), ax)
-    isconcretetype(Broadcast.combine_eltypes(zbc.f, zbc.args)) || return _densebroadcast(bc)
+    # the zeros alone must give the element type that dense broadcast infers from all the values
+    T = Broadcast.combine_eltypes(zbc.f, zbc.args)
+    isconcretetype(T) && T === Broadcast.combine_eltypes(bc.f, bc.args) || return _densebroadcast(bc)
     C = copy(Broadcast.instantiate(zbc))
     return _storedentries!(C, bc, bc.args...)
 end
