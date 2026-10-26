@@ -58,15 +58,10 @@ SparseVector{Tv, Ti}(::UndefInitializer, (n,)::Tuple{Integer}) where {Tv, Ti}  =
 
 ### Basic properties
 
-# The length is an `Int`, as for dense arrays, when every value of the index type fits in one.
-# A wider index type (`UInt64`, `Int128`, `BigInt`, and `UInt32` and `Int64` on a 32-bit build)
-# keeps its lengths beyond `typemax(Int)`.
-_vectorlength(n::Integer) = n
-_vectorlength(n::Base.BitInteger) = typemax(n) <= typemax(Int) ? Int(n) : n
-length(x::SparseVector) = _vectorlength(getfield(x, :n))
-length(x::FixedSparseVector) = _vectorlength(getfield(x, :n))
-size(x::SparseVector) = (length(x),)
-size(x::FixedSparseVector) = (length(x),)
+length(x::SparseVector) = getfield(x, :n)
+length(x::FixedSparseVector) = getfield(x, :n)
+size(x::SparseVector) = (getfield(x, :n),)
+size(x::FixedSparseVector) = (getfield(x, :n),)
 
 function Base._simple_count(f, x::Union{SparseVectorOrView,SparseVectorPartialView}, init::T) where T
     init + T(count(f, nonzeros(x)) + f(_densezero(x))*(length(x) - nnz(x)))
