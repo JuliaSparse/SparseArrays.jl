@@ -713,15 +713,16 @@ julia> sprand(Float64, 3, 0.75)
 ```
 """
 function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}) where T
+    m, n = Int(m), Int(n)
     I, V = _sprandvalues(r, m, n, density, rfn)
     return sparse_sortedlinearindices!(I, convert(Vector{T}, V), m, n)
 end
 function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function)
+    m, n = Int(m), Int(n)
     I, V = _sprandvalues(r, m, n, density, rfn)
     return sparse_sortedlinearindices!(I, convert(Vector{eltype(V)}, V), m, n)
 end
-function _sprandvalues(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::F) where {F}
-    m, n = Int(m), Int(n)
+function _sprandvalues(r::AbstractRNG, m::Int, n::Int, density::AbstractFloat, rfn::F) where {F}
     (m < 0 || n < 0) && throw(ArgumentError("invalid Array dimensions"))
     0 <= density <= 1 || throw(ArgumentError("$density not in [0,1]"))
     I = randsubseq(r, 1:(m*n), density)
