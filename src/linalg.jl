@@ -558,12 +558,98 @@ end
 
 ## diagonal scaling
 
+# An entry that is not stored scales to `op(0, d[j])` columnwise (`dim == 2`) or to
+# `op(d[i], 0)` rowwise (`dim == 1`), which is not zero for an infinite or NaN `d[j]`. Such a
+# column or row is stored in full before it is scaled, its new entries as stored zeros, so
+# that it scales as a dense one does. `_fullscaled` returns a mask of the columns or rows
+# that need it, or `nothing`. An eltype without a `zero` has only its stored values scaled.
+function _fullscaled(A, d::AbstractVector, op::F, dim::Int) where {F}
+    z = _implicit_zero(A)
+    z isa UnknownZero && return nothing
+    scaleszero(dk) = _iszero(dim == 1 ? op(dk, z) : op(z, dk))
+    all(scaleszero, d) && return nothing
+    nstored = _nstored(A, dim)
+    full = [!scaleszero(d[k]) && nstored[k] < size(A, 3 - dim) for k in axes(A, dim)]
+    return any(full) ? full : nothing
+end
+function _nstored(A::AbstractSparseMatrixCSC, dim::Int)
+    dim == 2 && return [length(nzrange(A, j)) for j in axes(A, 2)]
+    Arowval = getrowval(A)
+    counts = zeros(Int, size(A, 1))
+    for j in axes(A, 2), p in nzrange(A, j)
+        counts[Arowval[p]] += 1
+    end
+    return counts
+end
+function _nstored(x::AbstractSparseVector, dim::Int)
+    counts = zeros(Int, length(x))
+    counts[nonzeroinds(x)] .= 1
+    return counts
+end
+
+# `A` with the columns or rows that `full` marks stored in full
+function _storeinfull(A::AbstractSparseMatrixCSC, full::Vector{Bool}, dim::Int)
+    m, n = size(A)
+    Arowval, Anzval = getrowval(A), getnzval(A)
+    z = _densezero(A)
+    fullrows = dim == 1 ? findall(full) : collect(1:m)
+    instored = dim == 1 ? sum(j -> count(p -> full[Arowval[p]], nzrange(A, j)), axes(A, 2); init = 0) :
+                          sum(j -> full[j] ? length(nzrange(A, j)) : 0, axes(A, 2); init = 0)
+    nz = nnz(A) + widemul(count(full), size(A, 3 - dim)) - instored
+    _checknnzfits(indtype(A), nz)
+    colptr = Vector{indtype(A)}(undef, n + 1)
+    rowval = Vector{indtype(A)}(undef, nz)
+    nzval = Vector{promote_type(eltype(A), typeof(z))}(undef, nz)
+    colptr[1] = q = 1
+    for j in axes(A, 2)
+        rows = view(fullrows, 1:(dim == 1 || full[j] ? length(fullrows) : 0))
+        q = _mergestored!(rowval, nzval, q, Arowval, Anzval, nzrange(A, j), rows, z)
+        colptr[j + 1] = q
+    end
+    return SparseMatrixCSC(m, n, colptr, rowval, nzval)
+end
+function _storeinfull(x::AbstractSparseVector, full::Vector{Bool})
+    z = _densezero(x)
+    nz = nnz(x) + count(full)
+    nzind = Vector{indtype(x)}(undef, nz)
+    nzval = Vector{promote_type(eltype(x), typeof(z))}(undef, nz)
+    _mergestored!(nzind, nzval, 1, nonzeroinds(x), nonzeros(x), 1:nnz(x), findall(full), z)
+    return SparseVector(length(x), nzind, nzval)
+end
+# Write the indices `ind[ps]` and values `val[ps]`, merged with the sorted indices `inds` at
+# which they store `z` where `ind` has none, to `outind` and `outval` from `q` on, and return
+# the next `q`.
+function _mergestored!(outind, outval, q::Int, ind, val, ps, inds, z)
+    p, k = Int(first(ps)), 1
+    while p <= last(ps) || k <= length(inds)
+        i = p <= last(ps) ? Int(ind[p]) : typemax(Int)
+        r = k <= length(inds) ? inds[k] : typemax(Int)
+        outind[q] = min(i, r)
+        outval[q] = i <= r ? val[p] : z
+        i <= r && (p += 1)
+        r <= i && (k += 1)
+        q += 1
+    end
+    return q
+end
+
+# Scale `A`, with the columns or rows that `full` marks stored in full, into `C` with
+# `scale!`, which is `_scalecols!` or `_scalerows!`. A fixed `C` is written only if it stores
+# every entry of the result that is not zero.
+function _scaleinfull!(scale!::S, C, A, d, op::F, full, dim::Int) where {S,F}
+    B = _storeinfull(A, full, dim)
+    _is_fixed(C) && return _copyto_fixed!(C, scale!(_writablecopy(C), B, d, op))
+    return scale!(C, B, d, op)
+end
+
 # Scale the stored entries of `A` into `C`, which either is `A` or takes its pattern:
 # `C[i, j] = op(A[i, j], d[j])` columnwise, `C[i, j] = op(d[i], A[i, j])` rowwise. The
 # argument order of `op` is kept for non-commutative eltypes. The callers check that
 # `length(d)` matches the scaled dimension and that `size(C) == size(A)`. When a value might
 # not convert to `eltype(C)`, the values go to a new vector that `C` takes once all are written.
 function _scalecols!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
+    full = _fullscaled(A, d, op, 2)
+    isnothing(full) || return _scaleinfull!(_scalecols!, C, A, d, op, full, 2)
     Anzval = getnzval(A)
     direct = _storesafely(eltype(C), promote_op(op, eltype(A), eltype(d)))
     Cnzval = direct ? _takepattern!(C, A) : Vector{eltype(C)}(undef, nnz(A))
@@ -578,6 +664,8 @@ function _scalecols!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::
 end
 
 function _scalerows!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
+    full = _fullscaled(A, d, op, 1)
+    isnothing(full) || return _scaleinfull!(_scalerows!, C, A, d, op, full, 1)
     Anzval = getnzval(A)
     Arowval = getrowval(A)
     direct = _storesafely(eltype(C), promote_op(op, eltype(d), eltype(A)))
@@ -590,6 +678,8 @@ function _scalerows!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::
 end
 
 function _scalerows!(x::AbstractSparseVector, d::AbstractVector, op::F) where {F}
+    full = _fullscaled(x, d, op, 1)
+    isnothing(full) || return copyto!(x, _scalerows!(_storeinfull(x, full), d, op))
     xnzval = nonzeros(x)
     xnzind = nonzeroinds(x)
     direct = _storesafely(eltype(x), promote_op(op, eltype(d), eltype(x)))

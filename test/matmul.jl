@@ -448,6 +448,12 @@ end
     @test mismatch(Diagonal(b) * sA, Diagonal(b) * dA) === nothing
     @test mismatch(mul!(sC, Diagonal(b), sA), Diagonal(b) * dA) === nothing
     @test mismatch(lmul!(Diagonal(b), copy(sA)), Diagonal(b) * dA) === nothing
+    @static if COMPREHENSIVE
+    # an infinite entry of the Diagonal scales the entries that are not stored to NaN, as for dense
+    S = sparse([1.0 0; 0 1]); Dinf = Diagonal([Inf, 1])
+    @test mismatch(S * Dinf, Matrix(S) * Dinf) === nothing
+    @test mismatch(rmul!(copy(S), Dinf), Matrix(S) * Dinf) === nothing
+    end
 
     # adjoint/transpose of a sparse matrix with a Diagonal (issue #619)
     for (T, W) in ((ComplexF64, adjoint), (ComplexF64, transpose))
@@ -512,17 +518,18 @@ end
         @test mismatch(F * Dr, dA * Dr; approx=true) === nothing
         @test !_is_fixed(Dl * F) && !_is_fixed(F * Dr)
     end
-    # the kernels touch only the stored entries: exactly nnz(S) scalar multiplications,
-    # whereas the generic Diagonal kernel visits every element of the result
+    # the kernels touch only the stored entries: exactly nnz(S) scalar multiplications, and
+    # one per diagonal entry to find what it scales a zero to, whereas the generic Diagonal
+    # kernel visits every element of the result
     S = opcount_sparse(fixture(Float64, 20, 30))
     Dl = Diagonal(OpCount.(fixturedense(Float64, 30))); Dr = Diagonal(OpCount.(fixturedense(Float64, 20)))
     for W in (adjoint,)
-        @test mulcount(() -> W(S) * Dr) == nnz(S)
-        @test mulcount(() -> Dl * W(S)) == nnz(S)
+        @test mulcount(() -> W(S) * Dr) == nnz(S) + 20
+        @test mulcount(() -> Dl * W(S)) == nnz(S) + 30
         @static if COMPREHENSIVE
         C = similar(W(S))
-        @test mulcount(() -> mul!(C, W(S), Dr)) == nnz(S)
-        @test mulcount(() -> mul!(C, Dl, W(S))) == nnz(S)
+        @test mulcount(() -> mul!(C, W(S), Dr)) == nnz(S) + 20
+        @test mulcount(() -> mul!(C, Dl, W(S))) == nnz(S) + 30
         end
     end
     @static if COMPREHENSIVE

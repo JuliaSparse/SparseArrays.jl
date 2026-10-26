@@ -348,6 +348,8 @@ function *(A::Diagonal, b::AbstractSparseVector)
             DimensionMismatch(lazy"The dimension of the matrix A $(size(A)) and of the vector b $(length(b))")
         )
     end
+    full = _fullscaled(b, A.diag, *, 1)
+    isnothing(full) || return A * _storeinfull(b, full)
     T = promote_eltype(A, b)
     res = similar(b, T)
     nzind_b = nonzeroinds(b)
@@ -421,12 +423,16 @@ end
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
     (size(Da, 2) == size(A,1) && size(A,2) == size(Db,1)) ||
         throw(DimensionMismatch("incompatible sizes"))
+    da, db = map(parent, (Da, Db))
+    fullrows = _fullscaled(A, da, *, 1)
+    isnothing(fullrows) || return Da * _storeinfull(A, fullrows, 1) * Db
+    fullcols = _fullscaled(A, db, *, 2)
+    isnothing(fullcols) || return Da * _storeinfull(A, fullcols, 2) * Db
     T = promote_op(matprod, eltype(Da), promote_op(matprod, eltype(A), eltype(Db)))
     dest = similar(A, T)
     vals_dest = getnzval(dest)
     rows = getrowval(A)
     vals = getnzval(A)
-    da, db = map(parent, (Da, Db))
     @inbounds for col in axes(A,2)
         dbcol = db[col]
         for i in nzrange(A, col)
@@ -828,9 +834,10 @@ Store `A*D*α + C*β`, or `D*A*α + C*β`, in the sparse matrix `C`, and return 
 columns, or the rows, of `A` scaled by the diagonal of `D`.
 
 Unlike a dense destination, `C` takes a new sparsity pattern: that of `A` when `β` is zero,
-and otherwise the union of the patterns of `A` and `C`. A fixed-pattern `C` keeps its
-pattern instead, and `mul!` throws, with `C` unchanged, if a nonzero of the result falls
-outside it.
+and otherwise the union of the patterns of `A` and `C`. A column, or row, that an infinite or
+NaN entry of `D` scales is stored in full, as its entries that `A` does not store become
+`NaN`. A fixed-pattern `C` keeps its pattern instead, and `mul!` throws, with `C` unchanged,
+if a nonzero of the result falls outside it.
 
 A sparse destination is supported for scaling only, by a `Diagonal` here or by a number
 with `mul!(C, A, b)`. Form other products of sparse matrices with `*`. With a dense
@@ -844,6 +851,8 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
     iszero(alpha) && return _diagmul_scale!(C, beta)
+    full = _fullscaled(A, b, (a, bj) -> isone(alpha) ? a * bj : a * bj * alpha, 2)
+    isnothing(full) || return mul!(C, _storeinfull(A, full, 2), D, alpha, beta)
     R = _diagmul_eltype(C, promote_op(matprod, eltype(A), eltype(D)), alpha, beta)
     _storesafely(eltype(C), R) ||
         return _diagmul_store!(C, _spdiagmul!(_diagmul_widened(C, A, R, beta), A, D, alpha, beta))
@@ -951,6 +960,8 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCS
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
     size(A)==size(C) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
     iszero(alpha) && return _diagmul_scale!(C, beta)
+    full = _fullscaled(A, b, (bi, a) -> isone(alpha) ? bi * a : bi * a * alpha, 1)
+    isnothing(full) || return mul!(C, D, _storeinfull(A, full, 1), alpha, beta)
     R = _diagmul_eltype(C, promote_op(matprod, eltype(D), eltype(A)), alpha, beta)
     _storesafely(eltype(C), R) ||
         return _diagmul_store!(C, _diagspmul!(_diagmul_widened(C, A, R, beta), D, A, alpha, beta))
