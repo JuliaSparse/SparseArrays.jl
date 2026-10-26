@@ -195,6 +195,18 @@ end
     @test all(logabsdet(F) .≈ logabsdet(Matrix(A)))
 end
 
+@testset "lu!(F, S) leaves F unchanged when the values of S do not convert" begin
+    A = sparse(ComplexF64[4 1 0 0; 1 4 1 0; 0 1 4 1; 0 0 1 4])
+    F = lu(A)
+    colptr, rowval, nzval = copy(F.colptr), copy(F.rowval), copy(F.nzval)
+    S = SparseMatrixCSC{Any,Int}(2, 2, [1, 2, 4], [1, 1, 2], Any[1.0, "x", 1.0])
+    @test_throws MethodError lu!(F, S)
+    @test size(F) == (4, 4)
+    @test (F.colptr, F.rowval, F.nzval) == (colptr, rowval, nzval)
+    b = ComplexF64[1, 2, 3, 4]
+    @test F \ b ≈ Matrix(A) \ b
+end
+
 @testset "Issues #26367 and #26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
