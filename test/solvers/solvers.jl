@@ -192,6 +192,12 @@ end
     # a square solve agrees with the dense-right-hand-side one, which uses `lu`
     A = sparse([4.0 1 0; 1 4 1; 0 2 4])
     @test mismatch(A \ B, A \ Matrix(B); approx=true) === nothing
+    # a single block with dense factors is solved by `lu`, unless the solution is more
+    # precise than its factors would be
+    A = sparse(ones(60, 60) + 60I)
+    b = sparsevec([1, 7], [1.0, 2.0], 60)
+    @test SparseArrays._lu_rhs_densefill(A, Float64) > 0 == SparseArrays._lu_rhs_densefill(A, BigFloat)
+    @test mismatch(A \ b, Matrix(A) \ Vector(b); approx=true) === nothing
     end
 end
 

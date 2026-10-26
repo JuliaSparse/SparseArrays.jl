@@ -14,7 +14,7 @@ import LinearAlgebra: Factorization, AdjointFactorization, TransposeFactorizatio
 
 using SparseArrays
 using SparseArrays: getcolptr, getrowval, getnzval, AbstractSparseMatrixCSC, _checkconvertible
-import SparseArrays: nnz
+import SparseArrays: nnz, _lu_rhs_densefill, _lu_rhs_solve
 
 import Serialization: AbstractSerializer, deserialize, serialize
 using Serialization
@@ -1269,4 +1269,11 @@ for Tv in (:Float64, :ComplexF64), Ti in UmfpackIndexTypes
         return control
     end
 end
+
+# `A \ B` for a sparse `B` and a square `A` of a single block with dense factors: the
+# solution is stored in full anyway. Not for a solution more precise than the factors.
+_lu_rhs_densefill(::SparseMatrixCSC{Tv,<:UMFITypes}, ::Type{T}) where {Tv<:UMFVTypes,T} =
+    T <: UMFVTypes && real(T) === real(Tv) ? 48.0 : 0.0
+_lu_rhs_solve(A::SparseMatrixCSC{<:UMFVTypes,<:UMFITypes}, B) = lu(A) \ Matrix(B)
+
 end # UMFPACK module

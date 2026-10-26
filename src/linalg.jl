@@ -1520,6 +1520,11 @@ end
 # The solvers add a method that solves a Hermitian positive definite system with
 # `cholesky`. `nothing` means that there is no such solve, or that the factorization failed.
 _hermitian_rhs_solve(A, B) = nothing
+# The solvers give the number of entries per column past which the factors of a single
+# irreducible block are dense enough that their LU, with the BLAS, beats `sparselu`, for a
+# solution of eltype `T`, and the solve with it. 0 means `sparselu` always.
+_lu_rhs_densefill(A, ::Type) = 0.0
+_lu_rhs_solve(A, B) = nothing
 
 # `A \ B` for a sparse `B`: substitution for a triangular `A`, `cholesky` for a Hermitian
 # `A` when the solvers provide it and it succeeds, `sparselu` for any other square `A`.
@@ -1541,7 +1546,9 @@ function _sparse_rhs_solve(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCOrView)
             X = _hermitian_rhs_solve(A, B)
             X === nothing || return convert(SparseMatrixCSC{T,Ti}, X)
         end
-        return _lusolve(sparselu(A), B, T, Ti)
+        F = _sparselu(A, 0.1, :auto, true, _lu_rhs_densefill(A, T))
+        F === nothing && return convert(SparseMatrixCSC{T,Ti}, sparse(_lu_rhs_solve(A, B)))
+        return _lusolve(F, B, T, Ti)
     end
     return convert(SparseMatrixCSC{T,Ti}, sparse(A \ Matrix(B)))
 end

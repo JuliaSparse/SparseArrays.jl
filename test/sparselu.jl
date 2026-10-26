@@ -183,12 +183,37 @@ end
     @test F.L * F.U ≈ G[F.p, F.q]
     @test F \ ones(k^2) ≈ Matrix(G) \ ones(k^2)
     @test mismatch(G \ sparsevec([1], [1.0], k^2), Matrix(G) \ Vector(sparsevec([1], [1.0], k^2)); approx=true) === nothing
+    # two such blocks, each ordered again on its own
+    G2 = blockdiag(G, G)
+    G2[1, k^2 + 1] = 1
+    F = sparselu(G2)
+    @test F.L * F.U ≈ G2[F.p, F.q]
+    @test F \ ones(2k^2) ≈ Matrix(G2) \ ones(2k^2)
     # the same orderings through the 32-bit index type of the matrix
     A = SparseMatrixCSC{Float64,Int32}(sprand(rng, 50, 50, 0.1) + 4I)
     for ordering in (:colamd, :amd)
         F = sparselu(A; ordering)
         @test F isa SparseLU{Float64,Int32} && F.L * F.U ≈ A[F.p, F.q]
     end
+end
+
+@testset "sparse solves: paths taken for speed" begin
+    # the strict triangle comes from the column pointers when every diagonal is at the edge
+    L = sparse([1:5; 2:5], [1:5; 1:4], [fill(2.0, 5); fill(-1.0, 4)])
+    @test SparseArrays._diagonalatedge(L, true) && !SparseArrays._diagonalatedge(copy(L'), true)
+    @test SparseArrays._diagonalatedge(copy(L'), false)
+    # a column of 60 entries is sorted with `sortperm!` rather than by insertion
+    A = sparse(ones(60, 60) + 60I)
+    F = sparselu(A)
+    @test F.L * F.U ≈ A[F.p, F.q]
+    # a solve that reaches 2 of 200 rows sorts them without a dense work vector
+    S = blockdiag(fill(sparse([4.0 1; 2 3]), 100)...)
+    b = sparsevec([5, 6], [1.0, 2.0], 200)
+    @test mismatch(sparselu(S) \ b, Matrix(S) \ Vector(b); approx=true) === nothing
+    # given a limit, a single block with dense factors is left to the caller
+    @test SparseArrays._sparselu(A, 0.1, :auto, true, 48.0) === nothing
+    tri = sparse(Tridiagonal(fill(-1.3, 199), fill(2.0, 200), fill(-0.7, 199)))
+    @test SparseArrays._sparselu(tri, 0.1, :auto, true, 48.0) isa SparseLU
 end
 
 @testset "sparselu: pruning changes the work, not the factors" begin
