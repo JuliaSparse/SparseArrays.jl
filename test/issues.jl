@@ -970,10 +970,15 @@ end
 
 @testset "a matrix of 2^64 entries does not overflow its length" begin
     B = spzeros(2^62, 4)
-    @test any(iszero, B)
-    @test sum(x -> 1.0, B) == 2.0^64
-    B[[1]] = [1.0]
-    @test B[1, 1] == 1.0 && nnz(B) == 1
+    @test any(iszero, B) && !all(isone, B)
+    @test sum(x -> 1.0, B) == 2.0^64 && prod(x -> 2.0, B) == Inf
+    @test count(iszero, B; init = big(0)) == big(2)^64
+    @test findmax(B) == (0.0, CartesianIndex(1, 1))
+    @test mapreduce(*, +, B, B) == 0.0
+    @test_throws OverflowError B[[1]]
+    @test_throws OverflowError B[[1]] = [1.0]
+    @test_throws OverflowError B[1] = 1.0
+    @test nnz(B) == 0
     @test nnz(sprand(Xoshiro(1), 2^62, 4, 1e-17)) > 0
 end
 

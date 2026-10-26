@@ -187,11 +187,15 @@ end
 _mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? Base.reduce_first(op, v0) : op(_addzeros(_unstored(op, f, T, v0), nzeros), v0)
 _mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? Base.reduce_first(op, v0) : op(_unstored(op, f, T, v0)^_intcount(nzeros), v0)
-# an eltype may define `^` for an `Int` power only, so a count from `widelength` that fits
-# an `Int` is passed as one
-_intcount(n) = n
-_intcount(n::Int128) = n <= typemax(Int) ? Int(n) : n
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_powzeros(_unstored(op, f, T, v0), nzeros), v0)
+# `z` to the power of `nzeros`. An eltype may define `^` for an `Int` power only, so a count
+# from `widelength` is split into `Int` powers, as `_addzeros` splits it into factors.
+_powzeros(z, nzeros) = z^nzeros
+function _powzeros(z, nzeros::Int128)
+    nzeros <= typemax(Int) && return z^Int(nzeros)
+    q, r = divrem(nzeros, typemax(Int))
+    return (z^typemax(Int))^Int(q) * z^Int(r)
+end
 _unstored(op, f, ::Type{T}, v0) where T = _widen(Base.reduce_first(op, f(zero(T))), v0)
 _widen(z, v0) = _widen(z, typeof(v0))
 _widen(z, ::Type{S}) where S = convert(promote_type(typeof(z), S), z)
@@ -232,7 +236,7 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
     elseif !_commutes(f, op, T)
         _mapreduce_ordered(f, op, A)
     else
-        v = Base.reduce_first(op, f(zero(T)))^_intcount(nzeros)
+        v = _powzeros(Base.reduce_first(op, f(zero(T))), nzeros)
         (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) && return v
         r = v*Base._mapreduce(f, op, nzvalview(A))
         # A zero ends the product unless a stored `Inf` or `NaN` makes it `NaN`. The product
@@ -278,7 +282,7 @@ end
 # A reduction along a dimension, an empty array and a shape mismatch are left to Base's method.
 for T in (:SparseVectorOrView, :SparseMatrixCSCOrColumnSubset)
     @eval function Base.mapreduce(f::F, op::G, A::$T, B::$T; dims=:, init=Base._InitialValue(), kw...) where {F,G}
-        (dims === (:) && isempty(kw) && size(A) == size(B) && !isempty(A)) ||
+        (dims === (:) && isempty(kw) && size(A) == size(B) && !iszero(widelength(A))) ||
             return reduce(op, map(f, A, B); dims, init, kw...)
         return _commutes(f, op, eltype(A), eltype(B)) ? _mapreduce_unordered(f, op, init, A, B) :
                                                          _mapreduce_ordered(f, op, init, A, B)
@@ -639,7 +643,7 @@ end
 # The kernels above fold each slice's stored entries first and its unstored ones last. That
 # matches element order only when `op` commutes or every entry is stored; otherwise the
 # kernels below fold the unstored entries where they lie.
-_inorder(f, op, A::AbstractArray{T}) where {T} = _commutes(f, op, T) || nnz(A) == length(A)
+_inorder(f, op, A::AbstractArray{T}) where {T} = _commutes(f, op, T) || nnz(A) == widelength(A)
 function _mapreducerows_ordered!(f::F, op::G, R::AbstractArray, A::SparseMatrixCSCOrColumnSubset{T}) where {F,G,T}
     require_one_based_indexing(A, R)
     rowval, nzval = getrowval(A), getnzval(A)

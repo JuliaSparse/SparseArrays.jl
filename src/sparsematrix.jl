@@ -320,6 +320,7 @@ function _storedinds(S::SparseMatrixCSCColumnSubset)
     return inds
 end
 widelength(S::SparseMatrixCSCColumnSubset) = prod(widen, size(S))
+widelength(x::Union{SparseColumnView,SparseVectorView}) = length(x)
 # `A` itself where it exposes compressed storage through `nzrange`, `rowvals` and `nonzeros`,
 # otherwise its sparse copy
 _compressed(A) = A
