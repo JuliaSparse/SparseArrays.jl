@@ -1164,7 +1164,8 @@ function _AqldivB_kernel!(x::StridedVector{Tb}, lu::UmfpackLU{Float64},
                           b::StridedVector{Tb}, transposeoptype, workspace) where Tb<:Complex
     r = similar(b, Float64)
     i = similar(b, Float64)
-    c = real.(b)
+    c = similar(b, Float64)
+    c .= real.(b)
     solve!(r, lu, c, transposeoptype; workspace)
     c .= imag.(b)
     solve!(i, lu, c, transposeoptype; workspace)
