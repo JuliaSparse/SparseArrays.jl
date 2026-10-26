@@ -35,8 +35,10 @@ _integer_indices(I::AbstractArray{CartesianIndex{1}}) = map(first ∘ Tuple, I)
 
 # Index types no method below matches (`CartesianIndex`, custom indices) are lowered and
 # dispatched again; indices that are already lowered fall back to Base.
-@propagate_inbounds getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I...) where {Tv,Ti} =
-    _getindex_lowered(A, I, _lower_indices(A, I...))
+@propagate_inbounds function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I...) where {Tv,Ti}
+    I isa Tuple{Integer} && _checklinearindexing(A)
+    return _getindex_lowered(A, I, _lower_indices(A, I...))
+end
 @propagate_inbounds getindex(x::AbstractSparseVector{Tv,Ti}, I...) where {Tv,Ti} =
     _getindex_lowered(x, I, _lower_indices(x, I...))
 @propagate_inbounds _getindex_lowered(A, I, L) = A[L...]
@@ -503,6 +505,7 @@ end
 
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractArray) where {Tv,Ti}
     require_one_based_indexing(A, I)
+    eltype(I) <: Integer && _checklinearindexing(A)
     ndims(I) == 2 || return _getindex_dense(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
@@ -596,6 +599,13 @@ _checkscalarindex(::Integer) = nothing
 
 # dispatch helper for #29034
 @RCI setindex!(A::AbstractSparseMatrixCSC, _v, _i::Integer, _j::Integer) = _setindex_scalar!(A, _v, _i, _j)
+@RCI function setindex!(A::AbstractSparseMatrixCSC, _v, _i::Integer)
+    _checkscalarindex(_i)
+    _checklinearindexing(A)
+    checkbounds(A, _i)
+    col, row = divrem(Int(_i) - 1, size(A, 1))
+    return _setindex_scalar!(A, _v, row + 1, col + 1)
+end
 
 function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _j::Integer) where {Tv,Ti<:Integer}
     _checkscalarindex(_i); _checkscalarindex(_j)
@@ -1124,6 +1134,7 @@ end
 
 function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVector{<:Integer})
     require_one_based_indexing(A, x, Ix)
+    _checklinearindexing(A)
     # to_indices does not compare a Bool mask's length with A's
     Ix isa AbstractVector{Bool} && checkbounds(A, Ix)
     (I,) = Base.ensure_indexable(to_indices(A, (Ix,)))
@@ -1564,6 +1575,7 @@ getindex(A::AbstractSparseMatrixCSC, ::Colon) = A[1:end]
 
 function getindex(A::AbstractSparseMatrixCSC{Tv}, I::AbstractUnitRange) where Tv
     require_one_based_indexing(A, I)
+    _checklinearindexing(A)
     checkbounds(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]
@@ -1606,6 +1618,7 @@ end
 function getindex(A::AbstractSparseMatrixCSC{Tv,Ti}, I::AbstractVector) where {Tv,Ti}
     I isa Base.LogicalIndex && return _logical_index(A, I.mask)
     require_one_based_indexing(A, I)
+    eltype(I) <: Integer && _checklinearindexing(A)
     @boundscheck checkbounds(A, I)
     szA = size(A)
     nA = szA[1]*szA[2]

@@ -91,6 +91,11 @@ function indexing()
     B[:, 2] .= 1.0
     bad += check(B[:, 2] == [1.0, 1.0, 1.0])
     bad += check(Array(view(A, :, 3)) == [0.0, 0.0, 5.0])
+    bad += check(A[3] == 4.0 && A[[3, 5]] == sparsevec([1, 2], [4.0, 3.0], 2) && A[2:3] == sparsevec([2], [4.0], 2))
+    C = copy(A)
+    C[2] = 1.0
+    C[[4]] = [7.0]
+    bad += check(C[2, 1] == 1.0 && C[1, 2] == 7.0 && nnz(C) == 6)
     return bad
 end
 
@@ -113,6 +118,8 @@ function algebra()
     bad += check(A - B == sparse([1, 2, 3, 3, 1], [1, 2, 1, 3, 3], [2.0, 3.0, 5.0, 5.0, -1.0], 3, 3))
     bad += check(A * B == sparse([1, 3, 3], [3, 1, 3], [2.0, -5.0, 4.0], 3, 3))
     bad += check(Matrix(A * D) == [4.0 0.0 0.0; 0.0 9.0 0.0; 28.0 0.0 25.0])
+    bad += check(mapreduce(*, +, A, A) == 54.0 && prod(x -> x + 1.0, A) == 360.0)
+    bad += check(mapreduce(identity, (a, b) -> a + b, A) == 14.0)
     bad += check(sum(A) == 14.0 && sum(A; dims = 1) == [6.0 3.0 5.0])
     bad += check(sum(A; dims = 2) == reshape([2.0, 3.0, 9.0], 3, 1))
     bad += check(maximum(A) == 5.0 && minimum(B) == -1.0 && prod(A) == 0.0)
