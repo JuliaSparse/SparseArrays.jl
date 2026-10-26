@@ -494,6 +494,12 @@ end
 end
         end
     end
+
+    # a short workspace throws before anything is written
+    csrrowptr = [7, 7]
+    @test_throws ArgumentError sparse!([1, 2], [1, 2], [1.0, 2.0], 2, 2, +,
+                                       [0, 0], csrrowptr, [0, 0], [0.0, 0.0])
+    @test csrrowptr == [7, 7]
 end
 
 end # module
