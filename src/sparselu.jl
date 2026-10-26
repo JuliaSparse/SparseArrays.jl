@@ -61,10 +61,17 @@ function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
     n = checksquare(A)
     size(B, 1) == n ||
         throw(DimensionMismatch(lazy"the matrix has $n rows, but the right-hand side has $(size(B, 1))"))
+    # When every diagonal entry is stored at the edge of its column, first in a lower
+    # triangle and last in an upper one, the strict triangle of column j is found from the
+    # column pointers alone, Ap[j]+1:Ap[j+1]-1 or Ap[j]:Ap[j+1]-2. This takes one pass in
+    # order over the pointers instead of a search per column and two work vectors.
+    if !unit && A isa AbstractSparseMatrixCSC && _diagonalatedge(A, lower)
+        Ap = getcolptr(A)
+        return lower ? _sptrisolve(A, Ap, 1, Ap, 1, -1, lower, unit, B, T, Ti) :
+                       _sptrisolve(A, Ap, 0, Ap, 1, -2, lower, unit, B, T, Ti)
+    end
     Ai = rowvals(A)
     Ax = nonzeros(A)
-    Bi = rowvals(B)
-    Bx = nonzeros(B)
     # the strict triangle of column j is Ai[from[j]:to[j]]; a stored diagonal is next to
     # it, before a lower triangle and after an upper one
     from = Vector{Int}(undef, n)
@@ -84,11 +91,41 @@ function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
             to[j] = d - 1
         end
     end
+    return _sptrisolve(A, from, 0, to, 0, 0, lower, unit, B, T, Ti)
+end
+
+# whether the diagonal of every column is stored first (`lower`) or last in it; throws
+# for a zero diagonal entry at the edge, as the search would
+function _diagonalatedge(A::AbstractSparseMatrixCSC, lower::Bool)
+    Ap = getcolptr(A)
+    Ai = rowvals(A)
+    Ax = nonzeros(A)
+    @inbounds for j in 1:size(A, 2)
+        lo = Int(Ap[j])
+        hi = Int(Ap[j + 1]) - 1
+        lo <= hi || return false
+        d = lower ? lo : hi
+        Ai[d] == j || return false
+        _iszero(Ax[d]) && throw(LinearAlgebra.SingularException(j))
+    end
+    return true
+end
+
+# The solve once the strict triangle of column j is known to be
+# Ai[F[j] + fo : Tp[j + ts] + tof].
+function _sptrisolve(A::SparseMatrixCSCOrView, F::Vector, fo::Int, Tp::Vector, ts::Int, tof::Int,
+                     lower::Bool, unit::Bool, B::SparseMatrixCSCOrView, ::Type{T}, ::Type{Ti}) where {T,Ti}
+    n = size(A, 2)
+    Ai = rowvals(A)
+    Ax = nonzeros(A)
+    Bi = rowvals(B)
+    Bx = nonzeros(B)
     k = size(B, 2)
     x = zeros(T, n)
     mark = zeros(Int, n)
+    # the search stack grows up from the start of `order` and the reverse postorder down
+    # from its end; a vertex is in at most one of them, so they never meet
     order = Vector{Int}(undef, n)
-    nodes = Vector{Int}(undef, n)
     pos = Vector{Int}(undef, n)
     Xp = Vector{Ti}(undef, k + 1)
     Xi = Ti[]
@@ -102,12 +139,12 @@ function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
             mark[i] == c && continue
             mark[i] = c
             head = 1
-            nodes[1] = i
-            pos[1] = from[i]
+            order[1] = i
+            pos[1] = Int(F[i]) + fo
             while head > 0
-                j = nodes[head]
+                j = order[head]
                 p = pos[head]
-                stop = to[j]
+                stop = Int(Tp[j + ts]) + tof
                 descended = false
                 while p <= stop
                     r = Int(Ai[p])
@@ -116,8 +153,8 @@ function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
                         mark[r] = c
                         pos[head] = p
                         head += 1
-                        nodes[head] = r
-                        pos[head] = from[r]
+                        order[head] = r
+                        pos[head] = Int(F[r]) + fo
                         descended = true
                         break
                     end
@@ -131,9 +168,11 @@ function _sptrisolve(A::SparseMatrixCSCOrView, lower::Bool, unit::Bool,
         end
         for t in top:n
             j = order[t]
-            xj = unit ? x[j] : Ax[lower ? from[j] - 1 : to[j] + 1] \ x[j]
+            jfrom = Int(F[j]) + fo
+            jto = Int(Tp[j + ts]) + tof
+            xj = unit ? x[j] : Ax[lower ? jfrom - 1 : jto + 1] \ x[j]
             x[j] = xj
-            for p in from[j]:to[j]
+            for p in jfrom:jto
                 x[Ai[p]] -= Ax[p] * xj
             end
         end
@@ -859,12 +898,15 @@ function _lusolve(F::SparseLU, B::SparseMatrixCSCOrView, ::Type{T}, ::Type{Ti}) 
     Bx = nonzeros(B)
     k = size(B, 2)
     y = zeros(T, n)     # in the permuted numbering
-    z = zeros(T, n)     # in the numbering of the solution
     mark = zeros(Int, nb)
+    # the search stack and the reverse postorder share `order`, as in `_sptrisolve`
     order = Vector{Int}(undef, nb)
-    nodes = Vector{Int}(undef, nb)
     pos = Vector{Int}(undef, nb)
+    # the rows and values of a column of the solution, and the order that sorts the rows
     rows = Int[]
+    vals = T[]
+    perm = Int[]
+    z = T[]
     Xp = Vector{Ti}(undef, k + 1)
     Xi = Ti[]
     Xx = T[]
@@ -878,10 +920,10 @@ function _lusolve(F::SparseLU, B::SparseMatrixCSCOrView, ::Type{T}, ::Type{Ti}) 
             mark[blk] == c && continue
             mark[blk] = c
             head = 1
-            nodes[1] = blk
+            order[1] = blk
             pos[1] = graphptr[blk]
             while head > 0
-                blk = nodes[head]
+                blk = order[head]
                 g = pos[head]
                 stop = Int(graphptr[blk + 1]) - 1
                 descended = false
@@ -892,7 +934,7 @@ function _lusolve(F::SparseLU, B::SparseMatrixCSCOrView, ::Type{T}, ::Type{Ti}) 
                         mark[a] = c
                         pos[head] = g
                         head += 1
-                        nodes[head] = a
+                        order[head] = a
                         pos[head] = graphptr[a]
                         descended = true
                         break
@@ -906,23 +948,36 @@ function _lusolve(F::SparseLU, B::SparseMatrixCSCOrView, ::Type{T}, ::Type{Ti}) 
             end
         end
         empty!(rows)
+        empty!(vals)
         for t in top:nb
             blk = order[t]
             lo = Int(blockptr[blk])
             hi = Int(blockptr[blk + 1]) - 1
             _blocksolve!(y, lower, upper, lo, hi)
             for j in lo:hi
-                r = Int(q[j])
-                z[r] = y[j]
+                push!(rows, Int(q[j]))
+                push!(vals, y[j])
                 y[j] = zero(T)
-                push!(rows, r)
             end
         end
-        sort!(rows)
-        for r in rows
-            push!(Xi, r)
-            push!(Xx, z[r])
-            z[r] = zero(T)
+        if length(rows) <= n >> 6
+            sortperm!(resize!(perm, length(rows)), rows)
+            for t in perm
+                push!(Xi, rows[t])
+                push!(Xx, vals[t])
+            end
+        else
+            # a large solution is sorted faster through a dense vector in its numbering
+            isempty(z) && (z = zeros(T, n))
+            for t in eachindex(rows)
+                z[rows[t]] = vals[t]
+            end
+            sort!(rows)
+            for r in rows
+                push!(Xi, r)
+                push!(Xx, z[r])
+                z[r] = zero(T)
+            end
         end
     end
     Xp[k + 1] = length(Xi) + 1
