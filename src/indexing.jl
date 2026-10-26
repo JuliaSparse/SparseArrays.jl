@@ -603,7 +603,8 @@ _checkscalarindex(::Integer) = nothing
     _checkscalarindex(_i)
     _checklinearindexing(A)
     checkbounds(A, _i)
-    return _setindex_scalar!(A, _v, Tuple(CartesianIndices(A)[_i])...)
+    col, row = divrem(Int(_i) - 1, size(A, 1))
+    return _setindex_scalar!(A, _v, row + 1, col + 1)
 end
 
 function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _j::Integer) where {Tv,Ti<:Integer}
