@@ -142,6 +142,9 @@ include("testhelpers.jl")
         sz33 = spzeros(3, 3)
         de33 = Matrix(1.0I, 3, 3)
         @test [se33 de33; sz33 se33] == Array([se33 se33; sz33 se33 ])
+        # the index type is promoted over the sparse blocks, not taken from the first
+        A8, A = spzeros(Float64, Int8, 1, 2), spzeros(200, 2)
+        @test mismatch(vcat(A8, A, ones(1, 2)), [zeros(201, 2); ones(1, 2)], Ti=Int) === nothing
     end
     end
 
