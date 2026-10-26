@@ -380,7 +380,11 @@ julia> collect(SparseArrays.iternz(x))
 """
 function iternz end
 
-widelength(x::AbstractSparseArray) = prod(Int64.(size(x)))
+widelength(x::AbstractSparseArray) = prod(widen, size(x))
+# Linear indexing compares an index with `length(A)`, which wraps for 2^63 entries or more
+_checklinearindexing(A::AbstractSparseMatrixCSC) = widelength(A) <= typemax(Int) ||
+    throw(OverflowError(string("a ", size(A, 1), "×", size(A, 2), " sparse matrix has more ",
+        "entries than an `Int` can index linearly; index it by row and column")))
 
 
 const _restore_scalar_indexing = Expr[]
