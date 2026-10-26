@@ -249,4 +249,9 @@ end
     @test ldiv!(lu(A), ComplexF32[1, 2]) ≈ ComplexF32.(Matrix(A) \ [1, 2])
 end
 
+@testset "factorize of an indefinite Hermitian matrix whose LDLt needs pivoting" begin
+    b = [1.0, 2.0]
+    @test factorize(sparse([0.0 1; 1 0])) \ b ≈ [0.0 1; 1 0] \ b
+end
+
 end # module
