@@ -548,6 +548,8 @@ end
             @test (dims == 1 ? 3 : 4) ∉ view(rowvals(D), nzrange(D, dims == 1 ? 2 : 1))
             @static if COMPREHENSIVE
             @test diff(sparse(Int32.(1:7), Int32.(1:7), one(T)); dims) isa SparseMatrixCSC{T,Int32}
+            @test mismatch(diff(view(A, :, [1, 2, 4]); dims), diff(M[:, [1, 2, 4]]; dims)) === nothing
+            @test mismatch(diff(transpose(A); dims), diff(transpose(M); dims)) === nothing
             end
         end
         for dims in (0, 3, 7)
