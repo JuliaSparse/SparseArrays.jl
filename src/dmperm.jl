@@ -42,9 +42,8 @@ end
 # column they are done with leaves the layering. Returns whether the matching grew.
 function _hopcroftkarp!(A::SparseMatrixCSCOrView, unmatched::Vector{Int}, rowmatch::Vector{Int},
                         colmatch::Vector{Int}, dist::Vector{Int}, ptr::Vector{Int},
-                        queue::Vector{Int}, rowstack::Vector{Int})
+                        queue::Vector{Int}, path::Vector{Int}, rowstack::Vector{Int})
     rv = rowvals(A)
-    fill!(dist, -1)
     tail = 0
     @inbounds for c in unmatched
         dist[c] = 0
@@ -69,14 +68,16 @@ function _hopcroftkarp!(A::SparseMatrixCSCOrView, unmatched::Vector{Int}, rowmat
             end
         end
     end
-    limit == typemax(Int) && return false
-    # the queue is free again, and holds the columns of the search path
+    if limit == typemax(Int)
+        _resetdist!(dist, queue, tail)
+        return false
+    end
     @inbounds for root in unmatched
         depth = 1
-        queue[1] = root
+        path[1] = root
         ptr[root] = first(nzrange(A, root))
         while depth > 0
-            col = queue[depth]
+            col = path[depth]
             d = dist[col]
             stop = last(nzrange(A, col))
             k = ptr[col]
@@ -100,7 +101,7 @@ function _hopcroftkarp!(A::SparseMatrixCSCOrView, unmatched::Vector{Int}, rowmat
             ptr[col] = k
             if row != 0
                 for t in depth:-1:1
-                    c = queue[t]
+                    c = path[t]
                     dist[c] = -1
                     rowmatch[row] = c
                     colmatch[c] = row
@@ -109,7 +110,7 @@ function _hopcroftkarp!(A::SparseMatrixCSCOrView, unmatched::Vector{Int}, rowmat
                 break
             elseif next != 0
                 depth += 1
-                queue[depth] = next
+                path[depth] = next
                 ptr[next] = first(nzrange(A, next))
             else
                 dist[col] = -1
@@ -117,7 +118,15 @@ function _hopcroftkarp!(A::SparseMatrixCSCOrView, unmatched::Vector{Int}, rowmat
             end
         end
     end
+    _resetdist!(dist, queue, tail)
     return true
+end
+
+# dist is -1 between phases; a phase sets it only for the columns in its queue
+function _resetdist!(dist::Vector{Int}, queue::Vector{Int}, tail::Int)
+    @inbounds for t in 1:tail
+        dist[queue[t]] = -1
+    end
 end
 
 # A maximum matching of the bipartite graph of `A`: `rowmatch[i]` is the column matched to
@@ -155,11 +164,12 @@ function _maxmatching(A::SparseMatrixCSCOrView)
         end
     end
     isempty(unmatched) && return rowmatch, colmatch
-    dist = Vector{Int}(undef, n)
+    dist = fill(-1, n)
     ptr = Vector{Int}(undef, n)
     queue = Vector{Int}(undef, n)
+    path = Vector{Int}(undef, n)
     rowstack = Vector{Int}(undef, n)
-    while _hopcroftkarp!(A, unmatched, rowmatch, colmatch, dist, ptr, queue, rowstack)
+    while _hopcroftkarp!(A, unmatched, rowmatch, colmatch, dist, ptr, queue, path, rowstack)
         filter!(c -> @inbounds(colmatch[c]) == 0, unmatched)
         isempty(unmatched) && break
     end
@@ -202,6 +212,13 @@ function _strongblocks!(rowblock::Vector{Int}, colblock::Vector{Int}, A::SparseM
                         colpart::Vector{Int}, nb::Int)
     n = size(A, 2)
     rv = rowvals(A)
+    # the column a row leads to, 0 outside the square part: one load per entry instead of two
+    target = Vector{Int}(undef, length(rowmatch))
+    @inbounds for i in eachindex(target)
+        target[i] = rowpart[i] == _DM_SQUARE ? rowmatch[i] : 0
+    end
+    # index[w] is 0 until w is visited and typemax(Int) once it is in a component, which
+    # leaves the minimum below unchanged without a load of colblock[w]
     index = zeros(Int, n)
     low = Vector{Int}(undef, n)
     ptr = Vector{Int}(undef, n)
@@ -219,13 +236,14 @@ function _strongblocks!(rowblock::Vector{Int}, colblock::Vector{Int}, A::SparseM
             c = path[end]
             stop = last(nzrange(A, c))
             k = ptr[c]
+            lowc = low[c]
             descended = false
             while k <= stop
-                i = rv[k]
+                w = target[rv[k]]
                 k += 1
-                rowpart[i] == _DM_SQUARE || continue
-                w = rowmatch[i]
-                if index[w] == 0
+                w == 0 && continue
+                iw = index[w]
+                if iw == 0
                     count += 1
                     index[w] = low[w] = count
                     ptr[w] = first(nzrange(A, w))
@@ -233,23 +251,24 @@ function _strongblocks!(rowblock::Vector{Int}, colblock::Vector{Int}, A::SparseM
                     push!(path, w)
                     descended = true
                     break
-                elseif colblock[w] == 0
-                    low[c] = min(low[c], index[w])
                 end
+                lowc = min(lowc, iw)
             end
+            low[c] = lowc
             ptr[c] = k
             descended && continue
-            if low[c] == index[c]
+            if lowc == index[c]
                 nb += 1
                 while true
                     w = pop!(open)
                     colblock[w] = nb
                     rowblock[colmatch[w]] = nb
+                    index[w] = typemax(Int)
                     w == c && break
                 end
             end
             pop!(path)
-            isempty(path) || (low[path[end]] = min(low[path[end]], low[c]))
+            isempty(path) || (low[path[end]] = min(low[path[end]], lowc))
         end
     end
     return nb
