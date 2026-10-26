@@ -1894,8 +1894,7 @@ end
 Base.sort(x::AbstractCompressedVector; kws...) =
     sort!(_writablecopy(x); kws...)
 
-function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
-    _checkpatternwritable(x, :fkeep!)
+function _fkeep!(f::F, x::AbstractCompressedVector, progress::Base.RefValue{Tuple{Int,Int}}) where F
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
 
@@ -1903,6 +1902,7 @@ function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
     @inbounds for xk in 1:nnz(x)
         xi = nzind[xk]
         xv = nzval[xk]
+        progress[] = (xk, x_writepos)
         # If this element should be kept, rewrite in new position
         if f(xi, xv)
             if x_writepos != xk
@@ -1920,7 +1920,28 @@ function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
     return x
 end
 
+# As for a matrix: when `f` throws at entry `xk`, keep it and every later entry, and rethrow.
+function _fkeep_guarded!(f::F, x::AbstractCompressedVector) where F
+    progress = Ref((1, 1))
+    try
+        _fkeep!(f, x, progress)
+    catch
+        xk, x_writepos = progress[]
+        nzind, nzval = nonzeroinds(x), nonzeros(x)
+        shift = xk - x_writepos
+        if shift != 0
+            x_nnz = length(nzind)
+            copyto!(nzind, x_writepos, nzind, xk, x_nnz - xk + 1)
+            copyto!(nzval, x_writepos, nzval, xk, x_nnz - xk + 1)
+            resize!(nzind, x_nnz - shift)
+            resize!(nzval, x_nnz - shift)
+        end
+        rethrow()
+    end
+    return x
+end
 
+fkeep!(f::F, x::AbstractCompressedVector) where {F} = (_checkpatternwritable(x, :fkeep!); _fkeep_guarded!(f, x))
 
 """
     droptol!(x::AbstractCompressedVector, tol)
