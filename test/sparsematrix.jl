@@ -1283,6 +1283,9 @@ end
     A = sparse(D)
     @test_throws ErrorException SparseArrays.fkeep!((i, j, x) -> error("stop"), A)
     @test mismatch(A, D) === nothing
+    A = sparse([1, 2], [1, 2], Union{Missing,Float64}[0.1, missing], 2, 2)
+    @test_throws TypeError droptol!(A, 0.5)
+    @test isequal(A, sparse([2], [2], Union{Missing,Float64}[missing], 2, 2)) && nnz(A) == 1
 end
 
 @testset "tril! and triu! with a diagonal out of range" begin

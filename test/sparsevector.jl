@@ -1438,6 +1438,12 @@ end
     SparseArrays.fkeep!(f_drop, xdrop)
     @test exact_equal(xdrop, SparseVector(7, [1, 3, 4, 7], [3., -1., 1., 3.]))
     @test_deprecated SparseArrays.fkeep!(xdrop, f_drop)
+    @static if COMPREHENSIVE
+        # the entries visited before the throw are filtered and the others are kept
+        x = sparsevec([1, 2, 3], [-1.0, 1.0, 2.0])
+        @test_throws ErrorException SparseArrays.fkeep!((i, v) -> i == 3 ? error("stop") : v > 0, x)
+        @test mismatch(x, [0.0, 1.0, 2.0]) === nothing && nnz(x) == 2
+    end
 end
 
 @static if COMPREHENSIVE
