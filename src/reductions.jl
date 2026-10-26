@@ -16,7 +16,7 @@ end
 # when `A` is empty, takes `map(f, slice)` as the result, which for a sparse `A` is sparse.
 # Only that case needs a dense copy of the (empty) slice; otherwise Base reduces the slice
 # to a scalar seed and fills through `reducedim_initarray`, which is dense above.
-function _reducedim_init_dense(f, op, A, region)
+function _reducedim_init_dense(f::F, op::G, A, region) where {F,G}
     ri = Base.reduced_indices(A, region)   # also validates `region`
     any(i -> isempty(axes(A, i)), region) && Base._empty_reduce_error()
     A1 = view(A, ri...)
@@ -28,9 +28,9 @@ end
 for T in (:SparseMatrixCSCOrColumnSubset, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
           :AdjOrTransSparseVectorOrView)
     @eval begin
-        Base.reducedim_init(f, op::typeof(max), A::$T, region) = _reducedim_init_dense(f, op, A, region)
-        Base.reducedim_init(f, op::typeof(min), A::$T, region) = _reducedim_init_dense(f, op, A, region)
-        Base.reducedim_init(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), A::$T, region) =
+        Base.reducedim_init(f::F, op::typeof(max), A::$T, region) where {F} = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f::F, op::typeof(min), A::$T, region) where {F} = _reducedim_init_dense(f, op, A, region)
+        Base.reducedim_init(f::F, op::typeof(Base._extrema_rf), A::$T, region) where {F<:Base.ExtremaMap} =
             _reducedim_init_dense(f, op, A, region)
         # Base seeds these with zero, from no slice; disambiguates from the `max` method above
         Base.reducedim_init(f::Union{typeof(abs),typeof(abs2)}, op::typeof(max), A::$T, region) =

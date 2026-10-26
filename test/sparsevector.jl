@@ -242,6 +242,14 @@ end
             @test xv == xr
             @test sprand(20, 1, 0.5, rfn1) isa SparseMatrixCSC{Int8,Int}
             @test sprand(MersenneTwister(5), 20, 1, 0.5, rfn2) isa SparseMatrixCSC{Int8,Int}
+            # and with `T`, which the older `rfn(rng, T, k)` still accepts
+            @test sprand(20, 0.5, rfn1, Float64) isa SparseVector{Float64,Int}
+            @test sprand(MersenneTwister(5), 20, 0.5, rfn2, Float64) isa SparseVector{Float64,Int}
+            @test sprand(MersenneTwister(5), 20, 0.5, (r, T, k) -> rand(r, T, k), Float64) isa SparseVector{Float64,Int}
+            # without `T`, `rfn` is called once, for the values
+            calls = Ref(0)
+            sprand(MersenneTwister(5), 4, 4, 0.5, (r, k) -> (calls[] += 1; rand(r, Int8, k)))
+            @test calls[] == 1
         end
         end
     end
@@ -678,6 +686,8 @@ end
         @test_throws InexactError copy!(dst, src)
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
         @test_throws InexactError copyto!(dst, src)
+        @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
+        @test_throws InexactError copyto!(dst, sparse([1, 2], [1, 2], [0.5, 1.0]))
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
         @test_throws InexactError copy!(dst, [1.0, 2.5, 0.0, 0.0, 0.0])
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
@@ -1428,6 +1438,12 @@ end
     SparseArrays.fkeep!(f_drop, xdrop)
     @test exact_equal(xdrop, SparseVector(7, [1, 3, 4, 7], [3., -1., 1., 3.]))
     @test_deprecated SparseArrays.fkeep!(xdrop, f_drop)
+    @static if COMPREHENSIVE
+        # the entries visited before the throw are filtered and the others are kept
+        x = sparsevec([1, 2, 3], [-1.0, 1.0, 2.0])
+        @test_throws ErrorException SparseArrays.fkeep!((i, v) -> i == 3 ? error("stop") : v > 0, x)
+        @test mismatch(x, [0.0, 1.0, 2.0]) === nothing && nnz(x) == 2
+    end
 end
 
 @static if COMPREHENSIVE

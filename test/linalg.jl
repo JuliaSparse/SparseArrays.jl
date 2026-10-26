@@ -59,6 +59,13 @@ include("testhelpers.jl")
         @test mismatch(O, [1 0 2; 0 3 0; 4 0 5.0]) === nothing
     end
     @test mismatch(circshift!(S, S, (1, 0)), [4 0 5.0; 1 0 2; 0 3 0]) === nothing
+    # a value or a count that the destination cannot hold is rejected before it is written to
+    O = sparse([1 0 0; 0 2 0; 0 0 3])
+    @test_throws InexactError circshift!(O, sparse([1.5 0 0; 0 0 0; 0 0 0]), (0, 1))
+    @test mismatch(O, [1 0 0; 0 2 0; 0 0 3]) === nothing
+    O8 = SparseMatrixCSC{Float64,Int8}(sparse(1.0I, 12, 12))
+    @test_throws ArgumentError circshift!(O8, sparse(ones(12, 12)), (0, 1))
+    @test mismatch(O8, Matrix(1.0I, 12, 12); Ti=Int8) === nothing
 end
 end
 
@@ -344,6 +351,15 @@ end
         C = spzeros(ComplexF64, 3, 3)
         @test_throws DimensionMismatch ldiv!(C, Dl, A)
         @test nnz(C) == 0
+        @static if COMPREHENSIVE
+        # a quotient that does not convert to the eltype of the destination throws with it unchanged
+        A0 = sparse([2 0; 0 3]); x0 = sparsevec([1, 2], [2, 3]); D2 = Diagonal([2, 2])
+        for (f!, X0) in ((C -> ldiv!(C, D2, A0), sparse([1 0; 0 0])), (B -> rdiv!(B, D2), A0), (y -> ldiv!(D2, y), x0))
+            X = copy(X0)
+            @test_throws InexactError f!(X)
+            @test mismatch(X, X0) === nothing
+        end
+        end
     end
 end
 
@@ -548,6 +564,8 @@ end
             @test (dims == 1 ? 3 : 4) ∉ view(rowvals(D), nzrange(D, dims == 1 ? 2 : 1))
             @static if COMPREHENSIVE
             @test diff(sparse(Int32.(1:7), Int32.(1:7), one(T)); dims) isa SparseMatrixCSC{T,Int32}
+            @test mismatch(diff(view(A, :, [1, 2, 4]); dims), diff(M[:, [1, 2, 4]]; dims)) === nothing
+            @test mismatch(diff(transpose(A); dims), diff(transpose(M); dims)) === nothing
             end
         end
         for dims in (0, 3, 7)

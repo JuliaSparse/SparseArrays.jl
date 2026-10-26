@@ -24,6 +24,7 @@ function _vcat_csc(::Type{Tv}, ::Type{Ti}, X::AbstractSparseMatrixCSC...) where 
 
     nnzX = Int[ nnz(x) for x in X ]
     nnz_res = sum(nnzX)
+    _checknnzfits(Ti, nnz_res)
     colptr = Vector{Ti}(undef, n+1)
     rowval = Vector{Ti}(undef, nnz_res)
     nzval  = Vector{Tv}(undef, nnz_res)
@@ -72,6 +73,7 @@ function hcat(X::AbstractSparseMatrixCSC...)
     colptr = Vector{Ti}(undef, n+1)
     nnzX = Int[ nnz(x) for x in X ]
     nnz_res = sum(nnzX)
+    _checknnzfits(Ti, nnz_res)
     rowval = Vector{Ti}(undef, nnz_res)
     nzval = Vector{Tv}(undef, nnz_res)
 
@@ -99,6 +101,7 @@ end
 
 function Base.repeat(A::AbstractSparseMatrixCSC, m)
     nnz_new = nnz(A) * m
+    _checknnzfits(indtype(A), nnz_new)
     colptr = similar(getcolptr(A), length(getcolptr(A)))
     rowval = similar(getrowval(A), nnz_new)
     nzval = similar(getnzval(A), nnz_new)
@@ -115,12 +118,12 @@ function Base.repeat(A::AbstractSparseMatrixCSC, m)
         end
         colptr[c + 1] = ptr_res
     end
-    @assert colptr[end] == nnz_new + 1
 
     SparseMatrixCSC(size(A, 1) * m, size(A, 2), colptr, rowval, nzval)
 end
 
 function Base.repeat(A::AbstractSparseMatrixCSC, m, n)
+    _checknnzfits(indtype(A), nnz(A) * m * n)
     B = repeat(A, m)
     nB = size(B, 2)
     nnzB = nnz(B)
@@ -221,6 +224,7 @@ function Base._typed_stack(::Colon, ::Type{Tv}, ::Type{S}, A, Aax::Tuple{Any}) w
             throw(DimensionMismatch("Inconsistent column lengths."))
         tnnz += nnz(x)
     end
+    _checknnzfits(Ti, tnnz)
 
     colptr = Vector{Ti}(undef, n+1)
     nzrow = Vector{Ti}(undef, tnnz)

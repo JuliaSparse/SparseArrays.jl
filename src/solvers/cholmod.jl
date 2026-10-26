@@ -1166,8 +1166,19 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC{<:Any}, stype::Integer) where {Tv<:VT
     check_sparse(o)
     return o
 end
+
+# CHOLMOD takes Int32 or Int64 indices; other index types are promoted with Int
+function cholmod_itype(A, ::Type{Ti}) where {Ti}
+    Ti <: ITypes && return Ti
+    T = promote_type(Ti, Int)
+    T <: ITypes || throw(ArgumentError(string("matrix type ", typeof(A), " not supported: ",
+        "CHOLMOD needs an index type of ", join(Base.uniontypes(ITypes), " or "), ". ",
+        "Try converting its index type to Int first.")))
+    return T
+end
+
 Sparse{Tv}(A::SparseMatrixCSC{<:Any, Ti}, stype::Integer) where {Tv<:VTypes, Ti} =
-    Sparse{Tv, Ti <: ITypes ? Ti : promote_type(Ti, Int)}(A, stype)
+    Sparse{Tv, cholmod_itype(A, Ti)}(A, stype)
 # handle promotion
 function Sparse(A::SparseMatrixCSC{Tv}, stype::Integer) where {Tv}
     T = promote_type(Tv, Float64)
@@ -1191,7 +1202,7 @@ function Sparse{Tv, Ti}(A::SparseMatrixCSC) where {Tv<:VTypes, Ti<:ITypes}
     o
 end
 Sparse{Tv}(A::SparseMatrixCSC{<:Any, Ti}) where {Tv<:VTypes, Ti} =
-    Sparse{Tv, Ti <: ITypes ? Ti : promote_type(Ti, Int)}(A)
+    Sparse{Tv, cholmod_itype(A, Ti)}(A)
 function Sparse(A::SparseMatrixCSC{Tv}) where {Tv}
     T = promote_type(Tv, Float64)
     return Sparse{T}(A)
@@ -1206,19 +1217,19 @@ Sparse{Tv, Ti}(A::Hermitian{<:Any, <:SparseMatrixCSC}) where {Tv<:VTypes, Ti<:IT
     Sparse{Tv, Ti}(A.data, A.uplo == 'L' ? -1 : 1)
 
 Sparse(A::Symmetric{Tv, SparseMatrixCSC{Tv,Ti}}) where {Tv<:Real, Ti} =
-    Sparse{promote_type(Tv, Float64), Ti <: ITypes ? Ti : promote_type(Ti, Int)}(
+    Sparse{promote_type(Tv, Float64), cholmod_itype(A, Ti)}(
         A.data, A.uplo == 'L' ? -1 : 1
     )
 Sparse(A::Symmetric{Tv, SparseMatrixCSC{Tv,Ti}}) where {Tv<:Union{Float16, Float32}, Ti} =
-    Sparse{Float32, Ti <: ITypes ? Ti : promote_type(Ti, Int)}(A.data, A.uplo == 'L' ? -1 : 1)
+    Sparse{Float32, cholmod_itype(A, Ti)}(A.data, A.uplo == 'L' ? -1 : 1)
 
 Sparse(A::Hermitian{Tv, SparseMatrixCSC{Tv,Ti}}) where {Tv, Ti} =
-    Sparse{promote_type(Tv, Float64), Ti <: ITypes ? Ti : promote_type(Ti, Int)}(
+    Sparse{promote_type(Tv, Float64), cholmod_itype(A, Ti)}(
         A.data, A.uplo == 'L' ? -1 : 1
     )
 Sparse(A::Hermitian{Tv, SparseMatrixCSC{Tv,Ti}}) where
     {Tv<:Union{Float16, Float32, ComplexF32, ComplexF16}, Ti} =
-    Sparse{promote_type(Float32, Tv), Ti <: ITypes ? Ti : promote_type(Ti, Int)}(
+    Sparse{promote_type(Float32, Tv), cholmod_itype(A, Ti)}(
         A.data, A.uplo == 'L' ? -1 : 1
     )
 
@@ -1333,6 +1344,10 @@ function SparseVector{Tv, Ti}(A::Sparse{Tv, Ti}) where {Tv, Ti<:ITypes}
         throw(ArgumentError("matrix has stype != 0. Convert to matrix " *
             "with stype == 0 before converting to SparseVector"))
     end
+    if s.ncol != 1
+        throw(DimensionMismatch("cannot convert a CHOLMOD.Sparse with $(Int(s.ncol)) columns " *
+            "to SparseVector: it must have exactly one column"))
+    end
     args = _extract_args(A, Tv)
     s.sorted == 0 && _sort_buffers!(args...);
     _trim_nz_builder!(args...)
@@ -1384,11 +1399,7 @@ function Hermitian{Tv,SparseMatrixCSC{Tv, Ti}}(A::Sparse{Tv, Ti}) where {Tv<:VTy
 end
 convert(T::Type{Hermitian{Tv,SparseMatrixCSC{Tv,Ti}}}, A::Sparse{Tv, Ti}) where {Tv<:VTypes, Ti<:ITypes} = T(A)
 
-function sparsevec(A::Sparse{Tv, Ti}) where {Tv, Ti}
-    s = unsafe_load(pointer(A))
-    @assert s.stype == 0
-    return SparseVector{Tv, Ti}(A)
-end
+sparsevec(A::Sparse{Tv, Ti}) where {Tv, Ti} = SparseVector{Tv, Ti}(A)
 
 function sparse(A::Sparse{Tv, Ti}) where {Tv<:VRealTypes, Ti} # Notice! Cannot be type stable because of stype
     s = unsafe_load(pointer(A))
@@ -1660,6 +1671,11 @@ function check_hermitian_stype(A::Sparse)
         throw(ArgumentError("sparse matrix is not symmetric/Hermitian"))
     return nothing
 end
+function check_refactor_size(F::Factor, A::Sparse)
+    size(A) == size(F) || throw(DimensionMismatch(
+        "matrix has size $(size(A)), but the factorization has size $(size(F))"))
+    return nothing
+end
 
 ## Compute that symbolic factorization only
 function symbolic(A::Sparse{<:VTypes, Ti};
@@ -1699,6 +1715,7 @@ function cholesky!(F::Factor{Tv}, A::Sparse{Tv};
                    shift::Real=0.0, check::Bool = true) where Tv
     check_hermitian_stype(A)
     @lock F.lock begin
+        check_refactor_size(F, A)
         @cholmod_param final_ll = true begin
             factorize_p!(A, shift, F)
         end
@@ -1738,13 +1755,13 @@ true
     Input matrices not of those element types will
     be converted to these types as appropriate.
 """
-cholesky!(F::Factor, A::Union{SparseMatrixCSC{T, Ti},
-          SparseMatrixCSC{Complex{T}, Ti},
-          Symmetric{T,<:SparseMatrixCSC{T, Ti}},
-          Hermitian{Complex{T},<:SparseMatrixCSC{Complex{T}, Ti}},
-          Hermitian{T,<:SparseMatrixCSC{T, Ti}}};
-          shift = 0.0, check::Bool = true) where {T<:Real, Ti} =
-    cholesky!(F, Sparse{eltype(F), Ti}(A); shift = shift, check = check)
+cholesky!(F::Factor{Tv, Ti}, A::Union{SparseMatrixCSC{T},
+          SparseMatrixCSC{Complex{T}},
+          Symmetric{T,<:SparseMatrixCSC{T}},
+          Hermitian{Complex{T},<:SparseMatrixCSC{Complex{T}}},
+          Hermitian{T,<:SparseMatrixCSC{T}}};
+          shift = 0.0, check::Bool = true) where {Tv, Ti, T<:Real} =
+    cholesky!(F, Sparse{Tv, Ti}(A); shift = shift, check = check)
 
 function cholesky(A::Sparse; shift::Real=0.0, check::Bool = true,
     perm::Union{Nothing,AbstractVector{<:Integer}}=nothing)
@@ -1890,6 +1907,7 @@ function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
     check_hermitian_stype(A)
     @lock F.lock begin
+        check_refactor_size(F, A)
         change_factor!(F, false, false, true, false)
         factorize_p!(A, shift, F)
         check && (issuccess(F) || throw(factorization_exception(F)))
@@ -1928,13 +1946,13 @@ true
     Input matrices not of those element types will
     be converted to these types as appropriate.
 """
-ldlt!(F::Factor, A::Union{SparseMatrixCSC{T, Ti},
-    SparseMatrixCSC{Complex{T}, Ti},
-    Symmetric{T, <:SparseMatrixCSC{T, Ti}},
-    Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}, Ti}},
-    Hermitian{T, <:SparseMatrixCSC{T, Ti}}};
-    shift = 0.0, check::Bool = true) where {T<:Real, Ti} =
-    ldlt!(F, Sparse{eltype(F), Ti}(A), shift = shift, check = check)
+ldlt!(F::Factor{Tv, Ti}, A::Union{SparseMatrixCSC{T},
+    SparseMatrixCSC{Complex{T}},
+    Symmetric{T, <:SparseMatrixCSC{T}},
+    Hermitian{Complex{T}, <:SparseMatrixCSC{Complex{T}}},
+    Hermitian{T, <:SparseMatrixCSC{T}}};
+    shift = 0.0, check::Bool = true) where {Tv, Ti, T<:Real} =
+    ldlt!(F, Sparse{Tv, Ti}(A), shift = shift, check = check)
 
 function ldlt(A::Sparse; shift::Real=0.0, check::Bool = true,
     perm::Union{Nothing,AbstractVector{<:Integer}}=nothing)

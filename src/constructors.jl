@@ -429,7 +429,7 @@ preceding CSR form into a fully-sorted CSC form with no repeated entries.
 
 Input arrays `csrrowptr`, `csrcolval`, and `csrnzval` constitute storage for the
 intermediate CSR forms and require `length(csrrowptr) >= m + 1`,
-`length(csrcolval) >= length(I)`, and `length(csrnzval >= length(I))`. Input
+`length(csrcolval) >= length(I)`, and `length(csrnzval) >= length(I)`. Input
 array `klasttouch`, workspace for the second stage, requires `length(klasttouch) >= n`.
 Optional input arrays `csccolptr`, `cscrowval`, and `cscnzval` constitute storage for the
 returned CSC form `S`. If necessary, these are resized automatically to satisfy
@@ -447,8 +447,8 @@ You may reuse the input arrays' storage (`I`, `J`, `V`) for the output arrays
 Note that they will be resized to satisfy the conditions above.
 
 For the sake of efficiency, this method performs no argument checking beyond
-`1 <= I[k] <= m` and `1 <= J[k] <= n`. Use with care. Testing with `--check-bounds=yes`
-is wise.
+`1 <= I[k] <= m`, `1 <= J[k] <= n` and the lengths of the input arrays. Use with care.
+Testing with `--check-bounds=yes` is wise.
 
 This method runs in `O(m, n, length(I))` time. The HALFPERM algorithm described in
 F. Gustavson, "Two fast algorithms for sparse matrices: multiplication and permuted
@@ -470,11 +470,16 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector
     # alias cscnzval, which will be resized and filled with zero(Tv).
     only_sparsity_pattern = combine === nothing
 
-    # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
-    fill!(csrrowptr, Tj(0))
     coolen = length(I)
     length(J) >= coolen || throw(ArgumentError("J need length >= length(I) = $coolen"))
     only_sparsity_pattern || length(V) >= coolen || throw(ArgumentError("V need length >= length(I) = $coolen"))
+    sparse_check_length("klasttouch", klasttouch, n, String)
+    sparse_check_length("csrrowptr", csrrowptr, m + 1, String)
+    sparse_check_length("csrcolval", csrcolval, coolen, String)
+    only_sparsity_pattern || sparse_check_length("csrnzval", csrnzval, coolen, String)
+
+    # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
+    fill!(csrrowptr, Tj(0))
 
     @inbounds for k in 1:coolen
         Ik = I[k]
@@ -692,6 +697,7 @@ You can sample nonzero values from a different distribution by passing a
 custom `rfn` function instead of `rand`.   This should be a function `rfn(k)`
 that returns an array of `k` random numbers sampled from the desired distribution;
 alternatively, if `rng` is supplied, it should instead be a function `rfn(rng, k)`.
+Passing `T` after `rfn` converts the values that `rfn` returns to `T`.
 
 # Examples
 ```jldoctest; setup = :(using Random; Random.seed!(1234))
@@ -706,16 +712,27 @@ julia> sprand(Float64, 3, 0.75)
   [2]  =  0.49425
 ```
 """
-function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}=eltype(rfn(r, 1))) where T
+function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}) where T
     m, n = Int(m), Int(n)
+    I, V = _sprandvalues(r, m, n, density, rfn)
+    return sparse_sortedlinearindices!(I, convert(Vector{T}, V), m, n)
+end
+function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function)
+    m, n = Int(m), Int(n)
+    I, V = _sprandvalues(r, m, n, density, rfn)
+    return sparse_sortedlinearindices!(I, convert(Vector{eltype(V)}, V), m, n)
+end
+function _sprandvalues(r::AbstractRNG, m::Int, n::Int, density::AbstractFloat, rfn::F) where {F}
     (m < 0 || n < 0) && throw(ArgumentError("invalid Array dimensions"))
     0 <= density <= 1 || throw(ArgumentError("$density not in [0,1]"))
     I = randsubseq(r, 1:(m*n), density)
-    return sparse_sortedlinearindices!(I, convert(Vector{T}, rfn(r,length(I))), m, n)
+    return I, rfn(r, length(I))
 end
 
-sprand(m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T} = eltype(rfn(1))) where {T} =
+sprand(m::Integer, n::Integer, density::AbstractFloat, rfn::Function) =
     sprand(default_rng(), m, n, density, (r, i) -> rfn(i))
+sprand(m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}) where {T} =
+    sprand(default_rng(), m, n, density, (r, i) -> rfn(i), T)
 
 truebools(r::AbstractRNG, n::Integer) = fill(true, n)
 
