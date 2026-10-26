@@ -1538,8 +1538,8 @@ Base.sort(A::AbstractSparseMatrixCSC; kws...) =
 
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
-# The predicates of `tril!`, `droptol!` and the other children do not throw, and call this
-# with no `progress`. `fkeep!` passes one for a caller's `f`: see `_fkeep_guarded!`.
+# The predicates of `tril!` and `triu!` do not throw, and call this with no `progress`. Those
+# of `fkeep!`, `droptol!` and `dropzeros!` can, for some eltypes: see `_fkeep_guarded!`.
 function _fkeep!(f::F, A::AbstractSparseMatrixCSC, progress::P=nothing) where {F<:Function,P}
     An = size(A, 2)
     Acolptr = getcolptr(A)
@@ -1683,7 +1683,7 @@ julia> droptol!(A, 1e-6)
 ```
 """
 droptol!(A::AbstractSparseMatrixCSC, tol) =
-    (_checkpatternwritable(A, :droptol!); _fkeep!((i, j, x) -> abs(x) > tol, A))
+    (_checkpatternwritable(A, :droptol!); _fkeep_guarded!((i, j, x) -> abs(x) > tol, A))
 
 """
     dropzeros!(A::AbstractSparseMatrixCSC)
@@ -1692,7 +1692,7 @@ Remove the stored zeros from `A`, in place, and return `A`.
 
 See also [`dropzeros`](@ref), which returns a copy, and [`droptol!`](@ref).
 """
-dropzeros!(A::AbstractSparseMatrixCSC) = (_checkpatternwritable(A, :dropzeros!); _fkeep!((i, j, x) -> _isnotzero(x), A))
+dropzeros!(A::AbstractSparseMatrixCSC) = (_checkpatternwritable(A, :dropzeros!); _fkeep_guarded!((i, j, x) -> _isnotzero(x), A))
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)
