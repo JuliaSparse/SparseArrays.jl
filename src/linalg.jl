@@ -725,7 +725,7 @@ function _sparse_diff1_column!(rowval, nzval, numnz, rowval_a, nzval_a, rng, m)
     return numnz
 end
 
-function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+function sparse_diff1(S::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     m,n = size(S)
     m > 1 || return SparseMatrixCSC(0, n, fill(one(Ti),n+1), Ti[], Tv[])
     colptr = Vector{Ti}(undef, n+1)
@@ -735,7 +735,7 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     numnz = 0
     @inbounds colptr[1] = 1
     @inbounds for col = 1 : n
-        numnz = _sparse_diff1_column!(rowval, nzval, numnz, getrowval(S), getnzval(S), nzrange(S, col), m)
+        numnz = _sparse_diff1_column!(rowval, nzval, numnz, getrowval(S), getnzval(S), getnzrange(S, col), m)
         colptr[col+1] = numnz+1
     end
     deleteat!(rowval, numnz+1:length(rowval))
@@ -743,7 +743,7 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     return SparseMatrixCSC(m-1, n, colptr, rowval, nzval)
 end
 
-function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+function sparse_diff2(a::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     m,n = size(a)
     colptr = Vector{Ti}(undef, max(n,1))
     numnz = 2 * nnz(a) # upper bound; will shrink later
@@ -752,7 +752,6 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
     z = zero(Tv)
 
-    colptr_a = getcolptr(a)
     rowval_a = getrowval(a)
     nzval_a = getnzval(a)
 
@@ -762,28 +761,21 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
         n == 0 && return SparseMatrixCSC(m, n, colptr, rowval, nzval)
 
-        startA = colptr_a[1]
-        stopA = colptr_a[2]
-
-        rA = startA : stopA - 1
+        rA = getnzrange(a, 1)
         rowvalA = rowval_a[rA]
         nzvalA = nzval_a[rA]
-        lA = stopA - startA
+        lA = length(rA)
     end
 
     @inbounds for col = 1:n-1
-        startB, stopB = startA, stopA
-        startA = colptr_a[col+1]
-        stopA = colptr_a[col+2]
-
         rowvalB = rowvalA
         nzvalB = nzvalA
         lB = lA
 
-        rA = startA : stopA - 1
+        rA = getnzrange(a, col+1)
         rowvalA = rowval_a[rA]
         nzvalA = nzval_a[rA]
-        lA = stopA - startA
+        lA = length(rA)
 
         ptrB = 1
         ptrA = 1
@@ -834,9 +826,14 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     return SparseMatrixCSC(m, n-1, colptr, rowval, nzval)
 end
 
-function diff(a::AbstractSparseMatrixCSC; dims::Integer)
+function diff(a::SparseMatrixCSCOrSubArray; dims::Integer)
     1 <= dims <= 2 || throw(ArgumentError("dimension $dims out of range (1:2)"))
+    a = _compressed(a)
     return dims == 1 ? sparse_diff1(a) : sparse_diff2(a)
+end
+function diff(a::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}; dims::Integer)
+    1 <= dims <= 2 || throw(ArgumentError("dimension $dims out of range (1:2)"))
+    return copy(LinearAlgebra.wrapperop(a)(diff(parent(a); dims = 3 - dims)))
 end
 
 function _sparse_diff(x, dims)
