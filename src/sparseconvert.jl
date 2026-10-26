@@ -69,6 +69,8 @@ function _sparsem(@nospecialize A::AbstractArray{Tv}) where Tv
             A
         end
     else
+        # a dense vector has no matrix constructor, as `Matrix(v)` has none
+        A isa AbstractMatrix || throw(MethodError(SparseMatrixCSC, (A,)))
         # explicitly call abstract matrix fallback using getindex(A,...)
         invoke(SparseMatrixCSC{Tv,Int}, Tuple{AbstractMatrix}, A)
     end
