@@ -986,6 +986,11 @@ estimator of Higham and Tisseur, from a factorization of `A` by `factorize` and 
 forming the inverse, so the result can fall below the exact condition number. `p = 2`, the
 default, throws an `ArgumentError`, so `cond(A)` does too: use `cond(Array(A))` for a matrix
 small enough to store dense.
+
+A singular matrix gives `Inf` when its factorization meets an exactly zero pivot. Rounding
+can hide that zero, and the result is then finite but very large. The sparse LU pivots in
+another order than the dense one, so `cond(A, p)` can be finite where `cond(Array(A), p)`
+is `Inf`.
 """
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
     # as for a dense matrix; the estimator of the inverse's norm needs at least one column
