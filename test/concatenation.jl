@@ -145,6 +145,12 @@ include("testhelpers.jl")
         # the index type is promoted over the sparse blocks, not taken from the first
         A8, A = spzeros(Float64, Int8, 1, 2), spzeros(200, 2)
         @test mismatch(vcat(A8, A, ones(1, 2)), [zeros(201, 2); ones(1, 2)], Ti=Int) === nothing
+        v8, v = spzeros(Float64, Int8, 1), spzeros(200)
+        @test mismatch(vcat(v8, v, ones(1)), [zeros(201); 1], Ti=Int) === nothing
+        # a dense block or `I` after a sparse one does not widen the index type
+        @test mismatch(hcat(v8, ones(1)), [0.0 1.0], Ti=Int8) === nothing
+        @test mismatch(hcat(A8', I), [zeros(2) Matrix(1.0I, 2, 2)], Ti=Int8) === nothing
+        @test mismatch(sparse_hcat(A8', ones(2), I), [zeros(2) ones(2) Matrix(1.0I, 2, 2)], Ti=Int8) === nothing
     end
     end
 
