@@ -207,6 +207,13 @@ end
     @test F \ b ≈ Matrix(A) \ b
 end
 
+@testset "cholesky and cholesky! with an index type other than CHOLMOD's" begin
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    @test_throws ArgumentError cholesky(SparseMatrixCSC{Float64,UInt64}(A))
+    F = cholesky(A)
+    @test cholesky!(F, SparseMatrixCSC{Float64,Int16}(2A)) \ [1.0, 2.0, 3.0] ≈ (2A) \ [1.0, 2.0, 3.0]
+end
+
 @testset "Issues #26367 and #26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
