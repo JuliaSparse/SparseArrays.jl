@@ -990,14 +990,16 @@ small enough to store dense.
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
     # as for a dense matrix; the estimator of the inverse's norm needs at least one column
     (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(real(float(eltype(A))))
-    if p == 1
-        normAinv = opnormestinv(A)
-        normA = opnorm(A, 1)
-        return normA * normAinv
-    elseif p == Inf
-        normAinv = opnormestinv(copy(A'))
-        normA = opnorm(A, Inf)
-        return normA * normAinv
+    if p == 1 || p == Inf
+        # a singular matrix has an infinite condition number, as for a dense matrix; a
+        # triangular or diagonal `factorize(A)` reports it only in the solve
+        normAinv = try
+            p == 1 ? opnormestinv(A) : opnormestinv(copy(A'))
+        catch e
+            e isa SingularException || rethrow()
+            return convert(float(real(eltype(A))), Inf)
+        end
+        return opnorm(A, p) * normAinv
     elseif p == 2
         throw(ArgumentError("only 1- and Inf-norm condition numbers are implemented for sparse matrices, for 2-norm try cond(Array(A), 2) instead"))
     else
