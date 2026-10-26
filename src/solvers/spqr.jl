@@ -654,6 +654,15 @@ LinearAlgebra.rank(F::AdjointQRSparse) = rank(parent(F))
 _rhs_eltype(::Type{T}, ::Type{<:Complex}) where {T<:LinearAlgebra.BlasReal} = Complex{T}
 _rhs_eltype(::Type{T}, ::Type) where {T} = T
 _rhs_array(F, B::AbstractVecOrMat) = convert(Array{_rhs_eltype(eltype(F), eltype(B))}, B)
+# Rather than round the right-hand side to the precision of the factorization, a solve whose
+# solution dense `\` gives a wider eltype converts the factorization to that precision, as
+# dense `\` does. A real factorization stays real for a complex right-hand side.
+_solve_eltype(F, B) = isconcretetype(eltype(B)) ?
+    promote_type(eltype(F), real(typeof(zero(eltype(B)) / oneunit(eltype(F))))) : eltype(F)
+_promoted_factor(F::QRSparse, B) = _promoted_factor(F, _solve_eltype(F, B))
+_promoted_factor(F::QRSparse{T}, ::Type{T}) where {T} = F
+_promoted_factor(F::QRSparse, ::Type{T}) where {T<:LinearAlgebra.BlasFloat} = QRSparse{T}(F)
+_promoted_factor(F::QRSparse, ::Type) = F
 
 ## Two helper methods
 _ret_size(F::Union{QRSparse,AdjointQRSparse}, b::AbstractVector) = (size(F, 2),)
@@ -733,7 +742,7 @@ julia> qr(A)\\fill(1.0, 4)
  0.0
 ```
 """
-(\)(F::QRSparse, B::AbstractVecOrMat) = F\_rhs_array(F, B)
+(\)(F::QRSparse, B::AbstractVecOrMat) = (G = _promoted_factor(F, B); G\_rhs_array(G, B))
 
 function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
@@ -842,7 +851,8 @@ julia> A'x
  0.0
 ```
 """
-(\)(Fadj::AdjointQRSparse, B::AbstractVecOrMat) = Fadj\_rhs_array(Fadj, B)
+(\)(Fadj::AdjointQRSparse, B::AbstractVecOrMat) =
+    (G = adjoint(_promoted_factor(parent(Fadj), B)); G\_rhs_array(G, B))
 
 function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}

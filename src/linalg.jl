@@ -554,7 +554,7 @@ function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abst
 end
 ## end of symmetric/Hermitian
 
-\(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::Vector) = copy(A) \ B
+\(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::VecOrMat) = copy(A) \ B
 
 ## diagonal scaling
 
@@ -1436,10 +1436,11 @@ end
 _hermitian_solve(A::AbstractSparseMatrixCSC) =
     !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
 
-# `\` and `factorize` choose the same method from the structure of `A`; `f` (or `flu`, for
-# the LU factorization) is applied in each branch so that the result stays inferrable. A
-# Hermitian matrix is only wrapped, because `\` and `factorize` finish it differently.
-function _sparse_factorize(f, A::AbstractSparseMatrixCSC, flu = f)
+# `\` and `factorize` choose the same method from the structure of `A`; `f` (or `fsolver`,
+# for the LU, QR and LQ factorizations) is applied in each branch so that the result stays
+# inferrable, and the QR and LQ factorizations are of `fqr(A)`. A Hermitian matrix is only
+# wrapped, because `\` and `factorize` finish it differently.
+function _sparse_factorize(f, A::AbstractSparseMatrixCSC, fsolver = f, fqr = identity)
     m, n = size(A)
     if m == n
         if istril(A)
@@ -1449,12 +1450,12 @@ function _sparse_factorize(f, A::AbstractSparseMatrixCSC, flu = f)
         elseif _hermitian_solve(A)
             return f(Hermitian(A))
         end
-        return flu(lu(A))
+        return fsolver(lu(A))
     elseif m > n
-        return f(qr(A))
+        return fsolver(qr(fqr(A)))
     else
         # A is wide, so the LQ factorization gives the minimum-norm solution
-        return f(lq(A))
+        return fsolver(lq(fqr(A)))
     end
 end
 
@@ -1462,15 +1463,24 @@ end
 _solve_factor(F) = F
 _solve_factor(D::Diagonal) = Diagonal(Vector(diag(D)))
 _sparse_solve(op, F, B) = \(op(_solve_factor(F)), B)
-# the sparse LU works in double precision, so its solution is converted to the eltype that
-# dense `\` gives
-_sparse_lusolve(op, F, A, B) =
-    convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, _sparse_solve(op, F, B))
+# The eltype that dense `\` gives. It is `nothing` for an abstract eltype, which has no `one`
+# and whose solution is returned as the solver gives it.
+_ldiv_eltype(A, B) = isconcretetype(eltype(A)) && isconcretetype(eltype(B)) ?
+    typeof(one(eltype(A)) \ one(eltype(B))) : nothing
+# The sparse LU works in double precision and the QR and LQ in the precision of the matrix,
+# so their solution is converted to the eltype that dense `\` gives, and for the QR and LQ a
+# matrix of a narrower eltype than that is converted before it is factorized.
+_sparse_solversolve(op, F, A, B) = _convert_solution(_ldiv_eltype(A, B), _sparse_solve(op, F, B))
+_convert_solution(T, X) = convert(AbstractArray{T}, X)
+_convert_solution(::Nothing, X) = X
+_qr_matrix(A, B) = _qr_matrix(A, _ldiv_eltype(A, B))
+_qr_matrix(A, T::Type) = convert(AbstractMatrix{promote_type(float(eltype(A)), real(T))}, A)
+_qr_matrix(A, ::Nothing) = A
 
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
     return _sparse_factorize(F -> _sparse_solve(identity, F, B), A,
-                             F -> _sparse_lusolve(identity, F, A, B))
+                             F -> _sparse_solversolve(identity, F, A, B), A -> _qr_matrix(A, B))
 end
 for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
     @eval function \(xformA::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::AbstractVecOrMat)
@@ -1479,12 +1489,12 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
         m, n = size(A)
         if m < n
             # A' is tall, so the least squares solve needs a factorization of A' itself
-            return _sparse_solve(identity, qr($xformop(A)), B)
+            return _sparse_solversolve(identity, qr($xformop(_qr_matrix(A, B))), A, B)
         end
         # Otherwise the transformed choice for A serves. For a wide A' that is the
         # factorization of A, which gives the minimum-norm solution.
         return _sparse_factorize(F -> _sparse_solve($xformop, F, B), A,
-                                 F -> _sparse_lusolve($xformop, F, A, B))
+                                 F -> _sparse_solversolve($xformop, F, A, B), A -> _qr_matrix(A, B))
     end
 end
 
