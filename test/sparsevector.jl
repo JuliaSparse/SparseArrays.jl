@@ -242,6 +242,14 @@ end
             @test xv == xr
             @test sprand(20, 1, 0.5, rfn1) isa SparseMatrixCSC{Int8,Int}
             @test sprand(MersenneTwister(5), 20, 1, 0.5, rfn2) isa SparseMatrixCSC{Int8,Int}
+            # and with `T`, which the older `rfn(rng, T, k)` still accepts
+            @test sprand(20, 0.5, rfn1, Float64) isa SparseVector{Float64,Int}
+            @test sprand(MersenneTwister(5), 20, 0.5, rfn2, Float64) isa SparseVector{Float64,Int}
+            @test sprand(MersenneTwister(5), 20, 0.5, (r, T, k) -> rand(r, T, k), Float64) isa SparseVector{Float64,Int}
+            # without `T`, `rfn` is called once, for the values
+            calls = Ref(0)
+            sprand(MersenneTwister(5), 4, 4, 0.5, (r, k) -> (calls[] += 1; rand(r, Int8, k)))
+            @test calls[] == 1
         end
         end
     end
