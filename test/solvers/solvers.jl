@@ -129,7 +129,14 @@ end
     # the adjoint solve converts its result to the eltype the plain solve gives
     x = square' \ Float32.(b)
     @test x isa Vector{Float32} && x ≈ Matrix(square') \ b
-    # only the LU solve converts its result, so a least squares solve takes any right-hand side
+    # the least squares solve gives the eltype of dense `\`, and keeps the precision of `b`
+    x = @inferred Float32.(tall) \ b
+    @test x isa Vector{Float64} && x ≈ Matrix(tall) \ b
+    # so does the solve of a transposed complex Hermitian matrix with a matrix right-hand side
+    Ht = transpose(sparse(ComplexF32[4 im; -im 3]))
+    @test @inferred(Ht \ Float32[1 2; 3 4]) isa Matrix{ComplexF32}
+    # the solution for an abstract eltype is not converted, so a least squares solve takes
+    # any right-hand side
     @test tall \ Any[1.0, 2, 3] ≈ Matrix(tall) \ b
     end
     # when the Cholesky factorization of a Hermitian matrix fails, `factorize` returns
