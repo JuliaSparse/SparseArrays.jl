@@ -1671,6 +1671,11 @@ function check_hermitian_stype(A::Sparse)
         throw(ArgumentError("sparse matrix is not symmetric/Hermitian"))
     return nothing
 end
+function check_refactor_size(F::Factor, A::Sparse)
+    size(A) == size(F) || throw(DimensionMismatch(
+        "matrix has size $(size(A)), but the factorization has size $(size(F))"))
+    return nothing
+end
 
 ## Compute that symbolic factorization only
 function symbolic(A::Sparse{<:VTypes, Ti};
@@ -1710,6 +1715,7 @@ function cholesky!(F::Factor{Tv}, A::Sparse{Tv};
                    shift::Real=0.0, check::Bool = true) where Tv
     check_hermitian_stype(A)
     @lock F.lock begin
+        check_refactor_size(F, A)
         @cholmod_param final_ll = true begin
             factorize_p!(A, shift, F)
         end
@@ -1901,6 +1907,7 @@ function ldlt!(F::Factor{Tv}, A::Sparse{Tv};
                shift::Real=0.0, check::Bool = true) where Tv
     check_hermitian_stype(A)
     @lock F.lock begin
+        check_refactor_size(F, A)
         change_factor!(F, false, false, true, false)
         factorize_p!(A, shift, F)
         check && (issuccess(F) || throw(factorization_exception(F)))
