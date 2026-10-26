@@ -561,39 +561,43 @@ end
 # Scale the stored entries of `A` into `C`, which either is `A` or takes its pattern:
 # `C[i, j] = op(A[i, j], d[j])` columnwise, `C[i, j] = op(d[i], A[i, j])` rowwise. The
 # argument order of `op` is kept for non-commutative eltypes. The callers check that
-# `length(d)` matches the scaled dimension and that `size(C) == size(A)`.
+# `length(d)` matches the scaled dimension and that `size(C) == size(A)`. When a value might
+# not convert to `eltype(C)`, the values go to a new vector that `C` takes once all are written.
 function _scalecols!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
-    copyinds!(C, A)
-    Cnzval = getnzval(C)
     Anzval = getnzval(A)
-    resize!(Cnzval, length(Anzval))
+    direct = _storesafely(eltype(C), promote_op(op, eltype(A), eltype(d)))
+    Cnzval = direct ? _takepattern!(C, A) : Vector{eltype(C)}(undef, nnz(A))
     @inbounds for col in axes(A, 2)
         dcol = d[col]
         for p in nzrange(A, col)
             Cnzval[p] = op(Anzval[p], dcol)
         end
     end
+    direct || _storescaled!(C, A, Cnzval)
     return C
 end
 
 function _scalerows!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
-    copyinds!(C, A)
-    Cnzval = getnzval(C)
     Anzval = getnzval(A)
     Arowval = getrowval(A)
-    resize!(Cnzval, length(Anzval))
+    direct = _storesafely(eltype(C), promote_op(op, eltype(d), eltype(A)))
+    Cnzval = direct ? _takepattern!(C, A) : Vector{eltype(C)}(undef, nnz(A))
     @inbounds for col in axes(A, 2), p in nzrange(A, col)
         Cnzval[p] = op(d[Arowval[p]], Anzval[p])
     end
+    direct || _storescaled!(C, A, Cnzval)
     return C
 end
 
 function _scalerows!(x::AbstractSparseVector, d::AbstractVector, op::F) where {F}
     xnzval = nonzeros(x)
     xnzind = nonzeroinds(x)
+    direct = _storesafely(eltype(x), promote_op(op, eltype(d), eltype(x)))
+    vals = direct ? xnzval : similar(xnzval)
     @inbounds for p in eachindex(xnzind, xnzval)
-        xnzval[p] = op(d[xnzind[p]], xnzval[p])
+        vals[p] = op(d[xnzind[p]], xnzval[p])
     end
+    direct || copyto!(xnzval, vals)
     return x
 end
 
@@ -1351,6 +1355,19 @@ function copyinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC; copy_
         resize!(getrowval(C), length(getrowval(A)))
         copyto!(getrowval(C), getrowval(A))
     end
+end
+
+# Give `C` the pattern of `A`, and return the values of `C`, of the length of those of `A`.
+function _takepattern!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
+    copyinds!(C, A)
+    return resize!(getnzval(C), length(getnzval(A)))
+end
+# Store `nzval` in `C` with the pattern of `A`, converting it first so that a value that does
+# not convert to `eltype(C)` throws with `C` unchanged.
+function _storescaled!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, nzval::AbstractVector)
+    vals = convert(Vector{eltype(C)}, nzval)
+    copyto!(_takepattern!(C, A), vals)
+    return C
 end
 
 """
