@@ -56,13 +56,19 @@ end
 function SparseMatrixCSC(m::Integer, n::Integer, colptr::Vector, rowval::Vector, nzval::Vector)
     Tv = eltype(nzval)
     Ti = promote_type(eltype(colptr), eltype(rowval))
+    eltype(colptr) === eltype(rowval) ||
+        throw(ArgumentError("colptr and rowval must have the same element type, got $(eltype(colptr)) and $(eltype(rowval))"))
     sparse_check_Ti(m, n, Ti)
     sparse_check(n, colptr, rowval, nzval)
     # silently shorten rowval and nzval to usable index positions.
     maxlen = abs(widemul(m, n))
     isbitstype(Ti) && (maxlen = min(maxlen, typemax(Ti) - 1))
-    length(rowval) > maxlen && resize!(rowval, maxlen)
-    length(nzval) > maxlen && resize!(nzval, maxlen)
+    if length(rowval) > maxlen || length(nzval) > maxlen
+        length(colptr) == n + 1 && colptr[end] - 1 == min(length(rowval), maxlen) == min(length(nzval), maxlen) ||
+            throw(ArgumentError("Invalid buffers for SparseMatrixCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
+        length(rowval) > maxlen && resize!(rowval, maxlen)
+        length(nzval) > maxlen && resize!(nzval, maxlen)
+    end
     SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
 

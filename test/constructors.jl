@@ -83,6 +83,11 @@ end
     @test isequal(sparse(big.([1,1,1,2,2,3,4,5]),big.([1,2,3,2,3,3,4,5]),big.([1,2,4,3,5,6,7,8]), 6, 6),
         SparseMatrixCSC(6, 6, big.([1,2,4,7,8,9,9]), big.([1,1,2,1,2,3,4,5]), big.([1,2,3,4,5,6,7,8])))
     @test sparse(Any[1,2,3], Any[1,2,3], Any[1,1,1]) == sparse([1,2,3], [1,2,3], [1,1,1])
+    # an invalid call does not shorten the caller's vectors
+    rv, nz = [1, 1], [1.0, 2.0]
+    @test_throws ArgumentError SparseMatrixCSC(1, 1, [1, 3], rv, nz)
+    @test_throws ArgumentError SparseMatrixCSC(1, 1, Int32[1, 2], rv, nz)
+    @test rv == [1, 1] && nz == [1.0, 2.0]
 end
     # with combine
     @test sparse([1, 1, 2, 2, 2], [1, 2, 1, 2, 2], 1.0, 2, 2, +) == sparse([1, 1, 2, 2], [1, 2, 1, 2], [1.0, 1.0, 1.0, 2.0], 2, 2)
