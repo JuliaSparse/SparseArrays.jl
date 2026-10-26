@@ -380,7 +380,7 @@ julia> collect(SparseArrays.iternz(x))
 """
 function iternz end
 
-widelength(x::AbstractSparseArray) = prod(Int64.(size(x)))
+widelength(x::AbstractSparseArray) = prod(widen, size(x))
 
 
 const _restore_scalar_indexing = Expr[]

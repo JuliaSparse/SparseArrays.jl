@@ -95,13 +95,13 @@ function _mapreduce_ordered(f::F, op::G, A::SparseMatrixCSCOrColumnSubset{T}) wh
     v, dropout = _foldstored(f, op, z, nzvalview(A))
     dropout && return v
     v = Base._InitialValue()
-    unstored = Int64(0)   # spans columns, so it can exceed typemax(Int32)
+    unstored = widen(0)   # spans columns, so it can exceed typemax(Int)
     @inbounds for col in axes(A, 2)
         prev = 0
         for k in getnzrange(A, col)
             row = Int(rowval[k])
             v = rf(v, _afterunstored(op, z, idem, unstored + (row - prev - 1), f(nzval[k])))
-            unstored, prev = Int64(0), row
+            unstored, prev = widen(0), row
         end
         unstored += m - prev
     end
@@ -192,9 +192,17 @@ _unstored(op, f, ::Type{T}, v0) where T = _widen(Base.reduce_first(op, f(zero(T)
 _widen(z, v0) = _widen(z, typeof(v0))
 _widen(z, ::Type{S}) where S = convert(promote_type(typeof(z), S), z)
 # `nzeros` copies of `z` added up, in the type `+` keeps for them: a small integer wraps
-# rather than widening to the count's `Int`, as when dense input is summed with `+`
+# rather than widening to the count's `Int`, as when dense input is summed with `+`. A count
+# from `widelength` is an `Int128`, which would widen `Complex{Int}` and the like, so it is
+# split into `Int` factors.
 _addzeros(z, nzeros) = z * nzeros
+function _addzeros(z, nzeros::Int128)
+    nzeros <= typemax(Int) && return z * Int(nzeros)
+    q, r = divrem(nzeros - 1, typemax(Int))
+    return z * Int(q) * typemax(Int) + z * Int(r + 1)
+end
 _addzeros(z::Base.BitInteger, nzeros) = z * (nzeros % typeof(z))
+_addzeros(z::Base.BitInteger, nzeros::Int128) = z * (nzeros % typeof(z))
 _mapreducezeros(f::F, op::Union{typeof(min),typeof(max)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? v0 : op(v0, f(zero(T)))
 _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nzeros::Integer, v0) where {T} =
@@ -280,7 +288,7 @@ function _mapreduce_ordered(f::F, op::G, init, A::AbstractArray{Ta}, B::Abstract
     Ai, Av, Bi, Bv = getrowval(A), getnzval(A), getrowval(B), getnzval(B)
     m = size(A, 1)
     v = init
-    unstored = Int64(0)   # positions that neither array stores, since the last one folded
+    unstored = widen(0)   # positions that neither array stores, since the last one folded
     @inbounds for col in axes(A, 2)
         ra, rb = getnzrange(A, col), getnzrange(B, col)
         ia, ib = first(ra), first(rb)
@@ -290,18 +298,18 @@ function _mapreduce_ordered(f::F, op::G, init, A::AbstractArray{Ta}, B::Abstract
             row = Int(min(Ai[ia], Bi[ib]))
             x, ia, ib = _merge_step(f, Ai, Av, ia, Bi, Bv, ib)
             v = rf(_foldunstored(f, rf, v, Ta, Tb, unstored + (row - prev - 1)), x)
-            unstored, prev = Int64(0), row
+            unstored, prev = widen(0), row
         end
         while ia <= ea
             row = Int(Ai[ia])
             v = rf(_foldunstored(f, rf, v, Ta, Tb, unstored + (row - prev - 1)), f(Av[ia], zero(Tb)))
-            unstored, prev = Int64(0), row
+            unstored, prev = widen(0), row
             ia += 1
         end
         while ib <= eb
             row = Int(Bi[ib])
             v = rf(_foldunstored(f, rf, v, Ta, Tb, unstored + (row - prev - 1)), f(zero(Ta), Bv[ib]))
-            unstored, prev = Int64(0), row
+            unstored, prev = widen(0), row
             ib += 1
         end
         unstored += m - prev
@@ -365,7 +373,7 @@ function _mapreduce_unordered(f::F, op::G, init, A::AbstractArray{Ta}, B::Abstra
         ib == eb && (v = rf(v, f(zero(Ta), Bv[ib])))
     end
     w isa Base._InitialValue || (v = v isa Base._InitialValue ? w : op(v, w))
-    nzeros = prod(Int64.(size(A))) - stored
+    nzeros = prod(widen, size(A)) - stored
     if v isa Base._InitialValue   # nothing stored and no `init`: seed with one unstored position
         v = rf(v, f(zero(Ta), zero(Tb)))
         nzeros -= 1

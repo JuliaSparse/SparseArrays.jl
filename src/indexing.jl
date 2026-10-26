@@ -1150,15 +1150,14 @@ function setindex!(A::AbstractSparseMatrixCSC, x::AbstractArray, Ix::AbstractVec
     # an entry too many for `Ti` throws before any write
     _nnzfits(indtype(A), nnz(A) + n) || _checknnzfits(indtype(A), _setindex_linear_nnz(A, x, I, S))
 
-    CartIndsA = CartesianIndices(szA)
-
     lastcol = 0
     (nrowA, ncolA) = szA
     @inbounds for xidx in 1:n
         sxidx = S[xidx]
         (xidx < n) && (I[sxidx] == I[S[xidx+1]]) && continue
 
-        row,col = Tuple(CartIndsA[I[sxidx]])
+        # `CartesianIndices` checks the bounds against `length(A)`, which overflows for 2^63 entries
+        col, row = divrem(Int(I[sxidx]) - 1, nrowA) .+ 1
         v = convert(eltype(A), x[sxidx])
 
         if col > lastcol

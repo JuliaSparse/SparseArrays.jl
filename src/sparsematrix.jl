@@ -319,7 +319,7 @@ function _storedinds(S::SparseMatrixCSCColumnSubset)
     end
     return inds
 end
-widelength(S::SparseMatrixCSCColumnSubset) = prod(Int64.(size(S)))
+widelength(S::SparseMatrixCSCColumnSubset) = prod(widen, size(S))
 # `A` itself where it exposes compressed storage through `nzrange`, `rowvals` and `nonzeros`,
 # otherwise its sparse copy
 _compressed(A) = A
@@ -353,7 +353,7 @@ nnz(S::SparseMatrixCSCView) = length(_storedinds(S))
 nnz1(S) = @inbounds sum(length.(getnzrange.(Ref(S), axes(S, 2))))
 
 function Base._simple_count(pred, S::SparseMatrixCSCOrColumnSubset, init::T) where T
-    init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
+    init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(widelength(S) - nnz(S)))
 end
 # the entries of a lazy adjoint or transpose are those of its parent, each under the wrapper
 Base._simple_count(pred, S::AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}, init) =

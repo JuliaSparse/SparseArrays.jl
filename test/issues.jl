@@ -968,6 +968,15 @@ end
     @inferred hcat(fixture(Float64, 2, 1), Matrix(1.0I, 2, 2))
 end
 
+@testset "a matrix of 2^64 entries does not overflow its length" begin
+    B = spzeros(2^62, 4)
+    @test any(iszero, B)
+    @test sum(x -> 1.0, B) == 2.0^64
+    B[[1]] = [1.0]
+    @test B[1, 1] == 1.0 && nnz(B) == 1
+    @test nnz(sprand(Xoshiro(1), 2^62, 4, 1e-17)) > 0
+end
+
 if isdefined(Docs, :undocumented_names) # new in Julia 1.11
     @testset "docstrings (issue julia#52725)" begin
         @test isempty(Docs.undocumented_names(SparseArrays))
