@@ -573,6 +573,15 @@ end
     @test mismatch(mul!(sC, sA, 0.5), 0.5 * dA) === nothing
     @test mismatch(lmul!(0.5, copy(sA)), 0.5 * dA) === nothing
     @test mul!(sC, 0.5, sA)   == mul!(sC, sA, 0.5)
+    @static if COMPREHENSIVE
+    # a product that does not convert to the eltype of `C` throws before `C` takes the pattern of `A`
+    A0 = sparse([1 0; 0 3]); C0 = sparse([2 0; 0 0])
+    for f! in (C -> mul!(C, A0, 0.5), C -> mul!(C, 0.5, A0))
+        C = copy(C0)
+        @test_throws InexactError f!(C)
+        @test mismatch(C, C0) === nothing
+    end
+    end
 
     @testset "inverse scaling with mul!" begin
         bi = inv.(b)

@@ -1022,18 +1022,18 @@ _lmulkeepszeros(b::Number, A) = (z = _implicit_zero(A); z isa UnknownZero || _is
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     (_is_fixed(C) || !_rmulkeepszeros(A, b)) && return broadcast!(*, C, A, b)
-    copyinds!(C, A)
-    resize!(getnzval(C), length(getnzval(A)))
-    mul!(getnzval(C), getnzval(A), b)
+    _storesafely(eltype(C), promote_op(*, eltype(A), typeof(b))) ||
+        return _storescaled!(C, A, view(getnzval(A), 1:nnz(A)) * b)
+    mul!(_takepattern!(C, A), getnzval(A), b)
     C
 end
 
 function mul!(C::AbstractSparseMatrixCSC, b::Number, A::AbstractSparseMatrixCSC)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     (_is_fixed(C) || !_lmulkeepszeros(b, A)) && return broadcast!(*, C, b, A)
-    copyinds!(C, A)
-    resize!(getnzval(C), length(getnzval(A)))
-    mul!(getnzval(C), b, getnzval(A))
+    _storesafely(eltype(C), promote_op(*, typeof(b), eltype(A))) ||
+        return _storescaled!(C, A, b * view(getnzval(A), 1:nnz(A)))
+    mul!(_takepattern!(C, A), b, getnzval(A))
     C
 end
 

@@ -351,6 +351,15 @@ end
         C = spzeros(ComplexF64, 3, 3)
         @test_throws DimensionMismatch ldiv!(C, Dl, A)
         @test nnz(C) == 0
+        @static if COMPREHENSIVE
+        # a quotient that does not convert to the eltype of the destination throws with it unchanged
+        A0 = sparse([2 0; 0 3]); x0 = sparsevec([1, 2], [2, 3]); D2 = Diagonal([2, 2])
+        for (f!, X0) in ((C -> ldiv!(C, D2, A0), sparse([1 0; 0 0])), (B -> rdiv!(B, D2), A0), (y -> ldiv!(D2, y), x0))
+            X = copy(X0)
+            @test_throws InexactError f!(X)
+            @test mismatch(X, X0) === nothing
+        end
+        end
     end
 end
 
