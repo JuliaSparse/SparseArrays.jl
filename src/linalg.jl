@@ -554,7 +554,7 @@ function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abst
 end
 ## end of symmetric/Hermitian
 
-\(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::Vector) = copy(A) \ B
+\(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::VecOrMat) = copy(A) \ B
 
 ## diagonal scaling
 
