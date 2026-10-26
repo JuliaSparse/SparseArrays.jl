@@ -30,6 +30,7 @@ end
 @static if COMPREHENSIVE
     @test SparseMatrixCSC{ComplexF64}(Array(a)')::SparseMatrixCSC{ComplexF64,Int} == a'
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
+    @test mismatch(SparseMatrixCSC(view(a, :, 1)), Array(a)[:, 1:1]) === nothing
 end
     @test collect(a) == a
     @test SparseMatrixCSC(a)::typeof(a) == a

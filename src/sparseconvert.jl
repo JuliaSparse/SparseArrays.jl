@@ -11,6 +11,9 @@ for wr in (Symmetric, Hermitian, Transpose, Adjoint,
     @eval SparseMatrixCSC{Tv}(A::$wr) where Tv = SparseMatrixCSC{Tv}(_sparsem(A))
     @eval SparseMatrixCSC{Tv,Ti}(A::$wr) where {Tv,Ti} = SparseMatrixCSC{Tv,Ti}(_sparsem(A))
 end
+# a vector view converts to an `n x 1` matrix, as a sparse vector does
+SparseMatrixCSC(A::SubArray{<:Any,1}) = SparseMatrixCSC(_sparsem(A))
+SparseMatrixCSC{Tv}(A::SubArray{Tv,1}) where Tv = SparseMatrixCSC(_sparsem(A))
 
 """
     iswrsparse(::S)
