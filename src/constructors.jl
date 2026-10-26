@@ -697,6 +697,7 @@ You can sample nonzero values from a different distribution by passing a
 custom `rfn` function instead of `rand`.   This should be a function `rfn(k)`
 that returns an array of `k` random numbers sampled from the desired distribution;
 alternatively, if `rng` is supplied, it should instead be a function `rfn(rng, k)`.
+Passing `T` after `rfn` converts the values that `rfn` returns to `T`.
 
 # Examples
 ```jldoctest; setup = :(using Random; Random.seed!(1234))
@@ -711,16 +712,27 @@ julia> sprand(Float64, 3, 0.75)
   [2]  =  0.49425
 ```
 """
-function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}=eltype(rfn(r, 1))) where T
+function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}) where T
     m, n = Int(m), Int(n)
+    I, V = _sprandvalues(r, m, n, density, rfn)
+    return sparse_sortedlinearindices!(I, convert(Vector{T}, V), m, n)
+end
+function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function)
+    m, n = Int(m), Int(n)
+    I, V = _sprandvalues(r, m, n, density, rfn)
+    return sparse_sortedlinearindices!(I, convert(Vector{eltype(V)}, V), m, n)
+end
+function _sprandvalues(r::AbstractRNG, m::Int, n::Int, density::AbstractFloat, rfn::F) where {F}
     (m < 0 || n < 0) && throw(ArgumentError("invalid Array dimensions"))
     0 <= density <= 1 || throw(ArgumentError("$density not in [0,1]"))
     I = randsubseq(r, 1:(m*n), density)
-    return sparse_sortedlinearindices!(I, convert(Vector{T}, rfn(r,length(I))), m, n)
+    return I, rfn(r, length(I))
 end
 
-sprand(m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T} = eltype(rfn(1))) where {T} =
+sprand(m::Integer, n::Integer, density::AbstractFloat, rfn::Function) =
     sprand(default_rng(), m, n, density, (r, i) -> rfn(i))
+sprand(m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}) where {T} =
+    sprand(default_rng(), m, n, density, (r, i) -> rfn(i), T)
 
 truebools(r::AbstractRNG, n::Integer) = fill(true, n)
 

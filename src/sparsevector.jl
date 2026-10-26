@@ -768,11 +768,16 @@ end
 
 
 ### Rand Construction
-sprand(n::Integer, p::AbstractFloat, rfn::Function, ::Type{T}) where {T} = sprand(default_rng(), n, p, rfn, T)
+# `rfn(rng, T, k)` predates the documented `rfn(k)` and `rfn(rng, k)` and is still accepted
+function sprand(n::Integer, p::AbstractFloat, rfn::Function, ::Type{T}) where {T}
+    r = default_rng()
+    applicable(rfn, r, T, 0) && return sprand(r, n, p, rfn, T)
+    return sprand(r, n, p, (r, i) -> rfn(i), T)
+end
 function sprand(r::AbstractRNG, n::Integer, p::AbstractFloat, rfn::Function, ::Type{T}) where T
     I = randsubseq(r, 1:convert(Int, n), p)
-    V = rfn(r, T, length(I))
-    SparseVector(n, I, V)
+    V = applicable(rfn, r, T, length(I)) ? rfn(r, T, length(I)) : rfn(r, length(I))
+    SparseVector(n, I, convert(Vector{T}, V))
 end
 
 sprand(n::Integer, p::AbstractFloat, rfn::Function) = sprand(default_rng(), n, p, (r, i) -> rfn(i))

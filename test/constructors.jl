@@ -290,6 +290,7 @@ end
 @static if COMPREHENSIVE
     m = sprand(Float32, 10, 10, 0.1)
     @test eltype(m) == Float32
+    @test eltype(sprand(10, 10, 0.5, k -> rand(Int8, k), Float64)) == Float64
 end
     m = sprand(Float64, 10, 10, 0.1)
     @test eltype(m) == Float64
