@@ -254,4 +254,10 @@ end
     @test factorize(sparse([0.0 1; 1 0])) \ b ≈ [0.0 1; 1 0] \ b
 end
 
+@testset "cond of a singular matrix is Inf" begin
+    @test cond(sparse([1.0 2; 3 6]), 1) === Inf
+    # the triangular solve, not the factorization, finds this one singular
+    @test cond(sparse([1.0 0; 2 0]), Inf) === Inf
+end
+
 end # module
