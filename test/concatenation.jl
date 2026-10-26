@@ -36,6 +36,10 @@ include("testhelpers.jl")
         se33_32bit = convert(SparseMatrixCSC{Float32,Int32}, se33)
         @test [se33; se33_32bit] == [Array(se33); Array(se33_32bit)]
         @test length(nonzeros([sp33; 0I])) == 3
+        # the 128 stored entries of the result do not fit `Int8`
+        A8 = SparseMatrixCSC{Float64,Int8}(sparse(ones(8, 8)))
+        @test_throws ArgumentError vcat(A8, A8)
+        @test_throws ArgumentError repeat(A8, 2)
         end
     end
 
