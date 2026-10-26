@@ -59,6 +59,13 @@ include("testhelpers.jl")
         @test mismatch(O, [1 0 2; 0 3 0; 4 0 5.0]) === nothing
     end
     @test mismatch(circshift!(S, S, (1, 0)), [4 0 5.0; 1 0 2; 0 3 0]) === nothing
+    # a value or a count that the destination cannot hold is rejected before it is written to
+    O = sparse([1 0 0; 0 2 0; 0 0 3])
+    @test_throws InexactError circshift!(O, sparse([1.5 0 0; 0 0 0; 0 0 0]), (0, 1))
+    @test mismatch(O, [1 0 0; 0 2 0; 0 0 3]) === nothing
+    O8 = SparseMatrixCSC{Float64,Int8}(sparse(1.0I, 12, 12))
+    @test_throws ArgumentError circshift!(O8, sparse(ones(12, 12)), (0, 1))
+    @test mismatch(O8, Matrix(1.0I, 12, 12); Ti=Int8) === nothing
 end
 end
 
