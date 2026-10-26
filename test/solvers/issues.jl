@@ -217,4 +217,9 @@ end
     @test_throws ArgumentError sparsevec(CHOLMOD.Sparse(Symmetric(sparse([2.0 1; 1 2]))))
 end
 
+@testset "ldiv! of a real UmfpackLU with a ComplexF32 vector" begin
+    A = sparse([2.0 1; 1 3])
+    @test ldiv!(lu(A), ComplexF32[1, 2]) ≈ ComplexF32.(Matrix(A) \ [1, 2])
+end
+
 end # module
