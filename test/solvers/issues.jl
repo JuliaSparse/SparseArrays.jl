@@ -258,6 +258,8 @@ end
     @test cond(sparse([1.0 2; 3 6]), 1) === Inf
     # the triangular solve, not the factorization, finds this one singular
     @test cond(sparse([1.0 0; 2 0]), Inf) === Inf
+    # the LU works in double precision, but the result is of the matrix's precision
+    @test cond(sparse(Float32[1 2; 3 4]), 1) isa Float32
 end
 
 end # module

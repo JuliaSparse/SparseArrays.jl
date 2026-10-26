@@ -988,8 +988,10 @@ default, throws an `ArgumentError`, so `cond(A)` does too: use `cond(Array(A))` 
 small enough to store dense.
 """
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
+    # the type of dense `cond`, whichever precision the factorization of `A` works in
+    T = float(real(eltype(A)))
     # as for a dense matrix; the estimator of the inverse's norm needs at least one column
-    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(real(float(eltype(A))))
+    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(T)
     if p == 1 || p == Inf
         # a singular matrix has an infinite condition number, as for a dense matrix; a
         # triangular or diagonal `factorize(A)` reports it only in the solve
@@ -997,9 +999,9 @@ function cond(A::AbstractSparseMatrixCSC, p::Real=2)
             p == 1 ? opnormestinv(A) : opnormestinv(copy(A'))
         catch e
             e isa SingularException || rethrow()
-            return convert(float(real(eltype(A))), Inf)
+            return convert(T, Inf)
         end
-        return opnorm(A, p) * normAinv
+        return convert(T, opnorm(A, p) * normAinv)
     elseif p == 2
         throw(ArgumentError("only 1- and Inf-norm condition numbers are implemented for sparse matrices, for 2-norm try cond(Array(A), 2) instead"))
     else
