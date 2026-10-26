@@ -378,6 +378,50 @@ julia> norm(A, 1), opnorm(A, 1), opnorm(A, Inf)
 (12.0, 5.0, 5.0)
 ```
 
+#### [Sparse right-hand sides](@id man-sparse-rhs)
+
+For a sparse `A`, or a view of a range of its columns, and a sparse `B`, a vector or a
+matrix, `A \ B` returns a sparse solution, and so do `B / A`, `A' \ B` and a solve or a
+right division with a triangular wrapper of `A`. `A` is examined and factored as a
+whole, whatever `B` is, by a method chosen from its structure:
+
+* Diagonal or triangular: substitution over the entries that the nonzeros of each
+  column of `B` reach in the graph of `A`.
+* Hermitian (symmetric, if real): `cholesky`, when the GPL-licensed solvers are
+  available and `A` is positive definite. Otherwise it is solved like any other square
+  matrix.
+* Other square: [`SparseArrays.sparselu`](@ref), an LU factorization written in Julia
+  that does not need the GPL-licensed solvers. A permutation of a triangular matrix is recognized and solved by substitution.
+  Otherwise it permutes `A` to block upper triangular form with [`dmperm`](@ref),
+  orders each diagonal block with AMD or COLAMD to reduce fill, factors the blocks, and
+  solves only the blocks that the nonzeros of each column of `B` reach. When the
+  GPL-licensed solvers are available and `A` is one block whose factors AMD predicts
+  to hold more than 48 entries per column, it is solved with `lu` instead, which is
+  faster on dense factors.
+* Rectangular: the dense solve, converted to sparse.
+
+The substitution, and the solve with a factorization from `sparselu`, do work
+proportional to the arithmetic that the nonzeros of `B` cause, not to the size of `A`,
+so a factorization kept from `sparselu` solves a sparse right-hand side in less time
+than it takes to read a dense one. The solves with `cholesky` and `lu` work over the
+whole factor.
+
+The solution is as sparse as `A` is reducible. When `A` has one irreducible block, as
+the matrix of a connected mesh does, every entry of the solution is stored, and
+`A \ Matrix(B)` is the better choice.
+
+```jldoctest
+julia> A = sparse([2.0 1 0 0; 1 2 0 0; 0 0 4 0; 0 0 1 5]);
+
+julia> A \ sparsevec([3], [8.0], 4)
+4-element SparseVector{Float64, Int64} with 2 stored entries:
+  [3]  =  2.0
+  [4]  =  -0.4
+
+julia> length(dmperm(A).colblocks) - 1
+3
+```
+
 #### [Diagonals, triangles and permutations](@id man-sparse-structure)
 
 - `tr(A)` sums the diagonal, and [`diag(A, k)`](@ref SparseArrays.diag(::SparseArrays.SparseMatrixCSCOrView{Tv,Ti}, ::Integer) where {Tv,Ti})
@@ -737,6 +781,8 @@ SparseArrays.triu!(::SparseArrays.AbstractSparseMatrixCSC, ::Integer)
 SparseArrays.opnorm(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
 SparseArrays.cond(::SparseArrays.AbstractSparseMatrixCSC, ::Real)
 Base.inv(::SparseArrays.AbstractSparseMatrixCSC)
+SparseArrays.sparselu
+SparseArrays.SparseLU
 ```
 
 ## Noteworthy External Sparse Packages

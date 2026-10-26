@@ -40,7 +40,7 @@ export AbstractSparseArray, AbstractSparseMatrix, AbstractSparseVector, Abstract
     sprand, sprandn, spzeros, nnz, indtype, permute, findnz,  fkeep!, ftranspose!,
     sparse_hcat, sparse_vcat, sparse_hvcat, getcolptr, getrowval, getnzval, dmperm, sprank
 
-public sparse!, spzeros!
+public sparse!, spzeros!, sparselu, SparseLU, DMPermutation
 
 # helper function needed in sparsematrix, sparsevector and higherorderfns
 # `iszero` and `!iszero` don't guarantee to return a boolean but we need one that does
