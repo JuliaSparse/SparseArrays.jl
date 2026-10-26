@@ -1795,11 +1795,15 @@ function _checktrisolve(xA::UpperOrLowerTriangular, b::AbstractVector)
     return nothing
 end
 
-function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
-    _checktrisolve(xA, b)
-    TAb = xA isa UnitUpperOrUnitLowerTriangular ?
+# the eltype of the solution of a triangular solve: a unit triangle does not divide
+_trisolve_eltype(xA::UpperOrLowerTriangular{TA}, ::AbstractVector{Tb}) where {TA<:Number,Tb<:Number} =
+    xA isa UnitUpperOrUnitLowerTriangular ?
         typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb)) :
         typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))
+
+function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
+    _checktrisolve(xA, b)
+    TAb = _trisolve_eltype(xA, b)
     r = convert(Array{TAb}, b)
     if nnz(b) != 0
         active = _activerange(xA, b)
@@ -1812,6 +1816,14 @@ function ldiv!(xA::StridedTriangularMaybeAdjOrTrans, b::AbstractCompressedVector
     _checktrisolve(xA, b)
     nnz(b) == 0 && return b
     active = _activerange(xA, b)
+    # a solution that may not convert to the eltype of `b` is solved out of place and checked,
+    # so that a failed conversion throws before `b` takes the dense pattern
+    if eltype(xA) <: Number && eltype(b) <: Number && !_storesafely(eltype(b), _trisolve_eltype(xA, b))
+        x = view(xA \ b, active)
+        _checkconvertible(eltype(b), x)
+        copyto!(view(nonzeros(b), _densify!(b, active)), x)
+        return b
+    end
     # store the whole active section up front rather than entry by entry during the solve,
     # which also lets the solve run on a dense vector and reach tuned BLAS
     stored = _densify!(b, active)
