@@ -1504,12 +1504,11 @@ factorize(A::AbstractSparseMatrixCSC) = _sparse_factorize(_factorize_choice, A)
 
 function factorize(A::RealHermSymComplexHerm{<:Union{Float32,Float64},<:AbstractSparseMatrixCSC})
     F = cholesky(A; check = false)
-    if LinearAlgebra.issuccess(F)
-        return F
-    else
-        ldlt!(F, A)
-        return F
-    end
+    LinearAlgebra.issuccess(F) && return F
+    ldlt!(F, A; check = false)
+    LinearAlgebra.issuccess(F) && return F
+    # an indefinite matrix may need pivoting, which only the LU does, as in `\`
+    return lu(A)
 end
 
 eigen(A::AbstractSparseMatrixCSC) =
