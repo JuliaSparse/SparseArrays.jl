@@ -730,6 +730,10 @@ end
         b = SparseVector(3, [1, 3], Any[1.0, 2.0])
         x = ldiv!(L, copy(b))
         @test nonzeroinds(x) == 1:3 && x ≈ L \ [1.0, 0.0, 2.0]
+        # a solution that does not convert to the eltype of `b` throws before `b` is densified
+        b = sparsevec([2], [1], 2)
+        @test_throws InexactError ldiv!(UpperTriangular([2.0 1; 0 2]), b)
+        @test nonzeroinds(b) == [2] && nonzeros(b) == [1]
     end
 
     @testset "scalar promotion" for eltypemat in eltypes
