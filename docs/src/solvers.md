@@ -73,7 +73,10 @@ right-hand side in less time than it takes to read a dense one:
   permutation of a triangular matrix is recognized and solved by substitution.
   Otherwise it permutes `A` to block upper triangular form with [`dmperm`](@ref),
   orders each diagonal block with AMD or COLAMD to reduce fill, factors the blocks, and
-  solves only the blocks that the nonzeros of each column of `B` reach.
+  solves only the blocks that the nonzeros of each column of `B` reach. When the
+  GPL-licensed solvers are available and `A` is one block whose factors AMD predicts
+  to hold more than 48 entries per column, it is solved with
+  [`lu`](@ref SparseArrays.UMFPACK.lu) instead, which is faster on dense factors.
 * Rectangular: the dense solve above, converted to sparse.
 
 The solution is as sparse as `A` is reducible. When `A` has one irreducible block, as
