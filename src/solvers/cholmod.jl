@@ -1333,6 +1333,10 @@ function SparseVector{Tv, Ti}(A::Sparse{Tv, Ti}) where {Tv, Ti<:ITypes}
         throw(ArgumentError("matrix has stype != 0. Convert to matrix " *
             "with stype == 0 before converting to SparseVector"))
     end
+    if s.ncol != 1
+        throw(DimensionMismatch("cannot convert a CHOLMOD.Sparse with $(Int(s.ncol)) columns " *
+            "to SparseVector: it must have exactly one column"))
+    end
     args = _extract_args(A, Tv)
     s.sorted == 0 && _sort_buffers!(args...);
     _trim_nz_builder!(args...)
@@ -1384,11 +1388,7 @@ function Hermitian{Tv,SparseMatrixCSC{Tv, Ti}}(A::Sparse{Tv, Ti}) where {Tv<:VTy
 end
 convert(T::Type{Hermitian{Tv,SparseMatrixCSC{Tv,Ti}}}, A::Sparse{Tv, Ti}) where {Tv<:VTypes, Ti<:ITypes} = T(A)
 
-function sparsevec(A::Sparse{Tv, Ti}) where {Tv, Ti}
-    s = unsafe_load(pointer(A))
-    @assert s.stype == 0
-    return SparseVector{Tv, Ti}(A)
-end
+sparsevec(A::Sparse{Tv, Ti}) where {Tv, Ti} = SparseVector{Tv, Ti}(A)
 
 function sparse(A::Sparse{Tv, Ti}) where {Tv<:VRealTypes, Ti} # Notice! Cannot be type stable because of stype
     s = unsafe_load(pointer(A))

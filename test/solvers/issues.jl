@@ -212,4 +212,9 @@ end
     @test eltype(F.Q) == eltype(F.R) == eltyA
 end
 
+@testset "sparsevec of a CHOLMOD.Sparse checks its shape and stype" begin
+    @test_throws DimensionMismatch sparsevec(CHOLMOD.Sparse(sparse([1.0 2; 0 3])))
+    @test_throws ArgumentError sparsevec(CHOLMOD.Sparse(Symmetric(sparse([2.0 1; 1 2]))))
+end
+
 end # module
