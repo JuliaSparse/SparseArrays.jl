@@ -1455,28 +1455,32 @@ end
 _hermitian_solve(A::AbstractSparseMatrixCSC) =
     !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
 
-# `\` and `factorize` choose the same method from the structure of `A`; `f` (or `fsolver`,
-# for the LU, QR and LQ factorizations) is applied in each branch so that the result stays
-# inferrable, and the QR and LQ factorizations are of `fqr(A)`. A Hermitian matrix is only
-# wrapped, because `\` and `factorize` finish it differently.
-function _sparse_factorize(f, A::AbstractSparseMatrixCSC, fsolver = f, fqr = identity)
+# `\`, with a dense or a sparse right-hand side, and `factorize` choose their method from
+# the structure of `A`: the function of the branch it falls in is applied to `A`. A branch
+# that `_hermitian_solve` rules out for the eltype is not inferred.
+function _bystructure(A::AbstractSparseMatrixCSC, diagonal, lower, upper, hermitian, square, tall, wide)
     m, n = size(A)
     if m == n
         if istril(A)
-            return istriu(A) ? f(Diagonal(diag(A))) : f(LowerTriangular(A))
+            return istriu(A) ? diagonal(A) : lower(A)
         elseif istriu(A)
-            return f(UpperTriangular(A))
+            return upper(A)
         elseif _hermitian_solve(A)
-            return f(Hermitian(A))
+            return hermitian(A)
         end
-        return fsolver(lu(A))
-    elseif m > n
-        return fsolver(qr(fqr(A)))
-    else
-        # A is wide, so the LQ factorization gives the minimum-norm solution
-        return fsolver(lq(fqr(A)))
+        return square(A)
     end
+    return m > n ? tall(A) : wide(A)
 end
+
+# `f` (or `fsolver`, for the LU, QR and LQ factorizations) is applied in each branch so that
+# the result stays inferrable, and the QR and LQ factorizations are of `fqr(A)`. A
+# Hermitian matrix is only wrapped, because `\` and `factorize` finish it differently. A
+# wide `A` takes the LQ factorization, which gives the minimum-norm solution.
+_sparse_factorize(f, A::AbstractSparseMatrixCSC, fsolver = f, fqr = identity) =
+    _bystructure(A, A -> f(Diagonal(diag(A))), A -> f(LowerTriangular(A)), A -> f(UpperTriangular(A)),
+                 A -> f(Hermitian(A)), A -> fsolver(lu(A)), A -> fsolver(qr(fqr(A))),
+                 A -> fsolver(lq(fqr(A))))
 
 # the solution is dense, so a diagonal is densified for the solve
 _solve_factor(F) = F
@@ -1515,6 +1519,75 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
         return _sparse_factorize(F -> _sparse_solve($xformop, F, B), A,
                                  F -> _sparse_solversolve($xformop, F, A, B), A -> _qr_matrix(A, B))
     end
+end
+
+## `\` with a sparse right-hand side returns a sparse solution (kernels in sparselu.jl)
+
+# The solvers add a method that solves a Hermitian positive definite system with
+# `cholesky`. `nothing` means that there is no such solve, or that the factorization failed.
+_hermitian_rhs_solve(A, B) = nothing
+# The solvers give the number of entries per column past which the factors of a single
+# irreducible block are dense enough that their LU, with the BLAS, beats `sparselu`, for a
+# solution of eltype `T`, and the solve with it. 0 means `sparselu` always.
+_lu_rhs_densefill(A, ::Type) = 0.0
+_lu_rhs_solve(A, B) = nothing
+
+# `A \ B` for a sparse `B`: substitution for a triangular `A`, `cholesky` for a Hermitian
+# `A` when the solvers provide it and it succeeds, `sparselu` for any other square `A`.
+# Each branch returns the same sparse type, so the result is inferrable. A rectangular `A`
+# goes through its dense-right-hand-side solve.
+function _sparse_rhs_solve(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCOrView)
+    require_one_based_indexing(A, B)
+    m = size(A, 1)
+    size(B, 1) == m ||
+        throw(DimensionMismatch(lazy"the matrix has $m rows, but the right-hand side has $(size(B, 1))"))
+    return _sparse_rhs_solve(A, B, _solve_eltype(eltype(A), eltype(B)), promote_type(indtype(A), _rhs_indtype(B)))
+end
+function _sparse_rhs_solve(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCOrView, ::Type{T}, ::Type{Ti}) where {T,Ti}
+    lower = A -> _sptrisolve(A, true, false, B, T, Ti)
+    function square(A)
+        F = _sparselu(A, 0.1, :auto, true, _lu_rhs_densefill(A, T))
+        F === nothing && return convert(SparseMatrixCSC{T,Ti}, sparse(_lu_rhs_solve(A, B)))
+        return _lusolve(F, B, T, Ti)
+    end
+    function hermitian(A)
+        X = _hermitian_rhs_solve(A, B)
+        return X === nothing ? square(A) : convert(SparseMatrixCSC{T,Ti}, X)
+    end
+    rectangular = A -> convert(SparseMatrixCSC{T,Ti}, sparse(A \ Matrix(B)))
+    return _bystructure(A, lower, lower, A -> _sptrisolve(A, false, false, B, T, Ti), hermitian,
+                        square, rectangular, rectangular)
+end
+
+function \(A::AbstractSparseMatrixCSC, B::SparseSolveRHS)
+    return _rhs_shape(_sparse_rhs_solve(A, _rhs_matrix(B)), B)
+end
+\(A::SparseMatrixCSCView, B::SparseSolveRHS) = SparseMatrixCSC(A) \ B
+for xformtype in (:Adjoint, :Transpose)
+    @eval function \(A::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::SparseSolveRHS)
+        return _rhs_shape(_sparse_rhs_solve(copy(A), _rhs_matrix(B)), B)
+    end
+end
+
+_tri_eltype(A::UnitUpperOrUnitLowerTriangular, B) =
+    LinearAlgebra._inner_type_promotion(\, eltype(A), eltype(B))
+_tri_eltype(A, B) = _solve_eltype(eltype(A), eltype(B))
+
+function \(A::SparseTriangular, B::SparseSolveRHS)
+    Bm = _rhs_matrix(B)
+    X = _sptrisolve(parent(A), A isa LowerOrUnitLowerTriangular, A isa UnitUpperOrUnitLowerTriangular,
+                    Bm, _tri_eltype(A, Bm), promote_type(indtype(A), _rhs_indtype(Bm)))
+    return _rhs_shape(X, B)
+end
+\(A::SparseAdjOrTransTriangular, B::SparseSolveRHS) = _sptriangular(A) \ B
+
+# `B / T` for a sparse triangular `T` and a sparse `B` is sparse as well: X * T == B is
+# transpose(T) * transpose(X) == transpose(B)
+_sparsecsc(B::AbstractSparseMatrixCSC) = B
+_sparsecsc(B::Union{SparseMatrixCSCView,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) = SparseMatrixCSC(B)
+function /(B::Union{SparseMatrixCSCOrView,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}},
+           T::Union{SparseTriangular,SparseAdjOrTransTriangular})
+    return copy(transpose(transpose(T) \ transpose(_sparsecsc(B))))
 end
 
 _factorize_choice(F) = F
