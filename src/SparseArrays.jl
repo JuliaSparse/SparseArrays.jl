@@ -160,9 +160,10 @@ const SparseMatrixCSCSubArray{Tv,Ti} = SubArray{Tv,2,<:AbstractSparseMatrixCSC{T
 const SparseMatrixCSCOrSubArray{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCSubArray{Tv,Ti}}
 
 # Whole-column views of sparse matrices and whole views of sparse vectors share the
-# sparse vector interface.
+# sparse vector interface. A `SparseVector` whose index type is wider than `Int` keeps its
+# length in that type, so a whole view of one slices a `OneTo{Ti}`.
 const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
-const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
+const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{Base.Slice{<:Base.OneTo}},false}
 const SparseVectorOrView{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
 const AdjOrTransSparseVectorOrView{Tv,Ti} = AdjOrTrans{Tv, <:SparseVectorOrView{Tv,Ti}}
 # view of a unit range of a sparse vector's indices

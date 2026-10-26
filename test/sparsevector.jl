@@ -48,9 +48,11 @@ include("testhelpers.jl")
     @test count(SparseVector(8, [2, 5, 6], [true,false,true])) == 2
     @static if COMPREHENSIVE
     @test count(SparseVector(8, [2, 5, 6], [true,false,true]), init=Int16(2))::Int16 == 4
-    y = SparseVector(8, Int8[4], [5.0])
-    @test y isa SparseVector{Float64,Int8}
-    @test @inferred size(y) == (@inferred(length(y))::Int8,)
+    # the length is an `Int` when every value of the index type fits in one
+    y = SparseVector(8, Int32[4], [5.0])
+    @test y isa SparseVector{Float64,Int32}
+    @test @inferred size(y) == (@inferred(length(y))::Int,)
+    @test @inferred(length(SparseVector(8, Int128[4], [5.0])))::Int128 == 8
     end
 end
 
@@ -1791,9 +1793,9 @@ end
         @test ((1 + im) * v)::T == (1 + im) * d
         @test copy(v)::T == d
     end
-    # the full-column and full-vector views scale in place through the parent's storage
-    # (`view(x, :)` is a `SparseVectorView` only when the parent's axes are `Int`-sized)
-    for v in (view(A, :, 1), (Ti === Int ? (view(x, :),) : ())...), a in (1.0 + im,)
+    # the full-column and full-vector views scale in place through the parent's storage,
+    # also when the parent's axes are wider than `Int`
+    for v in (view(A, :, 1), view(x, :), view(SparseVector{ComplexF64,Int128}(x), :)), a in (1.0 + im,)
         @test which(*, (typeof(v), typeof(a))).module === SparseArrays
         @test which(*, (typeof(a), typeof(v))).module === SparseArrays
         @test which(/, (typeof(v), typeof(a))).module === SparseArrays
@@ -1817,6 +1819,9 @@ end
             @test @allocated(f(v)) < 10^4
         end
     end
+    # `count` calls `f` on the stored entries and on one zero
+    calls = Ref(0)
+    @test count(z -> (calls[] += 1; !iszero(z)), view(SparseVector{ComplexF64,Int32}(y), :)) == 2 && calls[] == 3
 end
 end
 
