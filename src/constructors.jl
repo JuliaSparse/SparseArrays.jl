@@ -720,7 +720,7 @@ function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, 
 end
 
 sprand(m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T} = eltype(rfn(1))) where {T} =
-    sprand(default_rng(), m, n, density, (r, i) -> rfn(i))
+    sprand(default_rng(), m, n, density, (r, i) -> rfn(i), T)
 
 truebools(r::AbstractRNG, n::Integer) = fill(true, n)
 
