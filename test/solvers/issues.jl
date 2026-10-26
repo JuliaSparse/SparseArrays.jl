@@ -214,6 +214,14 @@ end
     @test cholesky!(F, SparseMatrixCSC{Float64,Int16}(2A)) \ [1.0, 2.0, 3.0] ≈ (2A) \ [1.0, 2.0, 3.0]
 end
 
+@testset "ldlt! with a matrix of another size leaves an LLt factor unchanged" begin
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    F = cholesky(A)
+    @test_throws DimensionMismatch ldlt!(F, sparse(1.0I, 4, 4))
+    @test :D ∉ propertynames(F)
+    @test F \ ones(3) ≈ A \ ones(3)
+end
+
 @testset "Issues #26367 and #26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
