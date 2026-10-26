@@ -338,11 +338,15 @@ end
 # Returns 0 when every block is factored. When the factors of a block b outgrow
 # `limit[b]` (0 for no limit), the block is taken out of `S` again and b is returned: the
 # caller reorders it and calls again with `first = b`.
-function _gplu!(S::GPState{Tv}, B::AbstractSparseMatrixCSC, bp::Vector{Int}, first::Int,
-                limit::Vector{Int}, tol::Float64, prune::Bool, q::Vector{Int}) where {Tv}
-    n = size(B, 2)
-    Bi = rowvals(B)
-    Bx = nonzeros(B)
+#
+# Column j of B = A[p, q] is read from column q[j] of A, its rows renumbered by `rowpos`
+# (the inverse of p) and sorted into `crow` and `cval`, so that B is never formed.
+function _gplu!(S::GPState{Tv}, A::AbstractSparseMatrixCSC, rowpos::Vector{Int}, bp::Vector{Int},
+                first::Int, limit::Vector{Int}, tol::Float64, prune::Bool, q::Vector{Int},
+                crow::Vector{Int}, cval::Vector, perm::Vector{Int}) where {Tv}
+    n = size(A, 2)
+    Ai = rowvals(A)
+    Ax = nonzeros(A)
     Lp = S.Lp; Li = S.Li; Lx = S.Lx; Up = S.Up; Ui = S.Ui; Ux = S.Ux
     pinv = S.pinv; lend = S.lend; pruned = S.pruned; mark = S.mark; x = S.x
     order = S.order; nodes = S.nodes; pos = S.pos; cand = S.cand
@@ -366,13 +370,14 @@ function _gplu!(S::GPState{Tv}, B::AbstractSparseMatrixCSC, bp::Vector{Int}, fir
             Up[j] = length(Ui) + 1
             top = n + 1
             ncand = 0
-            for idx in nzrange(B, j)
-                i = Int(Bi[idx])
+            cnt = _permutedcolumn!(crow, cval, perm, A, Ai, Ax, rowpos, Int(q[j]))
+            for t in 1:cnt
+                i = crow[t]
                 if i < lo
-                    push!(Ui, pinv[i]); push!(Ux, Bx[idx])
+                    push!(Ui, pinv[i]); push!(Ux, cval[t])
                     continue
                 end
-                x[i] = Bx[idx]
+                x[i] = cval[t]
                 mark[i] == j && continue
                 mark[i] = j
                 if pinv[i] == 0
@@ -485,6 +490,42 @@ function _gplu!(S::GPState{Tv}, B::AbstractSparseMatrixCSC, bp::Vector{Int}, fir
     return 0
 end
 
+# column c of A with its rows renumbered by `rowpos`, sorted, in crow[1:cnt] and cval[1:cnt]
+@inline function _permutedcolumn!(crow::Vector{Int}, cval::Vector, perm::Vector{Int},
+                                  A::AbstractSparseMatrixCSC, Ai, Ax, rowpos::Vector{Int}, c::Int)
+    cnt = 0
+    @inbounds for idx in nzrange(A, c)
+        cnt += 1
+        crow[cnt] = rowpos[Ai[idx]]
+        cval[cnt] = Ax[idx]
+    end
+    @inbounds if cnt <= 16
+        for t in 2:cnt
+            r = crow[t]
+            v = cval[t]
+            u = t - 1
+            while u >= 1 && crow[u] > r
+                crow[u + 1] = crow[u]
+                cval[u + 1] = cval[u]
+                u -= 1
+            end
+            crow[u + 1] = r
+            cval[u + 1] = v
+        end
+    else
+        pv = view(perm, 1:cnt)
+        sortperm!(pv, view(crow, 1:cnt))
+        # crow and cval hold twice the longest column: permute through their second halves
+        for t in 1:cnt
+            crow[cnt + t] = crow[pv[t]]
+            cval[cnt + t] = cval[pv[t]]
+        end
+        copyto!(crow, 1, crow, cnt + 1, cnt)
+        copyto!(cval, 1, cval, cnt + 1, cnt)
+    end
+    return cnt
+end
+
 # Close the columns of the finished factorization, number the rows of L by pivot position
 # and sort the columns: the CSC arrays of L (unit diagonal stored) and of U with the
 # entries of B above its diagonal blocks, and pinv.
@@ -550,16 +591,11 @@ end
 # AMD predicts the fill of a factorization whose pivots stay on the diagonal. For a block
 # that `:auto` gives to AMD, `limit` receives the number of entries of its factors past
 # which that prediction has failed, and the block is to be ordered again, with COLAMD.
-function _orderblocks!(limit::Vector{Int}, p::Vector{Int}, q::Vector{Int},
+function _orderblocks!(limit::Vector{Int}, p::Vector{Int}, q::Vector{Int}, rowpos::Vector{Int},
                        A::AbstractSparseMatrixCSC, bp::Vector{Int}, ordering::Symbol,
                        tol::Float64, blocks::AbstractUnitRange{Int} = 1:(length(bp) - 1))
-    n = length(q)
     rv = rowvals(A)
     nz = nonzeros(A)
-    rowpos = Vector{Int}(undef, n)
-    @inbounds for t in 1:n
-        rowpos[p[t]] = t
-    end
     ptr = Int[]
     ind = Int[]
     perm = Int[]
@@ -613,6 +649,9 @@ function _orderblocks!(limit::Vector{Int}, p::Vector{Int}, q::Vector{Int},
         end
         copyto!(q, lo, ptr, 1, nblk)
         copyto!(p, lo, perm, 1, nblk)
+        for t in lo:hi
+            rowpos[p[t]] = t
+        end
     end
     return nothing
 end
@@ -720,13 +759,21 @@ julia> F \\ sparsevec([3], [10.0], 3)
   [3]  =  2.0
 ```
 """
-function sparselu(A::AbstractSparseMatrixCSC{TvA,Ti}; tol::Real = 0.1, ordering::Symbol = :auto,
-                  prune::Bool = true) where {TvA,Ti}
+function sparselu(A::AbstractSparseMatrixCSC; tol::Real = 0.1, ordering::Symbol = :auto,
+                  prune::Bool = true)
     require_one_based_indexing(A)
-    n = checksquare(A)
+    checksquare(A)
     0 <= tol <= 1 || throw(ArgumentError(lazy"the pivot tolerance must be in [0, 1], got $tol"))
     ordering in (:auto, :colamd, :amd, :natural) ||
         throw(ArgumentError(lazy"the ordering must be :auto, :colamd, :amd or :natural, got :$ordering"))
+    return _sparselu(A, Float64(tol), ordering, prune, 0.0)::SparseLU
+end
+
+# `nothing` instead of the factorization when `A` is a single block whose factors AMD
+# predicts to hold more than `densefill` entries per column (0 for no limit)
+function _sparselu(A::AbstractSparseMatrixCSC{TvA,Ti}, tol::Float64, ordering::Symbol,
+                   prune::Bool, densefill::Float64) where {TvA,Ti}
+    n = size(A, 2)
     Tv = typeof(oneunit(TvA) / oneunit(TvA))
     triangular = _triangularorder(A)
     if triangular !== nothing
@@ -745,14 +792,27 @@ function sparselu(A::AbstractSparseMatrixCSC{TvA,Ti}; tol::Real = 0.1, ordering:
         unmatched = findfirst(iszero, colmatch)
         unmatched === nothing || throw(LinearAlgebra.SingularException(unmatched))
         limit = zeros(Int, length(bp) - 1)
-        ordering === :natural || _orderblocks!(limit, p, q, A, bp, ordering, Float64(tol))
+        rowpos = Vector{Int}(undef, n)
+        @inbounds for t in 1:n
+            rowpos[p[t]] = t
+        end
+        ordering === :natural || _orderblocks!(limit, p, q, rowpos, A, bp, ordering, tol)
+        densefill > 0 && length(bp) == 2 && limit[1] > _AMD_FILL_LIMIT * densefill * n &&
+            return nothing
         S = GPState{Tv}(n, nnz(A))
+        maxcol = 0
+        @inbounds for j in 1:n
+            maxcol = max(maxcol, length(nzrange(A, j)))
+        end
+        crow = Vector{Int}(undef, 2maxcol)
+        cval = Vector{TvA}(undef, 2maxcol)
+        perm = Vector{Int}(undef, maxcol)
         first = 1
         while true
-            blown = _gplu!(S, permute(A, p, q), bp, first, limit, Float64(tol), prune, q)
+            blown = _gplu!(S, A, rowpos, bp, first, limit, tol, prune, q, crow, cval, perm)
             blown == 0 && break
             # AMD's prediction failed for this block: its pivots left the diagonal
-            _orderblocks!(limit, p, q, A, bp, :colamd, Float64(tol), blown:blown)
+            _orderblocks!(limit, p, q, rowpos, A, bp, :colamd, tol, blown:blown)
             first = blown
         end
         Lp, Li, Lx, Up, Ui, Ux, pinv = _gpfinish!(S)
