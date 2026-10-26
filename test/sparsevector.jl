@@ -679,6 +679,8 @@ end
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
         @test_throws InexactError copyto!(dst, src)
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
+        @test_throws InexactError copyto!(dst, sparse([1, 2], [1, 2], [0.5, 1.0]))
+        @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
         @test_throws InexactError copy!(dst, [1.0, 2.5, 0.0, 0.0, 0.0])
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
         @test mismatch(copy!(dst, sparsevec([2, 4], [3.0, 4.0], 5)), [0, 3, 0, 4, 0]) === nothing

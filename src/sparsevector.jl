@@ -669,11 +669,12 @@ end
 
 function copyto!(A::AbstractCompressedVector, B::AbstractSparseMatrixCSC)
     _is_fixed(A) && return _copyto_fixed!(A, copyto!(spzeros(eltype(A), indtype(A), length(B)), B))
+    maximum(getcolptr(B))-1 <= length(getrowval(B)) || throw(BoundsError())
+    _checkconvertible(eltype(A), getnzval(B))
     prep_sparsevec_copy_dest!(A, length(B), nnz(B))
 
     ptr = 1
     @assert length(nonzeroinds(A)) >= length(getrowval(B))
-    maximum(getcolptr(B))-1 <= length(getrowval(B)) || throw(BoundsError())
     @inbounds for col=1:length(getcolptr(B))-1
         offsetA = (col - 1) * size(B, 1)
         while ptr <= getcolptr(B)[col+1]-1
