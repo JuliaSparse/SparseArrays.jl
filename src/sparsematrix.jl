@@ -2292,6 +2292,8 @@ function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c
             Base.mightalias(getnzval(O), getnzval(X))) &&
             throw(ArgumentError(LazyString("cannot shift the columns of a ", nameof(typeof(X)),
                 " into a destination that shares its buffers; use `circshift` or a separate destination")))
+        _checkconvertible(eltype(O), view(getnzval(X), 1:nz))
+        _checknnzfits(indtype(O), nz)
         ##### readjust output
         resize!(getcolptr(O), size(X, 2) + 1)
         resize!(getrowval(O), nz)
