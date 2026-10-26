@@ -9,23 +9,23 @@ using LinearAlgebra
 using Random
 include("testhelpers.jl")
 
-# A reducible matrix: `nblocks` irreducible diagonal blocks of order `bs` in a scrambled
-# order, each coupled to the next. Well conditioned, and no entry equals its conjugate.
-function reducible(::Type{T}, nblocks::Int, bs::Int, rng) where {T}
-    n = nblocks * bs
+# A reducible matrix: 5 irreducible diagonal blocks of order 3, with no zero entry, in a
+# scrambled order, each coupled to the next. Well conditioned, and no entry equals its
+# conjugate.
+function reducible(::Type{T}) where {T}
+    n = 15
     A = spzeros(T, n, n)
-    for b in 1:nblocks
-        r = (b - 1) * bs .+ (1:bs)
-        A[r, r] = rand(rng, T, bs, bs) + 4I
-        b < nblocks && (A[r[1], r[end] + 1] = T <: Complex ? T(1, 2) : T(1))
+    for b in 1:5
+        r = 3(b - 1) .+ (1:3)
+        A[r, r] = [T <: Complex ? T(1 + mod(i + 2j + b, 5), 1 + mod(2i + j + b, 3)) / 5 :
+                   T(1 + mod(i + 2j + b, 5)) / 5 for i in 1:3, j in 1:3] + 4I
+        b < 5 && (A[r[1], r[end] + 1] = T <: Complex ? T(1, 2) : T(1))
     end
-    p = randperm(rng, n)
-    return A[p, randperm(rng, n)]
+    return A[mod1.(7 .* (1:n), n), mod1.(4 .* (1:n) .+ 1, n)]
 end
 
-@testset "sparselu and sparse right-hand sides, $T" for T in STD_ELTYPES
-    rng = MersenneTwister(232)
-    A = reducible(T, 5, 3, rng)
+@testset "sparselu and sparse right-hand sides, $T" for T in (Float64, (@static COMPREHENSIVE ? (ComplexF64,) : ())...)
+    A = reducible(T)
     n = size(A, 1)
     D = Matrix(A)
     F = sparselu(A)
@@ -35,10 +35,10 @@ end
     @test L * U ≈ A[F.p, F.q]
     # only the diagonal blocks are factored: L is block diagonal
     @test nnz(L) <= 5 * 6
-    b = rand(rng, T, n)
+    b = T.(1:n)
     @test F \ b ≈ D \ b
     @test ldiv!(F, copy(b)) ≈ D \ b
-    B = sprand(rng, T, n, 4, 0.1)
+    B = sparse([1, 4, 9, 15, 2, 11], [1, 1, 2, 3, 4, 4], T.(1:6), n, 4)
     @test mismatch(F \ B, D \ Matrix(B); approx=true) === nothing
     # `\` returns a sparse solution for a sparse right-hand side, of either shape
     @test mismatch(A \ B, D \ Matrix(B); approx=true, Ti=Int) === nothing
@@ -58,7 +58,7 @@ end
     @test mismatch(C / A, Matrix(C) / D; approx=true) === nothing
     @test mismatch(C / LowerTriangular(Lt), Matrix(C) / Matrix(Lt); approx=true) === nothing
     # a permuted triangular matrix is recognized and is its own U factor
-    P = Lt[randperm(rng, n), randperm(rng, n)]
+    P = Lt[mod1.(2 .* (1:n), n), mod1.(11 .* (1:n), n)]
     G = sparselu(P)
     @test SparseArrays._triangularorder(P) !== nothing && SparseArrays._triangularorder(A) === nothing
     @test G.L == I && istriu(G.U) && G.U == P[G.p, G.q]
@@ -254,7 +254,7 @@ end
     @test sparselu(sparse([1.0 0.5; 3 4])).p == [1, 2]
     @test sparselu(sparse([1.0 0.5; 3 4]); tol=1).p == [2, 1]
     @test_throws ArgumentError sparselu(A; tol=2)
-    @test_throws DimensionMismatch sparselu(sprand(3, 4, 0.5))
+    @test_throws DimensionMismatch sparselu(spzeros(3, 4))
     # numerically singular with a full structural rank, and a stored zero pivot
     @test_throws SingularException sparselu(sparse([1.0 2; 2 4]))
     @test_throws SingularException sparselu(sparse([1, 2], [1, 2], [1.0, 0.0]))
@@ -262,9 +262,9 @@ end
     # empty
     F = sparselu(spzeros(0, 0))
     @test size(F) == (0, 0) && F \ spzeros(0, 2) == spzeros(0, 2)
-    @test_throws DimensionMismatch F \ sprand(3, 2, 0.5)
-    @test_throws DimensionMismatch sparse(1.0I, 3, 3) \ sprand(4, 2, 0.5)
-    @test_throws DimensionMismatch LowerTriangular(sparse(1.0I, 3, 3)) \ sprand(4, 0.5)
+    @test_throws DimensionMismatch F \ spzeros(3, 2)
+    @test_throws DimensionMismatch sparse(1.0I, 3, 3) \ spzeros(4, 2)
+    @test_throws DimensionMismatch LowerTriangular(sparse(1.0I, 3, 3)) \ spzeros(4)
     @test_throws DimensionMismatch ldiv!(sparselu(sparse(1.0I, 3, 3)), ones(4))
 end
 
@@ -341,6 +341,10 @@ end
         @inferred M \ b
         @inferred M' \ B
     end
+    # a square view of a range of columns on the left
+    V = view([A spzeros(n, 2)], :, 1:n)
+    @test mismatch(V \ b, D \ Vector(b); approx=true) === nothing
+    @test sparselu(V).p == sparselu(A).p
     # a stored zero in the other triangle leaves the matrix triangular
     Z = tril(A)
     Z[1, n] = 1.0

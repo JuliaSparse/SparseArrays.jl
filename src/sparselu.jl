@@ -8,41 +8,14 @@
 # pivoting code", SIAM J. Sci. Comput. 14(1), 1993, pp. 253-257, applied to the diagonal
 # blocks of the block triangular form that `dmperm` finds.
 
-# Sort the row indices of every column of the CSC arrays of a matrix with `m` rows, by a
-# counting sort through the rows: O(nnz + m).
-function _sortcolumns!(m::Int, colptr::Vector{Int}, rowval::Vector{Int}, nzval::Vector)
+# Sort the row indices of every column of the square matrix with the CSC arrays `colptr`,
+# `rowval` and `nzval` in place, by transposing it twice: O(nnz + n).
+function _sortrows!(colptr::Vector{Int}, rowval::Vector{Int}, nzval::Vector{Tv}) where {Tv}
     n = length(colptr) - 1
-    nz = colptr[n + 1] - 1
-    rowptr = zeros(Int, m + 1)
-    @inbounds for k in 1:nz
-        rowptr[rowval[k] + 1] += 1
-    end
-    rowptr[1] = 1
-    @inbounds for i in 1:m
-        rowptr[i + 1] += rowptr[i]
-    end
-    cols = Vector{Int}(undef, nz)
-    vals = similar(nzval, nz)
-    @inbounds for j in 1:n, k in colptr[j]:(colptr[j + 1] - 1)
-        i = rowval[k]
-        d = rowptr[i]
-        rowptr[i] = d + 1
-        cols[d] = j
-        vals[d] = nzval[k]
-    end
-    # rowptr[i] is now one past the end of row i
-    next = colptr[1:n]
-    start = 1
-    @inbounds for i in 1:m
-        for d in start:(rowptr[i] - 1)
-            j = cols[d]
-            k = next[j]
-            next[j] = k + 1
-            rowval[k] = i
-            nzval[k] = vals[d]
-        end
-        start = rowptr[i]
-    end
+    S = SparseMatrixCSC{Tv,Int}(n, n, colptr, rowval, nzval)
+    X = SparseMatrixCSC{Tv,Int}(n, n, ones(Int, n + 1), Int[], Tv[])
+    halfperm!(X, S, axes(S, 2))
+    halfperm!(S, X, axes(X, 2))
     return nothing
 end
 
@@ -537,8 +510,8 @@ function _gpfinish!(S::GPState)
     @inbounds for p in eachindex(Li)
         Li[p] = pinv[Li[p]]
     end
-    _sortcolumns!(n, Lp, Li, S.Lx)
-    _sortcolumns!(n, Up, Ui, S.Ux)
+    _sortrows!(Lp, Li, S.Lx)
+    _sortrows!(Up, Ui, S.Ux)
     return Lp, Li, S.Lx, Up, Ui, S.Ux, pinv
 end
 
@@ -768,6 +741,8 @@ function sparselu(A::AbstractSparseMatrixCSC; tol::Real = 0.1, ordering::Symbol 
         throw(ArgumentError(lazy"the ordering must be :auto, :colamd, :amd or :natural, got :$ordering"))
     return _sparselu(A, Float64(tol), ordering, prune, 0.0)::SparseLU
 end
+sparselu(A::SparseMatrixCSCView; tol::Real = 0.1, ordering::Symbol = :auto, prune::Bool = true) =
+    sparselu(SparseMatrixCSC(A); tol, ordering, prune)
 
 # `nothing` instead of the factorization when `A` is a single block whose factors AMD
 # predicts to hold more than `densefill` entries per column (0 for no limit)
