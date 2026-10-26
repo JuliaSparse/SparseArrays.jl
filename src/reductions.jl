@@ -187,7 +187,11 @@ end
 _mapreducezeros(f::F, op::Union{typeof(Base.add_sum),typeof(+)}, ::Type{T}, nzeros::Integer, v0) where {F,T} =
     nzeros == 0 ? Base.reduce_first(op, v0) : op(_addzeros(_unstored(op, f, T, v0), nzeros), v0)
 _mapreducezeros(f::F, op::Union{typeof(Base.mul_prod),typeof(*)},::Type{T}, nzeros::Integer, v0) where {F,T} =
-    nzeros == 0 ? Base.reduce_first(op, v0) : op(_unstored(op, f, T, v0)^nzeros, v0)
+    nzeros == 0 ? Base.reduce_first(op, v0) : op(_unstored(op, f, T, v0)^_intcount(nzeros), v0)
+# an eltype may define `^` for an `Int` power only, so a count from `widelength` that fits
+# an `Int` is passed as one
+_intcount(n) = n
+_intcount(n::Int128) = n <= typemax(Int) ? Int(n) : n
 _unstored(op, f, ::Type{T}, v0) where T = _widen(Base.reduce_first(op, f(zero(T))), v0)
 _widen(z, v0) = _widen(z, typeof(v0))
 _widen(z, ::Type{S}) where S = convert(promote_type(typeof(z), S), z)
@@ -228,7 +232,7 @@ function Base._mapreduce(f::F, op::Union{typeof(Base.mul_prod),typeof(*)}, ::Bas
     elseif !_commutes(f, op, T)
         _mapreduce_ordered(f, op, A)
     else
-        v = Base.reduce_first(op, f(zero(T)))^nzeros
+        v = Base.reduce_first(op, f(zero(T)))^_intcount(nzeros)
         (nnzA == 0 || (_iszero(v) && Base.promote_op(f, T) <: Integer)) && return v
         r = v*Base._mapreduce(f, op, nzvalview(A))
         # A zero ends the product unless a stored `Inf` or `NaN` makes it `NaN`. The product
