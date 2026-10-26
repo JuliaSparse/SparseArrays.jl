@@ -429,7 +429,7 @@ preceding CSR form into a fully-sorted CSC form with no repeated entries.
 
 Input arrays `csrrowptr`, `csrcolval`, and `csrnzval` constitute storage for the
 intermediate CSR forms and require `length(csrrowptr) >= m + 1`,
-`length(csrcolval) >= length(I)`, and `length(csrnzval >= length(I))`. Input
+`length(csrcolval) >= length(I)`, and `length(csrnzval) >= length(I)`. Input
 array `klasttouch`, workspace for the second stage, requires `length(klasttouch) >= n`.
 Optional input arrays `csccolptr`, `cscrowval`, and `cscnzval` constitute storage for the
 returned CSC form `S`. If necessary, these are resized automatically to satisfy
@@ -447,8 +447,8 @@ You may reuse the input arrays' storage (`I`, `J`, `V`) for the output arrays
 Note that they will be resized to satisfy the conditions above.
 
 For the sake of efficiency, this method performs no argument checking beyond
-`1 <= I[k] <= m` and `1 <= J[k] <= n`. Use with care. Testing with `--check-bounds=yes`
-is wise.
+`1 <= I[k] <= m`, `1 <= J[k] <= n` and the lengths of the input arrays. Use with care.
+Testing with `--check-bounds=yes` is wise.
 
 This method runs in `O(m, n, length(I))` time. The HALFPERM algorithm described in
 F. Gustavson, "Two fast algorithms for sparse matrices: multiplication and permuted
@@ -470,11 +470,16 @@ function sparse!(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector
     # alias cscnzval, which will be resized and filled with zero(Tv).
     only_sparsity_pattern = combine === nothing
 
-    # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
-    fill!(csrrowptr, Tj(0))
     coolen = length(I)
     length(J) >= coolen || throw(ArgumentError("J need length >= length(I) = $coolen"))
     only_sparsity_pattern || length(V) >= coolen || throw(ArgumentError("V need length >= length(I) = $coolen"))
+    sparse_check_length("klasttouch", klasttouch, n, String)
+    sparse_check_length("csrrowptr", csrrowptr, m + 1, String)
+    sparse_check_length("csrcolval", csrcolval, coolen, String)
+    only_sparsity_pattern || sparse_check_length("csrnzval", csrnzval, coolen, String)
+
+    # Compute the CSR form's row counts and store them shifted forward by one in csrrowptr
+    fill!(csrrowptr, Tj(0))
 
     @inbounds for k in 1:coolen
         Ik = I[k]
