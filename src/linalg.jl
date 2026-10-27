@@ -993,18 +993,21 @@ another order than the dense one, so `cond(A, p)` can be finite where `cond(Arra
 is `Inf`.
 """
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
+    # the type of dense `cond`, whichever precision the factorization of `A` works in
+    T = float(real(eltype(A)))
     # as for a dense matrix; the estimator of the inverse's norm needs at least one column
-    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(real(float(eltype(A))))
+    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(T)
     if p == 1 || p == Inf
-        # a singular matrix has an infinite condition number, as for a dense matrix; a
-        # triangular or diagonal `factorize(A)` reports it only in the solve
-        normAinv = try
-            p == 1 ? opnormestinv(A) : opnormestinv(copy(A'))
+        B = p == 1 ? A : copy(A')
+        # a singular matrix has an infinite condition number, as for a dense matrix
+        F = try
+            factorize(B)
         catch e
             e isa SingularException || rethrow()
-            return convert(float(real(eltype(A))), Inf)
+            return convert(T, Inf)
         end
-        return opnorm(A, p) * normAinv
+        _issingularfactor(F) && return convert(T, Inf)
+        return convert(T, opnorm(A, p) * _opnormestinv(B, F, min(2, size(B, 1))))
     elseif p == 2
         throw(ArgumentError("only 1- and Inf-norm condition numbers are implemented for sparse matrices, for 2-norm try cond(Array(A), 2) instead"))
     else
@@ -1012,11 +1015,22 @@ function cond(A::AbstractSparseMatrixCSC, p::Real=2)
     end
 end
 
-function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A)))) where T
+# `factorize` throws for a singular LU or Hermitian factorization, but leaves a triangular
+# or diagonal one to the solve
+_issingularfactor(F) = false
+_issingularfactor(D::Diagonal) = any(iszero, D.diag)
+_issingularfactor(L::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = !iszero(_trisingular(false, parent(L)))
+_issingularfactor(U::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = !iszero(_trisingular(true, parent(U)))
+
+function opnormestinv(A::AbstractSparseMatrixCSC, t::Integer = min(2,maximum(size(A))))
+    checksquare(A)
+    return _opnormestinv(A, factorize(A), t)
+end
+
+# the estimate for the factorization `F` of `A`
+function _opnormestinv(A::AbstractSparseMatrixCSC{T}, F, t::Integer) where T
     maxiter = 5
-    # Check the input
-    n = checksquare(A)
-    F = factorize(A)
+    n = size(A, 1)
     if t <= 0
         throw(ArgumentError("number of blocks must be a positive integer"))
     end
