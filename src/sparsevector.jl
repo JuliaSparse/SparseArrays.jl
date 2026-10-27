@@ -63,8 +63,8 @@ length(x::FixedSparseVector) = getfield(x, :n)
 size(x::SparseVector) = (getfield(x, :n),)
 size(x::FixedSparseVector) = (getfield(x, :n),)
 
-function Base._simple_count(f, x::AbstractCompressedVector, init::T) where T
-    init + T(count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x)))
+function Base._simple_count(f, x::Union{SparseVectorOrView,SparseVectorPartialView}, init::T) where T
+    init + T(count(f, nonzeros(x)) + f(_densezero(x))*(length(x) - nnz(x)))
 end
 
 # implement the nnz - nzrange - nonzeros - rowvals interface for sparse vectors
@@ -555,6 +555,7 @@ sparsevec(a::AbstractVector{T}) where {T} = SparseVector{T, Int}(a)
 sparsevec(a::AbstractArray) = sparsevec(vec(a))
 sparsevec(a::AbstractSparseMatrixCSC) = a[:]
 sparsevec(a::AbstractSparseVector) = vec(a)
+sparsevec(a::Union{SparseColumnView,SparseVectorView}) = SparseVector(a)
 sparse(a::AbstractVector) = sparsevec(a)
 
 function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray) where {Tv,Ti}
@@ -595,9 +596,9 @@ SparseVector{Tv}(s::AbstractVector) where {Tv} = SparseVector{Tv,Int}(s)
 SparseVector(s::AbstractVector{Tv}) where {Tv} = SparseVector{Tv,Int}(s)
 
 # copy-constructors
-SparseVector(s::AbstractCompressedVector{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
-SparseVector{Tv}(s::AbstractCompressedVector{<:Any,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
-function SparseVector{Tv,Ti}(s::AbstractCompressedVector) where {Tv,Ti}
+SparseVector(s::SparseVectorOrView{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
+SparseVector{Tv}(s::SparseVectorOrView{<:Any,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
+function SparseVector{Tv,Ti}(s::SparseVectorOrView) where {Tv,Ti}
     copyind = Vector{Ti}(nonzeroinds(s))
     copynz = Vector{Tv}(nonzeros(s))
     SparseVector{Tv,Ti}(length(s), copyind, copynz)

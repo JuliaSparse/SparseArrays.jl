@@ -1805,9 +1805,9 @@ end
         @test ((1 + im) * v)::T == (1 + im) * d
         @test copy(v)::T == d
     end
-    # the full-column and full-vector views scale in place through the parent's storage
-    # (`view(x, :)` is a `SparseVectorView` only when the parent's axes are `Int`-sized)
-    for v in (view(A, :, 1), (Ti === Int ? (view(x, :),) : ())...), a in (1.0 + im,)
+    # the full-column and full-vector views scale in place through the parent's storage,
+    # also when the parent's axes are not `Int`
+    for v in (view(A, :, 1), view(x, :), view(SparseVector{ComplexF64,Int128}(x), :)), a in (1.0 + im,)
         @test which(*, (typeof(v), typeof(a))).module === SparseArrays
         @test which(*, (typeof(a), typeof(v))).module === SparseArrays
         @test which(/, (typeof(v), typeof(a))).module === SparseArrays
@@ -1830,6 +1830,15 @@ end
             f(v)
             @test @allocated(f(v)) < 10^4
         end
+    end
+    # `count` calls `f` on the stored entries and on one zero
+    calls = Ref(0)
+    @test count(z -> (calls[] += 1; !iszero(z)), view(SparseVector{ComplexF64,Int32}(y), :)) == 2 && calls[] == 3
+    # a whole view converts with the parent's index type and stored zeros
+    z = SparseVector{ComplexF64,Int32}(x)
+    C = SparseMatrixCSC{ComplexF64,Int32}(A)
+    for (v, u) in ((view(z, :), z), (view(C, :, 1), C[:, 1])), f in (SparseVector, sparse, w -> vcat(w, w), w -> kron(w, z))
+        @test exact_equal(f(v), f(u))
     end
 end
 end
