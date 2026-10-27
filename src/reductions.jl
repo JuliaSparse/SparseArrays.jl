@@ -9,6 +9,8 @@
 using Base: CommutativeOps, _InitialValue, _mapreduce_start
 
 widelength(inds::CartesianIndices) = prod(Int64.(size(inds)))
+# a vector's length fits an `Int`; the views are not `AbstractSparseArray`s, which have it
+widelength(x::Union{SparseColumnView,SparseVectorView}) = Int64(length(x))
 
 # Reductions along a dimension return a dense `Array`, including for views and adjoints
 # (#377), where Base's `similar` would give a sparse one.

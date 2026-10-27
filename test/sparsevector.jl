@@ -1225,6 +1225,10 @@ end
             dv = Vector(M[:, j])
             @test sum(cv) ≈ sum(dv)
             @test maximum(abs2, cv) == maximum(abs2, dv)
+            # an `op` not known to commute, and a product of values that do not: the
+            # order-preserving kernel, which counts the view's entries
+            @test mapreduce(x -> x + 1, (a, b) -> a + b, cv) ≈ mapreduce(x -> x + 1, (a, b) -> a + b, dv)
+            @test prod(x -> string(round(Int, 10x)), cv) == prod(x -> string(round(Int, 10x)), dv)
         end
         for n in (100, 5000)
             v = sprand(n, 10/n)
@@ -1237,6 +1241,7 @@ end
             end
             @test sum(x->x+1, vv) ≈ sum(x->x+1, dv)
             @test sum(x->x+1, fv) ≈ sum(x->x+1, dv)
+            @test mapreduce(x -> x + 1, (a, b) -> a + b, vv) ≈ mapreduce(x -> x + 1, (a, b) -> a + b, dv)
             @test count(!iszero, vv) == count(!iszero, dv)
         end
     end
