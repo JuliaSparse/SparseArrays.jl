@@ -718,6 +718,13 @@ end
     x = fixturevec(Float64, 10); y = ones(Int, 9)
     @test spdiagm(0 => x, 1 => y)::SparseMatrixCSC{Float64,Int} == Bidiagonal(Vector(x), ones(9), :U)
     @test nnz(spdiagm(0 => x, 1 => y)) == length(y) + nnz(x)
+    @static if COMPREHENSIVE
+    # so do views of a sparse vector or column
+    A = fixture(Float64, 10, 3)
+    for v in (view(x, :), view(x, 2:9), view(A, :, 1))
+        @test exact_equal(spdiagm(-1 => v), spdiagm(-1 => copy(v)))
+    end
+    end
 end
 
 @static if COMPREHENSIVE
