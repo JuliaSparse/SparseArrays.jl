@@ -189,39 +189,52 @@ along(f::F, X, dims) where {F} = f(X; dims)
 
         some_exception(op) = try return (Some(op()), nothing); catch ex; return (nothing, ex); end
         reduced_shape(sz, dims) = ntuple(d -> d in dims ? 1 : sz[d], length(sz))
-        # every reduction of an empty array gives the value, or the error, of the dense one
-        @testset "$r(spzeros($T, $sz); dims=$dims)" for
+        # every reduction of an empty array gives the value, or the error, of the dense one;
+        # so do its adjoint and transpose, which reduce through the parent (with `f ∘ adjoint`,
+        # which must not lose the empty value `f` has, as `abs2` under `max` or a `Union` with
+        # `Missing` do), and the `sparse = true` result where there is one
+        # (the adjoint of a vector with an abstract element type has element type `Any`, which
+        # no method with the keyword covers)
+        has_sparse_kw(r, A) = r in (sum, prod, minimum, maximum, all, any, count) &&
+            hasmethod(mapreduce, Tuple{typeof(identity), typeof(+), typeof(A)}, (:dims, :sparse))
+        @testset "$r(spzeros($T, $sz)$wrap; dims=$dims)" for
             r in (minimum, maximum, findmin, findmax, extrema, sum, prod, mapreduce, all, any, count),
             T in (Int, Union{Missing, Int}, Number, Union{Missing, Number}, Bool, Union{Missing, Bool}),
             sz in ((0,), (0,1), (1,0), (0,0),),
-            dims in (1, 2, (1,2))
+            (wrap, wrapper) in (("", identity), ("'", adjoint), (@static COMPREHENSIVE ? (("ᵀ", transpose),) : ())...),
+            dims in (1, 2, (1,2), (@static COMPREHENSIVE ? (3,) : ())...)
 
-            A = spzeros(T, sz...)
-            rsz = reduced_shape(sz, dims)
+            A = wrapper(spzeros(T, sz...))
+            D = wrapper(zeros(T, sz...))
+            rsz = reduced_shape(size(A), dims)
 
-            v, ex = some_exception() do; r(A); end
+            v, ex = some_exception() do; r(D); end
             if isnothing(v)
+                @test_throws typeof(ex) r(A)
                 @test_throws typeof(ex) r(A; dims)
-                @test_throws typeof(ex) r(zeros(T, sz...))
-                @test_throws typeof(ex) r(zeros(T, sz...); dims)
+                @test_throws typeof(ex) r(D; dims)
+                has_sparse_kw(r, A) && @test_throws typeof(ex) r(A; dims, sparse = true)
             else
                 actual = fill(something(v), rsz)
-                @test something(v) === r(zeros(T, sz...))
+                @test something(v) === r(A)
                 @test isequal(r(A; dims), actual)
                 @test eltype(r(A; dims)) === eltype(actual)
+                has_sparse_kw(r, A) && @test isequal(Array(r(A; dims, sparse = true)), actual) && eltype(r(A; dims, sparse = true)) === eltype(actual)
             end
 
             for f in (identity, abs, abs2)
-                v, ex = some_exception() do; r(f, A); end
+                v, ex = some_exception() do; r(f, D); end
                 if isnothing(v)
+                    @test_throws typeof(ex) r(f, A)
                     @test_throws typeof(ex) r(f, A; dims)
-                    @test_throws typeof(ex) r(f, zeros(T, sz...))
-                    @test_throws typeof(ex) r(f, zeros(T, sz...); dims)
+                    @test_throws typeof(ex) r(f, D; dims)
+                    has_sparse_kw(r, A) && @test_throws typeof(ex) r(f, A; dims, sparse = true)
                 else
                     actual = fill(something(v), rsz)
-                    @test something(v) === r(f, zeros(T, sz...))
+                    @test something(v) === r(f, A)
                     @test isequal(r(f, A; dims), actual)
                     @test eltype(r(f, A; dims)) === eltype(actual)
+                    has_sparse_kw(r, A) && @test isequal(Array(r(f, A; dims, sparse = true)), actual) && eltype(r(f, A; dims, sparse = true)) === eltype(actual)
                 end
             end
         end

@@ -413,6 +413,9 @@ end
 const _NotColon = Union{Integer, Tuple, AbstractVector, Nothing}
 function Base.mapreducedim(f, op, A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}, init, dims::_NotColon,
                            alloc=Base._MapReduceAllocator(A))
+    # An empty input is seeded by `mapreduce_empty`, whose special cases (`abs2` under `max`,
+    # a `Union` with `Missing`) go with `f` itself, not with `f ∘ g`: reduce the (empty) copy.
+    isempty(A) && return Base.mapreducedim(f, op, copy(A), init, dims, alloc)
     g = wrapperop(A)
     if alloc isa Base._MapReduceInPlace
         R = alloc.A
@@ -433,6 +436,8 @@ _switch_dim12(R::AbstractArray) = PermutedDimsArray(R, (2, 1, ntuple(Base.Fix1(+
 # reducing along dim 1 just maps each element.
 function Base.mapreducedim(f, op, A::AdjOrTransSparseVectorOrView, init, dims::_NotColon,
                            alloc=Base._MapReduceAllocator(A))
+    # the empty row reduces as its copy, see above
+    isempty(A) && return Base.mapreducedim(f, op, _sparsecopy(A), init, dims, alloc)
     g = wrapperop(A)
     if alloc isa Base._MapReduceInPlace
         R = alloc.A
@@ -440,12 +445,16 @@ function Base.mapreducedim(f, op, A::AdjOrTransSparseVectorOrView, init, dims::_
         return R
     end
     2 in dims && return fill(Base.mapreducedim(f ∘ g, op, parent(A), init, :), 1, 1)
-    # Along dim 1 (or any dim > 2) each element is its own slice. An empty row has nothing
-    # to seed the result with, so this throws like the dense method does.
-    isempty(A) && _mapreduce_start(f, op, A, init)
+    # Along dim 1 (or any dim > 2) each element is its own slice. The result is collected
+    # from the values, as Base's is, so that a `Union` narrows to the values present.
     r = map(x -> _mapreduce_start(f, op, A, init, g(x)), parent(A))
-    return reshape(Array(r), 1, length(r))
+    return alloc(x for x in reshape(Array(r), 1, length(r)))
 end
+# the copy of an adjoint or transpose with compressed storage: `copy` of a row vector's
+# keeps the wrapper, this is the `1 x n` matrix (`map`, as a broadcast of `Bool`s is a `BitVector`)
+_sparsecopy(A) = copy(A)
+_sparsecopy(A::AdjOrTransSparseVectorOrView) =
+    (B = parent(A); _rowmatrix(length(B), nonzeroinds(B), map(wrapperop(A), nonzeros(B))))
 
 # With `sparse = true` (#43), `sum(A; dims = 2, sparse = true)` and the other reductions
 # along a dimension return a `SparseMatrixCSC` (a `SparseVector` for vector input). It
@@ -652,37 +661,48 @@ end
 # A slice of `A'` is a slice of `A` along the other dimension. Reducing both dimensions folds
 # the elements in their order, which the parent does not share.
 function _mapreduce_dim_sparse(f, op, init, A::AdjOrTrans, dims)
-    1 in dims && 2 in dims && return _mapreduce_dim_sparse(f, op, init, copy(A), dims)
+    # the empty value of `f`, not of `f ∘ g`, seeds an empty input; see `Base.mapreducedim`
+    (isempty(A) || (1 in dims && 2 in dims)) && return _mapreduce_dim_sparse(f, op, init, copy(A), dims)
     g = A isa Adjoint ? adjoint : transpose
     return permutedims(_mapreduce_dim_sparse(f ∘ g, op, init, parent(A), map(_switch_dim12, dims)), (2, 1))
 end
 # the single row is the parent: reduced along the columns it folds the parent, and reduced
 # along the row alone there is an entry per element
 function _mapreduce_dim_sparse(f, op, init, A::AdjOrTransSparseVectorOrView, dims)
+    isempty(A) && return _mapreduce_dim_sparse(f, op, init, _sparsecopy(A), dims)
     r = _mapreduce_dim_sparse(f ∘ wrapperop(A), op, init, parent(A), map(_switch_dim12, dims))
     return _rowmatrix(length(r), nonzeroinds(r), nonzeros(r))
 end
 
+# An empty array reduces to the empty value in every slice, or throws, like a dense array,
+# whose result takes that value's type (`T` may have no zero to seed the type from)
+function _sparse_reduced_empty(f, op, init, A::AbstractArray{T,N}, ::Type{Ti}, dims) where {T,N,Ti}
+    v = _reduced_empty(f, op, init, T)
+    Tr = typeof(v)
+    applicable(zero, Tr) || throw(ArgumentError("cannot store a sparse result of element type $Tr, " *
+        "which has no zero (as for `extrema`); reduce without `sparse = true`"))
+    R = fill(v, map(length, Base.reduced_indices(A, dims)))
+    return N == 1 ? SparseVector{Tr,Ti}(R) : SparseMatrixCSC{Tr,Ti}(R)
+end
+
 function _mapreduce_dim_sparse(f, op, init, A::SparseVectorOrView{T,Ti}, dims) where {T,Ti}
     Base.reduced_indices(A, dims)   # validates `dims`
-    # An empty array gives the empty value, or throws, like a dense array
-    isempty(A) && _reduced_empty(f, op, init, T)
+    isempty(A) && return _sparse_reduced_empty(f, op, init, A, Ti, dims)
     Tr = _sparse_reduced_eltype(f, op, init, A)
     # a dimension beyond 1: every entry is a slice of its own
     1 in dims || return convert(SparseVector{Tr,Ti}, map(x -> _seed(f, op, init, x), A isa SubArray ? copy(A) : A))
-    v = isempty(A) ? _reduced_empty(f, op, init, T) : _seed(identity, op, init, mapreduce(f, op, A))
+    v = _seed(identity, op, init, mapreduce(f, op, A))
     return nnz(A) > 0 || !isequal(v, zero(Tr)) ? SparseVector(1, Ti[1], Tr[v]) : spzeros(Tr, Ti, 1)
 end
 
 function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,Ti}, dims) where {T,Ti}
     m, n = size(A)
     rm, rn = map(length, Base.reduced_indices(A, dims))   # also validates `dims`
-    # An empty array gives the empty value, or throws, like a dense array
-    isempty(A) && _reduced_empty(f, op, init, T)
+    isempty(A) && return _sparse_reduced_empty(f, op, init, A, Ti, dims)
     Tr = _sparse_reduced_eltype(f, op, init, A)
     if rm == rn == 1
         R = spzeros(Tr, Ti, 1, 1)
-        v = isempty(A) ? _reduced_empty(f, op, init, T) : _seed(identity, op, init, mapreduce(f, op, A))
+        v = _seed(identity, op, init, mapreduce(f, op, A))
         if nnz(A) > 0 || !isequal(v, zero(Tr))
             push!(getrowval(R), 1)
             push!(getnzval(R), v)
