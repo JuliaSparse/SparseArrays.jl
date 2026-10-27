@@ -979,7 +979,7 @@ end
     @test_throws OverflowError B[[1]] = [1.0]
     @test_throws OverflowError B[1] = 1.0
     @test nnz(B) == 0
-    @test nnz(sprand(Xoshiro(1), 2^62, 4, 1e-17)) > 0
+    @test_throws OverflowError sprand(Xoshiro(1), 2^62, 4, 1e-17)
 end
 
 if isdefined(Docs, :undocumented_names) # new in Julia 1.11
