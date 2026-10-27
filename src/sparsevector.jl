@@ -163,11 +163,9 @@ rowvals(x::SparseVectorOrView) = nonzeroinds(x)
 indtype(x::SparseColumnView) = indtype(parent(x))
 indtype(x::Union{SparseVectorView, SparseVectorPartialView}) = indtype(parent(x))
 
-# the sparse vector a view reads as, built from its stored entries: `copy` of a column view
-# widens the index type to `Int` and `SparseVector(view)` scans every element
+# the sparse vector a view reads as
 _sparsevector(x::AbstractCompressedVector) = x
-_sparsevector(x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) =
-    SparseVector(length(x), convert(Vector{indtype(x)}, nonzeroinds(x)), convert(Vector{eltype(x)}, nonzeros(x)))
+_sparsevector(x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) = SparseVector(x)
 
 
 function Base.sizehint!(v::SparseVector, newlen::Integer)
@@ -555,7 +553,7 @@ sparsevec(a::AbstractVector{T}) where {T} = SparseVector{T, Int}(a)
 sparsevec(a::AbstractArray) = sparsevec(vec(a))
 sparsevec(a::AbstractSparseMatrixCSC) = a[:]
 sparsevec(a::AbstractSparseVector) = vec(a)
-sparsevec(a::Union{SparseColumnView,SparseVectorView}) = SparseVector(a)
+sparsevec(a::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) = SparseVector(a)
 sparse(a::AbstractVector) = sparsevec(a)
 
 function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray) where {Tv,Ti}
@@ -596,9 +594,9 @@ SparseVector{Tv}(s::AbstractVector) where {Tv} = SparseVector{Tv,Int}(s)
 SparseVector(s::AbstractVector{Tv}) where {Tv} = SparseVector{Tv,Int}(s)
 
 # copy-constructors
-SparseVector(s::SparseVectorOrView{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
-SparseVector{Tv}(s::SparseVectorOrView{<:Any,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
-function SparseVector{Tv,Ti}(s::SparseVectorOrView) where {Tv,Ti}
+SparseVector(s::Union{SparseVectorOrView{Tv,Ti},SparseVectorPartialView{Tv,Ti}}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
+SparseVector{Tv}(s::Union{SparseVectorOrView{<:Any,Ti},SparseVectorPartialView{<:Any,Ti}}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
+function SparseVector{Tv,Ti}(s::Union{SparseVectorOrView,SparseVectorPartialView}) where {Tv,Ti}
     copyind = Vector{Ti}(nonzeroinds(s))
     copynz = Vector{Tv}(nonzeros(s))
     SparseVector{Tv,Ti}(length(s), copyind, copynz)
