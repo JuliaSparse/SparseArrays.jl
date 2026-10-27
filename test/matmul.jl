@@ -972,6 +972,15 @@ end
             @test all(nonzeros(y) .!= 0.0)
             @test mismatch(y, Af * xf; Ti=Int, approx=true) === nothing
             @test mismatch((A * view(x, :))::SparseVector{Float64,Int}, Af * xf; approx=true) === nothing
+            @static if COMPREHENSIVE
+            # a range view multiplies as a whole view of the sparse vector it reads as
+            w = view(x, 3:11)
+            S = A[:, 3:11]
+            for M in (S, view(A, :, 3:11), UpperTriangular(S), Symmetric(S), UpperTriangular(S)')
+                @test which(*, (typeof(M), typeof(w))).module === SparseArrays
+                @test exact_equal(M * w, M * view(x[3:11], :))
+            end
+            end
 
             y = *(transpose(A), x2)
             @test isa(y, SparseVector{Float64,Int})
