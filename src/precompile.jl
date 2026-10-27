@@ -13,6 +13,7 @@ if Base.generating_output()
         copy(A'); sum(A); findnz(A); dropzeros(A); diag(A); kron(A, A)
         hcat(A, A); vcat(A, A); [A A; A A]
         v + v; dot(v, v)
+        sprand(3, 3, 0.5)
         sprint(show, MIME"text/plain"(), A); sprint(show, A)
         sprint(show, MIME"text/plain"(), v); sprint(show, v)
         @static if Base.USE_GPL_LIBS
