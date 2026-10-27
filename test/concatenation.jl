@@ -91,7 +91,7 @@ include("testhelpers.jl")
         A32 = SparseMatrixCSC{Float64,Int32}(A)
         v32 = SparseVector{Float64,Int32}(vz)
         @test [A32 v32; v32' 1.0] isa SparseMatrixCSC{Float64,Int32}
-        @test [1.0 v32'; v32 A32] isa SparseMatrixCSC{Float64,Int}  # a leading number widens
+        @test [1.0 v32'; v32 A32] isa SparseMatrixCSC{Float64,Int32}
         end
         @test_throws DimensionMismatch [A vz; 1 2]
         @static if COMPREHENSIVE
@@ -142,6 +142,16 @@ include("testhelpers.jl")
         sz33 = spzeros(3, 3)
         de33 = Matrix(1.0I, 3, 3)
         @test [se33 de33; sz33 se33] == Array([se33 se33; sz33 se33 ])
+        # the index type is promoted over the sparse blocks, not taken from the first
+        A8, A = spzeros(Float64, Int8, 1, 2), spzeros(200, 2)
+        @test mismatch(vcat(A8, A, ones(1, 2)), [zeros(201, 2); ones(1, 2)], Ti=Int) === nothing
+        v8, v = spzeros(Float64, Int8, 1), spzeros(200)
+        @test mismatch(vcat(v8, v, ones(1)), [zeros(201); 1], Ti=Int) === nothing
+        # a dense block or `I` adds no index type, wherever it is
+        @test mismatch(hcat(ones(1), v8), [1.0 0.0], Ti=Int8) === nothing
+        @test mismatch(hcat(I, A8'), [Matrix(1.0I, 2, 2) zeros(2)], Ti=Int8) === nothing
+        @test mismatch([A8' ones(2); A8' ones(2)], [zeros(2) ones(2); zeros(2) ones(2)], Ti=Int8) === nothing
+        @test mismatch(sparse_hcat(ones(2), A8', I), [ones(2) zeros(2) Matrix(1.0I, 2, 2)], Ti=Int8) === nothing
     end
     end
 
@@ -393,9 +403,9 @@ end
     @static if COMPREHENSIVE
     B = sparse(I, 4, 4)
     @test mismatch(@inferred(hvcat(rows, S, B, B, S)), [dS I; I dS]; Ti=Int) === nothing
-    # a dense block converts to `Int` indices
+    # a dense block adds no index type
     S32 = SparseMatrixCSC{Float64,Int32}(S)
-    @test mismatch(@inferred(lit22(S32, A)), [dS A; A A]; Ti=Int) === nothing
+    @test mismatch(@inferred(lit22(S32, A)), [dS A; A A]; Ti=Int32) === nothing
     end
 end
 
@@ -584,11 +594,12 @@ end
     @test mismatch(sparse_vcat(1, 2), [1, 2]) === nothing
     @static if COMPREHENSIVE
     @test sparse_hcat(1, 2)::SparseMatrixCSC == [1 2]
-    # a leading number widens a narrow index type as it did before
-    v8 = sparsevec(Int8[127], [2], 127); A8 = sparse(Int8[127], Int8[1], [2], 127, 2)
-    @test vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
-    @test sparse_vcat(1, v8)::SparseVector{Int,Int} == vcat(1, Array(v8))
-    @test vcat(1, A8)::SparseMatrixCSC{Int,Int} == vcat(1, Array(A8))
+    # a leading number adds no index type, and the size of the result is checked against it
+    v8 = sparsevec(Int8[126], [2], 126); A8 = sparse(Int8[126], Int8[1], [2], 126, 2)
+    @test vcat(1, v8)::SparseVector{Int,Int8} == vcat(1, Array(v8))
+    @test sparse_vcat(1, v8)::SparseVector{Int,Int8} == vcat(1, Array(v8))
+    @test vcat(1, A8)::SparseMatrixCSC{Int,Int8} == vcat(1, Array(A8))
+    @test_throws ArgumentError vcat(1, 2, v8)
     # a vector whose length is not an `Int` stacked on a matrix
     w8 = sparsevec(Int8[1], [2.0], 2)
     @test mismatch(vcat(w8, ones(1, 1)), vcat(Array(w8), ones(1, 1)), Ti=Int8) === nothing

@@ -986,20 +986,28 @@ estimator of Higham and Tisseur, from a factorization of `A` by `factorize` and 
 forming the inverse, so the result can fall below the exact condition number. `p = 2`, the
 default, throws an `ArgumentError`, so `cond(A)` does too: use `cond(Array(A))` for a matrix
 small enough to store dense.
+
+A singular matrix gives `Inf` when its factorization meets an exactly zero pivot. Rounding
+can hide that zero, and the result is then finite but very large. The sparse LU pivots in
+another order than the dense one, so `cond(A, p)` can be finite where `cond(Array(A), p)`
+is `Inf`.
 """
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
+    # the type of dense `cond`, whichever precision the factorization of `A` works in
+    T = float(real(eltype(A)))
     # as for a dense matrix; the estimator of the inverse's norm needs at least one column
-    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(real(float(eltype(A))))
+    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(T)
     if p == 1 || p == Inf
-        # a singular matrix has an infinite condition number, as for a dense matrix; a
-        # triangular or diagonal `factorize(A)` reports it only in the solve
-        normAinv = try
-            p == 1 ? opnormestinv(A) : opnormestinv(copy(A'))
+        B = p == 1 ? A : copy(A')
+        # a singular matrix has an infinite condition number, as for a dense matrix
+        F = try
+            factorize(B)
         catch e
             e isa SingularException || rethrow()
-            return convert(float(real(eltype(A))), Inf)
+            return convert(T, Inf)
         end
-        return opnorm(A, p) * normAinv
+        _issingularfactor(F) && return convert(T, Inf)
+        return convert(T, opnorm(A, p) * _opnormestinv(B, F, min(2, size(B, 1))))
     elseif p == 2
         throw(ArgumentError("only 1- and Inf-norm condition numbers are implemented for sparse matrices, for 2-norm try cond(Array(A), 2) instead"))
     else
@@ -1007,11 +1015,22 @@ function cond(A::AbstractSparseMatrixCSC, p::Real=2)
     end
 end
 
-function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A)))) where T
+# `factorize` throws for a singular LU or Hermitian factorization, but leaves a triangular
+# or diagonal one to the solve
+_issingularfactor(F) = false
+_issingularfactor(D::Diagonal) = any(iszero, D.diag)
+_issingularfactor(L::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = !iszero(_trisingular(false, parent(L)))
+_issingularfactor(U::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = !iszero(_trisingular(true, parent(U)))
+
+function opnormestinv(A::AbstractSparseMatrixCSC, t::Integer = min(2,maximum(size(A))))
+    checksquare(A)
+    return _opnormestinv(A, factorize(A), t)
+end
+
+# the estimate for the factorization `F` of `A`
+function _opnormestinv(A::AbstractSparseMatrixCSC{T}, F, t::Integer) where T
     maxiter = 5
-    # Check the input
-    n = checksquare(A)
-    F = factorize(A)
+    n = size(A, 1)
     if t <= 0
         throw(ArgumentError("number of blocks must be a positive integer"))
     end
@@ -1177,13 +1196,13 @@ end
 # Hermitian or triangular wrapper of a sparse vector or matrix or its adjoint or transpose.
 # Views stay out of the wrappers: each such wrapped view in these signatures makes loading
 # the package much slower, as Julia compares it with LinearAlgebra's triangular methods.
-const _SparseKronGroup = Union{SparseVectorOrView, SparseMatrixCSCSubArray,
-                               AdjOrTrans{<:Any,<:Union{SparseVectorOrView, SparseMatrixCSCSubArray}},
+const _SparseKronGroup = Union{SparseVectorOrView, SparseVectorPartialView, SparseMatrixCSCSubArray,
+                               AdjOrTrans{<:Any,<:Union{SparseVectorOrView, SparseVectorPartialView, SparseMatrixCSCSubArray}},
                                SparseVecOrMatMaybeAdjOrTrans,
                                HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
                                UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
 _kronmatrix(A) = convert(SparseMatrixCSC, A)
-_kronmatrix(x::Union{SparseColumnView,SparseVectorView}) = convert(SparseMatrixCSC, SparseVector(x))
+_kronmatrix(x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) = convert(SparseMatrixCSC, SparseVector(x))
 # A number scales a view of a sparse matrix into a dense matrix unless the view selects
 # whole columns. Scaling the sparse matrix it converts to gives what the number gives with
 # a sparse matrix that is not a view.
@@ -1321,8 +1340,10 @@ kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(_kronmatrix(A), _kronmatrix(B))
 kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
 kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
-kron(x::SparseVectorOrView, y::SparseVectorOrView) = kron(SparseVector(x), SparseVector(y))
-kron(A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) = A .* B
+kron(x::Union{SparseVectorOrView,SparseVectorPartialView}, y::Union{SparseVectorOrView,SparseVectorPartialView}) =
+    kron(SparseVector(x), SparseVector(y))
+kron(A::Union{SparseVectorOrView,SparseVectorPartialView},
+     B::AdjOrTrans{<:Any,<:Union{SparseVectorOrView,SparseVectorPartialView}}) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
 kron(a::Number, b::_SparseKronGroup) = a * _kronscaled(b)

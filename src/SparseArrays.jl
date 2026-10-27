@@ -160,9 +160,10 @@ const SparseMatrixCSCSubArray{Tv,Ti} = SubArray{Tv,2,<:AbstractSparseMatrixCSC{T
 const SparseMatrixCSCOrSubArray{Tv,Ti} = Union{AbstractSparseMatrixCSC{Tv,Ti}, SparseMatrixCSCSubArray{Tv,Ti}}
 
 # Whole-column views of sparse matrices and whole views of sparse vectors share the
-# sparse vector interface.
+# sparse vector interface. The length of a `SparseVector` has its index type, so a whole
+# view of one slices a `OneTo{Ti}`.
 const SparseColumnView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseMatrixCSC{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}},Int},false}
-const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},Tuple{Base.Slice{Base.OneTo{Int}}},false}
+const SparseVectorView{Tv,Ti}  = SubArray{Tv,1,<:AbstractSparseVector{Tv,Ti},<:Tuple{Base.Slice{<:Base.OneTo}},false}
 const SparseVectorOrView{Tv,Ti} = Union{AbstractCompressedVector{Tv,Ti}, SparseColumnView{Tv,Ti}, SparseVectorView{Tv,Ti}}
 const AdjOrTransSparseVectorOrView{Tv,Ti} = AdjOrTrans{Tv, <:SparseVectorOrView{Tv,Ti}}
 # view of a unit range of a sparse vector's indices
@@ -208,7 +209,8 @@ const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 # transpose of the operand. Sparse matrices and their views, with or without an adjoint or
 # transpose, and a transposed sparse vector as a one-row matrix; and sparse vectors and their
 # views. An adjoint sparse vector is left to LinearAlgebra's generic (Q' * u')', which keeps
-# the result an Adjoint as for a dense vector.
+# the result an Adjoint as for a dense vector. `spdiagm` reads the vector operands by their
+# stored entries.
 const SparseQMatOperand = Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:SparseMatrixCSCOrView},
                                 Transpose{<:Any,<:SparseVectorOrView}}
 const SparseQVecOperand = Union{AbstractSparseVector, SparseVectorOrView, SparseVectorPartialView}
@@ -380,7 +382,11 @@ julia> collect(SparseArrays.iternz(x))
 """
 function iternz end
 
-widelength(x::AbstractSparseArray) = prod(Int64.(size(x)))
+widelength(x::AbstractSparseArray) = prod(widen, size(x))
+# Linear indexing compares an index with `length(A)`, which wraps for 2^63 entries or more
+_checklinearindexing(A::AbstractSparseMatrixCSC) = widelength(A) <= typemax(Int) ||
+    throw(OverflowError(string("a ", size(A, 1), "×", size(A, 2), " sparse matrix has more ",
+        "entries than an `Int` can index linearly; index it by row and column")))
 
 
 const _restore_scalar_indexing = Expr[]
