@@ -418,17 +418,21 @@ end
         @test m(F, dims=region) == m(Array(F), dims=region) && m(G, dims=region) == m(Array(G), dims=region)
     end
     @test argmin(F) == argmin(Array(F)) && argmax(G) == argmax(Array(G))
-    @static if COMPREHENSIVE
-    # a stored -0.0 is less than the zero of an entry that is not stored, as for dense input
-    for Z in (sparse([1], [1], [-0.0], 2, 1), sparse([1, 2], [1, 2], [-0.0, -0.0], 2, 2),
+    # a stored -0.0 is less than the zero of an entry that is not stored, as for dense input,
+    # and keeps its own position: the maximum is the entry not stored, not the stored -0.0
+    for Z in (sparse([1], [1], [-0.0], 2, 1), sparse([1, 2], [1, 1], [0.0, -0.0], 3, 1),
+              (@static COMPREHENSIVE ? (sparse([1, 2], [1, 2], [-0.0, -0.0], 2, 2),
               sparse([1, 2, 1, 2], [1, 1, 2, 2], [-0.0, -0.0, -0.0, -0.0], 2, 2),
-              sparse([1, 2, 3], [1, 1, 2], [-0.0, 0.0, -0.0], 3, 2), sparse([1, 2, 1], [1, 1, 2], [0.0, -0.0, NaN], 3, 2)),
+              sparse([1, 2, 3], [1, 1, 2], [-0.0, 0.0, -0.0], 3, 2), sparse([1, 2, 1], [1, 1, 2], [0.0, -0.0, NaN], 3, 2)) : ())...),
         m in (findmax, findmin)
         @test isequal(m(Z), m(Array(Z)))
         for region in (1, 2, (1,2))
             @test isequal(m(Z, dims=region), m(Array(Z), dims=region))
         end
+        # a map that tells the signed zeros apart sees the stored one at its position only
+        @test isequal(m(x -> 1 / x, Z), m(x -> 1 / x, Array(Z)))
     end
+    @static if COMPREHENSIVE
     # `missing`, which dense ranks above `NaN`
     D = Union{Missing,Float64}[NaN missing; 0.0 2.0]
     @test isequal(findmin(sparse(D)), findmin(D))
@@ -492,6 +496,17 @@ end
             @test isequal(argmax(A), argmax(D))
             @test isequal(argmin(A; dims=2), argmin(D; dims=2))
         end
+        # a view of a column subset finds through the parent's stored entries, like its copy
+        P = sprand(40, 30, 0.1); P[7, 12] = -3.0; P[9, 3] = 3.0
+        for V in (view(P, :, 2:14), view(P, :, [12, 3, 3, 29, 1])), r in (findmin, findmax)
+            C = Array(V)
+            @test isequal(r(V), r(C)) && isequal(r(abs, V), r(abs, C))
+            for dims in (1, 2, (1,2))
+                @test isequal(r(V; dims), r(C; dims))
+            end
+            @test isequal(argmin(V; dims=2), argmin(C; dims=2))
+        end
+        @test which(Base._findmin, Base.typesof(identity, view(P, :, 2:14), :)).module === SparseArrays
         # eltype must be preserved exactly like dense
         B = sparse([1],[1],Union{Missing,Float64}[2.0],3,3)
         DB = Array(B)

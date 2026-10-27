@@ -778,14 +778,16 @@ end
 ### findmin/findmax and argmin/argmax
 
 # Fold over the stored values in column-major order, then compare the result with the first
-# zero in each slice. Base only replaces the current best with a strictly better value, so
-# ties go to the earliest position, and the first zero is the only one that can win.
+# entry not stored in each slice. Base only replaces the current best with a strictly better
+# value, so ties go to the earliest position, and the first such entry is the only one that
+# can win.
 
-# find the first zero value in a sparse matrix, returning its CartesianIndex;
-# both implicit zeros and stored (numerically) zero values are considered.
-# Returns CartesianIndex(0, 0) when there is none.
-function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=axes(A,1), cols=axes(A,2)) where {Tv,Ti}
-    rowval = getrowval(A); nzval = getnzval(A)
+# find the first entry of a sparse matrix that is not stored, returning its CartesianIndex,
+# or CartesianIndex(0, 0) when there is none. A stored zero is not one of them: it may be a
+# `-0.0`, which `isless` tells from `zero(Tv)`, and `f` may tell apart too, so it is compared
+# like any other stored value, at its own position.
+function _findz(A::SparseMatrixCSCOrColumnSubset{Tv,Ti}, rows=axes(A,1), cols=axes(A,2)) where {Tv,Ti}
+    rowval = getrowval(A)
     row = 0
     rowmin = rows[1]; rowmax = rows[end]
     allrows = (rows == axes(A,1))
@@ -798,7 +800,7 @@ function _findz(A::AbstractSparseMatrixCSC{Tv,Ti}, rows=axes(A,1), cols=axes(A,2
             (r1 <= r2) && (r2 = searchsortedlast(view(rowval, r1:r2), rowmax) + r1 - 1)
         end
         row = rowmin
-        while (r1 <= r2) && (row == rowval[r1]) && _isnotzero(nzval[r1])
+        while (r1 <= r2) && (row == rowval[r1])
             r1 += 1
             row += 1
         end
@@ -818,7 +820,7 @@ function _fm_merge(cmp::C, fm, im, fz, zi) where {C}
 end
 
 # Whole array: fold the stored values in column-major order
-function _findminmax(f::F, cmp::C, A::AbstractSparseMatrixCSC{T}) where {F,C,T}
+function _findminmax(f::F, cmp::C, A::SparseMatrixCSCOrColumnSubset{T}) where {F,C,T}
     rowval = getrowval(A); nzval = getnzval(A)
     best = nothing
     @inbounds for col in axes(A, 2), j in getnzrange(A, col)
@@ -834,7 +836,7 @@ function _findminmax(f::F, cmp::C, A::AbstractSparseMatrixCSC{T}) where {F,C,T}
     return _fm_merge(cmp, best[1], best[2], fz, zi)
 end
 
-function _findminmax_dims(cmp::C, A::AbstractSparseMatrixCSC{T}, region) where {C,T}
+function _findminmax_dims(cmp::C, A::SparseMatrixCSCOrColumnSubset{T}, region) where {C,T}
     m, n = size(A)
     rowval = getrowval(A); nzval = getnzval(A)
     axs = Base.reduced_indices(A, region)
@@ -888,12 +890,14 @@ function _findminmax_dims(cmp::C, A::AbstractSparseMatrixCSC{T}, region) where {
 end
 
 # `_findmin`/`_findmax` implement `findmin`, `findmax`, `argmin` and `argmax`, with or
-# without `dims`. Empty arrays, `dims` with an `f` other than `identity`, and unusual `dims`
-# use Base's generic methods, which also throw the errors for empty input.
+# without `dims`, for CSC matrices and views of a column subset, whose stored entries are
+# those of their columns in the parent. Empty arrays, `dims` with an `f` other than
+# `identity`, and unusual `dims` use Base's generic methods, which also throw the errors
+# for empty input.
 _fm_supported_region(region) =
     region == 1 || region == (1,) || region == 2 || region == (2,) || region == (1, 2)
 
-function _findminmax_region(cmp::C, f::F, A::AbstractSparseMatrixCSC, region) where {C,F}
+function _findminmax_region(cmp::C, f::F, A::SparseMatrixCSCOrColumnSubset, region) where {C,F}
     if region == (1, 2)
         v, i = _findminmax(f, cmp, A)
         axs = Base.reduced_indices(A, region)
@@ -906,20 +910,20 @@ function _findminmax_region(cmp::C, f::F, A::AbstractSparseMatrixCSC, region) wh
     return _findminmax_dims(cmp, A, region)
 end
 
-function Base._findmin(f, A::AbstractSparseMatrixCSC, region::Colon)
+function Base._findmin(f, A::SparseMatrixCSCOrColumnSubset, region::Colon)
     isempty(A) && return invoke(Base._findmin, Tuple{Any,Any,Colon}, f, A, region)
     return _findminmax(f, Base.isgreater, A)
 end
-function Base._findmax(f, A::AbstractSparseMatrixCSC, region::Colon)
+function Base._findmax(f, A::SparseMatrixCSCOrColumnSubset, region::Colon)
     isempty(A) && return invoke(Base._findmax, Tuple{Any,Any,Colon}, f, A, region)
     return _findminmax(f, Base.isless, A)
 end
-function Base._findmin(f, A::AbstractSparseMatrixCSC, region)
+function Base._findmin(f, A::SparseMatrixCSCOrColumnSubset, region)
     (isempty(A) || f !== identity || !_fm_supported_region(region)) &&
         return invoke(Base._findmin, Tuple{Any,Any,Any}, f, A, region)
     return _findminmax_region(Base.isgreater, f, A, region)
 end
-function Base._findmax(f, A::AbstractSparseMatrixCSC, region)
+function Base._findmax(f, A::SparseMatrixCSCOrColumnSubset, region)
     (isempty(A) || f !== identity || !_fm_supported_region(region)) &&
         return invoke(Base._findmax, Tuple{Any,Any,Any}, f, A, region)
     return _findminmax_region(Base.isless, f, A, region)
