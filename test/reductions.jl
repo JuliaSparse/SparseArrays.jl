@@ -319,6 +319,20 @@ end
         @test prod(SparseVector(2, [1], [-1.0])) === -0.0
         @test prod(spzeros(3, 3)) === 0.0
         @test prod(sparse([1],[1],[3],2,2)) === 0
+        # `init` sets the type the product is taken in, as it starts every dense chain: the
+        # zeros' power and the stored values' product do not wrap in the narrower element type
+        f8 = x -> x + Int8(2)
+        for (S, D) in ((spzeros(Int8, 10), zeros(Int8, 10)), (sparse(Int8[3, 0, 0, 0, 0, 0, 0, 0, 0, 0]), Int8[3, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                       (spzeros(Int8, 10, 2), zeros(Int8, 10, 2)), (sparse(Int8[100 0 0 0 0 0 0 0 0 0; 0 0 0 0 0 0 0 0 0 100]), Int8[100 0 0 0 0 0 0 0 0 0; 0 0 0 0 0 0 0 0 0 100]))
+            for op in (*, Base.mul_prod)
+                @test mapreduce(f8, op, S; init = 1) === mapreduce(f8, op, D; init = 1)
+                @test mapreduce(f8, op, S; init = 1.0) === mapreduce(f8, op, D; init = 1.0)
+                S isa AbstractMatrix || continue
+                @test mapreduce(f8, op, S; dims = 1, init = 1) == mapreduce(f8, op, D; dims = 1, init = 1)
+                @test mapreduce(f8, op, S; dims = 2, init = 1) == mapreduce(f8, op, D; dims = 2, init = 1)
+                @test mapreduce(f8, op, S; dims = (1, 2), init = 1) == mapreduce(f8, op, D; dims = (1, 2), init = 1)
+            end
+        end
         Random.seed!(8642)
         f0 = x -> 1 + x/100
         for (m, n, d) in ((4, 1, 0.5), (30, 40, 0.1), (2000, 10, 0.01), (100, 100, 0.9), (5000, 1, 0.001))

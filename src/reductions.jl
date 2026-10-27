@@ -74,9 +74,14 @@ _mapreducezeros(f::Base.ExtremaMap, op::typeof(Base._extrema_rf), ::Type{T}, nze
 # nonzero result we fold them onto the zero one at a time instead.
 function _prodstored(f::F, op::G, init, vals, nzeros, ::Type{T}) where {F,G,T}
     nzeros == 0 && return mapreduce(f, op, vals; init)   # no f(0), which might throw
-    v = Base.reduce_first(op, f(zero(T)))^nzeros
+    # The dense fold starts every chain with `op(init, f(a1))`, so `init` sets the type the
+    # product is taken in (an `Int` for `init = 1` and `Int8` entries): the zeros' power and
+    # the stored values' product take that type too, else both could wrap in the narrower one.
+    z = Base.reduce_first(op, f(zero(T)))
+    init isa _InitialValue || (z = op(init, z))
+    v = z^nzeros
     if !isempty(vals) && !(_iszero(v) && Base.promote_op(f, T) <: Integer)
-        r = v * mapreduce(f, op, vals)
+        r = v * mapreduce(f, op, vals; init)
         v = (_iszero(r) || !_iszero(v)) ? r : mapfoldl(f, op, vals; init=v)
     end
     return init isa _InitialValue ? v : op(init, v)
