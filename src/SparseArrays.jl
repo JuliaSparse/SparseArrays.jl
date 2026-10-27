@@ -208,7 +208,8 @@ const LinAlgLeftQs = Union{HessenbergQ,QRCompactWYQ,QRPackedQ}
 # transpose of the operand. Sparse matrices and their views, with or without an adjoint or
 # transpose, and a transposed sparse vector as a one-row matrix; and sparse vectors and their
 # views. An adjoint sparse vector is left to LinearAlgebra's generic (Q' * u')', which keeps
-# the result an Adjoint as for a dense vector.
+# the result an Adjoint as for a dense vector. `spdiagm` reads the vector operands by their
+# stored entries.
 const SparseQMatOperand = Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:SparseMatrixCSCOrView},
                                 Transpose{<:Any,<:SparseVectorOrView}}
 const SparseQVecOperand = Union{AbstractSparseVector, SparseVectorOrView, SparseVectorPartialView}

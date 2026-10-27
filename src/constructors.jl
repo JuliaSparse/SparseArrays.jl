@@ -948,10 +948,10 @@ sparse(s::UniformScaling, m::Integer, n::Integer) = sparse(s, Dims((m, n)))
 sparse(::Type{Tv}, s::UniformScaling, m::Integer, n::Integer) where {Tv} = SparseMatrixCSC{Tv}(s, Dims((m, n)))
 sparse(::Type{Tv}, ::Type{Ti}, s::UniformScaling, m::Integer, n::Integer) where {Tv, Ti} = SparseMatrixCSC{Tv, Ti}(s, Dims((m, n)))
 
-_nnz(v::AbstractSparseVector) = nnz(v)
+_nnz(v::SparseQVecOperand) = nnz(v)
 _nnz(v::AbstractVector) = length(v)
 
-function _indices(v::AbstractSparseVector, row, col)
+function _indices(v::SparseQVecOperand, row, col)
     ix = nonzeroinds(v)
     return (row .+ ix, col .+ ix)
 end
@@ -960,7 +960,7 @@ function _indices(v::AbstractVector, row, col)
     return (row+1:row+veclen, col+1:col+veclen)
 end
 
-_nzvals(v::AbstractSparseVector) = nonzeros(v)
+_nzvals(v::SparseQVecOperand) = nonzeros(v)
 _nzvals(v::AbstractVector) = v
 
 # Promoted element type of the diagonals, mirroring `Base.promote_eltypeof`
