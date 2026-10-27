@@ -3,7 +3,7 @@
 ## Reductions
 
 # Reductions along a dimension return a dense `Array`, as for dense input. A sparse result
-# (issue #43) is opt-in with the keyword `sparse = true`, see `_mapreduce_dim_sparse` below.
+# (issue #43) is opt-in with the keyword `sparse = true`, see `_SparseResult` below.
 # Covers views and adjoints so they reduce like their copy (#377), where Base's `similar`
 # would otherwise give a sparse result.
 using Base: CommutativeOps, _InitialValue, _mapreduce_start
@@ -675,8 +675,9 @@ _seed(f, op, init, x) = op(init, f(x))
 # The element type of the dense result, which is the type of each slice's seed. We seed from
 # `zero(T)` unless `A` stores every entry, in which case `T` might not have a zero, so we
 # use a stored value instead.
-_reduced_eltype(f, op, init, A::AbstractArray{T}) where T =
-    typeof(_seed(f, op, init, nnz(A) == length(A) > 0 ? _firststored(A) : zero(T)))
+_reduced_eltype(f, op, init, A) = typeof(_seedvalue(f, op, init, A))
+_seedvalue(f, op, init, A::AbstractArray{T}) where T =
+    _seed(f, op, init, nnz(A) == length(A) > 0 ? _firststored(A) : zero(T))
 _firststored(A::AbstractVector) = first(nonzeros(A))
 _firststored(A::AbstractMatrix) = getnzval(A)[first(getnzrange(A, 1))]
 # the reduction of a slice with no entries at all, as Base initializes the dense result
@@ -686,12 +687,7 @@ _reduced_empty(f, op, init, ::Type{T}) where T = init
 _reduce_unstored(f, op, init, ::Type{T}, len) where T =
     len == 0 ? _reduced_empty(f, op, init, T) : _mapreducezeros(f, op, T, len - 1, _seed(f, op, init, zero(T)))
 
-function _sparse_reduced_eltype(f, op, init, A)
-    Tr = _reduced_eltype(f, op, init, A)
-    applicable(zero, Tr) || throw(ArgumentError("cannot store a sparse result of element type $Tr, " *
-        "which has no zero (as for `extrema`); reduce without `sparse = true`"))
-    return Tr
-end
+_sparse_reduced_eltype(f, op, init, A) = _storable(_reduced_eltype(f, op, init, A))
 
 # A slice of `A'` is a slice of `A` along the other dimension. Reducing both dimensions folds
 # the elements in their order, which the parent does not share.
@@ -720,72 +716,110 @@ function _sparse_reduced_empty(f, op, init, A::AbstractArray{T,N}, ::Type{Ti}, d
     return N == 1 ? SparseVector{Tr,Ti}(R) : SparseMatrixCSC{Tr,Ti}(R)
 end
 
+# `mapreducedim` builds its result through an allocator: a callable given a generator of one
+# value per output slice, in the order of the reduced shape's `CartesianIndices` (or of an
+# enumeration of it). `_SparseResult` is the allocator behind `sparse = true`. Fed the values
+# Base's own strategies compute with the kernels above, it stores an entry for each slice of
+# `A` that stores something, and for the others only when their value is nonzero, widening
+# the element type as the values come, as the `collect` behind the dense result does. It
+# serves the reductions whose slices are columns (or the whole matrix); the rows are reduced
+# by `_mapreducecols_sparse!` below, which visits only the rows that store something.
+struct _SparseResult{A,F,O,I}
+    array::A
+    f::F
+    op::O
+    init::I
+end
+_outer(itr::Base.Iterators.Enumerate) = itr.itr
+_outer(itr) = itr
+function (s::_SparseResult)(gen::Base.Generator)
+    A = s.array
+    outer = _outer(gen.iter)
+    Ti = eltype(getrowval(A))
+    y = iterate(gen)
+    if y === nothing   # an output without slices, as of a matrix without columns
+        z = _seedvalue(s.f, s.op, s.init, A)
+        return _wrapsparse(A, size(outer), Ti[], _storable(typeof(z))[])
+    end
+    v, st = y
+    nzind = Ti[]
+    nzval = _fillsparse!(nzind, _storable(typeof(v))[], gen, st, v, _storedslices(A, outer), 1)
+    return _wrapsparse(A, size(outer), nzind, nzval)
+end
+# the `k`-th value `v` and the rest of the generator, pushed where they are to be stored;
+# a value the current element type cannot hold widens it, as `collect` does
+function _fillsparse!(nzind::Vector, nzval::Vector{T}, gen, st, v, keep::F, k) where {T,F}
+    while true
+        if v isa T
+            (keep(k) || !isequal(v, zero(T))) && (push!(nzind, k); push!(nzval, v))
+        else
+            S = _storable(Base.promote_typejoin(T, typeof(v)))
+            return _fillsparse!(nzind, convert(Vector{S}, nzval), gen, st, v, keep, k)
+        end
+        y = iterate(gen, st)
+        y === nothing && return nzval
+        v, st = y
+        k += 1
+    end
+end
+_storable(::Type{T}) where {T} = applicable(zero, T) ? T :
+    throw(ArgumentError("cannot store a sparse result of element type $T, " *
+        "which has no zero (as for `extrema`); reduce without `sparse = true`"))
+# whether the `k`-th output slice holds a stored entry of `A`
+function _storedslices(A::SparseMatrixCSCOrColumnSubset, outer)
+    rm, rn = size(outer)
+    if rm == 1   # the columns, or the whole matrix
+        return rn == 1 ? Returns(nnz(A) > 0) : (k -> !isempty(getnzrange(A, k)))
+    elseif rn == 1   # the rows
+        stored = falses(size(A, 1))
+        for i in view(getrowval(A), _storedinds(A))
+            stored[i] = true
+        end
+        return k -> stored[k]
+    end
+    throw(ArgumentError("a sparse result needs a reduction along the rows or the columns"))
+end
+_storedslices(A::SparseVectorOrView, outer) = length(outer) == 1 ? Returns(nnz(A) > 0) :
+    throw(ArgumentError("a sparse result needs a reduction along the vector"))
+# the sparse array of the reduced shape holding the entries `nzval` at the slices `nzind`
+function _wrapsparse(A::SparseMatrixCSCOrColumnSubset, (rm, rn), nzind::Vector{Ti}, nzval) where {Ti}
+    if rm == 1   # one row: `nzind` holds the columns storing something
+        colptr = Vector{Ti}(undef, rn + 1)
+        colptr[1] = 1
+        k = 1
+        for j in 1:rn
+            while k <= length(nzind) && nzind[k] == j
+                k += 1
+            end
+            colptr[j + 1] = k
+        end
+        return SparseMatrixCSC(1, rn, colptr, ones(Ti, length(nzind)), nzval)
+    end
+    return SparseMatrixCSC(rm, 1, Ti[1, length(nzind) + 1], nzind, nzval)
+end
+_wrapsparse(A::SparseVectorOrView, (n,), nzind::Vector{Ti}, nzval) where {Ti} = SparseVector(n, nzind, nzval)
+
 function _mapreduce_dim_sparse(f, op, init, A::SparseVectorOrView{T,Ti}, dims) where {T,Ti}
     Base.reduced_indices(A, dims)   # validates `dims`
     isempty(A) && return _sparse_reduced_empty(f, op, init, A, Ti, dims)
-    Tr = _sparse_reduced_eltype(f, op, init, A)
+    Tr = _sparse_reduced_eltype(f, op, init, A)   # throws before reducing when there is no zero to store
+    # the whole vector: Base folds it with the kernels above
+    1 in dims && return Base.mapreducedim(f, op, A, init, dims, _SparseResult(A, f, op, init))
     # a dimension beyond 1: every entry is a slice of its own
-    1 in dims || return convert(SparseVector{Tr,Ti}, map(x -> _seed(f, op, init, x), A isa SubArray ? copy(A) : A))
-    v = _seed(identity, op, init, mapreduce(f, op, A))
-    return nnz(A) > 0 || !isequal(v, zero(Tr)) ? SparseVector(1, Ti[1], Tr[v]) : spzeros(Tr, Ti, 1)
+    return convert(SparseVector{Tr,Ti}, map(x -> _seed(f, op, init, x), A isa SubArray ? copy(A) : A))
 end
 
 function _mapreduce_dim_sparse(f, op, init, A::SparseMatrixCSCOrColumnSubset{T,Ti}, dims) where {T,Ti}
     m, n = size(A)
     rm, rn = map(length, Base.reduced_indices(A, dims))   # also validates `dims`
     isempty(A) && return _sparse_reduced_empty(f, op, init, A, Ti, dims)
-    Tr = _sparse_reduced_eltype(f, op, init, A)
-    if rm == rn == 1
-        R = spzeros(Tr, Ti, 1, 1)
-        v = _seed(identity, op, init, mapreduce(f, op, A))
-        if nnz(A) > 0 || !isequal(v, zero(Tr))
-            push!(getrowval(R), 1)
-            push!(getnzval(R), v)
-            getcolptr(R)[2] = 2
-        end
-        return R
-    elseif rm == 1
-        return _mapreducerows_sparse!(f, op, init, spzeros(Tr, Ti, 1, n), A)
-    elseif rn == 1
-        return _mapreducecols_sparse!(f, op, init, spzeros(Tr, Ti, m, 1), A)
-    else
-        # a dimension beyond 2: every entry is a slice of its own
-        return convert(SparseMatrixCSC{Tr,Ti}, map(x -> _seed(f, op, init, x), A isa SubArray ? copy(A) : A))
-    end
-end
-
-# `R` is a structurally empty `1 x n` sparse matrix: its columns are built in order
-function _mapreducerows_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrixCSCOrColumnSubset{T}) where T
-    nzval = getnzval(A)
-    m, n = size(A)
-    z = zero(eltype(R))
-    # the reduction of a column that stores nothing; when every column is full it is not
-    # needed and f(0) is not evaluated, since it might throw
-    zunstored = nnz(A) == Int64(m) * n && m > 0 ? z : _reduce_unstored(f, op, init, T, m)
-    store_unstored = !isequal(zunstored, z)
-    Rcolptr, Rrowval, Rnzval = getcolptr(R), getrowval(R), getnzval(R)
-    nstored = store_unstored ? n : count(col -> !isempty(getnzrange(A, col)), 1:n)
-    resize!(Rrowval, nstored)
-    fill!(Rrowval, 1)
-    resize!(Rnzval, nstored)
-    k = 0
-    @inbounds for col in 1:n
-        rng = getnzrange(A, col)
-        if isempty(rng)
-            store_unstored || (Rcolptr[col+1] = k + 1; continue)
-            v = zunstored
-        else
-            r = _seed(f, op, init, nzval[first(rng)])
-            @simd for j in first(rng)+1:last(rng)
-                r = op(r, f(nzval[j]))
-            end
-            v = _mapreducezeros(f, op, T, m - length(rng), r)
-        end
-        k += 1
-        Rnzval[k] = v
-        Rcolptr[col+1] = k + 1
-    end
-    return R
+    Tr = _sparse_reduced_eltype(f, op, init, A)   # throws before reducing when there is no zero to store
+    # the columns, or the whole matrix: Base folds each slice with the kernels above
+    rm == 1 && return Base.mapreducedim(f, op, A, init, dims, _SparseResult(A, f, op, init))
+    # the rows
+    rn == 1 && return _mapreducecols_sparse!(f, op, init, spzeros(Tr, Ti, m, 1), A)
+    # a dimension beyond 2: every entry is a slice of its own
+    return convert(SparseMatrixCSC{Tr,Ti}, map(x -> _seed(f, op, init, x), A isa SubArray ? copy(A) : A))
 end
 
 # `R` is a structurally empty `m x 1` sparse matrix. With enough stored entries the rows are
