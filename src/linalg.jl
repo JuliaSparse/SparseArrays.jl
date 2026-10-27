@@ -1196,13 +1196,13 @@ end
 # Hermitian or triangular wrapper of a sparse vector or matrix or its adjoint or transpose.
 # Views stay out of the wrappers: each such wrapped view in these signatures makes loading
 # the package much slower, as Julia compares it with LinearAlgebra's triangular methods.
-const _SparseKronGroup = Union{SparseVectorOrView, SparseMatrixCSCSubArray,
-                               AdjOrTrans{<:Any,<:Union{SparseVectorOrView, SparseMatrixCSCSubArray}},
+const _SparseKronGroup = Union{SparseVectorOrView, SparseVectorPartialView, SparseMatrixCSCSubArray,
+                               AdjOrTrans{<:Any,<:Union{SparseVectorOrView, SparseVectorPartialView, SparseMatrixCSCSubArray}},
                                SparseVecOrMatMaybeAdjOrTrans,
                                HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
                                UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
 _kronmatrix(A) = convert(SparseMatrixCSC, A)
-_kronmatrix(x::Union{SparseColumnView,SparseVectorView}) = convert(SparseMatrixCSC, SparseVector(x))
+_kronmatrix(x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) = convert(SparseMatrixCSC, SparseVector(x))
 # A number scales a view of a sparse matrix into a dense matrix unless the view selects
 # whole columns. Scaling the sparse matrix it converts to gives what the number gives with
 # a sparse matrix that is not a view.
@@ -1340,8 +1340,10 @@ kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(_kronmatrix(A), _kronmatrix(B))
 kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
 kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
-kron(x::SparseVectorOrView, y::SparseVectorOrView) = kron(SparseVector(x), SparseVector(y))
-kron(A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) = A .* B
+kron(x::Union{SparseVectorOrView,SparseVectorPartialView}, y::Union{SparseVectorOrView,SparseVectorPartialView}) =
+    kron(SparseVector(x), SparseVector(y))
+kron(A::Union{SparseVectorOrView,SparseVectorPartialView},
+     B::AdjOrTrans{<:Any,<:Union{SparseVectorOrView,SparseVectorPartialView}}) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
 kron(a::Number, b::_SparseKronGroup) = a * _kronscaled(b)
