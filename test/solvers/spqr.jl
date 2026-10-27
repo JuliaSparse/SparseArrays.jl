@@ -254,6 +254,8 @@ end
     b, B = collect(1.0:m), reshape(collect(1.0:3m), 3, m)
     eltyA <: Real && @test F.Q * b ≈ F.Q * eltyA.(b)
     eltyA <: Real && @test B * F.Q' ≈ eltyA.(B) * F.Q'
+    # a solve converts F to the precision of the solution, as dense `\` does
+    @test @inferred(F \ b) isa Vector{widen(eltyA)}
     end
 end
 

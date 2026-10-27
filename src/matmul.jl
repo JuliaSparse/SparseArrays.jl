@@ -362,12 +362,15 @@ end
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
-# spmatmul handles compressed vectors and whole-column/whole-vector views; other
-# AbstractSparseVectors take the generic product. Plain CSC times a compressed vector is
-# defined with the sparse vector products below.
-*(A::SparseTriangular, B::SparseVectorOrView) = spmatmulv(A, B)
-*(A::SparseMatrixCSCView, B::SparseVectorOrView) = spmatmulv(A, B)
-*(A::AbstractSparseMatrixCSC, B::Union{SparseColumnView,SparseVectorView}) = spmatmulv(A, B)
+# spmatmul handles compressed vectors and whole-column/whole-vector views, and a range view
+# through the sparse vector it reads as; other AbstractSparseVectors take the generic
+# product. Plain CSC times a compressed vector is defined with the sparse vector products
+# below.
+_spmatmulv_operand(x::Union{AbstractCompressedVector,SparseColumnView,SparseVectorView}) = x
+_spmatmulv_operand(x::SparseVectorPartialView) = _sparsevector(x)
+*(A::SparseTriangular, B::Union{SparseVectorOrView,SparseVectorPartialView}) = spmatmulv(A, _spmatmulv_operand(B))
+*(A::SparseMatrixCSCView, B::Union{SparseVectorOrView,SparseVectorPartialView}) = spmatmulv(A, _spmatmulv_operand(B))
+*(A::AbstractSparseMatrixCSC, B::Union{SparseColumnView,SparseVectorPartialView}) = spmatmulv(A, _spmatmulv_operand(B))
 """
     *(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
 
@@ -405,7 +408,7 @@ julia> A * B
 *(A::SparseMatrixCSCSymmHerm, B::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) = sparse(A) * B
 *(A::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCSymmHerm) = A * sparse(B)
 *(A::SparseMatrixCSCSymmHerm, B::SparseMatrixCSCSymmHerm) = sparse(A) * sparse(B)
-*(A::SparseMatrixCSCSymmHerm, x::SparseVectorOrView) = sparse(A) * x
+*(A::SparseMatrixCSCSymmHerm, x::Union{SparseVectorOrView,SparseVectorPartialView}) = sparse(A) * x
 # so is the eagerly made adjoint/transpose of a sparse triangular matrix
 for W in (:UpperTriangular, :LowerTriangular, :UnitUpperTriangular, :UnitLowerTriangular)
     @eval _sptriangular(A::$W) = $W(copy(parent(A)))
@@ -415,7 +418,7 @@ end
 *(A::Union{SparseOrTri,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},SparseMatrixCSCSymmHerm}, B::SparseAdjOrTransTriangular) =
     A * _sptriangular(B)
 *(A::SparseAdjOrTransTriangular, B::SparseAdjOrTransTriangular) = _sptriangular(A) * _sptriangular(B)
-*(A::SparseAdjOrTransTriangular, x::SparseVectorOrView) = _sptriangular(A) * x
+*(A::SparseAdjOrTransTriangular, x::Union{SparseVectorOrView,SparseVectorPartialView}) = _sptriangular(A) * x
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
@@ -1022,18 +1025,18 @@ _lmulkeepszeros(b::Number, A) = (z = _implicit_zero(A); z isa UnknownZero || _is
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, b::Number)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     (_is_fixed(C) || !_rmulkeepszeros(A, b)) && return broadcast!(*, C, A, b)
-    copyinds!(C, A)
-    resize!(getnzval(C), length(getnzval(A)))
-    mul!(getnzval(C), getnzval(A), b)
+    _storesafely(eltype(C), promote_op(*, eltype(A), typeof(b))) ||
+        return _storescaled!(C, A, view(getnzval(A), 1:nnz(A)) * b)
+    mul!(_takepattern!(C, A), getnzval(A), b)
     C
 end
 
 function mul!(C::AbstractSparseMatrixCSC, b::Number, A::AbstractSparseMatrixCSC)
     size(A)==size(C) || throw(DimensionMismatch("A has size $(size(A)) but C has size $(size(C))"))
     (_is_fixed(C) || !_lmulkeepszeros(b, A)) && return broadcast!(*, C, b, A)
-    copyinds!(C, A)
-    resize!(getnzval(C), length(getnzval(A)))
-    mul!(getnzval(C), b, getnzval(A))
+    _storesafely(eltype(C), promote_op(*, typeof(b), eltype(A))) ||
+        return _storescaled!(C, A, b * view(getnzval(A), 1:nnz(A)))
+    mul!(_takepattern!(C, A), b, getnzval(A))
     C
 end
 

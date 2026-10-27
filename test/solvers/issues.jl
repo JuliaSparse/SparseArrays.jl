@@ -195,6 +195,33 @@ end
     @test all(logabsdet(F) .≈ logabsdet(Matrix(A)))
 end
 
+@testset "lu!(F, S) leaves F unchanged when the values of S do not convert" begin
+    A = sparse(ComplexF64[4 1 0 0; 1 4 1 0; 0 1 4 1; 0 0 1 4])
+    F = lu(A)
+    colptr, rowval, nzval = copy(F.colptr), copy(F.rowval), copy(F.nzval)
+    S = SparseMatrixCSC{Any,Int}(2, 2, [1, 2, 4], [1, 1, 2], Any[1.0, "x", 1.0])
+    @test_throws MethodError lu!(F, S)
+    @test size(F) == (4, 4)
+    @test (F.colptr, F.rowval, F.nzval) == (colptr, rowval, nzval)
+    b = ComplexF64[1, 2, 3, 4]
+    @test F \ b ≈ Matrix(A) \ b
+end
+
+@testset "cholesky and cholesky! with an index type other than CHOLMOD's" begin
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    @test_throws ArgumentError cholesky(SparseMatrixCSC{Float64,UInt64}(A))
+    F = cholesky(A)
+    @test cholesky!(F, SparseMatrixCSC{Float64,Int16}(2A)) \ [1.0, 2.0, 3.0] ≈ (2A) \ [1.0, 2.0, 3.0]
+end
+
+@testset "ldlt! with a matrix of another size leaves an LLt factor unchanged" begin
+    A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+    F = cholesky(A)
+    @test_throws DimensionMismatch ldlt!(F, sparse(1.0I, 4, 4))
+    @test :D ∉ propertynames(F)
+    @test F \ ones(3) ≈ A \ ones(3)
+end
+
 @testset "Issues #26367 and #26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)
@@ -210,6 +237,32 @@ end
     A = sparse(eltyA[1 0; 0 1])
     F = qr(A)
     @test eltype(F.Q) == eltype(F.R) == eltyA
+end
+
+@testset "sparsevec of a CHOLMOD.Sparse checks its shape and stype" begin
+    @test_throws DimensionMismatch sparsevec(CHOLMOD.Sparse(sparse([1.0 2; 0 3])))
+    @test_throws ArgumentError sparsevec(CHOLMOD.Sparse(Symmetric(sparse([2.0 1; 1 2]))))
+end
+
+@testset "ldiv! of a real UmfpackLU with a ComplexF32 vector" begin
+    A = sparse([2.0 1; 1 3])
+    @test ldiv!(lu(A), ComplexF32[1, 2]) ≈ ComplexF32.(Matrix(A) \ [1, 2])
+end
+
+@testset "factorize of an indefinite Hermitian matrix whose LDLt needs pivoting" begin
+    b = [1.0, 2.0]
+    @test factorize(sparse([0.0 1; 1 0])) \ b ≈ [0.0 1; 1 0] \ b
+end
+
+@testset "cond of a singular matrix is Inf" begin
+    @test cond(sparse([1.0 2; 3 6]), 1) === Inf
+    # `factorize` leaves the zero on the diagonal of a triangular or diagonal factor
+    @test cond(sparse([1.0 0; 2 0]), Inf) === Inf
+    @test cond(sparse([1.0 0; 0 0]), 1) === Inf
+    # Hermitian, so `factorize` tries Cholesky and LDLt before the LU finds it singular
+    @test cond(sparse([1.0 1; 1 1]), 1) === Inf
+    # the LU works in double precision, but the result is of the matrix's precision
+    @test cond(sparse(Float32[1 2; 3 4]), 1) isa Float32
 end
 
 end # module

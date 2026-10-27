@@ -63,8 +63,8 @@ length(x::FixedSparseVector) = getfield(x, :n)
 size(x::SparseVector) = (getfield(x, :n),)
 size(x::FixedSparseVector) = (getfield(x, :n),)
 
-function Base._simple_count(f, x::AbstractCompressedVector, init::T) where T
-    init + T(count(f, nonzeros(x)) + f(zero(eltype(x)))*(length(x) - nnz(x)))
+function Base._simple_count(f, x::Union{SparseVectorOrView,SparseVectorPartialView}, init::T) where T
+    init + T(count(f, nonzeros(x)) + f(_densezero(x))*(length(x) - nnz(x)))
 end
 
 # implement the nnz - nzrange - nonzeros - rowvals interface for sparse vectors
@@ -163,11 +163,9 @@ rowvals(x::SparseVectorOrView) = nonzeroinds(x)
 indtype(x::SparseColumnView) = indtype(parent(x))
 indtype(x::Union{SparseVectorView, SparseVectorPartialView}) = indtype(parent(x))
 
-# the sparse vector a view reads as, built from its stored entries: `copy` of a column view
-# widens the index type to `Int` and `SparseVector(view)` scans every element
+# the sparse vector a view reads as
 _sparsevector(x::AbstractCompressedVector) = x
-_sparsevector(x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) =
-    SparseVector(length(x), convert(Vector{indtype(x)}, nonzeroinds(x)), convert(Vector{eltype(x)}, nonzeros(x)))
+_sparsevector(x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) = SparseVector(x)
 
 
 function Base.sizehint!(v::SparseVector, newlen::Integer)
@@ -555,6 +553,7 @@ sparsevec(a::AbstractVector{T}) where {T} = SparseVector{T, Int}(a)
 sparsevec(a::AbstractArray) = sparsevec(vec(a))
 sparsevec(a::AbstractSparseMatrixCSC) = a[:]
 sparsevec(a::AbstractSparseVector) = vec(a)
+sparsevec(a::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) = SparseVector(a)
 sparse(a::AbstractVector) = sparsevec(a)
 
 function _dense2indval!(nzind::Vector{Ti}, nzval::Vector{Tv}, s::AbstractArray) where {Tv,Ti}
@@ -595,9 +594,9 @@ SparseVector{Tv}(s::AbstractVector) where {Tv} = SparseVector{Tv,Int}(s)
 SparseVector(s::AbstractVector{Tv}) where {Tv} = SparseVector{Tv,Int}(s)
 
 # copy-constructors
-SparseVector(s::AbstractCompressedVector{Tv,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
-SparseVector{Tv}(s::AbstractCompressedVector{<:Any,Ti}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
-function SparseVector{Tv,Ti}(s::AbstractCompressedVector) where {Tv,Ti}
+SparseVector(s::Union{SparseVectorOrView{Tv,Ti},SparseVectorPartialView{Tv,Ti}}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
+SparseVector{Tv}(s::Union{SparseVectorOrView{<:Any,Ti},SparseVectorPartialView{<:Any,Ti}}) where {Tv,Ti} = SparseVector{Tv,Ti}(s)
+function SparseVector{Tv,Ti}(s::Union{SparseVectorOrView,SparseVectorPartialView}) where {Tv,Ti}
     copyind = Vector{Ti}(nonzeroinds(s))
     copynz = Vector{Tv}(nonzeros(s))
     SparseVector{Tv,Ti}(length(s), copyind, copynz)
@@ -669,11 +668,12 @@ end
 
 function copyto!(A::AbstractCompressedVector, B::AbstractSparseMatrixCSC)
     _is_fixed(A) && return _copyto_fixed!(A, copyto!(spzeros(eltype(A), indtype(A), length(B)), B))
+    maximum(getcolptr(B))-1 <= length(getrowval(B)) || throw(BoundsError())
+    _checkconvertible(eltype(A), getnzval(B))
     prep_sparsevec_copy_dest!(A, length(B), nnz(B))
 
     ptr = 1
     @assert length(nonzeroinds(A)) >= length(getrowval(B))
-    maximum(getcolptr(B))-1 <= length(getrowval(B)) || throw(BoundsError())
     @inbounds for col=1:length(getcolptr(B))-1
         offsetA = (col - 1) * size(B, 1)
         while ptr <= getcolptr(B)[col+1]-1
@@ -767,11 +767,16 @@ end
 
 
 ### Rand Construction
-sprand(n::Integer, p::AbstractFloat, rfn::Function, ::Type{T}) where {T} = sprand(default_rng(), n, p, rfn, T)
+# `rfn(rng, T, k)` predates the documented `rfn(k)` and `rfn(rng, k)` and is still accepted
+function sprand(n::Integer, p::AbstractFloat, rfn::Function, ::Type{T}) where {T}
+    r = default_rng()
+    applicable(rfn, r, T, 0) && return sprand(r, n, p, rfn, T)
+    return sprand(r, n, p, (r, i) -> rfn(i), T)
+end
 function sprand(r::AbstractRNG, n::Integer, p::AbstractFloat, rfn::Function, ::Type{T}) where T
     I = randsubseq(r, 1:convert(Int, n), p)
-    V = rfn(r, T, length(I))
-    SparseVector(n, I, V)
+    V = applicable(rfn, r, T, length(I)) ? rfn(r, T, length(I)) : rfn(r, length(I))
+    SparseVector(n, I, convert(Vector{T}, V))
 end
 
 sprand(n::Integer, p::AbstractFloat, rfn::Function) = sprand(default_rng(), n, p, (r, i) -> rfn(i))
@@ -1789,11 +1794,15 @@ function _checktrisolve(xA::UpperOrLowerTriangular, b::AbstractVector)
     return nothing
 end
 
-function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
-    _checktrisolve(xA, b)
-    TAb = xA isa UnitUpperOrUnitLowerTriangular ?
+# the eltype of the solution of a triangular solve: a unit triangle does not divide
+_trisolve_eltype(xA::UpperOrLowerTriangular{TA}, ::AbstractVector{Tb}) where {TA<:Number,Tb<:Number} =
+    xA isa UnitUpperOrUnitLowerTriangular ?
         typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb)) :
         typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))
+
+function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector{Tb}) where {TA<:Number,Tb<:Number}
+    _checktrisolve(xA, b)
+    TAb = _trisolve_eltype(xA, b)
     r = convert(Array{TAb}, b)
     if nnz(b) != 0
         active = _activerange(xA, b)
@@ -1806,6 +1815,14 @@ function ldiv!(xA::StridedTriangularMaybeAdjOrTrans, b::AbstractCompressedVector
     _checktrisolve(xA, b)
     nnz(b) == 0 && return b
     active = _activerange(xA, b)
+    # a solution that may not convert to the eltype of `b` is solved out of place and checked,
+    # so that a failed conversion throws before `b` takes the dense pattern
+    if eltype(xA) <: Number && eltype(b) <: Number && !_storesafely(eltype(b), _trisolve_eltype(xA, b))
+        x = view(xA \ b, active)
+        _checkconvertible(eltype(b), x)
+        copyto!(view(nonzeros(b), _densify!(b, active)), x)
+        return b
+    end
     # store the whole active section up front rather than entry by entry during the solve,
     # which also lets the solve run on a dense vector and reach tuned BLAS
     stored = _densify!(b, active)
@@ -1888,8 +1905,7 @@ end
 Base.sort(x::AbstractCompressedVector; kws...) =
     sort!(_writablecopy(x); kws...)
 
-function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
-    _checkpatternwritable(x, :fkeep!)
+function _fkeep!(f::F, x::AbstractCompressedVector, progress::Base.RefValue{Tuple{Int,Int}}) where F
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
 
@@ -1897,6 +1913,7 @@ function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
     @inbounds for xk in 1:nnz(x)
         xi = nzind[xk]
         xv = nzval[xk]
+        progress[] = (xk, x_writepos)
         # If this element should be kept, rewrite in new position
         if f(xi, xv)
             if x_writepos != xk
@@ -1914,7 +1931,28 @@ function fkeep!(f, x::AbstractCompressedVector{Tv}) where Tv
     return x
 end
 
+# As for a matrix: when `f` throws at entry `xk`, keep it and every later entry, and rethrow.
+function _fkeep_guarded!(f::F, x::AbstractCompressedVector) where F
+    progress = Ref((1, 1))
+    try
+        _fkeep!(f, x, progress)
+    catch
+        xk, x_writepos = progress[]
+        nzind, nzval = nonzeroinds(x), nonzeros(x)
+        shift = xk - x_writepos
+        if shift != 0
+            x_nnz = length(nzind)
+            copyto!(nzind, x_writepos, nzind, xk, x_nnz - xk + 1)
+            copyto!(nzval, x_writepos, nzval, xk, x_nnz - xk + 1)
+            resize!(nzind, x_nnz - shift)
+            resize!(nzval, x_nnz - shift)
+        end
+        rethrow()
+    end
+    return x
+end
 
+fkeep!(f::F, x::AbstractCompressedVector) where {F} = (_checkpatternwritable(x, :fkeep!); _fkeep_guarded!(f, x))
 
 """
     droptol!(x::AbstractCompressedVector, tol)

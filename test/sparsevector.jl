@@ -242,6 +242,14 @@ end
             @test xv == xr
             @test sprand(20, 1, 0.5, rfn1) isa SparseMatrixCSC{Int8,Int}
             @test sprand(MersenneTwister(5), 20, 1, 0.5, rfn2) isa SparseMatrixCSC{Int8,Int}
+            # and with `T`, which the older `rfn(rng, T, k)` still accepts
+            @test sprand(20, 0.5, rfn1, Float64) isa SparseVector{Float64,Int}
+            @test sprand(MersenneTwister(5), 20, 0.5, rfn2, Float64) isa SparseVector{Float64,Int}
+            @test sprand(MersenneTwister(5), 20, 0.5, (r, T, k) -> rand(r, T, k), Float64) isa SparseVector{Float64,Int}
+            # without `T`, `rfn` is called once, for the values
+            calls = Ref(0)
+            sprand(MersenneTwister(5), 4, 4, 0.5, (r, k) -> (calls[] += 1; rand(r, Int8, k)))
+            @test calls[] == 1
         end
         end
     end
@@ -678,6 +686,8 @@ end
         @test_throws InexactError copy!(dst, src)
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
         @test_throws InexactError copyto!(dst, src)
+        @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
+        @test_throws InexactError copyto!(dst, sparse([1, 2], [1, 2], [0.5, 1.0]))
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
         @test_throws InexactError copy!(dst, [1.0, 2.5, 0.0, 0.0, 0.0])
         @test mismatch(dst, [1, 0, 0, 0, 0]) === nothing && nnz(dst) == 1
@@ -1428,6 +1438,12 @@ end
     SparseArrays.fkeep!(f_drop, xdrop)
     @test exact_equal(xdrop, SparseVector(7, [1, 3, 4, 7], [3., -1., 1., 3.]))
     @test_deprecated SparseArrays.fkeep!(xdrop, f_drop)
+    @static if COMPREHENSIVE
+        # the entries visited before the throw are filtered and the others are kept
+        x = sparsevec([1, 2, 3], [-1.0, 1.0, 2.0])
+        @test_throws ErrorException SparseArrays.fkeep!((i, v) -> i == 3 ? error("stop") : v > 0, x)
+        @test mismatch(x, [0.0, 1.0, 2.0]) === nothing && nnz(x) == 2
+    end
 end
 
 @static if COMPREHENSIVE
@@ -1789,9 +1805,9 @@ end
         @test ((1 + im) * v)::T == (1 + im) * d
         @test copy(v)::T == d
     end
-    # the full-column and full-vector views scale in place through the parent's storage
-    # (`view(x, :)` is a `SparseVectorView` only when the parent's axes are `Int`-sized)
-    for v in (view(A, :, 1), (Ti === Int ? (view(x, :),) : ())...), a in (1.0 + im,)
+    # the full-column and full-vector views scale in place through the parent's storage,
+    # also when the parent's axes are not `Int`
+    for v in (view(A, :, 1), view(x, :), view(SparseVector{ComplexF64,Int128}(x), :)), a in (1.0 + im,)
         @test which(*, (typeof(v), typeof(a))).module === SparseArrays
         @test which(*, (typeof(a), typeof(v))).module === SparseArrays
         @test which(/, (typeof(v), typeof(a))).module === SparseArrays
@@ -1814,6 +1830,16 @@ end
             f(v)
             @test @allocated(f(v)) < 10^4
         end
+    end
+    # `count` calls `f` on the stored entries and on one zero
+    calls = Ref(0)
+    @test count(z -> (calls[] += 1; !iszero(z)), view(SparseVector{ComplexF64,Int32}(y), :)) == 2 && calls[] == 3
+    # a view converts with the parent's index type and stored zeros
+    z = SparseVector{ComplexF64,Int32}(x)
+    C = SparseMatrixCSC{ComplexF64,Int32}(A)
+    for (v, u) in ((view(z, :), z), (view(C, :, 1), C[:, 1]), (view(z, 2:6), z[2:6])),
+            f in (SparseVector, sparse, w -> vcat(w, w), w -> kron(w, z), w -> kron(w, C), w -> kron(w, w'))
+        @test exact_equal(f(v), f(u))
     end
 end
 end

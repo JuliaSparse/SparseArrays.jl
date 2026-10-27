@@ -56,13 +56,19 @@ end
 function SparseMatrixCSC(m::Integer, n::Integer, colptr::Vector, rowval::Vector, nzval::Vector)
     Tv = eltype(nzval)
     Ti = promote_type(eltype(colptr), eltype(rowval))
+    eltype(colptr) === eltype(rowval) ||
+        throw(ArgumentError("colptr and rowval must have the same element type, got $(eltype(colptr)) and $(eltype(rowval))"))
     sparse_check_Ti(m, n, Ti)
     sparse_check(n, colptr, rowval, nzval)
     # silently shorten rowval and nzval to usable index positions.
     maxlen = abs(widemul(m, n))
     isbitstype(Ti) && (maxlen = min(maxlen, typemax(Ti) - 1))
-    length(rowval) > maxlen && resize!(rowval, maxlen)
-    length(nzval) > maxlen && resize!(nzval, maxlen)
+    if length(rowval) > maxlen || length(nzval) > maxlen
+        length(colptr) == n + 1 && colptr[end] - 1 == min(length(rowval), maxlen) == min(length(nzval), maxlen) ||
+            throw(ArgumentError("Invalid buffers for SparseMatrixCSC construction n=$n, colptr=$(summary(colptr)), rowval=$(summary(rowval)), nzval=$(summary(nzval))"))
+        length(rowval) > maxlen && resize!(rowval, maxlen)
+        length(nzval) > maxlen && resize!(nzval, maxlen)
+    end
     SparseMatrixCSC{Tv,Ti}(m, n, colptr, rowval, nzval)
 end
 
@@ -187,6 +193,29 @@ const _SparseTriOrSymHerm{Tv,Ti} = Union{UpperTriangular{Tv,<:SparseMatrixCSCOrV
                                         SparseMatrixCSCSymmHerm{Tv,Ti}}
 _storageparent(S) = S
 _storageparent(S::_SparseTriOrSymHerm) = parent(S)
+
+# The legacy interface of `AbstractSparseMatrixCSC`: a subtype that implements `rowvals` and
+# `nonzeros` in place of `getrowval` and `getnzval`. Kernels reach these fallbacks once per
+# entry and `Base.depwarn` walks the backtrace on every call, so it is skipped when warnings
+# are off and made once per type and accessor when they are on.
+const _legacy_accessor_warned = Set{Tuple{Core.TypeName,Symbol}}()
+const _legacy_accessor_lock = ReentrantLock()
+@inline _depwarn_legacy_accessor(S, get::Symbol, legacy::Symbol) =
+    Base.JLOptions().depwarn == 0 ? nothing : _depwarn_legacy_accessor_on(S, get, legacy)
+@noinline function _depwarn_legacy_accessor_on(S, get::Symbol, legacy::Symbol)
+    if Base.JLOptions().depwarn == 1
+        key = (Base.typename(typeof(S)), get)
+        seen = @lock _legacy_accessor_lock (key in _legacy_accessor_warned ||
+            (push!(_legacy_accessor_warned, key); false))
+        seen && return nothing
+    end
+    T = nameof(typeof(S))
+    Base.depwarn("implementing `$legacy(::$T)` as a storage accessor of a subtype of " *
+        "`AbstractSparseMatrixCSC` is deprecated, implement `SparseArrays.$get(::$T)` instead.",
+        get)
+    return nothing
+end
+
 """
     getrowval(A)
 
@@ -202,6 +231,9 @@ For a `SparseMatrixCSC` or a `SparseVector`, `getrowval` is equivalent to
 the parent's vector, of which `rowvals(A)` is the part belonging to `A`. It is not
 defined for a triangular, `Symmetric` or `Hermitian` wrapper of a sparse matrix; use
 `getrowval(parent(A))`, which also holds the entries outside the wrapper's triangle.
+
+A subtype of [`AbstractSparseMatrixCSC`](@ref) implements `getrowval`. Calling it on a subtype
+that implements only `rowvals` is deprecated.
 
 # Examples
 ```jldoctest
@@ -225,8 +257,7 @@ julia> getrowval(sparsevec([2, 5], [3.0, 4.0]))
 """
 getrowval(S::SparseMatrixCSC) = getfield(S, :rowval)
 getrowval(S::FixedSparseCSC) = getfield(S, :rowval)
-# a subtype may implement the longer-exported `rowvals` instead
-getrowval(S::AbstractSparseMatrixCSC) = rowvals(S)
+getrowval(S::AbstractSparseMatrixCSC) = (_depwarn_legacy_accessor(S, :getrowval, :rowvals); rowvals(S))
 getrowval(S::SparseMatrixCSCColumnSubset) = getrowval(parent(S))
 
 """
@@ -243,6 +274,9 @@ For a `SparseMatrixCSC` or a `SparseVector`, `getnzval` is equivalent to
 the parent's vector, of which `nonzeros(A)` is the part belonging to `A`. It is not
 defined for a triangular, `Symmetric` or `Hermitian` wrapper of a sparse matrix; use
 `getnzval(parent(A))`, which also holds the entries outside the wrapper's triangle.
+
+A subtype of [`AbstractSparseMatrixCSC`](@ref) implements `getnzval`. Calling it on a subtype
+that implements only `nonzeros` is deprecated.
 
 # Examples
 ```jldoctest
@@ -266,8 +300,7 @@ julia> getnzval(sparsevec([2, 5], [3.0, 4.0]))
 """
 getnzval(S::SparseMatrixCSC) = getfield(S, :nzval)
 getnzval(S::FixedSparseCSC) = getfield(S, :nzval)
-# a subtype may implement the longer-exported `nonzeros` instead
-getnzval(S::AbstractSparseMatrixCSC) = nonzeros(S)
+getnzval(S::AbstractSparseMatrixCSC) = (_depwarn_legacy_accessor(S, :getnzval, :nonzeros); nonzeros(S))
 getnzval(S::SparseMatrixCSCColumnSubset) = getnzval(parent(S))
 nzvalview(S::AbstractSparseMatrixCSC) = view(getnzval(S), 1:nnz(S))
 nzvalview(S::SparseMatrixCSCColumnSubset) = nonzeros(S)
@@ -286,7 +319,8 @@ function _storedinds(S::SparseMatrixCSCColumnSubset)
     end
     return inds
 end
-widelength(S::SparseMatrixCSCColumnSubset) = prod(Int64.(size(S)))
+widelength(S::SparseMatrixCSCColumnSubset) = *(map(widen, size(S))...)
+widelength(x::Union{SparseColumnView,SparseVectorView}) = length(x)
 # `A` itself where it exposes compressed storage through `nzrange`, `rowvals` and `nonzeros`,
 # otherwise its sparse copy
 _compressed(A) = A
@@ -320,7 +354,7 @@ nnz(S::SparseMatrixCSCView) = length(_storedinds(S))
 nnz1(S) = @inbounds sum(length.(getnzrange.(Ref(S), axes(S, 2))))
 
 function Base._simple_count(pred, S::SparseMatrixCSCOrColumnSubset, init::T) where T
-    init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(prod(size(S)) - nnz(S)))
+    init + T(count(pred, nzvalview(S)) + pred(zero(eltype(S)))*(widelength(S) - nnz(S)))
 end
 # the entries of a lazy adjoint or transpose are those of its parent, each under the wrapper
 Base._simple_count(pred, S::AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}, init) =
@@ -950,7 +984,7 @@ similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, m::Integer, n:
     _sparsesimilar(S, TvNew, TiNew, (m, n))
 
 function Base.sizehint!(S::SparseMatrixCSC, n::Integer)
-    nhint = min(n, widelength(S))
+    nhint = Int(min(n, widelength(S)))
     sizehint!(getrowval(S), nhint)
     sizehint!(getnzval(S),  nhint)
     return S
@@ -1511,8 +1545,8 @@ Base.sort(A::AbstractSparseMatrixCSC; kws...) =
 
 ## fkeep! and children tril!, triu!, droptol!, dropzeros[!]
 
-# The predicates of `tril!`, `droptol!` and the other children do not throw, and call this
-# with no `progress`. `fkeep!` passes one for a caller's `f`: see `_fkeep_guarded!`.
+# The predicates of `tril!` and `triu!` do not throw, and call this with no `progress`. Those
+# of `fkeep!`, `droptol!` and `dropzeros!` can, for some eltypes: see `_fkeep_guarded!`.
 function _fkeep!(f::F, A::AbstractSparseMatrixCSC, progress::P=nothing) where {F<:Function,P}
     An = size(A, 2)
     Acolptr = getcolptr(A)
@@ -1656,7 +1690,7 @@ julia> droptol!(A, 1e-6)
 ```
 """
 droptol!(A::AbstractSparseMatrixCSC, tol) =
-    (_checkpatternwritable(A, :droptol!); _fkeep!((i, j, x) -> abs(x) > tol, A))
+    (_checkpatternwritable(A, :droptol!); _fkeep_guarded!((i, j, x) -> abs(x) > tol, A))
 
 """
     dropzeros!(A::AbstractSparseMatrixCSC)
@@ -1665,7 +1699,7 @@ Remove the stored zeros from `A`, in place, and return `A`.
 
 See also [`dropzeros`](@ref), which returns a copy, and [`droptol!`](@ref).
 """
-dropzeros!(A::AbstractSparseMatrixCSC) = (_checkpatternwritable(A, :dropzeros!); _fkeep!((i, j, x) -> _isnotzero(x), A))
+dropzeros!(A::AbstractSparseMatrixCSC) = (_checkpatternwritable(A, :dropzeros!); _fkeep_guarded!((i, j, x) -> _isnotzero(x), A))
 
 """
     dropzeros(A::AbstractSparseMatrixCSC;)
@@ -2265,6 +2299,8 @@ function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c
             Base.mightalias(getnzval(O), getnzval(X))) &&
             throw(ArgumentError(LazyString("cannot shift the columns of a ", nameof(typeof(X)),
                 " into a destination that shares its buffers; use `circshift` or a separate destination")))
+        _checkconvertible(eltype(O), view(getnzval(X), 1:nz))
+        _checknnzfits(indtype(O), nz)
         ##### readjust output
         resize!(getcolptr(O), size(X, 2) + 1)
         resize!(getrowval(O), nz)

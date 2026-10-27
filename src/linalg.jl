@@ -554,46 +554,50 @@ function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abst
 end
 ## end of symmetric/Hermitian
 
-\(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::Vector) = copy(A) \ B
+\(A::Transpose{<:Complex,<:Hermitian{<:Complex,<:AbstractSparseMatrixCSC}}, B::VecOrMat) = copy(A) \ B
 
 ## diagonal scaling
 
 # Scale the stored entries of `A` into `C`, which either is `A` or takes its pattern:
 # `C[i, j] = op(A[i, j], d[j])` columnwise, `C[i, j] = op(d[i], A[i, j])` rowwise. The
 # argument order of `op` is kept for non-commutative eltypes. The callers check that
-# `length(d)` matches the scaled dimension and that `size(C) == size(A)`.
+# `length(d)` matches the scaled dimension and that `size(C) == size(A)`. When a value might
+# not convert to `eltype(C)`, the values go to a new vector that `C` takes once all are written.
 function _scalecols!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
-    copyinds!(C, A)
-    Cnzval = getnzval(C)
     Anzval = getnzval(A)
-    resize!(Cnzval, length(Anzval))
+    direct = _storesafely(eltype(C), promote_op(op, eltype(A), eltype(d)))
+    Cnzval = direct ? _takepattern!(C, A) : Vector{eltype(C)}(undef, nnz(A))
     @inbounds for col in axes(A, 2)
         dcol = d[col]
         for p in nzrange(A, col)
             Cnzval[p] = op(Anzval[p], dcol)
         end
     end
+    direct || _storescaled!(C, A, Cnzval)
     return C
 end
 
 function _scalerows!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, d::AbstractVector, op::F) where {F}
-    copyinds!(C, A)
-    Cnzval = getnzval(C)
     Anzval = getnzval(A)
     Arowval = getrowval(A)
-    resize!(Cnzval, length(Anzval))
+    direct = _storesafely(eltype(C), promote_op(op, eltype(d), eltype(A)))
+    Cnzval = direct ? _takepattern!(C, A) : Vector{eltype(C)}(undef, nnz(A))
     @inbounds for col in axes(A, 2), p in nzrange(A, col)
         Cnzval[p] = op(d[Arowval[p]], Anzval[p])
     end
+    direct || _storescaled!(C, A, Cnzval)
     return C
 end
 
 function _scalerows!(x::AbstractSparseVector, d::AbstractVector, op::F) where {F}
     xnzval = nonzeros(x)
     xnzind = nonzeroinds(x)
+    direct = _storesafely(eltype(x), promote_op(op, eltype(d), eltype(x)))
+    vals = direct ? xnzval : similar(xnzval)
     @inbounds for p in eachindex(xnzind, xnzval)
-        xnzval[p] = op(d[xnzind[p]], xnzval[p])
+        vals[p] = op(d[xnzind[p]], xnzval[p])
     end
+    direct || copyto!(xnzval, vals)
     return x
 end
 
@@ -725,7 +729,7 @@ function _sparse_diff1_column!(rowval, nzval, numnz, rowval_a, nzval_a, rng, m)
     return numnz
 end
 
-function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+function sparse_diff1(S::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     m,n = size(S)
     m > 1 || return SparseMatrixCSC(0, n, fill(one(Ti),n+1), Ti[], Tv[])
     colptr = Vector{Ti}(undef, n+1)
@@ -735,7 +739,7 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     numnz = 0
     @inbounds colptr[1] = 1
     @inbounds for col = 1 : n
-        numnz = _sparse_diff1_column!(rowval, nzval, numnz, getrowval(S), getnzval(S), nzrange(S, col), m)
+        numnz = _sparse_diff1_column!(rowval, nzval, numnz, getrowval(S), getnzval(S), getnzrange(S, col), m)
         colptr[col+1] = numnz+1
     end
     deleteat!(rowval, numnz+1:length(rowval))
@@ -743,7 +747,7 @@ function sparse_diff1(S::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     return SparseMatrixCSC(m-1, n, colptr, rowval, nzval)
 end
 
-function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
+function sparse_diff2(a::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     m,n = size(a)
     colptr = Vector{Ti}(undef, max(n,1))
     numnz = 2 * nnz(a) # upper bound; will shrink later
@@ -752,7 +756,6 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
     z = zero(Tv)
 
-    colptr_a = getcolptr(a)
     rowval_a = getrowval(a)
     nzval_a = getnzval(a)
 
@@ -762,28 +765,21 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
 
         n == 0 && return SparseMatrixCSC(m, n, colptr, rowval, nzval)
 
-        startA = colptr_a[1]
-        stopA = colptr_a[2]
-
-        rA = startA : stopA - 1
+        rA = getnzrange(a, 1)
         rowvalA = rowval_a[rA]
         nzvalA = nzval_a[rA]
-        lA = stopA - startA
+        lA = length(rA)
     end
 
     @inbounds for col = 1:n-1
-        startB, stopB = startA, stopA
-        startA = colptr_a[col+1]
-        stopA = colptr_a[col+2]
-
         rowvalB = rowvalA
         nzvalB = nzvalA
         lB = lA
 
-        rA = startA : stopA - 1
+        rA = getnzrange(a, col+1)
         rowvalA = rowval_a[rA]
         nzvalA = nzval_a[rA]
-        lA = stopA - startA
+        lA = length(rA)
 
         ptrB = 1
         ptrA = 1
@@ -834,9 +830,14 @@ function sparse_diff2(a::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti}
     return SparseMatrixCSC(m, n-1, colptr, rowval, nzval)
 end
 
-function diff(a::AbstractSparseMatrixCSC; dims::Integer)
+function diff(a::SparseMatrixCSCOrSubArray; dims::Integer)
     1 <= dims <= 2 || throw(ArgumentError("dimension $dims out of range (1:2)"))
+    a = _compressed(a)
     return dims == 1 ? sparse_diff1(a) : sparse_diff2(a)
+end
+function diff(a::AdjOrTrans{<:Any,<:SparseMatrixCSCOrSubArray}; dims::Integer)
+    1 <= dims <= 2 || throw(ArgumentError("dimension $dims out of range (1:2)"))
+    return copy(LinearAlgebra.wrapperop(a)(diff(parent(a); dims = 3 - dims)))
 end
 
 function _sparse_diff(x, dims)
@@ -985,18 +986,28 @@ estimator of Higham and Tisseur, from a factorization of `A` by `factorize` and 
 forming the inverse, so the result can fall below the exact condition number. `p = 2`, the
 default, throws an `ArgumentError`, so `cond(A)` does too: use `cond(Array(A))` for a matrix
 small enough to store dense.
+
+A singular matrix gives `Inf` when its factorization meets an exactly zero pivot. Rounding
+can hide that zero, and the result is then finite but very large. The sparse LU pivots in
+another order than the dense one, so `cond(A, p)` can be finite where `cond(Array(A), p)`
+is `Inf`.
 """
 function cond(A::AbstractSparseMatrixCSC, p::Real=2)
+    # the type of dense `cond`, whichever precision the factorization of `A` works in
+    T = float(real(eltype(A)))
     # as for a dense matrix; the estimator of the inverse's norm needs at least one column
-    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(real(float(eltype(A))))
-    if p == 1
-        normAinv = opnormestinv(A)
-        normA = opnorm(A, 1)
-        return normA * normAinv
-    elseif p == Inf
-        normAinv = opnormestinv(copy(A'))
-        normA = opnorm(A, Inf)
-        return normA * normAinv
+    (p == 1 || p == Inf) && checksquare(A) == 0 && return zero(T)
+    if p == 1 || p == Inf
+        B = p == 1 ? A : copy(A')
+        # a singular matrix has an infinite condition number, as for a dense matrix
+        F = try
+            factorize(B)
+        catch e
+            e isa SingularException || rethrow()
+            return convert(T, Inf)
+        end
+        _issingularfactor(F) && return convert(T, Inf)
+        return convert(T, opnorm(A, p) * _opnormestinv(B, F, min(2, size(B, 1))))
     elseif p == 2
         throw(ArgumentError("only 1- and Inf-norm condition numbers are implemented for sparse matrices, for 2-norm try cond(Array(A), 2) instead"))
     else
@@ -1004,11 +1015,22 @@ function cond(A::AbstractSparseMatrixCSC, p::Real=2)
     end
 end
 
-function opnormestinv(A::AbstractSparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A)))) where T
+# `factorize` throws for a singular LU or Hermitian factorization, but leaves a triangular
+# or diagonal one to the solve
+_issingularfactor(F) = false
+_issingularfactor(D::Diagonal) = any(iszero, D.diag)
+_issingularfactor(L::LowerTriangular{<:Any,<:AbstractSparseMatrixCSC}) = !iszero(_trisingular(false, parent(L)))
+_issingularfactor(U::UpperTriangular{<:Any,<:AbstractSparseMatrixCSC}) = !iszero(_trisingular(true, parent(U)))
+
+function opnormestinv(A::AbstractSparseMatrixCSC, t::Integer = min(2,maximum(size(A))))
+    checksquare(A)
+    return _opnormestinv(A, factorize(A), t)
+end
+
+# the estimate for the factorization `F` of `A`
+function _opnormestinv(A::AbstractSparseMatrixCSC{T}, F, t::Integer) where T
     maxiter = 5
-    # Check the input
-    n = checksquare(A)
-    F = factorize(A)
+    n = size(A, 1)
     if t <= 0
         throw(ArgumentError("number of blocks must be a positive integer"))
     end
@@ -1174,13 +1196,13 @@ end
 # Hermitian or triangular wrapper of a sparse vector or matrix or its adjoint or transpose.
 # Views stay out of the wrappers: each such wrapped view in these signatures makes loading
 # the package much slower, as Julia compares it with LinearAlgebra's triangular methods.
-const _SparseKronGroup = Union{SparseVectorOrView, SparseMatrixCSCSubArray,
-                               AdjOrTrans{<:Any,<:Union{SparseVectorOrView, SparseMatrixCSCSubArray}},
+const _SparseKronGroup = Union{SparseVectorOrView, SparseVectorPartialView, SparseMatrixCSCSubArray,
+                               AdjOrTrans{<:Any,<:Union{SparseVectorOrView, SparseVectorPartialView, SparseMatrixCSCSubArray}},
                                SparseVecOrMatMaybeAdjOrTrans,
                                HermOrSym{<:Any,<:SparseVecOrMatMaybeAdjOrTrans},
                                UpperOrLowerTriangular{<:Any,<:SparseVecOrMatMaybeAdjOrTrans}}
 _kronmatrix(A) = convert(SparseMatrixCSC, A)
-_kronmatrix(x::Union{SparseColumnView,SparseVectorView}) = convert(SparseMatrixCSC, SparseVector(x))
+_kronmatrix(x::Union{SparseColumnView,SparseVectorView,SparseVectorPartialView}) = convert(SparseMatrixCSC, SparseVector(x))
 # A number scales a view of a sparse matrix into a dense matrix unless the view selects
 # whole columns. Scaling the sparse matrix it converts to gives what the number gives with
 # a sparse matrix that is not a view.
@@ -1318,8 +1340,10 @@ kron(A::_SparseKronGroup, B::_SparseKronGroup) =
     kron(_kronmatrix(A), _kronmatrix(B))
 kron(A::_SparseKronGroup, B::_DenseKronGroup) = kron(A, sparse(B))
 kron(A::_DenseKronGroup, B::_SparseKronGroup) = kron(sparse(A), B)
-kron(x::SparseVectorOrView, y::SparseVectorOrView) = kron(SparseVector(x), SparseVector(y))
-kron(A::SparseVectorOrView, B::AdjOrTrans{<:Any,<:SparseVectorOrView}) = A .* B
+kron(x::Union{SparseVectorOrView,SparseVectorPartialView}, y::Union{SparseVectorOrView,SparseVectorPartialView}) =
+    kron(SparseVector(x), SparseVector(y))
+kron(A::Union{SparseVectorOrView,SparseVectorPartialView},
+     B::AdjOrTrans{<:Any,<:Union{SparseVectorOrView,SparseVectorPartialView}}) = A .* B
 # disambiguation
 kron(A::AbstractCompressedVector, B::AdjOrTrans{<:Any,<:AbstractCompressedVector}) = A .* B
 kron(a::Number, b::_SparseKronGroup) = a * _kronscaled(b)
@@ -1351,6 +1375,19 @@ function copyinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC; copy_
         resize!(getrowval(C), length(getrowval(A)))
         copyto!(getrowval(C), getrowval(A))
     end
+end
+
+# Give `C` the pattern of `A`, and return the values of `C`, of the length of those of `A`.
+function _takepattern!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
+    copyinds!(C, A)
+    return resize!(getnzval(C), length(getnzval(A)))
+end
+# Store `nzval` in `C` with the pattern of `A`, converting it first so that a value that does
+# not convert to `eltype(C)` throws with `C` unchanged.
+function _storescaled!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, nzval::AbstractVector)
+    vals = convert(Vector{eltype(C)}, nzval)
+    copyto!(_takepattern!(C, A), vals)
+    return C
 end
 
 """
@@ -1439,10 +1476,11 @@ end
 _hermitian_solve(A::AbstractSparseMatrixCSC) =
     !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
 
-# `\` and `factorize` choose the same method from the structure of `A`; `f` (or `flu`, for
-# the LU factorization) is applied in each branch so that the result stays inferrable. A
-# Hermitian matrix is only wrapped, because `\` and `factorize` finish it differently.
-function _sparse_factorize(f, A::AbstractSparseMatrixCSC, flu = f)
+# `\` and `factorize` choose the same method from the structure of `A`; `f` (or `fsolver`,
+# for the LU, QR and LQ factorizations) is applied in each branch so that the result stays
+# inferrable, and the QR and LQ factorizations are of `fqr(A)`. A Hermitian matrix is only
+# wrapped, because `\` and `factorize` finish it differently.
+function _sparse_factorize(f, A::AbstractSparseMatrixCSC, fsolver = f, fqr = identity)
     m, n = size(A)
     if m == n
         if istril(A)
@@ -1452,12 +1490,12 @@ function _sparse_factorize(f, A::AbstractSparseMatrixCSC, flu = f)
         elseif _hermitian_solve(A)
             return f(Hermitian(A))
         end
-        return flu(lu(A))
+        return fsolver(lu(A))
     elseif m > n
-        return f(qr(A))
+        return fsolver(qr(fqr(A)))
     else
         # A is wide, so the LQ factorization gives the minimum-norm solution
-        return f(lq(A))
+        return fsolver(lq(fqr(A)))
     end
 end
 
@@ -1465,15 +1503,24 @@ end
 _solve_factor(F) = F
 _solve_factor(D::Diagonal) = Diagonal(Vector(diag(D)))
 _sparse_solve(op, F, B) = \(op(_solve_factor(F)), B)
-# the sparse LU works in double precision, so its solution is converted to the eltype that
-# dense `\` gives
-_sparse_lusolve(op, F, A, B) =
-    convert(AbstractArray{typeof(one(eltype(A)) \ one(eltype(B)))}, _sparse_solve(op, F, B))
+# The eltype that dense `\` gives. It is `nothing` for an abstract eltype, which has no `one`
+# and whose solution is returned as the solver gives it.
+_ldiv_eltype(A, B) = isconcretetype(eltype(A)) && isconcretetype(eltype(B)) ?
+    typeof(one(eltype(A)) \ one(eltype(B))) : nothing
+# The sparse LU works in double precision and the QR and LQ in the precision of the matrix,
+# so their solution is converted to the eltype that dense `\` gives, and for the QR and LQ a
+# matrix of a narrower eltype than that is converted before it is factorized.
+_sparse_solversolve(op, F, A, B) = _convert_solution(_ldiv_eltype(A, B), _sparse_solve(op, F, B))
+_convert_solution(T, X) = convert(AbstractArray{T}, X)
+_convert_solution(::Nothing, X) = X
+_qr_matrix(A, B) = _qr_matrix(A, _ldiv_eltype(A, B))
+_qr_matrix(A, T::Type) = convert(AbstractMatrix{promote_type(float(eltype(A)), real(T))}, A)
+_qr_matrix(A, ::Nothing) = A
 
 function \(A::AbstractSparseMatrixCSC, B::AbstractVecOrMat)
     require_one_based_indexing(A, B)
     return _sparse_factorize(F -> _sparse_solve(identity, F, B), A,
-                             F -> _sparse_lusolve(identity, F, A, B))
+                             F -> _sparse_solversolve(identity, F, A, B), A -> _qr_matrix(A, B))
 end
 for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
     @eval function \(xformA::($xformtype){<:Any,<:AbstractSparseMatrixCSC}, B::AbstractVecOrMat)
@@ -1482,12 +1529,12 @@ for (xformtype, xformop) in ((:Adjoint, :adjoint), (:Transpose, :transpose))
         m, n = size(A)
         if m < n
             # A' is tall, so the least squares solve needs a factorization of A' itself
-            return _sparse_solve(identity, qr($xformop(A)), B)
+            return _sparse_solversolve(identity, qr($xformop(_qr_matrix(A, B))), A, B)
         end
         # Otherwise the transformed choice for A serves. For a wide A' that is the
         # factorization of A, which gives the minimum-norm solution.
         return _sparse_factorize(F -> _sparse_solve($xformop, F, B), A,
-                                 F -> _sparse_lusolve($xformop, F, A, B))
+                                 F -> _sparse_solversolve($xformop, F, A, B), A -> _qr_matrix(A, B))
     end
 end
 
@@ -1497,12 +1544,11 @@ factorize(A::AbstractSparseMatrixCSC) = _sparse_factorize(_factorize_choice, A)
 
 function factorize(A::RealHermSymComplexHerm{<:Union{Float32,Float64},<:AbstractSparseMatrixCSC})
     F = cholesky(A; check = false)
-    if LinearAlgebra.issuccess(F)
-        return F
-    else
-        ldlt!(F, A)
-        return F
-    end
+    LinearAlgebra.issuccess(F) && return F
+    ldlt!(F, A; check = false)
+    LinearAlgebra.issuccess(F) && return F
+    # an indefinite matrix may need pivoting, which only the LU does, as in `\`
+    return lu(A)
 end
 
 eigen(A::AbstractSparseMatrixCSC) =

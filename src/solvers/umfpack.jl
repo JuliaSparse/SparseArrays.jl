@@ -13,7 +13,7 @@ import LinearAlgebra: Factorization, AdjointFactorization, TransposeFactorizatio
     checksquare, det, logabsdet, lu, lu!, ldiv!
 
 using SparseArrays
-using SparseArrays: getcolptr, getrowval, getnzval, AbstractSparseMatrixCSC
+using SparseArrays: getcolptr, getrowval, getnzval, AbstractSparseMatrixCSC, _checkconvertible
 import SparseArrays: nnz
 
 import Serialization: AbstractSerializer, deserialize, serialize
@@ -531,6 +531,7 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
     if Tv <: Real && !(eltype(S) <: Real)
         throw(ArgumentError("cannot refactorize the real $(typeof(F)) with a matrix of eltype $(eltype(S)); use lu(S) instead"))
     end
+    _checkconvertible(Tv, getnzval(S))
 
     @lock F.lock begin
         # the symbolic factors are those of a matrix of another size
@@ -1163,7 +1164,8 @@ function _AqldivB_kernel!(x::StridedVector{Tb}, lu::UmfpackLU{Float64},
                           b::StridedVector{Tb}, transposeoptype, workspace) where Tb<:Complex
     r = similar(b, Float64)
     i = similar(b, Float64)
-    c = real.(b)
+    c = similar(b, Float64)
+    c .= real.(b)
     solve!(r, lu, c, transposeoptype; workspace)
     c .= imag.(b)
     solve!(i, lu, c, transposeoptype; workspace)
