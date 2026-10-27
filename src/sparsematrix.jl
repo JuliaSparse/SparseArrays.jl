@@ -319,7 +319,7 @@ function _storedinds(S::SparseMatrixCSCColumnSubset)
     end
     return inds
 end
-widelength(S::SparseMatrixCSCColumnSubset) = prod(widen, size(S))
+widelength(S::SparseMatrixCSCColumnSubset) = *(map(widen, size(S))...)
 widelength(x::Union{SparseColumnView,SparseVectorView}) = length(x)
 # `A` itself where it exposes compressed storage through `nzrange`, `rowvals` and `nonzeros`,
 # otherwise its sparse copy
@@ -984,7 +984,7 @@ similar(S::AbstractSparseMatrixCSC, ::Type{TvNew}, ::Type{TiNew}, m::Integer, n:
     _sparsesimilar(S, TvNew, TiNew, (m, n))
 
 function Base.sizehint!(S::SparseMatrixCSC, n::Integer)
-    nhint = min(n, widelength(S))
+    nhint = Int(min(n, widelength(S)))
     sizehint!(getrowval(S), nhint)
     sizehint!(getnzval(S),  nhint)
     return S

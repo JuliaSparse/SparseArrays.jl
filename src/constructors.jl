@@ -714,42 +714,22 @@ julia> sprand(Float64, 3, 0.75)
 """
 function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}) where T
     m, n = Int(m), Int(n)
-    if _sprandoverflows(m, n, density)
-        colptr, rowval, V = _sprand_bycolumn(r, m, n, density, rfn)
-        return SparseMatrixCSC(m, n, colptr, rowval, convert(Vector{T}, V))
-    end
     I, V = _sprandvalues(r, m, n, density, rfn)
     return sparse_sortedlinearindices!(I, convert(Vector{T}, V), m, n)
 end
 function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function)
     m, n = Int(m), Int(n)
-    if _sprandoverflows(m, n, density)
-        colptr, rowval, V = _sprand_bycolumn(r, m, n, density, rfn)
-        return SparseMatrixCSC(m, n, colptr, rowval, convert(Vector{eltype(V)}, V))
-    end
     I, V = _sprandvalues(r, m, n, density, rfn)
     return sparse_sortedlinearindices!(I, convert(Vector{eltype(V)}, V), m, n)
 end
-# the arguments are checked first, since negative dimensions can overflow too
-function _sprandoverflows(m::Int, n::Int, density::AbstractFloat)
+function _sprandvalues(r::AbstractRNG, m::Int, n::Int, density::AbstractFloat, rfn::F) where {F}
     (m < 0 || n < 0) && throw(ArgumentError("invalid Array dimensions"))
     0 <= density <= 1 || throw(ArgumentError("$density not in [0,1]"))
-    return Base.mul_with_overflow(m, n)[2]
-end
-function _sprandvalues(r::AbstractRNG, m::Int, n::Int, density::AbstractFloat, rfn::F) where {F}
+    # the entries are drawn as linear indices, which wrap for 2^63 entries or more
+    Base.mul_with_overflow(m, n)[2] && throw(OverflowError(string("a ", m, "×", n,
+        " sparse matrix has more entries than `sprand` can draw from")))
     I = randsubseq(r, 1:(m*n), density)
     return I, rfn(r, length(I))
-end
-# an `Int` cannot index the `m*n` entries, so the stored rows are drawn column by column
-function _sprand_bycolumn(r::AbstractRNG, m::Int, n::Int, density::AbstractFloat, rfn::F) where {F}
-    colptr = Vector{Int}(undef, n + 1)
-    colptr[1] = 1
-    rowval, rows = Int[], Int[]
-    for col in 1:n
-        append!(rowval, randsubseq!(r, rows, 1:m, density))
-        colptr[col + 1] = length(rowval) + 1
-    end
-    return colptr, rowval, rfn(r, length(rowval))
 end
 
 sprand(m::Integer, n::Integer, density::AbstractFloat, rfn::Function) =
