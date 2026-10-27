@@ -119,9 +119,14 @@ function Base.mapreduce_kernel(f::F, op::CommutativeOps, A::SparseMatrixCSCOrCol
     rowval = getrowval(A)
     nzval = getnzval(A)
     m = length(rows)
-    if m == 1
-        # In the common case of reducing over just one row we just need to identify
-        # whether that row is stored or not
+    if m == size(A, 1)
+        # All rows: reduce the stored values in these columns, then fold in the zeros
+        nzinds = _storedpositions(A, cols)
+        isempty(nzinds) && return _mapreducezeros(f, op, T, n-1, _mapreduce_start(f, op, A, init, zero(T)))
+        r = mapreduce(f, op, view(nzval, nzinds); init)
+        return _mapreducezeros(f, op, T, n - length(nzinds), r)
+    elseif m == 1
+        # A single row of several: a binary search per column tells whether it is stored
         row = only(rows)
         r = _mapreduce_start(f, op, A, init, A[row, first(cols)])
         nskipped = 0
@@ -135,7 +140,7 @@ function Base.mapreduce_kernel(f::F, op::CommutativeOps, A::SparseMatrixCSCOrCol
             end
         end
         return _mapreducezeros(f, op, T, nskipped, r)
-    elseif m != size(A, 1)
+    else
         # We need to constrain our column indexing by the given rows in every col
         r = _mapreduce_start(f, op, A, init, A[first(inds)])
         for col in cols
@@ -148,12 +153,6 @@ function Base.mapreduce_kernel(f::F, op::CommutativeOps, A::SparseMatrixCSCOrCol
             r = _mapreducezeros(f, op, T, m-jN-(col==first(cols)), r)
         end
         return r
-    else
-        # All rows: reduce the stored values in these columns, then fold in the zeros
-        nzinds = _storedpositions(A, cols)
-        isempty(nzinds) && return _mapreducezeros(f, op, T, n-1, _mapreduce_start(f, op, A, init, zero(T)))
-        r = mapreduce(f, op, view(nzval, nzinds); init)
-        return _mapreducezeros(f, op, T, n - length(nzinds), r)
     end
 end
 
@@ -369,7 +368,7 @@ function Base.mapreducedim_rowmajor(f::F, op::OP, A::SparseMatrixCSCOrColumnSubs
         # Fold each row in order: before each stored value, fold in the zeros since that
         # row's previous stored value
         nstored = sum(col -> length(getnzrange(A, col)), cols; init=0)
-        zeroval = nstored == m * ncols ? nothing : f(zero(T))
+        zeroval = nstored == Int64(m) * ncols ? nothing : f(zero(T))   # the product can overflow an `Int` on 32-bit systems
         lastk = fill(1, m)   # index in `cols` of the last entry folded into each row
         for (k, col) in enumerate(cols)
             k == 1 && continue
@@ -488,7 +487,7 @@ _sparsecopy(A::AdjOrTransSparseVectorOrView) =
 for T in (:SparseMatrixCSCOrSubArray, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset}), :SparseVectorOrView,
           :AdjOrTransSparseVectorOrView)
     @eval Base.@constprop :aggressive function Base.mapreduce(f, op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false)
-        sparse || return Base.mapreducedim(f, op, _compressed(A), init, dims)
+        sparse || return Base.mapreducedim(f, op, _reducible(A, f, op, dims), init, dims)
         dims === (:) && throw(ArgumentError("a sparse result needs a reduction along a dimension, pass `dims`"))
         return _mapreduce_dim_sparse(f, op, init, _compressed(A), dims)
     end
@@ -516,6 +515,17 @@ for T in (:SparseMatrixCSCOrSubArray, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColu
             sparse ? mapreduce(Base._bool(f), Base.add_sum, A; dims, init, sparse) : Base._count(f, _compressed(A), dims, init)
     end
 end
+
+# The array the kernels reduce: `A` where it exposes compressed storage, else its copy. The
+# whole of an adjoint or transpose folds in the wrapper's own element order, which the parent
+# does not share: LinearAlgebra forwards the ops that commute to the parent (and the product
+# of real or complex entries themselves), and the others, a product under a map among them,
+# fold the copy, in O(nnz) rather than an element at a time through the wrapper.
+_reducible(A, f, op, dims) = _compressed(A)
+_reducible(A::Union{AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnSubset},AdjOrTransSparseVectorOrView}, f, op, dims) =
+    dims === (:) && !Base.is_commutative_op(op) &&
+        !(op isa Union{typeof(*),typeof(Base.mul_prod)} && f === identity && eltype(A) <: Union{Real,Complex}) ?
+        _sparsecopy(A) : A
 
 # `mapreduce` of a binary `f` over two sparse arrays of one shape (#33), without the array
 # `map(f, A, B)` that Base's method reduces. `op` is taken to be associative, and to be
@@ -747,7 +757,7 @@ function _mapreducerows_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrix
     z = zero(eltype(R))
     # the reduction of a column that stores nothing; when every column is full it is not
     # needed and f(0) is not evaluated, since it might throw
-    zunstored = nnz(A) == m*n && m > 0 ? z : _reduce_unstored(f, op, init, T, m)
+    zunstored = nnz(A) == Int64(m) * n && m > 0 ? z : _reduce_unstored(f, op, init, T, m)
     store_unstored = !isequal(zunstored, z)
     Rcolptr, Rrowval, Rnzval = getcolptr(R), getrowval(R), getnzval(R)
     nstored = store_unstored ? n : count(col -> !isempty(getnzrange(A, col)), 1:n)
@@ -784,7 +794,7 @@ function _mapreducecols_sparse!(f, op, init, R::SparseMatrixCSC, A::SparseMatrix
     rows = view(getrowval(A), _storedinds(A))
     vals = view(getnzval(A), _storedinds(A))
     nz = length(rows)
-    zunstored = nz == m*n && n > 0 ? z : _reduce_unstored(f, op, init, T, n)
+    zunstored = nz == Int64(m) * n && n > 0 ? z : _reduce_unstored(f, op, init, T, n)
     store_unstored = !isequal(zunstored, z)
     Rcolptr, Rrowval, Rnzval = getcolptr(R), getrowval(R), getnzval(R)
     if store_unstored || 8 * nz >= m

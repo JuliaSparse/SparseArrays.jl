@@ -408,11 +408,19 @@ end
         # The generous bound keeps CI stable on slow machines.
         H = sprand(100_000, 100_000, 100/1e10)
         for r in (sum, maximum, minimum, prod, A->count(!iszero, A), extrema, findmin, findmax,
-                  A->any(!iszero, A), A->all(iszero, A))
+                  A->any(!iszero, A), A->all(iszero, A),
+                  # the whole of an adjoint, or of a view of a column range, under an `op` not
+                  # known to commute, or a product under a map, is folded through its copy
+                  A->mapreduce(identity, (a, b) -> a + b, A'), A->prod(x -> x + 1, A'), A->mapreduce(string, *, transpose(A); init=""),
+                  A->findmin(view(A, :, 1:50000)), A->argmax(view(A, :, [3, 1, 1, 7])), A->sum(A[1:1, :]), A->sum(x -> x + 1, transpose(sparsevec(A[1:1, :])')))
             r(H)  # compile & warm up
             t = @elapsed r(H)
             @test t < 0.5
         end
+        # ... and give the result of the copy
+        P = sprand(30, 20, 0.2)
+        @test mapreduce(string, *, P'; init="") == mapreduce(string, *, Array(P'); init="") && prod(x -> x + 1, P') ≈ prod(x -> x + 1, Array(P'))
+        @test mapreduce(string, *, sparsevec(P[1, :])') == mapreduce(string, *, Array(sparsevec(P[1, :])'))
         @test sum(H) == sum(nonzeros(H))
         @test count(!iszero, H) == count(!iszero, nonzeros(H))
         # with f(0) != 0 the zero count shows up in the value, so this would
