@@ -1820,6 +1820,12 @@ end
     # `count` calls `f` on the stored entries and on one zero
     calls = Ref(0)
     @test count(z -> (calls[] += 1; !iszero(z)), view(SparseVector{ComplexF64,Int32}(y), :)) == 2 && calls[] == 3
+    # a whole view converts with the parent's index type and stored zeros
+    z = SparseVector{ComplexF64,Int32}(x)
+    C = SparseMatrixCSC{ComplexF64,Int32}(A)
+    for (v, u) in ((view(z, :), z), (view(C, :, 1), C[:, 1])), f in (SparseVector, sparse, w -> vcat(w, w), w -> kron(w, z))
+        @test exact_equal(f(v), f(u))
+    end
 end
 end
 
