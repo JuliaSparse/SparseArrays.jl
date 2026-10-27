@@ -256,8 +256,11 @@ end
 
 @testset "cond of a singular matrix is Inf" begin
     @test cond(sparse([1.0 2; 3 6]), 1) === Inf
-    # the triangular solve, not the factorization, finds this one singular
+    # `factorize` leaves the zero on the diagonal of a triangular or diagonal factor
     @test cond(sparse([1.0 0; 2 0]), Inf) === Inf
+    @test cond(sparse([1.0 0; 0 0]), 1) === Inf
+    # Hermitian, so `factorize` tries Cholesky and LDLt before the LU finds it singular
+    @test cond(sparse([1.0 1; 1 1]), 1) === Inf
     # the LU works in double precision, but the result is of the matrix's precision
     @test cond(sparse(Float32[1 2; 3 4]), 1) isa Float32
 end
