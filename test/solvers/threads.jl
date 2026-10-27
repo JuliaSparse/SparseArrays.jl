@@ -53,6 +53,7 @@ end
         if Base.JLOptions().use_pkgimages != 0
             @test cached(show, (typeof(IOBuffer()), MIME"text/plain", S))
             @test cached(\\, (S, Vector{Float64}))
+            @test cached(sprand, (Int, Int, Float64))
         end
         """
     @test success(pipeline(testprocess(script); stdout, stderr))
