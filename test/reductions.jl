@@ -324,6 +324,25 @@ end
             @test mapreduce(string, *, A; dims=2) == mapreduce(string, *, D; dims=2)
         end
         @test sum(x->x+1, spzeros(3, 500); dims=2) == fill(500.0, 3, 1)
+        # an element type whose accumulator inference cannot pin down takes the same pass,
+        # through a widened workspace, and the result has the element type of the dense one
+        U = SparseMatrixCSC{Union{Missing,Float64},Int}(sprand(60, 50, 0.1))
+        Um = copy(U); Um[3, 7] = missing
+        N = SparseMatrixCSC{Number,Int}(sprand(20, 30, 0.2))
+        for X in (U, Um, N, view(U, :, [9, 2, 2, 40]), view(Um, :, 5:30)), (f, op) in ((identity, +), (identity, max), (x -> x + 1, +), (identity, (a, b) -> a + b), (abs2, *))
+            X === N && op === max && continue
+            r, rd = mapreduce(f, op, X; dims=2), mapreduce(f, op, Array(X); dims=2)
+            @test typeof(r) == typeof(rd) && isequal(r, rd)
+            r, rd = mapreduce(f, op, X; dims=2, init=op === max ? -Inf : op === (*) ? 1.0 : 0.0), mapreduce(f, op, Array(X); dims=2, init=op === max ? -Inf : op === (*) ? 1.0 : 0.0)
+            @test typeof(r) == typeof(rd) && isequal(r, rd)
+        end
+        @test isequal(sum(Um'; dims=1), sum(Array(Um'); dims=1)) && isequal(maximum(Um; dims=2), maximum(Array(Um); dims=2))
+        # ... and in O(nnz): 10^5 x 10^5 with 100 entries
+        HU = SparseMatrixCSC{Union{Missing,Float64},Int}(sprand(10^5, 10^5, 1e-8))
+        for g in (X -> sum(X; dims=2), X -> maximum(X; dims=2), X -> sum(X'; dims=1))
+            g(HU)
+            @test (@elapsed g(HU)) < 0.5
+        end
     end
     @testset "prod kernels: zero powers must not mask NaN/Inf" begin
         @test isequal(prod(SparseVector(3, [1], [NaN])), NaN)

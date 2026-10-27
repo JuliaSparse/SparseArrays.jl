@@ -393,6 +393,11 @@ end
 # For a row-wise reduction of a CSC matrix that's O(m·n·log(nnz)). Redo the check starting
 # from an actual element, which is how a nonempty reduction starts, and use the single-pass
 # row-major method if the type is concrete and stable.
+# Where it cannot (a `Union` with `Missing`, an abstract element type), the pass still runs
+# in O(nnz): it accumulates in a workspace typed with the join of the two, which any chain
+# stays in, and the result is then collected from the workspace by value, which gives it the
+# element type Base's own collection of the chains would (a `Union` narrows to the values
+# present). In place the output is typed already, and Base never asks here.
 function Base.mapreducedim_naive(f::F, op::OP, A::SparseMatrixCSCOrColumnSubset{T}, init,
                                  is_inner_dim, inner, outer, alloc) where {F,OP,T}
     if is_inner_dim == (false, true)
@@ -400,10 +405,26 @@ function Base.mapreducedim_naive(f::F, op::OP, A::SparseMatrixCSCOrColumnSubset{
         R = Base.promote_op((s, a) -> op(s, f(a)), S, T)
         if isconcretetype(S) && R <: S
             return Base.mapreducedim_rowmajor(f, op, A, init, is_inner_dim, inner, outer, alloc)
+        elseif alloc isa Base._MapReduceAllocator
+            W = Base.mapreducedim_rowmajor(f, op, A, init, is_inner_dim, inner, outer,
+                                           _RowWorkspace{Base.promote_typejoin(S, R)}(size(A, 1)))
+            return alloc(W[o[1]] for o in outer)
         end
     end
     return invoke(Base.mapreducedim_naive, Tuple{Any,Any,Any,Any,Any,Any,Any,Any},
                   f, op, A, init, is_inner_dim, inner, outer, alloc)
+end
+# the allocator of the row-wise pass's workspace: an `m x 1` matrix of the seeds, in the order
+# `outer` visits the rows, that the pass then accumulates into
+struct _RowWorkspace{W}
+    m::Int
+end
+function (w::_RowWorkspace{W})(seeds) where {W}
+    R = Matrix{W}(undef, w.m, 1)
+    for (i, v) in enumerate(seeds)
+        R[i] = v
+    end
+    return R
 end
 
 # LinearAlgebra already sends commutative whole-array reductions of `A'` to `parent(A)`.
