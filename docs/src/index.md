@@ -214,6 +214,11 @@ sparse. A dense argument contributes its nonzeros, and a `Diagonal` or `I` its d
 [`sparse_hcat`](@ref), [`sparse_vcat`](@ref) and [`sparse_hvcat`](@ref) return a sparse
 array even when no argument is sparse.
 
+The index type of the result is promoted over the sparse arguments, wherever they are,
+and is `Int` when none is sparse. A dense argument, a number or `I` adds none, so with a
+dense `D`, `[A32; D]` and `[D; A32]` both have the `Int32` indices of `A32`. A result too
+large for that index type throws an `ArgumentError`.
+
 #### [Reductions](@id man-sparse-reductions)
 
 `sum(A)` and the other reductions over all entries visit the stored entries only. Along a
