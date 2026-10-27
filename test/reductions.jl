@@ -844,6 +844,11 @@ end
         @test sum(A) ≈ sum(M) && count(>(0), A) == count(>(0), M) && any(A .> 0) == any(M .> 0) && all(A .< 0.4) == all(M .< 0.4)
         @test_throws ArgumentError sum(A; sparse = true)
     end
+    # `reduce` takes the keyword too (Base sums a `Bool` array through it) without taking
+    # Base's concatenation of a vector of arrays from a sparse vector of them
+    @test sum(sparse([true false]); dims = 2, sparse = true) == [1;;]
+    @test reduce(vcat, SparseVector(2, [1, 2], [[1 2], [3 4]])) == [1 2; 3 4]
+    @test reduce(hcat, SparseVector(2, [1, 2], [[1, 2], [3, 4]])) == [1 3; 2 4]
     C = fixture(ComplexF64, 5, 3)
     MC, VC = Matrix(C), view(C, :, 2:3)
     for dims in (1, 2)

@@ -465,6 +465,14 @@ for T in (:SparseMatrixCSCOrSubArray, :(AdjOrTrans{<:Any,<:SparseMatrixCSCOrColu
     # Base's `sum` of a `Bool` array calls `reduce` with `add_sum`
     @eval Base.@constprop :aggressive Base.reduce(op, A::$T; dims=:, init=Base._InitialValue(), sparse::Bool=false) =
         mapreduce(identity, op, A; dims, init, sparse)
+    # Base concatenates a vector of arrays through `reduce(vcat, A)` and `reduce(hcat, A)`
+    # with methods the one above is ambiguous with for a sparse vector of arrays
+    if T === :SparseVectorOrView
+        @eval Base.reduce(::typeof(vcat), A::$T{<:AbstractVecOrMat}) =
+            invoke(reduce, Tuple{typeof(vcat), AbstractVector{<:AbstractVecOrMat}}, vcat, A)
+        @eval Base.reduce(::typeof(hcat), A::$T{<:AbstractVecOrMat}) =
+            invoke(reduce, Tuple{typeof(hcat), AbstractVector{<:AbstractVecOrMat}}, hcat, A)
+    end
     for (fname, _fname, op) in ((:any, :_any, :(Base.or_any)), (:all, :_all, :(Base.and_all)))
         @eval begin
             Base.$fname(A::$T; dims=:, sparse::Bool=false) = Base.$fname(identity, A; dims, sparse)
