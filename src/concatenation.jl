@@ -292,9 +292,8 @@ end
 
 # Concatenations involving un/annotated sparse/special matrices/vectors should yield sparse arrays
 
-# the output array type is determined by the first element of the to be concatenated objects
-# if this is a Number, the output would be dense by the fallback abstractarray.jl code (see cat_similar)
-# so make sure that if that happens, the "array" is sparse (if more sparse arrays are involved, of course)
+# `_sparse` makes the first argument of a concatenation that has to be sparse, with a
+# number standing for a one-element vector
 _sparse(x::Number) = sparsevec([1], [x], 1)
 _sparse(A) = _makesparse(A)
 _makesparse(x::Number) = x
@@ -339,32 +338,29 @@ end
 # ambiguity is introduced for arrays that are not sparse (#431).
 const _SparseConcatGroup = Union{AbstractVecOrMat,Number}
 
-# Base's `_cat_t` takes the output type from its first argument, so with a leading number
-# it would build a dense array. Choose the destination from the first array instead, and
-# keep the number as is so that it fills its block the way it does in dense
-# concatenation (#383).
-_catleader(X1::AbstractArray, X...) = X1
-_catleader(X1::Number, X...) = _catleader(X...)
-_catleader(X1::Number) = _sparse(X1)
 # The index type of a concatenation is promoted over its sparse arguments, wherever they
 # are, and is `Int` when none is sparse. A dense array, a number, a structured matrix or a
 # `UniformScaling` has no index type of its own, so it adds none, and the result does not
 # depend on the order of the arguments. The size of the result is checked against it.
-function _catidxtype(X...)
+function _catidxtype(X::Vararg{Any,N}) where {N}
     Ti = _sparseidxtype(X...)
     return Ti === Union{} ? Int : Ti
 end
 _sparseidxtype() = Union{}
-_sparseidxtype(x, X...) = promote_type(anysparse(x) ? _wrappedidxtype(x) : Union{}, _sparseidxtype(X...))
+_sparseidxtype(x, X::Vararg{Any,N}) where {N} =
+    promote_type(anysparse(x) ? _wrappedidxtype(x) : Union{}, _sparseidxtype(X...))
 _wrappedidxtype(x::AbstractSparseArray) = indtype(x)
 function _wrappedidxtype(x::AbstractArray)
     p = parent(x)
     return p === x ? indtype(_makesparse(x)) : _wrappedidxtype(p)
 end
-function _catvector(::Type{T}, shape, Xin::Tuple, X::Tuple) where {T}
+# The destination of a vector result is made here and not by Base's `_cat_t`, which takes
+# its type from the first argument and so would build a dense array after a leading
+# number. A number is kept as is, so that it fills its block as in dense concatenation (#383).
+function _catvector(::Type{T}, n, Xin::Tuple) where {T}
     Ti = _catidxtype(Xin...)
-    sparse_check_Ti(shape[1], 1, Ti)
-    return similar(_catleader(X...), T, Ti, shape)
+    sparse_check_Ti(n, 1, Ti)
+    return spzeros(T, Ti, n)
 end
 # The compiled method serves every value of `dims`, so `dims2cat(dims)` has an unknown
 # length, and `similar` of a sparse array cannot be resolved for a shape of unknown length,
@@ -385,7 +381,7 @@ end
 function _sparse_cat_t_shaped(catdims::Tuple{Vararg{Bool}}, ::Type{T}, Xin::Vararg{Any,N}) where {T,N}
     X = map(_makesparse, Xin)
     shape = Base.cat_size_shape(catdims, X...)
-    length(shape) == 1 && return Base.__cat(_catvector(T, shape, Xin, X), shape, catdims, X...)
+    length(shape) == 1 && return Base.__cat(_catvector(T, shape[1], Xin), shape, catdims, X...)
     Ti = _catidxtype(Xin...)
     sparse_check_Ti(shape[1], shape[2], Ti)
     vertical, horizontal = catdims[1], length(catdims) == 2 && catdims[2]
@@ -409,12 +405,6 @@ end
 _catdense(x::AbstractArray) = Array(x)
 _catdense(x) = x
 _sparse_typed_hcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(2), T, X...)
-# with only vectors the result is a vector, which Base's `_typed_vcat!` builds by assigning
-# whole sparse vectors, which keeps their stored zeros
-function _sparse_typed_vcat(::Type{T}, Xin::AbstractVector...) where {T}
-    X = map(_makesparse, Xin)
-    return Base._typed_vcat!(_catvector(T, (sum(length, X),), Xin, X), X)
-end
 _sparse_typed_vcat(::Type{T}, X...) where {T} = _sparse_cat_t(Val(1), T, X...)
 
 # `Vararg{_SparseConcatGroup,N}` makes Julia compile `cat_internal` for each argument
@@ -608,14 +598,12 @@ end
 promote_to_array_type(A::Tuple{Vararg{Union{_SparseConcatGroup,UniformScaling}}}) = _concatsparse(A...) ? SparseMatrixCSC : Matrix
 promote_to_arrays_(n::Int, ::Type{SparseMatrixCSC}, J::UniformScaling) = Diagonal(fill(J.λ, n))
 # `LinearAlgebra` sizes the `UniformScaling`s and concatenates the result, which is sparse
-# only if an argument is. The first array or number is made sparse with the index type
-# that the arguments give, so that it does not change it.
-_withsparsefirst(X...) = _sparsefirst(_catidxtype(X...), X...)
-_sparsefirst(::Type) = ()
-_sparsefirst(::Type{Ti}, J::UniformScaling, X...) where {Ti} = (J, _sparsefirst(Ti, X...)...)
-_sparsefirst(::Type{Ti}, x::Number, X...) where {Ti} = (sparsevec(Ti[1], [x], 1), X...)
-_sparsefirst(::Type{Ti}, x::AbstractVector, X...) where {Ti} = (SparseVector{eltype(x),Ti}(x), X...)
-_sparsefirst(::Type{Ti}, x::AbstractMatrix, X...) where {Ti} = (SparseMatrixCSC{eltype(x),Ti}(x), X...)
+# only if an argument is. When none is, the first array or number is made sparse, with the
+# `Int` indices that the index type of the result has then anyway.
+_withsparsefirst(X::Vararg{Any,N}) where {N} = anysparse(X...) ? X : _sparsefirst(X...)
+_sparsefirst() = ()
+_sparsefirst(J::UniformScaling, X::Vararg{Any,N}) where {N} = (J, _sparsefirst(X...)...)
+_sparsefirst(x, X::Vararg{Any,N}) where {N} = (_sparse(x), X...)
 
 """
     sparse_hcat(A...)
