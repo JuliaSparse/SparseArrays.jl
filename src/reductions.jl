@@ -444,9 +444,13 @@ function Base.mapreducedim(f, op, A::AdjOrTrans{<:Any,<:SparseMatrixCSCOrColumnS
         return R
     end
     1 in dims && 2 in dims && return Base.mapreducedim(f, op, copy(A), init, dims, alloc)
-    return permutedims(Base.mapreducedim(f ∘ g, op, parent(A), init, map(_switch_dim12, dims)), (2, 1))
+    return _transposed(Base.mapreducedim(f ∘ g, op, parent(A), init, map(_switch_dim12, dims)))
 end
 _switch_dim12(d) = d == 1 ? 2 : d == 2 ? 1 : d
+# the parent's result with its two dimensions swapped: a reshape, without a copy, of the
+# single row or column a reduction along one of them leaves
+_transposed(R::AbstractMatrix) =
+    size(R, 1) == 1 || size(R, 2) == 1 ? reshape(R, size(R, 2), size(R, 1)) : permutedims(R, (2, 1))
 # `R` with its first two dimensions swapped, to receive the parent's reduction
 _switch_dim12(R::AbstractArray{<:Any,0}) = R
 _switch_dim12(R::AbstractVector) = reshape(R, 1, length(R))
