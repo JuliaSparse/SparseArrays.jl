@@ -14,7 +14,7 @@ widelength(x::Union{SparseColumnView,SparseVectorView}) = Int64(length(x))
 
 # Reductions along a dimension return a dense `Array`, including for views and adjoints
 # (#377), where Base's `similar` would give a sparse one.
-const _SparseReducible = Union{AbstractSparseArray, SparseMatrixCSCSubArray, SparseVectorOrView}
+const _SparseReducible = Union{AbstractSparseArray, SparseMatrixCSCSubArray, SparseVectorOrView, SparseVectorPartialView}
 Base.mapreduce_similar(A::Union{_SparseReducible, AdjOrTrans{<:Any,<:_SparseReducible}}, ::Type{R}, axs) where {R} =
     similar(1:1, R, axs)
 

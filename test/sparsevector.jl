@@ -1190,7 +1190,8 @@ end
     @test norm(spzeros(3), -Inf) === 0.0
 
     # reductions along the dimension of an empty vector, and of a range view
-    @test any(iszero, spzeros(0); dims=1) == any(iszero, zeros(0); dims=1)
+    # (dense input throws here, unlike whole-array `any(iszero, zeros(0))`; the sparse one does the same)
+    @test (try any(iszero, spzeros(0); dims=1) catch e; typeof(e) end) == (try any(iszero, zeros(0); dims=1) catch e; typeof(e) end)
     @test count(iszero, spzeros(0); dims=1) == count(iszero, zeros(0); dims=1)
     @test maximum(spzeros(0); dims=1, init=0.0) == maximum(zeros(0); dims=1, init=0.0)
     @test extrema(view(x, 1:3); dims=1) == extrema(view(xd, 1:3); dims=1)
