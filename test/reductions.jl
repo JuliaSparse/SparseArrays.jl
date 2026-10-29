@@ -924,7 +924,8 @@ end
     @test sum(sparse([true false]); dims = 2, sparse = true) isa SparseMatrixCSC{Int}
     @static if COMPREHENSIVE
     @test maximum(sparse(Int8[1 2; 3 4]); dims = 1, sparse = true) isa SparseMatrixCSC{Int8}
-    @test sum(sparse(Int8[1 2; 3 4]); dims = 1, init = Int8(1), sparse = true) isa SparseMatrixCSC{Int8}
+    # `add_sum` widens the small integers, `init` included, as it starts every dense chain with `op(init, f(a1))`
+    @test sum(sparse(Int8[1 2; 3 4]); dims = 1, init = Int8(1), sparse = true) isa SparseMatrixCSC{eltype(sum(Int8[1 2; 3 4]; dims = 1, init = Int8(1)))}
     end
     # empty dimensions
     for (m, n) in ((0, 4), (4, 0), (@static COMPREHENSIVE ? ((0, 0),) : ())...), dims in (1, 2, (1, 2))
