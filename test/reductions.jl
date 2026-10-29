@@ -860,7 +860,9 @@ end
             @test mismatch(maximum(A; dims, sparse = true), maximum(M; dims)) === nothing
             @static if COMPREHENSIVE
             @test mismatch(minimum(abs2, A; dims, sparse = true), minimum(abs2, M; dims)) === nothing
-            @test mismatch(sum(A; dims, init = 2.5, sparse = true), sum(M; dims, init = 2.5); approx = true) === nothing
+            # `init` is a neutral element, which Base's kernels may fold into each of several
+            # accumulators of a dense slice; the sparse result folds it once per slice
+            @test mismatch(sum(A; dims, init = 2.5, sparse = true), sum(M; dims) .+ 2.5; approx = true) === nothing
             @test mapreduce(abs, (x, y) -> x + y, A; dims, init = 1.5, sparse = true) ≈
                   mapreduce(abs, (x, y) -> x + y, M; dims, init = 1.5)
             end
@@ -868,7 +870,7 @@ end
             @static if COMPREHENSIVE
             @test mismatch(count(A .> 0; dims, sparse = true), count(M .> 0; dims)) === nothing
             end
-            @test mismatch(count(A .> 0; dims, init = 3, sparse = true), count(M .> 0; dims, init = 3)) === nothing
+            @test mismatch(count(A .> 0; dims, init = 3, sparse = true), count(M .> 0; dims) .+ 3) === nothing
             @static if COMPREHENSIVE
             @test mismatch(any(>(0), A; dims, sparse = true), any(>(0), M; dims)) === nothing
             end
