@@ -388,6 +388,20 @@ end
     end
 end
 
+@testset "the capacity of a sparse product is close to its stored entries" begin
+    # the rows of a banded matrix collide, so the product stores 9 of the 25 products per column
+    n = 1024
+    A = spdiagm((k => fill(1.0, n - abs(k)) for k in -2:2)...)
+    C = A * A
+    @test mismatch(C, Array(A) * Array(A)) === nothing
+    @test Base.summarysize(rowvals(C)) < 3 / 2 * sizeof(Int) * nnz(C)
+    # a column needs slack for every row while it is formed, not afterwards
+    T = sparse([1, 2], [1, 2], [1.0, 2.0], 10^6, 2)
+    P = T * sparse([1, 2], [1, 2], [3.0, 4.0], 2, 2)
+    @test nonzeros(P) == [3.0, 8.0]
+    @test Base.summarysize(rowvals(P)) < 10^3
+end
+
 @testset "in-place sparse-sparse mul!" begin
     for n in (20, (@static COMPREHENSIVE ? (30,) : ())...)
         sA = fixture(ComplexF64, n, n); A = Array(sA)
