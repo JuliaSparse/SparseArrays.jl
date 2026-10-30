@@ -466,7 +466,7 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     mB = size(B, 1)
     nA == mB || throw(DimensionMismatch("second dimension of A, $nA, does not match the first dimension of B, $mB"))
 
-    nnzC = min(estimate_mulsize(mA, nnz(A), nA, nnz(B), nB) * 11 ÷ 10 + mA, mA*nB)
+    nnzC = min(_mulsize(A, B, estimate_mulsize(mA, nnz(A), nA, nnz(B), nB)) * 11 ÷ 10 + mA, mA*nB)
     colptrC = Vector{Ti}(undef, nB+1)
     rowvalC = Vector{Ti}(undef, nnzC)
     nzvalC = Vector{Tv}(undef, nnzC)
@@ -488,6 +488,12 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
 
     resize!(rowvalC, ip - 1)
     resize!(nzvalC, ip - 1)
+    # the result would otherwise keep the capacity of the estimate, and the `mA` entries
+    # of slack that a column needs, for as long as it lives
+    if nnzC > 3 * (ip - 1) >> 1
+        sizehint!(rowvalC, ip - 1)
+        sizehint!(nzvalC, ip - 1)
+    end
 
     # This modification of Gustavson algorithm has sorted row indices
     C = SparseMatrixCSC(mA, nB, colptrC, rowvalC, nzvalC)
@@ -552,6 +558,33 @@ spmatmul1(A::UnitLowerTriangular, B::UnitLowerTriangular) = UnitLowerTriangular(
 # exploit spmatmul for sparse vectors and column views
 function spmatmulv(A, B)
     spmatmul(A, B)[:,1]
+end
+
+# The size to allocate for `A*B`. Rows that collide, as those of a stencil do, make
+# `estimate_mulsize` too large by a factor of the entries per result column. The columns of a
+# sample of those of `B` show the collisions, at no more than 1/64 of the work of the product.
+# The sample only lowers the estimate: a column of it that is not typical could otherwise ask
+# for far more than the result needs, and a size too small is grown.
+function _mulsize(A, B, estimate)
+    mA, nB = size(A, 1), size(B, 2)
+    (nB < 1024 || estimate <= mA) && return estimate
+    SA = _storageparent(A); rowvalA = getrowval(SA)
+    SB = _storageparent(B); rowvalB = getrowval(SB)
+    xb = fill(false, mA)
+    step = nB ÷ min(nB >> 6, 1024)
+    sampled = (step + 1) >> 1:step:nB
+    nz = 0
+    @inbounds for i in sampled
+        for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
+            k = rowvalA[kp]
+            nz += !xb[k]
+            xb[k] = true
+        end
+        for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
+            xb[rowvalA[kp]] = false
+        end
+    end
+    return min(estimate, ceil(Int, nz / length(sampled) * nB))
 end
 
 # estimated number of non-zeros in matrix product
