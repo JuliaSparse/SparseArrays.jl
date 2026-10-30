@@ -1252,6 +1252,33 @@ function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::Abstr
     end
 end
 
+# Merging each of the `n` columns of `A` with `x` costs O(nnz(A) + n * nnz(x)). Looking the
+# stored rows of `A` up in a table of the positions in `x` costs O(nnz(A) + m), and visits the
+# same pairs in the same order; only an `m` beyond the cost of the merge makes the table the
+# dearer one. A position fits the index type of `x`, whose `k`th index is at least `k`.
+function _spvec_positions(A, xnzind)
+    m, n = size(A)
+    m > widemul(n, length(xnzind)) + nnz(A) && return nothing
+    pos = zeros(eltype(xnzind), m)
+    @inbounds for k in eachindex(xnzind)
+        pos[xnzind[k]] = k
+    end
+    return pos
+end
+_spcoldot(f::F, A, j, Arowval, Anzval, ::Nothing, xnzind, xnzval) where {F} =
+    _spdot(f, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
+           1, length(xnzind), xnzind, xnzval)
+function _spcoldot(f::F, A, j, Arowval, Anzval, pos::Vector, xnzind, xnzval) where {F}
+    s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
+    @inbounds for p in nzrange(A, j)
+        k = pos[Arowval[p]]
+        if !iszero(k)
+            s += f(Anzval[p], xnzval[k])
+        end
+    end
+    return s
+end
+
 function _spAt_or_Ac_mul_spvec!(tfun::F,
                           y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
                           α::Number, β::Number) where {F<:Function}
@@ -1269,12 +1296,11 @@ function _spAt_or_Ac_mul_spvec!(tfun::F,
     xnzval = nonzeros(x)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
-    mx = length(xnzind)
 
+    pos = _spvec_positions(A, xnzind)
     for j = 1:n
         # s <- dot(A[:,j], x)
-        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
-                   1, mx, xnzind, xnzval)
+        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
         @inbounds y[j] += s * α
     end
 end
@@ -1304,15 +1330,14 @@ function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
     xnzval = nonzeros(x)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
-    mx = length(xnzind)
 
     ynzind = Vector{Ti}(undef, n)
     ynzval = Vector{Tv}(undef, n)
 
+    pos = _spvec_positions(A, xnzind)
     jr = 0
     for j = 1:n
-        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
-                   1, mx, xnzind, xnzval)
+        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
         if s != zero(s)
             jr += 1
             ynzind[jr] = j
