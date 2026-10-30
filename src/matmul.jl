@@ -1282,8 +1282,72 @@ end
 
 ### BLAS-2 / sparse A * sparse x -> dense y
 
+# Accumulating a product that touches few rows in a dense result, and then scanning it,
+# costs O(m) however few they are. The rows touched are listed and sorted instead when that
+# is cheaper, which measured on an AMD EPYC 9354 is below `5 f log2(f) < m` for `f` products
+# of stored entries. The result is the one the dense path gives: `x`'s stored zeros are
+# skipped, and entries that cancel are not stored.
+_spmv_fewflops(flops, m) = 5 * Base.top_set_bit(flops) * flops < m
+function _spmv_flops(A, x)
+    flops = 0
+    @inbounds for j in nonzeroinds(x)
+        flops += length(nzrange(A, j))
+    end
+    return flops
+end
+function _spA_mul_spvec_fewrows(A, x, flops)
+    m = size(A, 1)
+    T = promote_op(matprod, eltype(A), eltype(x))
+    xnzind = nonzeroinds(x)
+    xnzval = nonzeros(x)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
+    seen = fill(false, m)
+    work = Vector{T}(undef, m)
+    ynzind = Vector{Int}(undef, flops)
+    z = zero(T)
+    nrows = 0
+    @inbounds for i in eachindex(xnzind)
+        v = xnzval[i]
+        _isnotzero(v) || continue
+        for p in nzrange(A, xnzind[i])
+            r = Int(Arowval[p])
+            if seen[r]
+                work[r] += Anzval[p] * v
+            else
+                seen[r] = true
+                work[r] = z + Anzval[p] * v
+                nrows += 1
+                ynzind[nrows] = r
+            end
+        end
+    end
+    sort!(ynzind, 1, nrows, QuickSort, Base.Order.Forward)
+    ynzval = Vector{T}(undef, nrows)
+    c = 0
+    @inbounds for q in 1:nrows
+        r = ynzind[q]
+        a = work[r]
+        if _isnotzero(a)
+            c += 1
+            ynzind[c] = r
+            ynzval[c] = a
+        end
+    end
+    resize!(ynzind, c)
+    resize!(ynzval, c)
+    return SparseVector(m, ynzind, ynzval)
+end
+
 function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
     require_one_based_indexing(A, x)
+    m, n = size(A)
+    # counting misses the cache once per entry of `x`, which a product that will take the
+    # dense path should not pay; the average column length rules most of those out
+    if length(x) == n && _spmv_fewflops(ceil(Int, nnz(A) * (length(nonzeroinds(x)) / max(n, 1))), m)
+        flops = _spmv_flops(A, x)
+        _spmv_fewflops(flops, m) && return _spA_mul_spvec_fewrows(A, x, flops)
+    end
     y = densemv(A, x)
     initcap = min(nnz(A), size(A,1))
     _dense2sparsevec(eltype(y), y, initcap)

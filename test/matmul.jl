@@ -961,6 +961,23 @@ end
         end
         end
     end
+    @testset "a sparse vector product that touches few rows" begin
+        # row 2 cancels, the `Inf` meets a stored zero of `x`
+        A = sparse([2, 5, 2, 900], [1, 1, 2, 3], [1.0, 2.0, -1.0, Inf], 1000, 3)
+        x = SparseVector(3, [1, 2, 3], [1.0, 1.0, 0.0])
+        y = A * x
+        @test y isa SparseVector{Float64,Int}
+        @test nonzeroinds(y) == [5] && nonzeros(y) == [2.0]
+        # the path that accumulates in a dense vector allocates 24 bytes per row
+        @test (@allocated A * x) < 12 * size(A, 1)
+        @static if COMPREHENSIVE
+        Ac = sparse([2, 5, 2, 900], [1, 1, 2, 3], complex.([1.0, 2.0, -1.0, 3.0], 1.0), 1000, 3)
+        xc = SparseVector(3, [1, 3], [1.0 + 2.0im, 2.0 - 1.0im])
+        @test mismatch(Ac * xc, Array(Ac) * Vector(xc)) === nothing
+        @test (SparseMatrixCSC{Float64,Int32}(A) * x) isa SparseVector{Float64,Int}
+        end
+    end
+
     @testset "sparse A * sparse x -> sparse y" begin
         let A = fixture(Float64, 9, 16), x = fixturevec(Float64, 16), x2 = fixturevec(Float64, 9)
             Af = Array(A)
