@@ -446,8 +446,7 @@ end
 # The auxiliary Vector{Ti} xb is replaced by a Vector{Bool} of same length.
 # The optional argument controlling a sorting algorithm is obsolete.
 # depending on expected execution speed the sorting of the result column is
-# done by a quicksort of the row indices or by a full scan of the dense result vector.
-# The last is faster, if more than ≈ 1/32 of the result column is nonzero.
+# done by a quicksort of the row indices or by a scan of a bitmap of them.
 # Unit triangular wrappers keep their diagonal implicitly, so they are materialized first.
 # The added diagonal may not fit the parent's index type, in which case a wider one is used
 # for the temporary; the result keeps the index type of the operands.
@@ -474,6 +473,8 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     @inbounds begin
         ip = 1
         xb = fill(false, mA)
+        rowbits = zeros(UInt64, (mA + 63) >> 6)
+        wordbits = zeros(UInt64, (length(rowbits) + 63) >> 6)
         for i in axes(B,2)
             if ip + mA - 1 > nnzC
                 nnzC += max(mA, nnzC>>2)
@@ -481,7 +482,7 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
                 resize!(nzvalC, nnzC)
             end
             colptrC[i] = ip
-            ip = spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
+            ip = spcolmul!(rowvalC, nzvalC, xb, rowbits, wordbits, i, ip, A, B)
         end
         colptrC[nB+1] = ip
     end
@@ -495,10 +496,9 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
 end
 
 # process single rhs column
-function spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
+function spcolmul!(rowvalC, nzvalC, xb, rowbits, wordbits, i, ip, A, B)
     SA = _storageparent(A); rowvalA = getrowval(SA); nzvalA = getnzval(SA)
     SB = _storageparent(B); rowvalB = getrowval(SB); nzvalB = getnzval(SB)
-    mA = size(A, 1)
     ip0 = ip
     k0 = ip - 1
     @inbounds begin
@@ -519,7 +519,7 @@ function spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
             end
         end
         if ip > ip0
-            if prefer_sort(ip-k0, mA)
+            if prefer_sort(ip-k0, wordbits)
                 # in-place sort of indices. Effort: O(nnz*ln(nnz)).
                 sort!(rowvalC, ip0, ip-1, QuickSort, Base.Order.Forward)
                 for vp = ip0:ip-1
@@ -528,13 +528,32 @@ function spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
                     nzvalC[vp] = nzvalC[k+k0]
                 end
             else
-                # scan result vector (effort O(mA))
-                for k in axes(A,1)
-                    if xb[k]
-                        xb[k] = false
-                        rowvalC[ip0] = k
-                        nzvalC[ip0] = nzvalC[k+k0]
-                        ip0 += 1
+                # visit the rows in order through a bitmap of them, and a bitmap of its
+                # nonzero words. Effort: O(nnz + mA/4096).
+                for vp = ip0:ip-1
+                    k = Int(rowvalC[vp])
+                    xb[k] = false
+                    w = (k - 1) >> 6
+                    rowbits[w+1] |= one(UInt64) << ((k - 1) & 63)
+                    wordbits[(w >> 6)+1] |= one(UInt64) << (w & 63)
+                end
+                vp = ip0
+                for t in eachindex(wordbits)
+                    tbits = wordbits[t]
+                    tbits == 0 && continue
+                    wordbits[t] = 0
+                    while tbits != 0
+                        w = ((t - 1) << 6) + trailing_zeros(tbits)
+                        tbits &= tbits - 1
+                        bits = rowbits[w+1]
+                        rowbits[w+1] = 0
+                        while bits != 0
+                            k = (w << 6) + trailing_zeros(bits) + 1
+                            bits &= bits - 1
+                            rowvalC[vp] = k
+                            nzvalC[vp] = nzvalC[k+k0]
+                            vp += 1
+                        end
                     end
                 end
             end
@@ -585,11 +604,11 @@ _assign_sparse!(C::SparseMatrixCSCColumnSubset, R) = (parent(C)[:, parentindices
 # only contiguous column views have a sparse product of their own
 _unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(wrap(_compressed(A), t))
 
-# determine if sort! shall be used or the whole column be scanned
-# based on empirical data on i7-3610QM CPU
-# measuring runtimes of the scanning and sorting loops of the algorithm.
-# The parameters 6 and 3 might be modified for different architectures.
-prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < m
+# Whether to sort the rows of a result column or visit them through the bitmaps, measured on
+# an AMD EPYC 9354. Insertion sort, which `QuickSort` falls back to, beats the bitmaps on a
+# short column, and otherwise the scan of `wordbits` is the bitmaps' only cost beyond the sort's.
+prefer_sort(nz::Integer, wordbits) =
+    nz <= 20 || 3 * Base.top_set_bit(nz) * nz < length(wordbits)
 
 
 ## triangular multiplication
