@@ -981,6 +981,7 @@ end
     @test nnz(B) == 0
     @test nnz(sprand(Xoshiro(1), 2^62, 4, 1e-17)) > 0
     @test eltype(sprand(Xoshiro(1), 2^62, 4, 1e-17, rand, Float32)) === Float32
+    @test eltype(sprand(Xoshiro(1), 2^62, 4, 1e-17, (r, i) -> rand(r, Int8, i))) === Int8
     @test nnz(sprand(Xoshiro(1), 2^62, 4, 0.0)) == 0
     # the arguments are checked before the size, since negative dimensions can overflow too
     @test_throws ArgumentError sprand(-2^62, 4, 0.5)
