@@ -41,6 +41,25 @@ end
 end
 end
 
+@static if COMPREHENSIVE
+@testset "the package image holds native code for `show` and `\\`" begin
+    script = """
+        using LinearAlgebra
+        function cached(f, types)
+            mi = Base.method_instance(f, types)
+            return mi !== nothing && isdefined(mi, :cache) && mi.cache.invoke != C_NULL
+        end
+        S = SparseMatrixCSC{Float64,Int}
+        if Base.JLOptions().use_pkgimages != 0
+            @test cached(show, (typeof(IOBuffer()), MIME"text/plain", S))
+            @test cached(\\, (S, Vector{Float64}))
+            @test cached(sprand, (Int, Int, Float64))
+        end
+        """
+    @test success(pipeline(testprocess(script); stdout, stderr))
+end
+end
+
 @testset "SuiteSparse library directory override (#250)" begin
     L = SparseArrays.LibSuiteSparse
     original_dir = L.libdir()
