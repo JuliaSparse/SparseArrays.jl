@@ -381,7 +381,7 @@ function _mapreduce_unordered(f::F, op::G, init, A::AbstractArray{Ta}, B::Abstra
         ib == eb && (v = rf(v, f(zero(Ta), Bv[ib])))
     end
     w isa Base._InitialValue || (v = v isa Base._InitialValue ? w : op(v, w))
-    nzeros = prod(widen, size(A)) - stored
+    nzeros = widelength(A) - stored
     if v isa Base._InitialValue   # nothing stored and no `init`: seed with one unstored position
         v = rf(v, f(zero(Ta), zero(Tb)))
         nzeros -= 1
