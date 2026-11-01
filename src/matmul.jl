@@ -466,7 +466,7 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     mB = size(B, 1)
     nA == mB || throw(DimensionMismatch("second dimension of A, $nA, does not match the first dimension of B, $mB"))
 
-    nnzC = min(estimate_mulsize(mA, nnz(A), nA, nnz(B), nB) * 11 ÷ 10 + mA, mA*nB)
+    nnzC = min(estimate_mulsize(A, B) * 11 ÷ 10 + mA, mA*nB)
     colptrC = Vector{Ti}(undef, nB+1)
     rowvalC = Vector{Ti}(undef, nnzC)
     nzvalC = Vector{Tv}(undef, nnzC)
@@ -488,6 +488,12 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
 
     resize!(rowvalC, ip - 1)
     resize!(nzvalC, ip - 1)
+    # Spare capacity counts as live for as long as the result does. A product of about one
+    # entry per row has about as much of it as entries, which is not worth a copy.
+    if nnzC > 3 * (ip - 1)
+        sizehint!(rowvalC, ip - 1)
+        sizehint!(nzvalC, ip - 1)
+    end
 
     # This modification of Gustavson algorithm has sorted row indices
     C = SparseMatrixCSC(mA, nB, colptrC, rowvalC, nzvalC)
@@ -554,12 +560,37 @@ function spmatmulv(A, B)
     spmatmul(A, B)[:,1]
 end
 
-# estimated number of non-zeros in matrix product
-# it is assumed, that the non-zero indices are distributed independently and uniformly
-# in both matrices. Over-estimation is possible if that is not the case.
-function estimate_mulsize(m::Integer, nnzA::Integer, n::Integer, nnzB::Integer, k::Integer)
-    p = (nnzA / (m * n)) * (nnzB / (n * k))
-    p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0 # (1-(1-p)^n)*m*k
+# The number of entries to allocate for `A*B`. Uniform random matrices give `(1-(1-p)^n)*m*k`,
+# with `p` the chance that two entries meet, which is too large where rows collide. An evenly
+# spaced sample of the columns of `B`, up to 1/64 of its entries, measures the rows of the result
+# per entry of `B`, since the sampled columns may not be typical in length. This rate only lowers
+# the estimate: a sample can miss the collisions, and a size too small is grown.
+function estimate_mulsize(A, B)
+    m, n = size(A)
+    k = size(B, 2)
+    p = (nnz(A) / (m * n)) * (nnz(B) / (n * k))
+    estimate = p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0
+    (k < 1024 || estimate <= m) && return estimate
+    rowvalA = getrowval(_storageparent(A))
+    rowvalB = getrowval(_storageparent(B))
+    xb = fill(false, m)
+    step = k ÷ min(k >> 6, 1024)
+    entries = 0
+    distinct = 0
+    @inbounds for i in (step + 1) >> 1:step:k
+        entries += length(getnzrange(B, i))
+        for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
+            r = rowvalA[kp]
+            distinct += !xb[r]
+            xb[r] = true
+        end
+        for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
+            xb[rowvalA[kp]] = false
+        end
+        entries > nnz(B) >> 6 && break
+    end
+    distinct == 0 && return estimate
+    return min(estimate, ceil(Int, nnz(B) * (distinct / entries)))
 end
 
 # A sparse destination takes the sparse product; its pattern becomes that of `A*B*α + C*β`.
