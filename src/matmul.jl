@@ -466,7 +466,7 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     mB = size(B, 1)
     nA == mB || throw(DimensionMismatch("second dimension of A, $nA, does not match the first dimension of B, $mB"))
 
-    nnzC = min(_mulsize(A, B, estimate_mulsize(mA, nnz(A), nA, nnz(B), nB)) * 11 ÷ 10 + mA, mA*nB)
+    nnzC = min(estimate_mulsize(A, B) * 11 ÷ 10 + mA, mA*nB)
     colptrC = Vector{Ti}(undef, nB+1)
     rowvalC = Vector{Ti}(undef, nnzC)
     nzvalC = Vector{Tv}(undef, nnzC)
@@ -488,9 +488,10 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
 
     resize!(rowvalC, ip - 1)
     resize!(nzvalC, ip - 1)
-    # the result would otherwise keep the capacity of the estimate, and the `mA` entries
-    # of slack that a column needs, for as long as it lives
-    if nnzC > 3 * (ip - 1) >> 1
+    # The result would otherwise keep the capacity of the estimate, and the `mA` entries of
+    # slack that a column needs, for as long as it lives. A product of about one entry per
+    # row, such as a diagonal one, has as many entries as slack, and is not worth a copy.
+    if nnzC > 3 * (ip - 1)
         sizehint!(rowvalC, ip - 1)
         sizehint!(nzvalC, ip - 1)
     end
@@ -560,39 +561,44 @@ function spmatmulv(A, B)
     spmatmul(A, B)[:,1]
 end
 
-# The size to allocate for `A*B`. Rows that collide, as those of a stencil do, make
-# `estimate_mulsize` too large by a factor of the entries per result column. The columns of a
-# sample of those of `B` show the collisions, at no more than 1/64 of the work of the product.
-# The sample only lowers the estimate: a column of it that is not typical could otherwise ask
-# for far more than the result needs, and a size too small is grown.
-function _mulsize(A, B, estimate)
-    mA, nB = size(A, 1), size(B, 2)
-    (nB < 1024 || estimate <= mA) && return estimate
-    SA = _storageparent(A); rowvalA = getrowval(SA)
-    SB = _storageparent(B); rowvalB = getrowval(SB)
-    xb = fill(false, mA)
-    step = nB ÷ min(nB >> 6, 1024)
-    sampled = (step + 1) >> 1:step:nB
-    nz = 0
-    @inbounds for i in sampled
+# The number of entries to allocate for `A*B`. A product of uniform random matrices has
+# `(1-(1-p)^n)*m*k` of them, with `p` the chance that two entries meet. That is too large where
+# rows collide, as those of a stencil do, by a factor of the entries per result column. So the
+# products of `A*B` are counted, and an evenly spaced sample of the columns of `B`, up to 1/64 of
+# their products, shows what share of them are distinct. Only the share is taken from the sample:
+# its columns need not be as full as the others, and may even be the empty ones. It also only
+# lowers the estimate, because a sample that misses the collisions could otherwise ask for far
+# more than the result needs, and a size too small is grown.
+function estimate_mulsize(A, B)
+    m, n = size(A)
+    k = size(B, 2)
+    p = (nnz(A) / (m * n)) * (nnz(B) / (n * k))
+    estimate = p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0
+    (k < 1024 || estimate <= m) && return estimate
+    rowvalA = getrowval(_storageparent(A))
+    rowvalB = getrowval(_storageparent(B))
+    products = 0
+    @inbounds for i in axes(B, 2), jp in getnzrange(B, i)
+        products += length(getnzrange(A, rowvalB[jp]))
+    end
+    xb = fill(false, m)
+    step = k ÷ min(k >> 6, 1024)
+    sampled = 0
+    distinct = 0
+    @inbounds for i in (step + 1) >> 1:step:k
         for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
-            k = rowvalA[kp]
-            nz += !xb[k]
-            xb[k] = true
+            r = rowvalA[kp]
+            sampled += 1
+            distinct += !xb[r]
+            xb[r] = true
         end
         for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
             xb[rowvalA[kp]] = false
         end
+        sampled > products >> 6 && break
     end
-    return min(estimate, ceil(Int, nz / length(sampled) * nB))
-end
-
-# estimated number of non-zeros in matrix product
-# it is assumed, that the non-zero indices are distributed independently and uniformly
-# in both matrices. Over-estimation is possible if that is not the case.
-function estimate_mulsize(m::Integer, nnzA::Integer, n::Integer, nnzB::Integer, k::Integer)
-    p = (nnzA / (m * n)) * (nnzB / (n * k))
-    p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0 # (1-(1-p)^n)*m*k
+    sampled == 0 && return min(estimate, products)
+    return min(estimate, ceil(Int, products * (distinct / sampled)))
 end
 
 # A sparse destination takes the sparse product; its pattern becomes that of `A*B*α + C*β`.

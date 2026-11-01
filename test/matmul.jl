@@ -400,6 +400,22 @@ end
     P = T * sparse([1, 2], [1, 2], [3.0, 4.0], 2, 2)
     @test nonzeros(P) == [3.0, 8.0]
     @test Base.summarysize(rowvals(P)) < 10^3
+    @static if COMPREHENSIVE
+    # the size of a sample that misses every entry of `B`, or whose columns alone hold them,
+    # comes from the products of `B` and not from how full the sample's columns are
+    n = 2^12
+    step = n ÷ min(n >> 6, 1024)
+    sampled = (step + 1) >> 1:step:n
+    D = sparse(1.0I, n, n)
+    others = setdiff(1:n, sampled)
+    for (cols, perline) in ((others, 2), (sampled, 80))
+        B = sparse(mod1.(1:perline*length(cols), n), repeat(cols; inner=perline), 1.0, n, n)
+        @test nnz(B) > n # or there is no sample
+        @test 0.9 * nnz(B) <= SparseArrays.estimate_mulsize(D, B) <= nnz(B)
+    end
+    # a diagonal product keeps its slack rather than being copied
+    @test length(rowvals(D * D)) == n && Base.summarysize(rowvals(D * D)) > n * sizeof(Int)
+    end
 end
 
 @testset "in-place sparse-sparse mul!" begin
