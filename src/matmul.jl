@@ -563,12 +563,12 @@ end
 
 # The number of entries to allocate for `A*B`. A product of uniform random matrices has
 # `(1-(1-p)^n)*m*k` of them, with `p` the chance that two entries meet. That is too large where
-# rows collide, as those of a stencil do, by a factor of the entries per result column. So the
-# products of `A*B` are counted, and an evenly spaced sample of the columns of `B`, up to 1/64 of
-# their products, shows what share of them are distinct. Only the share is taken from the sample:
-# its columns need not be as full as the others, and may even be the empty ones. It also only
-# lowers the estimate, because a sample that misses the collisions could otherwise ask for far
-# more than the result needs, and a size too small is grown.
+# rows collide, as those of a stencil do, by a factor of the entries per result column. So an
+# evenly spaced sample of the columns of `B`, up to 1/64 of its entries, shows how many rows of
+# the result an entry of `B` adds. Only that rate is taken from the sample: its columns need not
+# be as full as the others, and may even be the empty ones. It also only lowers the estimate,
+# because a sample that misses the collisions could otherwise ask for far more than the result
+# needs, and a size too small is grown.
 function estimate_mulsize(A, B)
     m, n = size(A)
     k = size(B, 2)
@@ -577,28 +577,24 @@ function estimate_mulsize(A, B)
     (k < 1024 || estimate <= m) && return estimate
     rowvalA = getrowval(_storageparent(A))
     rowvalB = getrowval(_storageparent(B))
-    products = 0
-    @inbounds for i in axes(B, 2), jp in getnzrange(B, i)
-        products += length(getnzrange(A, rowvalB[jp]))
-    end
     xb = fill(false, m)
     step = k ÷ min(k >> 6, 1024)
-    sampled = 0
+    entries = 0
     distinct = 0
     @inbounds for i in (step + 1) >> 1:step:k
+        entries += length(getnzrange(B, i))
         for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
             r = rowvalA[kp]
-            sampled += 1
             distinct += !xb[r]
             xb[r] = true
         end
         for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
             xb[rowvalA[kp]] = false
         end
-        sampled > products >> 6 && break
+        entries > nnz(B) >> 6 && break
     end
-    sampled == 0 && return min(estimate, products)
-    return min(estimate, ceil(Int, products * (distinct / sampled)))
+    distinct == 0 && return estimate
+    return min(estimate, ceil(Int, nnz(B) * (distinct / entries)))
 end
 
 # A sparse destination takes the sparse product; its pattern becomes that of `A*B*α + C*β`.
