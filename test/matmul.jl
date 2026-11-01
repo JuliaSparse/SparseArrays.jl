@@ -961,20 +961,26 @@ end
         end
         end
     end
-    @testset "a sparse vector product that touches few rows" begin
-        # row 2 cancels, the `Inf` meets a stored zero of `x`
-        A = sparse([2, 5, 2, 900], [1, 1, 2, 3], [1.0, 2.0, -1.0, Inf], 1000, 3)
-        x = SparseVector(3, [1, 2, 3], [1.0, 1.0, 0.0])
+    @testset "a sparse vector product that touches few rows, from a hash table and from bits" for
+            (m, k, bytes) in ((2^24, 0, 4096), (2^16, 60, 2^16))
+        # Row 2 cancels, the `Inf` meets a stored zero of `x`, and rows `m` and `m - 1` come
+        # out of column 2 after a later one out of column 1. The dense path allocates 8 bytes
+        # per row, more than either bound.
+        I = [2, 5, m, 2, m - 1, m, 900, (m ÷ 2 .+ (1:k))...]
+        J = [1, 1, 1, 2, 2, 2, 3, fill(4, k)...]
+        A = sparse(I, J, [1.0, 2.0, 1.0, -1.0, 3.0, 4.0, Inf, ones(k)...], m, 4)
+        x = SparseVector(4, [1, 2, 3, 4], [1.0, 1.0, 0.0, 2.0])
         y = A * x
         @test y isa SparseVector{Float64,Int}
-        @test nonzeroinds(y) == [5] && nonzeros(y) == [2.0]
-        # the path that accumulates in a dense vector allocates 24 bytes per row
-        @test (@allocated A * x) < 12 * size(A, 1)
+        @test nonzeroinds(y) == [5; m ÷ 2 .+ (1:k); m - 1; m]
+        @test nonzeros(y) == [2.0; fill(2.0, k); 3.0; 5.0]
+        @test (@allocated A * x) < bytes
         @static if COMPREHENSIVE
-        Ac = sparse([2, 5, 2, 900], [1, 1, 2, 3], complex.([1.0, 2.0, -1.0, 3.0], 1.0), 1000, 3)
-        xc = SparseVector(3, [1, 3], [1.0 + 2.0im, 2.0 - 1.0im])
-        @test mismatch(Ac * xc, Array(Ac) * Vector(xc)) === nothing
+        Ac = sparse(I, J, complex.([1.0, 2.0, 1.0, -1.0, 3.0, 4.0, 5.0, ones(k)...], 1.0), m, 4)
+        xc = SparseVector(4, [1, 3, 4], [1.0 + 2.0im, 2.0 - 1.0im, 1.0im])
+        @test mismatch(Ac * xc, Ac * Vector(xc)) === nothing
         @test (SparseMatrixCSC{Float64,Int32}(A) * x) isa SparseVector{Float64,Int}
+        @test nnz(A * spzeros(4)) == 0
         end
     end
 
