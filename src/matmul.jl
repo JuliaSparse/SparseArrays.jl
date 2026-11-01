@@ -488,9 +488,8 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
 
     resize!(rowvalC, ip - 1)
     resize!(nzvalC, ip - 1)
-    # The result would otherwise keep the capacity of the estimate, and the `mA` entries of
-    # slack that a column needs, for as long as it lives. A product of about one entry per
-    # row, such as a diagonal one, has as many entries as slack, and is not worth a copy.
+    # Spare capacity counts as live for as long as the result does. A product of about one
+    # entry per row has about as much of it as entries, which is not worth a copy.
     if nnzC > 3 * (ip - 1)
         sizehint!(rowvalC, ip - 1)
         sizehint!(nzvalC, ip - 1)
@@ -561,14 +560,11 @@ function spmatmulv(A, B)
     spmatmul(A, B)[:,1]
 end
 
-# The number of entries to allocate for `A*B`. A product of uniform random matrices has
-# `(1-(1-p)^n)*m*k` of them, with `p` the chance that two entries meet. That is too large where
-# rows collide, as those of a stencil do, by a factor of the entries per result column. So an
-# evenly spaced sample of the columns of `B`, up to 1/64 of its entries, shows how many rows of
-# the result an entry of `B` adds. Only that rate is taken from the sample: its columns need not
-# be as full as the others, and may even be the empty ones. It also only lowers the estimate,
-# because a sample that misses the collisions could otherwise ask for far more than the result
-# needs, and a size too small is grown.
+# The number of entries to allocate for `A*B`. Uniform random matrices give `(1-(1-p)^n)*m*k`,
+# with `p` the chance that two entries meet, which is too large where rows collide. An evenly
+# spaced sample of the columns of `B`, up to 1/64 of its entries, measures the rows of the result
+# per entry of `B`, since the sampled columns may not be typical in length. This rate only lowers
+# the estimate: a sample can miss the collisions, and a size too small is grown.
 function estimate_mulsize(A, B)
     m, n = size(A)
     k = size(B, 2)

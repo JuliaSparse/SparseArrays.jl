@@ -401,8 +401,7 @@ end
     @test nonzeros(P) == [3.0, 8.0]
     @test Base.summarysize(rowvals(P)) < 10^3
     @static if COMPREHENSIVE
-    # the size of a sample that misses every entry of `B`, or whose columns alone hold them,
-    # comes from the products of `B` and not from how full the sample's columns are
+    # the sampled columns may hold no entry of `B`, or all of them
     n = 2^12
     step = n ÷ min(n >> 6, 1024)
     sampled = (step + 1) >> 1:step:n
