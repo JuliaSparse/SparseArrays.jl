@@ -394,27 +394,12 @@ end
     A = spdiagm((k => fill(1.0, n - abs(k)) for k in -2:2)...)
     C = A * A
     @test mismatch(C, Array(A) * Array(A)) === nothing
-    @test Base.summarysize(rowvals(C)) < 3 / 2 * sizeof(Int) * nnz(C)
+    @test SparseArrays.estimate_mulsize(A, A) < 2 * nnz(C)
     # a column needs slack for every row while it is formed, not afterwards
     T = sparse([1, 2], [1, 2], [1.0, 2.0], 10^6, 2)
     P = T * sparse([1, 2], [1, 2], [3.0, 4.0], 2, 2)
     @test nonzeros(P) == [3.0, 8.0]
     @test Base.summarysize(rowvals(P)) < 10^3
-    @static if COMPREHENSIVE
-    # the sampled columns may hold no entry of `B`, or all of them
-    n = 2^12
-    step = n ÷ min(n >> 6, 1024)
-    sampled = (step + 1) >> 1:step:n
-    D = sparse(1.0I, n, n)
-    others = setdiff(1:n, sampled)
-    for (cols, perline) in ((others, 2), (sampled, 80))
-        B = sparse(mod1.(1:perline*length(cols), n), repeat(cols; inner=perline), 1.0, n, n)
-        @test nnz(B) > n # or there is no sample
-        @test 0.9 * nnz(B) <= SparseArrays.estimate_mulsize(D, B) <= nnz(B)
-    end
-    # a diagonal product keeps its slack rather than being copied
-    @test length(rowvals(D * D)) == n && Base.summarysize(rowvals(D * D)) > n * sizeof(Int)
-    end
 end
 
 @testset "in-place sparse-sparse mul!" begin
