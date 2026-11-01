@@ -1096,9 +1096,12 @@ end
     @test mismatch(A * B, Array(A) * Array(B)) === nothing
     @static if COMPREHENSIVE
     # a sort on a matrix with so many rows that scanning the bitmaps would cost more
-    @test SparseArrays.prefer_sort(21, zeros(UInt64, 1000))
-    S = sparse(collect(10^6:-40000:40000)[end:-1:1], fill(1, 25), 1.0:25.0, 10^6, 1)
+    m = 2 * 10^6
+    @test SparseArrays.prefer_sort(25, zeros(UInt64, (((m + 63) >> 6) + 63) >> 6))
+    S = sparse(collect(80000:80000:m), fill(1, 25), 1.0:25.0, m, 1)
     @test nonzeros(S * sparse([1], [1], [2.0], 1, 1)) == 2.0 .* (1.0:25.0)
+    # the cutoff counts the entries of the column
+    @test SparseArrays.prefer_sort(20, zeros(UInt64, 1)) && !SparseArrays.prefer_sort(21, zeros(UInt64, 1))
     end
 end
 

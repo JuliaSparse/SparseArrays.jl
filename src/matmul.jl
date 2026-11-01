@@ -519,7 +519,7 @@ function spcolmul!(rowvalC, nzvalC, xb, rowbits, wordbits, i, ip, A, B)
             end
         end
         if ip > ip0
-            if prefer_sort(ip-k0, wordbits)
+            if prefer_sort(ip-ip0, wordbits)
                 # in-place sort of indices. Effort: O(nnz*ln(nnz)).
                 sort!(rowvalC, ip0, ip-1, QuickSort, Base.Order.Forward)
                 for vp = ip0:ip-1
