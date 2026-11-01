@@ -1305,7 +1305,7 @@ function _spvec_positions(A, xnzind)
     nnz(A) * (xnzind[end] / m) + widemul(n, k) <= nnz(A) + (usehash ? 4k : m >> 5) && return nothing
     return usehash ? _spvec_slots(xnzind) : _spvec_bits(m, xnzind)
 end
-_spcoldot(f::F, A, j, Arowval, Anzval, ::Nothing, xnzind, xnzval) where {F} =
+@inline _spcoldot(f::F, A, j, Arowval, Anzval, ::Nothing, xnzind, xnzval) where {F} =
     _spdot(f, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
            1, length(xnzind), xnzind, xnzval)
 function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecBits, xnzind, xnzval) where {F}
@@ -1360,8 +1360,11 @@ function _spAt_or_Ac_mul_spvec!(tfun::F,
     Arowval = getrowval(A)
     Anzval = getnzval(A)
 
-    pos = _spvec_positions(A, xnzind)
-    for j = 1:n
+    _spcoldots!(tfun, y, A, _spvec_positions(A, xnzind), Arowval, Anzval, xnzind, xnzval, α)
+end
+# a barrier, so that the loop is compiled for each way of looking rows up
+function _spcoldots!(tfun::F, y, A, pos::P, Arowval, Anzval, xnzind, xnzval, α) where {F,P}
+    for j = axes(A, 2)
         # s <- dot(A[:,j], x)
         s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
         @inbounds y[j] += s * α
@@ -1381,6 +1384,19 @@ end
 *(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
     _spAt_or_Ac_mul_spvec((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
 
+function _spcoldots_nonzero!(tfun::F, ynzind, ynzval, A, pos::P, Arowval, Anzval, xnzind, xnzval) where {F,P}
+    jr = 0
+    for j = axes(A, 2)
+        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
+        if s != zero(s)
+            jr += 1
+            ynzind[jr] = j
+            ynzval[jr] = s
+        end
+    end
+    return jr
+end
+
 function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
                          Tv = promote_op(matprod, TvA, TvX)) where {F<:Function,TvA,TiA,TvX,TiX}
     require_one_based_indexing(A, x)
@@ -1397,16 +1413,7 @@ function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
     ynzind = Vector{Ti}(undef, n)
     ynzval = Vector{Tv}(undef, n)
 
-    pos = _spvec_positions(A, xnzind)
-    jr = 0
-    for j = 1:n
-        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
-        if s != zero(s)
-            jr += 1
-            ynzind[jr] = j
-            ynzval[jr] = s
-        end
-    end
+    jr = _spcoldots_nonzero!(tfun, ynzind, ynzval, A, _spvec_positions(A, xnzind), Arowval, Anzval, xnzind, xnzval)
     if jr < n
         resize!(ynzind, jr)
         resize!(ynzval, jr)
