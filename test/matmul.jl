@@ -912,25 +912,35 @@ end
             end
         end
 
-        @testset "columns dotted with a sparse vector through a table of its positions, or merged" begin
-            # a stored zero of `x` meets the `Inf`, a row it does not store does not
-            A = sparse([1, 3, 4, 2, 4], [1, 1, 1, 2, 2], [Inf, 2.0, 3.0, 4.0, 5.0], 4, 2)
-            x = SparseVector(4, [1, 4], [0.0, 2.0])
-            @test SparseArrays._spvec_positions(A, nonzeroinds(x)) == [1, 0, 0, 2]
-            @test isequal(Vector(A' * x), [NaN, 10.0])
+        @testset "columns dotted with a sparse vector by merging, through bits or through a hash" begin
+            # a stored zero of `x` meets the `Inf`, and a row it does not store does not
+            I, J, V = [1, 3, 4, 2, 4], [1, 1, 1, 2, 2], [Inf, 2.0, 3.0, 4.0, 5.0]
+            for (m, kind) in ((4, SparseArrays._SpvecBits), (2^17, SparseArrays._SpvecSlots))
+                A = sparse(I, J, V, m, 8)
+                x = SparseVector(m, [1, 4], [0.0, 2.0])
+                @test SparseArrays._spvec_positions(A, nonzeroinds(x)) isa kind
+                @test isequal(A' * x, sparsevec([1, 2], [NaN, 10.0], 8))
+                @test isequal(mul!(zeros(8), transpose(A), x)[1:3], [NaN, 10.0, 0.0])
+            end
+            # an `x` that ends before the merge has much to do
+            A = sparse(I, J, V, 40, 2)
+            @test SparseArrays._spvec_positions(A, Int[]) === nothing
+            x = SparseVector(40, [1, 4], [0.0, 2.0])
+            @test SparseArrays._spvec_positions(A, nonzeroinds(x)) === nothing
             @test isequal(mul!(zeros(2), transpose(A), x), [NaN, 10.0])
-            # with many more rows than the merge has work, there is no table
-            B = sparse([1, 3, 4, 2, 4], [1, 1, 1, 2, 2], [Inf, 2.0, 3.0, 4.0, 5.0], 40, 2)
-            z = SparseVector(40, [1, 4], [0.0, 2.0])
-            @test SparseArrays._spvec_positions(B, nonzeroinds(z)) === nothing
-            @test isequal(Vector(B' * z), [NaN, 10.0])
-            @test isequal(mul!(zeros(2), transpose(B), z), [NaN, 10.0])
             @static if COMPREHENSIVE
-            # a position fits the narrow index type of `x`
-            w = SparseVector{Float64,Int8}(4, Int8[1, 4], [1.0, 2.0])
-            F = sparse([1, 3, 4, 2, 4], [1, 1, 1, 2, 2], [1.0, 2.0, 3.0, 4.0, 5.0], 4, 2)
-            @test SparseArrays._spvec_positions(F, nonzeroinds(w)) isa Vector{Int8}
-            @test transpose(F) * w == transpose(Array(F)) * Vector(w)
+            # a narrow index type, a complex eltype, and rows that collide and wrap around the table
+            F = sparse(I, J, complex.([1.0, 2.0, 3.0, 4.0, 5.0], 1.0), 4, 2)
+            w = SparseVector{ComplexF64,Int8}(4, Int8[1, 4], [1.0im, 2.0])
+            @test SparseArrays._spvec_positions(F, nonzeroinds(w)) isa SparseArrays._SpvecBits
+            @test mismatch(F' * w, Array(F)' * Vector(w)) === nothing
+            m = 2^17
+            slot(i) = SparseArrays._spvec_slot(i, 64 - 5)
+            rows = filter(i -> slot(i) >= 31, 1:m)[1:12]
+            H = sparse(rows, fill(1, 12), 1.0:12.0, m, 12)
+            z = SparseVector{Float64,Int32}(m, Int32.(rows), collect(1.0:12.0))
+            @test SparseArrays._spvec_positions(H, nonzeroinds(z)) isa SparseArrays._SpvecSlots
+            @test nonzeros(H' * z) == [sum(abs2, 1.0:12.0)]
             end
         end
 
@@ -1127,10 +1137,10 @@ end
     # scaling a column-view destination by `β` stays sparse
     Q = opcount_sparse(sparse(1.0I, n, n + 1))
     @test mulcount(() -> mul!(view(Q, :, 1:n), P, P, two, two)) <= 4n
-    # the adjoint kernel for a sparse vector allocates its table of positions, not per column
+    # the adjoint kernel for a sparse vector does not allocate per column
     A = fixturestrided(Float64, 400, 400, 99); xs = fixturevec(Float64, 400); ys = zeros(400)
     mul!(ys, A', xs, 2.0, 0.5)
-    @test (@allocated mul!(ys, A', xs, 2.0, 0.5)) < 1000 + 400 * sizeof(Int)
+    @test (@allocated mul!(ys, A', xs, 2.0, 0.5)) < 1000
 end
 
 @testset "dimension mismatch error" begin
