@@ -409,6 +409,8 @@ end
     @test triu(A32, 1)::SparseMatrixCSC{Float64,Int32} == triu(AF, 1)
     @test !hasunionlocal(triu, (typeof(A32), Int), Int32, Int)
     @test !hasunionlocal(tril, (typeof(A32), Int), Int32, Int)
+    # `A` has an empty column, whose positions must not wrap in an unsigned index type
+    @test mismatch(tril(SparseMatrixCSC{Float64,UInt64}(A), 1), tril(AF, 1); Ti=UInt64) === nothing
     end
 
     @static if COMPREHENSIVE

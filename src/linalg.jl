@@ -674,8 +674,8 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     nnz = 0
     colptr[1] = 1
     @inbounds for col = 1 : min(n, m+k)
-        l1 = getcolptr(S)[col+1]-1
-        for c1 = 0 : (l1 - getcolptr(S)[col])
+        l1 = getcolptr(S)[col+1] % Int - 1   # `x - 1` stays `UInt64`, and wraps on an empty column
+        for c1 = 0 : (l1 - getcolptr(S)[col] % Int)
             getrowval(S)[l1 - c1] < col - k && break
             nnz += 1
         end
@@ -687,9 +687,9 @@ function tril(S::AbstractSparseMatrixCSC{Tv,Ti}, k::Integer=0) where {Tv,Ti}
     rowval = Vector{Ti}(undef, nnz)
     nzval = Vector{Tv}(undef, nnz)
     @inbounds for col = 1 : min(n, m+k)
-        c1 = getcolptr(S)[col+1]-1
-        l2 = colptr[col+1]-1
-        for c2 = 0 : l2 - colptr[col]
+        c1 = getcolptr(S)[col+1] % Int - 1
+        l2 = colptr[col+1] % Int - 1
+        for c2 = 0 : l2 - colptr[col] % Int
             rowval[l2 - c2] = getrowval(S)[c1]
             nzval[l2 - c2] = getnzval(S)[c1]
             c1 -= 1
