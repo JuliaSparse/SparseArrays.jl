@@ -610,11 +610,11 @@ end
 function _setindex_scalar!(A::AbstractSparseMatrixCSC{Tv,Ti}, _v, _i::Integer, _j::Integer) where {Tv,Ti<:Integer}
     _checkscalarindex(_i); _checkscalarindex(_j)
     v = convert(Tv, _v)
-    i = convert(Ti, _i)
-    j = convert(Ti, _j)
-    if !((1 <= i <= size(A, 1)) & (1 <= j <= size(A, 2)))
-        throw(BoundsError(A, (i,j)))
+    if !((1 <= _i <= size(A, 1)) & (1 <= _j <= size(A, 2)))
+        throw(BoundsError(A, (_i,_j)))
     end
+    i = convert(Ti, _i)   # an index in bounds fits `Ti`
+    j = convert(Ti, _j)
     coljfirstk = Int(getcolptr(A)[j])
     coljlastk = Int(getcolptr(A)[j+1] - 1)
     searchk = searchsortedfirst(view(getrowval(A), coljfirstk:coljlastk), i) + coljfirstk - 1
