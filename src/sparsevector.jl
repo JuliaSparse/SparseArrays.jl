@@ -1681,11 +1681,19 @@ function dot(x::SparseVectorOrView, y::AbstractVector)
     return s
 end
 
-function _spdot(f::Function,
-                xj::Int, xj_last::Int, xnzind, xnzval,
-                yj::Int, yj_last::Int, ynzind, ynzval)
+@inline function _spdot(f::F,
+                        xj::Int, xj_last::Int, xnzind, xnzval,
+                        yj::Int, yj_last::Int, ynzind, ynzval) where {F}
     # dot product between ranges of non-zeros,
     s = _spdotzero(f, eltype(xnzval), eltype(ynzval))
+    nx, ny = xj_last - xj + 1, yj_last - yj + 1
+    32ny < nx && return _spdot_search(f, s, true, yj, yj_last, ynzind, ynzval, xj, xj_last, xnzind, xnzval)
+    32nx < ny && return _spdot_search(f, s, false, xj, xj_last, xnzind, xnzval, yj, yj_last, ynzind, ynzval)
+    return _spdot_merge(f, s, xj, xj_last, xnzind, xnzval, yj, yj_last, ynzind, ynzval)
+end
+
+# Apart from the search, so that the merge stays a leaf with nothing to spill per call.
+function _spdot_merge(f::F, s, xj::Int, xj_last::Int, xnzind, xnzval, yj::Int, yj_last::Int, ynzind, ynzval) where {F}
     @inbounds while xj <= xj_last && yj <= yj_last
         ix = xnzind[xj]
         iy = ynzind[yj]
@@ -1700,6 +1708,20 @@ function _spdot(f::Function,
         end
     end
     s
+end
+
+# The pairs of a merge, in its order, with the long range searched instead of walked.
+@noinline function _spdot_search(f::F, s, swapped::Bool, j::Int, j_last::Int, ind, val, k::Int, k_last::Int, longind, longval) where {F}
+    @inbounds while j <= j_last
+        i = ind[j]
+        k = searchsortedfirst(longind, i, k, k_last, Base.Order.Forward)
+        k > k_last && break
+        if longind[k] == i
+            s += swapped ? f(longval[k], val[j]) : f(val[j], longval[k])
+        end
+        j += 1
+    end
+    return s
 end
 
 # The zero a sum of `f(x, y)` starts from. No result type is inferred for an abstract
