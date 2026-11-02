@@ -1393,6 +1393,32 @@ end
         @test (x'x)::ComplexF64 == dot(x, x)
         end
     end
+    # one side far longer than the other is searched, not walked
+    let i = collect(2:2:1000), v = ComplexF64.(i, -i), j = [1, 4, 5, 1000], w = [2.0 - im, 3im, 7.0, -im]
+        x, y = sparsevec(i, v, 2000), sparsevec(j, w, 2000)
+        xf, yf = Array(x), Array(y)
+        @test dot(x, y) ≈ dot(xf, yf)
+        @test dot(y, x) ≈ dot(yf, xf)
+        c = CountedReads(i)
+        @test SparseArrays._spdot(dot, 1, length(i), c, v, 1, length(j), j, w) ≈ dot(xf, yf)
+        @test c.reads[] < 50
+        c = CountedReads(i)
+        @test SparseArrays._spdot(dot, 1, length(j), j, w, 1, length(i), c, v) ≈ dot(yf, xf)
+        @test c.reads[] < 50
+        @static if COMPREHENSIVE
+        # an entry of the short side past the end of the long one, on either side
+        z = sparsevec([4, 1500], [1.0, 2.0], 2000)
+        @test dot(x, z) ≈ dot(xf, Array(z))
+        @test dot(z, x) ≈ dot(Array(z), xf)
+        # a range inside the long side
+        @test SparseArrays._spdot(dot, 101, 400, i, v, 1, 3, [100, 202, 800], w) ≈ conj(v[101]) * w[2] + conj(v[400]) * w[3]
+        @test SparseArrays._spdot(dot, 1, 3, [100, 202, 800], w, 101, 400, i, v) ≈ conj(w[2]) * v[101] + conj(w[3]) * v[400]
+        # the same pairs as a merge: a stored zero still meets an `Inf`, and nothing else does
+        s = sparsevec(i, [k == 4 ? 0.0 : 1.0 for k in i], 2000)
+        @test isnan(dot(s, sparsevec([4], [Inf], 2000)))
+        @test dot(s, sparsevec([3], [Inf], 2000)) == 0
+        end
+    end
     @static if COMPREHENSIVE
     # matrix-valued entries have no `zero`, but the result is a scalar
     let x = sparsevec([1, 3], [[1.0 2.0; 3.0 4.0], [0.5 -1.0; 2.0 0.25]], 4), y = sparsevec([3, 4], [[2.0 0.0; -1.0 3.0], [1.0 1.0; 0.0 5.0]], 4),
