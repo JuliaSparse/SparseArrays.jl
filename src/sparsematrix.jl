@@ -2324,7 +2324,8 @@ function circshift!(O::AbstractSparseMatrixCSC, X::AbstractSparseMatrixCSC, (r,c
     r = mod(r, size(X, 1))
     iszero(r) && return O
     @inbounds for i in axes(O, 2)
-        subvector_shifter!(getrowval(O), getnzval(O), first(nzrange(O, i)), last(nzrange(O, i)), size(O, 1), r)
+        # in `Int`: its rotation `-split+start-1` would wrap in `UInt64`
+        subvector_shifter!(getrowval(O), getnzval(O), Int(first(nzrange(O, i))), Int(last(nzrange(O, i))), size(O, 1), r)
     end
     return _checkbuffers(O)
 end

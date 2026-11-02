@@ -41,6 +41,9 @@ include("testhelpers.jl")
     # a row index plus the shift need not fit in the index type
     A8 = SparseMatrixCSC{Float64,Int8}(sparse([100, 3, 60], [1, 2, 2], [1.0, 2.0, 3.0], 100, 2))
     @test mismatch(circshift(A8, (60, 1)), circshift(Matrix(A8), (60, 1)); Ti=Int8) === nothing
+    # rows stay sorted over `UInt64`, for column lengths that do not divide 2^64
+    AU = SparseMatrixCSC{Float64,UInt64}(A)
+    @test mismatch(circshift(AU, (1, 0)), circshift(Matrix(A), (1, 0)); Ti=UInt64) === nothing
     end
     # the buffers of a source may be longer than its stored entries
     S = sparse([1 0 2; 0 3 0; 4 0 5.0])
