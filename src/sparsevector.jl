@@ -426,8 +426,11 @@ end
     return x
 end
 
-@RCI @propagate_inbounds setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
-    (_checkscalarindex(i); setindex!(x, convert(Tv, v), convert(Ti, i)))
+@RCI @propagate_inbounds function setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer}
+    _checkscalarindex(i)
+    @boundscheck checkbounds(x, i)   # an index in bounds fits `Ti`
+    return @inbounds setindex!(x, convert(Tv, v), convert(Ti, i))
+end
 
 function setindex!(x::AbstractCompressedVector, v::AbstractVector, I::AbstractUnitRange{<:Integer})
     checkbounds(x, I)

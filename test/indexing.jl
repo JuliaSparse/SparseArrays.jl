@@ -372,6 +372,12 @@ end
     @test_throws BoundsError a[-1,:] = spzeros(1,10)
     @test_throws BoundsError a[0:9] = spzeros(1,10)
     @test_throws BoundsError a[11,1] = 1
+    @static if COMPREHENSIVE
+    # an index that does not fit the index type is out of bounds too
+    a8 = sparse(Int8[1], Int8[1], [1.0], 2, 2)
+    @test_throws BoundsError a8[1000,1] = 1
+    @test_throws BoundsError a8[1,1000] = 1
+    end
     @test_throws BoundsError (a[:,11] .= 0; a)
     @test_throws BoundsError (a[11,:] .= 0; a)
     @test_throws BoundsError (a[:,-1] .= 0; a)
