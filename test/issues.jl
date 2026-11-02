@@ -1169,6 +1169,30 @@ end
     @test allocs(1000) == allocs(2000)
 end
 
+@testset "dot of sparse vectors with a symmetric sparse matrix matches the plain matrix" begin
+    @testset "$W" for W in (Symmetric, Hermitian)
+        # a diagonal entry at a row that a vector does not store
+        A = sparse([1, 2], [1, 2], [1.0, NaN], 2, 2)
+        e1, e12 = sparsevec([1], [1.0], 2), sparsevec([1, 2], [1.0, 1.0], 2)
+        @test dot(e1, W(A), e1) == dot(e1, A, e1) == dot(Vector(e1), Matrix(A), Vector(e1)) == 1
+        @test dot(e12, W(A), e1) == dot(e12, A, e1) == dot(Vector(e12), Matrix(A), Vector(e1)) == 1
+        @test isnan(dot(e12, W(A), e12))
+        # a stored column that meets no entry of the other vector
+        B = sparse([1, 1], [1, 3], [1.0, 1.0], 3, 3)
+        u, v = sparsevec([2], [1.0], 3), sparsevec([3], [Inf], 3)
+        @test dot(u, W(B), v) == dot(u, sparse(W(B)), v) == 0
+        @test dot(v, W(B), u) == dot(v, sparse(W(B)), u) == 0
+        # a stored zero still meets an `Inf`
+        @test isnan(dot(sparsevec([1], [0.0], 2), W(sparse([1], [1], [Inf], 2, 2)), e1))
+        x, y = fixturevec(ComplexF64, 8), sparsevec([1, 3, 8], [1.0 - im, 2im, 3.0], 8)
+        M = fixture(ComplexF64, 8, 8)
+        @test dot(x, W(M), y) ≈ dot(x, sparse(W(M)), y)
+    end
+    # stored entries only, whatever the size of the matrix
+    s = sparsevec([1], [OpCount(1.0)], 8)
+    @test mulcount(() -> dot(s, Symmetric(opcount_sparse(sparse(1.0I, 8, 8))), s)) == 2
+end
+
 end # SparseTestsBase
 
 end # module
