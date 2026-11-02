@@ -1657,7 +1657,7 @@ sparsity pattern, so a fixed-pattern matrix throws an `ArgumentError`. `tril(A, 
 new `SparseMatrixCSC` instead.
 """
 tril!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    (_checkpatternwritable(A, :tril!); _fkeep!((i, j, x) -> j - i <= k, A))
+    (_checkpatternwritable(A, :tril!); _fkeep!((i, j, x) -> j - i % Int <= k, A))   # `j - i` wraps in `UInt64`
 """
     triu!(A::AbstractSparseMatrixCSC, k::Integer=0)
 
@@ -1669,7 +1669,7 @@ sparsity pattern, so a fixed-pattern matrix throws an `ArgumentError`. `triu(A, 
 new `SparseMatrixCSC` instead.
 """
 triu!(A::AbstractSparseMatrixCSC, k::Integer = 0) =
-    (_checkpatternwritable(A, :triu!); _fkeep!((i, j, x) -> j - i >= k, A))
+    (_checkpatternwritable(A, :triu!); _fkeep!((i, j, x) -> j - i % Int >= k, A))   # `j - i` wraps in `UInt64`
 
 """
     droptol!(A::AbstractSparseMatrixCSC, tol)

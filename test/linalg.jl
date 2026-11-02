@@ -420,6 +420,13 @@ end
     end
     end
 
+    @static if COMPREHENSIVE
+    # the distance from the diagonal is signed in an unsigned index type too
+    AU = SparseMatrixCSC{Float64,UInt64}(A)
+    @test mismatch(tril!(copy(AU), -1), tril(AF, -1); Ti=UInt64) === nothing
+    @test mismatch(triu!(copy(AU), -1), triu(AF, -1); Ti=UInt64) === nothing
+    end
+
     # fkeep trim option
     @test isequal(length(rowvals(tril!(sparse([1,2,3], [1,2,3], [1,2,3], 3, 4), -1))), 0)
 end
