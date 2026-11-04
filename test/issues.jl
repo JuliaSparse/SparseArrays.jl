@@ -1169,6 +1169,22 @@ end
     @test allocs(1000) == allocs(2000)
 end
 
+@testset "dense concatenation behaves as without SparseArrays (#1155)" begin
+    # numbers alone go to Base's `hvcat`, which reports a row of the wrong length
+    t = (1, 2)
+    @test_throws ArgumentError [t...; 3 4 5]
+    @test_throws DimensionMismatch Int[t...; 3 4 5]
+    # a vector of dense arrays splatted inside a function, where inference does not know
+    # the number of arguments; Base infers no single type for `hcat`, `vcat` and `hvcat`
+    # here, as there may be no arguments, but more than `Any`
+    As = [zeros(2, 2) for _ in 1:2]
+    cat3(As) = cat(As...; dims=Val(3))
+    @test @inferred(cat3(As)) == zeros(2, 2, 2)
+    for f in (As -> hcat(As...), As -> vcat(As...), As -> hvcat((2,), As...))
+        @test Base.infer_return_type(f, (typeof(As),)) !== Any
+    end
+end
+
 end # SparseTestsBase
 
 end # module
