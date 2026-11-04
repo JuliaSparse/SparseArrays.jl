@@ -306,6 +306,10 @@ anysparse() = false
 anysparse(X) = X isa AbstractArray && issparse(X)
 anysparse(X, Xs...) = anysparse(X) || anysparse(Xs...)
 anysparse(X::T, Xs::T...) where {T} = anysparse(X)
+# Neither a dense array nor a number is sparse. This method lets inference fold `anysparse`
+# to `false` when the number of arguments is not known, as when a `Vector` of dense arrays
+# is splatted, so the sparse branch of a concatenation is not inferred for dense arguments.
+anysparse(::Union{DenseArray,Number}, ::Vararg{Union{DenseArray,Number}}) = false
 
 # The result is sparse only when some input is sparse and every input has a `Number`
 # eltype; otherwise `zero` may not exist and Base's dense `cat` handles it (#71).
@@ -416,6 +420,9 @@ Base.@constprop :aggressive function cat_internal(dims, X1::_SparseConcatGroup, 
     if _concatsparse(X1, X...)
         return _sparse_cat_t(dims, T, X1, X...)
     end
+    # without a sparse argument there is nothing to make dense, and skipping `map` keeps the
+    # result inferable when the number of arguments is not known
+    anysparse(X1, X...) || return Base._cat_t(dims, T, X1, X...)
     return Base._cat_t(dims, T, _densesparse(X1), map(_densesparse, X)...)
 end
 function hcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
@@ -423,6 +430,7 @@ function hcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if _concatsparse(X1, X...)
         return _sparse_typed_hcat(T, X1, X...)
     end
+    anysparse(X1, X...) || return Base.typed_hcat(T, X1, X...)
     return Base.typed_hcat(T, _densesparse(X1), map(_densesparse, X)...)
 end
 function vcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
@@ -430,6 +438,7 @@ function vcat_internal(X1::_SparseConcatGroup, X::_SparseConcatGroup...)
     if _concatsparse(X1, X...)
         return _sparse_typed_vcat(T, X1, X...)
     end
+    anysparse(X1, X...) || return Base.typed_vcat(T, X1, X...)
     return Base.typed_vcat(T, _densesparse(X1), map(_densesparse, X)...)
 end
 # `Vararg{_SparseConcatGroup,N}` for the same reason as in `cat_internal`
@@ -437,6 +446,7 @@ function hvcat_internal(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::Var
     if _concatsparse(X1, X...)
         return _sparse_hvcat(rows, X1, X...)
     end
+    anysparse(X1, X...) || return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, X1, X...)
     return Base.typed_hvcat(Base.promote_eltypeof(X1, X...), rows, _densesparse(X1), map(_densesparse, X)...)
 end
 # `_hvcat_csc` reads the blocks by index. Splitting them into a tuple per block row would
@@ -562,8 +572,12 @@ vcat(X1::AbstractVector, X::AbstractVector...) = vcat_internal(X1, X...)
 hvcat(rows::Tuple{Vararg{Int}}, X1::AbstractVecOrMat{T}, X::AbstractVecOrMat{T}...) where {T} = hvcat_internal(rows, X1, X...)
 hvcat(rows::Tuple{Vararg{Int}}, X1::AbstractVecOrMat, X::AbstractVecOrMat...) = hvcat_internal(rows, X1, X...)
 hvcat(rows::Tuple{Vararg{Int}}, X1::_SparseConcatGroup, X::_SparseConcatGroup...) = hvcat_internal(rows, X1, X...)
-hvcat(rows::Tuple{Vararg{Int}}, n1::Number, ns::Vararg{Number}) = hvcat_internal(rows, n1, ns...)
-hvcat(rows::Tuple{Vararg{Int}}, n1::N, ns::Vararg{N}) where {N<:Number} = hvcat_internal(rows, n1, ns...)
+# Numbers alone are not sparse: these disambiguate against Base's `Vararg{Number}` and
+# `Vararg{T<:Number}` methods and call them, so the result and the errors are Base's
+hvcat(rows::Tuple{Vararg{Int}}, n1::Number, ns::Vararg{Number}) =
+    invoke(hvcat, Tuple{Tuple{Vararg{Int}},Vararg{Number}}, rows, n1, ns...)
+hvcat(rows::Tuple{Vararg{Int}}, n1::N, ns::Vararg{N}) where {N<:Number} =
+    invoke(hvcat, Tuple{Tuple{Vararg{Int}},Vararg{N}}, rows, n1, ns...)
 
 ### Efficient repetition of sparse vectors
 
