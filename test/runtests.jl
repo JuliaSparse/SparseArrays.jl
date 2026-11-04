@@ -15,12 +15,18 @@ testfiles = ["allowscalar.jl", "fixed.jl", "higherorderfns.jl",
     append!(testfiles, "solvers/" .* ["cholmod.jl", "umfpack.jl", "spqr.jl", "solvers.jl", "threads.jl", "issues.jl"])
 end
 
+# Read the command line only when this file runs as the program (`Pkg.test` or
+# `julia test/runtests.jl`), which includes it into `Main`. Julia's own test driver
+# includes it into a sandbox module, and its process `ARGS` hold the driver's options,
+# not ours. Work on a copy so the global `ARGS` of an including process stay unchanged.
+test_args = @__MODULE__() === Main ? copy(ARGS) : String[]
+
 # `--comprehensive` selects comprehensive mode: the tests the suites guard with
 # `@static if COMPREHENSIVE` run as well, and so do `issues.jl` and `solvers/issues.jl`.
 # It is passed on through the environment, which the test workers inherit.
-let i = findfirst(==("--comprehensive"), ARGS)
+let i = findfirst(==("--comprehensive"), test_args)
     if i !== nothing
-        deleteat!(ARGS, i)
+        deleteat!(test_args, i)
         ENV["SPARSEARRAYS_TEST_COMPREHENSIVE"] = "true"
     end
 end
@@ -31,7 +37,7 @@ suitename(f) = splitext(f)[1]
 # Expand the group selector for both runners, including ParallelTestRunner's own
 # prefix filtering. The GPL guard still controls whether the solver suite exists.
 for selector in ("issues", "!issues")
-    selector in ARGS && push!(ARGS, selector == "issues" ? "solvers/issues" : "!solvers/issues")
+    selector in test_args && push!(test_args, selector == "issues" ? "solvers/issues" : "!solvers/issues")
 end
 
 # Suites that run only when a selector names them. The ambiguity check in `ambiguous.jl`
@@ -51,13 +57,13 @@ if Base.find_package("ParallelTestRunner") !== nothing
     # ParallelTestRunner sizes its worker pool from the CPU count and free memory; use the
     # CPU count unless the caller chose a job count, on the command line or in the
     # environment. `--jobs` may be given only once, so it must not be added twice.
-    if !any(a -> a == "--jobs" || startswith(a, "--jobs="), ARGS) && !haskey(ENV, "PTR_NUM_JOBS")
-        push!(ARGS, "--jobs=$(Sys.CPU_THREADS)")
+    if !any(a -> a == "--jobs" || startswith(a, "--jobs="), test_args) && !haskey(ENV, "PTR_NUM_JOBS")
+        push!(test_args, "--jobs=$(Sys.CPU_THREADS)")
     end
-    get(ENV, "CI", "false") == "true" && push!(ARGS, "--verbose")
+    get(ENV, "CI", "false") == "true" && push!(test_args, "--verbose")
     testsuite = Dict{String,Expr}(suitename(f) => :(include($(joinpath(@__DIR__, f))))
                                   for f in testfiles)
-    args = parse_args(ARGS)
+    args = parse_args(test_args)
     filter_tests!(testsuite, args)
     # `--list` shows the whole catalog; otherwise a skipped-by-default suite runs only
     # when an include selector names it.
@@ -70,7 +76,7 @@ if Base.find_package("ParallelTestRunner") !== nothing
     runtests(SparseArrays, args; testsuite)
 else
     names = map(suitename, testfiles)
-    options = filter(startswith("-"), ARGS)
+    options = filter(startswith("-"), test_args)
     if options == ["--list"]
         println("Available tests:")
         foreach(name -> println(" - ", name), sort(names))
@@ -78,7 +84,7 @@ else
         error("the serial test runner takes suite selectors only, not $(join(options, " ")); " *
               "run the tests through Pkg.test for ParallelTestRunner's options")
     else
-        selectors = filter(!startswith("-"), ARGS)
+        selectors = filter(!startswith("-"), test_args)
         excludes = lstrip.(filter(startswith("!"), selectors), '!')
         includes = filter(!startswith("!"), selectors)
         selected = filter(names) do name
