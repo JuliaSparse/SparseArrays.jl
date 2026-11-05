@@ -13,13 +13,13 @@ include("testprocess.jl")
     for nt in (@static COMPREHENSIVE ? (1, 4) : (4,))
         @testset "default threads = $nt" begin
             cases = nt == 1 ? others[1:2:end] : [threads_standard_cases(); others]
-            @test success(pipeline(threadsprocess(cases; threads=nt); stdout, stderr))
+            @test passes(threadsprocess(cases; threads=nt))
         end
     end
 end
 @static if COMPREHENSIVE
 @testset "CHOLMOD ownership and lifetime, $Ti, $Tv" for (Ti, Tv) in ((first(itypes), Float64), (last(itypes), Float32))
-    @test success(pipeline(lifetimeprocess(Ti, Tv); stdout, stderr))
+    @test passes(lifetimeprocess(Ti, Tv))
 end
 end
 
@@ -36,7 +36,7 @@ end
             # the allocator is no longer the C library's, which it is until initialization
             @test L.SuiteSparse_config_malloc_func_get() != cglobal(:malloc)
             """
-        @test success(pipeline(testprocess(script); stdout, stderr))
+        @test passes(testprocess(script))
     end
 end
 end
@@ -56,7 +56,7 @@ end
             @test cached(sprand, (Int, Int, Float64))
         end
         """
-    @test success(pipeline(testprocess(script); stdout, stderr))
+    @test passes(testprocess(script))
 end
 end
 
@@ -74,7 +74,7 @@ end
             @test_throws ErrorException L.init_suitesparse()
             @test !any(L._isloaded, values(L.SUITESPARSE_LIBRARIES))
             """
-        @test success(pipeline(testprocess(failure; env=[L.LIBDIR_ENV => dir]); stdout, stderr))
+        @test passes(testprocess(failure; env=[L.LIBDIR_ENV => dir]))
         for name in keys(L.SUITESPARSE_LIBRARIES)
             src = L._jll_path(name)
             cp(src, joinpath(dir, basename(src)); follow_symlinks=true)
@@ -93,9 +93,9 @@ end
             @test_throws ArgumentError L.set_libdir!(nothing)
             @test samefile(L.libdir(), $(repr(dir)))
             """
-        @test success(pipeline(testprocess(check; env=[L.LIBDIR_ENV => dir]); stdout, stderr))
+        @test passes(testprocess(check; env=[L.LIBDIR_ENV => dir]))
         script = "SparseArrays.LibSuiteSparse.set_libdir!($(repr(dir)))\n" * check
-        @test success(pipeline(testprocess(script); stdout, stderr))
+        @test passes(testprocess(script))
     end
     end
 end

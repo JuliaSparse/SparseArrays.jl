@@ -17,6 +17,17 @@ function testprocess(script; threads=1, env=Pair{String,String}[])
     return addenv(cmd, "JULIA_LOAD_PATH" => loadpath, env...)
 end
 
+# Whether `cmd` succeeds, printing its output only if it does not: a child's top-level
+# testsets print their summaries, which would show up in the parent's log.
+function passes(cmd)
+    mktemp() do path, io
+        ok = success(pipeline(cmd; stdout=io, stderr=io))
+        close(io)
+        ok || print(read(path, String))
+        return ok
+    end
+end
+
 # A child process costs its startup and the compilation of everything it runs, so the
 # caller chooses the cases a child runs and passes them through the environment.
 
