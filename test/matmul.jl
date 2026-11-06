@@ -1100,6 +1100,25 @@ end
     end
 end
 
+@testset "rows of a long result column come out in order through bitmaps" begin
+    # rows on both sides of the words of the bitmap, and more than the sort is used for
+    rows = [1:2:129; 2:2:130; 1:3:130; 64:65; 128:129]
+    cols = [fill(1, 65); fill(2, 65); fill(3, 44); fill(3, 4)]
+    A = sparse(rows, cols, ComplexF64.(eachindex(rows), 1), 130, 3)
+    B = sparse([1, 2, 1, 3], [1, 1, 2, 2], [1.0, -1.0, 2.0, 3.0], 3, 2)
+    @test !SparseArrays.prefer_sort(130, zeros(UInt64, 1))
+    @test mismatch(A * B, Array(A) * Array(B)) === nothing
+    @static if COMPREHENSIVE
+    # a sort on a matrix with so many rows that scanning the bitmaps would cost more
+    m = 2 * 10^6
+    @test SparseArrays.prefer_sort(25, zeros(UInt64, (((m + 63) >> 6) + 63) >> 6))
+    S = sparse(collect(80000:80000:m), fill(1, 25), 1.0:25.0, m, 1)
+    @test nonzeros(S * sparse([1], [1], [2.0], 1, 1)) == 2.0 .* (1.0:25.0)
+    # the cutoff counts the entries of the column
+    @test SparseArrays.prefer_sort(20, zeros(UInt64, 1)) && !SparseArrays.prefer_sort(21, zeros(UInt64, 1))
+    end
+end
+
 @testset "product kernels touch stored entries only" begin
     n = 8
     # adjoint dense times adjoint sparse reads each entry of the dense factor at most once
