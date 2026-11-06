@@ -615,4 +615,45 @@ end
     end
 end
 
+@testset "dense concatenation behaves as without SparseArrays (#1155)" begin
+    # numbers alone go to Base's `hvcat`, which reports a row of the wrong length
+    t = (1, 2)
+    @test_throws ArgumentError [t...; 3 4 5]
+    @test_throws DimensionMismatch Int[t...; 3 4 5]
+    # a vector of dense arrays splatted inside a function, where inference does not know
+    # the number of arguments; Base infers no single type for `hcat`, `vcat` and `hvcat`
+    # here, as there may be no arguments, but more than `Any`
+    As = [zeros(2, 2) for _ in 1:2]
+    cat3(As) = cat(As...; dims=Val(3))
+    @test @inferred(cat3(As)) == zeros(2, 2, 2)
+    for f in (As -> hcat(As...), As -> vcat(As...), As -> hvcat((2,), As...))
+        @test Base.infer_return_type(f, (typeof(As),)) !== Any
+    end
+    @static if COMPREHENSIVE
+        # numbers dispatched at run time reach Base's method without looking it up on
+        # every call, which allocated 43 times
+        x, y = Ref{Any}(0.5), Ref{Any}(2)
+        numbers() = hcat(x[], y[], x[], y[])
+        numbers()
+        @test @allocations(numbers()) < 20
+        # a splatted vector of numbers compiles once, not once for every length
+        m = which(vcat, Tuple{Float64,Vararg{Float64}})
+        @test m.module === SparseArrays
+        foreach(n -> vcat(fill(1.0, n)...), 50:60)
+        @test length(collect(Base.specializations(m))) < 5
+        # so does a long splat of arrays into `cat` and `hvcat`: nothing is compiled for a
+        # count of more than 32 arguments
+        nlong(f) = count(Base.specializations(only(methods(f)))) do mi
+            P = Base.unwrap_unionall(mi.specTypes).parameters
+            length(P) > 34 && !Base.isvarargtype(last(P))
+        end
+        Bs = [fill(Float64(i), 2, 2) for i in 1:40]
+        for n in 34:40
+            @test cat(Bs[1:n]...; dims=3) == stack(Bs[1:n])
+            @test hvcat((n,), Bs[1:n]...) == reduce(hcat, Bs[1:n])
+        end
+        @test nlong(SparseArrays.cat_internal) == nlong(SparseArrays.hvcat_internal) == 0
+    end
+end
+
 end # module SparseConcatenationTests

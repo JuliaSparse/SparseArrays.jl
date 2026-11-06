@@ -931,6 +931,11 @@ end
             @test_throws DimensionMismatch dot(b, D, [a; 1])
             @test_throws DimensionMismatch dot([b; 1], D, a)
             @test_throws DimensionMismatch dot([b; 1], D, [a; 1])
+            @static if COMPREHENSIVE
+            r = Base.IdentityUnitRange(2:size(D, 1)+1)
+            @test_throws ArgumentError dot(a, D, r)
+            @test_throws ArgumentError dot(r, D, a)
+            end
         end
     end
     @test_throws DimensionMismatch dot(fixture(Float64, 5, 5), fixture(Float64, 5, 6))

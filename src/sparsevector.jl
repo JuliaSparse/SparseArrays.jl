@@ -185,7 +185,7 @@ _sparsesimilar(S::SparseVector, ::Type{TvNew}, ::Type{TiNew}, dims::Dims{1}) whe
 # parent method for similar that preserves storage space (for old and new dims differ, and new is 2d)
 function _sparsesimilar(S::SparseVector, ::Type{TvNew}, ::Type{TiNew}, dims::Dims{2}) where {TvNew,TiNew}
     S1 = SparseMatrixCSC(dims..., fill(one(TiNew), last(dims)+1), similar(nonzeroinds(S), TiNew, 0), similar(nonzeros(S), TvNew, 0))
-    return sizehint!(S1, min(widelength(S1), length(nonzeroinds(S))))
+    return sizehint!(S1, length(nonzeroinds(S)))
 end
 
 _sparsesimilar(S::FixedSparseVector, ::Type{TvNew}, ::Type{TiNew}) where {TvNew,TiNew} =
@@ -426,8 +426,11 @@ end
     return x
 end
 
-@RCI @propagate_inbounds setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer} =
-    (_checkscalarindex(i); setindex!(x, convert(Tv, v), convert(Ti, i)))
+@RCI @propagate_inbounds function setindex!(x::AbstractCompressedVector{Tv,Ti}, v, i::Integer) where {Tv,Ti<:Integer}
+    _checkscalarindex(i)
+    @boundscheck checkbounds(x, i)   # an index in bounds fits `Ti`
+    return @inbounds setindex!(x, convert(Tv, v), convert(Ti, i))
+end
 
 function setindex!(x::AbstractCompressedVector, v::AbstractVector, I::AbstractUnitRange{<:Integer})
     checkbounds(x, I)
