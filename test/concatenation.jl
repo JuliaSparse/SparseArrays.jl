@@ -629,6 +629,31 @@ end
     for f in (As -> hcat(As...), As -> vcat(As...), As -> hvcat((2,), As...))
         @test Base.infer_return_type(f, (typeof(As),)) !== Any
     end
+    @static if COMPREHENSIVE
+        # numbers dispatched at run time reach Base's method without looking it up on
+        # every call, which allocated 43 times
+        x, y = Ref{Any}(0.5), Ref{Any}(2)
+        numbers() = hcat(x[], y[], x[], y[])
+        numbers()
+        @test @allocations(numbers()) < 20
+        # a splatted vector of numbers compiles once, not once for every length
+        m = which(vcat, Tuple{Float64,Vararg{Float64}})
+        @test m.module === SparseArrays
+        foreach(n -> vcat(fill(1.0, n)...), 50:60)
+        @test length(collect(Base.specializations(m))) < 5
+        # so does a long splat of arrays into `cat` and `hvcat`: nothing is compiled for a
+        # count of more than 32 arguments
+        nlong(f) = count(Base.specializations(only(methods(f)))) do mi
+            P = Base.unwrap_unionall(mi.specTypes).parameters
+            length(P) > 34 && !Base.isvarargtype(last(P))
+        end
+        Bs = [fill(Float64(i), 2, 2) for i in 1:40]
+        for n in 34:40
+            @test cat(Bs[1:n]...; dims=3) == stack(Bs[1:n])
+            @test hvcat((n,), Bs[1:n]...) == reduce(hcat, Bs[1:n])
+        end
+        @test nlong(SparseArrays.cat_internal) == nlong(SparseArrays.hvcat_internal) == 0
+    end
 end
 
 end # module SparseConcatenationTests

@@ -219,6 +219,12 @@ and is `Int` when none is sparse. A dense argument, a number or `I` adds none, s
 dense `D`, `[A32; D]` and `[D; A32]` both have the `Int32` indices of `A32`. A result too
 large for that index type throws an `ArgumentError`.
 
+!!! note
+    To find a sparse argument anywhere, SparseArrays adds methods to concatenation of dense
+    arrays and numbers, so loading it recompiles code that concatenates them. To
+    concatenate a very large number of arrays, prefer `reduce(hcat, As)`,
+    `reduce(vcat, As)` or `stack(As)` to splatting them, as in `cat(As...; dims = 3)`.
+
 #### [Reductions](@id man-sparse-reductions)
 
 `sum(A)` and the other reductions over all entries visit the stored entries only. Along a
