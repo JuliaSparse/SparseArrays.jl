@@ -915,32 +915,31 @@ end
         @testset "columns dotted with a sparse vector by merging, through bits or through a hash" begin
             # a stored zero of `x` meets the `Inf`, and a row it does not store does not
             I, J, V = [1, 3, 4, 2, 4], [1, 1, 1, 2, 2], [Inf, 2.0, 3.0, 4.0, 5.0]
-            for (m, kind) in ((4, SparseArrays._SpvecBits), (2^17, SparseArrays._SpvecSlots))
-                A = sparse(I, J, V, m, 8)
-                x = SparseVector(m, [1, 4], [0.0, 2.0])
-                @test SparseArrays._spvec_positions(A, nonzeroinds(x)) isa kind
-                @test isequal(A' * x, sparsevec([1, 2], [NaN, 10.0], 8))
-                @test isequal(mul!(zeros(8), transpose(A), x)[1:3], [NaN, 10.0, 0.0])
-            end
-            # an `x` that ends before the merge has much to do
-            A = sparse(I, J, V, 40, 2)
-            @test SparseArrays._spvec_positions(A, Int[]) === nothing
-            x = SparseVector(40, [1, 4], [0.0, 2.0])
-            @test SparseArrays._spvec_positions(A, nonzeroinds(x)) === nothing
-            @test isequal(mul!(zeros(2), transpose(A), x), [NaN, 10.0])
+            A = sparse(I, J, V, 4, 8)
+            x = SparseVector(4, [1, 4], [0.0, 2.0])
+            @test SparseArrays._spvec_positions(A, nonzeroinds(x)) isa SparseArrays._SpvecBits
+            @test mismatch(A' * x, [NaN; 10.0; zeros(6)]) === nothing
             @static if COMPREHENSIVE
-            # a narrow index type, a complex eltype, and rows that collide and wrap around the table
+            @test isequal(mul!(zeros(8), transpose(A), x), [NaN; 10.0; zeros(6)])
+            # an index out of range is left to the merge, as is an `x` that ends early
+            @test SparseArrays._spvec_positions(A, [1, 200]) === nothing
+            B = sparse(I, J, V, 40, 2)
+            x = SparseVector(40, [1, 4], [0.0, 2.0])
+            @test SparseArrays._spvec_positions(B, nonzeroinds(x)) === nothing
+            @test isequal(mul!(zeros(2), transpose(B), x), [NaN, 10.0])
+            # a narrow index type and a complex eltype
             F = sparse(I, J, complex.([1.0, 2.0, 3.0, 4.0, 5.0], 1.0), 4, 2)
             w = SparseVector{ComplexF64,Int8}(4, Int8[1, 4], [1.0im, 2.0])
             @test SparseArrays._spvec_positions(F, nonzeroinds(w)) isa SparseArrays._SpvecBits
             @test mismatch(F' * w, Array(F)' * Vector(w)) === nothing
+            # a hash table, with rows that collide in its last two slots and wrap around
             m = 2^17
-            slot(i) = SparseArrays._spvec_slot(i, 64 - 5)
-            rows = filter(i -> slot(i) >= 31, 1:m)[1:12]
+            t = SparseArrays._spvec_slots(1:12)
+            rows = filter(i -> SparseArrays._spvec_slot(i, t.shift) >= t.mask, 1:m)[1:12]
             H = sparse(rows, fill(1, 12), 1.0:12.0, m, 12)
             z = SparseVector{Float64,Int32}(m, Int32.(rows), collect(1.0:12.0))
             @test SparseArrays._spvec_positions(H, nonzeroinds(z)) isa SparseArrays._SpvecSlots
-            @test nonzeros(H' * z) == [sum(abs2, 1.0:12.0)]
+            @test mismatch(H' * z, [sum(abs2, 1.0:12.0); zeros(11)]) === nothing
             end
         end
 

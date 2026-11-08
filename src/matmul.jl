@@ -1264,9 +1264,11 @@ struct _SpvecBits
 end
 function _spvec_bits(m, xnzind)
     words = zeros(UInt64, ((m - 1) >> 6) + 1)
-    @inbounds for i in xnzind
+    for i in xnzind
         r = Int(i) - 1
-        words[(r >> 6) + 1] |= one(UInt64) << (r & 63)
+        # `SparseVector` does not check its indices, and the merge only compares them
+        0 <= r < m || return nothing
+        @inbounds words[(r >> 6) + 1] |= one(UInt64) << (r & 63)
     end
     below = Vector{Int}(undef, length(words))
     c = 0
