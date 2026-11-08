@@ -147,10 +147,13 @@ that costs, not sizes or repetitions. Three things follow for the test code itse
 whole top-level statement compiles as one block: keep top-level testsets short, and use
 a `@testset for` rather than a top-level `for`, `let` or `begin` around testsets.
 `testhelpers.jl` sets `@compiler_options optimize=0` in every suite module, because the
-suites' own code runs once; the methods under test are compiled as usual. Interpreting
-the suites instead (`compile=min`) saves no more and breaks the allocation tests. And a
-helper that takes arrays or types is compiled again for each combination it is called
-with: mark its arguments `@nospecialize` unless it measures allocations or inference.
+suites' own code runs once; the methods under test are compiled as usual. Code the
+compiler inlines into a suite is not, and may allocate where it otherwise would not, so
+a tight allocation bound measures through a `SparseTestHelpers` function such as
+`allocated_bytes`. Interpreting the suites instead (`compile=min`) saves no more and
+breaks the allocation tests. And a helper that takes arrays or types is compiled again
+for each combination it is called with: mark its arguments `@nospecialize` unless it
+measures allocations or inference.
 
 ## What a reduction must keep
 

@@ -10,5 +10,6 @@ using Main.SparseTestHelpers
 
 # Test time is compilation, and a good part of it is the suites' own code: long testset
 # bodies that run once. This compiles the including suite module without optimization. The
-# methods under test belong to other modules and are compiled as usual.
+# methods under test belong to other modules and are compiled as usual, except where the
+# compiler inlines them into a suite, so allocations are measured with `allocated_bytes`.
 Base.Experimental.@compiler_options optimize=0
