@@ -327,9 +327,7 @@ end
     @test x2 ≈ x
 
     # with the workspace reused, the remaining 16 bytes come from CHOLMOD internals
-    ldiv!(x2, factor, b; workspace = ws)
-    allocs = @allocated ldiv!(x2, factor, b; workspace = ws)
-    @test allocs <= 16
+    @test allocated_bytes(ldiv!, x2, factor, b; workspace = ws) <= 16
     @test CHOLMOD.free!(ws)
     @test !CHOLMOD.free!(ws)
 
