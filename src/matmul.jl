@@ -1256,8 +1256,9 @@ end
 # when `x` ends early, as it stops there. Looking the stored rows of `A` up in `x` visits the
 # same pairs in the same order, in about `nnz(A)` steps once `x` is indexed, and so wins unless
 # the merge is short. `x` is indexed by a bit per row with a running count per word, a quarter
-# of a byte per row, or by a hash table of its rows where that would be much the larger: the
-# ranges were measured on an AMD EPYC 9354, up to 4*10^8 rows.
+# of a byte per row, or by a hash table of its rows where building the bits costs more than
+# the hash table's lookups, which take about three times as long: the ranges were measured on
+# an AMD EPYC 9354, up to 4*10^8 rows.
 struct _SpvecBits
     words::Vector{UInt64}
     below::Vector{Int}
@@ -1303,7 +1304,7 @@ function _spvec_positions(A, xnzind)
     isempty(xnzind) && return nothing
     m, n = size(A)
     k = length(xnzind)
-    usehash = m >> 6 > nnz(A) && m >> 10 > k
+    usehash = m >> 6 > 3nnz(A) + 4k
     nnz(A) * (xnzind[end] / m) + widemul(n, k) <= nnz(A) + (usehash ? 4k : m >> 5) && return nothing
     return usehash ? _spvec_slots(xnzind) : _spvec_bits(m, xnzind)
 end
