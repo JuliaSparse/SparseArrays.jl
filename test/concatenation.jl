@@ -621,14 +621,16 @@ end
     @test_throws ArgumentError [t...; 3 4 5]
     @test_throws DimensionMismatch Int[t...; 3 4 5]
     # a vector of dense arrays splatted inside a function, where inference does not know
-    # the number of arguments; Base infers no single type for `hcat`, `vcat` and `hvcat`
-    # here, as there may be no arguments, but more than `Any`
+    # the number of arguments; Base infers no single type for `hcat` and `vcat` here, as
+    # there may be no arguments, but more than `Any`. Base itself infers `Any` for `hvcat`
+    # since JuliaLang/julia#64765, so it is only checked for its result.
     As = [zeros(2, 2) for _ in 1:2]
     cat3(As) = cat(As...; dims=Val(3))
     @test @inferred(cat3(As)) == zeros(2, 2, 2)
-    for f in (As -> hcat(As...), As -> vcat(As...), As -> hvcat((2,), As...))
+    for f in (As -> hcat(As...), As -> vcat(As...))
         @test Base.infer_return_type(f, (typeof(As),)) !== Any
     end
+    @test hvcat((2,), As...) == zeros(2, 4)
     @static if COMPREHENSIVE
         # numbers dispatched at run time reach Base's method without looking it up on
         # every call, which allocated 43 times
