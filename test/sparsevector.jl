@@ -364,6 +364,8 @@ end
         @test exact_equal(xc, SparseVector(8, [2, 4], [1.25, 1.0]))
         @test_throws DimensionMismatch xc[4:6] = sparsevec([1], [1.0], 2)
         @test_throws BoundsError xc[7:9] = spzeros(3)
+        # an index that does not fit the index type is out of bounds too
+        @test_throws BoundsError SparseVector(8, Int8[2], [1.25])[1000] = 1.0
         @test exact_equal(xc, SparseVector(8, [2, 4], [1.25, 1.0]))
     end
 
