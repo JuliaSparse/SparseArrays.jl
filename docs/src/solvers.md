@@ -25,7 +25,8 @@ Sparse factorizations call SuiteSparse:
 
 For a sparse `A` and a dense `b`, `A \ b` picks a method from the structure of `A` and
 returns a dense result. `factorize(A)` makes the same choice and returns the
-factorization.
+factorization. A sparse `b` gives a sparse result, by the methods under
+[Sparse right-hand sides](@ref man-sparse-rhs).
 
 * Diagonal or triangular: substitution, no factorization.
 * Hermitian (symmetric, if real): [`cholesky`](@ref SparseArrays.CHOLMOD.cholesky). If

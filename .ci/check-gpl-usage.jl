@@ -12,7 +12,8 @@ const roots = ("src", "test")
 const solver_dir = "solvers"
 const solver_names = r"\b(CHOLMOD|UMFPACK|SPQR|LibSuiteSparse|SuiteSparse_jll|UmfpackLU|QRSparse|libcholmod|libumfpack|libspqr|libsuitesparseconfig)\b"
 const sparse_factorization = r"\b(lu|qr|cholesky|ldlt|factorize)!?\(\s*(sparse|sprand|sprandn|spdiagm|spzeros|SparseMatrixCSC|SparseVector)\b"
-# `src/SparseArrays.jl` is the one place outside `src/solvers/` that loads the solvers.
+# `src/SparseArrays.jl` is the one place outside `src/solvers/` that loads the solvers, and
+# `src/sparselu.jl` imports the BSD-licensed ordering routines (AMD, COLAMD) from them.
 const allowed = r"^\s*(include\(\"solvers/|(using|import) \.LibSuiteSparse\b)"
 
 const is_gha = something(tryparse(Bool, get(ENV, "GITHUB_ACTIONS", "false")), false)
