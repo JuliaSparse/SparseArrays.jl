@@ -33,27 +33,69 @@ Ships with Julia v1.14.0, not yet released. SuiteSparse 7.14.0.
 
 ### New features
 
+#### Construction and conversion
+
 * `sparse` accepts a vector of `CartesianIndex` positions in place of row and column index
   vectors ([#600]).
 * `sparse!` and `spzeros!` are public ([#668]).
+* `promote_type` and `promote` of `SparseMatrixCSC` and `SparseVector` types with different
+  element or index types return a concrete sparse type ([#807]).
+* `SparseMatrixCSC{Tv}(M::AbstractMatrix)` converts the element type to `Tv` ([#927]).
+
+#### Indexing and assignment
+
+* Sparse `getindex` lowers its indices with `to_indices`, as `setindex!` does, so it
+  accepts custom index types such as `InvertedIndices.Not` ([#857]).
+* `getindex` of a sparse matrix accepts `StepRangeLen` row ranges, a vector of
+  `CartesianIndex{1}` as a row or column index, and a `Bool` unit range as a mask
+  ([#1057], [#1058], [#1062]).
+
+#### Views, wrappers and storage
+
 * `AbstractSparseMatrixCSC`, `getcolptr`, `getrowval`, `getnzval` and `indtype` are exported
   and documented; `getrowval` and `getnzval` also accept sparse vectors and their views
   ([#767], [#805]).
+* `nonzeros`, `rowvals` and `nzrange` of a view of some columns of a sparse matrix describe
+  only the entries inside the view, and `nnz` of a triangular, `Symmetric` or `Hermitian`
+  wrapper of a sparse matrix counts the entries of its triangle ([#893]).
+* `getcolptr`, `getrowval` and `getnzval` are the storage interface of
+  `AbstractSparseMatrixCSC`: a subtype that defines them works with every kernel of the
+  package ([#1008]).
+
+#### Arithmetic and broadcasting
+
+* `map` and `broadcast` over sparse arrays accept functions that return values of a type
+  without `zero`, such as `String`, `Tuple`, `Pair` or `nothing` ([#1055]).
+
+#### Reductions, sorting and comparison
+
 * `findnz` and `isequal` accept adjoints and transposes of sparse matrices and vectors
   ([#765], [#768]).
-* `rcond` of a `CHOLMOD.Factor` or an `UmfpackLU` returns the solver's reciprocal condition
-  number estimate ([#776]).
-* `ldiv!` with a CHOLMOD, UMFPACK or SPQR factorization takes an optional `workspace`
-  keyword, so that repeated solves can run without allocating ([#727], [#914]).
 * `sort` and `sort!` of a `SparseMatrixCSC` along a dimension ([#784], [#786]).
 * Reductions along a dimension (`sum`, `prod`, `maximum`, `minimum`, `count`, `any`, `all`
   and `mapreduce`) take a `sparse` keyword that returns a sparse result instead of a dense
   one ([#798]).
+
+#### Concatenation
+
+* `sparse_hcat`, `sparse_vcat` and `sparse_hvcat` accept `UniformScaling` arguments
+  ([#920]).
+
+#### Products and linear algebra
+
+* `opnorm(A)` (the 2-norm) of a sparse matrix returns an estimate of the largest singular
+  value instead of throwing ([#859]).
+* `kron!` accepts a dense vector operand next to a sparse one ([#988]).
+
+#### Factorizations and solvers
+
+* `rcond` of a `CHOLMOD.Factor` or an `UmfpackLU` returns the solver's reciprocal condition
+  number estimate ([#776]).
+* `ldiv!` with a CHOLMOD, UMFPACK or SPQR factorization takes an optional `workspace`
+  keyword, so that repeated solves can run without allocating ([#727], [#914]).
 * Solving with the adjoint of a sparse QR factorization, `qr(A)' \ b` ([#804]).
 * `LibSuiteSparse.set_libdir!` and the `JULIA_SUITESPARSE_LIBDIR` environment variable load
   the SuiteSparse libraries from another directory ([#806]).
-* `promote_type` and `promote` of `SparseMatrixCSC` and `SparseVector` types with different
-  element or index types return a concrete sparse type ([#807]).
 * Products of the `Q` of a sparse QR factorization with sparse operands, including its
   adjoint and transpose, apply the Householder reflectors instead of forming `Q` or throwing
   ([#830]).
@@ -61,137 +103,44 @@ Ships with Julia v1.14.0, not yet released. SuiteSparse 7.14.0.
 * `ldlt`, `lu` and `inv` accept `Adjoint`, `Transpose`, `Symmetric`, `Hermitian` and view
   wrappers of sparse matrices; `lu` of a wrapped sparse matrix returns a sparse
   factorization ([#855]).
-* `opnorm(A)` (the 2-norm) of a sparse matrix returns an estimate of the largest singular
-  value instead of throwing ([#859]).
-* `nonzeros`, `rowvals` and `nzrange` of a view of some columns of a sparse matrix describe
-  only the entries inside the view, and `nnz` of a triangular, `Symmetric` or `Hermitian`
-  wrapper of a sparse matrix counts the entries of its triangle ([#893]).
-* Sparse `getindex` lowers its indices with `to_indices`, as `setindex!` does, so it
-  accepts custom index types such as `InvertedIndices.Not` ([#857]).
-* `sparse_hcat`, `sparse_vcat` and `sparse_hvcat` accept `UniformScaling` arguments
-  ([#920]).
-* `SparseMatrixCSC{Tv}(M::AbstractMatrix)` converts the element type to `Tv` ([#927]).
-* `getcolptr`, `getrowval` and `getnzval` are the storage interface of
-  `AbstractSparseMatrixCSC`: a subtype that defines them works with every kernel of the
-  package ([#1008]).
 * One `UmfpackLU`, `QRSparse` or `CHOLMOD.Factor` can be used to solve from several tasks
   in parallel, and the reads of an `UmfpackLU` (`det`, `logabsdet`, its factors) take no
   lock. A factorization must not be refactorized while another task uses it; such a task
   works on its own `copy(F)` ([#906], [#914], [#1041], [#1042], [#1043], [#1045]).
-* `map` and `broadcast` over sparse arrays accept functions that return values of a type
-  without `zero`, such as `String`, `Tuple`, `Pair` or `nothing` ([#1055]).
-* `getindex` of a sparse matrix accepts `StepRangeLen` row ranges, a vector of
-  `CartesianIndex{1}` as a row or column index, and a `Bool` unit range as a mask
-  ([#1057], [#1058], [#1062]).
-* `kron!` accepts a dense vector operand next to a sparse one ([#988]).
+
+#### Compilation
+
 * Dense and sparse `cat` and `hvcat`, sparse block literals, the SuiteSparse library
   paths and the main sparse operations can be compiled with `juliac --trim=safe`
   ([#972], [#973], [#974], [#1028]).
 
 ### Behavior changes
 
-* Products of a sparse matrix with a structured or dense matrix take their result type from
-  the non-sparse factor: sparse times dense returns dense, sparse times a banded structured
-  matrix stays sparse ([#693]).
-* Solves of structured matrices with sparse matrices return dense arrays, consistently for
-  left and right division ([#708]).
+#### Construction and conversion
+
 * `one(A)` of a sparse matrix whose element type has a multiplicative identity other than
   `1` uses that identity on the diagonal ([#732]).
-* `show` of a sparse matrix uses Base's display pipeline: the Unicode spy plot uses the
-  full display width and is chosen from the display size, and stored zeros print centered
-  at a fixed width ([#736]).
-* Broadcasting a sparse array against a view of a dense array returns a sparse result, as
-  against the dense array itself ([#772]).
-* `A \ b` for a wide sparse `A` returns the minimum-norm solution, as dense `\` does
-  ([#831]).
 * `sparsevec` of a sparse matrix returns a `SparseVector` instead of a lazy reshape
   ([#860]).
-* Broadcasting a sparse array against a dense array does not store `0 / x`-style zeros
-  where the sparse argument has no entry ([#886]).
-* `+` and `-` of a sparse vector and a dense vector return a dense `Vector`, as for
-  matrices ([#887]).
-* Loading SparseArrays no longer makes `vcat`, `hcat` and `hvcat` methods of other packages'
-  array types ambiguous, and a leading number in a sparse concatenation fills its block as
-  in dense concatenation ([#890]).
-* `map` and broadcast over a single sparse array keep its stored entries, including stored
-  zeros and entries where `f` returns zero, as `float(A)`, `-A` and `2A` do ([#892]).
-* Scalar and nonscalar `setindex!` store `-0.0` and `missing` but not a heap-allocated zero
-  such as `big(0)`, consistently ([#891], [#896], [#898]).
-* Broadcasting over sparse views of whole columns, or of a sparse vector, returns a sparse
-  result ([#917]).
 * `repeat` of a sparse matrix and sparse column slices such as `A[:, j]` keep the matrix's
   index type ([#919], [#945]).
-* Sparse `\` and `factorize` treat a Hermitian matrix as Hermitian only for floating-point
-  element types; integer matrices go through the general sparse path instead of a dense
-  exact factorization ([#921]).
-* `findmin` and `findmax` of a `SparseVector` return an `Int` index, and `findall` returns a
-  `Vector{Int}` for every predicate ([#922], [#923]).
-* `maximum`, `minimum` and `extrema` along a dimension of an empty sparse array return a
-  dense `Array` ([#928]).
-* `sum`, `prod` and `mapreduce` with `+` or `*` over sparse arrays of small integers widen
-  the unstored entries as for dense arrays, so their result types match dense input
-  ([#932]).
-* `\` with a sparse right-hand side, and `sparse(F.L)` of a factorization, return a
-  `SparseMatrixCSC` ([#933]).
-* Reductions along a dimension of the adjoint or transpose of a sparse vector return an
-  `Array` ([#935]).
-* Sparse `D \ A` and `A / D` with a singular `Diagonal` `D` throw `SingularException`
-  ([#944]).
-* `nonzeroinds` is the function from LinearAlgebra ([#678]).
-* A result that would store every entry is dense: sparse `+` and `-` with any strided
-  dense matrix, including its views, adjoints and transposes, broadcast `+` and `-` of a
-  sparse array with a dense array or a scalar, and a broadcast over sparse arrays of a
-  function that is not zero at zero (such as `cos.(A)` or `A ./ A`) return a dense array
-  ([#949], [#1004], [#1005], [#1086]).
-* Products and solves of a wrapped sparse or dense operand (adjoints and transposes of
-  triangular, symmetric or Hermitian wrappers, and views of rows) return the same
-  container whichever side the operand is on: dense with a dense factor, sparse with a
-  banded one ([#1075]).
-* Sparse `\`, its adjoint and transpose forms, and `qr(A) \ b` return the eltype of dense
-  `\`, whatever the shape of `A` ([#950], [#1124]).
-* `cond` of a singular sparse matrix returns `Inf` instead of throwing, in the same float
-  type as for a nonsingular one, and `cond` of an empty sparse matrix returns zero
-  ([#989], [#1126], [#1131]).
-* `factorize` of a sparse indefinite Hermitian matrix whose LDLt fails falls back to `lu`
-  instead of throwing `ZeroPivotException` ([#1116]).
-* The sparse triangular solve throws `SingularException` for a stored zero on the
-  diagonal, as for a missing diagonal entry ([#1066]).
-* `mapreduce` over sparse arrays folds the entries in element order unless `op` is known
-  to commute, so a non-commutative `op` gives the dense result ([#1006], [#1063]).
-* `==` and `isequal` of two sparse arrays compare the implicit zeros of their eltypes
-  ([#985]).
-* Scaling a sparse array by `NaN` or `Inf` with `rmul!`, `lmul!`, `mul!` or `x * NaN`,
-  the outer product `x .* y'`, and `prod` propagate the non-finite value to the unstored
-  entries, as dense arrays do ([#1065], [#1077], [#1101]).
-* `any` and `all` of a sparse array throw a `TypeError` for a non-Boolean value, as dense
-  does ([#1056]).
+* `SparseMatrixCSC` of a view of a sparse vector or column returns an `n x 1` matrix
+  ([#1113]).
+* `sprand` with a value function honours the eltype `T` and the documented forms of
+  `rfn` ([#1109]).
+
+#### Indexing and assignment
+
+* Scalar and nonscalar `setindex!` store `-0.0` and `missing` but not a heap-allocated zero
+  such as `big(0)`, consistently ([#891], [#896], [#898]).
 * A `Bool` is no longer accepted as a scalar index in sparse `getindex`, `setindex!` and
   `dropstored!` ([#1067]), and scalar `setindex!` at an index that does not fit the index
   type throws a `BoundsError` ([#1145]).
 * `getindex` of a sparse array with an index array of zero or three or more dimensions
   returns a dense array ([#1059]).
-* `SparseMatrixCSC` of a view of a sparse vector or column returns an `n x 1` matrix
-  ([#1113]).
-* `kron` with a view of a sparse matrix, and `diff` of a sparse view, transpose or
-  adjoint, return sparse results ([#953], [#1078], [#1118]).
-* `hcat`, `vcat` and `cat` of sparse arrays with dense arrays, numbers, `I` or a
-  `Diagonal` keep the stored zeros of the sparse arguments ([#1102]). The index type of a
-  mixed sparse and dense concatenation is taken from its sparse arguments only ([#1127]).
-  A concatenation with a leading sparse array and an array of non-`Number` eltype returns
-  a dense array instead of throwing ([#975]).
-* Loading SparseArrays no longer changes the result or the speed of dense `hcat`, `vcat`,
-  `hvcat` and `cat` ([#1157], [#1160]).
-* Sparse views and `Hermitian`, `Symmetric`, triangular and `Diagonal` wrappers of sparse
-  arrays print with the sparse display ([#978]). The `Q` factor of a sparse `qr` or `lq`
-  prints its entries like any other `AbstractQ` ([#1025], [#1036]).
-* `copy` of an `UmfpackLU` or a `QRSparse` and `deepcopy` of a `CHOLMOD.Factor` return
-  independent factorizations, and `copy` of an adjoint `CHOLMOD.Factor` is defined
-  ([#1030], [#1031], [#1032]).
 * Reductions and linear indexing handle sparse matrices of 2^63 or more entries; linear
   indexing of one that `Int` cannot index throws an `OverflowError`, and so does `sprand`
   of such a size ([#1128], [#1137]).
-* `sprand` with a value function honours the eltype `T` and the documented forms of
-  `rfn` ([#1109]).
 * In-place sparse kernels (`copyto!`, `setindex!`, `map!`, `broadcast!`, `mul!`, `ldiv!`,
   `circshift!`, `sparse!`, `fkeep!`, `dropstored!`, `lu!` and others) check sizes,
   aliasing, value conversion and index-type overflow before writing, and throw with the
@@ -201,48 +150,171 @@ Ships with Julia v1.14.0, not yet released. SuiteSparse 7.14.0.
   destination only: results computed from them are plain sparse arrays, and functions
   whose purpose is to change the pattern throw ([#1033]).
 
+#### Views, wrappers and storage
+
+* `nonzeroinds` is the function from LinearAlgebra ([#678]).
+
+#### Arithmetic and broadcasting
+
+* Broadcasting a sparse array against a view of a dense array returns a sparse result, as
+  against the dense array itself ([#772]).
+* Broadcasting a sparse array against a dense array does not store `0 / x`-style zeros
+  where the sparse argument has no entry ([#886]).
+* `+` and `-` of a sparse vector and a dense vector return a dense `Vector`, as for
+  matrices ([#887]).
+* `map` and broadcast over a single sparse array keep its stored entries, including stored
+  zeros and entries where `f` returns zero, as `float(A)`, `-A` and `2A` do ([#892]).
+* Broadcasting over sparse views of whole columns, or of a sparse vector, returns a sparse
+  result ([#917]).
+* A result that would store every entry is dense: sparse `+` and `-` with any strided
+  dense matrix, including its views, adjoints and transposes, broadcast `+` and `-` of a
+  sparse array with a dense array or a scalar, and a broadcast over sparse arrays of a
+  function that is not zero at zero (such as `cos.(A)` or `A ./ A`) return a dense array
+  ([#949], [#1004], [#1005], [#1086]).
+* Scaling a sparse array by `NaN` or `Inf` with `rmul!`, `lmul!`, `mul!` or `x * NaN`,
+  the outer product `x .* y'`, and `prod` propagate the non-finite value to the unstored
+  entries, as dense arrays do ([#1065], [#1077], [#1101]).
+* `kron` with a view of a sparse matrix, and `diff` of a sparse view, transpose or
+  adjoint, return sparse results ([#953], [#1078], [#1118]).
+
+#### Reductions, sorting and comparison
+
+* `findmin` and `findmax` of a `SparseVector` return an `Int` index, and `findall` returns a
+  `Vector{Int}` for every predicate ([#922], [#923]).
+* `maximum`, `minimum` and `extrema` along a dimension of an empty sparse array return a
+  dense `Array` ([#928]).
+* `sum`, `prod` and `mapreduce` with `+` or `*` over sparse arrays of small integers widen
+  the unstored entries as for dense arrays, so their result types match dense input
+  ([#932]).
+* Reductions along a dimension of the adjoint or transpose of a sparse vector return an
+  `Array` ([#935]).
+* `mapreduce` over sparse arrays folds the entries in element order unless `op` is known
+  to commute, so a non-commutative `op` gives the dense result ([#1006], [#1063]).
+* `==` and `isequal` of two sparse arrays compare the implicit zeros of their eltypes
+  ([#985]).
+* `any` and `all` of a sparse array throw a `TypeError` for a non-Boolean value, as dense
+  does ([#1056]).
+
+#### Concatenation
+
+* Loading SparseArrays no longer makes `vcat`, `hcat` and `hvcat` methods of other packages'
+  array types ambiguous, and a leading number in a sparse concatenation fills its block as
+  in dense concatenation ([#890]).
+* `hcat`, `vcat` and `cat` of sparse arrays with dense arrays, numbers, `I` or a
+  `Diagonal` keep the stored zeros of the sparse arguments ([#1102]). The index type of a
+  mixed sparse and dense concatenation is taken from its sparse arguments only ([#1127]).
+  A concatenation with a leading sparse array and an array of non-`Number` eltype returns
+  a dense array instead of throwing ([#975]).
+* Loading SparseArrays no longer changes the result or the speed of dense `hcat`, `vcat`,
+  `hvcat` and `cat` ([#1157], [#1160]).
+
+#### Products and linear algebra
+
+* Products of a sparse matrix with a structured or dense matrix take their result type from
+  the non-sparse factor: sparse times dense returns dense, sparse times a banded structured
+  matrix stays sparse ([#693]).
+* Solves of structured matrices with sparse matrices return dense arrays, consistently for
+  left and right division ([#708]).
+* Sparse `D \ A` and `A / D` with a singular `Diagonal` `D` throw `SingularException`
+  ([#944]).
+* Products and solves of a wrapped sparse or dense operand (adjoints and transposes of
+  triangular, symmetric or Hermitian wrappers, and views of rows) return the same
+  container whichever side the operand is on: dense with a dense factor, sparse with a
+  banded one ([#1075]).
+* `cond` of a singular sparse matrix returns `Inf` instead of throwing, in the same float
+  type as for a nonsingular one, and `cond` of an empty sparse matrix returns zero
+  ([#989], [#1126], [#1131]).
+
+#### Factorizations and solvers
+
+* `A \ b` for a wide sparse `A` returns the minimum-norm solution, as dense `\` does
+  ([#831]).
+* Sparse `\` and `factorize` treat a Hermitian matrix as Hermitian only for floating-point
+  element types; integer matrices go through the general sparse path instead of a dense
+  exact factorization ([#921]).
+* `\` with a sparse right-hand side, and `sparse(F.L)` of a factorization, return a
+  `SparseMatrixCSC` ([#933]).
+* Sparse `\`, its adjoint and transpose forms, and `qr(A) \ b` return the eltype of dense
+  `\`, whatever the shape of `A` ([#950], [#1124]).
+* `factorize` of a sparse indefinite Hermitian matrix whose LDLt fails falls back to `lu`
+  instead of throwing `ZeroPivotException` ([#1116]).
+* The sparse triangular solve throws `SingularException` for a stored zero on the
+  diagonal, as for a missing diagonal entry ([#1066]).
+* `copy` of an `UmfpackLU` or a `QRSparse` and `deepcopy` of a `CHOLMOD.Factor` return
+  independent factorizations, and `copy` of an adjoint `CHOLMOD.Factor` is defined
+  ([#1030], [#1031], [#1032]).
+
+#### Display
+
+* `show` of a sparse matrix uses Base's display pipeline: the Unicode spy plot uses the
+  full display width and is chosen from the display size, and stored zeros print centered
+  at a fixed width ([#736]).
+* Sparse views and `Hermitian`, `Symmetric`, triangular and `Diagonal` wrappers of sparse
+  arrays print with the sparse display ([#978]). The `Q` factor of a sparse `qr` or `lq`
+  prints its entries like any other `AbstractQ` ([#1025], [#1036]).
+
 ### Performance
 
+#### Construction and conversion
+
+* `stack` of sparse vectors builds the sparse result directly ([#836]).
+
+#### Indexing and assignment
+
 * Row indexing of the adjoint or transpose of a sparse matrix ([#734]).
-* `isequal`, `findnext`, `findprev` and `hash` of sparse arrays visit only the stored
-  entries ([#766], [#769]).
-* Products with `Diagonal` and `dot` with adjoints and transposes of sparse matrices,
-  mixed adjoint and transpose operands, and column views ([#770], [#858], [#866]).
 * `copyto!` of a sparse source into a view of a sparse array splices the stored entries in
   one pass ([#799]).
-* Sparse broadcast grows its result storage on demand instead of allocating the upper bound
-  on the number of stored entries ([#803]).
-* `Matrix` and `Vector` of views, adjoints and transposes of sparse arrays take time
-  proportional to the length plus the number of stored entries ([#828]).
-* `stack` of sparse vectors builds the sparse result directly ([#836]).
-* Products of dense matrices with `Symmetric`, `Hermitian` and triangular sparse matrices,
-  of `Symmetric` and `Hermitian` sparse matrices with sparse operands, and `mul!` of sparse
-  matrices into dense or sparse destinations use the sparse kernels instead of generic
-  element-wise fallbacks ([#861], [#864], [#865], [#867], [#868], [#869], [#871], [#873],
-  [#875], [#877]).
 * `A[I, J]` with a sorted vector `I` selecting few columns, or on a hypersparse matrix,
   no longer allocates a cache of length `size(A, 1)` ([#870]).
-* Broadcast that scales the rows of a sparse matrix by a vector runs in time proportional
-  to the number of stored entries ([#888]).
 * Ranged `fill!` on a sparse view merges in place ([#897]).
-* Sparse `A*B` sizes its result from a sample of its columns and releases spare
-  capacity, which cuts the memory it holds several times over where rows collide, as on
-  a stencil ([#1142]).
-* Products of a sparse matrix with a `Bidiagonal`, `Tridiagonal` or `SymTridiagonal`
-  run in O(nnz) ([#1084]).
+
+#### Views, wrappers and storage
+
+* `Matrix` and `Vector` of views, adjoints and transposes of sparse arrays take time
+  proportional to the length plus the number of stored entries ([#828]).
 * Views of sparse matrices and vectors, and lazy adjoints and transposes, use the O(nnz)
   kernels in reductions, products, `norm`, `diag`, `istriu`, `istril`, `issymmetric`,
   `ishermitian`, `count`, `==`, `reverse`, `circshift`, `permutedims`, `sort`,
   `findnext`, `findprev`, `spdiagm` and conversion, instead of reading every element
   ([#969], [#979], [#1024], [#1119], [#1133], [#1134], [#1135]).
-* `mapreduce(f, op, A, B)` over two sparse arrays reduces without building
-  `map(f, A, B)` ([#1002]).
+
+#### Arithmetic and broadcasting
+
+* Sparse broadcast grows its result storage on demand instead of allocating the upper bound
+  on the number of stored entries ([#803]).
+* Broadcast that scales the rows of a sparse matrix by a vector runs in time proportional
+  to the number of stored entries ([#888]).
 * `+` and `-` of sparse vectors and their views are one O(nnz) merge ([#954]).
 * `reverse`, `circshift` and rotations of sparse arrays run in O(nnz) ([#955]).
 * Sparse plus dense and sparse-plus-scalar broadcasts such as `A .+ 1` skip the dense
   copy of the sparse operand ([#982], [#983], [#1105]).
 * `map!` and `broadcast!` into a sparse array do not allocate to unalias their inputs
   ([#1013]).
+
+#### Reductions, sorting and comparison
+
+* `isequal`, `findnext`, `findprev` and `hash` of sparse arrays visit only the stored
+  entries ([#766], [#769]).
+* `mapreduce(f, op, A, B)` over two sparse arrays reduces without building
+  `map(f, A, B)` ([#1002]).
+
+#### Products and linear algebra
+
+* Products with `Diagonal` and `dot` with adjoints and transposes of sparse matrices,
+  mixed adjoint and transpose operands, and column views ([#770], [#858], [#866]).
+* Products of dense matrices with `Symmetric`, `Hermitian` and triangular sparse matrices,
+  of `Symmetric` and `Hermitian` sparse matrices with sparse operands, and `mul!` of sparse
+  matrices into dense or sparse destinations use the sparse kernels instead of generic
+  element-wise fallbacks ([#861], [#864], [#865], [#867], [#868], [#869], [#871], [#873],
+  [#875], [#877]).
+* Sparse `A*B` sizes its result from a sample of its columns and releases spare
+  capacity, which cuts the memory it holds several times over where rows collide, as on
+  a stencil ([#1142]).
+* Products of a sparse matrix with a `Bidiagonal`, `Tridiagonal` or `SymTridiagonal`
+  run in O(nnz) ([#1084]).
+
+#### Factorizations and solvers
+
 * The sparse triangular solve finds the diagonal of a stored triangle without a search
   ([#1081]).
 
