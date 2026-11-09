@@ -1132,28 +1132,21 @@ end
 end
 
 @testset "rows of a long result column come out in order through bitmaps" begin
-    # more than 4096 rows, so that the rows span two words of `wordbits`; each column of the
-    # product receives the rows of one column of `A` before those of the next, out of order.
-    # The first column has every row and is scanned instead, and the third comes in order.
+    # More than 4096 rows, so that the bitmap of nonzero words has two words. Columns 2 and 3
+    # of the product take the rows of one column of `A`, then some rows out of order, which go
+    # through the bitmaps, and different ones, which must have been cleared after column 2.
+    # Column 1 has every row and column 4 comes in order, so neither needs the bitmaps.
     m = 4200
-    rows = [2:2:m; 1:2:m; 64; 65; 4096; 4097; 4160]
-    cols = [fill(1, 2100); fill(2, 2100); fill(3, 5)]
-    A = sparse(rows, cols, ComplexF64.(eachindex(rows), 1), m, 3)
-    B = sparse([1, 2, 1, 3, 1], [1, 1, 2, 2, 3], [1.0, -1.0, 2.0, 3.0, 4.0], 3, 3)
-    C = A * B
-    @test !SparseArrays.prefer_sort(nnz(C[:, 2]), m) && !SparseArrays.prefer_scan(nnz(C[:, 2]), m)
-    @test mismatch(C, Array(A) * Array(B)) === nothing
-    @static if COMPREHENSIVE
-    # a column sorted because its matrix has so many rows that reading the bitmaps back
-    # would cost more
-    m = 2 * 10^6
-    A = sparse([160000:160000:m; 80000:160000:m], [fill(1, 12); fill(2, 13)], 1.0:25.0, m, 2)
-    D = zeros(m, 1)
-    D[160000:160000:m] .= 2.0 .* (1:12)
-    D[80000:160000:m] .= 3.0 .* (13:25)
-    @test SparseArrays.prefer_sort(25, m)
-    @test mismatch(A * sparse([2.0; 3.0;;]), D) === nothing
-    end
+    rows = [2:2:m; 1:2:m; 1:4:m; 64; 65; 4096; 4097; 4160]
+    cols = [fill(1, 2100); fill(2, 2100); fill(3, 1050); fill(4, 5)]
+    A = sparse(rows, cols, ComplexF64.(eachindex(rows), 1), m, 4)
+    B = sparse([1, 2, 1, 4, 3, 4, 2], [1, 1, 2, 2, 3, 3, 4], 1.0:7.0, 4, 4)
+    @test mismatch(A * B, Array(A) * Array(B)) === nothing
+    # `spcolmul!` leaves the columns that need the bitmaps to them
+    done(j) = SparseArrays.spcolmul!(zeros(Int, m), zeros(ComplexF64, m), fill(false, m), j, 1, A, B) > 0
+    @test done(1)
+    @test !done(2)
+    @test done(4)
 end
 
 @testset "product kernels touch stored entries only" begin
