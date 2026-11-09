@@ -11,7 +11,7 @@ export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     opcount_sparse, CountedReads, hasunionlocal, quaternion_type, SimpleSMatrix,
     NonCSCSparse, LegacyCSC, ConcatArray, AllBut, MockTropical, Variable, Expression, Meters,
     OneSided, Tagged, CustomType, UndefElt, Positive,
-    check_trisolve, check_scalar_broadcast,
+    check_trisolve, check_scalar_broadcast, allocated_bytes,
     show_plain, show_contents,
     mismatch, fixture, fixturevec, fixturepair, fixturedense, fixturestrided, FIXTURE_SHAPES
 
@@ -353,6 +353,15 @@ function check_scalar_broadcast(f, sparseargs, alloc_limit=1028)
     # Transposed sparse inputs require materializing CSC copies.
     extra = sum(x -> x isa LinearAlgebra.Transpose ? @allocated(SparseMatrixCSC(x)) + 128 : 0, sparseargs)
     @test (@allocated broadcast!(f, X, sparseargs...)) <= extra + alloc_limit
+end
+
+# Bytes allocated by `f(args...; kwargs...)`, after a call that compiles it. Measured here,
+# where code is optimized, rather than in a suite module, which is not (`testhelpers.jl`):
+# library code inlined into a suite is compiled without optimization and may allocate where
+# the same code compiled as usual does not.
+@noinline function allocated_bytes(f::F, args::Vararg{Any,N}; kwargs...) where {F,N}
+    f(args...; kwargs...)
+    return @allocated f(args...; kwargs...)
 end
 
 # The `text/plain` display of `X` on a limited screen, and that display without its

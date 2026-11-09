@@ -215,6 +215,7 @@ function _dot_transposed_walk(f::F, X::SparseMatrixCSCOrColumnSubset, Y::SparseM
 end
 
 function dot(x::AbstractSparseVector, D::Diagonal, y::AbstractVector)
+    require_one_based_indexing(y)
     d = D.diag
     if length(x) != length(y) || length(y) != length(d)
         throw(

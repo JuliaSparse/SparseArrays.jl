@@ -465,7 +465,7 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     mB = size(B, 1)
     nA == mB || throw(DimensionMismatch("second dimension of A, $nA, does not match the first dimension of B, $mB"))
 
-    nnzC = min(estimate_mulsize(mA, nnz(A), nA, nnz(B), nB) * 11 ÷ 10 + mA, mA*nB)
+    nnzC = min(estimate_mulsize(A, B) * 11 ÷ 10 + mA, mA*nB)
     colptrC = Vector{Ti}(undef, nB+1)
     rowvalC = Vector{Ti}(undef, nnzC)
     nzvalC = Vector{Tv}(undef, nnzC)
@@ -489,6 +489,12 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
 
     resize!(rowvalC, ip - 1)
     resize!(nzvalC, ip - 1)
+    # Spare capacity counts as live for as long as the result does. A product of about one
+    # entry per row has about as much of it as entries, which is not worth a copy.
+    if nnzC > 3 * (ip - 1)
+        sizehint!(rowvalC, ip - 1)
+        sizehint!(nzvalC, ip - 1)
+    end
 
     # This modification of Gustavson algorithm has sorted row indices
     C = SparseMatrixCSC(mA, nB, colptrC, rowvalC, nzvalC)
@@ -573,12 +579,37 @@ function spmatmulv(A, B)
     spmatmul(A, B)[:,1]
 end
 
-# estimated number of non-zeros in matrix product
-# it is assumed, that the non-zero indices are distributed independently and uniformly
-# in both matrices. Over-estimation is possible if that is not the case.
-function estimate_mulsize(m::Integer, nnzA::Integer, n::Integer, nnzB::Integer, k::Integer)
-    p = (nnzA / (m * n)) * (nnzB / (n * k))
-    p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0 # (1-(1-p)^n)*m*k
+# The number of entries to allocate for `A*B`. Uniform random matrices give `(1-(1-p)^n)*m*k`,
+# with `p` the chance that two entries meet, which is too large where rows collide. An evenly
+# spaced sample of the columns of `B`, up to 1/64 of its entries, measures the rows of the result
+# per entry of `B`, since the sampled columns may not be typical in length. This rate only lowers
+# the estimate: a sample can miss the collisions, and a size too small is grown.
+function estimate_mulsize(A, B)
+    m, n = size(A)
+    k = size(B, 2)
+    p = (nnz(A) / (m * n)) * (nnz(B) / (n * k))
+    estimate = p >= 1 ? m*k : p > 0 ? Int(ceil(-expm1(log1p(-p) * n)*m*k)) : 0
+    (k < 1024 || estimate <= m) && return estimate
+    rowvalA = getrowval(_storageparent(A))
+    rowvalB = getrowval(_storageparent(B))
+    xb = fill(false, m)
+    step = k ÷ min(k >> 6, 1024)
+    entries = 0
+    distinct = 0
+    @inbounds for i in (step + 1) >> 1:step:k
+        entries += length(getnzrange(B, i))
+        for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
+            r = rowvalA[kp]
+            distinct += !xb[r]
+            xb[r] = true
+        end
+        for jp in getnzrange(B, i), kp in getnzrange(A, rowvalB[jp])
+            xb[rowvalA[kp]] = false
+        end
+        entries > nnz(B) >> 6 && break
+    end
+    distinct == 0 && return estimate
+    return min(estimate, ceil(Int, nnz(B) * (distinct / entries)))
 end
 
 # A sparse destination takes the sparse product; its pattern becomes that of `A*B*α + C*β`.
@@ -1271,6 +1302,99 @@ function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::Abstr
     end
 end
 
+# Merging each of the `n` columns of `A` with `x` takes up to `nnz(A) + n * nnz(x)` steps, fewer
+# when `x` ends early, as it stops there. Looking the stored rows of `A` up in `x` visits the
+# same pairs in the same order, in about `nnz(A)` steps once `x` is indexed, and so wins unless
+# the merge is short. `x` is indexed by a bit per row with a running count per word, a quarter
+# of a byte per row, or by a hash table of its rows where building the bits costs more than
+# the hash table's lookups, which take about three times as long: the ranges were measured on
+# an AMD EPYC 9354, up to 4*10^8 rows.
+struct _SpvecBits
+    words::Vector{UInt64}
+    below::Vector{Int}
+end
+function _spvec_bits(m, xnzind)
+    words = zeros(UInt64, ((m - 1) >> 6) + 1)
+    for i in xnzind
+        r = Int(i) - 1
+        # `SparseVector` does not check its indices, and the merge only compares them
+        0 <= r < m || return nothing
+        @inbounds words[(r >> 6) + 1] |= one(UInt64) << (r & 63)
+    end
+    below = Vector{Int}(undef, length(words))
+    c = 0
+    @inbounds for w in eachindex(words)
+        below[w] = c
+        c += count_ones(words[w])
+    end
+    return _SpvecBits(words, below)
+end
+# at most half full; position 0 marks an empty slot
+struct _SpvecSlots
+    slots::Vector{Int}
+    mask::Int
+    shift::Int
+end
+@inline _spvec_slot(r, shift) = Int((Int(r) % UInt64 * 0x9E3779B97F4A7C15) >>> shift) + 1
+function _spvec_slots(xnzind)
+    bits = Base.top_set_bit(length(xnzind)) + 1
+    mask = (1 << bits) - 1
+    shift = 64 - bits
+    slots = zeros(Int, 1 << bits)
+    @inbounds for k in eachindex(xnzind)
+        h = _spvec_slot(xnzind[k], shift)
+        while slots[h] != 0
+            h = (h & mask) + 1
+        end
+        slots[h] = k
+    end
+    return _SpvecSlots(slots, mask, shift)
+end
+function _spvec_positions(A, xnzind)
+    isempty(xnzind) && return nothing
+    m, n = size(A)
+    k = length(xnzind)
+    usehash = m >> 6 > 3nnz(A) + 4k
+    nnz(A) * (xnzind[end] / m) + widemul(n, k) <= nnz(A) + (usehash ? 4k : m >> 5) && return nothing
+    return usehash ? _spvec_slots(xnzind) : _spvec_bits(m, xnzind)
+end
+@inline _spcoldot(f::F, A, j, Arowval, Anzval, ::Nothing, xnzind, xnzval) where {F} =
+    _spdot(f, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
+           1, length(xnzind), xnzind, xnzval)
+function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecBits, xnzind, xnzval) where {F}
+    s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
+    words = pos.words
+    below = pos.below
+    @inbounds for p in nzrange(A, j)
+        r = Int(Arowval[p]) - 1
+        w = (r >> 6) + 1
+        word = words[w]
+        bit = one(UInt64) << (r & 63)
+        if word & bit != 0
+            s += f(Anzval[p], xnzval[below[w] + count_ones(word & (bit - one(UInt64))) + 1])
+        end
+    end
+    return s
+end
+function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecSlots, xnzind, xnzval) where {F}
+    s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
+    slots = pos.slots
+    @inbounds for p in nzrange(A, j)
+        r = Arowval[p]
+        h = _spvec_slot(r, pos.shift)
+        while true
+            k = slots[h]
+            k == 0 && break
+            if xnzind[k] == r
+                s += f(Anzval[p], xnzval[k])
+                break
+            end
+            h = (h & pos.mask) + 1
+        end
+    end
+    return s
+end
+
 function _spAt_or_Ac_mul_spvec!(tfun::F,
                           y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
                           α::Number, β::Number) where {F<:Function}
@@ -1288,12 +1412,14 @@ function _spAt_or_Ac_mul_spvec!(tfun::F,
     xnzval = nonzeros(x)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
-    mx = length(xnzind)
 
-    for j = 1:n
+    _spcoldots!(tfun, y, A, _spvec_positions(A, xnzind), Arowval, Anzval, xnzind, xnzval, α)
+end
+# a barrier, so that the loop is compiled for each way of looking rows up
+function _spcoldots!(tfun::F, y, A, pos::P, Arowval, Anzval, xnzind, xnzval, α) where {F,P}
+    for j = axes(A, 2)
         # s <- dot(A[:,j], x)
-        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
-                   1, mx, xnzind, xnzval)
+        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
         @inbounds y[j] += s * α
     end
 end
@@ -1311,6 +1437,19 @@ end
 *(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
     _spAt_or_Ac_mul_spvec((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
 
+function _spcoldots_nonzero!(tfun::F, ynzind, ynzval, A, pos::P, Arowval, Anzval, xnzind, xnzval) where {F,P}
+    jr = 0
+    for j = axes(A, 2)
+        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
+        if s != zero(s)
+            jr += 1
+            ynzind[jr] = j
+            ynzval[jr] = s
+        end
+    end
+    return jr
+end
+
 function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
                          Tv = promote_op(matprod, TvA, TvX)) where {F<:Function,TvA,TiA,TvX,TiX}
     require_one_based_indexing(A, x)
@@ -1323,21 +1462,11 @@ function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
     xnzval = nonzeros(x)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
-    mx = length(xnzind)
 
     ynzind = Vector{Ti}(undef, n)
     ynzval = Vector{Tv}(undef, n)
 
-    jr = 0
-    for j = 1:n
-        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
-                   1, mx, xnzind, xnzval)
-        if s != zero(s)
-            jr += 1
-            ynzind[jr] = j
-            ynzval[jr] = s
-        end
-    end
+    jr = _spcoldots_nonzero!(tfun, ynzind, ynzval, A, _spvec_positions(A, xnzind), Arowval, Anzval, xnzind, xnzval)
     if jr < n
         resize!(ynzind, jr)
         resize!(ynzval, jr)

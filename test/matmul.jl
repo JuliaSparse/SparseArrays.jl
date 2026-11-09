@@ -388,6 +388,20 @@ end
     end
 end
 
+@testset "the capacity of a sparse product is close to its stored entries" begin
+    # the rows of a banded matrix collide, so the product stores 9 of the 25 products per column
+    n = 1024
+    A = spdiagm((k => fill(1.0, n - abs(k)) for k in -2:2)...)
+    C = A * A
+    @test mismatch(C, Array(A) * Array(A)) === nothing
+    @test SparseArrays.estimate_mulsize(A, A) < 2 * nnz(C)
+    # a column needs slack for every row while it is formed, not afterwards
+    T = sparse([1, 2], [1, 2], [1.0, 2.0], 10^6, 2)
+    P = T * sparse([1, 2], [1, 2], [3.0, 4.0], 2, 2)
+    @test nonzeros(P) == [3.0, 8.0]
+    @test Base.summarysize(rowvals(P)) < 10^3
+end
+
 @testset "in-place sparse-sparse mul!" begin
     for n in (20, (@static COMPREHENSIVE ? (30,) : ())...)
         sA = fixture(ComplexF64, n, n); A = Array(sA)
@@ -909,6 +923,37 @@ end
             @static if COMPREHENSIVE
             A32 = SparseMatrixCSC{Float64,Int32}(A)
             @test mul!(zeros(9), transpose(A32), x) ≈ transpose(Af) * xf
+            end
+        end
+
+        @testset "columns dotted with a sparse vector by merging, through bits or through a hash" begin
+            # a stored zero of `x` meets the `Inf`, and a row it does not store does not
+            I, J, V = [1, 3, 4, 2, 4], [1, 1, 1, 2, 2], [Inf, 2.0, 3.0, 4.0, 5.0]
+            A = sparse(I, J, V, 4, 8)
+            x = SparseVector(4, [1, 4], [0.0, 2.0])
+            @test SparseArrays._spvec_positions(A, nonzeroinds(x)) isa SparseArrays._SpvecBits
+            @test mismatch(A' * x, [NaN; 10.0; zeros(6)]) === nothing
+            @static if COMPREHENSIVE
+            @test isequal(mul!(zeros(8), transpose(A), x), [NaN; 10.0; zeros(6)])
+            # an index out of range is left to the merge, as is an `x` that ends early
+            @test SparseArrays._spvec_positions(A, [1, 200]) === nothing
+            B = sparse(I, J, V, 40, 2)
+            x = SparseVector(40, [1, 4], [0.0, 2.0])
+            @test SparseArrays._spvec_positions(B, nonzeroinds(x)) === nothing
+            @test isequal(mul!(zeros(2), transpose(B), x), [NaN, 10.0])
+            # a narrow index type and a complex eltype
+            F = sparse(I, J, complex.([1.0, 2.0, 3.0, 4.0, 5.0], 1.0), 4, 2)
+            w = SparseVector{ComplexF64,Int8}(4, Int8[1, 4], [1.0im, 2.0])
+            @test SparseArrays._spvec_positions(F, nonzeroinds(w)) isa SparseArrays._SpvecBits
+            @test mismatch(F' * w, Array(F)' * Vector(w)) === nothing
+            # a hash table, with rows that collide in its last two slots and wrap around
+            m = 2^17
+            t = SparseArrays._spvec_slots(1:12)
+            rows = filter(i -> SparseArrays._spvec_slot(i, t.shift) >= t.mask, 1:m)[1:12]
+            H = sparse(rows, fill(1, 12), 1.0:12.0, m, 12)
+            z = SparseVector{Float64,Int32}(m, Int32.(rows), collect(1.0:12.0))
+            @test SparseArrays._spvec_positions(H, nonzeroinds(z)) isa SparseArrays._SpvecSlots
+            @test mismatch(H' * z, [sum(abs2, 1.0:12.0); zeros(11)]) === nothing
             end
         end
 
