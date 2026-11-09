@@ -1134,12 +1134,12 @@ end
 @testset "rows of a long result column come out in order through bitmaps" begin
     # more than 4096 rows, so that the rows span two words of `wordbits`; each column of the
     # product receives the rows of one column of `A` before those of the next, out of order.
-    # The first column has every row and is scanned instead.
+    # The first column has every row and is scanned instead, and the third comes in order.
     m = 4200
     rows = [2:2:m; 1:2:m; 64; 65; 4096; 4097; 4160]
     cols = [fill(1, 2100); fill(2, 2100); fill(3, 5)]
     A = sparse(rows, cols, ComplexF64.(eachindex(rows), 1), m, 3)
-    B = sparse([1, 2, 1, 3], [1, 1, 2, 2], [1.0, -1.0, 2.0, 3.0], 3, 2)
+    B = sparse([1, 2, 1, 3, 1], [1, 1, 2, 2, 3], [1.0, -1.0, 2.0, 3.0, 4.0], 3, 3)
     C = A * B
     @test !SparseArrays.prefer_sort(nnz(C[:, 2]), m) && !SparseArrays.prefer_scan(nnz(C[:, 2]), m)
     @test mismatch(C, Array(A) * Array(B)) === nothing

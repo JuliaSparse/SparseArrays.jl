@@ -524,9 +524,9 @@ function spcolmul!(rowvalC, nzvalC, xb, rowbits, wordbits, i, ip, A, B)
         end
         nz = ip - ip0
         if nz == 0
-        elseif prefer_sort(nz, mA)
-            # in-place sort of indices. Effort: O(nnz*ln(nnz)).
-            sort!(rowvalC, ip0, ip-1, QuickSort, Base.Order.Forward)
+        elseif (sorting = prefer_sort(nz, mA)) || _inorder(rowvalC, ip0, ip-1)
+            # in-place sort of indices, unless they came in order. Effort: O(nnz*ln(nnz)).
+            sorting && sort!(rowvalC, ip0, ip-1, QuickSort, Base.Order.Forward)
             for vp = ip0:ip-1
                 k = rowvalC[vp]
                 xb[k] = false
@@ -658,6 +658,13 @@ _unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(w
 # of nearly every row.
 prefer_sort(nz::Integer, m::Integer) = nz <= 20 || 3 * Base.top_set_bit(nz) * nz < (m + 4095) >> 12
 prefer_scan(nz::Integer, m::Integer) = 8nz > 7m
+# whether `v[lo:hi]` is increasing, as the rows of a column of a banded `A` times another often are
+function _inorder(v, lo, hi)
+    @inbounds for i in lo:hi-1
+        v[i] < v[i+1] || return false
+    end
+    return true
+end
 
 
 ## triangular multiplication
