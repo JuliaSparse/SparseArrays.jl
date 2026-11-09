@@ -1132,21 +1132,27 @@ end
 end
 
 @testset "rows of a long result column come out in order through bitmaps" begin
-    # rows on both sides of the words of the bitmap, and more than the sort is used for
-    rows = [1:2:129; 2:2:130; 1:3:130; 64:65; 128:129]
-    cols = [fill(1, 65); fill(2, 65); fill(3, 44); fill(3, 4)]
-    A = sparse(rows, cols, ComplexF64.(eachindex(rows), 1), 130, 3)
+    # more than 4096 rows, so that the rows span two words of `wordbits`; each column of the
+    # product receives the rows of one column of `A` before those of the next, out of order.
+    # The first column has every row and is scanned instead.
+    m = 4200
+    rows = [2:2:m; 1:2:m; 64; 65; 4096; 4097; 4160]
+    cols = [fill(1, 2100); fill(2, 2100); fill(3, 5)]
+    A = sparse(rows, cols, ComplexF64.(eachindex(rows), 1), m, 3)
     B = sparse([1, 2, 1, 3], [1, 1, 2, 2], [1.0, -1.0, 2.0, 3.0], 3, 2)
-    @test !SparseArrays.prefer_sort(130, zeros(UInt64, 1))
-    @test mismatch(A * B, Array(A) * Array(B)) === nothing
+    C = A * B
+    @test !SparseArrays.prefer_sort(nnz(C[:, 2]), m) && !SparseArrays.prefer_scan(nnz(C[:, 2]), m)
+    @test mismatch(C, Array(A) * Array(B)) === nothing
     @static if COMPREHENSIVE
-    # a sort on a matrix with so many rows that scanning the bitmaps would cost more
+    # a column sorted because its matrix has so many rows that reading the bitmaps back
+    # would cost more
     m = 2 * 10^6
-    @test SparseArrays.prefer_sort(25, zeros(UInt64, (((m + 63) >> 6) + 63) >> 6))
-    S = sparse(collect(80000:80000:m), fill(1, 25), 1.0:25.0, m, 1)
-    @test nonzeros(S * sparse([1], [1], [2.0], 1, 1)) == 2.0 .* (1.0:25.0)
-    # the cutoff counts the entries of the column
-    @test SparseArrays.prefer_sort(20, zeros(UInt64, 1)) && !SparseArrays.prefer_sort(21, zeros(UInt64, 1))
+    A = sparse([160000:160000:m; 80000:160000:m], [fill(1, 12); fill(2, 13)], 1.0:25.0, m, 2)
+    D = zeros(m, 1)
+    D[160000:160000:m] .= 2.0 .* (1:12)
+    D[80000:160000:m] .= 3.0 .* (13:25)
+    @test SparseArrays.prefer_sort(25, m)
+    @test mismatch(A * sparse([2.0; 3.0;;]), D) === nothing
     end
 end
 
