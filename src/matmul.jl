@@ -1283,6 +1283,99 @@ function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::Abstr
     end
 end
 
+# Merging each of the `n` columns of `A` with `x` takes up to `nnz(A) + n * nnz(x)` steps, fewer
+# when `x` ends early, as it stops there. Looking the stored rows of `A` up in `x` visits the
+# same pairs in the same order, in about `nnz(A)` steps once `x` is indexed, and so wins unless
+# the merge is short. `x` is indexed by a bit per row with a running count per word, a quarter
+# of a byte per row, or by a hash table of its rows where building the bits costs more than
+# the hash table's lookups, which take about three times as long: the ranges were measured on
+# an AMD EPYC 9354, up to 4*10^8 rows.
+struct _SpvecBits
+    words::Vector{UInt64}
+    below::Vector{Int}
+end
+function _spvec_bits(m, xnzind)
+    words = zeros(UInt64, ((m - 1) >> 6) + 1)
+    for i in xnzind
+        r = Int(i) - 1
+        # `SparseVector` does not check its indices, and the merge only compares them
+        0 <= r < m || return nothing
+        @inbounds words[(r >> 6) + 1] |= one(UInt64) << (r & 63)
+    end
+    below = Vector{Int}(undef, length(words))
+    c = 0
+    @inbounds for w in eachindex(words)
+        below[w] = c
+        c += count_ones(words[w])
+    end
+    return _SpvecBits(words, below)
+end
+# at most half full; position 0 marks an empty slot
+struct _SpvecSlots
+    slots::Vector{Int}
+    mask::Int
+    shift::Int
+end
+@inline _spvec_slot(r, shift) = Int((Int(r) % UInt64 * 0x9E3779B97F4A7C15) >>> shift) + 1
+function _spvec_slots(xnzind)
+    bits = Base.top_set_bit(length(xnzind)) + 1
+    mask = (1 << bits) - 1
+    shift = 64 - bits
+    slots = zeros(Int, 1 << bits)
+    @inbounds for k in eachindex(xnzind)
+        h = _spvec_slot(xnzind[k], shift)
+        while slots[h] != 0
+            h = (h & mask) + 1
+        end
+        slots[h] = k
+    end
+    return _SpvecSlots(slots, mask, shift)
+end
+function _spvec_positions(A, xnzind)
+    isempty(xnzind) && return nothing
+    m, n = size(A)
+    k = length(xnzind)
+    usehash = m >> 6 > 3nnz(A) + 4k
+    nnz(A) * (xnzind[end] / m) + widemul(n, k) <= nnz(A) + (usehash ? 4k : m >> 5) && return nothing
+    return usehash ? _spvec_slots(xnzind) : _spvec_bits(m, xnzind)
+end
+@inline _spcoldot(f::F, A, j, Arowval, Anzval, ::Nothing, xnzind, xnzval) where {F} =
+    _spdot(f, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
+           1, length(xnzind), xnzind, xnzval)
+function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecBits, xnzind, xnzval) where {F}
+    s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
+    words = pos.words
+    below = pos.below
+    @inbounds for p in nzrange(A, j)
+        r = Int(Arowval[p]) - 1
+        w = (r >> 6) + 1
+        word = words[w]
+        bit = one(UInt64) << (r & 63)
+        if word & bit != 0
+            s += f(Anzval[p], xnzval[below[w] + count_ones(word & (bit - one(UInt64))) + 1])
+        end
+    end
+    return s
+end
+function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecSlots, xnzind, xnzval) where {F}
+    s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
+    slots = pos.slots
+    @inbounds for p in nzrange(A, j)
+        r = Arowval[p]
+        h = _spvec_slot(r, pos.shift)
+        while true
+            k = slots[h]
+            k == 0 && break
+            if xnzind[k] == r
+                s += f(Anzval[p], xnzval[k])
+                break
+            end
+            h = (h & pos.mask) + 1
+        end
+    end
+    return s
+end
+
 function _spAt_or_Ac_mul_spvec!(tfun::F,
                           y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
                           α::Number, β::Number) where {F<:Function}
@@ -1300,12 +1393,14 @@ function _spAt_or_Ac_mul_spvec!(tfun::F,
     xnzval = nonzeros(x)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
-    mx = length(xnzind)
 
-    for j = 1:n
+    _spcoldots!(tfun, y, A, _spvec_positions(A, xnzind), Arowval, Anzval, xnzind, xnzval, α)
+end
+# a barrier, so that the loop is compiled for each way of looking rows up
+function _spcoldots!(tfun::F, y, A, pos::P, Arowval, Anzval, xnzind, xnzval, α) where {F,P}
+    for j = axes(A, 2)
         # s <- dot(A[:,j], x)
-        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
-                   1, mx, xnzind, xnzval)
+        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
         @inbounds y[j] += s * α
     end
 end
@@ -1323,6 +1418,19 @@ end
 *(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
     _spAt_or_Ac_mul_spvec((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
 
+function _spcoldots_nonzero!(tfun::F, ynzind, ynzval, A, pos::P, Arowval, Anzval, xnzind, xnzval) where {F,P}
+    jr = 0
+    for j = axes(A, 2)
+        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
+        if s != zero(s)
+            jr += 1
+            ynzind[jr] = j
+            ynzval[jr] = s
+        end
+    end
+    return jr
+end
+
 function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
                          Tv = promote_op(matprod, TvA, TvX)) where {F<:Function,TvA,TiA,TvX,TiX}
     require_one_based_indexing(A, x)
@@ -1335,21 +1443,11 @@ function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
     xnzval = nonzeros(x)
     Arowval = getrowval(A)
     Anzval = getnzval(A)
-    mx = length(xnzind)
 
     ynzind = Vector{Ti}(undef, n)
     ynzval = Vector{Tv}(undef, n)
 
-    jr = 0
-    for j = 1:n
-        s = _spdot(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
-                   1, mx, xnzind, xnzval)
-        if s != zero(s)
-            jr += 1
-            ynzind[jr] = j
-            ynzval[jr] = s
-        end
-    end
+    jr = _spcoldots_nonzero!(tfun, ynzind, ynzval, A, _spvec_positions(A, xnzind), Arowval, Anzval, xnzind, xnzval)
     if jr < n
         resize!(ynzind, jr)
         resize!(ynzval, jr)
