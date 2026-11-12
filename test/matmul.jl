@@ -1131,6 +1131,24 @@ end
     end
 end
 
+@testset "rows of a long result column come out in order through bitmaps" begin
+    # More than 4096 rows, so that the bitmap of nonzero words has two words. Columns 2 and 3
+    # of the product take the rows of one column of `A`, then some rows out of order, which go
+    # through the bitmaps, and different ones, which must have been cleared after column 2.
+    # Column 1 has every row and column 4 comes in order, so neither needs the bitmaps.
+    m = 4200
+    rows = [2:2:m; 1:2:m; 1:4:m; 64; 65; 4096; 4097; 4160]
+    cols = [fill(1, 2100); fill(2, 2100); fill(3, 1050); fill(4, 5)]
+    A = sparse(rows, cols, ComplexF64.(eachindex(rows), 1), m, 4)
+    B = sparse([1, 2, 1, 4, 3, 4, 2], [1, 1, 2, 2, 3, 3, 4], 1.0:7.0, 4, 4)
+    @test mismatch(A * B, Array(A) * Array(B)) === nothing
+    # `spcolmul!` leaves the columns that need the bitmaps to them
+    done(j) = SparseArrays.spcolmul!(zeros(Int, m), zeros(ComplexF64, m), fill(false, m), j, 1, A, B) > 0
+    @test done(1)
+    @test !done(2)
+    @test done(4)
+end
+
 @testset "product kernels touch stored entries only" begin
     n = 8
     # adjoint dense times adjoint sparse reads each entry of the dense factor at most once

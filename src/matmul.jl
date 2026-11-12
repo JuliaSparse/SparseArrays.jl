@@ -441,13 +441,10 @@ function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
     dest
 end
 
-# Gustavson's matrix multiplication algorithm revisited.
-# The result rowval vector is already sorted by construction.
-# The auxiliary Vector{Ti} xb is replaced by a Vector{Bool} of same length.
-# The optional argument controlling a sorting algorithm is obsolete.
-# depending on expected execution speed the sorting of the result column is
-# done by a quicksort of the row indices or by a full scan of the dense result vector.
-# The last is faster, if more than ≈ 1/32 of the result column is nonzero.
+# Gustavson's algorithm: each result column is accumulated densely in `nzvalC`, with its rows
+# marked in `xb`. Unless they came in order, its rows are then put in order by a sort, a scan
+# of `xb`, or a bitmap of them and of its nonzero words, which is allocated the first time a
+# column needs it.
 # Unit triangular wrappers keep their diagonal implicitly, so they are materialized first.
 # The added diagonal may not fit the parent's index type, in which case a wider one is used
 # for the temporary; the result keeps the index type of the operands.
@@ -474,14 +471,20 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     @inbounds begin
         ip = 1
         xb = fill(false, mA)
+        bits = Memory{UInt64}(undef, 0)
         for i in axes(B,2)
             if ip + mA - 1 > nnzC
                 nnzC += max(mA, nnzC>>2)
                 resize!(rowvalC, nnzC)
                 resize!(nzvalC, nnzC)
             end
-            colptrC[i] = ip
+            colptrC[i] = ip0 = ip
             ip = spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
+            if ip < 0
+                ip = -ip
+                isempty(bits) && (bits = _rowbitmaps(mA))
+                _bitmaporder!(rowvalC, nzvalC, xb, bits, ip0, ip, ip0 - 1, mA)
+            end
         end
         colptrC[nB+1] = ip
     end
@@ -500,7 +503,8 @@ function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,
     return C
 end
 
-# process single rhs column
+# process single rhs column and return the end of it, negated if its rows are left out of
+# order for the bitmaps
 function spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
     SA = _storageparent(A); rowvalA = getrowval(SA); nzvalA = getnzval(SA)
     SB = _storageparent(B); rowvalB = getrowval(SB); nzvalB = getnzval(SB)
@@ -524,29 +528,76 @@ function spcolmul!(rowvalC, nzvalC, xb, i, ip, A, B)
                 end
             end
         end
-        if ip > ip0
-            if prefer_sort(ip-k0, mA)
-                # in-place sort of indices. Effort: O(nnz*ln(nnz)).
-                sort!(rowvalC, ip0, ip-1, QuickSort, Base.Order.Forward)
-                for vp = ip0:ip-1
-                    k = rowvalC[vp]
+        nz = ip - ip0
+        if nz == 0
+        elseif (sorting = prefer_sort(nz, mA)) || _inorder(rowvalC, ip0, ip-1)
+            # in-place sort of indices, unless they came in order. Effort: O(nnz*ln(nnz)), or
+            # O(nnz) in order.
+            sorting && sort!(rowvalC, ip0, ip-1, QuickSort, Base.Order.Forward)
+            for vp = ip0:ip-1
+                k = rowvalC[vp]
+                xb[k] = false
+                nzvalC[vp] = nzvalC[k+k0]
+            end
+        elseif prefer_scan(nz, mA)
+            # scan the dense result vector. Effort: O(mA).
+            vp = ip0
+            for k in axes(A,1)
+                if xb[k]
                     xb[k] = false
+                    rowvalC[vp] = k
                     nzvalC[vp] = nzvalC[k+k0]
-                end
-            else
-                # scan result vector (effort O(mA))
-                for k in axes(A,1)
-                    if xb[k]
-                        xb[k] = false
-                        rowvalC[ip0] = k
-                        nzvalC[ip0] = nzvalC[k+k0]
-                        ip0 += 1
-                    end
+                    vp += 1
                 end
             end
+        else
+            return -ip
         end
     end
     return ip
+end
+
+# A bitmap of the rows of a column, in its first `cld(m, 64)` words, then one of its nonzero
+# words.
+function _rowbitmaps(m)
+    nr = (m + 63) >> 6
+    return fill!(Memory{UInt64}(undef, nr + ((nr + 63) >> 6)), 0)
+end
+
+# Visit the rows `rowvalC[ip0:ip-1]` in order through the bitmaps, up to the last row, and leave
+# them clear. Effort: O(nnz + m/4096).
+function _bitmaporder!(rowvalC, nzvalC, xb, bits::Memory{UInt64}, ip0, ip, k0, m)
+    nr = (m + 63) >> 6
+    @inbounds begin
+        for vp = ip0:ip-1
+            k = Int(rowvalC[vp])
+            xb[k] = false
+            w = (k - 1) >> 6
+            bits[w+1] |= one(UInt64) << ((k - 1) & 63)
+            bits[nr+(w>>6)+1] |= one(UInt64) << (w & 63)
+        end
+        vp = ip0
+        for t in nr+1:length(bits)
+            tbits = bits[t]
+            tbits == 0 && continue
+            bits[t] = 0
+            while tbits != 0
+                w = ((t - nr - 1) << 6) + trailing_zeros(tbits)
+                tbits &= tbits - 1
+                wbits = bits[w+1]
+                bits[w+1] = 0
+                while wbits != 0
+                    k = (w << 6) + trailing_zeros(wbits) + 1
+                    wbits &= wbits - 1
+                    rowvalC[vp] = k
+                    nzvalC[vp] = nzvalC[k+k0]
+                    vp += 1
+                end
+            end
+            vp == ip && break
+        end
+    end
+    return nothing
 end
 
 # special cases of same twin Upper/LowerTriangular
@@ -616,11 +667,20 @@ _assign_sparse!(C::SparseMatrixCSCColumnSubset, R) = (parent(C)[:, parentindices
 # only contiguous column views have a sparse product of their own
 _unwrapped_sparse(A, t) = t == 'N' && A isa SparseMatrixCSCOrView ? A : sparse(wrap(_compressed(A), t))
 
-# determine if sort! shall be used or the whole column be scanned
-# based on empirical data on i7-3610QM CPU
-# measuring runtimes of the scanning and sorting loops of the algorithm.
-# The parameters 6 and 3 might be modified for different architectures.
-prefer_sort(nz::Integer, m::Integer) = m > 6 && 3 * Base.top_set_bit(nz) * nz < m
+# How to put the `nz` rows of a result column with `m` rows in order, measured on an AMD EPYC
+# 9354. A sort beats the bitmaps on a column of up to 20 rows, and otherwise the bitmaps cost
+# one word of the bitmap of nonzero words per 4096 rows beyond what a sort costs.
+# Scanning `xb` costs O(m), but beats the bitmaps when its branch is predictable, in a column
+# of nearly every row.
+prefer_sort(nz::Integer, m::Integer) = nz <= 20 || 3 * Base.top_set_bit(nz) * nz < (m + 4095) >> 12
+prefer_scan(nz::Integer, m::Integer) = 8nz > 7m
+# whether `v[lo:hi]` is increasing, as the rows of a column of a banded `A` times another often are
+function _inorder(v, lo, hi)
+    @inbounds for i in lo:hi-1
+        v[i] < v[i+1] || return false
+    end
+    return true
+end
 
 
 ## triangular multiplication
