@@ -140,6 +140,12 @@ end
     @test S == Symmetric(real(Matrix(A)), :L) + collect(Hermitian(B))
     @test Hermitian(A) + Symmetric(real(B)) isa Hermitian{ComplexF64, <:SparseMatrixCSC}
     @test Hermitian(A) + Symmetric(B) isa SparseMatrixCSC
+    @static if COMPREHENSIVE
+    # a complex symmetric matrix is not Hermitian, so the sum is a plain sparse matrix
+    @test mismatch(Symmetric(A) - Hermitian(B), Symmetric(Matrix(A)) - Hermitian(Matrix(B))) === nothing
+    # a wrapped dense matrix and a sparse one give a dense result
+    @test (Hermitian(Matrix(B)) - A)::Matrix{ComplexF64} == Hermitian(Matrix(B)) - Matrix(A)
+    end
     # a wrapped and a plain sparse matrix; the #35325 testset in issues.jl has every
     # such combination, and it runs in comprehensive mode only
     @static if !COMPREHENSIVE
@@ -231,6 +237,7 @@ end
     @static if COMPREHENSIVE
     # only the 1, 2 and Inf norms exist, for an empty matrix as well
     @test_throws ArgumentError opnorm(spzeros(0, 0), 3)
+    @test opnorm(spzeros(ComplexF64, 0, 3), 1) === opnorm(zeros(ComplexF64, 0, 3), 1)
     end
     @test opnorm(Ac,Inf) ≈ opnorm(MAc,Inf)
     @test norm(Ac) ≈ norm(MAc)
@@ -342,6 +349,9 @@ end
         @test mismatch(Dl \ A, Dl \ MA; approx=true) === nothing
         @test mismatch(A / Dr, MA / Dr; approx=true) === nothing
         @test mismatch(ldiv!(Dl, copy(v)), Dl \ Vector(v); approx=true) === nothing
+        @static if COMPREHENSIVE
+        @test mismatch(Dl \ v, Dl \ Vector(v); approx=true) === nothing
+        end
         z = 0.0im; Dl0 = Diagonal([1.0, z]); Dr0 = Diagonal([1.0, 2, z]); B = copy(A)
         @test_throws SingularException(2) Dl0 \ A
         @test_throws SingularException(2) ldiv!(Dl0, B)
@@ -790,6 +800,15 @@ end
     # with a number, the adjoint of a view gives what the adjoint of a sparse matrix does
     @test mismatch(kron(2.0, V'), 2 * Matrix(V')) === nothing
     @test mismatch(kron(W', 2.0), 2 * Matrix(W')) === nothing
+    # `kron!` with a number, a `Diagonal`, and a column view and the adjoint of one
+    C = spzeros(4, 4)
+    @test kron!(C, 2.0, S) === C && mismatch(C, 2 * Sd) === nothing
+    @test kron!(C, S, 2.0) === C && mismatch(C, 2 * Sd) === nothing
+    @test kron!(C, c, c') === C && mismatch(C, kron(Vector(c), Vector(c)')) === nothing
+    Dg = Diagonal([1.0, 2.0])
+    C = spzeros(8, 8)
+    @test kron!(C, S, Dg) === C && mismatch(C, kron(Sd, Dg)) === nothing
+    @test kron!(C, Dg, S) === C && mismatch(C, kron(Dg, Sd)) === nothing
 end
 end
 
@@ -935,6 +954,12 @@ end
             @test_throws DimensionMismatch dot([b; 1], D, a)
             @test_throws DimensionMismatch dot([b; 1], D, [a; 1])
             @static if COMPREHENSIVE
+            @test_throws DimensionMismatch dot(b, D, collect([a; 1]))
+            # patterns that only partly overlap, from either side, and an empty operand
+            c = sparsevec([2, 4], [complex(1.0, -1.0), complex(2.0, 0.5)], size(D, 1))
+            @test dot(a, D, c) ≈ dot(collect(a), D, collect(c))
+            @test dot(c, D, a) ≈ dot(collect(c), D, collect(a))
+            @test dot(spzeros(ComplexF64, size(D, 1)), D, a) === zero(ComplexF64)
             r = Base.IdentityUnitRange(2:size(D, 1)+1)
             @test_throws ArgumentError dot(a, D, r)
             @test_throws ArgumentError dot(r, D, a)
@@ -944,6 +969,9 @@ end
     @test_throws DimensionMismatch dot(fixture(Float64, 5, 5), fixture(Float64, 5, 6))
     @test_throws DimensionMismatch dot(ones(5, 5), fixture(Float64, 5, 6))
     @test_throws DimensionMismatch dot(fixture(Float64, 5, 5), ones(5, 6))
+    @static if COMPREHENSIVE
+    @test dot(zeros(0, 3), spzeros(0, 3)) === dot(zeros(0, 3), zeros(0, 3))
+    end
     # stored zeros, empty columns, and non-square shapes with a lazy adjoint (issue #627)
     for W in (adjoint, transpose)
         A = sparse([1, 3, 3, 5], [1, 1, 4, 2], [1.0im, 0.0, 2.0, 3.0], 6, 4)
@@ -1102,6 +1130,14 @@ end
     # a real Hermitian dense matrix between sparse vectors has a method of its own
     xr = real(vx); Sr = Hermitian(real(Matrix(A))[:, 1:10])
     @test dot(xr, Sr, xr) ≈ dot(Vector(xr), Sr, Vector(xr))
+    @static if COMPREHENSIVE
+    # and so do the transpose of a real dense matrix and of a view of one
+    Ar = real(Matrix(A15)); yr = real(vy); yr2 = real(vy2)
+    for Q in (transpose(Ar), transpose(view(Ar, :, :)))
+        @test dot(yr, Q, yr2) ≈ dot(Vector(yr), Q, Vector(yr2))
+    end
+    @test_throws DimensionMismatch dot(yr, Ar[:, 1:14], yr2)
+    end
 end
 
 @static if COMPREHENSIVE

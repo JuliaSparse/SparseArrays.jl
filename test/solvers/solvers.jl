@@ -84,6 +84,10 @@ end
     #issue 680
     A33 = sparse(randn(3,3))
     @test SparseArrays.opnormestinv(A33,3) ≈ opnorm(inv(Array(A33)),1) atol=1e-4
+    # one block: the unit vector of the largest row of the first estimate gives the exact
+    # norm, and the next sign vector repeats the first one, so it is drawn anew
+    Ad = sparse(Diagonal([1.0, 0.1, 1.0]))
+    @test SparseArrays.opnormestinv(Ad, 1) ≈ opnorm(inv(Array(Ad)), 1)
     end
 end
 

@@ -262,6 +262,7 @@ end
     @test cond(sparse([1.0 2; 3 6]), 1) === Inf
     # `factorize` leaves the zero on the diagonal of a triangular or diagonal factor
     @test cond(sparse([1.0 0; 2 0]), Inf) === Inf
+    @test cond(sparse([1.0 0; 2 0]), 1) === Inf
     @test cond(sparse([1.0 0; 0 0]), 1) === Inf
     # Hermitian, so `factorize` tries Cholesky and LDLt before the LU finds it singular
     @test cond(sparse([1.0 1; 1 1]), 1) === Inf
