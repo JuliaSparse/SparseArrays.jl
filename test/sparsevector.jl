@@ -1393,18 +1393,19 @@ end
         @test (x'x)::ComplexF64 == dot(x, x)
         end
     end
-    # one side far longer than the other is searched, not walked
+    # one side far longer than the other is galloped through, not walked
     let i = collect(2:2:1000), v = ComplexF64.(i, -i), j = [1, 4, 5, 1000], w = [2.0 - im, 3im, 7.0, -im]
         x, y = sparsevec(i, v, 2000), sparsevec(j, w, 2000)
         xf, yf = Array(x), Array(y)
         @test dot(x, y) ≈ dot(xf, yf)
         @test dot(y, x) ≈ dot(yf, xf)
+        # a merge reads every stored index of `x` up to the last of `y`
         c = CountedReads(i)
         @test SparseArrays._spdot(dot, 1, length(i), c, v, 1, length(j), j, w) ≈ dot(xf, yf)
-        @test c.reads[] < 50
+        @test c.reads[] < length(i) ÷ 4
         c = CountedReads(i)
         @test SparseArrays._spdot(dot, 1, length(j), j, w, 1, length(i), c, v) ≈ dot(yf, xf)
-        @test c.reads[] < 50
+        @test c.reads[] < length(i) ÷ 4
         @static if COMPREHENSIVE
         # an entry of the short side past the end of the long one, on either side
         z = sparsevec([4, 1500], [1.0, 2.0], 2000)

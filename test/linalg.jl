@@ -1073,6 +1073,19 @@ end
         @test iszero(dot(spzeros(length(x)), A, y))
     end
     @test iszero(dot(spzeros(ComplexF64, 10), collect(A), vy))
+    # each column of a tridiagonal matrix meets a few of the 99 entries of a vector
+    let x = fixturevec(ComplexF64, 150), y = fixturevec(ComplexF64, 150)
+        nonzeros(y) .*= 1 - 2im
+        T = spdiagm(-1 => ComplexF64.(1:149, -2), 0 => ComplexF64.(-1, 1:150), 1 => ComplexF64.(3, 1:149))
+        Td, xd, yd = Matrix(T), Vector(x), Vector(y)
+        @test dot(x, T, y) ≈ dot(xd, Td, yd)
+        @test dot(x, Hermitian(T), y) ≈ dot(xd, Hermitian(Td), yd)
+        @static if COMPREHENSIVE
+        @test dot(y, T, x) ≈ dot(yd, Td, xd)
+        @test dot(x, Symmetric(T, :L), y) ≈ dot(xd, Symmetric(Td, :L), yd)
+        @test dot(y, Hermitian(T, :L), x) ≈ dot(yd, Hermitian(Td, :L), xd)
+        end
+    end
     @static if COMPREHENSIVE
     # matrix-valued entries: `dot(x, A, y)` entrywise, not `dot(x, A) * y`
     Bm = sparse([1, 2, 2], [1, 1, 2], [[1.0 2; 3 4] .+ k for k in 1:3], 2, 2)

@@ -1681,19 +1681,22 @@ function dot(x::SparseVectorOrView, y::AbstractVector)
     return s
 end
 
+# A merge takes a step per entry of either range. Where one range has over four times the
+# entries of the other, galloping through the runs of the longer one is faster; otherwise
+# the merge is, as it steps past an unmatched entry without a branch.
 @inline function _spdot(f::F,
                         xj::Int, xj_last::Int, xnzind, xnzval,
                         yj::Int, yj_last::Int, ynzind, ynzval) where {F}
-    # dot product between ranges of non-zeros,
-    s = _spdotzero(f, eltype(xnzval), eltype(ynzval))
     nx, ny = xj_last - xj + 1, yj_last - yj + 1
-    32ny < nx && return _spdot_search(f, s, true, yj, yj_last, ynzind, ynzval, xj, xj_last, xnzind, xnzval)
-    32nx < ny && return _spdot_search(f, s, false, xj, xj_last, xnzind, xnzval, yj, yj_last, ynzind, ynzval)
-    return _spdot_merge(f, s, xj, xj_last, xnzind, xnzval, yj, yj_last, ynzind, ynzval)
+    (4ny < nx || 4nx < ny) && return _spdot_gallop(f, xj, xj_last, xnzind, xnzval, yj, yj_last, ynzind, ynzval)
+    return _spdot_merge(f, xj, xj_last, xnzind, xnzval, yj, yj_last, ynzind, ynzval)
 end
 
-# Apart from the search, so that the merge stays a leaf with nothing to spill per call.
-function _spdot_merge(f::F, s, xj::Int, xj_last::Int, xnzind, xnzval, yj::Int, yj_last::Int, ynzind, ynzval) where {F}
+@inline function _spdot_merge(f::F,
+                              xj::Int, xj_last::Int, xnzind, xnzval,
+                              yj::Int, yj_last::Int, ynzind, ynzval) where {F}
+    # dot product between ranges of non-zeros,
+    s = _spdotzero(f, eltype(xnzval), eltype(ynzval))
     @inbounds while xj <= xj_last && yj <= yj_last
         ix = xnzind[xj]
         iy = ynzind[yj]
@@ -1710,18 +1713,40 @@ function _spdot_merge(f::F, s, xj::Int, xj_last::Int, xnzind, xnzval, yj::Int, y
     s
 end
 
-# The pairs of a merge, in its order, with the long range searched instead of walked.
-@noinline function _spdot_search(f::F, s, swapped::Bool, j::Int, j_last::Int, ind, val, k::Int, k_last::Int, longind, longval) where {F}
-    @inbounds while j <= j_last
-        i = ind[j]
-        k = searchsortedfirst(longind, i, k, k_last, Base.Order.Forward)
-        k > k_last && break
-        if longind[k] == i
-            s += swapped ? f(longval[k], val[j]) : f(val[j], longval[k])
+# The pairs of the merge, in its order. Out of line, as a merge inlined into a loop over
+# columns runs slower with calls in it.
+@noinline function _spdot_gallop(f::F,
+                                 xj::Int, xj_last::Int, xnzind, xnzval,
+                                 yj::Int, yj_last::Int, ynzind, ynzval) where {F}
+    s = _spdotzero(f, eltype(xnzval), eltype(ynzval))
+    @inbounds while xj <= xj_last && yj <= yj_last
+        ix = xnzind[xj]
+        iy = ynzind[yj]
+        if ix == iy
+            s += f(xnzval[xj], ynzval[yj])
+            xj += 1
+            yj += 1
+        elseif ix < iy
+            xj = _gallop(xnzind, iy, xj + 1, xj_last)
+        else
+            yj = _gallop(ynzind, ix, yj + 1, yj_last)
         end
-        j += 1
     end
-    return s
+    s
+end
+
+# The first position in `lo:hi` whose index is at least `i`, or `hi + 1`. The step from
+# `lo` doubles, so moving `d` positions reads about `2log2(d)` indices.
+@inline function _gallop(ind, i, lo::Int, hi::Int)
+    @inbounds begin
+        (lo > hi || ind[lo] >= i) && return lo
+        step = 1
+        while lo + step <= hi && ind[lo + step] < i
+            lo += step
+            step <<= 1
+        end
+        return searchsortedfirst(ind, i, lo + 1, min(lo + step, hi), Base.Order.Forward)
+    end
 end
 
 # The zero a sum of `f(x, y)` starts from. No result type is inferred for an abstract
