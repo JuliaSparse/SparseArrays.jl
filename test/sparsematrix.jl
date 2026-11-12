@@ -1202,6 +1202,9 @@ end
     # a full pattern never asks for a zero, so an eltype without one copies (issue #28369)
     M = reshape([fill(k, 1, 2) for k in 1:4], 2, 2)
     @test Array(sparse(M)) == M
+    # a permuted destination is written in its own linear order
+    P = PermutedDimsArray(fill(-1.0, 3, 3), (2, 1))
+    @test copyto!(P, S) === P && P == D && parent(P) == D'
     end
     # a destination that is one of the source's own buffers still receives the source's values
     for wrap in (identity, adjoint, transpose, A -> view(A, :, 1:2))
@@ -1508,6 +1511,15 @@ end
     @test findnext(counted, VB, CartesianIndex(3, 2)) == CartesianIndex(100, 98) && calls[] <= nnz(VB) + 1
     calls[] = 0
     @test findprev(counted, view(B, :, 99), 100) == 100 && calls[] <= nnz(view(B, :, 99)) + 1
+    @static if COMPREHENSIVE
+    # a sparse vector type that only implements `nonzeroinds`/`nonzeros` skips its stored zero
+    w = WrappedSparseVector(sparsevec([2, 4, 6], [5.0, 0.0, -1.0], 7))
+    wd = [0.0, 5.0, 0.0, 0.0, 0.0, -1.0, 0.0]
+    for i in keys(wd)
+        @test findnext(!iszero, w, i) == findnext(!iszero, wd, i)
+        @test findprev(!iszero, w, i) == findprev(!iszero, wd, i)
+    end
+    end
 end
 
 #testing the sparse matrix/vector access functions nnz, nzrange, rowvals, nonzeros

@@ -124,6 +124,9 @@ end
             rangefun in (SparseArrays.nzrangeup, SparseArrays.nzrangelo)
         @test !hasunionlocal(SparseArrays._sparsem, (typeof(rangefun), wr), Int32, Int)
     end
+    # a wrapped banded matrix with sparse bands converts through `sparse` of the banded matrix
+    d = sparsevec([1, 3], [2.0, 5.0], 4)
+    @test mismatch(SparseMatrixCSC(Symmetric(Diagonal(d))), Matrix(Diagonal(Vector(d)))) === nothing
     end
 end
 

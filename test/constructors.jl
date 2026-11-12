@@ -31,6 +31,7 @@ end
     @test SparseMatrixCSC{ComplexF64}(Array(a)')::SparseMatrixCSC{ComplexF64,Int} == a'
     @test Array(SparseMatrixCSC{eltype(a), Int8}(a)) == Array(a)
     @test mismatch(SparseMatrixCSC(view(a, :, 1)), Array(a)[:, 1:1]) === nothing
+    @test mismatch(SparseMatrixCSC{Float64}(view(a, :, 1)), Array(a)[:, 1:1]; Ti=Int) === nothing
     # a view of a dense vector has no matrix constructor, as for `Matrix`
     @test_throws MethodError SparseMatrixCSC(view([1.0, 2.0], :))
 end
@@ -39,6 +40,11 @@ end
     # an adjoint or transpose is materialized before the eltype conversion
     @test mismatch(SparseMatrixCSC{ComplexF64}(a'), Array(a'); Tv=ComplexF64, Ti=Int) === nothing
     @test mismatch(SparseMatrixCSC{ComplexF64}(transpose(a)), Array(a'); Tv=ComplexF64, Ti=Int) === nothing
+@static if COMPREHENSIVE
+    # a dense Q converts column by column
+    Q = qr(fixturedense(Float64, 4, 4)).Q
+    @test mismatch(SparseMatrixCSC{Float64}(Q), Matrix(Q); Ti=Int, approx=true) === nothing
+end
     # wrappers and views convert through the sparse kernels, not element by element
     c = fixture(ComplexF64, 5, 3)
     for w in (transpose(c), (@static COMPREHENSIVE ? (view(c, :, 2:3), view(c, :, 1)') : ())...)
@@ -138,6 +144,9 @@ end
     @test mismatch(SparseArrays.spzeros!(Float64, Int[], Int[], 0, 3), zeros(0, 3)) === nothing
     @test mismatch(SparseArrays.sparse!(Int[], Int[], Float64[]), zeros(0, 0)) === nothing
     @test_throws ArgumentError spzeros([1], [1], 0, 3)
+    # row and column indices of different types are converted to `Int`
+    @test mismatch(spzeros(Float64, Int32[1, 2, 3], J, 4, 5), Array(S′); Ti=Int) === nothing
+    @test_throws "does not match" spzeros(Float64, I, [1, 3], 4, 5)
     end
     @test eltype(S) == ComplexF64
 end
@@ -257,6 +266,9 @@ end
     @test S::SparseMatrixCSC{Float64,Int} == sparse(2.0I, 3, 5)
     @test S == Matrix(2.0I, 3, 5)
     @test getcolptr(S) == [1, 2, 3, 4, 4, 4]
+    @static if COMPREHENSIVE
+    @test mismatch(sparse(ComplexF64, 2I, 3, 2), Matrix{ComplexF64}(2I, 3, 2); Ti=Int) === nothing
+    end
 end
 
 # linalg.jl compares the same call with `diagm` when COMPREHENSIVE
