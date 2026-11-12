@@ -226,6 +226,17 @@ end
     @test F \ ones(3) ≈ A \ ones(3)
 end
 
+@testset "ishermitian of a CHOLMOD.Sparse with unsorted row indices" begin
+    # CHOLMOD leaves the row indices of a product unsorted
+    S = CHOLMOD.Sparse(sparse([2, 1, 2], [1, 2, 2], [1.0, 2, 3]))
+    @test ishermitian(S' * S)
+    # zero-based row indices in reverse order in each column
+    for (a, b) in ((2.0, 2.0), (-2.0im, 2.0im)), (c, h) in ((b, true), (b + 1, false))
+        A = CHOLMOD.Sparse(2, 2, [0, 2, 4], [1, 0, 1, 0], [a, 1, 3, c], 0)
+        @test ishermitian(A) == ishermitian(Matrix(sparse(A))) == h
+    end
+end
+
 @testset "Issues #26367 and #26368" begin
     A = sparse([0.0 1 0 0; 0 0 0 0])
     F = qr(A)

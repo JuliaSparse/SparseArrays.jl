@@ -2577,16 +2577,21 @@ function isposdef(F::Factor)
     return s.is_ll != 0 || all(d -> real(d) > 0, diag(F))
 end
 
+# CHOLMOD's symmetry function fails on a matrix whose row indices are not sorted, such as
+# a product, so such a matrix is classified through a sorted copy.
+function _symmetry(A::Sparse)
+    B = unsafe_load(pointer(A)).sorted == 0 ? sort!(copy(A)) : A
+    i = symmetry(B, 1)[1]
+    i < 0 && throw(CHOLMODException("negative value returned from CHOLMOD's symmetry function"))
+    return i
+end
+
 function ishermitian(A::Sparse{<:VRealTypes})
     s = unsafe_load(pointer(A))
     if s.stype != 0
         return true
     else
-        i = symmetry(A, 1)[1]
-        if i < 0
-            throw(CHOLMODException("negative value returned from CHOLMOD's symmetry function. This
-                is either because the indices are not sorted or because of a memory error"))
-        end
+        i = _symmetry(A)
         return i == CHOLMOD_MM_SYMMETRIC || i == CHOLMOD_MM_SYMMETRIC_POSDIAG
     end
 end
@@ -2595,11 +2600,7 @@ function ishermitian(A::Sparse{<:VComplexTypes})
     if s.stype != 0
         return true
     else
-        i = symmetry(A, 1)[1]
-        if i < 0
-            throw(CHOLMODException("negative value returned from CHOLMOD's symmetry function. This
-                is either because the indices are not sorted or because of a memory error"))
-        end
+        i = _symmetry(A)
         return i == CHOLMOD_MM_HERMITIAN || i == CHOLMOD_MM_HERMITIAN_POSDIAG
     end
 end
