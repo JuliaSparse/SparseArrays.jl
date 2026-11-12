@@ -41,6 +41,9 @@ include("testhelpers.jl")
     # a row index plus the shift need not fit in the index type
     A8 = SparseMatrixCSC{Float64,Int8}(sparse([100, 3, 60], [1, 2, 2], [1.0, 2.0, 3.0], 100, 2))
     @test mismatch(circshift(A8, (60, 1)), circshift(Matrix(A8), (60, 1)); Ti=Int8) === nothing
+    # a scalar shift moves the rows
+    F = fixture(Float64, 5, 3)
+    @test mismatch(circshift!(similar(F), F, 2), circshift(Matrix(F), 2)) === nothing
     end
     # the buffers of a source may be longer than its stored entries
     S = sparse([1 0 2; 0 3 0; 4 0 5.0])

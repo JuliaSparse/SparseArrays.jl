@@ -2128,13 +2128,6 @@ end
 end
 
 @static if COMPREHENSIVE
-@testset "circshift! by a scalar shifts the rows" begin
-    A = fixture(Float64, 5, 3)
-    @test mismatch(circshift!(similar(A), A, 2), circshift(Matrix(A), 2)) === nothing
-end
-end
-
-@static if COMPREHENSIVE
 @testset "hash of complex sparse arrays matches dense" begin
     C = fixture(ComplexF64, 10, 10); c = fixturevec(ComplexF64, 10)
     @test hash(C) == hash(Matrix(C)) && hash(C') == hash(Matrix(C'))
