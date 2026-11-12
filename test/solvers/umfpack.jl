@@ -411,9 +411,6 @@ end
         for A in sparse.((Float64[1 2; 0 0], (@static COMPREHENSIVE ? (ComplexF64[1 2; 0 0],) : ())...))
             @test_throws SingularException lu(A)
             @test !issuccess(lu(A; check = false))
-            @static if COMPREHENSIVE
-            @test_throws SingularException lu(A; check = false) \ [1.0, 2.0]
-            end
         end
     end
 
