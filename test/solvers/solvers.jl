@@ -239,6 +239,12 @@ end
     @test b == a
     @test (qr(a + a') \ collect(1.0:10); true)
     @test b == a
+    @static if COMPREHENSIVE
+    # qr and rank read a fixed matrix as the plain one
+    @test qr(a) \ collect(1.0:10) ≈ Matrix(b) \ collect(1.0:10)
+    @test rank(a) == rank(Matrix(b)) == 10
+    @test b == a
+    end
 
     # `factorize` and `\` query `ishermitian`, which used to throw on a fixed matrix
     F = SparseArrays.fixed(sparse([4.0 1 0; 1 4 1; 0 1 4]))
@@ -286,6 +292,13 @@ end
         @test ldiv!(G, copy(b); workspace = ws) ≈ x
         @static if COMPREHENSIVE
         wrap === identity && @test ldiv!(similar([b b]), G, [b b]; workspace = ws) ≈ [x x]
+        # a workspace can be built from the wrapper as well
+        if wrap !== identity
+            wsG = fact === lu ? SparseArrays.UMFPACK.UmfpackWS(G) :
+                  fact === cholesky ? SparseArrays.CHOLMOD.CholmodWS(G) : SparseArrays.SPQR.SpqrWS(G)
+            @test typeof(wsG) === typeof(ws)
+            @test ldiv!(similar(b), G, b; workspace = wsG) ≈ x
+        end
         end
     end
 end
