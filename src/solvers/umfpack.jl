@@ -19,7 +19,7 @@ import SparseArrays: nnz
 import Serialization: AbstractSerializer, deserialize, serialize
 using Serialization
 
-import ..increment, ..increment!, ..decrement, ..decrement!
+import ..increment, ..increment!, ..decrement
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse:
@@ -315,7 +315,6 @@ function UmfpackLU(S::AbstractSparseMatrixCSC{Tv, Ti};
     )
 end
 
-workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 

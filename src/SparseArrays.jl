@@ -63,10 +63,6 @@ end
 ## Functions to switch to 0-based indexing to call external sparse solvers
 
 # Convert from 1-based to 0-based indices
-function decrement!(A::AbstractArray{T}) where T<:Integer
-    for i in eachindex(A); A[i] -= oneunit(T) end
-    A
-end
 decrement(A::AbstractArray) = let y = Array(A)
     y .= y .- oneunit(eltype(A))
 end
