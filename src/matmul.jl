@@ -1468,8 +1468,131 @@ end
 
 ### BLAS-2 / sparse A * sparse x -> dense y
 
+# The dense path costs O(m) however few rows the product touches, and allocates a vector of
+# length m. With `f` products of stored entries there are two ways around it, whose ranges
+# were measured on an AMD EPYC 9354, with GC, up to 10^8 rows:
+# - below `f < m/2048`, a hash table of the rows touched, which takes nothing of length m.
+# - below `f < m/3`, a bit per row with a running count per word, so that a row's position in
+#   the result is the number of bits below it. It takes two walks of the columns, but sorts
+#   nothing, and its only work space is a quarter of a byte per row.
+# The result is the one the dense path gives: `x`'s stored zeros are skipped, and entries
+# that cancel are not stored.
+function _spmv_flops(A, x)
+    flops = 0
+    @inbounds for j in nonzeroinds(x)
+        flops += length(nzrange(A, j))
+    end
+    return flops
+end
+
+@inline _spmv_slot(r, shift) = Int((r % UInt64 * 0x9E3779B97F4A7C15) >>> shift) + 1
+
+function _spA_mul_spvec_hash(A, x, flops)
+    T = promote_op(matprod, eltype(A), eltype(x))
+    xnzind = nonzeroinds(x)
+    xnzval = nonzeros(x)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
+    # at most half full; row 0 marks an empty slot
+    bits = Base.top_set_bit(flops) + 1
+    mask = (1 << bits) - 1
+    shift = 64 - bits
+    slotrow = zeros(Int, 1 << bits)
+    slotval = Vector{T}(undef, 1 << bits)
+    ynzind = Vector{Int}(undef, flops)
+    z = zero(T)
+    nrows = 0
+    @inbounds for i in eachindex(xnzind)
+        v = xnzval[i]
+        _isnotzero(v) || continue
+        for p in nzrange(A, xnzind[i])
+            r = Int(Arowval[p])
+            h = _spmv_slot(r, shift)
+            while true
+                key = slotrow[h]
+                if key == r
+                    slotval[h] += Anzval[p] * v
+                    break
+                elseif key == 0
+                    slotrow[h] = r
+                    slotval[h] = z + Anzval[p] * v
+                    nrows += 1
+                    ynzind[nrows] = r
+                    break
+                end
+                h = (h & mask) + 1
+            end
+        end
+    end
+    resize!(ynzind, nrows)
+    sort!(ynzind, QuickSort, Base.Order.Forward)
+    ynzval = Vector{T}(undef, nrows)
+    @inbounds for k in 1:nrows
+        r = ynzind[k]
+        h = _spmv_slot(r, shift)
+        while slotrow[h] != r
+            h = (h & mask) + 1
+        end
+        ynzval[k] = slotval[h]
+    end
+    return dropzeros!(SparseVector(size(A, 1), ynzind, ynzval))
+end
+
+function _spA_mul_spvec_rank(A, x)
+    m = size(A, 1)
+    T = promote_op(matprod, eltype(A), eltype(x))
+    xnzind = nonzeroinds(x)
+    xnzval = nonzeros(x)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
+    words = zeros(UInt64, ((m - 1) >> 6) + 1)
+    @inbounds for i in eachindex(xnzind)
+        _isnotzero(xnzval[i]) || continue
+        for p in nzrange(A, xnzind[i])
+            r = Int(Arowval[p]) - 1
+            words[(r >> 6) + 1] |= UInt64(1) << (r & 63)
+        end
+    end
+    below = Vector{Int}(undef, length(words))
+    nrows = 0
+    @inbounds for w in eachindex(words)
+        below[w] = nrows
+        nrows += count_ones(words[w])
+    end
+    ynzind = Vector{Int}(undef, nrows)
+    ynzval = zeros(T, nrows)
+    k = 0
+    @inbounds for w in eachindex(words)
+        word = words[w]
+        while word != 0
+            k += 1
+            ynzind[k] = ((w - 1) << 6) + trailing_zeros(word) + 1
+            word &= word - one(word)
+        end
+    end
+    @inbounds for i in eachindex(xnzind)
+        v = xnzval[i]
+        _isnotzero(v) || continue
+        for p in nzrange(A, xnzind[i])
+            r = Int(Arowval[p]) - 1
+            w = (r >> 6) + 1
+            k = below[w] + count_ones(words[w] & ((UInt64(1) << (r & 63)) - one(UInt64))) + 1
+            ynzval[k] += Anzval[p] * v
+        end
+    end
+    return dropzeros!(SparseVector(m, ynzind, ynzval))
+end
+
 function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
     require_one_based_indexing(A, x)
+    m, n = size(A)
+    # counting misses the cache once per entry of `x`, which a product that will take the
+    # dense path should not pay; the average column length rules most of those out
+    if length(x) == n && nnz(A) * (length(nonzeroinds(x)) / max(n, 1)) < m ÷ 3
+        flops = _spmv_flops(A, x)
+        flops < m >> 11 && return _spA_mul_spvec_hash(A, x, flops)
+        flops < m ÷ 3 && return _spA_mul_spvec_rank(A, x)
+    end
     y = densemv(A, x)
     initcap = min(nnz(A), size(A,1))
     _dense2sparsevec(eltype(y), y, initcap)
