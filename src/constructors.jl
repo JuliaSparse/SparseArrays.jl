@@ -712,7 +712,7 @@ julia> sprand(Float64, 3, 0.75)
   [2]  =  0.49425
 ```
 """
-function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function, ::Type{T}) where T
+function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::F, ::Type{T}) where {F<:Function,T}
     m, n = Int(m), Int(n)
     if _sprandoverflows(m, n, density)
         colptr, rowval, V = _sprand_bycolumn(r, m, n, density, rfn)
@@ -721,7 +721,7 @@ function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, 
     I, V = _sprandvalues(r, m, n, density, rfn)
     return sparse_sortedlinearindices!(I, convert(Vector{T}, V), m, n)
 end
-function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::Function)
+function sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat, rfn::F) where {F<:Function}
     m, n = Int(m), Int(n)
     if _sprandoverflows(m, n, density)
         colptr, rowval, V = _sprand_bycolumn(r, m, n, density, rfn)
