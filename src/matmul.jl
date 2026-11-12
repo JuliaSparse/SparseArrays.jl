@@ -1399,9 +1399,10 @@ function _spvec_positions(A, xnzind)
     nnz(A) * (xnzind[end] / m) + widemul(n, k) <= nnz(A) + (usehash ? 4k : m >> 5) && return nothing
     return usehash ? _spvec_slots(xnzind) : _spvec_bits(m, xnzind)
 end
+# only short merges are left here, which a call out to the gallop per column would slow down
 @inline _spcoldot(f::F, A, j, Arowval, Anzval, ::Nothing, xnzind, xnzval) where {F} =
-    _spdot(f, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
-           1, length(xnzind), xnzind, xnzval)
+    _spdot_merge(f, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
+                 1, length(xnzind), xnzind, xnzval)
 function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecBits, xnzind, xnzval) where {F}
     s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
     words = pos.words
