@@ -239,6 +239,15 @@ end
     @test SparseArrays.indtype(sparsevec(Ti[1], [1.0])') == Ti
 end
 
+@static if COMPREHENSIVE
+@testset "SparseMatrixCSC shortens buffers longer than the matrix can store" begin
+    # a 1×1 matrix stores one entry, so the vectors passed in lose their extra positions
+    rv, nz = [1, 1], [1.0, 2.0]
+    @test mismatch(SparseMatrixCSC(1, 1, [1, 2], rv, nz), fill(1.0, 1, 1)) === nothing
+    @test rv == [1] && nz == [1.0]
+end
+end
+
 @testset "exported CSC accessors" begin
     for name in (:AbstractSparseMatrixCSC, :getcolptr, :getrowval, :getnzval, :indtype)
         @test Base.isexported(SparseArrays, name)
@@ -398,6 +407,8 @@ end
             @test findall(p, B) == findall(p, Array(B))
         end
         @test_throws TypeError findall(x -> 1, B)
+        # membership in a collection that holds the zero finds the entries that are not stored
+        @test findall(in((-1.0, 0.0)), B) == findall(in((-1.0, 0.0)), Array(B))
     end
 end
 
@@ -1137,6 +1148,12 @@ end
     copyto!(A, Rdest, B, Rsrc)
     copyto!(A´, Rdest, Matrix(B), Rsrc)
     @test A[Rdest] == A´[Rdest] == Matrix(B)[Rsrc]
+    @static if COMPREHENSIVE
+    # regions of different sizes are rejected before anything is written
+    A0 = copy(A)
+    @test_throws ArgumentError copyto!(A, CartesianIndices((1:2, 1:3)), B, Rsrc)
+    @test A == A0
+    end
     # Test unaliasing of B´
     B´ = copy(B)
     copyto!(B´, Rdest, B´, Rsrc)
@@ -1185,6 +1202,9 @@ end
     # a full pattern never asks for a zero, so an eltype without one copies (issue #28369)
     M = reshape([fill(k, 1, 2) for k in 1:4], 2, 2)
     @test Array(sparse(M)) == M
+    # a permuted destination is written in its own linear order
+    P = PermutedDimsArray(fill(-1.0, 3, 3), (2, 1))
+    @test copyto!(P, S) === P && P == D && parent(P) == D'
     end
     # a destination that is one of the source's own buffers still receives the source's values
     for wrap in (identity, adjoint, transpose, A -> view(A, :, 1:2))
@@ -1431,9 +1451,9 @@ end
          1 7 0 7 1;
          0 0 1 0 0;
          1 0 1 1 0.0]
-    y_sp = [x == 7 ? -0.0 : x for x in sparse(y)]
+    y_sp = sparse(y); replace!(nonzeros(y_sp), 7.0 => -0.0)
     y = Array(y_sp)
-    @test isequal(y_sp[1,1], -0.0)
+    @test y_sp isa SparseMatrixCSC && isequal(y_sp[1,1], -0.0)
 
     for i in keys(y)
         @test findnext(!iszero, y,i) == findnext(!iszero, y_sp,i)
@@ -1491,6 +1511,15 @@ end
     @test findnext(counted, VB, CartesianIndex(3, 2)) == CartesianIndex(100, 98) && calls[] <= nnz(VB) + 1
     calls[] = 0
     @test findprev(counted, view(B, :, 99), 100) == 100 && calls[] <= nnz(view(B, :, 99)) + 1
+    @static if COMPREHENSIVE
+    # a sparse vector type that only implements `nonzeroinds`/`nonzeros` skips its stored zero
+    w = WrappedSparseVector(sparsevec([2, 4, 6], [5.0, 0.0, -1.0], 7))
+    wd = [0.0, 5.0, 0.0, 0.0, 0.0, -1.0, 0.0]
+    for i in keys(wd)
+        @test findnext(!iszero, w, i) == findnext(!iszero, wd, i)
+        @test findprev(!iszero, w, i) == findprev(!iszero, wd, i)
+    end
+    end
 end
 
 #testing the sparse matrix/vector access functions nnz, nzrange, rowvals, nonzeros
@@ -1606,6 +1635,10 @@ end
     @test SparseArrays.getnzval(vA)  === SparseArrays.getnzval(A)
     @test SparseArrays.getrowval(vA) === SparseArrays.getrowval(A)
     @test SparseArrays.getcolptr(vA) == SparseArrays.getcolptr(A[:, 1:5])
+    @static if COMPREHENSIVE
+    # a view of scattered columns has no column pointers of its own
+    @test_throws "getcolptr" SparseArrays.getcolptr(view(A, :, [3, 1]))
+    end
     @test all(j -> SparseArrays.getnzrange(vA, j) == nzrange(A, j), 1:5)
     sA = view(A, :, 1:10)   # a square view can be wrapped
     for W in (UpperTriangular(sA), LowerTriangular(sA))

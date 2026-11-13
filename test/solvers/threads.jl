@@ -48,12 +48,18 @@ end
     @test_throws ArgumentError L.set_libdir!(joinpath(original_dir, "does-not-exist"))
     @test samefile(L.libdir(), original_dir)
     @static if COMPREHENSIVE
+    # the library path, as the loader calls it and as it prints
+    path = L.libcholmod.path
+    @test path() == string(path) == sprint(print, path)
+    @test samefile(dirname(path()), original_dir)
     mktempdir() do dir
         failure = """
             L = SparseArrays.LibSuiteSparse
             @test_throws ErrorException L.init_suitesparse()
             @test_throws ErrorException L.init_suitesparse()
             @test !any(L._isloaded, values(L.SUITESPARSE_LIBRARIES))
+            # nothing is loaded, so the bundled libraries can still be chosen
+            @test samefile(L.set_libdir!(nothing), dirname(L._jll_path(:libsuitesparseconfig)))
             """
         @test success(pipeline(testprocess(failure; env=[L.LIBDIR_ENV => dir]); stdout, stderr))
         for name in keys(L.SUITESPARSE_LIBRARIES)

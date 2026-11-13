@@ -19,7 +19,7 @@ import SparseArrays: nnz
 import Serialization: AbstractSerializer, deserialize, serialize
 using Serialization
 
-import ..increment, ..increment!, ..decrement, ..decrement!
+import ..increment, ..increment!, ..decrement
 
 using ..LibSuiteSparse
 import ..LibSuiteSparse:
@@ -315,7 +315,6 @@ function UmfpackLU(S::AbstractSparseMatrixCSC{Tv, Ti};
     )
 end
 
-workspace_W_size(F::UmfpackLU) = workspace_W_size(F, has_refinement(F))
 workspace_W_size(S::Union{UmfpackLU{<:AbstractFloat}, AbstractSparseMatrixCSC{<:AbstractFloat}}, refinement::Bool) = refinement ? 5 * size(S, 2) : size(S, 2)
 workspace_W_size(S::Union{UmfpackLU{<:Complex}, AbstractSparseMatrixCSC{<:Complex}}, refinement::Bool) = refinement ? 10 * size(S, 2) : 4 * size(S, 2)
 
@@ -526,10 +525,10 @@ function lu!(F::UmfpackLU{Tv, Ti}, S::AbstractSparseMatrixCSC;
   check::Bool=true, reuse_symbolic::Bool=true, q=nothing) where {Tv, Ti}
     zerobased = getcolptr(S)[1] == 0
     if max(size(S)..., length(getnzval(S))) >= typemax(Ti)
-        throw(ArgumentError("matrix of size $(size(S)) with $(length(getnzval(S))) stored entries does not fit the $Ti indices of $(typeof(F)); use lu(S) instead"))
+        throw(ArgumentError(lazy"matrix of size $(size(S)) with $(length(getnzval(S))) stored entries does not fit the $Ti indices of $(typeof(F)); use lu(S) instead"))
     end
     if Tv <: Real && !(eltype(S) <: Real)
-        throw(ArgumentError("cannot refactorize the real $(typeof(F)) with a matrix of eltype $(eltype(S)); use lu(S) instead"))
+        throw(ArgumentError(lazy"cannot refactorize the real $(typeof(F)) with a matrix of eltype $(eltype(S)); use lu(S) instead"))
     end
     _checkconvertible(Tv, getnzval(S))
 

@@ -212,6 +212,10 @@ end
     @test_throws ArgumentError cholesky(SparseMatrixCSC{Float64,UInt64}(A))
     F = cholesky(A)
     @test cholesky!(F, SparseMatrixCSC{Float64,Int16}(2A)) \ [1.0, 2.0, 3.0] ≈ (2A) \ [1.0, 2.0, 3.0]
+    # an index type that promotes with Int to one of CHOLMOD's is accepted
+    G = cholesky(SparseMatrixCSC{Float64,Int16}(A))
+    @test G isa CHOLMOD.Factor{Float64,Int}
+    @test G \ [1.0, 2.0, 3.0] ≈ A \ [1.0, 2.0, 3.0]
 end
 
 @testset "ldlt! with a matrix of another size leaves an LLt factor unchanged" begin
@@ -220,6 +224,17 @@ end
     @test_throws DimensionMismatch ldlt!(F, sparse(1.0I, 4, 4))
     @test :D ∉ propertynames(F)
     @test F \ ones(3) ≈ A \ ones(3)
+end
+
+@testset "ishermitian of a CHOLMOD.Sparse with unsorted row indices" begin
+    # CHOLMOD leaves the row indices of a product unsorted
+    S = CHOLMOD.Sparse(sparse([2, 1, 2], [1, 2, 2], [1.0, 2, 3]))
+    @test ishermitian(S' * S)
+    # zero-based row indices in reverse order in each column
+    for (a, b) in ((2.0, 2.0), (-2.0im, 2.0im)), (c, h) in ((b, true), (b + 1, false))
+        A = CHOLMOD.Sparse(2, 2, [0, 2, 4], [1, 0, 1, 0], [a, 1, 3, c], 0)
+        @test ishermitian(A) == ishermitian(Matrix(sparse(A))) == h
+    end
 end
 
 @testset "Issues #26367 and #26368" begin
@@ -244,6 +259,19 @@ end
     @test_throws ArgumentError sparsevec(CHOLMOD.Sparse(Symmetric(sparse([2.0 1; 1 2]))))
 end
 
+@testset "copyto! from one CHOLMOD.Dense to another" begin
+    D = CHOLMOD.Dense([1.0 2; 3 4])
+    for T in (Float64, ComplexF64)
+        dest = CHOLMOD.Dense(zeros(T, 2, 2))
+        @test copyto!(dest, D) === dest
+        @test Matrix(dest) == [1.0 2; 3 4] && Matrix(D) == [1.0 2; 3 4]
+    end
+    # the source must fit in the destination, as for any array
+    dest = CHOLMOD.Dense(zeros(3))
+    @test_throws BoundsError copyto!(dest, D)
+    @test Vector(dest) == zeros(3)
+end
+
 @testset "ldiv! of a real UmfpackLU with a ComplexF32 vector" begin
     A = sparse([2.0 1; 1 3])
     @test ldiv!(lu(A), ComplexF32[1, 2]) ≈ ComplexF32.(Matrix(A) \ [1, 2])
@@ -254,10 +282,20 @@ end
     @test factorize(sparse([0.0 1; 1 0])) \ b ≈ [0.0 1; 1 0] \ b
 end
 
+@testset "a vector times the Q of a sparse QR with one row" begin
+    for A in (sparse([2.0 1.0]), sparse(ComplexF64[2 1im])), Q in (qr(A).Q, qr(A).Q')
+        Qd = Q * Matrix(I, 1, 1)
+        for v in ([3.0 + 1im], [1.0, 2.0], sparsevec([2], [3.0 + 1im], 2))
+            @test (v * Q)::Vector ≈ Vector(v) * Qd
+        end
+    end
+end
+
 @testset "cond of a singular matrix is Inf" begin
     @test cond(sparse([1.0 2; 3 6]), 1) === Inf
     # `factorize` leaves the zero on the diagonal of a triangular or diagonal factor
     @test cond(sparse([1.0 0; 2 0]), Inf) === Inf
+    @test cond(sparse([1.0 0; 2 0]), 1) === Inf
     @test cond(sparse([1.0 0; 0 0]), 1) === Inf
     # Hermitian, so `factorize` tries Cholesky and LDLt before the LU finds it singular
     @test cond(sparse([1.0 1; 1 1]), 1) === Inf

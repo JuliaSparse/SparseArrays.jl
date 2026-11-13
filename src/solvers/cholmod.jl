@@ -887,19 +887,8 @@ for TI ∈ IndexTypes
         @checked $(cholname(:updown, TI))(update, C, F, getcommon($TI))
         return F
     end
-    # TODO: Change these to new methods in CHOLMOD v5.2 when available.
+    # TODO: Change this to a new method in CHOLMOD v5.2 when available.
     # As this currently double copies.
-    function change_xdtype(A::Sparse{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
-        s = @checked $(cholname(:copy_sparse, TI))(A, getcommon($TI))
-        try
-            @checked $(cholname(:sparse_xtype, TI))(xdtyp(Tnew), s, getcommon($TI))
-        catch
-            # @checked throws on a CHOLMOD error status; don't leak the copy
-            free!(s, $TI)
-            rethrow()
-        end
-        return Sparse{Tnew, $TI}(s)
-    end
     function change_xdtype(F::Factor{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
         c = @lock F.lock @checked $(cholname(:copy_factor, TI))(F, getcommon($TI))
         try
@@ -1279,7 +1268,8 @@ function Matrix{T}(D::Dense{T}) where T
 end
 
 Base.copyto!(dest::Base.PermutedDimsArrays.PermutedDimsArray, src::Dense) = _copy!(dest, src) # ambig
-Base.copyto!(dest::Dense{T}, D::Dense{T}) where {T<:VTypes} = _copy!(dest, D)
+Base.copyto!(dest::Dense{T}, D::Dense{T}) where {T<:VTypes} = _copy_to_dense!(dest, D)
+Base.copyto!(dest::Dense, D::Dense) = _copy_to_dense!(dest, D)
 Base.copyto!(dest::AbstractArray{T}, D::Dense{T}) where {T<:VTypes} = _copy!(dest, D)
 Base.copyto!(dest::AbstractArray{T,2}, D::Dense{T}) where {T<:VTypes} = _copy!(dest, D)
 Base.copyto!(dest::AbstractArray, D::Dense) = _copy!(dest, D)
@@ -1305,6 +1295,14 @@ function _copy!(dest::AbstractArray, D::Dense{T}) where {T<:VTypes}
         end
     end
     dest
+end
+
+# `Dense` has no `setindex!`, so the destination is written through its own memory.
+function _copy_to_dense!(dest::Dense{T}, D::Dense) where {T<:VTypes}
+    GC.@preserve dest begin
+        _copy!(unsafe_wrap(Array, pointer(dest), size(dest), own = false), D)
+    end
+    return dest
 end
 
 Matrix(D::Dense{T}) where {T} = Matrix{T}(D)
@@ -2086,8 +2084,6 @@ function lowrank_checksize(V::AbstractArray, p)
     size(V, 1) == length(p) || throw(DimensionMismatch(
         "the factorization is of a matrix with $(length(p)) rows, but the update has $(size(V, 1))"))
 end
-lowrank_reorder(V::AbstractArray, p) = (lowrank_checksize(V, p); Sparse(sparse(V[p,:])))
-lowrank_reorder(V::AbstractSparseArray, p) = (lowrank_checksize(V, p); Sparse(V[p,:]))
 lowrank_reorder(V::AbstractArray, p, Tv, Ti) = (lowrank_checksize(V, p); Sparse{Tv, Ti}(sparse(V[p, :])))
 """
     lowrankupdate!(F::CHOLMOD.Factor, C::AbstractArray)
@@ -2581,16 +2577,21 @@ function isposdef(F::Factor)
     return s.is_ll != 0 || all(d -> real(d) > 0, diag(F))
 end
 
+# CHOLMOD's symmetry function fails on a matrix whose row indices are not sorted, such as
+# a product, so such a matrix is classified through a sorted copy.
+function _symmetry(A::Sparse)
+    B = unsafe_load(pointer(A)).sorted == 0 ? sort!(copy(A)) : A
+    i = symmetry(B, 1)[1]
+    i < 0 && throw(CHOLMODException("negative value returned from CHOLMOD's symmetry function"))
+    return i
+end
+
 function ishermitian(A::Sparse{<:VRealTypes})
     s = unsafe_load(pointer(A))
     if s.stype != 0
         return true
     else
-        i = symmetry(A, 1)[1]
-        if i < 0
-            throw(CHOLMODException("negative value returned from CHOLMOD's symmetry function. This
-                is either because the indices are not sorted or because of a memory error"))
-        end
+        i = _symmetry(A)
         return i == CHOLMOD_MM_SYMMETRIC || i == CHOLMOD_MM_SYMMETRIC_POSDIAG
     end
 end
@@ -2599,11 +2600,7 @@ function ishermitian(A::Sparse{<:VComplexTypes})
     if s.stype != 0
         return true
     else
-        i = symmetry(A, 1)[1]
-        if i < 0
-            throw(CHOLMODException("negative value returned from CHOLMOD's symmetry function. This
-                is either because the indices are not sorted or because of a memory error"))
-        end
+        i = _symmetry(A)
         return i == CHOLMOD_MM_HERMITIAN || i == CHOLMOD_MM_HERMITIAN_POSDIAG
     end
 end

@@ -605,8 +605,6 @@ Base.size(C::ColumnIndices) = (nnz(C.arr),)
     eltype(C)(ind)
 end
 
-colvals(C::AbstractSparseMatrixCSC{Tv,Ti}) where {Tv,Ti} = Vector{Ti}(ColumnIndices(C))
-
 # always show matrices as `sparse(I, J, K)`
 function Base.show(io::IO, _S::SparseMatrixCSCMaybeAdjOrTrans)
     _checkbuffers(_S)

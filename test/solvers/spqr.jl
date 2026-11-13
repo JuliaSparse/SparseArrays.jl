@@ -242,6 +242,12 @@ end
     # and nothing else
     k == m || @test_throws DimensionMismatch Q' * fixture(T, k, 3)
     @test_throws DimensionMismatch Q * fixture(T, m + 1, 2)
+    @static if COMPREHENSIVE
+    @test_throws DimensionMismatch Q * fixturevec(T, m + 1)
+    @test_throws DimensionMismatch fixture(T, 3, m + 1) * Q'
+    # a vector is a column, as for a dense Q
+    @test_throws DimensionMismatch b * Q
+    end
 end
 
 @testset "single-precision qr factorization works as expected: $eltyA" for eltyA in (Float32, ComplexF32)
@@ -323,6 +329,10 @@ end
     F = qr(B; ordering=SPQR.ORDERING_NATURAL)
     @test F isa SPQR.QRSparse{Float64} && F.pcol == [1, 2]
     @test_throws ArgumentError qr(SparseMatrixCSC{Float64, Int16}(B); ordering=SPQR.ORDERING_NATURAL)
+    @static if COMPREHENSIVE
+    # SPQR has no precision for a BigFloat right-hand side to convert the factorization to
+    @test qr(B) \ BigFloat[1, 2] ≈ Matrix(B) \ [1, 2]
+    end
 end
 
 @testset "propertynames of QRSparse" begin
@@ -330,6 +340,15 @@ end
     F = qr(A)
     @test propertynames(F) == (:R, :Q, :prow, :pcol)
     @test propertynames(F, true) == (:R, :Q, :prow, :pcol, :factors, :τ, :cpiv, :rpivinv)
+end
+
+@static if COMPREHENSIVE
+@testset "REPL printing of QRSparse" begin
+    F = qr(sparse([4.0 1 0; 1 4 1; 0 1 4; 1 0 1]))
+    sh(x) = sprint(show, MIME"text/plain"(), x)
+    @test sh(F) == "$(summary(F))\nQ factor:\n$(sh(F.Q))\nR factor:\n$(sh(F.R))\n" *
+        "Row permutation:\n$(sh(F.prow))\nColumn permutation:\n$(sh(F.pcol))"
+end
 end
 
 @testset "rank" begin
@@ -441,6 +460,11 @@ end
         @test H \ b ≈ x
         SparseArrays.nonzeros(F.R) ./= 2
         @test copy(F') \ c ≈ y
+        # the transpose of a real F is its adjoint, that of a complex F a wrapper of its own
+        Ac = fullrank(ComplexF64, m, n)
+        Gt = copy(transpose(qr(Ac)))
+        @test Gt isa typeof(transpose(qr(Ac)))
+        @test Gt \ c ≈ transpose(Array(Ac)) \ c
     end
     end
 end
@@ -449,6 +473,14 @@ end
     A = I + fixture(Float64, 10, 10)
     for i in (ColumnNorm, (@static COMPREHENSIVE ? (RowMaximum, NoPivot) : ())...)
         @test_throws ErrorException qr(A, i())
+    end
+    @static if COMPREHENSIVE
+    # a view is copied to a SparseMatrixCSC and factorized by SPQR
+    b = collect(1.0:10)
+    F = qr(view(A, :, 1:5))
+    @test F isa SPQR.QRSparse{Float64, Int}
+    @test F \ b ≈ Matrix(A)[:, 1:5] \ b
+    @test_throws "Pivoting" qr(view(A, :, 1:5), ColumnNorm())
     end
 end
 
