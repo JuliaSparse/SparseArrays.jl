@@ -23,6 +23,15 @@ include("testhelpers.jl")
     @test_throws ArgumentError r[1] = r[1] + 1
     @test_throws ArgumentError r[1] = r[1] - 1
     @test (r[1] = r[1]; true)
+    @static if COMPREHENSIVE
+    # the memory, the properties and the indexing style are the parent's, but no data ids
+    @test pointer(r, 2) == pointer(v, 2) && Base.elsize(typeof(r)) == sizeof(Float64)
+    @test ReadOnly(2:5).start == 2
+    @test Base.dataids(r) == ()
+    c = ReadOnly(view(reshape(v, 10, 10), 1:2, 1:2))
+    @test IndexStyle(typeof(c)) == IndexCartesian()
+    @test eachindex(c) == CartesianIndices((2, 2))
+    end
 end
 
 @testset "SparseMatrixCSC from readonly" begin
@@ -315,6 +324,14 @@ end
     @test fill!(A, 0.0) === A && same_pattern(A, P) && iszero(nonzeros(A)) && _is_fixed(A)
     F = fixed(sparse(ones(2, 3)))
     @test fill!(F, 2.5) === F && F == fill(2.5, 2, 3) && nnz(F) == 6 && _is_fixed(F)
+    @static if COMPREHENSIVE
+    # as does a broadcast of a function of no arguments
+    @test broadcast!(() -> 3.5, F) === F && F == fill(3.5, 2, 3) && nnz(F) == 6
+    v = sparsevec([1, 3], [1.0, 2.0], 3)
+    f = fixed(copy(v))
+    @test_throws ArgumentError broadcast!(() -> 1.0, f)
+    @test exact_equal(f, v)
+    end
 end
 
 @testset "getindex with unsorted indices keeps the pattern read-only" begin
@@ -481,7 +498,8 @@ end
     J = sparse([1.0 2 0; 0 3 0; 4 0 5]); M = sparse([1.0 0 0; 0 1 0; 0 0 1])
     P = M + J
     for (write!, R) in ((W -> W .= 2 .* M, 2M), (W -> W .= .-M, -M), (W -> W .= M .+ M, 2M), (W -> W .= M .+ M .+ M, 3M),
-                        (W -> map!(identity, W, M), M), (W -> map!(+, W, M, M), 2M), (W -> W .= M, M), (W -> copyto!(W, M), M))
+                        (W -> map!(identity, W, M), M), (W -> map!(+, W, M, M), 2M), (W -> W .= M, M), (W -> copyto!(W, M), M),
+                        (W -> W .= J .+ M, P))   # operands of other patterns whose union is the pattern
         W = fixed(P)
         @test write!(W) === W && W == R && same_pattern(W, P)
     end

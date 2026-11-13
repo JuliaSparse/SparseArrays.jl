@@ -84,6 +84,10 @@ end
     #issue 680
     A33 = sparse(randn(3,3))
     @test SparseArrays.opnormestinv(A33,3) ≈ opnorm(inv(Array(A33)),1) atol=1e-4
+    # one block: the unit vector of the largest row of the first estimate gives the exact
+    # norm, and the next sign vector repeats the first one, so it is drawn anew
+    Ad = sparse(Diagonal([1.0, 0.1, 1.0]))
+    @test SparseArrays.opnormestinv(Ad, 1) ≈ opnorm(inv(Array(Ad)), 1)
     end
 end
 
@@ -239,6 +243,12 @@ end
     @test b == a
     @test (qr(a + a') \ collect(1.0:10); true)
     @test b == a
+    @static if COMPREHENSIVE
+    # qr and rank read a fixed matrix as the plain one
+    @test qr(a) \ collect(1.0:10) ≈ Matrix(b) \ collect(1.0:10)
+    @test rank(a) == rank(Matrix(b)) == 10
+    @test b == a
+    end
 
     # `factorize` and `\` query `ishermitian`, which used to throw on a fixed matrix
     F = SparseArrays.fixed(sparse([4.0 1 0; 1 4 1; 0 1 4]))
@@ -286,6 +296,13 @@ end
         @test ldiv!(G, copy(b); workspace = ws) ≈ x
         @static if COMPREHENSIVE
         wrap === identity && @test ldiv!(similar([b b]), G, [b b]; workspace = ws) ≈ [x x]
+        # a workspace can be built from the wrapper as well
+        if wrap !== identity
+            wsG = fact === lu ? SparseArrays.UMFPACK.UmfpackWS(G) :
+                  fact === cholesky ? SparseArrays.CHOLMOD.CholmodWS(G) : SparseArrays.SPQR.SpqrWS(G)
+            @test typeof(wsG) === typeof(ws)
+            @test ldiv!(similar(b), G, b; workspace = wsG) ≈ x
+        end
         end
     end
 end

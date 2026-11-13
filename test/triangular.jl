@@ -223,6 +223,11 @@ begin
         Az = SparseMatrixCSC(2, 2, [1, 2, 4], [1, 1, 2], [1.0, 2.0, 0.0])
         @test_throws SingularException(2) UpperTriangular(Az) \ ones(2)
         @test_throws SingularException(2) UpperTriangular(Az)' \ ones(2)
+        # the row sweep of an adjoint meets the missing diagonal at the end of the column, or
+        # at an entry outside the triangle, which a unit triangle passes over
+        @test_throws SingularException(2) UpperTriangular(Au)' \ ones(2)
+        @test_throws SingularException(1) UpperTriangular(Al)' \ ones(2)
+        @test UnitUpperTriangular(Al)' \ ones(2) == Matrix(UnitUpperTriangular(Al))' \ ones(2)
         # solving in place finds the first singular column before it overwrites the
         # right-hand side
         T = UpperTriangular(sparse([1.0 2 3; 0 0 4; 0 0 0]))

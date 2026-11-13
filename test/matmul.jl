@@ -227,6 +227,8 @@ end
         @test which(*, typeof.((A, B))).module === SparseArrays
     end
     @test UpperHessenberg(S) * B == Matrix(UpperHessenberg(S)) * B
+    Dg = Diagonal([1.0, 2.0, 3.0])
+    @test mismatch(Dg * view(S, :, 2:3), Dg * Matrix(S)[:, 2:3]) === nothing
     # sparse times dense is dense, and so is dense times a sparse vector
     @test (D * transpose(H))::Matrix{ComplexF64} ≈ D * Matrix(transpose(H))
     @test (transpose(Hermitian(D)) * sparsevec([1.0 + im, 0, 2]))::Vector{ComplexF64} ≈ transpose(Matrix(Hermitian(D))) * [1.0 + im, 0, 2]
@@ -385,6 +387,11 @@ end
     @test isequal(mul!(zeros(2, 2), Z, sparse([Inf 1.0; 1.0 1.0])), [NaN 0.0; 1.0 1.0])
     @static if COMPREHENSIVE
     @test isequal(mul!(zeros(2, 2), Z', sparse([Inf 1.0; 1.0 1.0])), [NaN 0.0; 1.0 1.0])
+    # `alpha === false` is a strong zero, as for dense factors: only `beta` scales `C`
+    N = [NaN 1.0; 1.0 1.0]
+    for (A, B) in ((Z, sparse(N)), (N', transpose(Z)), (N, Symmetric(Z)))
+        @test mul!(ones(2, 2), A, B, false, 2.0) == mul!(ones(2, 2), Matrix(A), Matrix(B), false, 2.0) == fill(2.0, 2, 2)
+    end
     end
 end
 
@@ -595,6 +602,10 @@ end
         @test_throws InexactError f!(C)
         @test mismatch(C, C0) === nothing
     end
+    # and one that converts is stored
+    for f! in (C -> mul!(C, A0, 2.0), C -> mul!(C, 2.0, A0))
+        @test mismatch(f!(copy(C0)), 2 * Matrix(A0)) === nothing
+    end
     end
 
     @testset "inverse scaling with mul!" begin
@@ -644,6 +655,11 @@ end
         @test lmul!(D, copy(sA)) ≈ D * dA
         @static if COMPREHENSIVE
         @test mul!(sC, D, copy(sA)) ≈ D * dA
+        # the transpose of a quaternion matrix does not reverse products, so these are not
+        # computed as the transpose of the product with the parent
+        @test mismatch(transpose(sA) * D, transpose(dA) * D; approx=true) === nothing
+        D7 = Diagonal(Quaternion.(eachcol(fixturedense(Float64, 7, 4))...))
+        @test mismatch(D7 * transpose(sA), D7 * transpose(dA); approx=true) === nothing
         end
     end
 
@@ -676,7 +692,7 @@ end
         # the column pointers (the rows are reversed)
         for sA2 in (similar(sA), sparse([1, 3], [2, 6], [1.0, 1.0], size(sA)...), sA[:, [1, 3, 2, 4, 5, 6, 7]], sA[[3, 2, 1], :])
             nonzeros(sA2) .= 1
-            @testset for (alpha, beta) in [(true, false), (true, true), (2,3)]
+            @testset for (alpha, beta) in [(true, false), (true, true), (2,3), (@static COMPREHENSIVE ? ((2, false),) : ())...]
                 D = Diagonal(fixturedense(Float64, size(sA,2)))
                 @test mismatch(mul!(copy(sA2), sA, D, alpha, beta), dA * D * alpha + sA2 * beta; approx=true) === nothing
                 D = Diagonal(fixturedense(Float64, size(sA,1)))
@@ -1097,6 +1113,11 @@ end
         @test (C * Q)::Matrix ≈ Matrix(C) * Q
         @test (Q' * b)::Vector ≈ Q' * Vector(b)
     end
+    end
+    @static if COMPREHENSIVE
+    # a column vector times a Q, which only a 1×1 Q allows
+    Q1 = qr(fill(3.0, 1, 1)).Q
+    @test (sparsevec([1], [2.0]) * Q1)::Vector ≈ [2.0] * Q1
     end
 end
 

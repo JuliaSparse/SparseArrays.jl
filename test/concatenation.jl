@@ -23,6 +23,10 @@ include("testhelpers.jl")
         @static if COMPREHENSIVE
         @test length(nonzeros([sp33 0I])) == 3
         @test mismatch([se33 sc33], [Array(se33) Array(sc33)]; Ti=Int) === nothing
+        # entries in the buffers beyond the range the column pointers specify are not copied
+        L = sparse([1.0 0; 0 2])
+        push!(rowvals(L), 1); push!(nonzeros(L), 99.0)
+        @test mismatch(hcat(L, sparse([1.0 0; 3 4])), [1.0 0 1 0; 0 2 3 4]) === nothing
         end
     end
 
@@ -121,6 +125,10 @@ include("testhelpers.jl")
         @test mismatch(blockdiag(sf53, sf35), [Array(sf53) zeros(5, 5); zeros(3, 3) Array(sf35)]; Ti=Int) === nothing
         @test blockdiag() == spzeros(0, 0)
         @test nnz(blockdiag()) == 0
+        @static if COMPREHENSIVE
+        # the element and index types promote
+        @test mismatch(blockdiag(sf53, sc33), [Array(sf53) zeros(5, 3); zeros(3, 3) Array(sc33)]; Ti=Int) === nothing
+        end
     end
 
     @testset "Diagonal of sparse matrices" begin
@@ -521,6 +529,9 @@ end
             # measure test a few multi-way combinations involving those types
             @test issparse(vcat(spvec, densevec, spmat, densemat))
             @test issparse(cat(densemat, diagmat, spmat, densevec, spvec; dims=(1,2)))
+            # a view of a sparse vector and a vector of another eltype
+            v = view(sparsevec([1, 3], [1.0, 2.0], N), 1:3)
+            @test mismatch(vcat(v, [1]), [1.0, 0, 2, 1]) === nothing
             end
 
             @test issparse(@inferred cat_with_constdims(densemat, diagmat, spmat, densevec, spvec))
@@ -566,6 +577,10 @@ end
     @test cat(S, ones(Int, 1, 3, 2); dims=3)::Array{Int,3} == cat(Array(S), ones(Int, 1, 3, 2); dims=3)
     @test cat(s, ones(Int, 3, 1, 1); dims=2)::Array{Int,3} == cat([1, 0, 0], ones(Int, 3, 1, 1); dims=2)
     @test cat(S, S; dims=3)::Array{Int,3} == cat(Array(S), Array(S); dims=3)
+    @test cat(sparse([1]), 2; dims=3)::Array{Int,3} == cat([1], 2; dims=3)
+    # past the argument count that `hvcat` is specialized for
+    Ms = fill(fill("a", 1, 1), 33)
+    @test hvcat((34,), sparse([1;;]), Ms...)::Matrix == hvcat((34,), [1;;], Ms...)
     end
 end
 
@@ -590,6 +605,8 @@ end
     @test sparse_vcat(1, dM)::SparseMatrixCSC == vcat(1, dM)
     @test sparse_hcat(1, dM, 3)::SparseMatrixCSC == hcat(1, dM, 3)
     @test sparse_hvcat((2,), 1, dM)::SparseMatrixCSC == hvcat((2,), 1, dM)
+    # also after a `UniformScaling`, which takes its size from the number
+    @test mismatch(sparse_hcat(I, 2, 3), hcat(I, 2, 3)) === nothing
     end
     @test mismatch(sparse_vcat(1, 2), [1, 2]) === nothing
     @static if COMPREHENSIVE
