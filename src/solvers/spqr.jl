@@ -417,6 +417,12 @@ function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
     return A
 end
 
+# A vector is a column, so it is multiplied by Q from the right only when Q is 1×1.
+function LinearAlgebra.rmul!(a::StridedVector, Q::Union{QRSparseQ,AdjointQ{<:Any,<:QRSparseQ}})
+    rmul!(reshape(a, length(a), 1), Q)
+    return a
+end
+
 function LinearAlgebra.lmul!(adjQ::AdjointQ{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
     Q = parent(adjQ)
     if size(A, 1) != size(Q, 1)
