@@ -655,11 +655,15 @@ end
         numbers() = hcat(x[], y[], x[], y[])
         numbers()
         @test @allocations(numbers()) < 20
-        # a splatted vector of numbers compiles once, not once for every length
+        # a splatted vector of numbers compiles once, not once for every length. The method
+        # takes every `Number` eltype and other suites may run first in this process, so
+        # only the specializations the splats add are counted.
         m = which(vcat, Tuple{Float64,Vararg{Float64}})
         @test m.module === SparseArrays
+        nspecs() = length(collect(Base.specializations(m)))
+        n0 = nspecs()
         foreach(n -> vcat(fill(1.0, n)...), 50:60)
-        @test length(collect(Base.specializations(m))) < 5
+        @test nspecs() - n0 < 5
         # so does a long splat of arrays into `cat` and `hvcat`: nothing is compiled for a
         # count of more than 32 arguments
         nlong(f) = count(Base.specializations(only(methods(f)))) do mi
