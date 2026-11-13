@@ -278,6 +278,15 @@ end
     @test factorize(sparse([0.0 1; 1 0])) \ b ≈ [0.0 1; 1 0] \ b
 end
 
+@testset "a vector times the Q of a sparse QR with one row" begin
+    for A in (sparse([2.0 1.0]), sparse(ComplexF64[2 1im])), Q in (qr(A).Q, qr(A).Q')
+        Qd = Q * Matrix(I, 1, 1)
+        for v in ([3.0 + 1im], [1.0, 2.0], sparsevec([2], [3.0 + 1im], 2))
+            @test (v * Q)::Vector ≈ Vector(v) * Qd
+        end
+    end
+end
+
 @testset "cond of a singular matrix is Inf" begin
     @test cond(sparse([1.0 2; 3 6]), 1) === Inf
     # `factorize` leaves the zero on the diagonal of a triangular or diagonal factor
