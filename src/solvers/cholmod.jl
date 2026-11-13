@@ -1279,7 +1279,8 @@ function Matrix{T}(D::Dense{T}) where T
 end
 
 Base.copyto!(dest::Base.PermutedDimsArrays.PermutedDimsArray, src::Dense) = _copy!(dest, src) # ambig
-Base.copyto!(dest::Dense{T}, D::Dense{T}) where {T<:VTypes} = _copy!(dest, D)
+Base.copyto!(dest::Dense{T}, D::Dense{T}) where {T<:VTypes} = _copy_to_dense!(dest, D)
+Base.copyto!(dest::Dense, D::Dense) = _copy_to_dense!(dest, D)
 Base.copyto!(dest::AbstractArray{T}, D::Dense{T}) where {T<:VTypes} = _copy!(dest, D)
 Base.copyto!(dest::AbstractArray{T,2}, D::Dense{T}) where {T<:VTypes} = _copy!(dest, D)
 Base.copyto!(dest::AbstractArray, D::Dense) = _copy!(dest, D)
@@ -1305,6 +1306,14 @@ function _copy!(dest::AbstractArray, D::Dense{T}) where {T<:VTypes}
         end
     end
     dest
+end
+
+# `Dense` has no `setindex!`, so the destination is written through its own memory.
+function _copy_to_dense!(dest::Dense{T}, D::Dense) where {T<:VTypes}
+    GC.@preserve dest begin
+        _copy!(unsafe_wrap(Array, pointer(dest), size(dest), own = false), D)
+    end
+    return dest
 end
 
 Matrix(D::Dense{T}) where {T} = Matrix{T}(D)

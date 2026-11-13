@@ -255,6 +255,19 @@ end
     @test_throws ArgumentError sparsevec(CHOLMOD.Sparse(Symmetric(sparse([2.0 1; 1 2]))))
 end
 
+@testset "copyto! from one CHOLMOD.Dense to another" begin
+    D = CHOLMOD.Dense([1.0 2; 3 4])
+    for T in (Float64, ComplexF64)
+        dest = CHOLMOD.Dense(zeros(T, 2, 2))
+        @test copyto!(dest, D) === dest
+        @test Matrix(dest) == [1.0 2; 3 4] && Matrix(D) == [1.0 2; 3 4]
+    end
+    # the source must fit in the destination, as for any array
+    dest = CHOLMOD.Dense(zeros(3))
+    @test_throws BoundsError copyto!(dest, D)
+    @test Vector(dest) == zeros(3)
+end
+
 @testset "ldiv! of a real UmfpackLU with a ComplexF32 vector" begin
     A = sparse([2.0 1; 1 3])
     @test ldiv!(lu(A), ComplexF32[1, 2]) ≈ ComplexF32.(Matrix(A) \ [1, 2])
