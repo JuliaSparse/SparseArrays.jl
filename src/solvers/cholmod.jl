@@ -887,19 +887,8 @@ for TI ∈ IndexTypes
         @checked $(cholname(:updown, TI))(update, C, F, getcommon($TI))
         return F
     end
-    # TODO: Change these to new methods in CHOLMOD v5.2 when available.
+    # TODO: Change this to a new method in CHOLMOD v5.2 when available.
     # As this currently double copies.
-    function change_xdtype(A::Sparse{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
-        s = @checked $(cholname(:copy_sparse, TI))(A, getcommon($TI))
-        try
-            @checked $(cholname(:sparse_xtype, TI))(xdtyp(Tnew), s, getcommon($TI))
-        catch
-            # @checked throws on a CHOLMOD error status; don't leak the copy
-            free!(s, $TI)
-            rethrow()
-        end
-        return Sparse{Tnew, $TI}(s)
-    end
     function change_xdtype(F::Factor{Tv, $TI}, ::Type{Tnew}) where {Tv<:VTypes, Tnew<:VTypes}
         c = @lock F.lock @checked $(cholname(:copy_factor, TI))(F, getcommon($TI))
         try
@@ -2095,8 +2084,6 @@ function lowrank_checksize(V::AbstractArray, p)
     size(V, 1) == length(p) || throw(DimensionMismatch(
         "the factorization is of a matrix with $(length(p)) rows, but the update has $(size(V, 1))"))
 end
-lowrank_reorder(V::AbstractArray, p) = (lowrank_checksize(V, p); Sparse(sparse(V[p,:])))
-lowrank_reorder(V::AbstractSparseArray, p) = (lowrank_checksize(V, p); Sparse(V[p,:]))
 lowrank_reorder(V::AbstractArray, p, Tv, Ti) = (lowrank_checksize(V, p); Sparse{Tv, Ti}(sparse(V[p, :])))
 """
     lowrankupdate!(F::CHOLMOD.Factor, C::AbstractArray)

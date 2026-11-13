@@ -323,10 +323,6 @@ end
 @inline _aresameshape(A, B) = size(A) == size(B)
 @inline _aresameshape(A, B, Cs...) = _aresameshape(A, B) ? _aresameshape(B, Cs...) : false
 @inline _checksameshape(As...) = _aresameshape(As...) || throw(DimensionMismatch("argument shapes must match"))
-@inline _all_args_isa(t::Tuple{Any}, ::Type{T}) where T = isa(t[1], T)
-@inline _all_args_isa(t::Tuple{Any,Vararg{Any}}, ::Type{T}) where T = isa(t[1], T) & _all_args_isa(tail(t), T)
-@inline _all_args_isa(t::Tuple{Broadcasted}, ::Type{T}) where T = _all_args_isa(t[1].args, T)
-@inline _all_args_isa(t::Tuple{Broadcasted,Vararg{Any}}, ::Type{T}) where T = _all_args_isa(t[1].args, T) & _all_args_isa(tail(t), T)
 @inline _densennz(shape::NTuple{1}) = shape[1]
 @inline _densennz(shape::NTuple{2}) = shape[1] * shape[2]
 _maxnnzfrom(shape::NTuple{1}, A::AbstractCompressedVector) = nnz(A) * div(shape[1], length(A))

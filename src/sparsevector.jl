@@ -1380,15 +1380,9 @@ imag(x::AbstractSparseVector{Tv,Ti}) where {Tv<:Real,Ti<:Integer} = SparseVector
 
 ### Binary Map
 
-# mode:
-# 0: f(nz, nz) -> nz, f(z, nz) -> z, f(nz, z) ->  z
-# 2: f(nz, nz) -> z/nz, f(z, nz) -> z/nz, f(nz, z) -> z/nz
-
 function _binarymap(f::F,
                     x::AbstractSparseVector{Tx},
-                    y::AbstractSparseVector{Ty},
-                    mode::Int) where {F<:Function,Tx,Ty}
-    mode == 0 || mode == 2 || throw(ArgumentError("Incorrect mode $mode."))
+                    y::AbstractSparseVector{Ty}) where {F<:Function,Tx,Ty}
     R = Base.promote_typejoin_union(Base.promote_op(f, Tx, Ty))
     I = promote_type(eltype(nonzeroinds(x)), eltype(nonzeroinds(y)))
     n = length(x)
@@ -1401,48 +1395,21 @@ function _binarymap(f::F,
     ynzval = nonzeros(y)
     mx = length(xnzind)
     my = length(ynzind)
-    cap = (mode == 0 ? min(mx, my) : mx + my)::Int
+    cap = mx + my
 
     rind = Vector{I}(undef, cap)
     rval = Vector{R}(undef, cap)
-    ir = 0
-    ir = (
-        mode == 0 ? _binarymap_mode_0!(f, mx, my,
-            xnzind, xnzval, ynzind, ynzval, rind, rval) :
-        _binarymap_mode_2!(f, mx, my,
-            xnzind, xnzval, ynzind, ynzval, rind, rval)
-    )::Int
+    ir = _binarymap!(f, mx, my, xnzind, xnzval, ynzind, ynzval, rind, rval)::Int
 
     resize!(rind, ir)
     resize!(rval, ir)
     return SparseVector(n, rind, rval)
 end
 
-function _binarymap_mode_0!(f::Function, mx::Int, my::Int,
-                            xnzind, xnzval, ynzind, ynzval, rind, rval)
-    # f(nz, nz) -> nz, f(z, nz) -> z, f(nz, z) ->  z
-    require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
-    ir = 0; ix = 1; iy = 1
-    @inbounds while ix <= mx && iy <= my
-        jx = xnzind[ix]
-        jy = ynzind[iy]
-        if jx == jy
-            v = f(xnzval[ix], ynzval[iy])
-            ir += 1; rind[ir] = jx; rval[ir] = v
-            ix += 1; iy += 1
-        elseif jx < jy
-            ix += 1
-        else
-            iy += 1
-        end
-    end
-    return ir
-end
-
-function _binarymap_mode_2!(f::Function, mx::Int, my::Int,
-                            xnzind, xnzval::AbstractVector{Tx},
-                            ynzind, ynzval::AbstractVector{Ty},
-                            rind, rval) where {Tx,Ty}
+function _binarymap!(f::Function, mx::Int, my::Int,
+                     xnzind, xnzval::AbstractVector{Tx},
+                     ynzind, ynzval::AbstractVector{Ty},
+                     rind, rval) where {Tx,Ty}
     # f(nz, nz) -> z/nz, f(z, nz) -> z/nz, f(nz, z) -> z/nz
     require_one_based_indexing(xnzind, ynzind, xnzval, ynzval, rind, rval)
     ir = 0; ix = 1; iy = 1
@@ -1488,19 +1455,19 @@ end
 
 # definition of a few known broadcasted/mapped binary functions — all others defer to HigherOrderFunctions
 
-_bcast_binary_map(f, x, y, mode) = length(x) == length(y) ? _binarymap(f, x, y, mode) : HigherOrderFns._diffshape_broadcast(f, x, y)
+_bcast_binary_map(f, x, y) = length(x) == length(y) ? _binarymap(f, x, y) : HigherOrderFns._diffshape_broadcast(f, x, y)
 # An entry stored in one argument only is computed against the other's zero, also for `*`:
 # an infinite or NaN value times zero is not zero.
 for fun in (:*, :min, :max)
     @eval begin
         map(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) =
-            _binarymap($fun, x, y, 2)
+            _binarymap($fun, x, y)
         map(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) =
-            _binarymap($fun, x, y, 2)
+            _binarymap($fun, x, y)
         broadcast(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) =
-            _bcast_binary_map($fun, x, y, 2)
+            _bcast_binary_map($fun, x, y)
         broadcast(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) =
-            _bcast_binary_map($fun, x, y, 2)
+            _bcast_binary_map($fun, x, y)
     end
 end
 
@@ -1509,8 +1476,8 @@ end
 # about twice as fast as the generic kernel, and a view is read as the sparse vector it stores.
 for fun in (:+, :-)
     @eval begin
-        map(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($fun, x, y, 2)
-        map(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) = _binarymap($fun, x, y, 2)
+        map(::typeof($fun), x::AbstractSparseVector, y::AbstractSparseVector) = _binarymap($fun, x, y)
+        map(::typeof($fun), x::AbstractCompressedVector, y::AbstractCompressedVector) = _binarymap($fun, x, y)
         $(fun)(x::AbstractSparseVector, y::AbstractSparseVector) = map($fun, x, y)
         $(fun)(x::Union{SparseVectorOrView,SparseVectorPartialView}, y::Union{SparseVectorOrView,SparseVectorPartialView}) =
             map($fun, _sparsevector(x), _sparsevector(y))
