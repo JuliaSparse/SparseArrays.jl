@@ -215,7 +215,6 @@ function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
     rangefun = sA isa Union{UpperTriangular,UnitUpperTriangular} ? nzrangeup : nzrangelo
     fadj = taA isa Transpose ? transpose : adjoint
     unit = sA isa Union{UnitUpperTriangular,UnitLowerTriangular}
-    uplo = A isa Union{UpperTriangular,UnitUpperTriangular}
 
     newcolptr = Vector{Ti}(undef, n+1)
     fill!(newcolptr, unit)
@@ -234,7 +233,9 @@ function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
     newnzval = Vector{Tv}(undef, nz)
 
     @inbounds for j = 1:n
-        if !uplo && unit
+        # column `j` of the result receives no other entry in this iteration, so its unit
+        # diagonal goes in first, ahead of the entries of later iterations
+        if unit
             ni = newcolptr[j]
             newrowval[ni] = j
             newnzval[ni] = fadj(one(Tv))
@@ -249,12 +250,6 @@ function _sparsem(taA::AdjOrTrans{Tv,<:SparseTriangular}) where {Tv}
                 newnzval[ni] = fadj(nzv)
                 newcolptr[i] = ni + 1
             end
-        end
-        if uplo && unit
-            ni = newcolptr[j]
-            newrowval[ni] = j
-            newnzval[ni] = fadj(one(Tv))
-            newcolptr[j] = ni + 1
         end
     end
     _sparse_gen(n, m, newcolptr, newrowval, newnzval)
