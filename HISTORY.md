@@ -13,19 +13,6 @@ Each change is marked **New**, **Changed**, **Faster**, **Deprecated** or **Remo
 the larger releases group their changes by topic. v1.14 starts with its highlights and the
 changes that can require updating code written for v1.13.
 
-## Unreleased
-
-Changes on `main` that no release branch has yet.
-
-* **Changed:** `sprand` and `sprandn` accept a matrix of 2^63 or more entries again, drawing
-  it column by column, instead of throwing an `OverflowError` ([#1143]).
-* **Faster:** The package image holds native code for `show`, `\`, products, broadcast,
-  concatenation and `sprand` of sparse `Float64` and `ComplexF64` arrays, so their first
-  call compiles less ([#1103]).
-* **Faster:** `transpose(A) * x`, `A' * x` and `mul!(y, A', x)` with a sparse matrix `A` and
-  a sparse vector `x` no longer merge `x` with every column of `A`, which is much faster
-  when `A` has many columns ([#1139]).
-
 ## Julia v1.14
 
 Ships with Julia v1.14.0, not yet released. SuiteSparse 7.14.0; SparseArrays requires
@@ -920,7 +907,6 @@ Released with Julia v1.0.0 on 2018-08-08. SuiteSparse 4.4.5.
 [#1086]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1086
 [#1101]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1101
 [#1102]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1102
-[#1103]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1103
 [#1105]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1105
 [#1109]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1109
 [#1110]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1110
@@ -934,9 +920,7 @@ Released with Julia v1.0.0 on 2018-08-08. SuiteSparse 4.4.5.
 [#1128]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1128
 [#1131]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1131
 [#1137]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1137
-[#1139]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1139
 [#1142]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1142
-[#1143]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1143
 [#1145]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1145
 [#1157]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1157
 [#1160]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1160
