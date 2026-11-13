@@ -128,6 +128,19 @@ end
         end
         umfpack_report(Af)
     end
+    @static if COMPREHENSIVE
+    @testset "workspace constructors" begin
+        Af = lu(A0)
+        x = Af \ b0
+        # sized explicitly, or for a matrix with or without iterative refinement
+        ws = UMFPACK.UmfpackWS{Int}(3, 5)
+        @test (length(ws.Wi), length(ws.W)) == (3, 5)
+        @test length(UMFPACK.UmfpackWS(A0, true).W) == 500
+        for ws in (UMFPACK.UmfpackWS{Int}(100, 100), UMFPACK.UmfpackWS(A0, false))
+            @test ldiv!(similar(b0), Af, b0; workspace = ws) ≈ x
+        end
+    end
+    end
     function test_ws_dup(Af, Af1)
         for i in [:colptr, :rowval, :nzval, :control, :info]
             @test getproperty(Af, i) == getproperty(Af1, i)
@@ -149,6 +162,9 @@ end
         @test copy(transpose(Af)) isa typeof(transpose(Af))
         # the workspace argument is accepted for compatibility
         test_ws_dup(Af, copy(Af, UMFPACK.UmfpackWS(Af)))
+        @static if COMPREHENSIVE
+        test_ws_dup(Af, parent(copy(adjoint(Af), UMFPACK.UmfpackWS(Af))))
+        end
         umfpack_report(Af)
     end
 end
@@ -295,6 +311,24 @@ end
         @test_throws ArgumentError lu(sparse(Int[], Int[], Float64[], 5, 0))
     end
 
+    @static if COMPREHENSIVE
+    @testset "UMFPACK_ERROR_invalid_matrix" begin
+        # row indices out of order, or repeated, in a column
+        for rowval in ([2, 1, 2], [1, 1, 2])
+            @test_throws "invalid matrix" lu(SparseMatrixCSC(2, 2, [1, 3, 4], rowval, [1.0, 2.0, 3.0]))
+        end
+    end
+
+    @testset "lu of a view, and with a pivoting strategy" begin
+        A = sparse([4.0 1 0; 1 4 1; 0 1 4])
+        b = [1.0, 2, 3]
+        F = lu(view(A, :, :))
+        @test F isa UMFPACK.UmfpackLU{Float64,Int}
+        @test F \ b ≈ Matrix(A) \ b
+        @test_throws "Pivoting" lu(A, LinearAlgebra.RowMaximum())
+    end
+    end
+
     @testset "Issue #15099" begin
         testtypes = [
             (ComplexF32, ComplexF64),
@@ -350,6 +384,10 @@ end
         @test hasproperty(F, :(:))
         @test :numeric ∉ propertynames(F)
         @test :numeric ∈ propertynames(F, true)
+        @static if COMPREHENSIVE
+        # the name the factors had before they were properties
+        @test UMFPACK.umfpack_extract(F) == F.:(:)
+        end
     end
 
     @testset "Test that A[c|t]_ldiv_B!{T<:Complex}(X::StridedMatrix{T}, lu::UmfpackLU{Float64}, B::StridedMatrix{T}) works as expected." begin
@@ -532,6 +570,13 @@ end
         Fc = lu(SparseMatrixCSC{ComplexF64,Ti}(A))
         lu!(Fc, sparse([4 1 0; 1 3 0; 0 0 1]))
         @test Fc \ ComplexF64[1, 2, 3] ≈ Matrix(C) \ ComplexF64[1, 2, 3]
+        @static if COMPREHENSIVE
+        # a matrix with more rows than the index type of F can count
+        F32 = lu(SparseMatrixCSC{Float64,Int32}(A))
+        @test_throws "Int32 indices" lu!(F32, spzeros(typemax(Int32), 1))
+        @test size(F32) == (2, 2)
+        @test F32 \ [1.0, 2.0] ≈ Matrix(A) \ [1.0, 2.0]
+        end
     end
 
     @static if COMPREHENSIVE
@@ -762,6 +807,34 @@ end
 end
 end
 
+
+@static if COMPREHENSIVE
+@testset "show_umf_ctrl and show_umf_info print through C and restore the print level" begin
+    # UMFPACK prints with the C library's printf
+    function c_output(f)
+        mktemp() do path, io
+            Libc.flush_cstdio()
+            redirect_stdout(io) do
+                f()
+                Libc.flush_cstdio()
+            end
+            close(io)
+            read(path, String)
+        end
+    end
+    F = lu(sparse([4.0 1 0; 1 4 1; 0 1 4]))
+    ws = UMFPACK.UmfpackWS(F)
+    ldiv!(zeros(3), F, [1.0, 2, 3]; workspace = ws)
+    control = copy(F.control)
+    @test occursin("Control:", c_output(() -> UMFPACK.show_umf_ctrl(F)))
+    @test isempty(c_output(() -> UMFPACK.show_umf_ctrl(F, 0)))
+    # the statistics of the factorization, and those of the solve in the workspace
+    out = c_output(() -> UMFPACK.show_umf_info(F))
+    @test occursin("numeric factorization", out) && !occursin("solve flops", out)
+    @test occursin("solve flops", c_output(() -> UMFPACK.show_umf_info(F, ws)))
+    @test F.control == control
+end
+end
 
 @testset "reports at print level 0 do not throw" begin
     A = fixture(Float64, 100, 100) + 100I

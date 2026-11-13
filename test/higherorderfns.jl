@@ -504,6 +504,12 @@ end
         @test mismatch(broadcast(fn, A, B, A), broadcast(fn, fA, fB, fA); Tv=Real) === nothing
     end
 end
+
+@testset "map over sparse arrays of matrices" begin
+    # a result that is a zero matrix is not stored
+    S = sparse([1, 2], [1, 2], [SimpleSMatrix{2,2}([1.0 2.0; 3.0 4.0]), SimpleSMatrix{2,2}([5.0 6.0; 7.0 8.0])], 2, 2)
+    @test mismatch(map(+, S, S), map(+, Matrix(S), Matrix(S))) === nothing
+end
 end
 
 @static if COMPREHENSIVE
@@ -836,6 +842,7 @@ densesum(x, y) = x .+ y
     @test (S .+ s .- Ref(2))::Matrix{Float64} == fS .+ fs .- 2
     l = sparsevec([5], [2.0], 400)
     @test isequal((L .+ l .- 2)::Matrix{Float64}, Array(L) .+ Array(l) .- 2)
+    @test isequal((L .- 1 .+ l)::Matrix{Float64}, Array(L) .- 1 .+ Array(l))   # a scalar in the inner sum
     R = SparseMatrixCSC{Real,Int}(400, 3, [1, 2, 2, 2], [7], Real[1.5])
     @test (R .+ 1)::Matrix{Real} == Array(R) .+ 1
     @test (.-s)::SparseVector == .-fs
@@ -1097,6 +1104,10 @@ end
     @test ((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3)) == spzeros(3)
     @test typeof(((_, _, _, _, x) -> x).(Int, Int, Int, Int, spzeros(3))) == typeof(spzeros(3))
     @test typeof(((x, _, _, _, _, _, y) -> x + y).(spzeros(3), Int, Float32, Int, 1, Int, spzeros(3, 3))) == typeof(spzeros(3, 3))
+    # a type as the last argument (#19096)
+    A = sparse([1.0 0.0; 2.0 3.0])
+    @test mismatch(broadcast((x, T) -> T(x), A, Float32), Float32.(Matrix(A))) === nothing
+    @test mismatch(broadcast((x, y, T) -> T(x * y), A, 2.0, Float32), Float32.(2 .* Matrix(A))) === nothing
     end
 end
 
@@ -1169,6 +1180,22 @@ end
     @test SparseMatStyle(Val(1)) == SparseMatStyle()
     @test SparseMatStyle(Val(2)) == SparseMatStyle()
     @test SparseMatStyle(Val(3)) == Broadcast.DefaultArrayStyle{3}()
+    @static if COMPREHENSIVE
+    PromoteToSparse, BS = SparseArrays.HigherOrderFns.PromoteToSparse, Broadcast.BroadcastStyle
+    @test PromoteToSparse(Val(0)) == PromoteToSparse(Val(1)) == PromoteToSparse(Val(2)) == PromoteToSparse()
+    @test PromoteToSparse(Val(3)) == Broadcast.DefaultArrayStyle{3}()
+    # a tuple makes the result dense; a dense or structured array, or a wrapper or view of a
+    # sparse array, promotes to sparse
+    @test BS(SparseVecStyle(), Broadcast.Style{Tuple}()) == Broadcast.DefaultArrayStyle{1}()
+    @test BS(SparseMatStyle(), Broadcast.Style{Tuple}()) == BS(PromoteToSparse(), Broadcast.Style{Tuple}()) ==
+        Broadcast.DefaultArrayStyle{2}()
+    A, D = sparse([1.0 0.0; 2.0 3.0]), Diagonal([1.0, 2.0])
+    @test BS(typeof(A')) == BS(typeof(view(A, :, 1))) == PromoteToSparse()
+    @test BS(SparseMatStyle(), Broadcast.DefaultArrayStyle{2}()) == BS(PromoteToSparse(), SparseVecStyle()) == PromoteToSparse()
+    @test BS(SparseMatStyle(), BS(typeof(D))) == BS(PromoteToSparse(), BS(typeof(D))) == PromoteToSparse()
+    @test SparseArrays.HigherOrderFns.is_supported_sparse_broadcast(D, A, [1.0, 2.0])
+    @test !SparseArrays.HigherOrderFns.is_supported_sparse_broadcast(A, 1:2)
+    end
 end
 
 @testset "extrema" begin

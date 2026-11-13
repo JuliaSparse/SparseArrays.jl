@@ -91,6 +91,51 @@ end
     @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse(p)
 end
 
+# A constructor whose type parameters do not match the struct frees it before throwing.
+# With the wrong index type it is released through the other Common, so the allocation
+# count is back to its previous value only summed over the Commons.
+@testset "constructors from a pointer of another type" begin
+    L = LibSuiteSparse
+    Tw = Tv === Float64 ? Float32 : Float64
+    total() = sum(malloc_count, itypes)
+    newsparse() = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
+        cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))
+    newdense() = sizeof(Int) == 8 ? cholmod_l_allocate_dense(2, 1, 2, CHOLMOD.xdtyp(Tv), getcommon(Int)) :
+        cholmod_allocate_dense(2, 1, 2, CHOLMOD.xdtyp(Tv), getcommon(Int))
+    F = cholesky(SparseMatrixCSC{Tv,Ti}(sparse(Tv[4 1; 1 3])))
+    newfactor() = Ti == Int64 ? L.cholmod_l_copy_factor(F, getcommon(Ti)) : L.cholmod_copy_factor(F, getcommon(Ti))
+    with_gc_disabled() do
+        n = total()
+        for (T, I) in [(Complex{Tv}, Ti); (Tw, Ti); [(Tv, Tj) for Tj in setdiff(itypes, (Ti,))]]
+            @test_throws CHOLMOD.CHOLMODException CHOLMOD.Sparse{T, I}(newsparse())
+            @test_throws CHOLMOD.CHOLMODException CHOLMOD.Factor{T, I}(newfactor())
+            @test total() == n
+        end
+        for T in (Complex{Tv}, Tw)
+            @test_throws CHOLMOD.CHOLMODException CHOLMOD.Dense{T}(newdense())
+            @test total() == n
+        end
+    end
+    # without type parameters, those of the struct are taken
+    D = CHOLMOD.Dense(newdense())
+    @test D isa CHOLMOD.Dense{Tv}
+    @test size(D) == (2, 1)
+    G = CHOLMOD.Factor{Tv}(newfactor())
+    @test G isa CHOLMOD.Factor{Tv, Ti}
+    @test G \ Tv[1, 2] ≈ Tv[1/11, 7/11]
+    p = newfactor()
+    itype = fieldoffset(L.cholmod_factor, findfirst(==(:itype), fieldnames(L.cholmod_factor)))
+    unsafe_store!(Ptr{Cint}(p + itype), 123)
+    @test_throws CHOLMOD.CHOLMODException CHOLMOD.Factor{Tv}(p)
+    @test_throws ArgumentError CHOLMOD.Dense(Ptr{L.cholmod_dense}(C_NULL))
+    @test_throws ArgumentError CHOLMOD.Dense{Tv}(Ptr{L.cholmod_dense}(C_NULL))
+    @test_throws ArgumentError CHOLMOD.Sparse(Ptr{L.cholmod_sparse}(C_NULL))
+    @test_throws ArgumentError CHOLMOD.Sparse{Tv}(Ptr{L.cholmod_sparse}(C_NULL))
+    @test_throws ArgumentError CHOLMOD.Sparse{Tv, Ti}(Ptr{L.cholmod_sparse}(C_NULL))
+    @test_throws ArgumentError CHOLMOD.Factor{Tv}(Ptr{L.cholmod_factor}(C_NULL))
+    @test_throws ArgumentError CHOLMOD.Factor{Tv, Ti}(Ptr{L.cholmod_factor}(C_NULL))
+end
+
 @testset "test free! $Ti" begin
     p = Ti == Int64 ? cholmod_l_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti)) :
         cholmod_allocate_sparse(1, 1, 1, true, true, 0, CHOLMOD.xdtyp(Tv), getcommon(Ti))

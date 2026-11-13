@@ -51,6 +51,9 @@ include("testhelpers.jl")
     y = SparseVector(8, Int8[4], [5.0])
     @test y isa SparseVector{Float64,Int8}
     @test @inferred size(y) == (@inferred(length(y))::Int8,)
+    # a size hint leaves the vector as it is
+    z = copy(x)
+    @test sizehint!(z, 10) === z && exact_equal(z, x)
     end
 end
 
@@ -753,6 +756,9 @@ end
             SparseArrays.dropstored!(x, 2); x[1] = 4.0; nonzeros(x) .= 0
             @test exact_equal(S, S0)
         end
+        @test exact_equal(SparseVector{Float64}(S), spv_x1)
+        F = SparseArrays.FixedSparseVector(S)
+        @test F isa SparseArrays.FixedSparseVector{Float64,Int} && exact_equal(F, spv_x1)
     end
     end
 
@@ -976,6 +982,10 @@ end
         for f in (*, min, max), g in (map, broadcast)
             @test isequal(Vector(g(f, a, b)), g(f, Vector(a), Vector(b)))
             @test isequal(Vector(g(f, b, a)), g(f, Vector(b), Vector(a)))
+        end
+        # so it is for other `AbstractSparseVector` subtypes
+        for g in (map, broadcast)
+            @test mismatch(g(*, WrappedSparseVector(a), WrappedSparseVector(b)), g(*, Vector(a), Vector(b))) === nothing
         end
     end
     end
@@ -1944,6 +1954,10 @@ end
         @test_throws SingularException T \ Vector(rhs)
     end
     @test UnitUpperTriangular(S) \ b ≈ UnitUpperTriangular(S) \ Vector(b)
+    # an integer right-hand side takes a solution that converts to its eltype
+    bi = SparseVector(3, [2], [8])
+    @test ldiv!(U, bi) === bi
+    @test mismatch(bi, [-1, 2, 0]) === nothing && nonzeroinds(bi) == 1:2
     end
 end
 

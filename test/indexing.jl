@@ -150,6 +150,8 @@ include("testhelpers.jl")
         # a vector of `CartesianIndex{1}` indexes a row or a column, as for a dense matrix
         C = sparse([1.0 2 0; 0 3 4]); D = Array(C)
         @test mismatch(C[[CartesianIndex(1)], [1, 2]], D[[CartesianIndex(1)], [1, 2]]) === nothing
+        # a matrix of rows of an adjoint indexes as it does for the plain matrix
+        @test mismatch(C'[[1 2; 3 1], 2], D'[[1 2; 3 1], 2]) === nothing
         end
         @test A[1:2, :][false:true, c] == Array(A)[1:2, :][false:true, c]
         @static if COMPREHENSIVE
@@ -202,6 +204,13 @@ include("testhelpers.jl")
         @test A[I3] == D[I3] && A[I3] isa Array{Float64,3}
         C3 = reshape([CartesianIndex(1, 1), CartesianIndex(2, 3)], 1, 1, 2)
         @test A[C3] == D[C3]
+        # a `CartesianIndex` with trailing ones is lowered as for a dense matrix, and an
+        # element that is not an index throws as it does there
+        T3 = reshape([CartesianIndex(1, 2, 1), CartesianIndex(2, 3, 1)], 1, 1, 2)
+        @test A[T3]::Array{Float64,3} == D[T3]
+        for X in (reshape(Any[true], 1, 1, 1), reshape(Any[1.0], 1, 1, 1))
+            @test_throws ArgumentError A[X]
+        end
         # a stored entry is copied; only an unstored one needs a `zero`
         As = SparseMatrixCSC(1, 1, [1, 2], [1], ["a"])
         @test As[fill(1)] == fill("a")
@@ -299,6 +308,20 @@ end
         S = sparse([1.0 2 0; 0 3 4; 5 0 6]); E = Matrix(S)
         fill!(view(S, 3:-1:2, 3:-1:1), 7.0); fill!(view(E, 3:-1:2, 3:-1:1), 7.0)
         @test mismatch(S, E) === nothing
+    end
+
+    @testset "fill! of a stored block of a fixed pattern" begin
+        F = SparseArrays.fixed(sparse([1.0 2 0; 3 4 0])); E = Matrix(F)
+        V = view(F, 1:2, 1:2)
+        @test fill!(V, 5.0) === V
+        E[1:2, 1:2] .= 5.0
+        @test mismatch(F, E) === nothing && SparseArrays._is_fixed(F)
+    end
+
+    @testset "scalar insertion into a buffer longer than the stored entries" begin
+        S = sparse([1.0 0; 0 2]); push!(rowvals(S), 1); push!(nonzeros(S), 99.0)
+        S[1, 2] = 5.0
+        @test mismatch(S, [1.0 5; 0 2]) === nothing
     end
     end
 
@@ -447,6 +470,10 @@ end
     S = mk()
     @test_throws ArgumentError fill!(view(S, :, :), 1.0)
     @test exact_equal(S, mk())
+    # a row that is stored throughout is overwritten, though nnz(S) plus its length exceeds 127
+    S = SparseMatrixCSC{Float64,Int8}(sparse(E)); fill!(view(S, 1, :), 2.0)
+    E1 = copy(E); E1[1, :] .= 2.0
+    @test mismatch(S, E1; Ti=Int8) === nothing
     S = mk(); S[findall(!iszero, vec(E))] = ones(122)
     @test mismatch(S, E; Ti=Int8) === nothing
     S = mk(); S[findall(!iszero, vec(E))] .= 1.0
@@ -705,6 +732,10 @@ end
         A = spzeros(2, 2)
         @test_throws BoundsError SparseArrays.dropstored!(A, [5], [1])
         @test mismatch(A, zeros(2, 2)) === nothing && nnz(A) == 0
+        # an empty index drops nothing
+        A = sparse([11.0 21; 12 0])
+        @test SparseArrays.dropstored!(A, Int[], [1, 2]) === A
+        @test exact_equal(A, sparse([11.0 21; 12 0]))
         # an index that is the matrix's own storage is read while the storage is compacted
         A = sparse([11.0 21; 12 0])
         SparseArrays.dropstored!(A, view(rowvals(A), 1:1), 1:2)

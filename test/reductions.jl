@@ -177,6 +177,10 @@ along(f::F, X, dims) where {F} = f(X; dims)
             @test_throws errchecker f(spzeros(0, 1), dims=(1, 2))
             @test isequal(f(spzeros(0, 1), dims=3), f(Matrix{Int}(I, 0, 1), dims=3))
         end
+        @static if COMPREHENSIVE
+        # with `init`, each slice of no entries reduces to `init`
+        @test mismatch(sum(spzeros(0, 3); dims=1, init=1.0, sparse=true), sum(zeros(0, 3); dims=1, init=1.0)) === nothing
+        end
         # the result along a dimension of an empty array is dense, as for dense input, and is
         # inferred as such: Base takes `map` of the empty first slice, which would be sparse
         E = spzeros(3, 0)
@@ -537,6 +541,10 @@ end
     @test mapreduce(identity, add, x) === 3.0
     @test mapreduce(identity, add, sparsevec([1], [-0.0], 2)) === 0.0
     @test mapreduce(identity, add, sparsevec([2, 3], [-0.0, 1.0], 3)) === 1.0
+    @static if COMPREHENSIVE
+    # more than 1024 stored values are folded in two halves
+    @test mapreduce(identity, add, sparsevec(collect(1:2:2051), collect(1:1026), 2052)) === sum(1:1026)
+    end
     # `|` and `&` commute for one array and for two
     @test SparseArrays._commutes(!iszero, |, Float64) && SparseArrays._commutes(>, &, Float64, Float64)
 end

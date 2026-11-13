@@ -212,6 +212,10 @@ end
     @test_throws ArgumentError cholesky(SparseMatrixCSC{Float64,UInt64}(A))
     F = cholesky(A)
     @test cholesky!(F, SparseMatrixCSC{Float64,Int16}(2A)) \ [1.0, 2.0, 3.0] ≈ (2A) \ [1.0, 2.0, 3.0]
+    # an index type that promotes with Int to one of CHOLMOD's is accepted
+    G = cholesky(SparseMatrixCSC{Float64,Int16}(A))
+    @test G isa CHOLMOD.Factor{Float64,Int}
+    @test G \ [1.0, 2.0, 3.0] ≈ A \ [1.0, 2.0, 3.0]
 end
 
 @testset "ldlt! with a matrix of another size leaves an LLt factor unchanged" begin
@@ -291,6 +295,7 @@ end
     @test cond(sparse([1.0 2; 3 6]), 1) === Inf
     # `factorize` leaves the zero on the diagonal of a triangular or diagonal factor
     @test cond(sparse([1.0 0; 2 0]), Inf) === Inf
+    @test cond(sparse([1.0 0; 2 0]), 1) === Inf
     @test cond(sparse([1.0 0; 0 0]), 1) === Inf
     # Hermitian, so `factorize` tries Cholesky and LDLt before the LU finds it singular
     @test cond(sparse([1.0 1; 1 1]), 1) === Inf
