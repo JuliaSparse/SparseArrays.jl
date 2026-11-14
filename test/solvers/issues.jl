@@ -303,4 +303,13 @@ end
     @test cond(sparse(Float32[1 2; 3 4]), 1) isa Float32
 end
 
+@testset "the names SuiteSparse.jl binds exist" begin
+    # JuliaSparse/SuiteSparse.jl, which Julia ships as a stdlib, binds these at load time
+    for name in (:increment, :increment!, :decrement, :decrement!, :LibSuiteSparse,
+                 :CHOLMOD, :SPQR, :UMFPACK)
+        @test isdefined(SparseArrays, name)
+    end
+    @test SparseArrays.decrement!([1, 2, 3]) == [0, 1, 2]
+end
+
 end # module
