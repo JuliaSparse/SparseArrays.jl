@@ -294,11 +294,20 @@ indtype(T::Union{AdjOrTrans,HermOrSym}) = indtype(parent(T))
 _sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)
 _sparse_findprevnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedlast(I, i);  _isnotzero(n) ? I[n] : nothing)
 
+# Base's generic `findnext` and `findprev` return `nothing` for a start beyond the end the
+# search moves toward and throw `BoundsError` for any other start outside the array.
+_findkeys(v, ::Integer) = LinearIndices(v)
+_findkeys(v, ::CartesianIndex) = CartesianIndices(v)
+
 function findnext(f::Function, v::Union{AbstractSparseArray,SparseMatrixCSCView,SparseVectorOrView}, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
     if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
         return invoke(findnext, Tuple{Function,Any,Any}, f, v, i)
+    end
+    if !checkbounds(Bool, v, i)
+        i > last(_findkeys(v, i)) && return nothing
+        throw(BoundsError(v, i))
     end
     j = _sparse_findnextnz(v, i)
     while j !== nothing && !f(v[j])
@@ -312,6 +321,10 @@ function findprev(f::Function, v::Union{AbstractSparseArray,SparseMatrixCSCView,
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
     if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
         return invoke(findprev, Tuple{Function,Any,Any}, f, v, i)
+    end
+    if !checkbounds(Bool, v, i)
+        i < first(_findkeys(v, i)) && return nothing
+        throw(BoundsError(v, i))
     end
     j = _sparse_findprevnz(v, i)
     while j !== nothing && !f(v[j])
