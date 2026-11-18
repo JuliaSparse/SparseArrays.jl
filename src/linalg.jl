@@ -701,6 +701,14 @@ end
 
 ## diff
 
+# The eltype of `a - b` for two stored entries, which dense `diff` gives: `Int` for `Bool`.
+# Inference returns `Any` for an abstract `Tv` such as `Number`, whose elements' differences
+# `Tv` itself holds.
+function _diff_eltype(::Type{Tv}) where {Tv}
+    R = promote_op(-, Tv, Tv)
+    return R === Any && !isconcretetype(Tv) ? Tv : R
+end
+
 # Append the first difference along one stored column (rows `rowval_a[rng]`, values
 # `nzval_a[rng]`, length `m`) to `rowval`/`nzval` after entry `numnz`, and return the
 # new count. Each stored entry `(i, v)` contributes `+v` at `i-1` and `-v` at `i`; the
@@ -732,11 +740,12 @@ end
 
 function sparse_diff1(S::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     m,n = size(S)
-    m > 1 || return SparseMatrixCSC(0, n, fill(one(Ti),n+1), Ti[], Tv[])
+    T = _diff_eltype(Tv)
+    m > 1 || return SparseMatrixCSC(0, n, fill(one(Ti),n+1), Ti[], T[])
     colptr = Vector{Ti}(undef, n+1)
     numnz = 2 * nnz(S) # upper bound; will shrink later
     rowval = Vector{Ti}(undef, numnz)
-    nzval = Vector{Tv}(undef, numnz)
+    nzval = Vector{T}(undef, numnz)
     numnz = 0
     @inbounds colptr[1] = 1
     @inbounds for col = 1 : n
@@ -753,9 +762,7 @@ function sparse_diff2(a::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     colptr = Vector{Ti}(undef, max(n,1))
     numnz = 2 * nnz(a) # upper bound; will shrink later
     rowval = Vector{Ti}(undef, numnz)
-    nzval = Vector{Tv}(undef, numnz)
-
-    z = zero(Tv)
+    nzval = Vector{_diff_eltype(Tv)}(undef, numnz)
 
     rowval_a = getrowval(a)
     nzval_a = getnzval(a)
@@ -800,7 +807,7 @@ function sparse_diff2(a::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
                 ptrB += 1
             else
                 res = nzvalA[ptrA] - nzvalB[ptrB]
-                if res != z
+                if !iszero(res)
                     rowval[ptrS] = rowA
                     nzval[ptrS] = res
                     ptrS += 1
@@ -846,11 +853,11 @@ function _sparse_diff(x, dims)
     n = length(x)
     nzind_x = nonzeroinds(x)
     nzval_x = nonzeros(x)
-    Ti, Tv = eltype(nzind_x), eltype(nzval_x)
-    n > 1 || return SparseVector(0, Ti[], Tv[])
+    Ti, T = eltype(nzind_x), _diff_eltype(eltype(nzval_x))
+    n > 1 || return SparseVector(0, Ti[], T[])
     numnz = 2 * length(nzind_x) # upper bound; will shrink later
     nzind = Vector{Ti}(undef, numnz)
-    nzval = Vector{Tv}(undef, numnz)
+    nzval = Vector{T}(undef, numnz)
     numnz = _sparse_diff1_column!(nzind, nzval, 0, nzind_x, nzval_x, eachindex(nzind_x), n)
     deleteat!(nzind, numnz+1:length(nzind))
     deleteat!(nzval, numnz+1:length(nzval))

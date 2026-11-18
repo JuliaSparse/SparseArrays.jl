@@ -100,6 +100,16 @@ end
     end
 end
 
+@testset "issue #1175, sparse diff of Bool promotes to Int like dense diff" begin
+    B = Bool[1 0 1; 0 1 1; 1 1 0]
+    S = sparse(B)
+    for dims in (1, 2)
+        @test mismatch(diff(S; dims), diff(B; dims)) === nothing
+        @test mismatch(diff(S'; dims), diff(B'; dims)) === nothing
+    end
+    @test mismatch(diff(S[:, 1]), diff(B[:, 1])) === nothing
+end
+
 @testset "issue #6036" begin
     P = spzeros(Float64, 3, 3)
     for i = 1:3
