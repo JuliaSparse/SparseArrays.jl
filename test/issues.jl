@@ -1169,6 +1169,13 @@ end
     @test allocs(1000) == allocs(2000)
 end
 
+@testset "the adjoint of a Bool sparse vector converts to a sparse matrix (issue #1178)" begin
+    S = sparse(Bool[true false; true true])
+    x = sparsevec(Bool[true, false])
+    @test mismatch(SparseMatrixCSC(x'), Matrix(Vector(x)')) === nothing
+    @test mismatch(S .* x', Matrix(S) .* Vector(x)') === nothing
+end
+
 end # SparseTestsBase
 
 end # module
