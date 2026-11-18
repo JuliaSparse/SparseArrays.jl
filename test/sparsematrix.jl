@@ -1522,6 +1522,22 @@ end
     end
 end
 
+@static if COMPREHENSIVE
+@testset "findnext and findprev from a start outside the array (issue #1176)" begin
+    v = sparsevec([0.0, 1.0])
+    @test_throws BoundsError findnext(!iszero, v, 0)
+    @test findnext(!iszero, v, 3) === nothing
+    @test findprev(!iszero, v, 0) === nothing
+    @test_throws BoundsError findprev(!iszero, v, 3)
+    A = sparse([0.0 0.0; 1.0 0.0])
+    @test_throws BoundsError findnext(!iszero, A, CartesianIndex(0, 1))
+    @test_throws BoundsError findnext(!iszero, A, CartesianIndex(3, 1))
+    @test findnext(!iszero, A, CartesianIndex(1, 3)) === nothing
+    @test findprev(!iszero, A, CartesianIndex(1, 0)) === nothing
+    @test_throws BoundsError findprev(!iszero, A, CartesianIndex(3, 2))
+end
+end
+
 #testing the sparse matrix/vector access functions nnz, nzrange, rowvals, nonzeros
 @testset "generic sparse matrix access functions" begin
     I = [1,3,4,5, 1,3,4,5, 1,3,4,5];
