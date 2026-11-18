@@ -896,7 +896,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             @inbounds for j in axes(A,2)
                 colSum::Tsum = 0
                 for i in nzrange(A, j)
-                    colSum += abs(getnzval(A)[i])
+                    colSum += norm(getnzval(A)[i])
                 end
                 nA = max(nA, colSum)
             end
@@ -906,7 +906,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
         else
             rowSum = zeros(Tsum,m)
             @inbounds for i in axes(getnzval(A),1)
-                rowSum[getrowval(A)[i]] += abs(getnzval(A)[i])
+                rowSum[getrowval(A)[i]] += norm(getnzval(A)[i])
             end
             return convert(Tnorm, maximum(rowSum))
         end
