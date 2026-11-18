@@ -85,7 +85,7 @@ _sparsem(A::AbstractSparseVector) = A
 # Transpose/Adjoint of sparse vector (returning sparse matrix)
 function _sparsem(A::AdjOrTrans{<:Any,<:AbstractSparseVector})
     B = parent(A)
-    return _rowmatrix(length(B), nonzeroinds(B), wrapperop(A).(nonzeros(B)))
+    return _rowmatrix(length(B), nonzeroinds(B), map(wrapperop(A), nonzeros(B)))
 end
 # the `1 x n` sparse matrix storing `nzval` at the columns `nzind` (sorted)
 function _rowmatrix(n, nzind::AbstractVector{Ti}, nzval) where Ti

@@ -1179,6 +1179,13 @@ end
     @test allocs(1000) == allocs(2000)
 end
 
+@testset "the adjoint of a Bool sparse vector converts to a sparse matrix (issue #1178)" begin
+    S = sparse(Bool[true false; true true])
+    x = sparsevec(Bool[true, false])
+    @test mismatch(SparseMatrixCSC(x'), Matrix(Vector(x)')) === nothing
+    @test mismatch(S .* x', Matrix(S) .* Vector(x)') === nothing
+end
+
 @testset "concatenating arrays whose parent is not an array (issue #1191)" begin
     for k in (KeysVector(Dict("a" => 1, "b" => 2)), KeysVector(Dict(1.0 => 1, 2.0 => 2)))
         @test !issparse(k)
