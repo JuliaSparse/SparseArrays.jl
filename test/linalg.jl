@@ -248,6 +248,10 @@ end
     @test opnorm(Ai,1) ≈ opnorm(MAi,1)
     @test opnorm(Ai,Inf) ≈ opnorm(MAi,Inf)
     @test norm(Ai) ≈ norm(MAi)
+    # #1177: `abs(typemin)` is negative in the element type
+    for M in (Int8[1 -128; 1 0], [typemin(Int) 0 -2; 0 0 0; -2 0 0]), p in (1, Inf)
+        @test opnorm(sparse(M), p) === opnorm(M, p)
+    end
     end
     # make certain entries in nzval beyond
     # the range specified in colptr do not
