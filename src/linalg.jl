@@ -1477,10 +1477,11 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
 end
 
 # For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
-# LinearAlgebra's generic `factorize(::HermOrSym)`, a dense Bunch-Kaufman in
-# `Rational{BigInt}`, so they take the `lu` branch instead, which converts to floating
+# LinearAlgebra's generic `factorize(::HermOrSym)`, a dense Bunch-Kaufman in floating
+# point, so they take the sparse `lu` branch instead, which converts to floating
 # point like dense `\` does. Every other eltype keeps its path: floating point goes to
-# the sparse Cholesky/LDLt, and `Rational` stays exact through the generic factorization.
+# the sparse Cholesky/LDLt, and `Rational` to LinearAlgebra's Hermitian solve, which
+# converts it to floating point.
 _hermitian_solve(A::AbstractSparseMatrixCSC) =
     !(eltype(A) <: Union{Integer, Complex{<:Integer}}) && ishermitian(A)
 
