@@ -189,14 +189,13 @@ end
         end
     end
     @static if COMPREHENSIVE
-    # `Rational` is not rerouted: it stays exact, like dense
+    # a Hermitian `Rational` matrix is solved in floating point, as LinearAlgebra solves one
     A = sparse(Rational{Int}[2 1; 1 2])
     b = Rational{Int}[1, 0]
     for M in (A, A')
         x = M \ b
-        @test x isa Vector{Rational{Int}}
-        @test M * x == b
-        @test x == Matrix(M) \ b
+        @test x isa Vector{Float64}
+        @test x ≈ Hermitian(Matrix(M)) \ b
     end
     end
 end
