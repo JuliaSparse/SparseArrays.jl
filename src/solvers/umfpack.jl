@@ -350,6 +350,9 @@ Base.copy(F::UmfpackLU) = @lock F.lock UmfpackLU(
 # The workspace argument is accepted for compatibility; solves take their workspace from
 # `ldiv!`.
 Base.copy(F::UmfpackLU, ::UmfpackWS) = copy(F)
+# the arrays the factorization is stored in, for LinearAlgebra's aliasing checks
+LinearAlgebra._aliasparts(F::UmfpackLU) = (getfield(F, :colptr), getfield(F, :rowval),
+    getfield(F, :nzval), getfield(F, :control), getfield(F, :info))
 Base.copy(F::T) where {T <: UMFAdjOrTransLU} = T(copy(parent(F)))
 Base.copy(F::T, ::UmfpackWS) where {T <: UMFAdjOrTransLU} = T(copy(parent(F)))
 
@@ -1117,6 +1120,7 @@ ldiv!(adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOr
     ldiv!(B, adjlu, copy(B); workspace)
 
 function ldiv!(lu::Union{UmfpackLU,UMFAdjOrTransLU}, B::AdjOrTrans{<:Any,<:StridedVecOrMat}; workspace=nothing)
+    LinearAlgebra.check_inplace_aliasing(B, lu)
     X = Matrix(B)
     ldiv!(lu, X; workspace)
     return copyto!(B, X)
@@ -1137,6 +1141,7 @@ ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Fl
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype,
                      workspace::Union{Nothing,UmfpackWS})
+    LinearAlgebra.check_inplace_aliasing(X, lu) # X may be B, which is copied below
     checksquare(lu)
     if size(B, 1) != lu.m
         throw(DimensionMismatch("UmfpackLU is $(lu.m)×$(lu.n) but the right-hand side has $(size(B, 1)) rows"))

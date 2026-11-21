@@ -6,7 +6,7 @@ using Test
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
 using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, factorize, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
-using SparseArrays: SparseArrays, sparse, spzeros, SparseMatrixCSC
+using SparseArrays: SparseArrays, sparse, spzeros, SparseMatrixCSC, nnz, nonzeros
 include("../testhelpers.jl")
 
 
@@ -436,6 +436,18 @@ end
         b = collect(1.0:n)
         x = F \ b
         @test ldiv!(b, F, b) == x
+        # but not F, which would give wrong solves from then on
+        R0 = copy(F.R)
+        @test_throws ArgumentError ldiv!(view(nonzeros(F.R), 1:n), F, b)
+        @test F.R == R0
+        @static if COMPREHENSIVE
+        @test nnz(F.R) >= 2n
+        X = view(nonzeros(F.R), 1:n)
+        @test_throws ArgumentError ldiv!(X, F', b)
+        @test_throws ArgumentError ldiv!(F, X)
+        @test_throws ArgumentError ldiv!(reinterpret(ComplexF64, view(nonzeros(F.R), 1:2n)), F, complex.(b))
+        @test F.R == R0
+        end
     end
 
     @static if COMPREHENSIVE
