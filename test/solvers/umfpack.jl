@@ -376,6 +376,15 @@ end
         @test ldiv!(view(B, :, 1), F, view(vec(B), 1:3)) ≈ [1, 3, 5]
         B = A * [1.0 2 3; 4 5 6; 7 8 9]
         @test ldiv!(view(B, :, 2:3), F, view(B, :, 1:2)) ≈ [1.0 2; 4 5; 7 8]
+        # but not with F
+        nzval0 = copy(F.nzval)
+        @test_throws ArgumentError ldiv!(view(F.nzval, 1:3), F, A * [1.0, 2, 3])
+        @test F.nzval == nzval0
+        @static if COMPREHENSIVE
+        control0 = copy(F.control)
+        @test_throws ArgumentError ldiv!(F, transpose(reshape(view(F.control, 1:3), 1, 3)))
+        @test F.control == control0
+        end
     end
 
     @testset "propertynames(::UmfpackLU)" begin
