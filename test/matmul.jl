@@ -447,8 +447,14 @@ end
     # the destination takes the pattern of the sparse product; the elementwise fallback keeps its own
     @test nnz(mul!(sparse(ones(2, 2)), sparse([1.0 0; 0 0]), sparse([1.0 0; 0 0]))) == 1
     @test mismatch(mul!(sparse(fill(complex(NaN), 8, 8)), A, B, true, false), Matrix(A) * Matrix(B); approx=true) === nothing
-    X = copy(A); @test mismatch(mul!(X, X, B), Matrix(A) * Matrix(B); approx=true) === nothing
-    X = copy(B); @test mismatch(mul!(X, A, X, 2, 3), 2 * Matrix(A) * Matrix(B) + 3 * Matrix(B); approx=true) === nothing
+    # LinearAlgebra rejects a destination that aliases a factor (JuliaLang/LinearAlgebra.jl#1843)
+    @static if VERSION >= v"1.15.0-DEV.864"
+        X = copy(A); @test_throws ArgumentError mul!(X, X, B); @test X == A
+        X = copy(B); @test_throws ArgumentError mul!(X, A, X, 2, 3); @test X == B
+    else
+        X = copy(A); @test mismatch(mul!(X, X, B), Matrix(A) * Matrix(B); approx=true) === nothing
+        X = copy(B); @test mismatch(mul!(X, A, X, 2, 3), 2 * Matrix(A) * Matrix(B) + 3 * Matrix(B); approx=true) === nothing
+    end
     @test_throws DimensionMismatch mul!(spzeros(8, 7), A, B)
     # nothing is written when the destination cannot hold the result
     P = sparse([1.0 2; 0 3]); Q = sparse([0.5 0; 1 1])
@@ -830,9 +836,14 @@ end
         @test_throws ArgumentError f(C)
         @test C == D
     end
-    # a `false` `alpha` leaves the operand unread, and views of one array that do not
-    # overlap are distinct operands
-    @test mul!((C = copy(D); C), S, C, false, 2.0) == 2D
+    # a `false` `alpha` leaves the operand unread, but LinearAlgebra rejects the aliased call
+    # before looking at it (JuliaLang/LinearAlgebra.jl#1843)
+    @static if VERSION >= v"1.15.0-DEV.864"
+        C = copy(D); @test_throws ArgumentError mul!(C, S, C, false, 2.0); @test C == D
+    else
+        @test mul!((C = copy(D); C), S, C, false, 2.0) == 2D
+    end
+    # views of one array that do not overlap are distinct operands
     X = [D D]
     @test mul!(view(X, :, 1:3), S, UpperTriangular(view(X, :, 4:6))) == S * UpperTriangular(D)
 end
