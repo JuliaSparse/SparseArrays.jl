@@ -447,14 +447,10 @@ end
     # the destination takes the pattern of the sparse product; the elementwise fallback keeps its own
     @test nnz(mul!(sparse(ones(2, 2)), sparse([1.0 0; 0 0]), sparse([1.0 0; 0 0]))) == 1
     @test mismatch(mul!(sparse(fill(complex(NaN), 8, 8)), A, B, true, false), Matrix(A) * Matrix(B); approx=true) === nothing
-    # LinearAlgebra rejects a destination that aliases a factor (JuliaLang/LinearAlgebra.jl#1843)
-    @static if VERSION >= v"1.15.0-DEV.864"
-        X = copy(A); @test_throws ArgumentError mul!(X, X, B); @test X == A
-        X = copy(B); @test_throws ArgumentError mul!(X, A, X, 2, 3); @test X == B
-    else
-        X = copy(A); @test mismatch(mul!(X, X, B), Matrix(A) * Matrix(B); approx=true) === nothing
-        X = copy(B); @test mismatch(mul!(X, A, X, 2, 3), 2 * Matrix(A) * Matrix(B) + 3 * Matrix(B); approx=true) === nothing
-    end
+    # the destination must not share memory with a factor; empty buffers share none
+    X = copy(A); @test_throws ArgumentError mul!(X, X, B); @test X == A
+    X = copy(B); @test_throws ArgumentError mul!(X, A, X, 2, 3); @test X == B
+    @test mismatch(mul!(spzeros(ComplexF64, 8, 8), spzeros(ComplexF64, 8, 8), B), zeros(ComplexF64, 8, 8)) === nothing
     @test_throws DimensionMismatch mul!(spzeros(8, 7), A, B)
     # nothing is written when the destination cannot hold the result
     P = sparse([1.0 2; 0 3]); Q = sparse([0.5 0; 1 1])
@@ -475,6 +471,10 @@ end
     @test mismatch(Diagonal(b) * sA, Diagonal(b) * dA) === nothing
     @test mismatch(mul!(sC, Diagonal(b), sA), Diagonal(b) * dA) === nothing
     @test mismatch(lmul!(Diagonal(b), copy(sA)), Diagonal(b) * dA) === nothing
+    # as for dense, a `Diagonal` that shares memory with the matrix it scales throws
+    X = sparse([1.0 2 0; 0 3 4; 5 0 6]); X0 = copy(X)
+    @test_throws ArgumentError rmul!(X, Diagonal(view(nonzeros(X), 1:3)))
+    @test X == X0
 
     # adjoint/transpose of a sparse matrix with a Diagonal (issue #619)
     for (T, W) in ((ComplexF64, adjoint), (ComplexF64, transpose))
@@ -511,16 +511,16 @@ end
         C32 = SparseMatrixCSC{T,Int32}(spzeros(3, 7))
         @test mismatch(mul!(C32, Dl, W(S)), Dl * W(M); Ti=Int32, approx=true) === nothing
         end
-        # so does a destination aliasing the parent
-        Q = fixture(T, 5, 5); MQ = Matrix(Q); Dq = Diagonal(fixturedense(T, 5))
-        @test mismatch(mul!(Q, W(Q), Dq), W(MQ) * Dq; approx=true) === nothing
+        # as for dense, a destination that shares memory with the parent throws
+        Q = fixture(T, 5, 5); Q0 = copy(Q); Dq = Diagonal(fixturedense(T, 5))
+        @test_throws ArgumentError mul!(Q, W(Q), Dq)
+        @test Q == Q0
         @static if COMPREHENSIVE
-        Q = fixture(T, 5, 5); MQ = Matrix(Q)
-        @test mismatch(mul!(Q, Dq, W(Q)), Dq * W(MQ); approx=true) === nothing
-        # or sharing its storage
-        Q = fixture(T, 5, 5); MQ = Matrix(Q)
+        @test_throws ArgumentError mul!(Q, Dq, W(Q))
+        # or only its values
         Cs = SparseMatrixCSC(5, 5, copy(getcolptr(Q)), copy(rowvals(Q)), nonzeros(Q))
-        @test mismatch(mul!(Cs, W(Q), Dq), W(MQ) * Dq; approx=true) === nothing
+        @test_throws ArgumentError mul!(Cs, W(Q), Dq)
+        @test Q == Q0
         end
         # fixed operands are read, never written
         F = fixed(S)
@@ -824,28 +824,42 @@ end
 end
 
 @static if COMPREHENSIVE
-@testset "mul! into a dense destination that is an operand throws" begin
+@testset "an operand that shares memory with the destination throws" begin
     S = sparse([1.0 2 0; 0 3 4; 5 0 6])
     D = [1.0 2 3; 4 5 6; 7 8 10]
-    # one aliased call for each kernel that reads a dense operand, and one through a wrapper
+    # one aliased call for each kernel that reads a dense operand, one through a wrapper, and
+    # one with a `false` `alpha`, which leaves the operand unread
     for f in (C -> mul!(C, S, C), C -> mul!(C, S', C), C -> mul!(C, C, S), C -> mul!(C, C', S),
               C -> mul!(C, transpose(C), transpose(S)), C -> mul!(C, Symmetric(S), C),
               C -> mul!(C, C, Symmetric(S)), C -> mul!(C, UpperTriangular(S), C'),
-              C -> mul!(C, Symmetric(C), UpperTriangular(S)), C -> mul!(C, S, UpperTriangular(C)))
+              C -> mul!(C, Symmetric(C), UpperTriangular(S)), C -> mul!(C, S, UpperTriangular(C)),
+              C -> mul!(C, S, C, false, 2.0))
         C = copy(D)
         @test_throws ArgumentError f(C)
         @test C == D
     end
-    # a `false` `alpha` leaves the operand unread, but LinearAlgebra rejects the aliased call
-    # before looking at it (JuliaLang/LinearAlgebra.jl#1843)
-    @static if VERSION >= v"1.15.0-DEV.864"
-        C = copy(D); @test_throws ArgumentError mul!(C, S, C, false, 2.0); @test C == D
-    else
-        @test mul!((C = copy(D); C), S, C, false, 2.0) == 2D
-    end
     # views of one array that do not overlap are distinct operands
     X = [D D]
     @test mul!(view(X, :, 1:3), S, UpperTriangular(view(X, :, 4:6))) == S * UpperTriangular(D)
+    # a sparse destination that is a factor, and a `Diagonal` that shares memory with the
+    # destination
+    Dg = Diagonal([2.0, 3, 4])
+    for f in (X -> mul!(X, X, Dg), X -> mul!(X, Dg, X), X -> mul!(X, copy(X), Diagonal(view(nonzeros(X), 1:3))),
+              X -> lmul!(Diagonal(view(nonzeros(X), 1:3)), X), X -> rdiv!(X, Diagonal(view(nonzeros(X), 1:3))),
+              X -> ldiv!(Diagonal(view(nonzeros(X), 1:3)), X))
+        X = copy(S)
+        @test_throws ArgumentError f(X)
+        @test mismatch(X, Matrix(S)) === nothing
+    end
+    x = sparsevec([1, 3], [2.0, 4.0], 3); x0 = copy(x)
+    @test_throws ArgumentError ldiv!(Diagonal(view(nonzeros(x), [1, 2, 2])), x)
+    @test mismatch(x, Vector(x0)) === nothing
+    y = sparsevec([1], [2.0]); y0 = copy(y)
+    @test_throws ArgumentError ldiv!(UpperTriangular(reshape(nonzeros(y), 1, 1)), y)
+    @test mismatch(y, Vector(y0)) === nothing
+    # empty buffers share no memory
+    @test mismatch(mul!(spzeros(3, 3), spzeros(3, 3), Dg), zeros(3, 3)) === nothing
+    @test mismatch(mul!(spzeros(3), spzeros(3, 3), spzeros(3)), zeros(3)) === nothing
 end
 end
 

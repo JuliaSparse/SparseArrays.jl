@@ -178,18 +178,6 @@ end
     return mC, nC, mA, nA, mB, nB
 end
 
-# As for a dense product: the kernels read the dense operand while they write `C`. Its
-# wrappers are stripped first, so that views of one array are compared by their indices.
-# A `false` `α` leaves the operand unread.
-_densestorage(B::MatrixWrappers) = _densestorage(parent(B))
-_densestorage(B) = B
-@inline function _checknoalias(C, B, α)
-    α isa Bool && !α && return
-    Base.mightalias(C, _densestorage(B)) &&
-        throw(ArgumentError("output matrix must not be aliased with input matrix"))
-    return
-end
-
 @inline _matmul_size_AB(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('N'))
 @inline _matmul_size_AtB(C, A, B) = _matmul_size(C, A, B, Val('T'), Val('N'))
 @inline _matmul_size_ABt(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('T'))
@@ -198,7 +186,6 @@ function _spmatmul!(C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
-    _checknoalias(C, B, α)
     nzv = getnzval(A)
     rv = getrowval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -222,7 +209,6 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AtB(C, A, B)
-    _checknoalias(C, B, α)
     nzv = getnzval(A)
     rv = getrowval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -267,7 +253,6 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::Spars
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = plain ? _matmul_size_AB(C, A, B) : _matmul_size_ABt(C, A, B)
-    _checknoalias(C, A, α)
     rv = getrowval(B)
     nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -291,7 +276,6 @@ end
 function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
-    _checknoalias(C, A, α)
     rv = getrowval(B)
     nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -322,7 +306,6 @@ function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B
     Aax1 = axes(A, 1)
     Bax2 = axes(B, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
-    _checknoalias(C, A, α)
     rv = getrowval(B)
     nzv = getnzval(B)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -695,7 +678,6 @@ function _trimatmul!(C, upper::Bool, unit::Bool, f::F, A, B) where {F<:Function}
     require_one_based_indexing(C, A, B)
     checksquare(A)
     matmul_size_check(size(C), size(A), size(B))
-    C === B || _checknoalias(C, B, true)
     C !== B && copyto!(C, B)
     return upper ? _trimatmul!(C, Val(true), unit, f, A, B) : _trimatmul!(C, Val(false), unit, f, A, B)
 end
@@ -772,7 +754,6 @@ function _mattrimul!(C, upper::Bool, unit::Bool, f::Function, X, B)
         throw(DimensionMismatch(lazy"A has $(size(X, 2)) columns and B has $n rows"))
     size(C) == size(X) ||
         throw(DimensionMismatch(lazy"C has size $(size(C)), A * B has size $(size(X))"))
-    C === X || _checknoalias(C, X, true)
     rv = getrowval(B)
     nzv = getnzval(B)
     rows = axes(X, 1)
@@ -814,7 +795,6 @@ function _symherm_mul!(rangefun::R, diagop::D, odiagop::O, C::StridedVecOrMat, A
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
-    _checknoalias(C, B, α)
     rv = getrowval(A)
     nzv = getnzval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -845,7 +825,6 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
-    _checknoalias(C, X, α)
     rv = getrowval(A)
     nzv = getnzval(A)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
@@ -924,7 +903,8 @@ columns, or the rows, of `A` scaled by the diagonal of `D`.
 Unlike a dense destination, `C` takes a new sparsity pattern: that of `A` when `β` is zero,
 and otherwise the union of the patterns of `A` and `C`. A fixed-pattern `C` keeps its
 pattern instead, and `mul!` throws, with `C` unchanged, if a nonzero of the result falls
-outside it.
+outside it. As for a dense destination, `C` must not share memory with `A` or `D`: scale
+`A` in place with `rmul!(A, D)` or `lmul!(D, A)`.
 
 A sparse destination is supported for scaling only, by a `Diagonal` here or by a number
 with `mul!(C, A, b)`. Form other products of sparse matrices with `*`. With a dense
@@ -932,6 +912,7 @@ destination, `mul!(C, A, B, α, β)` takes a sparse `A` and a dense `B`, or the 
 round, and reads the adjoint or transpose of a sparse factor in place.
 """
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, alpha::Number, beta::Number)
+    LinearAlgebra.check_mul_aliasing(C, A, D)
     m, n = size(A)
     b = D.diag
     lb = length(b)
@@ -1002,21 +983,22 @@ end
 # `Diagonal` kernel in LinearAlgebra visits every element of `C`. With `beta == 0` the
 # adjoint is formed directly in `C` (one `halfperm!`, O(nnz)) and scaled in place;
 # otherwise it is materialized once and handed to the CSC kernels above, which also
-# covers `alpha == 0`, a destination that shares storage with the parent, one whose index
-# type or fixed structure `halfperm!` cannot write, and eltypes of `C`, `A` and the product
-# that differ, so that no operand is converted before multiplying, as for dense (a real
-# `Inf` times a complex one is not `complex(Inf)` times it).
+# covers `alpha == 0`, a destination whose index type or fixed structure `halfperm!` cannot
+# write, and eltypes of `C`, `A` and the product that differ, so that no operand is converted
+# before multiplying, as for dense (a real `Inf` times a complex one is not `complex(Inf)`
+# times it).
 function _adjtrans_into!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
     P = parent(A)
     return halfperm!(C, P, axes(P, 2), _adjtrans_fun(A))
 end
 _adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha, beta) =
-    !iszero(alpha) && iszero(beta) && !Base.mightalias(C, parent(A)) && !_is_fixed(C) &&
+    !iszero(alpha) && iszero(beta) && !_is_fixed(C) &&
     indtype(C) === indtype(parent(A)) &&
     eltype(C) === eltype(A) === promote_op(matprod, eltype(A), eltype(D)) &&
     _storesafely(eltype(C), _diagmul_eltype(C, eltype(C), alpha, beta))
 
 function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
+    LinearAlgebra.check_mul_aliasing(C, A, D)
     m, n = size(A)
     lb = length(D.diag)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
@@ -1028,6 +1010,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMa
 end
 
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, alpha::Number, beta::Number)
+    LinearAlgebra.check_mul_aliasing(C, D, A)
     m, n = size(A)
     lb = length(D.diag)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
@@ -1039,6 +1022,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:Abs
 end
 
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC, alpha::Number, beta::Number)
+    LinearAlgebra.check_mul_aliasing(C, D, A)
     m, n = size(A)
     b    = D.diag
     lb = length(b)
@@ -1145,11 +1129,13 @@ ldiv!(b::Number, A::Union{AbstractSparseMatrixCSC,AbstractCompressedVector}) =
 
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
     _checkscaledims(A, A, D, 2)
+    LinearAlgebra.check_inplace_aliasing(A, D)
     return _scalecols!(A, A, D.diag, *)
 end
 
 function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
     _checkscaledims(A, A, D, 1)
+    LinearAlgebra.check_inplace_aliasing(A, D)
     return _scalerows!(A, A, D.diag, *)
 end
 
