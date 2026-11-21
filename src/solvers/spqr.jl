@@ -536,6 +536,13 @@ Base.copy(F::AdjointFactorization{<:Any,<:QRSparse}) = AdjointFactorization(copy
 Base.copy(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) =
     LinearAlgebra.TransposeFactorization(copy(parent(F)))
 
+# the arrays the factorization is stored in, for LinearAlgebra's aliasing checks; `Q`
+# holds `factors` and `τ`
+LinearAlgebra._aliasparts(F::QRSparse) =
+    (LinearAlgebra._aliasparts(getfield(F, :factors))..., LinearAlgebra._aliasparts(getfield(F, :τ))...,
+     LinearAlgebra._aliasparts(getfield(F, :R))..., LinearAlgebra._aliasparts(getfield(F, :cpiv))...,
+     LinearAlgebra._aliasparts(getfield(F, :rpivinv))...)
+
 function Base.show(io::IO, mime::MIME{Symbol("text/plain")}, F::QRSparse)
     summary(io, F); println(io)
     println(io, "Q factor:")
@@ -752,6 +759,7 @@ julia> qr(A)\\fill(1.0, 4)
 
 function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
+    LinearAlgebra.check_inplace_aliasing(X, F) # X may be B, which is read into the workspace first
     if size(F, 1) != size(B, 1)
         throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
     end
@@ -862,6 +870,7 @@ julia> A'x
 
 function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
+    LinearAlgebra.check_inplace_aliasing(X, Fadj)
     F = parent(Fadj)
     m, n = size(F)
     # Solving A'x = b for a wide A would be an overdetermined problem requiring a
@@ -934,6 +943,7 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{Complex{T}},
                              F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
                              B::StridedVecOrMat{Complex{T}};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Real}
+    LinearAlgebra.check_inplace_aliasing(X, F)
     Xr = ldiv!(similar(X, T), F, real(B); workspace)
     Xi = ldiv!(similar(X, T), F, imag(B); workspace)
     return map!(complex, X, Xr, Xi)
@@ -943,6 +953,7 @@ end
 function LinearAlgebra.ldiv!(F::Union{QRSparse{T},AdjointQRSparse{T},TransposeQRSparse{T}},
                              B::StridedVecOrMat{<:Union{T,Complex{T}}};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
+    LinearAlgebra.check_inplace_aliasing(B, F)
     LinearAlgebra.checksquare(F)
     return copyto!(B, ldiv!(similar(B), F, B; workspace))
 end
