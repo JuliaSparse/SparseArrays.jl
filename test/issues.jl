@@ -1169,6 +1169,18 @@ end
     @test allocs(1000) == allocs(2000)
 end
 
+@testset "concatenating arrays whose parent is not an array (issue #1191)" begin
+    for k in (KeysVector(Dict("a" => 1, "b" => 2)), KeysVector(Dict(1.0 => 1, 2.0 => 2)))
+        @test !issparse(k)
+        @test vcat(k, k)::Vector == vcat(collect(k), collect(k))
+        @test hcat(k, k)::Matrix == hcat(collect(k), collect(k))
+        @test hvcat((2,), k, k)::Matrix == hcat(collect(k), collect(k))
+        @test cat(k, k; dims=1)::Vector == vcat(collect(k), collect(k))
+    end
+    @test mismatch(vcat(KeysVector(Dict(1.0 => 1, 2.0 => 2)), sparsevec([3.0, 0.0])),
+                   [1.0, 2.0, 3.0, 0.0]) === nothing
+end
+
 end # SparseTestsBase
 
 end # module
