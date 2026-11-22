@@ -27,21 +27,21 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
+          - macOS-latest
+          - ubuntu-26.04-arm
         julia-arch:
-          - x64
-          - x86
+          - default
         julia-version:
           - 'nightly'
         include:
-          - os: macOS-latest
-            julia-arch: aarch64
-            julia-version: 'nightly'
-            check-bounds: 'yes'
-          - os: ubuntu-26.04-arm
-            julia-arch: aarch64
-            julia-version: 'nightly'
+          # 32-bit on Linux only: Julia has no 32-bit Windows nightly
           - os: ubuntu-latest
-            julia-arch: x64
+            julia-arch: x86
+            julia-version: 'nightly'
+          - os: macOS-latest
+            check-bounds: 'yes'
+          - os: ubuntu-latest
+            julia-arch: default
             julia-version: 'nightly'
             coverage: true
     steps:
