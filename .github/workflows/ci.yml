@@ -29,14 +29,13 @@ jobs:
           - windows-latest
         julia-arch:
           - x64
-          - x86
         julia-version:
           - 'nightly'
-        exclude:
-          # Julia has no 32-bit Windows nightly; the last one is 1.15.0-DEV.831
-          - os: windows-latest
-            julia-arch: x86
         include:
+          # 32-bit on Linux only: Julia has no 32-bit Windows nightly
+          - os: ubuntu-latest
+            julia-arch: x86
+            julia-version: 'nightly'
           - os: macOS-latest
             julia-arch: aarch64
             julia-version: 'nightly'
