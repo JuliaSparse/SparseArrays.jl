@@ -30,7 +30,7 @@ const ORDERINGS = [ORDERING_FIXED, ORDERING_NATURAL, ORDERING_COLAMD, ORDERING_C
 
 using ..SparseArrays
 using ..SparseArrays: getcolptr, getrowval, getnzval, FixedSparseCSC, AbstractSparseMatrixCSC,
-    _unsafe_unfix, SparseQMatOperand, SparseQVecOperand
+    _unsafe_unfix, SparseQMatOperand, SparseQVecOperand, _check_workspace_aliasing
 using ..CHOLMOD
 using ..CHOLMOD: change_stype!, free!
 
@@ -126,6 +126,9 @@ struct QRSparseQ{Tv,Ti<:Integer} <: AbstractQ{Tv}
 end
 
 Base.size(Q::QRSparseQ) = (size(Q.factors, 1), size(Q.factors, 1))
+# the arrays `Q` is stored in, for LinearAlgebra's aliasing checks
+LinearAlgebra._aliasparts(Q::QRSparseQ) =
+    (LinearAlgebra._aliasparts(Q.factors)..., LinearAlgebra._aliasparts(Q.τ)...)
 # columns of the thin Q, which is the row count of R; SPQR stores only the reflectors it needs
 _thinwidth(Q::QRSparseQ) = min(size(Q.factors, 1), Q.n)
 
@@ -389,6 +392,7 @@ LinearAlgebra._qr(::SparseMatrixCSC, ::LinearAlgebra.PivotingStrategy; kwargs...
     error("Pivoting Strategies are not supported for `SparseMatrixCSC`s")
 
 function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
+    LinearAlgebra.check_q_aliasing(A, Q)
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
@@ -404,6 +408,7 @@ function LinearAlgebra.lmul!(Q::QRSparseQ, A::StridedVecOrMat)
 end
 
 function LinearAlgebra.rmul!(A::StridedMatrix, Q::QRSparseQ)
+    LinearAlgebra.check_q_aliasing(A, Q)
     if size(A, 2) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
@@ -425,6 +430,7 @@ end
 
 function LinearAlgebra.lmul!(adjQ::AdjointQ{<:Any,<:QRSparseQ}, A::StridedVecOrMat)
     Q = parent(adjQ)
+    LinearAlgebra.check_q_aliasing(A, Q)
     if size(A, 1) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
@@ -441,6 +447,7 @@ end
 
 function LinearAlgebra.rmul!(A::StridedMatrix, adjQ::AdjointQ{<:Any,<:QRSparseQ})
     Q = parent(adjQ)
+    LinearAlgebra.check_q_aliasing(A, Q)
     if size(A, 2) != size(Q, 1)
         throw(DimensionMismatch("size(Q) = $(size(Q)) but size(A) = $(size(A))"))
     end
@@ -703,11 +710,13 @@ end
 Scratch space for `ldiv!(x, F, b; workspace)`, which makes repeated solves allocation-free.
 Without it, `ldiv!` allocates its scratch space on each call. A workspace grows as needed,
 so it can be reused with any factorization of the same element type, but not by two calls
-at once.
+at once. It must not share memory with `x`, `b` or `F`.
 """
 struct SpqrWS{Tv}
     w::Vector{Tv}
 end
+# the array the workspace is stored in, for the aliasing checks
+LinearAlgebra._aliasparts(ws::SpqrWS) = (ws.w,)
 SpqrWS(F::QRSparse{Tv}) where {Tv} = SpqrWS{Tv}(Tv[])
 SpqrWS(F::LinearAlgebra.AdjointFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
 SpqrWS(F::LinearAlgebra.TransposeFactorization{<:Any,<:QRSparse}) = SpqrWS(parent(F))
@@ -760,6 +769,7 @@ julia> qr(A)\\fill(1.0, 4)
 function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, F::QRSparse{T}, B::StridedVecOrMat{T};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     LinearAlgebra.check_inplace_aliasing(X, F) # X may be B, which is read into the workspace first
+    _check_workspace_aliasing(workspace, X, B, F)
     if size(F, 1) != size(B, 1)
         throw(DimensionMismatch("size(F) = $(size(F)) but size(B) = $(size(B))"))
     end
@@ -871,6 +881,7 @@ julia> A'x
 function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Fadj::AdjointQRSparse{T}, B::StridedVecOrMat{T};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T}
     LinearAlgebra.check_inplace_aliasing(X, Fadj)
+    _check_workspace_aliasing(workspace, X, B, Fadj)
     F = parent(Fadj)
     m, n = size(F)
     # Solving A'x = b for a wide A would be an overdetermined problem requiring a
@@ -933,9 +944,11 @@ const TransposeQRSparse{Tv} = LinearAlgebra.TransposeFactorization{Tv,<:QRSparse
 LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
                     workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Real} =
     ldiv!(X, parent(Ft)', B; workspace)
-LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
-                    workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Complex} =
-    conj!(ldiv!(X, parent(Ft)', conj(B); workspace))
+function LinearAlgebra.ldiv!(X::StridedVecOrMat{T}, Ft::TransposeQRSparse{T}, B::StridedVecOrMat{T};
+                             workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Complex}
+    _check_workspace_aliasing(workspace, X, B, Ft)
+    return conj!(ldiv!(X, parent(Ft)', conj(B); workspace))
+end
 
 # A complex right-hand side with a real factorization is solved for its real and its
 # imaginary part. The first solve checks the sizes, before X is written.
@@ -944,6 +957,7 @@ function LinearAlgebra.ldiv!(X::StridedVecOrMat{Complex{T}},
                              B::StridedVecOrMat{Complex{T}};
                              workspace::Union{Nothing,SpqrWS{T}} = nothing) where {T<:Real}
     LinearAlgebra.check_inplace_aliasing(X, F)
+    _check_workspace_aliasing(workspace, X, B, F)
     Xr = ldiv!(similar(X, T), F, real(B); workspace)
     Xi = ldiv!(similar(X, T), F, imag(B); workspace)
     return map!(complex, X, Xr, Xi)
