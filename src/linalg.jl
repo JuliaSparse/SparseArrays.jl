@@ -622,9 +622,12 @@ function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatri
     return _scalecols!(C, A, D.diag, /)
 end
 
-rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal) = LinearAlgebra._rdiv!(A, A, D)
+rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal) =
+    (check_inplace_aliasing(A, D); LinearAlgebra._rdiv!(A, A, D))
 
+# `C` may be `A`, as in the 2-argument `ldiv!(D, A)`
 function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
+    check_inplace_aliasing(C, D)
     _checkscaledims(C, A, D, 1)
     _checknonsingular(D)
     return _scalerows!(C, A, D.diag, \)
@@ -633,6 +636,7 @@ end
 ldiv!(D::Diagonal, A::AbstractSparseMatrixCSC) = ldiv!(A, D, A)
 
 function ldiv!(D::Diagonal, x::AbstractSparseVector)
+    check_inplace_aliasing(x, D)
     _checkscaledims(x, x, D, 1)
     _checknonsingular(D)
     return _scalerows!(x, D.diag, \)

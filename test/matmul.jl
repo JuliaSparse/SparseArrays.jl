@@ -469,6 +469,10 @@ end
     @test mismatch(Diagonal(b) * sA, Diagonal(b) * dA) === nothing
     @test mismatch(mul!(sC, Diagonal(b), sA), Diagonal(b) * dA) === nothing
     @test mismatch(lmul!(Diagonal(b), copy(sA)), Diagonal(b) * dA) === nothing
+    # a `Diagonal` that shares memory with the matrix it scales throws
+    X = sparse([1.0 2 0; 0 3 4; 5 0 6]); X0 = copy(X)
+    @test_throws ArgumentError rmul!(X, Diagonal(view(nonzeros(X), 1:3)))
+    @test X == X0
 
     # adjoint/transpose of a sparse matrix with a Diagonal (issue #619)
     for (T, W) in ((ComplexF64, adjoint), (ComplexF64, transpose))
@@ -835,6 +839,26 @@ end
     @test mul!((C = copy(D); C), S, C, false, 2.0) == 2D
     X = [D D]
     @test mul!(view(X, :, 1:3), S, UpperTriangular(view(X, :, 4:6))) == S * UpperTriangular(D)
+    # a `Diagonal` that shares memory with the destination throws, while a sparse destination
+    # may be the matrix it scales
+    Dg = Diagonal([2.0, 3, 4])
+    for f in (X -> mul!(X, copy(X), Diagonal(view(nonzeros(X), 1:3))),
+              X -> lmul!(Diagonal(view(nonzeros(X), 1:3)), X), X -> rdiv!(X, Diagonal(view(nonzeros(X), 1:3))),
+              X -> ldiv!(Diagonal(view(nonzeros(X), 1:3)), X))
+        X = copy(S)
+        @test_throws ArgumentError f(X)
+        @test mismatch(X, Matrix(S)) === nothing
+    end
+    @test mismatch(mul!((X = copy(S); X), X, Dg), Matrix(S) * Dg) === nothing
+    x = sparsevec([1, 3], [2.0, 4.0], 3); x0 = copy(x)
+    @test_throws ArgumentError ldiv!(Diagonal(view(nonzeros(x), [1, 2, 2])), x)
+    @test mismatch(x, Vector(x0)) === nothing
+    y = sparsevec([1], [2.0]); y0 = copy(y)
+    @test_throws ArgumentError ldiv!(UpperTriangular(reshape(nonzeros(y), 1, 1)), y)
+    @test mismatch(y, Vector(y0)) === nothing
+    # empty buffers share no memory
+    @test mismatch(mul!(spzeros(3, 3), spzeros(3, 3), Dg), zeros(3, 3)) === nothing
+    @test mismatch(mul!(spzeros(3), spzeros(3, 3), spzeros(3)), zeros(3)) === nothing
 end
 end
 

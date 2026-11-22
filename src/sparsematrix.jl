@@ -787,6 +787,9 @@ end
 ## Alias detection and prevention
 using Base: dataids, unaliascopy
 Base.dataids(S::AbstractSparseMatrixCSC) = _is_fixed(S) ? dataids(getnzval(S)) : (dataids(getcolptr(S))..., dataids(getrowval(S))..., dataids(getnzval(S))...)
+# The aliasing checks compare these one by one, so that empty buffers, which share one
+# `Memory` and report as aliased through `dataids`, are not taken for overlap
+_aliasparts(S::AbstractSparseMatrixCSC) = _storagebuffers(S)
 Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2),
     _is_fixed(S) ? getcolptr(S) : unaliascopy(getcolptr(S)),
     _is_fixed(S) ? getrowval(S) : unaliascopy(getrowval(S)),
