@@ -255,8 +255,9 @@ function issparse(A::AbstractArray)
     # Handle wrapper arrays: sparse if it is wrapping a sparse array.
     # This gets compiled away during specialization.
     p = parent(A)
-    if p === A
+    if p === A || !(p isa AbstractArray)
         # have reached top of wrapping without finding a sparse array, assume it is not.
+        # The parent of an array need not be an array.
         return false
     else
         return issparse(p)
