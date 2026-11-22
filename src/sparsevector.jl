@@ -1081,7 +1081,13 @@ Base.isequal(A::Transpose{<:Any,<:AbstractCompressedVector},
 ==(A::Adjoint{<:Any,<:AbstractCompressedVector},
     B::Adjoint{<:Any,<:AbstractCompressedVector}) = adjoint(A) == adjoint(B)
 Base.isequal(A::Adjoint{<:Any,<:AbstractCompressedVector},
-    B::Adjoint{<:Any,<:AbstractCompressedVector}) = isequal(adjoint(A), adjoint(B))
+    B::Adjoint{<:Any,<:AbstractCompressedVector}) = _iseq(_adjointeq(isequal), adjoint(A), adjoint(B))
+
+# `eq` of the adjoints of two entries, to compare `A` and `B` through `A'` and `B'`.
+# Comparing `A'` and `B'` themselves keeps `==` but not `isequal`, which tells a real
+# number from a complex one with a negative zero imaginary part: `isequal(1, 1.0 + 0.0im)`,
+# but not `isequal(1, 1.0 - 0.0im)`.
+_adjointeq(eq::F) where {F} = (a, b) -> eq(adjoint(a), adjoint(b))
 
 ## Comparisons with dense arrays
 
