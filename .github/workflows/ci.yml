@@ -27,8 +27,10 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
+          - macOS-latest
+          - ubuntu-26.04-arm
         julia-arch:
-          - x64
+          - default
         julia-version:
           - 'nightly'
         include:
@@ -37,14 +39,9 @@ jobs:
             julia-arch: x86
             julia-version: 'nightly'
           - os: macOS-latest
-            julia-arch: aarch64
-            julia-version: 'nightly'
             check-bounds: 'yes'
-          - os: ubuntu-26.04-arm
-            julia-arch: aarch64
-            julia-version: 'nightly'
           - os: ubuntu-latest
-            julia-arch: x64
+            julia-arch: default
             julia-version: 'nightly'
             coverage: true
     steps:
