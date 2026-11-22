@@ -216,6 +216,8 @@ similar(S::AbstractCompressedVector, ::Type{TvNew}, ::Type{TiNew}, m::Integer, n
 ## Alias detection and prevention
 using Base: dataids, unaliascopy
 Base.dataids(S::SparseVector) = (dataids(nonzeroinds(S))..., dataids(nonzeros(S))...)
+# compared one by one in LinearAlgebra's aliasing checks, as for a matrix
+LinearAlgebra._aliasparts(x::AbstractCompressedVector) = _storagebuffers(x)
 Base.unaliascopy(S::SparseVector) = typeof(S)(length(S), unaliascopy(nonzeroinds(S)), unaliascopy(nonzeros(S)))
 
 ### Construct empty sparse vector
@@ -1829,6 +1831,7 @@ function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector
 end
 
 function ldiv!(xA::StridedTriangularMaybeAdjOrTrans, b::AbstractCompressedVector)
+    LinearAlgebra.check_inplace_aliasing(b, xA)
     _checktrisolve(xA, b)
     nnz(b) == 0 && return b
     active = _activerange(xA, b)
