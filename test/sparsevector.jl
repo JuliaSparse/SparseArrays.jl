@@ -426,6 +426,14 @@ end
         @test isequal(y, x) == isequal(Vector(y), Vector(x))
         @test (x == y) == (Vector(x) == Vector(y))
     end
+    @static if COMPREHENSIVE
+    # the adjoints of a real and a complex vector (issue #1185)
+    for (x, y) in ((sparsevec([1], [1], 2), sparsevec([1], [1.0 + 0.0im], 2)),
+                   (sparsevec([1], [1]), sparsevec([1], [1.0 + 0.0im])))
+        @test isequal(x', y') == isequal(Array(x'), Array(y'))
+        @test isequal(y', x') == isequal(Array(y'), Array(x'))
+    end
+    end
     @test !isequal(spzeros(3), spzeros(4))
     # unit-range views of sparse vectors compare through the same stored-entry merge as
     # sparse vectors, on either side, instead of the elementwise AbstractArray fallback
