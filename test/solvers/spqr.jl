@@ -5,8 +5,8 @@ using Test
 
 using SparseArrays.SPQR
 using SparseArrays.CHOLMOD
-using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, factorize, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
-using SparseArrays: SparseArrays, sparse, spzeros, SparseMatrixCSC
+using LinearAlgebra: I, istril, istriu, lq, norm, qr, rank, rmul!, lmul!, ldiv!, mul!, factorize, Adjoint, Transpose, ColumnNorm, RowMaximum, NoPivot
+using SparseArrays: SparseArrays, sparse, spzeros, SparseMatrixCSC, nnz, nonzeros
 include("../testhelpers.jl")
 
 
@@ -436,6 +436,48 @@ end
         b = collect(1.0:n)
         x = F \ b
         @test ldiv!(b, F, b) == x
+        # but not F, which would give wrong solves from then on
+        R0 = copy(F.R)
+        @test_throws ArgumentError ldiv!(view(nonzeros(F.R), 1:n), F, b)
+        @test F.R == R0
+        @static if COMPREHENSIVE
+        @test nnz(F.R) >= 2n
+        X = view(nonzeros(F.R), 1:n)
+        @test_throws ArgumentError ldiv!(X, F', b)
+        @test_throws ArgumentError ldiv!(F, X)
+        @test_throws ArgumentError ldiv!(reinterpret(ComplexF64, view(nonzeros(F.R), 1:2n)), F, complex.(b))
+        @test F.R == R0
+        end
+        # nor Q, as for LinearAlgebra's Q types, and the workspace shares nothing with X, B or F
+        Q0 = copy(F.Q.factors)
+        @test_throws ArgumentError lmul!(F.Q, view(nonzeros(F.Q.factors), 1:n))
+        @test F.Q.factors == Q0
+        ws = SPQR.SpqrWS(F)
+        ldiv!(similar(b), F, b; workspace = ws)
+        w0 = copy(ws.w)
+        @test_throws ArgumentError ldiv!(ws.w, F, b; workspace = ws)
+        @test ws.w == w0
+        @static if COMPREHENSIVE
+        v = view(nonzeros(F.Q.factors), 1:n)
+        @test_throws ArgumentError lmul!(F.Q', v)
+        @test_throws ArgumentError rmul!(reshape(v, 1, n), F.Q)
+        @test_throws ArgumentError rmul!(reshape(v, 1, n), F.Q')
+        @test_throws ArgumentError mul!(v, F.Q, b)
+        @test F.Q.factors == Q0
+        X = fill(7.0, n)
+        @test_throws ArgumentError ldiv!(X, F, ws.w; workspace = ws)
+        @test_throws ArgumentError ldiv!(X, F', ws.w; workspace = ws)
+        @test_throws ArgumentError ldiv!(X, F, b; workspace = SPQR.SpqrWS{Float64}(F.τ))
+        @test all(==(7.0), X)
+        ldiv!(zeros(n, 2), F, ones(n, 2); workspace = ws)
+        Xc = fill(complex(7.0), n)
+        @test_throws ArgumentError ldiv!(Xc, F, reinterpret(ComplexF64, ws.w); workspace = ws)
+        Fc = qr(fullrank(ComplexF64, n, n))
+        wsc = SPQR.SpqrWS(Fc)
+        ldiv!(similar(Xc), Fc, Xc; workspace = wsc)
+        @test_throws ArgumentError ldiv!(Xc, transpose(Fc), wsc.w; workspace = wsc)
+        @test all(==(7.0), Xc)
+        end
     end
 
     @static if COMPREHENSIVE
