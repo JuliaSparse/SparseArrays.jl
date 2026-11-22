@@ -142,6 +142,13 @@ end
     # the solution for an abstract eltype is not converted, so a least squares solve takes
     # any right-hand side
     @test tall \ Any[1.0, 2, 3] ≈ Matrix(tall) \ b
+    # the factorizations work in floating point, so the solution for a matrix of rationals
+    # is not converted back to rationals (issue #1179)
+    for M in (Rational{Int}[4 1 0; 0 4 2; 1 0 4], Rational{Int}[2 0; 1 3; 0 1])
+        rhs = Rational{Int}.(1:size(M, 1))
+        x = sparse(M) \ rhs
+        @test x isa Vector{Float64} && x ≈ M \ rhs
+    end
     end
     # when the Cholesky factorization of a Hermitian matrix fails, `factorize` returns
     # the LDLt factorization and `\` falls back to `lu`
