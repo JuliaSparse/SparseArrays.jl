@@ -32,17 +32,17 @@ jobs:
         julia-arch:
           - default
         julia-version:
-          - 'nightly'
+          - '1.14-nightly'
         include:
           # 32-bit on Linux only: Julia has no 32-bit Windows nightly
           - os: ubuntu-latest
             julia-arch: x86
-            julia-version: 'nightly'
+            julia-version: '1.14-nightly'
           - os: macOS-latest
             check-bounds: 'yes'
           - os: ubuntu-latest
             julia-arch: default
-            julia-version: 'nightly'
+            julia-version: '1.14-nightly'
             coverage: true
     steps:
       - uses: actions/checkout@v7
@@ -82,7 +82,7 @@ jobs:
           persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
-          version: 'nightly'
+          version: '1.14-nightly'
           arch: x64
       - uses: julia-actions/cache@v3
       - name: Check whitespace
@@ -101,7 +101,7 @@ jobs:
         run: |
           julia --color=yes --project -e 'using Pkg; Pkg.test(test_args=["aqua"])'
   trim:
-    name: trim (ubuntu-latest, x64, nightly)
+    name: trim (ubuntu-latest, x64, 1.14-nightly)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -113,7 +113,7 @@ jobs:
           persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
-          version: 'nightly'
+          version: '1.14-nightly'
           arch: x64
       - uses: julia-actions/cache@v3
       - name: Build and run a trimmed app
@@ -134,7 +134,7 @@ jobs:
           persist-credentials: false
       - uses: julia-actions/setup-julia@v3
         with:
-          version: 'nightly'
+          version: '1.14-nightly'
       - uses: julia-actions/cache@v3
       - name: Generate docs
         run: |
