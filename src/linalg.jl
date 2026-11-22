@@ -1515,13 +1515,15 @@ end
 _solve_factor(F) = F
 _solve_factor(D::Diagonal) = Diagonal(Vector(diag(D)))
 _sparse_solve(op, F, B) = \(op(_solve_factor(F)), B)
-# The eltype that dense `\` gives. It is `nothing` for an abstract eltype, which has no `one`
-# and whose solution is returned as the solver gives it.
+# The eltype that dense `\` gives, in floating point: the sparse factorizations work in
+# floating point, so the solution for a matrix of rationals stays in floating point. It is
+# `nothing` for an abstract eltype, which has no `one` and whose solution is returned as the
+# solver gives it.
 _ldiv_eltype(A, B) = isconcretetype(eltype(A)) && isconcretetype(eltype(B)) ?
-    typeof(one(eltype(A)) \ one(eltype(B))) : nothing
+    float(typeof(one(eltype(A)) \ one(eltype(B)))) : nothing
 # The sparse LU works in double precision and the QR and LQ in the precision of the matrix,
-# so their solution is converted to the eltype that dense `\` gives, and for the QR and LQ a
-# matrix of a narrower eltype than that is converted before it is factorized.
+# so their solution is converted to that eltype, and for the QR and LQ a matrix of a narrower
+# eltype than that is converted before it is factorized.
 _sparse_solversolve(op, F, A, B) = _convert_solution(_ldiv_eltype(A, B), _sparse_solve(op, F, B))
 _convert_solution(T, X) = convert(AbstractArray{T}, X)
 _convert_solution(::Nothing, X) = X
