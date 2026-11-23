@@ -570,7 +570,10 @@ qualifies. For other element types:
   other element type, use `map` or broadcasting.
 - The sparse factorizations work in real and complex floating
   point. A matrix of integers or rationals is converted to `Float64` first; a matrix of
-  another element type, such as `BigFloat`, is rejected.
+  another element type, such as `BigFloat`, is rejected. So `\`, `det` and `logabsdet` of
+  a matrix of rationals return floating point, where those of a dense square matrix of
+  rationals are exact. A triangular matrix of rationals is the exception, and so, for `\`,
+  is a Hermitian one, which LinearAlgebra's Hermitian solve keeps exact.
 
 ### [Sparse arrays with a fixed pattern](@id man-sparse-fixed)
 

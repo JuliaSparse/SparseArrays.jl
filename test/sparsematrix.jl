@@ -153,9 +153,10 @@ end
     @test !isequal(spzeros(2, 3)', spzeros(2, 3))
     # the wrapped operand stores entries that the other one does not
     @test spzeros(n, n) != B' && !isequal(spzeros(n, n), B') && B' != spzeros(n, n)
-    # adjoint vs transpose of a complex matrix nests wrappers (`Adjoint{<:Any,<:Transpose}`)
+    # adjoint vs transpose of a complex matrix nests wrappers (`Adjoint{<:Any,<:Transpose}`);
+    # the implicit zero of `C'` is `0.0 - 0.0im`, which `isequal` tells from `0.0 + 0.0im`
     C = sparse([1, 2], [2, 3], [1.0im, 2.0], 3, 3)
-    @test C' == transpose(conj(C)) && isequal(C', transpose(conj(C)))
+    @test C' == transpose(conj(C)) && !isequal(C', transpose(conj(C)))
     @test C' != transpose(C) && !isequal(C', transpose(C))
     # isequal semantics for NaN, signed zeros and conjugation must match dense arrays
     X = sparse([1, 2, 3, 1], [1, 1, 2, 3], [NaN, -0.0, 2.0, 1.0im], 3, 3)
@@ -173,6 +174,18 @@ end
             @test isequal(R, L) == isequal(Matrix(R), Matrix(L))
             @test (L == R) == (Matrix(L) == Matrix(R))
         end
+    end
+    @static if COMPREHENSIVE
+    # the adjoint conjugates its own side only: its implicit zero, and its entries against
+    # those of a real matrix, since `isequal(1, 1.0 + 0.0im)` but not
+    # `isequal(1, 1.0 - 0.0im)` (issue #1185)
+    Z = spzeros(ComplexF64, 2, 2)
+    P = sparse([1], [1], [1.0 + 0.0im], 2, 2)
+    Q = sparse([1], [1], [1], 2, 2)
+    for (L, R) in ((Z, Z'), (spzeros(2, 2), Z'), (Q', P), (P, Q'), (Q', P'))
+        @test isequal(L, R) == isequal(Matrix(L), Matrix(R))
+        @test isequal(R, L) == isequal(Matrix(R), Matrix(L))
+    end
     end
 end
 
@@ -1520,6 +1533,22 @@ end
         @test findprev(!iszero, w, i) == findprev(!iszero, wd, i)
     end
     end
+end
+
+@static if COMPREHENSIVE
+@testset "findnext and findprev from a start outside the array (issue #1176)" begin
+    v = sparsevec([0.0, 1.0])
+    @test_throws BoundsError findnext(!iszero, v, 0)
+    @test findnext(!iszero, v, 3) === nothing
+    @test findprev(!iszero, v, 0) === nothing
+    @test_throws BoundsError findprev(!iszero, v, 3)
+    A = sparse([0.0 0.0; 1.0 0.0])
+    @test_throws BoundsError findnext(!iszero, A, CartesianIndex(0, 1))
+    @test_throws BoundsError findnext(!iszero, A, CartesianIndex(3, 1))
+    @test findnext(!iszero, A, CartesianIndex(1, 3)) === nothing
+    @test findprev(!iszero, A, CartesianIndex(1, 0)) === nothing
+    @test_throws BoundsError findprev(!iszero, A, CartesianIndex(3, 2))
+end
 end
 
 #testing the sparse matrix/vector access functions nnz, nzrange, rowvals, nonzeros

@@ -787,6 +787,9 @@ end
 ## Alias detection and prevention
 using Base: dataids, unaliascopy
 Base.dataids(S::AbstractSparseMatrixCSC) = _is_fixed(S) ? dataids(getnzval(S)) : (dataids(getcolptr(S))..., dataids(getrowval(S))..., dataids(getnzval(S))...)
+# The aliasing checks compare these one by one, so that empty buffers, which share one
+# `Memory` and report as aliased through `dataids`, are not taken for overlap
+_aliasparts(S::AbstractSparseMatrixCSC) = _storagebuffers(S)
 Base.unaliascopy(S::AbstractSparseMatrixCSC) = typeof(S)(size(S, 1), size(S, 2),
     _is_fixed(S) ? getcolptr(S) : unaliascopy(getcolptr(S)),
     _is_fixed(S) ? getrowval(S) : unaliascopy(getrowval(S)),
@@ -1978,32 +1981,48 @@ function nzeq(eq::F, A::AbstractSparseMatrixCSC, B::AbstractMatrix) where {F}
     end
     return anymissing ? missing : true
 end
-# Peel off `Adjoint` and `Transpose` from first argument
-# `B` may be a nested wrapper such as `Adjoint{<:Any,<:Transpose}` (from `A' == transpose(B)`),
-# hence the loose `AbstractMatrix` bound: `B` is only ever indexed
-nzeq(eq::F, A::Adjoint{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans},
-     B::AbstractMatrix) where {F} =
-    nzeq(eq, A', B')
-nzeq(eq::F, A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans},
-     B::AbstractMatrix) where {F} =
-    nzeq(eq, transpose(A), transpose(B))
+# Peel off `Adjoint` and `Transpose` from first argument: the wrapper applies to the entries
+# of `A`, and `B` is indexed with its indices swapped. Taking the adjoint of `B` instead
+# would conjugate both sides, which changes `isequal` of a real and a complex number.
+# `B` may be a nested wrapper such as `Adjoint{<:Any,<:Transpose}`, hence the loose
+# `AbstractMatrix` bound: `B` is only ever indexed
+nzeq(eq::F, A::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::AbstractMatrix) where {F} =
+    nzeq(_opeq(eq, wrapperop(A)), parent(A), PermutedDimsArray(B, (2, 1)))
+_opeq(eq::F, op::O) where {F,O} = (a, b) -> eq(op(a), b)
 
 # The sparse matrix that `A` wraps in `Adjoint`s and `Transpose`s, one sparse
 # transposition per wrapper. Its entries are only read, so they are not copied.
 _unwrap_adjtrans(A::AbstractSparseMatrixCSC) = A
 _unwrap_adjtrans(A::AdjOrTrans) = ftranspose(_unwrap_adjtrans(parent(A)), wrapperop(A), eltype(A))
 
+# The implicit zeros of `A` and `B`, either of which may be a lazy adjoint or transpose,
+# and `eq` of them. A wrapper applies to the zero of its root as to the stored entries:
+# the adjoint of a complex zero is `0.0 - 0.0im`, which `isequal` tells from `0.0 + 0.0im`.
+function _implicit_zeros_wrapped(eq::F, A, B) where {F}
+    PA, opa, _ = _peel(A)
+    PB, opb, _ = _peel(B)
+    za, zb, zeq = _implicit_zeros(eq, PA, PB)
+    (za isa Union{UnknownZero,UnequalZero} || zb isa Union{UnknownZero,UnequalZero}) &&
+        return za, zb, zeq
+    wa, wb = opa(za), opb(zb)
+    # zeros that no wrapper changes compare as `_implicit_zeros` found
+    wa === za && wb === zb && return za, zb, zeq
+    c = eq(wa, wb)
+    return wa, wb, (c === false ? false : ismissing(c) ? missing : true)
+end
+
 # Compare by walking both matrices
 # (We could further optimize the case `AbstractSparseMatrixCSC ==
 # Adjoint(Transpose(AbstractSparseMatrixCSC))` more efficiently, i.e.
 # the case where the RHS is both adjoint and transposed, i.e. where it
 # is in CSC format again.)
-function _iseq(eq::F, A::AbstractSparseMatrixCSC,
+function _iseq(eq::F, A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}},
                B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) where {F}
     # Different sizes are always different
     size(A) ≠ size(B) && return false
+    za, zb, zeq = _implicit_zeros_wrapped(eq, A, B)
     # `nzeq` skips the positions stored in neither matrix, which decide unless the zeros are equal
-    _implicit_zeros(eq, A, first(_peel(B)))[3] === true || return _iseq(eq, A, _unwrap_adjtrans(B))
+    zeq === true || return _iseq(eq, _unwrap_adjtrans(A), _unwrap_adjtrans(B), za, zb, zeq)
     # Compare nonzero elements
     c = nzeq(eq, A, B)
     c === false && return false
@@ -2011,6 +2030,8 @@ function _iseq(eq::F, A::AbstractSparseMatrixCSC,
     d === false && return false
     return ismissing(c) || ismissing(d) ? missing : true
 end
+_iseq(eq::F, A::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::AbstractSparseMatrixCSC) where {F} =
+    _iseq(_swapargs(eq), B, A)
 ==(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) =
     _iseq(==, A, B)
 Base.isequal(A::AbstractSparseMatrixCSC, B::AdjOrTrans{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}) =
@@ -2034,7 +2055,7 @@ _unview(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = A
 ==(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
     transpose(A) == transpose(B)
 Base.isequal(A::Adjoint{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
-    isequal(A', B')
+    _iseq(_adjointeq(isequal), A', B')
 Base.isequal(A::Transpose{<:Any,<:SparseMatrixCSCMaybeAdjOrTrans}, B::SparseMatrixCSCMaybeAdjOrTrans) =
     isequal(transpose(A), transpose(B))
 

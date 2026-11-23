@@ -622,9 +622,12 @@ function LinearAlgebra._rdiv!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatri
     return _scalecols!(C, A, D.diag, /)
 end
 
-rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal) = LinearAlgebra._rdiv!(A, A, D)
+rdiv!(A::AbstractSparseMatrixCSC, D::Diagonal) =
+    (check_inplace_aliasing(A, D); LinearAlgebra._rdiv!(A, A, D))
 
+# `C` may be `A`, as in the 2-argument `ldiv!(D, A)`
 function ldiv!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC)
+    check_inplace_aliasing(C, D)
     _checkscaledims(C, A, D, 1)
     _checknonsingular(D)
     return _scalerows!(C, A, D.diag, \)
@@ -633,6 +636,7 @@ end
 ldiv!(D::Diagonal, A::AbstractSparseMatrixCSC) = ldiv!(A, D, A)
 
 function ldiv!(D::Diagonal, x::AbstractSparseVector)
+    check_inplace_aliasing(x, D)
     _checkscaledims(x, x, D, 1)
     _checknonsingular(D)
     return _scalerows!(x, D.diag, \)
@@ -701,6 +705,14 @@ end
 
 ## diff
 
+# The eltype of `a - b` for two stored entries, which dense `diff` gives: `Int` for `Bool`.
+# Inference returns `Any` for an abstract `Tv` such as `Number`, whose elements' differences
+# `Tv` itself holds.
+function _diff_eltype(::Type{Tv}) where {Tv}
+    R = promote_op(-, Tv, Tv)
+    return R === Any && !isconcretetype(Tv) ? Tv : R
+end
+
 # Append the first difference along one stored column (rows `rowval_a[rng]`, values
 # `nzval_a[rng]`, length `m`) to `rowval`/`nzval` after entry `numnz`, and return the
 # new count. Each stored entry `(i, v)` contributes `+v` at `i-1` and `-v` at `i`; the
@@ -732,11 +744,12 @@ end
 
 function sparse_diff1(S::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     m,n = size(S)
-    m > 1 || return SparseMatrixCSC(0, n, fill(one(Ti),n+1), Ti[], Tv[])
+    T = _diff_eltype(Tv)
+    m > 1 || return SparseMatrixCSC(0, n, fill(one(Ti),n+1), Ti[], T[])
     colptr = Vector{Ti}(undef, n+1)
     numnz = 2 * nnz(S) # upper bound; will shrink later
     rowval = Vector{Ti}(undef, numnz)
-    nzval = Vector{Tv}(undef, numnz)
+    nzval = Vector{T}(undef, numnz)
     numnz = 0
     @inbounds colptr[1] = 1
     @inbounds for col = 1 : n
@@ -753,9 +766,7 @@ function sparse_diff2(a::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
     colptr = Vector{Ti}(undef, max(n,1))
     numnz = 2 * nnz(a) # upper bound; will shrink later
     rowval = Vector{Ti}(undef, numnz)
-    nzval = Vector{Tv}(undef, numnz)
-
-    z = zero(Tv)
+    nzval = Vector{_diff_eltype(Tv)}(undef, numnz)
 
     rowval_a = getrowval(a)
     nzval_a = getnzval(a)
@@ -800,7 +811,7 @@ function sparse_diff2(a::SparseMatrixCSCOrColumnSubset{Tv,Ti}) where {Tv,Ti}
                 ptrB += 1
             else
                 res = nzvalA[ptrA] - nzvalB[ptrB]
-                if res != z
+                if !iszero(res)
                     rowval[ptrS] = rowA
                     nzval[ptrS] = res
                     ptrS += 1
@@ -846,11 +857,11 @@ function _sparse_diff(x, dims)
     n = length(x)
     nzind_x = nonzeroinds(x)
     nzval_x = nonzeros(x)
-    Ti, Tv = eltype(nzind_x), eltype(nzval_x)
-    n > 1 || return SparseVector(0, Ti[], Tv[])
+    Ti, T = eltype(nzind_x), _diff_eltype(eltype(nzval_x))
+    n > 1 || return SparseVector(0, Ti[], T[])
     numnz = 2 * length(nzind_x) # upper bound; will shrink later
     nzind = Vector{Ti}(undef, numnz)
-    nzval = Vector{Tv}(undef, numnz)
+    nzval = Vector{T}(undef, numnz)
     numnz = _sparse_diff1_column!(nzind, nzval, 0, nzind_x, nzval_x, eachindex(nzind_x), n)
     deleteat!(nzind, numnz+1:length(nzind))
     deleteat!(nzval, numnz+1:length(nzval))
@@ -896,7 +907,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
             @inbounds for j in axes(A,2)
                 colSum::Tsum = 0
                 for i in nzrange(A, j)
-                    colSum += abs(getnzval(A)[i])
+                    colSum += norm(getnzval(A)[i])
                 end
                 nA = max(nA, colSum)
             end
@@ -906,7 +917,7 @@ function opnorm(A::AbstractSparseMatrixCSC, p::Real=2)
         else
             rowSum = zeros(Tsum,m)
             @inbounds for i in axes(getnzval(A),1)
-                rowSum[getrowval(A)[i]] += abs(getnzval(A)[i])
+                rowSum[getrowval(A)[i]] += norm(getnzval(A)[i])
             end
             return convert(Tnorm, maximum(rowSum))
         end
@@ -1504,13 +1515,15 @@ end
 _solve_factor(F) = F
 _solve_factor(D::Diagonal) = Diagonal(Vector(diag(D)))
 _sparse_solve(op, F, B) = \(op(_solve_factor(F)), B)
-# The eltype that dense `\` gives. It is `nothing` for an abstract eltype, which has no `one`
-# and whose solution is returned as the solver gives it.
+# The eltype that dense `\` gives, in floating point: the sparse factorizations work in
+# floating point, so the solution for a matrix of rationals stays in floating point. It is
+# `nothing` for an abstract eltype, which has no `one` and whose solution is returned as the
+# solver gives it.
 _ldiv_eltype(A, B) = isconcretetype(eltype(A)) && isconcretetype(eltype(B)) ?
-    typeof(one(eltype(A)) \ one(eltype(B))) : nothing
+    float(typeof(one(eltype(A)) \ one(eltype(B)))) : nothing
 # The sparse LU works in double precision and the QR and LQ in the precision of the matrix,
-# so their solution is converted to the eltype that dense `\` gives, and for the QR and LQ a
-# matrix of a narrower eltype than that is converted before it is factorized.
+# so their solution is converted to that eltype, and for the QR and LQ a matrix of a narrower
+# eltype than that is converted before it is factorized.
 _sparse_solversolve(op, F, A, B) = _convert_solution(_ldiv_eltype(A, B), _sparse_solve(op, F, B))
 _convert_solution(T, X) = convert(AbstractArray{T}, X)
 _convert_solution(::Nothing, X) = X

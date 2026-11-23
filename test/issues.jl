@@ -100,6 +100,16 @@ end
     end
 end
 
+@testset "issue #1175, sparse diff of Bool promotes to Int like dense diff" begin
+    B = Bool[1 0 1; 0 1 1; 1 1 0]
+    S = sparse(B)
+    for dims in (1, 2)
+        @test mismatch(diff(S; dims), diff(B; dims)) === nothing
+        @test mismatch(diff(S'; dims), diff(B'; dims)) === nothing
+    end
+    @test mismatch(diff(S[:, 1]), diff(B[:, 1])) === nothing
+end
+
 @testset "issue #6036" begin
     P = spzeros(Float64, 3, 3)
     for i = 1:3
@@ -1167,6 +1177,25 @@ end
     # blocks of different types, as `I` gives, are not boxed once per column
     allocs(n) = (S = sparse(1.0I, n, n); hcat(S, I); @allocations(hcat(S, I)))
     @test allocs(1000) == allocs(2000)
+end
+
+@testset "the adjoint of a Bool sparse vector converts to a sparse matrix (issue #1178)" begin
+    S = sparse(Bool[true false; true true])
+    x = sparsevec(Bool[true, false])
+    @test mismatch(SparseMatrixCSC(x'), Matrix(Vector(x)')) === nothing
+    @test mismatch(S .* x', Matrix(S) .* Vector(x)') === nothing
+end
+
+@testset "concatenating arrays whose parent is not an array (issue #1191)" begin
+    for k in (KeysVector(Dict("a" => 1, "b" => 2)), KeysVector(Dict(1.0 => 1, 2.0 => 2)))
+        @test !issparse(k)
+        @test vcat(k, k)::Vector == vcat(collect(k), collect(k))
+        @test hcat(k, k)::Matrix == hcat(collect(k), collect(k))
+        @test hvcat((2,), k, k)::Matrix == hcat(collect(k), collect(k))
+        @test cat(k, k; dims=1)::Vector == vcat(collect(k), collect(k))
+    end
+    @test mismatch(vcat(KeysVector(Dict(1.0 => 1, 2.0 => 2)), sparsevec([3.0, 0.0])),
+                   [1.0, 2.0, 3.0, 0.0]) === nothing
 end
 
 end # SparseTestsBase

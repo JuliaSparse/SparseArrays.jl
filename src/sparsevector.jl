@@ -216,6 +216,8 @@ similar(S::AbstractCompressedVector, ::Type{TvNew}, ::Type{TiNew}, m::Integer, n
 ## Alias detection and prevention
 using Base: dataids, unaliascopy
 Base.dataids(S::SparseVector) = (dataids(nonzeroinds(S))..., dataids(nonzeros(S))...)
+# compared one by one in the aliasing checks, as for a matrix
+_aliasparts(x::AbstractCompressedVector) = _storagebuffers(x)
 Base.unaliascopy(S::SparseVector) = typeof(S)(length(S), unaliascopy(nonzeroinds(S)), unaliascopy(nonzeros(S)))
 
 ### Construct empty sparse vector
@@ -1079,7 +1081,13 @@ Base.isequal(A::Transpose{<:Any,<:AbstractCompressedVector},
 ==(A::Adjoint{<:Any,<:AbstractCompressedVector},
     B::Adjoint{<:Any,<:AbstractCompressedVector}) = adjoint(A) == adjoint(B)
 Base.isequal(A::Adjoint{<:Any,<:AbstractCompressedVector},
-    B::Adjoint{<:Any,<:AbstractCompressedVector}) = isequal(adjoint(A), adjoint(B))
+    B::Adjoint{<:Any,<:AbstractCompressedVector}) = _iseq(_adjointeq(isequal), adjoint(A), adjoint(B))
+
+# `eq` of the adjoints of two entries, to compare `A` and `B` through `A'` and `B'`.
+# Comparing `A'` and `B'` themselves keeps `==` but not `isequal`, which tells a real
+# number from a complex one with a negative zero imaginary part: `isequal(1, 1.0 + 0.0im)`,
+# but not `isequal(1, 1.0 - 0.0im)`.
+_adjointeq(eq::F) where {F} = (a, b) -> eq(adjoint(a), adjoint(b))
 
 ## Comparisons with dense arrays
 
@@ -1782,6 +1790,7 @@ function \(xA::StridedTriangularMaybeAdjOrTrans{TA}, b::AbstractCompressedVector
 end
 
 function ldiv!(xA::StridedTriangularMaybeAdjOrTrans, b::AbstractCompressedVector)
+    check_inplace_aliasing(b, xA)
     _checktrisolve(xA, b)
     nnz(b) == 0 && return b
     active = _activerange(xA, b)

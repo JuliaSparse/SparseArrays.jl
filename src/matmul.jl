@@ -853,6 +853,13 @@ function _diagmul_scale!(C, beta)
     return C
 end
 
+# `C` is written while the diagonal is still read. `C` may be `A`, or share its storage:
+# each entry of `A` is read before the entry of `C` in its place is written.
+@inline function _checkdiagalias(C, D::Diagonal)
+    _mightalias(C, D) && throw_mul_aliasing()
+    return nothing
+end
+
 # multiply by diagonal matrix as vector
 """
     mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, α, β)
@@ -872,6 +879,7 @@ destination, `mul!(C, A, B, α, β)` takes a sparse `A` and a dense `B`, or the 
 round, and reads the adjoint or transpose of a sparse factor in place.
 """
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, alpha::Number, beta::Number)
+    _checkdiagalias(C, D)
     m, n = size(A)
     b = D.diag
     lb = length(b)
@@ -957,6 +965,7 @@ _adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSpars
     _storesafely(eltype(C), _diagmul_eltype(C, eltype(C), alpha, beta))
 
 function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
+    _checkdiagalias(C, D)
     m, n = size(A)
     lb = length(D.diag)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
@@ -968,6 +977,7 @@ function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMa
 end
 
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, alpha::Number, beta::Number)
+    _checkdiagalias(C, D)
     m, n = size(A)
     lb = length(D.diag)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
@@ -979,6 +989,7 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:Abs
 end
 
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC, alpha::Number, beta::Number)
+    _checkdiagalias(C, D)
     m, n = size(A)
     b    = D.diag
     lb = length(b)
@@ -1085,11 +1096,13 @@ ldiv!(b::Number, A::Union{AbstractSparseMatrixCSC,AbstractCompressedVector}) =
 
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
     _checkscaledims(A, A, D, 2)
+    check_inplace_aliasing(A, D)
     return _scalecols!(A, A, D.diag, *)
 end
 
 function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
     _checkscaledims(A, A, D, 1)
+    check_inplace_aliasing(A, D)
     return _scalerows!(A, A, D.diag, *)
 end
 

@@ -77,7 +77,7 @@ test goes, and how to measure test time, in addition to the top-level `AGENTS.md
   correctness, over `Float64` and `ComplexF64` with `Int` indices. Another type, wrapper
   or shape appears only where it is the point of the test, and `Int8`, `Int32` and
   `UInt8` not at all: a solver suite uses the build's `Int`, so the 32-bit C entry points
-  get their standard coverage from the 32-bit CI jobs. Julia's CI runs every suite
+  get their standard coverage from the Linux x86 CI job. Julia's CI runs every suite
   serially in one process, so standard mode must stay fast.
 - **Comprehensive** mode runs, in the same files, the tests guarded with
   `@static if COMPREHENSIVE` as well, and the `issues` and `solvers/issues` suites, which a

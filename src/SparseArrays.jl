@@ -60,6 +60,41 @@ public sparse!, spzeros!
     return iszero(v) === true && !(v isa AbstractFloat && signbit(v))
 end
 
+## Aliasing checks of in-place operations
+
+# The LinearAlgebra of Julia 1.14 has none; these are those of later LinearAlgebra versions,
+# for the sparse methods that overwrite an array while they read another operand.
+# `_aliasparts` lists the arrays an operand is stored in, which are compared one by one, so
+# that views of one array are compared by their indices.
+_aliasparts(A) = (A,)
+_aliasparts(A::Base.ReshapedArray) = _aliasparts(parent(A))
+_aliasparts(A::Union{Adjoint,Transpose}) = _aliasparts(parent(A))
+_aliasparts(D::Diagonal) = _aliasparts(D.diag)
+_aliasparts(F::Union{AdjointFactorization,TransposeFactorization}) = _aliasparts(parent(F))
+_aliasparts(Q::LinearAlgebra.AdjointQ) = _aliasparts(parent(Q))
+_mightalias(A, B) = any(a -> any(b -> Base.mightalias(a, b), _aliasparts(B)), _aliasparts(A))
+
+@inline function check_mul_aliasing(C, A, B)
+    (_mightalias(C, A) || _mightalias(C, B)) && throw_mul_aliasing()
+    return nothing
+end
+@noinline throw_mul_aliasing() =
+    throw(ArgumentError("output array must not be aliased with an input array"))
+
+@inline function check_inplace_aliasing(B, A)
+    _mightalias(B, A) && throw_inplace_aliasing()
+    return nothing
+end
+@noinline throw_inplace_aliasing() =
+    throw(ArgumentError("the array that is overwritten must not share memory with the other operand"))
+
+@inline function check_q_aliasing(A, Q)
+    _mightalias(A, Q) && throw_q_aliasing()
+    return nothing
+end
+@noinline throw_q_aliasing() =
+    throw(ArgumentError("an array that is overwritten must not share memory with the AbstractQ"))
+
 ## Functions to switch to 0-based indexing to call external sparse solvers
 
 # Convert from 1-based to 0-based indices
@@ -72,6 +107,24 @@ end
 decrement(A::AbstractArray) = let y = Array(A)
     y .= y .- oneunit(eltype(A))
 end
+
+# A solve writes the caller's workspace while it reads the right-hand side `B` and the
+# factorization `F`, and between writes to the output `X`.
+_check_workspace_aliasing(::Nothing, X, B, F) = nothing
+@inline function _check_workspace_aliasing(ws, X, B, F)
+    _anyaliases(_aliasparts(ws), X, B, F) && _throw_workspace_aliasing()
+    return nothing
+end
+# One array of the workspace at a time: `_mightalias` of the whole workspace goes through
+# a closure that is not inlined for a tuple of several array types, and allocates.
+_anyaliases(::Tuple{}, X, B, F) = false
+@inline function _anyaliases(parts::Tuple, X, B, F)
+    w = first(parts)
+    return _mightalias(w, X) || _mightalias(w, B) ||
+        _mightalias(w, F) || _anyaliases(Base.tail(parts), X, B, F)
+end
+@noinline _throw_workspace_aliasing() = throw(ArgumentError(
+    "the workspace must not share memory with the output, the right-hand side or the factorization"))
 
 """
     AbstractSparseArray{Tv,Ti,N}
@@ -255,8 +308,9 @@ function issparse(A::AbstractArray)
     # Handle wrapper arrays: sparse if it is wrapping a sparse array.
     # This gets compiled away during specialization.
     p = parent(A)
-    if p === A
+    if p === A || !(p isa AbstractArray)
         # have reached top of wrapping without finding a sparse array, assume it is not.
+        # The parent of an array need not be an array.
         return false
     else
         return issparse(p)
@@ -293,11 +347,20 @@ indtype(T::Union{AdjOrTrans,HermOrSym}) = indtype(parent(T))
 _sparse_findnextnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedfirst(I, i); n<=length(I) ? I[n] : nothing)
 _sparse_findprevnz(v::AbstractSparseArray, i) = (I = findall(_isnotzero, v); n = searchsortedlast(I, i);  _isnotzero(n) ? I[n] : nothing)
 
+# Base's generic `findnext` and `findprev` return `nothing` for a start beyond the end the
+# search moves toward and throw `BoundsError` for any other start outside the array.
+_findkeys(v, ::Integer) = LinearIndices(v)
+_findkeys(v, ::CartesianIndex) = CartesianIndices(v)
+
 function findnext(f::Function, v::Union{AbstractSparseArray,SparseMatrixCSCView,SparseVectorOrView}, i)
     # short-circuit the case f == !iszero because that avoids
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
     if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
         return invoke(findnext, Tuple{Function,Any,Any}, f, v, i)
+    end
+    if !checkbounds(Bool, v, i)
+        i > last(_findkeys(v, i)) && return nothing
+        throw(BoundsError(v, i))
     end
     j = _sparse_findnextnz(v, i)
     while j !== nothing && !f(v[j])
@@ -311,6 +374,10 @@ function findprev(f::Function, v::Union{AbstractSparseArray,SparseMatrixCSCView,
     # allocating e.g. zero(BigInt) for the f(zero(...)) test.
     if nnz(v) == length(v) || (f != (!iszero) && f != _isnotzero && f(zero(eltype(v))))
         return invoke(findprev, Tuple{Function,Any,Any}, f, v, i)
+    end
+    if !checkbounds(Bool, v, i)
+        i < first(_findkeys(v, i)) && return nothing
+        throw(BoundsError(v, i))
     end
     j = _sparse_findprevnz(v, i)
     while j !== nothing && !f(v[j])

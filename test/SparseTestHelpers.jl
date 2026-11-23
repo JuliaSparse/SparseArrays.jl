@@ -9,7 +9,7 @@ module SparseTestHelpers
 export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     same_pattern, exact_equal, WrappedSparseVector, OpCount, mulcount, eqcount,
     opcount_sparse, CountedReads, hasunionlocal, quaternion_type, SimpleSMatrix,
-    NonCSCSparse, LegacyCSC, ConcatArray, AllBut, MockTropical, Variable, Expression, Meters,
+    NonCSCSparse, LegacyCSC, ConcatArray, KeysVector, AllBut, MockTropical, Variable, Expression, Meters,
     OneSided, Tagged, CustomType, UndefElt, Positive,
     check_trisolve, check_scalar_broadcast, allocated_bytes,
     show_plain, show_contents,
@@ -241,6 +241,14 @@ Base.hvcat(rows::Tuple{Vararg{Int}}, x::AbstractMatrix, y::ConcatArray{<:Any,2})
     ConcatArray(hvcat(rows, x, y.data))
 Base.vcat(x::AbstractVector, y::ConcatArray{<:Any,1}) = ConcatArray(vcat(x, y.data))
 Base.hcat(x::AbstractVector, y::ConcatArray{<:Any,1}) = ConcatArray(hcat(x, y.data))
+
+# An array whose `parent` is not an array.
+struct KeysVector{K} <: AbstractVector{K}
+    parent::Dict{K,Int}
+end
+Base.size(k::KeysVector) = (length(k.parent),)
+Base.getindex(k::KeysVector, i::Int) = sort!(collect(keys(k.parent)))[i]
+Base.parent(k::KeysVector) = k.parent
 
 # An index type lowered by `to_indices`, like `InvertedIndices.Not`.
 struct AllBut; i::Int; end
