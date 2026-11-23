@@ -528,9 +528,8 @@ function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abst
         A_ptr_lo = first(rangefun(A, yi, true))
         A_ptr_hi = last(rangefun(A, yi, true))
         if A_ptr_lo <= A_ptr_hi
-            # dot is conjugated in the first argument, so double conjugate a's
-            r += dot(_spdot((x, a) -> a'x, 1, length(xnzind), xnzind, xnzval,
-                                            A_ptr_lo, A_ptr_hi, Arowval, Anzval), yv)
+            r += _spdot((x, a) -> dot(x, a, yv), 1, length(xnzind), xnzind, xnzval,
+                                            A_ptr_lo, A_ptr_hi, Arowval, Anzval)
         end
     end
     # view triangle without diagonal
@@ -538,18 +537,28 @@ function _dot(x::AbstractSparseVector, A::SparseMatrixCSCOrColumnSubset, y::Abst
         A_ptr_lo = first(rangefun(A, xi, true))
         A_ptr_hi = last(rangefun(A, xi, true))
         if A_ptr_lo <= A_ptr_hi
-            r += dot(xv, _spdot((a, y) -> odiagop(a)*y, A_ptr_lo, A_ptr_hi, Arowval, Anzval,
-                                            1, length(ynzind), ynzind, ynzval))
+            r += _spdot((a, y) -> dot(xv, odiagop(a), y), A_ptr_lo, A_ptr_hi, Arowval, Anzval,
+                                            1, length(ynzind), ynzind, ynzval)
         end
     end
-    # diagonal
-    @inbounds for i in axes(A,1)
-        r1 = Int(first(getnzrange(A, i)))
-        r2 = Int(last(getnzrange(A, i)))
-        r1 > r2 && continue
-        r1 += searchsortedfirst(view(Arowval, r1:r2), i) - 1
-        ((r1 > r2) || (Arowval[r1] != i)) && continue
-        r += dot(x[i], diagop(Anzval[r1]), y[i])
+    # diagonal, at the indices that both vectors store
+    xj, yj = 1, 1
+    @inbounds while xj <= length(xnzind) && yj <= length(ynzind)
+        i, iy = xnzind[xj], ynzind[yj]
+        if i == iy
+            r1 = Int(first(getnzrange(A, i)))
+            r2 = Int(last(getnzrange(A, i)))
+            r1 += searchsortedfirst(view(Arowval, r1:r2), i) - 1
+            if r1 <= r2 && Arowval[r1] == i
+                r += dot(xnzval[xj], diagop(Anzval[r1]), ynzval[yj])
+            end
+            xj += 1
+            yj += 1
+        elseif i < iy
+            xj += 1
+        else
+            yj += 1
+        end
     end
     r
 end
