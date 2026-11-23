@@ -91,13 +91,10 @@ function _spmatspmat_dense!(C, A, B, α, β)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
     rvA, nzA = getrowval(A), getnzval(A)
     rvB, nzB = getrowval(B), getnzval(B)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
+    _scale_dest!(C, α, β) || return
     C = _fix_size(C, mC, nC)
     @inbounds for k in axes(B, 2), q in getnzrange(B, k)
-        bα = α isa Bool ? nzB[q] : nzB[q] * α
+        bα = _αscale(nzB[q], α)
         for p in getnzrange(A, rvB[q])
             C[rvA[p], k] = muladd(nzA[p], bα, C[rvA[p], k])
         end
@@ -182,21 +179,27 @@ end
 @inline _matmul_size_AtB(C, A, B) = _matmul_size(C, A, B, Val('T'), Val('N'))
 @inline _matmul_size_ABt(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('T'))
 
+# The kernels that add `A*B*α` to `C*β`, as `mul!` does. `C*β` is formed first, and an `α`
+# of `false` adds nothing, so that a NaN in the factors does not reach `C`; any other `α`
+# multiplies each term. `_scale_dest!` returns whether there is a product to add.
+@inline function _scale_dest!(C, α, β)
+    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
+    return !(α isa Bool && !α)
+end
+@inline _αscale(x, α) = α isa Bool ? x : x * α
+
 function _spmatmul!(C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
     nzv = getnzval(A)
     rv = getrowval(A)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
+    _scale_dest!(C, α, β) || return
     B = _fix_size(B, mB, nB)
     C = _fix_size(C, mC, nC)
     for k in Cax2
         @inbounds for col in Aax2
-            αxj = α isa Bool ? B[col,k] : B[col,k] * α
+            αxj = _αscale(B[col,k], α)
             for j in getnzrange(A, col)
                 rvj = rv[j]
                 C[rvj, k] = muladd(nzv[j], αxj, C[rvj, k])
@@ -211,10 +214,7 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     mC, nC, mA, nA, mB, nB = _matmul_size_AtB(C, A, B)
     nzv = getnzval(A)
     rv = getrowval(A)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
+    _scale_dest!(C, α, β) || return
     C0 = zero(eltype(C)) # Pre-allocate for BigFloat/BigInt etc
     B = _fix_size(B, mB, nB)
     C = _fix_size(C, mC, nC)
@@ -255,14 +255,11 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::Spars
     mC, nC, mA, nA, mB, nB = plain ? _matmul_size_AB(C, A, B) : _matmul_size_ABt(C, A, B)
     rv = getrowval(B)
     nzv = getnzval(B)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
+    _scale_dest!(C, α, β) || return
     C = _fix_size(C, mC, nC)
     A = _fix_size(A, mA, nA)
     @inbounds for col in Bax2, k in getnzrange(B, col)
-        Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
+        Biα = _αscale(tfun(nzv[k]), α)
         dst, src = plain ? (col, rv[k]) : (rv[k], col)
         @simd for row in Aax1
             C[row, dst] = muladd(A[row, src], Biα, C[row, dst])
@@ -278,10 +275,7 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMat
     mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
     rv = getrowval(B)
     nzv = getnzval(B)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
+    _scale_dest!(C, α, β) || return
     C = _fix_size(C, mC, nC)
     buf = Vector{eltype(A)}(undef, mA)
     @inbounds for col in axes(B, 2)
@@ -291,7 +285,7 @@ function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMat
             buf[row] = A[row, col]
         end
         for k in nzrng
-            Biα = α isa Bool ? tfun(nzv[k]) : tfun(nzv[k]) * α
+            Biα = _αscale(tfun(nzv[k]), α)
             dst = rv[k]
             @simd for row in Aax1
                 C[row, dst] = muladd(buf[row], Biα, C[row, dst])
@@ -308,10 +302,7 @@ function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
     rv = getrowval(B)
     nzv = getnzval(B)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
+    _scale_dest!(C, α, β) || return
     C = _fix_size(C, mC, nC)
     A = _fix_size(A, mA, nA)
     @inbounds for row in Aax1, col in Bax2
@@ -319,7 +310,7 @@ function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B
         isempty(nzrng) && continue
         tmp = C[row, col]
         for k in nzrng
-            tmp = muladd(A[row, rv[k]], (α isa Bool ? nzv[k] : nzv[k] * α), tmp)
+            tmp = muladd(A[row, rv[k]], _αscale(nzv[k], α), tmp)
         end
         C[row, col] = tmp
     end
@@ -797,14 +788,11 @@ function _symherm_mul!(rangefun::R, diagop::D, odiagop::O, C::StridedVecOrMat, A
         throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
     rv = getrowval(A)
     nzv = getnzval(A)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
+    _scale_dest!(C, α, β) || return
     z = zero(eltype(C))
     @inbounds for k in axes(B,2)
         for col in axes(B,1)
-            αxj = α isa Bool ? B[col,k] : B[col,k] * α
+            αxj = _αscale(B[col,k], α)
             sumcol = z
             for j = rangefun(A, col)
                 row = rv[j]
@@ -816,7 +804,7 @@ function _symherm_mul!(rangefun::R, diagop::D, odiagop::O, C::StridedVecOrMat, A
                     sumcol += odiagop(aarc) * B[row,k]
                 end
             end
-            C[col,k] += α isa Bool ? sumcol : sumcol * α
+            C[col,k] += _αscale(sumcol, α)
         end
     end
 end
@@ -827,22 +815,19 @@ function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
     rv = getrowval(A)
     nzv = getnzval(A)
-    isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    if α isa Bool && !α
-        return
-    end
+    _scale_dest!(C, α, β) || return
     C = _fix_size(C, mC, nC)
     X = _fix_size(X, mX, nX)
     @inbounds for col in Aax2, k in rangefun(A, col)
         row = rv[k]
         if row == col
-            Aiα = α isa Bool ? diagop(nzv[k]) : diagop(nzv[k]) * α
+            Aiα = _αscale(diagop(nzv[k]), α)
             @simd for i in Xax1
                 C[i, col] = muladd(X[i, col], Aiα, C[i, col])
             end
         else
-            Aiα = α isa Bool ? nzv[k] : nzv[k] * α
-            Atiα = α isa Bool ? odiagop(nzv[k]) : odiagop(nzv[k]) * α
+            Aiα = _αscale(nzv[k], α)
+            Atiα = _αscale(odiagop(nzv[k]), α)
             @simd for i in Xax1
                 C[i, col] = muladd(X[i, row], Aiα, C[i, col])
             end
