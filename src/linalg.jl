@@ -1472,14 +1472,17 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     nnew = _countnewinds(C, A)
     iszero(nnew) && return C
     Ccolptr, Crowval, Cnzval = getcolptr(C), getrowval(C), getnzval(C)
+    nzC = Int(Ccolptr[end]) - 1
+    _checknnzfits(indtype(C), nzC + nnew)
+    _growtail!(Crowval, nzC, nnew)
+    _growtail!(Cnzval, nzC, nnew)
     Arowval = getrowval(A)
     # Merged from the last column back, in place: an entry of `C` only moves to a later
     # position, so it is read before anything is written over it.
-    w = Int(Ccolptr[end]) - 1 + nnew
-    resize!(Crowval, w)
-    resize!(Cnzval, w)
+    w = nzC + nnew
     @inbounds for col in reverse(axes(A, 2))
         pcfirst, pc = Int(Ccolptr[col]), Int(Ccolptr[col+1]) - 1
+        w == pc && break   # nothing is inserted in this column or before it
         parange = nzrange(A, col)
         pafirst, pa = first(parange), last(parange)
         Ccolptr[col+1] = w + 1
@@ -1526,6 +1529,13 @@ function _countnewinds(C, A)
         end
     end
     return nnew
+end
+# Make room for `n` entries after the first `k` of `v`, moving any storage past them along
+function _growtail!(v::AbstractVector, k::Int, n::Int)
+    len = length(v)
+    resize!(v, len + n)
+    len > k && copyto!(v, k + n + 1, v, k + 1, len - k)
+    return v
 end
 
 # For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
