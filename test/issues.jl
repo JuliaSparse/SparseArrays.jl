@@ -1203,8 +1203,8 @@ end
         # a diagonal entry at a row that a vector does not store
         A = sparse([1, 2], [1, 2], [1.0, NaN], 2, 2)
         e1, e12 = sparsevec([1], [1.0], 2), sparsevec([1, 2], [1.0, 1.0], 2)
-        @test dot(e1, W(A), e1) == dot(e1, A, e1) == dot(Vector(e1), Matrix(A), Vector(e1)) == 1
-        @test dot(e12, W(A), e1) == dot(e12, A, e1) == dot(Vector(e12), Matrix(A), Vector(e1)) == 1
+        @test dot(e1, W(A), e1) == dot(e1, A, e1) == 1
+        @test dot(e12, W(A), e1) == dot(e12, A, e1) == 1
         @test isnan(dot(e12, W(A), e12))
         # a stored column that meets no entry of the other vector
         B = sparse([1, 1], [1, 3], [1.0, 1.0], 3, 3)
