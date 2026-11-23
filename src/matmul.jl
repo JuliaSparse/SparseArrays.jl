@@ -1459,9 +1459,11 @@ end
 # length m. With `f` products of stored entries there are two ways around it, whose ranges
 # were measured on an AMD EPYC 9354, with GC, up to 10^8 rows:
 # - below `f < m/2048`, a hash table of the rows touched, which takes nothing of length m.
-# - below `f < m/3`, a bit per row with a running count per word, so that a row's position in
+# - below `f < 3m/10`, a bit per row with a running count per word, so that a row's position in
 #   the result is the number of bits below it. It takes two walks of the columns, but sorts
-#   nothing, and its only work space is a quarter of a byte per row.
+#   nothing, and its only work space is a quarter of a byte per row. Around 10^4 rows, where
+#   the dense vector stays in cache, it loses to the dense path from about `m/3`.
+# Below 64 rows the dense vector takes under 512 bytes and is the fastest.
 # The result is the one the dense path gives: `x`'s stored zeros are skipped, and entries
 # that cancel are not stored.
 function _spmv_flops(A, x)
@@ -1575,10 +1577,11 @@ function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
     m, n = size(A)
     # counting misses the cache once per entry of `x`, which a product that will take the
     # dense path should not pay; the average column length rules most of those out
-    if length(x) == n && nnz(A) * (length(nonzeroinds(x)) / max(n, 1)) < m ÷ 3
+    cutoff = 3m ÷ 10
+    if m >= 64 && length(x) == n && nnz(A) * (length(nonzeroinds(x)) / max(n, 1)) < cutoff
         flops = _spmv_flops(A, x)
         flops < m >> 11 && return _spA_mul_spvec_hash(A, x, flops)
-        flops < m ÷ 3 && return _spA_mul_spvec_rank(A, x)
+        flops < cutoff && return _spA_mul_spvec_rank(A, x)
     end
     y = densemv(A, x)
     initcap = min(nnz(A), size(A,1))
