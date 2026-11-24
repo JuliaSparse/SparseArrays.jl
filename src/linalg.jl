@@ -1469,6 +1469,8 @@ julia> SparseArrays.mergeinds!(C, A)
 """
 function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
     size(C) == size(A) || throw(DimensionMismatch(lazy"C has size $(size(C)) but A has size $(size(A))"))
+    _checkstoredlength(C)
+    _checkstoredlength(A)
     nnew = _countnewinds(C, A)
     iszero(nnew) && return C
     Ccolptr, Crowval, Cnzval = getcolptr(C), getrowval(C), getnzval(C)
@@ -1508,6 +1510,15 @@ function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
         end
     end
     return C
+end
+# `mergeinds!` reads the storage of both matrices without bounds checks, which the column
+# pointers of a matrix whose row indices or values were shortened would run past
+function _checkstoredlength(S::AbstractSparseMatrixCSC)
+    colptr = getcolptr(S)
+    length(colptr) == size(S, 2) + 1 &&
+        Int(colptr[end]) - 1 <= min(length(getrowval(S)), length(getnzval(S))) ||
+        throw(ArgumentError(lazy"a $(typeof(S)) whose column pointers address more entries than it stores is invalid"))
+    return S
 end
 # The number of stored entries of `A` that `C` lacks; throws for a fixed `C` that lacks one
 function _countnewinds(C, A)
