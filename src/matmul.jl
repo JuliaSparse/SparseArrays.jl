@@ -337,15 +337,13 @@ end
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
-# spmatmul handles compressed vectors and whole-column/whole-vector views, and a range view
-# through the sparse vector it reads as; other AbstractSparseVectors take the generic
-# product. Plain CSC times a compressed vector is defined with the sparse vector products
-# below.
+# Sparse matrix times sparse vector. `_spmatvec` takes the kernel for plain or adjoint CSC
+# times an AbstractSparseVector, defined with the sparse vector products below, and
+# `spmatmulv` for any other pair, with a range view read as the sparse vector it holds.
+# Other AbstractSparseVectors times a view or a wrapper take the generic product.
 _spmatmulv_operand(x::Union{AbstractCompressedVector,SparseColumnView,SparseVectorView}) = x
 _spmatmulv_operand(x::SparseVectorPartialView) = _sparsevector(x)
-*(A::SparseTriangular, B::Union{SparseVectorOrView,SparseVectorPartialView}) = spmatmulv(A, _spmatmulv_operand(B))
-*(A::SparseMatrixCSCView, B::Union{SparseVectorOrView,SparseVectorPartialView}) = spmatmulv(A, _spmatmulv_operand(B))
-*(A::AbstractSparseMatrixCSC, B::Union{SparseColumnView,SparseVectorPartialView}) = spmatmulv(A, _spmatmulv_operand(B))
+_spmatvec(A::SparseOrTri, x) = spmatmulv(A, _spmatmulv_operand(x))
 """
     *(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
 
@@ -376,12 +374,17 @@ julia> A * B
 *(A::SparseOrTri, B::SparseOrTri) = spmatmul1(A, B)
 # Any other sparse factor is materialized into compressed columns or a triangle of them,
 # at a cost proportional to its stored entries. The converted factors are multiplied with
-# `*` again, so that a product with a sparse vector takes the kernels for plain CSC.
+# `*` again, which lands on the method above. A matrix times a sparse vector converts the
+# same way, except that an adjoint or transpose of CSC is read in place.
 const _SparseMulOperand = Union{SparseOrTri, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},
                                 SparseMatrixCSCSymmHerm, SparseAdjOrTransTriangular}
 *(A::_SparseMulOperand, B::_SparseMulOperand) = _spmul_operand(A) * _spmul_operand(B)
-*(A::Union{SparseMatrixCSCSymmHerm,SparseAdjOrTransTriangular}, x::Union{SparseVectorOrView,SparseVectorPartialView}) =
-    _spmul_operand(A) * x
+*(A::Union{SparseOrTri,SparseMatrixCSCSymmHerm,SparseAdjOrTransTriangular},
+  x::Union{SparseVectorOrView,SparseVectorPartialView}) = _spmatvec(_spmul_operand(A), x)
+*(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, x::AbstractSparseVector) =
+    _spmatvec(A, x)
+# disambiguates the two methods above
+*(A::AbstractSparseMatrixCSC, x::AbstractCompressedVector) = _spmatvec(A, x)
 _spmul_operand(A::SparseOrTri) = A
 _spmul_operand(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = copy(A)
 _spmul_operand(A::SparseMatrixCSCSymmHerm) = sparse(A)
@@ -1495,7 +1498,7 @@ function _spA_mul_spvec_rank(A, x)
     return dropzeros!(SparseVector(m, ynzind, ynzval))
 end
 
-function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
+function _spmatvec(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
     require_one_based_indexing(A, x)
     m, n = size(A)
     # counting misses the cache once per entry of `x`, which a product that will take the
@@ -1511,7 +1514,7 @@ function *(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
     _dense2sparsevec(eltype(y), y, initcap)
 end
 
-*(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
+_spmatvec(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
     _spAt_or_Ac_mul_spvec((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
 
 function _spcoldots_nonzero!(tfun::F, ynzind, ynzval, A, pos::P, Arowval, Anzval, xnzind, xnzval) where {F,P}
