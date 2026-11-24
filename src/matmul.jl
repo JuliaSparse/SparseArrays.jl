@@ -341,12 +341,24 @@ end
 # http://dl.acm.org/citation.cfm?id=355796
 
 # Sparse matrix times sparse vector. `_spmatvec` takes the kernel for plain or adjoint CSC
-# times an AbstractSparseVector, defined with the sparse vector products below, and
-# `spmatmulv` for any other pair, with a range view read as the sparse vector it holds.
-# Other AbstractSparseVectors times a view or a wrapper take the generic product.
+# times an AbstractSparseVector, defined with the sparse vector products below, which stores
+# no zeros. A view of a vector is read as the sparse vector it holds, and a view of a column
+# range as its parent times `x` moved to those columns. A triangle takes `spmatmulv`, with
+# a range view read as the sparse vector it holds, and drops the zeros the same way. Other
+# AbstractSparseVectors times a view or a wrapper take the generic product.
 _spmatmulv_operand(x::Union{AbstractCompressedVector,SparseColumnView,SparseVectorView}) = x
 _spmatmulv_operand(x::SparseVectorPartialView) = _sparsevector(x)
-_spmatvec(A::SparseOrTri, x) = spmatmulv(A, _spmatmulv_operand(x))
+_spmatvec(A::AbstractSparseMatrixCSC, x) = _spmatvec(A, _sparsevector(x))
+function _spmatvec(A::SparseMatrixCSCView, x)
+    n = size(A, 2)
+    length(x) == n || throw(DimensionMismatch(
+        lazy"Matrix A has $n columns, but vector x has a length $(length(x))"))
+    P = parent(A)
+    xs = _sparsevector(x)
+    off = first(parentindices(A)[2]) - 1
+    return _spmatvec(P, SparseVector(size(P, 2), nonzeroinds(xs) .+ off, nonzeros(xs)))
+end
+_spmatvec(A::SparseTriangular, x) = dropzeros!(spmatmulv(A, _spmatmulv_operand(x)))
 """
     *(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
 
@@ -356,6 +368,7 @@ those of `A` and `B`.
 The cost is proportional to the number of products of stored entries, not to the size of
 the result. An entry is stored wherever such a product contributes, even when the
 contributions cancel or a factor holds a stored zero; [`dropzeros!`](@ref) removes them.
+A product with a sparse vector stores only the entries that are not zero.
 
 The kind of array returned follows the other factor: a sparse matrix times a dense
 `Vector` or `Matrix` is dense, and times a sparse vector or a `Diagonal`, `Bidiagonal`,

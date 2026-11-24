@@ -1142,6 +1142,14 @@ end
                 @test which(*, (typeof(M), typeof(w))).module === SparseArrays
                 @test exact_equal(M * w, M * view(x[3:11], :))
             end
+            # an entry that cancels is not stored, whatever the wrappers of the operands
+            C = sparse([1.0 1.0; 0.0 1.0]); c = sparsevec([1.0, -1.0])
+            @test nnz(C * c) == 1
+            for (M, v) in ((C, view(c, :)), (C, view(sparse([1.0 0.0; -1.0 0.0]), :, 1)),
+                           (C, view(sparsevec([5.0, 1.0, -1.0]), 2:3)), (view(hcat(C, C), :, 3:4), c),
+                           (UpperTriangular(C), view(c, :)))
+                @test exact_equal(M * v, C * c)
+            end
             end
 
             y = *(transpose(A), x2)
