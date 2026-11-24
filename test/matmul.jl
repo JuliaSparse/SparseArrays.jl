@@ -973,7 +973,7 @@ end
                 @test mul!(y, A, x, α, β) === y
                 @test y ≈ rr
             end
-            y = SparseArrays.densemv(A, x)
+            y = SparseArrays._sp_spvec_mul_densevec(A, x)
             @test isa(y, Vector{Float64})
             @test y ≈ Af*xf
         end
@@ -987,7 +987,7 @@ end
                 @test mul!(y, transpose(A), x, α, β) === y
                 @test y ≈ rr
             end
-            y = SparseArrays.densemv(A, x; trans='T')
+            y = SparseArrays._sp_spvec_mul_densevec(A, x; trans='T')
             @test isa(y, Vector{Float64})
             @test y ≈ *(transpose(Af), xf)
 
@@ -1073,10 +1073,10 @@ end
             Af = Array(A)
             xf = Array(x)
             x2f = Array(x2)
-            @test SparseArrays.densemv(A, x; trans='N') ≈ Af * xf
-            @test SparseArrays.densemv(A, x2; trans='T') ≈ transpose(Af) * x2f
-            @test SparseArrays.densemv(A, x2; trans='C') ≈ Af'x2f
-            @test_throws ArgumentError SparseArrays.densemv(A, x; trans='D')
+            @test SparseArrays._sp_spvec_mul_densevec(A, x; trans='N') ≈ Af * xf
+            @test SparseArrays._sp_spvec_mul_densevec(A, x2; trans='T') ≈ transpose(Af) * x2f
+            @test SparseArrays._sp_spvec_mul_densevec(A, x2; trans='C') ≈ Af'x2f
+            @test_throws ArgumentError SparseArrays._sp_spvec_mul_densevec(A, x; trans='D')
             @static if COMPREHENSIVE
             # a lowercase wrapper character takes the kernel of the uppercase one
             y = fixturedense(ComplexF64, 8)
@@ -1094,7 +1094,7 @@ end
         let A = map(!iszero, fixture(Float64, 9, 16)), x = map(!iszero, fixturevec(Float64, 16))
             Af = Array(A)
             xf = Array(x)
-            y = SparseArrays.densemv(A, x)
+            y = SparseArrays._sp_spvec_mul_densevec(A, x)
             @test isa(y, Vector{Int})
             @test y == Af*xf
         end
