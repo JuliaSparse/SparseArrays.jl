@@ -728,6 +728,29 @@ function _trimatmul!(C, ::Val{upper}, unit::Bool, f::Function, A, B) where {uppe
     return C
 end
 
+# A dense triangle times a sparse matrix: the triangle is copied out once, so that the product
+# visits only the stored entries of `B`. A wrapped `A` is the conjugate of the triangle of its
+# parent, whatever `tfun` says. Without a concrete eltype there is no zero to fill it with.
+LinearAlgebra.generic_trimatmul!(C::StridedMatrix, uploc, isunitc, tfun::F, A::Union{StridedMatrix,AdjOrTrans{<:Any,<:StridedMatrix}}, B::SparseMatrixCSCOrColumnSubset) where {F<:Function} =
+    _densetrimatmul!(C, uploc, isunitc, tfun, A, B)
+LinearAlgebra.generic_trimatmul!(C::StridedMatrix{T}, uploc, isunitc, tfun::F, A::StridedMatrix{T}, B::SparseMatrixCSCOrColumnSubset) where {T<:LinearAlgebra.BlasFloat,F<:Function} =
+    _densetrimatmul!(C, uploc, isunitc, tfun, A, B)
+function _densetrimatmul!(C, uploc, isunitc, tfun::F, A, B) where {F<:Function}
+    isconcretetype(eltype(C)) || return LinearAlgebra.generic_trimatmul!(C, uploc, isunitc, tfun, A, Matrix(B))
+    f, P = A isa AdjOrTrans ? (conj, parent(A)) : (tfun, A)
+    require_one_based_indexing(P)
+    n = checksquare(P)
+    direct = f === identity || f === conj
+    M = zeros(Base.promote_op(f, eltype(P)), n, n)
+    @inbounds for k in 1:n
+        for i in ((uploc == 'U') == direct ? (1:k-1) : (k+1:n))
+            M[i, k] = f(direct ? P[i, k] : P[k, i])
+        end
+        M[k, k] = isunitc == 'U' ? oneunit(eltype(M)) : f(P[k, k])
+    end
+    return mul!(C, M, B)
+end
+
 LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, tfun::Function, A::AbstractMatrix, B::SparseMatrixCSCOrView) =
     _mattrimul!(C, uploc == 'U', isunitc == 'U', tfun, A, B)
 LinearAlgebra.generic_mattrimul!(C::StridedMatrix, uploc, isunitc, ::Function, A::AbstractMatrix, xB::AdjOrTrans{<:Any,<:SparseMatrixCSCOrView}) =

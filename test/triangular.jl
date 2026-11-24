@@ -76,6 +76,28 @@ iscase(@nospecialize(c), cases) = any(x -> x === c, cases)
 end
 
 
+@testset "dense triangular matrix times sparse matrix" begin
+    # row 3 of S is empty, so column 3 of the triangle multiplies only unstored entries,
+    # which the sparse kernel skips and the dense one would multiply by zero
+    S = fixture(Float64, 4, 3)
+    M = fixturedense(Float64, 4, 4)
+    M[3, 3] = NaN
+    C = UpperTriangular(M) * S
+    @test all(isfinite, C)
+    @test C ≈ Matrix(UpperTriangular(replace(M, NaN => 0))) * Matrix(S)
+    @static if COMPREHENSIVE
+    S = fixture(ComplexF64, 4, 3)
+    M = fixturedense(ComplexF64, 4, 4)
+    for W in TRIANGLES, op in (identity, adjoint, transpose, a -> adjoint(transpose(a)))
+        A = op(W(M))
+        @test A * S ≈ Matrix(A) * Matrix(S)
+        @test A * view(S, :, [3, 1]) ≈ Matrix(A) * Matrix(S)[:, [3, 1]]
+    end
+    @test UpperTriangular(Real[1 2; 3 4]) * sparse([1 0; 0 1]) == [1 2; 0 4]
+    end
+end
+
+
 @testset "Multiplying with triangular sparse matrices #35609 #35610" begin
     # most of the diagonal is not stored, and one diagonal entry is a stored zero
     A = fixture(Float64, 4, 4)
