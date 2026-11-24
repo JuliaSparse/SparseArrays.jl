@@ -1302,13 +1302,15 @@ function _sp_spvec_mul_dense!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::
     end
 end
 
-# Merging each of the `n` columns of `A` with `x` takes up to `nnz(A) + n * nnz(x)` steps, fewer
-# when `x` ends early, as it stops there. Looking the stored rows of `A` up in `x` visits the
-# same pairs in the same order, in about `nnz(A)` steps once `x` is indexed, and so wins unless
-# the merge is short. `x` is indexed by a bit per row with a running count per word, a quarter
-# of a byte per row, or by a hash table of its rows where building the bits costs more than
-# the hash table's lookups, which take about three times as long: the ranges were measured on
-# an AMD EPYC 9354, up to 4*10^8 rows.
+# `A' * x` dots each column of `A` with `x`. A loop over the columns pays a mispredicted exit
+# for each, which outweighs a few stored entries, so the stored rows of `A` are scanned as one
+# run instead, and the ones that `x` stores are summed into their columns, in the order of a
+# merge. `x` is indexed by a bit per row with a running count per word, a quarter of a byte
+# per row, or by a hash table of its rows where building the bits costs more than the hash
+# table's lookups, which take about three times as long. Merging each column with `x` is left
+# for an `x` that ends early: a step of a merge takes as long as the scan of four stored
+# entries, and a column as long as that of `nnz(x) + 4`. The ranges were measured on an AMD
+# EPYC 9354, up to 4*10^8 rows.
 struct _SpvecBits
     words::Vector{UInt64}
     below::Vector{Int}
@@ -1359,48 +1361,95 @@ function _spvec_slots(xnzind)
     return _SpvecSlots(slots, mask, shift)
 end
 function _spvec_positions(A, xnzind)
-    isempty(xnzind) && return nothing
     m, n = size(A)
     k = length(xnzind)
     usehash = m >> 6 > 3nnz(A) + 4k
-    nnz(A) * (xnzind[end] / m) + widemul(n, k) <= nnz(A) + (usehash ? 4k : m >> 5) && return nothing
+    4nnz(A) * (xnzind[end] / m) + n * (k + 4.0) <= nnz(A) && return nothing
     return usehash ? _spvec_slots(xnzind) : _spvec_bits(m, xnzind)
 end
-# only short merges are left here, which a call out to the gallop per column would slow down
-@inline _spcoldot(f::F, A, j, Arowval, Anzval, ::Nothing, xnzind, xnzval) where {F} =
-    _spdot_merge(f, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
-                 1, length(xnzind), xnzind, xnzval)
-function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecBits, xnzind, xnzval) where {F}
-    s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
-    words = pos.words
-    @inbounds for p in nzrange(A, j)
-        r = Int(Arowval[p]) - 1
-        w = (r >> 6) + 1
-        word = words[w]
-        bit = one(UInt64) << (r & 63)
-        if word & bit != 0
-            s += f(Anzval[p], xnzval[_spvec_rank(pos, w, word, bit)])
-        end
-    end
-    return s
+# 1 if `x` stores row `r`, and the position in `x` of a row it stores
+Base.@propagate_inbounds function _spvec_has(pos::_SpvecBits, xnzind, r)
+    r0 = Int(r) - 1
+    return Int((pos.words[(r0 >> 6) + 1] >> (r0 & 63)) & one(UInt64))
 end
-function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecSlots, xnzind, xnzval) where {F}
-    s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
-    slots = pos.slots
-    @inbounds for p in nzrange(A, j)
-        r = Arowval[p]
-        h = _spvec_slot(r, pos.shift)
-        while true
-            k = slots[h]
-            k == 0 && break
-            if xnzind[k] == r
-                s += f(Anzval[p], xnzval[k])
-                break
+Base.@propagate_inbounds function _spvec_index(pos::_SpvecBits, xnzind, r)
+    r0 = Int(r) - 1
+    w = (r0 >> 6) + 1
+    return _spvec_rank(pos, w, pos.words[w], one(UInt64) << (r0 & 63))
+end
+Base.@propagate_inbounds _spvec_has(pos::_SpvecSlots, xnzind, r) = Int(_spvec_index(pos, xnzind, r) != 0)
+Base.@propagate_inbounds function _spvec_index(pos::_SpvecSlots, xnzind, r)
+    h = _spvec_slot(r, pos.shift)
+    while true
+        k = pos.slots[h]
+        (k == 0 || xnzind[k] == r) && return k
+        h = (h & pos.mask) + 1
+    end
+end
+
+# Calls `out(j, s)` with each dot `s` of a column `j` of `A` with `x` that is not zero, in the
+# order of `j`. `tfun(a, b)` is the product of an entry of `A` and one of `x`.
+function _spT_spvec_dots!(out::O, tfun::F, A::AbstractSparseMatrixCSC, x::AbstractSparseVector) where {O,F}
+    xnzind = nonzeroinds(x)
+    (isempty(xnzind) || size(A, 2) == 0) && return
+    pos = _spvec_positions(A, xnzind)
+    if pos === nothing
+        _spcoldots_merge!(out, tfun, A, xnzind, nonzeros(x))
+    else
+        _spcoldots_scan!(out, tfun, A, pos, xnzind, nonzeros(x))
+    end
+    return
+end
+function _spcoldots_merge!(out::O, tfun::F, A, xnzind, xnzval) where {O,F}
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
+    for j in axes(A, 2)
+        s = _spdot_merge(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
+                         1, length(xnzind), xnzind, xnzval)
+        s != zero(s) && out(j, s)
+    end
+end
+function _spcoldots_scan!(out::O, tfun::F, A, pos::P, xnzind, xnzval) where {O,F,P}
+    n = size(A, 2)
+    colptr = getcolptr(A)
+    Arowval = getrowval(A)
+    Anzval = getnzval(A)
+    z = _spdotzero(tfun, eltype(Anzval), eltype(xnzval))
+    # the positions in a chunk are all written, so that the scan does not branch on a match
+    L = 1024
+    np = Int(colptr[n+1]) - 1
+    hits = Vector{Int}(undef, min(L, np))
+    j = 0
+    jend = 1
+    s = z
+    @inbounds for lo in 1:L:np
+        c = 0
+        for p in lo:min(lo + L - 1, np)
+            hits[c+1] = p
+            c += _spvec_has(pos, xnzind, Arowval[p])
+        end
+        for i in 1:c
+            p = hits[i]
+            if p >= jend
+                s != zero(s) && out(j, s)
+                j = _spvec_nextcol(colptr, p, j, n)
+                jend = Int(colptr[j+1])
+                s = z
             end
-            h = (h & pos.mask) + 1
+            s += tfun(Anzval[p], xnzval[_spvec_index(pos, xnzind, Arowval[p])])
         end
     end
-    return s
+    s != zero(s) && out(j, s)
+end
+# the column that holds the stored position `p`, which lies past column `j`
+@inline function _spvec_nextcol(colptr, p, j, n)
+    lo = j + 1
+    step = 1
+    @inbounds while lo + step <= n && colptr[lo + step] <= p
+        lo += step
+        step <<= 1
+    end
+    return searchsortedlast(colptr, p, lo, min(lo + step, n), Base.Order.Forward)
 end
 
 function _spT_spvec_mul_dense!(tfun::F,
@@ -1413,21 +1462,7 @@ function _spT_spvec_mul_dense!(tfun::F,
     length(y) == n || throw(DimensionMismatch(
         "Matrix A has $n columns, but vector y has a length $(length(y))"))
     _scale_dest!(y, α, β) || return
-
-    xnzind = nonzeroinds(x)
-    xnzval = nonzeros(x)
-    Arowval = getrowval(A)
-    Anzval = getnzval(A)
-
-    _spcoldots!(tfun, y, A, _spvec_positions(A, xnzind), Arowval, Anzval, xnzind, xnzval, α)
-end
-# a barrier, so that the loop is compiled for each way of looking rows up
-function _spcoldots!(tfun::F, y, A, pos::P, Arowval, Anzval, xnzind, xnzval, α) where {F,P}
-    for j = axes(A, 2)
-        # s <- dot(A[:,j], x)
-        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
-        @inbounds y[j] += s * α
-    end
+    _spT_spvec_dots!((j, s) -> (@inbounds y[j] += s * α), tfun, A, x)
 end
 
 
@@ -1587,39 +1622,18 @@ function _sp_spvec_mul_spgemm(A, B)
     _sp_sp_mul_sparse(A, B)[:,1]
 end
 
-function _spcoldots_nonzero!(tfun::F, ynzind, ynzval, A, pos::P, Arowval, Anzval, xnzind, xnzval) where {F,P}
-    jr = 0
-    for j = axes(A, 2)
-        s = _spcoldot(tfun, A, j, Arowval, Anzval, pos, xnzind, xnzval)
-        if s != zero(s)
-            jr += 1
-            ynzind[jr] = j
-            ynzval[jr] = s
-        end
-    end
-    return jr
-end
-
 function _spT_spvec_mul_sparse(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
                          Tv = promote_op(matprod, TvA, TvX)) where {F<:Function,TvA,TiA,TvX,TiX}
     require_one_based_indexing(A, x)
     m, n = size(A)
     length(x) == m || throw(DimensionMismatch(
         "Matrix A has $m rows, but vector x has a length $(length(x))"))
-    Ti = promote_type(TiA, TiX)
-
-    xnzind = nonzeroinds(x)
-    xnzval = nonzeros(x)
-    Arowval = getrowval(A)
-    Anzval = getnzval(A)
-
-    ynzind = Vector{Ti}(undef, n)
-    ynzval = Vector{Tv}(undef, n)
-
-    jr = _spcoldots_nonzero!(tfun, ynzind, ynzval, A, _spvec_positions(A, xnzind), Arowval, Anzval, xnzind, xnzval)
-    if jr < n
-        resize!(ynzind, jr)
-        resize!(ynzval, jr)
-    end
+    ynzind = Vector{promote_type(TiA, TiX)}()
+    ynzval = Vector{Tv}()
+    # the columns met, if the stored rows of `A` are spread evenly
+    est = min(n, ceil(Int, nnz(A) * (length(nonzeroinds(x)) / max(m, 1))))
+    sizehint!(ynzind, est)
+    sizehint!(ynzval, est)
+    _spT_spvec_dots!((j, s) -> (push!(ynzind, j); push!(ynzval, s)), tfun, A, x)
     return SparseVector(n, ynzind, ynzval)
 end

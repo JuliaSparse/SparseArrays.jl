@@ -1002,7 +1002,7 @@ end
             @test isequal(mul!(zeros(8), transpose(A), x), [NaN; 10.0; zeros(6)])
             # an index out of range is left to the merge, as is an `x` that ends early
             @test SparseArrays._spvec_positions(A, [1, 200]) === nothing
-            B = sparse(I, J, V, 40, 2)
+            B = sparse([I; 5:40], [J; fill(1, 36)], [V; ones(36)], 40, 2)
             x = SparseVector(40, [1, 4], [0.0, 2.0])
             @test SparseArrays._spvec_positions(B, nonzeroinds(x)) === nothing
             @test isequal(mul!(zeros(2), transpose(B), x), [NaN, 10.0])
@@ -1019,6 +1019,13 @@ end
             z = SparseVector{Float64,Int32}(m, Int32.(rows), collect(1.0:12.0))
             @test SparseArrays._spvec_positions(H, nonzeroinds(z)) isa SparseArrays._SpvecSlots
             @test mismatch(H' * z, [sum(abs2, 1.0:12.0); zeros(11)]) === nothing
+            # a scan over more than one chunk, which skips the empty even columns
+            K = 1:3000
+            C = sparse(7K .% 2000 .+ 1, 2(K .% 300) .+ 1, Float64.(K .% 17), 2000, 600)
+            u = SparseVector(2000, collect(1:5:2000), Float64.(1:400))
+            @test SparseArrays._spvec_positions(C, nonzeroinds(u)) isa SparseArrays._SpvecBits
+            @test mismatch(C' * u, Array(C)' * Vector(u)) === nothing
+            @test mul!(ones(600), C', u, 2, 3) == 2 * Array(C)' * Vector(u) .+ 3
             end
         end
 
@@ -1294,8 +1301,9 @@ end
     @test mulcount(() -> mul!(view(Q, :, 1:n), P, P, two, two)) <= 4n
     # the adjoint kernel for a sparse vector does not allocate per column
     A = fixturestrided(Float64, 400, 400, 99); xs = fixturevec(Float64, 400); ys = zeros(400)
-    mul!(ys, A', xs, 2.0, 0.5)
-    @test (@allocated mul!(ys, A', xs, 2.0, 0.5)) < 1000
+    A16 = repeat(A, 1, 16); ys16 = zeros(6400)
+    mul!(ys, A', xs, 2.0, 0.5); mul!(ys16, A16', xs, 2.0, 0.5)
+    @test (@allocated mul!(ys16, A16', xs, 2.0, 0.5)) < 2 * (@allocated mul!(ys, A', xs, 2.0, 0.5))
 end
 
 @testset "dimension mismatch error" begin
