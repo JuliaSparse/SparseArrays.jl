@@ -84,7 +84,8 @@ mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrSubArray, 
 # materialized first, which is O(nnz).
 function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrSubArray, B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number)
     A, B = _compressed(A), _compressed(B)
-    _spmatspmat_dense!(C, tA == 'N' ? A : sparse(wrap(A, tA)), tB == 'N' ? B : sparse(wrap(B, tB)), alpha, beta)
+    _spmatspmat_dense!(C, _uppercase(tA) == 'N' ? A : sparse(wrap(A, tA)),
+                       _uppercase(tB) == 'N' ? B : sparse(wrap(B, tB)), alpha, beta)
     return C
 end
 function _spmatspmat_dense!(C, A, B, α, β)

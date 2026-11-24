@@ -1050,9 +1050,13 @@ end
             @static if COMPREHENSIVE
             # a lowercase wrapper character takes the kernel of the uppercase one
             y = fixturedense(ComplexF64, 8)
-            for B in (A, Af), c in ('t', 'c')
-                @test isequal(mul!(copy(y), c, B, x2, 2.5, 0.5), mul!(copy(y), uppercase(c), B, x2, 2.5, 0.5))
+            for B in (A, Af), (c, v, w) in (('t', x2, y), ('c', x2, y), ('n', x, y[1:7]))
+                @test isequal(mul!(copy(w), c, B, v, 2.5, 0.5), mul!(copy(w), uppercase(c), B, v, 2.5, 0.5))
             end
+            # and with two sparse factors, where `'n'` reads `A` in place
+            C = fixturedense(ComplexF64, 7, 7)
+            @test isequal(mul!(copy(C), 'n', 'c', A, A, 2.5, 0.5), mul!(copy(C), 'N', 'C', A, A, 2.5, 0.5))
+            @test allocated_bytes(mul!, C, 'n', 'c', A, A, 2.5, 0.5) == allocated_bytes(mul!, C, 'N', 'c', A, A, 2.5, 0.5)
             end
         end
 
