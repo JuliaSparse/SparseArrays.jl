@@ -1016,6 +1016,32 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:Abs
     return C
 end
 
+# LinearAlgebra forms `D * S'` as `(S * D')'` and `S' * D` as `(D' * S)'`, scaling a copy of `S`
+# and then transposing that. This scales each entry as it is transposed into the result, as
+# `d * op(s)` or `op(s) * d`, the order dense `D * M'` and `M' * D` and `mul!` use, so the sign
+# of a zero follows dense.
+LinearAlgebra.mul(D::Diagonal{<:Union{Real,Complex}}, A::AdjOrTrans{<:Union{Real,Complex},<:SparseMatrixCSC}) =
+    _diagadjtransmul(A, D, Val(true))
+LinearAlgebra.mul(A::AdjOrTrans{<:Union{Real,Complex},<:SparseMatrixCSC}, D::Diagonal{<:Union{Real,Complex}}) =
+    _diagadjtransmul(A, D, Val(false))
+function _diagadjtransmul(A, D, ::Val{L}) where {L}
+    L ? matmul_size_check(size(D), size(A)) : matmul_size_check(size(A), size(D))
+    P, op, d = parent(A), wrapperop(A), D.diag
+    T = L ? promote_op(matprod, eltype(d), eltype(A)) : promote_op(matprod, eltype(A), eltype(d))
+    C = _adjtrans_dest(A, T)
+    _computecolptrs_halfperm!(C, P)
+    rvP, nzP = getrowval(P), getnzval(P)
+    cpC, rvC, nzC = getcolptr(C), resize!(getrowval(C), nnz(P)), resize!(getnzval(C), nnz(P))
+    @inbounds for j in axes(P, 2), k in nzrange(P, j)
+        i = rvP[k]
+        q = cpC[i + 1]
+        rvC[q] = j
+        nzC[q] = convert(T, _diagterm(Val(L), d, op(nzP[k]), j, i))
+        cpC[i + 1] = q + 1
+    end
+    return C
+end
+
 # An entry that is not stored multiplies to `0 * b`, which is not zero for an infinite or
 # NaN `b`. An eltype without a `zero` (`Any`, a matrix type) has only its stored values scaled.
 _storesall(A::AbstractSparseMatrixCSC) = nnz(A) == widelength(A)

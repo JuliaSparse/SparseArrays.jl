@@ -552,6 +552,18 @@ end
         @test mulcount(() -> mul!(C, Dl, W(S))) == nnz(S)
         end
     end
+    # with numbers, the product is transposed straight into the result: one copy of `S`, not two
+    let S = sparse(ones(ComplexF64, 40, 40)), D = Diagonal(fixturedense(ComplexF64, 40))
+        @test allocated_bytes(*, D, S') < 1.5 * Base.summarysize(S)
+        @static if COMPREHENSIVE
+        @test allocated_bytes(*, S', D) < 1.5 * Base.summarysize(S)
+        @test allocated_bytes(*, D, transpose(S)) < 1.5 * Base.summarysize(S)
+        @test allocated_bytes(*, transpose(S), D) < 1.5 * Base.summarysize(S)
+        # each entry is `d * conj(s)` or `conj(s) * d`, as for dense, to the sign of a zero
+        S = sparse([1.0 + 1.0im;;]); D = Diagonal([1.0 + 1.0im])
+        @test isequal(D * S', D * Matrix(S)') && isequal(S' * D, Matrix(S)' * D)
+        end
+    end
     @static if COMPREHENSIVE
     # as for dense, the product is formed before conversion to the destination eltype,
     # `alpha == 0` ignores `A`, and `beta == 0` ignores `C`; the transpose shares the adjoint's kernels
