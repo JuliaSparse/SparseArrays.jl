@@ -1025,6 +1025,18 @@ end
             end
         end
 
+        @static if COMPREHENSIVE
+        @testset "a triangle times a sparse vector with a wrapper character, $T" for T in STD_ELTYPES
+            A, Ad = fixturepair(T, 8, 8)
+            x = fixturevec(T, 8)
+            y = fixturedense(T, 8)
+            for tri in (UpperTriangular, LowerTriangular), c in ('N', 'T', 'C', 'S', 'H', 't')
+                @test mul!(copy(y), c, tri(A), x, 2.5, 0.5) ≈
+                    mul!(copy(y), LinearAlgebra.wrap(tri(Ad), uppercase(c)), Vector(x), 2.5, 0.5)
+            end
+        end
+        end
+
         let A = fixture(ComplexF64, 7, 8),
             x = fixturevec(ComplexF64, 8),
             x2 = fixturevec(ComplexF64, 7)

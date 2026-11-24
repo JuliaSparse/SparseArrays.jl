@@ -1109,11 +1109,21 @@ end
 
 LinearAlgebra._mul!(y::AbstractVector, A::UpperOrLowerTriangular, x::AbstractSparseVector,
                     alpha::Number, beta::Number) = _tri_mul_spvec!(y, A, x, alpha, beta)
-# kept for a direct call with a character, which would otherwise take LinearAlgebra's generic kernel
-function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
-                alpha::Number, beta::Number)
-    @assert tA == 'N'
-    return _tri_mul_spvec!(y, A, x, alpha, beta)
+# A direct call with a character would otherwise take LinearAlgebra's generic kernel, which
+# visits every entry of `x`. A triangle under `T` or `C` is a triangle again; under `S` or `H`
+# it is not, and takes the kernel for any matrix, as a strided matrix does.
+Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
+                                                        alpha::Number, beta::Number)
+    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
+    tA_uc = _uppercase(tA)
+    if tA_uc == 'N'
+        _tri_mul_spvec!(y, A, x, alpha, beta)
+    elseif tA_uc in ('T', 'C')
+        _tri_mul_spvec!(y, _tfun(tA_uc)(A), x, alpha, beta)
+    else
+        _A_mul_spvec!(y, wrap(A, tA), x, alpha, beta)
+    end
+    return y
 end
 function _tri_mul_spvec!(y, A, x, alpha, beta)
     _is_fixed(y) && return copyto!(y, _tri_mul_spvec!(Vector(y), A, x, alpha, beta))
