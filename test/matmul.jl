@@ -1032,7 +1032,7 @@ end
             y = fixturedense(T, 8)
             for tri in (UpperTriangular, LowerTriangular), c in ('N', 'T', 'C', 'S', 'H', 't')
                 @test mul!(copy(y), c, tri(A), x, 2.5, 0.5) ≈
-                    mul!(copy(y), LinearAlgebra.wrap(tri(Ad), uppercase(c)), Vector(x), 2.5, 0.5)
+                    mul!(copy(y), LinearAlgebra.wrap(tri(Ad), c), Vector(x), 2.5, 0.5)
             end
         end
         end
