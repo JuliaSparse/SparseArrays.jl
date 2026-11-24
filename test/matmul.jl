@@ -387,10 +387,10 @@ end
     @test isequal(mul!(zeros(2, 2), Z, sparse([Inf 1.0; 1.0 1.0])), [NaN 0.0; 1.0 1.0])
     @static if COMPREHENSIVE
     @test isequal(mul!(zeros(2, 2), Z', sparse([Inf 1.0; 1.0 1.0])), [NaN 0.0; 1.0 1.0])
-    # `alpha === false` is a strong zero, as for dense factors: only `beta` scales `C`
+    # a zero `alpha` is a strong zero, as for dense factors: only `beta` scales `C`
     N = [NaN 1.0; 1.0 1.0]
-    for (A, B) in ((Z, sparse(N)), (N', transpose(Z)), (N, Symmetric(Z)))
-        @test mul!(ones(2, 2), A, B, false, 2.0) == mul!(ones(2, 2), Matrix(A), Matrix(B), false, 2.0) == fill(2.0, 2, 2)
+    for (A, B) in ((Z, sparse(N)), (N', transpose(Z)), (N, Symmetric(Z)), (Z, N), (Z', N)), α in (false, 0.0)
+        @test mul!(ones(2, 2), A, B, α, 2.0) == mul!(ones(2, 2), Matrix(A), Matrix(B), α, 2.0) == fill(2.0, 2, 2)
     end
     end
 end

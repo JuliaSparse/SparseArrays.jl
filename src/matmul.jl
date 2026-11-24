@@ -179,12 +179,13 @@ end
 @inline _matmul_size_AtB(C, A, B) = _matmul_size(C, A, B, Val('T'), Val('N'))
 @inline _matmul_size_ABt(C, A, B) = _matmul_size(C, A, B, Val('N'), Val('T'))
 
-# The kernels that add `A*B*α` to `C*β`, as `mul!` does. `C*β` is formed first, and an `α`
-# of `false` adds nothing, so that a NaN in the factors does not reach `C`; any other `α`
-# multiplies each term. `_scale_dest!` returns whether there is a product to add.
+# The kernels that add `A*B*α` to `C*β`, as `mul!` does. `C*β` is formed first. A zero `α`
+# adds nothing, as for dense factors, so that a NaN in the factors does not reach `C`; `true`
+# adds each term as it is, and any other `α` multiplies it. `_scale_dest!` returns whether
+# there is a product to add.
 @inline function _scale_dest!(C, α, β)
     isone(β) || LinearAlgebra._rmul_or_fill!(C, β)
-    return !(α isa Bool && !α)
+    return !_iszero(α)
 end
 @inline _αscale(x, α) = α isa Bool ? x : x * α
 
