@@ -392,6 +392,18 @@ _spmul_operand(A::SparseAdjOrTransTriangular) = _sptriangular(A)
 for W in (:UpperTriangular, :LowerTriangular, :UnitUpperTriangular, :UnitLowerTriangular)
     @eval _sptriangular(A::$W) = $W(copy(parent(A)))
 end
+# A 2-d view that is not a contiguous column range is copied and multiplied as a sparse
+# matrix. The result has the index type of the left factor, like the sparse destination that
+# `matop_dest` gives `mul!`.
+_spmul_operand(A::SparseMatrixCSCSubArray) = copy(A)
+_spmul_operand(A::SparseMatrixCSCView) = A
+_withindtype(P::SparseMatrixCSC, ::Type{Ti}) where {Ti} = indtype(P) === Ti ? P : SparseMatrixCSC{eltype(P),Ti}(P)
+*(A::SparseMatrixCSCSubArray, B::Union{SparseMatrixCSCOrSubArray,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) =
+    _withindtype(_spmul_operand(A) * _spmul_operand(B), indtype(parent(A)))
+*(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCSubArray) =
+    _withindtype(_spmul_operand(A) * _spmul_operand(B), indtype(A))
+# disambiguates the method above from that for two `SparseOrTri` factors
+*(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCView) = spmatmul(A, B)
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
