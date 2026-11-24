@@ -1035,6 +1035,13 @@ end
             @test SparseArrays.densemv(A, x2; trans='T') ≈ transpose(Af) * x2f
             @test SparseArrays.densemv(A, x2; trans='C') ≈ Af'x2f
             @test_throws ArgumentError SparseArrays.densemv(A, x; trans='D')
+            @static if COMPREHENSIVE
+            # a lowercase wrapper character takes the kernel of the uppercase one
+            y = fixturedense(ComplexF64, 8)
+            for B in (A, Af), c in ('t', 'c')
+                @test isequal(mul!(copy(y), c, B, x2, 2.5, 0.5), mul!(copy(y), uppercase(c), B, x2, 2.5, 0.5))
+            end
+            end
         end
 
         @static if COMPREHENSIVE

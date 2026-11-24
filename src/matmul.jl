@@ -119,14 +119,16 @@ mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrSubArray, B::AbstractVector, al
 LinearAlgebra.mul(A::HermOrSym{<:Any,<:DenseMatrixUnion}, B::SparseMatrixCSCSymmHerm) = LinearAlgebra._mul(A, B)
 LinearAlgebra.mul(A::SparseMatrixCSCSymmHerm, B::HermOrSym{<:Any,<:DenseMatrixUnion}) = LinearAlgebra._mul(A, B)
 
+# The dispatchers below take LinearAlgebra's wrapper character, a `Char` of either case or a
+# `WrapperChar`, uppercase it once, and pass a transpose or adjoint to the kernel as a function.
+_tfun(t_uc) = t_uc == 'T' ? transpose : adjoint
+
 Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
-    tA_uc, tB_uc = _uppercase(tA), _uppercase(tB)
+    tA_uc = _uppercase(tA)
     if tA_uc == 'N'
         _spmatmul!(C, A, wrap(B, tB), alpha, beta)
-    elseif tA_uc == 'T'
-        _At_or_Ac_mul_B!(transpose, C, A, wrap(B, tB), alpha, beta)
-    elseif tA_uc == 'C'
-        _At_or_Ac_mul_B!(adjoint, C, A, wrap(B, tB), alpha, beta)
+    elseif tA_uc in ('T', 'C')
+        _At_or_Ac_mul_B!(_tfun(tA_uc), C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc in ('S', 'H')
         rangefun, diagop, odiagop = _symherm_ops(tA)
         _symherm_mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), alpha, beta)
@@ -234,13 +236,13 @@ Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
     tB_uc = _uppercase(tB)
     if tB_uc == 'N'
         _A_mul_Bt_or_Bc!(identity, C, X, B, alpha, beta)
-    elseif tB_uc == 'T'
-        _A_mul_Bt_or_Bc!(transpose, C, X, B, alpha, beta)
-    elseif tB_uc == 'C'
-        _A_mul_Bt_or_Bc!(adjoint, C, X, B, alpha, beta)
-    else # tB_uc in ('S', 'H')
+    elseif tB_uc in ('T', 'C')
+        _A_mul_Bt_or_Bc!(_tfun(tB_uc), C, X, B, alpha, beta)
+    elseif tB_uc in ('S', 'H')
         rangefun, diagop, odiagop = _symherm_ops(tB)
         _A_mul_symherm!(rangefun, diagop, odiagop, C, X, B, alpha, beta)
+    else
+        LinearAlgebra._generic_matmatmul!(C, X, wrap(B, tB), alpha, beta)
     end
     return C
 end
@@ -1094,12 +1096,11 @@ _mul_fixed!(y, tA, A, x, alpha, beta) = copyto!(y, mul!(Vector(y), tA, A, x, alp
 Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatrix, x::AbstractSparseVector,
                                                         alpha::Number, beta::Number)
     _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
-    if tA == 'N'
+    tA_uc = _uppercase(tA)
+    if tA_uc == 'N'
         _A_mul_spvec!(y, A, x, alpha, beta)
-    elseif tA == 'T'
-        _At_or_Ac_mul_spvec!(transpose, y, A, x, alpha, beta)
-    elseif tA == 'C'
-        _At_or_Ac_mul_spvec!(adjoint, y, A, x, alpha, beta)
+    elseif tA_uc in ('T', 'C')
+        _At_or_Ac_mul_spvec!(_tfun(tA_uc), y, A, x, alpha, beta)
     else
         _A_mul_spvec!(y, wrap(A, tA), x, alpha, beta)
     end
@@ -1107,11 +1108,15 @@ Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatri
 end
 
 LinearAlgebra._mul!(y::AbstractVector, A::UpperOrLowerTriangular, x::AbstractSparseVector,
-                    alpha::Number, beta::Number) = mul!(y, 'N', A, x, alpha, beta)
+                    alpha::Number, beta::Number) = _tri_mul_spvec!(y, A, x, alpha, beta)
+# kept for a direct call with a character, which would otherwise take LinearAlgebra's generic kernel
 function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
                 alpha::Number, beta::Number)
     @assert tA == 'N'
-    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
+    return _tri_mul_spvec!(y, A, x, alpha, beta)
+end
+function _tri_mul_spvec!(y, A, x, alpha, beta)
+    _is_fixed(y) && return copyto!(y, _tri_mul_spvec!(Vector(y), A, x, alpha, beta))
     Adata = parent(A)
     if Adata isa Transpose
         _At_or_Ac_mul_spvec!(transpose, y, _fliptri(A), x, alpha, beta)
@@ -1213,13 +1218,13 @@ mul!(y::StridedVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, 
     _spmatspvecmul!(y, tA, A, x, alpha, beta)
 Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
     _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
-    if tA == 'N'
+    tA_uc = _uppercase(tA)
+    if tA_uc == 'N'
         _spA_mul_spvec!(y, A, x, alpha, beta)
-    elseif tA == 'T'
-        _spAt_or_Ac_mul_spvec!((a,b) -> transpose(a) * b, y, A, x, alpha, beta)
-    elseif tA == 'C'
-        _spAt_or_Ac_mul_spvec!((a,b) -> adjoint(a) * b, y, A, x, alpha, beta)
-    elseif _uppercase(tA) in ('S', 'H')
+    elseif tA_uc in ('T', 'C')
+        tfun = _tfun(tA_uc)
+        _spAt_or_Ac_mul_spvec!((a,b) -> tfun(a) * b, y, A, x, alpha, beta)
+    elseif tA_uc in ('S', 'H')
         # the stored triangle alone cannot be walked by the columns `x` selects
         _spA_mul_spvec!(y, sparse(wrap(A, tA)), x, alpha, beta)
     else
