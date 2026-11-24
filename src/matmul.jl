@@ -399,8 +399,9 @@ _spmul_operand(A::SparseMatrixCSCView) = A
     _spmul_operand(A) * _spmul_operand(B)
 *(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCSubArray) =
     _spmul_operand(A) * _spmul_operand(B)
-# disambiguates the method above from that for two `SparseOrTri` factors
-*(A::AbstractSparseMatrixCSC, B::SparseMatrixCSCView) = spmatmul(A, B)
+# disambiguates the method above from that for two `_SparseMulOperand` factors
+*(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCView) =
+    spmatmul(_spmul_operand(A), B)
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
