@@ -559,6 +559,9 @@ end
         @test allocated_bytes(*, S', D) < 1.5 * Base.summarysize(S)
         @test allocated_bytes(*, D, transpose(S)) < 1.5 * Base.summarysize(S)
         @test allocated_bytes(*, transpose(S), D) < 1.5 * Base.summarysize(S)
+        # each entry is `d * conj(s)` or `conj(s) * d`, as for dense, to the sign of a zero
+        S = sparse([1.0 + 1.0im;;]); D = Diagonal([1.0 + 1.0im])
+        @test isequal(D * S', D * Matrix(S)') && isequal(S' * D, Matrix(S)' * D)
         end
     end
     @static if COMPREHENSIVE

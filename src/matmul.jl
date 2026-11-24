@@ -1018,17 +1018,17 @@ function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:Abs
 end
 
 # LinearAlgebra forms `D * S'` as `(S * D')'` and `S' * D` as `(D' * S)'`, scaling a copy of `S`
-# and then transposing that. This scales each entry as it is transposed into the result, by
-# the same expression, so the values match to the sign of a zero.
+# and then transposing that. This scales each entry as it is transposed into the result, as
+# `d * op(s)` or `op(s) * d`, the order dense `D * M'` and `M' * D` and `mul!` use, so the sign
+# of a zero follows dense.
 LinearAlgebra.mul(D::Diagonal{<:Union{Real,Complex}}, A::AdjOrTrans{<:Union{Real,Complex},<:SparseMatrixCSC}) =
     _diagadjtransmul(A, D, Val(true))
 LinearAlgebra.mul(A::AdjOrTrans{<:Union{Real,Complex},<:SparseMatrixCSC}, D::Diagonal{<:Union{Real,Complex}}) =
     _diagadjtransmul(A, D, Val(false))
 function _diagadjtransmul(A, D, ::Val{L}) where {L}
     L ? matmul_size_check(size(D), size(A)) : matmul_size_check(size(A), size(D))
-    P, op = parent(A), wrapperop(A)
-    d = op(D).diag
-    T = L ? promote_op(matprod, eltype(P), eltype(d)) : promote_op(matprod, eltype(d), eltype(P))
+    P, op, d = parent(A), wrapperop(A), D.diag
+    T = L ? promote_op(matprod, eltype(d), eltype(A)) : promote_op(matprod, eltype(A), eltype(d))
     C = _adjtrans_dest(A, T)
     _computecolptrs_halfperm!(C, P)
     rvP, nzP = getrowval(P), getnzval(P)
@@ -1037,7 +1037,7 @@ function _diagadjtransmul(A, D, ::Val{L}) where {L}
         i = rvP[k]
         q = cpC[i + 1]
         rvC[q] = j
-        nzC[q] = op(convert(T, _diagterm(Val(!L), d, nzP[k], i, j)))
+        nzC[q] = convert(T, _diagterm(Val(L), d, op(nzP[k]), j, i))
         cpC[i + 1] = q + 1
     end
     return C
