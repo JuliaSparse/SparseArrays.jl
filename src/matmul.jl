@@ -395,6 +395,16 @@ _spmul_operand(A::SparseAdjOrTransTriangular) = _sptriangular(A)
 for W in (:UpperTriangular, :LowerTriangular, :UnitUpperTriangular, :UnitLowerTriangular)
     @eval _sptriangular(A::$W) = $W(copy(parent(A)))
 end
+# A 2-d view that is not a contiguous column range is copied and multiplied as a sparse matrix
+_spmul_operand(A::SparseMatrixCSCSubArray) = copy(A)
+_spmul_operand(A::SparseMatrixCSCView) = A
+*(A::SparseMatrixCSCSubArray, B::Union{SparseMatrixCSCOrSubArray,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) =
+    _spmul_operand(A) * _spmul_operand(B)
+*(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCSubArray) =
+    _spmul_operand(A) * _spmul_operand(B)
+# disambiguates the method above from that for two `_SparseMulOperand` factors
+*(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCView) =
+    spmatmul(_spmul_operand(A), B)
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)

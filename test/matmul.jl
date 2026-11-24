@@ -370,9 +370,14 @@ end
     @test G * X ≈ M * X && (@static COMPREHENSIVE ? G * x ≈ M * x && G' * y ≈ M' * y && y' * G ≈ y' * M : true)
     @test Y * G isa Matrix && Y * G ≈ Y * M
     P = fixture(Float64, 10, 6); Q = fixture(Float64, 8, 5)
+    @test which(*, Base.typesof(G, P)).module == SparseArrays
     @test G * P isa SparseMatrixCSC && mismatch(G * P, M * Matrix(P); approx=true) === nothing
     @static if COMPREHENSIVE
+    @test which(*, Base.typesof(Q, G)).module == SparseArrays
     @test Q * G isa SparseMatrixCSC && mismatch(Q * G, Matrix(Q) * M; approx=true) === nothing
+    # the index types promote, as for two sparse matrices
+    G32 = view(SparseMatrixCSC{Float64,Int32}(S), [4, 1, 1, 9, 7], 2:11)
+    @test mismatch(G32 * P, M * Matrix(P); Ti=Int, approx=true) === nothing
     @test mul!(zeros(5, 6), G, P) ≈ M * Matrix(P)
     end
     # the sparse kernels multiply by stored zeros, the generic fallbacks skip them
