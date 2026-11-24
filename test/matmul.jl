@@ -704,6 +704,19 @@ end
             @test rowvals(B) == [2, 1,3, 1,2,4, 2,3,5, 3,4]
             @test [nzrange(B,col) for col in axes(B,2)] == [1:1, 2:3, 4:6, 7:9, 10:11]
             @test nonzeros(B) == [10, 0,10, 0,0,10, 0,0,10, 0,0]
+            @static if COMPREHENSIVE
+            # a merged pattern that the index type cannot count throws with `C` unchanged
+            C8 = SparseMatrixCSC{Float64,Int8}(sparse([ones(20, 5) zeros(20, 15)]))
+            C8c = copy(C8)
+            @test_throws ArgumentError SparseArrays.mergeinds!(C8, SparseMatrixCSC{Float64,Int8}(sparse([zeros(20, 5) ones(20, 3) zeros(20, 12)])))
+            @test exact_equal(C8, C8c)
+            # so does a `C` whose row indices were shortened below its column pointers
+            Cs = sparse([1.0 0; 0 1])
+            resize!(rowvals(Cs), 1)
+            Csc = copy(nonzeros(Cs))
+            @test_throws ArgumentError SparseArrays.mergeinds!(Cs, sparse([0 1.0; 1 0]))
+            @test rowvals(Cs) == [1] && SparseArrays.getcolptr(Cs) == [1, 2, 3] && isequal(nonzeros(Cs), Csc)
+            end
         end
         # besides a destination with the pattern of `sA` and one with another pattern, one that
         # shares only the row indices (an empty column changes places) and one that shares only

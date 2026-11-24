@@ -1468,25 +1468,85 @@ julia> SparseArrays.mergeinds!(C, A)
 ```
 """
 function mergeinds!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC)
-    C_colptr = getcolptr(C)
-    for col in axes(A,2)
-        n_extra = 0
-        for ind in @inbounds nzrange(A, col)
-            row = @inbounds getrowval(A)[ind]
-            row_exists, ind = rowcheck_index(C, row, col)
-            if !row_exists
-                _is_fixed(C) && throw(ArgumentError(lazy"cannot store entry ($row, $col) in a fixed sparse matrix whose pattern lacks it"))
-                n_extra += 1
-                insert!(getrowval(C), ind, row)
-                insert!(getnzval(C), ind, zero(eltype(C)))
-                C_colptr[col+1] += 1
+    size(C) == size(A) || throw(DimensionMismatch(lazy"C has size $(size(C)) but A has size $(size(A))"))
+    _checkstoredlength(C)
+    _checkstoredlength(A)
+    nnew = _countnewinds(C, A)
+    iszero(nnew) && return C
+    Ccolptr, Crowval, Cnzval = getcolptr(C), getrowval(C), getnzval(C)
+    nzC = Int(Ccolptr[end]) - 1
+    _checknnzfits(indtype(C), nzC + nnew)
+    _growtail!(Crowval, nzC, nnew)
+    _growtail!(Cnzval, nzC, nnew)
+    Arowval = getrowval(A)
+    # Merged from the last column back, in place: an entry of `C` only moves to a later
+    # position, so it is read before anything is written over it.
+    w = nzC + nnew
+    @inbounds for col in reverse(axes(A, 2))
+        pcfirst, pc = Int(Ccolptr[col]), Int(Ccolptr[col+1]) - 1
+        w == pc && break   # nothing is inserted in this column or before it
+        parange = nzrange(A, col)
+        pafirst, pa = first(parange), last(parange)
+        Ccolptr[col+1] = w + 1
+        while pa >= pafirst
+            ra = Arowval[pa]
+            if pc >= pcfirst && Crowval[pc] >= ra
+                Crowval[pc] == ra && (pa -= 1)
+                Crowval[w] = Crowval[pc]
+                Cnzval[w] = Cnzval[pc]
+                pc -= 1
+            else
+                Crowval[w] = ra
+                Cnzval[w] = zero(eltype(C))
+                pa -= 1
             end
+            w -= 1
         end
-        if !iszero(n_extra)
-            @views C_colptr[col+2:end] .+= n_extra
+        while pc >= pcfirst
+            Crowval[w] = Crowval[pc]
+            Cnzval[w] = Cnzval[pc]
+            pc -= 1
+            w -= 1
         end
     end
-    C
+    return C
+end
+# `mergeinds!` reads the storage of both matrices without bounds checks, which the column
+# pointers of a matrix whose row indices or values were shortened would run past
+function _checkstoredlength(S::AbstractSparseMatrixCSC)
+    colptr = getcolptr(S)
+    length(colptr) == size(S, 2) + 1 &&
+        Int(colptr[end]) - 1 <= min(length(getrowval(S)), length(getnzval(S))) ||
+        throw(ArgumentError(lazy"a $(typeof(S)) whose column pointers address more entries than it stores is invalid"))
+    return S
+end
+# The number of stored entries of `A` that `C` lacks; throws for a fixed `C` that lacks one
+function _countnewinds(C, A)
+    Ccolptr, Crowval, Arowval = getcolptr(C), getrowval(C), getrowval(A)
+    nnew = 0
+    @inbounds for col in axes(A, 2)
+        pc, pclast = Int(Ccolptr[col]), Int(Ccolptr[col+1]) - 1
+        for pa in nzrange(A, col)
+            row = Arowval[pa]
+            while pc <= pclast && Crowval[pc] < row
+                pc += 1
+            end
+            if pc <= pclast && Crowval[pc] == row
+                pc += 1
+            else
+                _is_fixed(C) && throw(ArgumentError(lazy"cannot store entry ($row, $col) in a fixed sparse matrix whose pattern lacks it"))
+                nnew += 1
+            end
+        end
+    end
+    return nnew
+end
+# Make room for `n` entries after the first `k` of `v`, moving any storage past them along
+function _growtail!(v::AbstractVector, k::Int, n::Int)
+    len = length(v)
+    resize!(v, len + n)
+    len > k && copyto!(v, k + n + 1, v, k + 1, len - k)
+    return v
 end
 
 # For an integer eltype the Hermitian branches of `\` and `factorize` below would reach
