@@ -456,10 +456,10 @@ julia> A * B
 # at a cost proportional to its stored entries. The converted factors are multiplied with
 # `*` again, which lands on the method above. A matrix times a sparse vector converts the
 # same way, except that an adjoint or transpose of CSC is read in place.
-const _SparseMulOperand = Union{SparseOrTri, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},
+const _SparseMulOperand = Union{SparseOrTri, SparseMatrixCSCSubArray, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},
                                 SparseMatrixCSCSymmHerm, SparseAdjOrTransTriangular}
 *(A::_SparseMulOperand, B::_SparseMulOperand) = _spmul_operand(A) * _spmul_operand(B)
-*(A::Union{SparseOrTri,SparseMatrixCSCSymmHerm,SparseAdjOrTransTriangular},
+*(A::Union{SparseOrTri,SparseMatrixCSCSubArray,SparseMatrixCSCSymmHerm,SparseAdjOrTransTriangular},
   x::Union{SparseVectorOrView,SparseVectorPartialView}) = _sp_spvec_mul(_spmul_operand(A), x)
 *(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, x::AbstractSparseVector) =
     _sp_spvec_mul(A, x)
@@ -472,16 +472,9 @@ _spmul_operand(A::SparseAdjOrTransTriangular) = _sptriangular(A)
 for W in (:UpperTriangular, :LowerTriangular, :UnitUpperTriangular, :UnitLowerTriangular)
     @eval _sptriangular(A::$W) = $W(copy(parent(A)))
 end
-# A 2-d view that is not a contiguous column range is copied and multiplied as a sparse matrix
+# a 2-d view other than a contiguous column range has no compressed columns of its own
 _spmul_operand(A::SparseMatrixCSCSubArray) = copy(A)
 _spmul_operand(A::SparseMatrixCSCView) = A
-*(A::SparseMatrixCSCSubArray, B::Union{SparseMatrixCSCOrSubArray,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}) =
-    _spmul_operand(A) * _spmul_operand(B)
-*(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCSubArray) =
-    _spmul_operand(A) * _spmul_operand(B)
-# disambiguates the method above from that for two `_SparseMulOperand` factors
-*(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCView) =
-    _sp_sp_mul_sparse(_spmul_operand(A), B)
 
 # special cases of same twin Upper/LowerTriangular
 _sp_sp_mul(A, B) = _sp_sp_mul_sparse(A, B)
