@@ -375,9 +375,9 @@ end
     @static if COMPREHENSIVE
     @test which(*, Base.typesof(Q, G)).module == SparseArrays
     @test Q * G isa SparseMatrixCSC && mismatch(Q * G, Matrix(Q) * M; approx=true) === nothing
-    # the result has the index type of the left factor
+    # the index types promote, as for two sparse matrices
     G32 = view(SparseMatrixCSC{Float64,Int32}(S), [4, 1, 1, 9, 7], 2:11)
-    @test mismatch(G32 * P, M * Matrix(P); Ti=Int32, approx=true) === nothing
+    @test mismatch(G32 * P, M * Matrix(P); Ti=Int, approx=true) === nothing
     @test mul!(zeros(5, 6), G, P) ≈ M * Matrix(P)
     end
     # the sparse kernels multiply by stored zeros, the generic fallbacks skip them
