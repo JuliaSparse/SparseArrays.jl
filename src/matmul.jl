@@ -1040,46 +1040,16 @@ function _diagscale_merged!(C, A, d, left, a, beta)
     end
 end
 
-# Adjoint/transpose of a sparse matrix with a `Diagonal`: the generic
-# `Diagonal` kernel in LinearAlgebra visits every element of `C`. With `beta == 0` the
-# adjoint is formed directly in `C` (one `halfperm!`, O(nnz)) and scaled in place;
-# otherwise it is materialized once and handed to the CSC kernels above, which also
-# covers `alpha == 0`, a destination whose index type or fixed structure `halfperm!` cannot
-# write, and eltypes of `C`, `A` and the product that differ, so that no operand is converted
-# before multiplying, as for dense (a real `Inf` times a complex one is not `complex(Inf)`
-# times it).
-function _adjtrans_into!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC})
-    P = parent(A)
-    return halfperm!(C, P, axes(P, 2), _adjtrans_fun(A))
-end
-_adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha, beta) =
-    !iszero(alpha) && iszero(beta) && !_is_fixed(C) &&
-    indtype(C) === indtype(parent(A)) &&
-    eltype(C) === eltype(A) === promote_op(matprod, eltype(A), eltype(D)) &&
-    _storesafely(eltype(C), _diagmul_eltype(C, eltype(C), alpha, beta))
-
+# An adjoint or transpose of a sparse matrix is materialized, at a cost proportional to its
+# stored entries, and takes the kernels above; LinearAlgebra's `Diagonal` kernel would visit
+# every entry of `C`. An `A` that shares memory with `C` throws, as it does unwrapped.
 function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
     LinearAlgebra.check_mul_aliasing(C, A, D)
-    m, n = size(A)
-    lb = length(D.diag)
-    n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
-    size(C) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    _adjtrans_direct(C, A, D, alpha, beta) || return mul!(C, copy(A), D, alpha, beta)
-    rmul!(_adjtrans_into!(C, A), D)
-    isone(alpha) || rmul!(C, alpha)
-    return C
+    return mul!(C, copy(A), D, alpha, beta)
 end
-
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, alpha::Number, beta::Number)
     LinearAlgebra.check_mul_aliasing(C, D, A)
-    m, n = size(A)
-    lb = length(D.diag)
-    m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
-    size(C) == (m, n) || throw(DimensionMismatch(lazy"A has size ($m, $n), D has size ($lb, $lb), C has size $(size(C))"))
-    _adjtrans_direct(C, A, D, alpha, beta) || return mul!(C, D, copy(A), alpha, beta)
-    lmul!(D, _adjtrans_into!(C, A))
-    isone(alpha) || rmul!(C, alpha)
-    return C
+    return mul!(C, D, copy(A), alpha, beta)
 end
 
 # LinearAlgebra forms `D * S'` as `(S * D')'` and `S' * D` as `(D' * S)'`, scaling a copy of `S`
