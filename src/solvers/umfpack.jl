@@ -222,7 +222,7 @@ UmfpackWS{T}(Wi::Vector{T}, W::Vector{Float64}) where {T<:UMFITypes} =
     UmfpackWS{T}(Wi, W, fill(-1.0, UMFPACK_INFO))
 UmfpackWS(Wi::Vector{T}, W::Vector{Float64}) where {T<:UMFITypes} = UmfpackWS{T}(Wi, W)
 # the arrays the workspace is stored in, for the aliasing checks
-LinearAlgebra._aliasparts(ws::UmfpackWS) = (ws.Wi, ws.W, ws.info)
+LinearAlgebra.aliasparts(ws::UmfpackWS) = (ws.Wi, ws.W, ws.info)
 
 UmfpackWS{T}(Wisize::Integer, Wsize::Integer) where {T<:UMFITypes} =
     UmfpackWS{T}(Vector{T}(undef, Wisize), Vector{Float64}(undef, Wsize))
@@ -355,7 +355,7 @@ Base.copy(F::UmfpackLU) = @lock F.lock UmfpackLU(
 # `ldiv!`.
 Base.copy(F::UmfpackLU, ::UmfpackWS) = copy(F)
 # the arrays the factorization is stored in, for LinearAlgebra's aliasing checks
-LinearAlgebra._aliasparts(F::UmfpackLU) = (getfield(F, :colptr), getfield(F, :rowval),
+LinearAlgebra.aliasparts(F::UmfpackLU) = (getfield(F, :colptr), getfield(F, :rowval),
     getfield(F, :nzval), getfield(F, :control), getfield(F, :info))
 Base.copy(F::T) where {T <: UMFAdjOrTransLU} = T(copy(parent(F)))
 Base.copy(F::T, ::UmfpackWS) where {T <: UMFAdjOrTransLU} = T(copy(parent(F)))
@@ -1124,7 +1124,7 @@ ldiv!(adjlu::AdjointFactorization{Float64,<:UmfpackLU{Float64}}, B::StridedVecOr
     ldiv!(B, adjlu, copy(B); workspace)
 
 function ldiv!(lu::Union{UmfpackLU,UMFAdjOrTransLU}, B::AdjOrTrans{<:Any,<:StridedVecOrMat}; workspace=nothing)
-    LinearAlgebra.check_inplace_aliasing(B, lu)
+    LinearAlgebra.checkaliasing(B, lu)
     _check_workspace_aliasing(workspace, B, B, lu)
     X = Matrix(B)
     ldiv!(lu, X; workspace)
@@ -1146,7 +1146,7 @@ ldiv!(X::StridedVecOrMat{Tb}, adjlu::AdjointFactorization{Float64,<:UmfpackLU{Fl
 
 function _Aq_ldiv_B!(X::StridedVecOrMat, lu::UmfpackLU, B::StridedVecOrMat, transposeoptype,
                      workspace::Union{Nothing,UmfpackWS})
-    LinearAlgebra.check_inplace_aliasing(X, lu) # X may be B, which is copied below
+    LinearAlgebra.checkaliasing(X, lu) # X may be B, which is copied below
     _check_workspace_aliasing(workspace, X, B, lu)
     checksquare(lu)
     if size(B, 1) != lu.m
