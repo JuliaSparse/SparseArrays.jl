@@ -11,12 +11,11 @@
 #   tri      a triangular matrix
 #   spvec    a sparse vector
 # The suffix names the result where the factors leave it open: `_dense!` writes into a dense
-# destination, `_sparse` and `_densevec` return a new array, and `_hash`, `_rank` and `_spgemm`
+# destination, `_sparse` returns a new array, and `_hash`, `_rank` and `_spgemm`
 # are the three algorithms for a sparse-vector result. A name without a suffix, such as
 # `_sp_sp_mul` or `_sp_spvec_mul`, picks the kernel for its operands, and `_dispatch!` names the
-# methods that pick one from the wrapper characters of `mul!`. Two kernels also take their
-# sparse factor transposed: `_dense_sp_mul!` through `tfun`, which may be `identity`, and
-# `_sp_spvec_mul_densevec` through `trans`.
+# methods that pick one from the wrapper characters of `mul!`. `_dense_sp_mul!` also takes its
+# sparse factor transposed, through `tfun`, which may be `identity`.
 #
 # Sections, in order:
 # - Shared helpers: fixed-size indexing, size checks and scaling
@@ -1284,33 +1283,6 @@ _fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 
 # ---- Sparse matrix * sparse vector, dense result ----
 
-function _sp_spvec_mul_densevec(A::AbstractSparseMatrixCSC, x::AbstractSparseVector; trans::AbstractChar='N')
-    local xlen::Int, ylen::Int
-    require_one_based_indexing(A, x)
-    m, n = size(A)
-    if trans == 'N' || trans == 'n'
-        xlen = n; ylen = m
-        xaxis = "columns"
-    elseif trans == 'T' || trans == 't' || trans == 'C' || trans == 'c'
-        xlen = m; ylen = n
-        xaxis = "rows"
-    else
-        throw(ArgumentError("Invalid trans character $trans"))
-    end
-    xlen == length(x) || throw(DimensionMismatch(
-        "Matrix A has $xlen $xaxis, but vector x has a length $(length(x))"))
-    T = promote_op(matprod, eltype(A), eltype(x))
-    y = Vector{T}(undef, ylen)
-    if trans == 'N' || trans == 'n'
-        mul!(y, A, x)
-    elseif trans == 'T' || trans == 't'
-        mul!(y, transpose(A), x)
-    else # trans == 'C' || trans == 'c'
-        mul!(y, adjoint(A), x)
-    end
-    y
-end
-
 # * and mul!
 mul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, alpha::Number, beta::Number) =
     _sp_spvec_mul_dispatch!(y, tA, A, x, alpha, beta)
@@ -1341,9 +1313,7 @@ function _sp_spvec_mul_dense!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::
         "Matrix A has $n columns, but vector x has a length $(length(x))"))
     length(y) == m || throw(DimensionMismatch(
         "Matrix A has $m rows, but vector y has a length $(length(y))"))
-    m == 0 && return
-    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    _iszero(α) && return
+    _scale_dest!(y, α, β) || return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -1381,6 +1351,10 @@ function _spvec_bits(m, xnzind)
         0 <= r < m || return nothing
         @inbounds words[(r >> 6) + 1] |= one(UInt64) << (r & 63)
     end
+    return _SpvecBits(words)
+end
+# with the count of the bits below each word
+function _SpvecBits(words::Vector{UInt64})
     below = Vector{Int}(undef, length(words))
     c = 0
     @inbounds for w in eachindex(words)
@@ -1389,6 +1363,10 @@ function _spvec_bits(m, xnzind)
     end
     return _SpvecBits(words, below)
 end
+_spvec_count(pos::_SpvecBits) = isempty(pos.words) ? 0 : pos.below[end] + count_ones(pos.words[end])
+# the number of set bits up to and including `bit`, of the word `w` that holds `word`
+Base.@propagate_inbounds _spvec_rank(pos::_SpvecBits, w, word, bit) =
+    pos.below[w] + count_ones(word & (bit - one(UInt64))) + 1
 # at most half full; position 0 marks an empty slot
 struct _SpvecSlots
     slots::Vector{Int}
@@ -1425,14 +1403,13 @@ end
 function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecBits, xnzind, xnzval) where {F}
     s = _spdotzero(f, eltype(Anzval), eltype(xnzval))
     words = pos.words
-    below = pos.below
     @inbounds for p in nzrange(A, j)
         r = Int(Arowval[p]) - 1
         w = (r >> 6) + 1
         word = words[w]
         bit = one(UInt64) << (r & 63)
         if word & bit != 0
-            s += f(Anzval[p], xnzval[below[w] + count_ones(word & (bit - one(UInt64))) + 1])
+            s += f(Anzval[p], xnzval[_spvec_rank(pos, w, word, bit)])
         end
     end
     return s
@@ -1462,12 +1439,10 @@ function _spT_spvec_mul_dense!(tfun::F,
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == m || throw(DimensionMismatch(
-        "Matrix A has $n columns, but vector x has a length $(length(x))"))
+        "Matrix A has $m rows, but vector x has a length $(length(x))"))
     length(y) == n || throw(DimensionMismatch(
-        "Matrix A has $m rows, but vector y has a length $(length(y))"))
-    n == 0 && return
-    β != one(β) && LinearAlgebra._rmul_or_fill!(y, β)
-    _iszero(α) && return
+        "Matrix A has $n columns, but vector y has a length $(length(y))"))
+    _scale_dest!(y, α, β) || return
 
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -1520,9 +1495,8 @@ function _sp_spvec_mul(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
         flops < m >> 11 && return _sp_spvec_mul_hash(A, x, flops)
         flops < cutoff && return _sp_spvec_mul_rank(A, x)
     end
-    y = _sp_spvec_mul_densevec(A, x)
-    initcap = min(nnz(A), size(A,1))
-    _dense2sparsevec(eltype(y), y, initcap)
+    T = promote_op(matprod, eltype(A), eltype(x))
+    return _dense2sparsevec(T, mul!(Vector{T}(undef, m), A, x), min(nnz(A), m))
 end
 
 _sp_spvec_mul(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
@@ -1547,8 +1521,6 @@ function _spmv_flops(A, x)
     return flops
 end
 
-@inline _spmv_slot(r, shift) = Int((r % UInt64 * 0x9E3779B97F4A7C15) >>> shift) + 1
-
 function _sp_spvec_mul_hash(A, x, flops)
     T = promote_op(matprod, eltype(A), eltype(x))
     xnzind = nonzeroinds(x)
@@ -1569,7 +1541,7 @@ function _sp_spvec_mul_hash(A, x, flops)
         _isnotzero(v) || continue
         for p in nzrange(A, xnzind[i])
             r = Int(Arowval[p])
-            h = _spmv_slot(r, shift)
+            h = _spvec_slot(r, shift)
             while true
                 key = slotrow[h]
                 if key == r
@@ -1591,7 +1563,7 @@ function _sp_spvec_mul_hash(A, x, flops)
     ynzval = Vector{T}(undef, nrows)
     @inbounds for k in 1:nrows
         r = ynzind[k]
-        h = _spmv_slot(r, shift)
+        h = _spvec_slot(r, shift)
         while slotrow[h] != r
             h = (h & mask) + 1
         end
@@ -1615,12 +1587,8 @@ function _sp_spvec_mul_rank(A, x)
             words[(r >> 6) + 1] |= UInt64(1) << (r & 63)
         end
     end
-    below = Vector{Int}(undef, length(words))
-    nrows = 0
-    @inbounds for w in eachindex(words)
-        below[w] = nrows
-        nrows += count_ones(words[w])
-    end
+    pos = _SpvecBits(words)
+    nrows = _spvec_count(pos)
     ynzind = Vector{Int}(undef, nrows)
     ynzval = zeros(T, nrows)
     k = 0
@@ -1638,8 +1606,7 @@ function _sp_spvec_mul_rank(A, x)
         for p in nzrange(A, xnzind[i])
             r = Int(Arowval[p]) - 1
             w = (r >> 6) + 1
-            k = below[w] + count_ones(words[w] & ((UInt64(1) << (r & 63)) - one(UInt64))) + 1
-            ynzval[k] += Anzval[p] * v
+            ynzval[_spvec_rank(pos, w, words[w], one(UInt64) << (r & 63))] += Anzval[p] * v
         end
     end
     return dropzeros!(SparseVector(m, ynzind, ynzval))
