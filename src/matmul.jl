@@ -380,15 +380,16 @@ julia> A * B
  -1.0  1.0
 ```
 """
-*(A::SparseMulOperand, B::SparseMulOperand) = spmatmul1(_spmul_operand(A), _spmul_operand(B))
+*(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView)
+*(A::SparseOrTri, B::SparseOrTri) = spmatmul1(A, B)
+# Any other sparse factor is materialized into compressed columns or a triangle of them,
+# at a cost proportional to its stored entries. The converted factors are multiplied with
+# `*` again, so that a product with a sparse vector takes the kernels for plain CSC.
+const _SparseMulOperand = Union{SparseOrTri, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},
+                                SparseMatrixCSCSymmHerm, SparseAdjOrTransTriangular}
+*(A::_SparseMulOperand, B::_SparseMulOperand) = _spmul_operand(A) * _spmul_operand(B)
 *(A::Union{SparseMatrixCSCSymmHerm,SparseAdjOrTransTriangular}, x::Union{SparseVectorOrView,SparseVectorPartialView}) =
     _spmul_operand(A) * x
-# The factors of a sparse product as `spmatmul` reads them: compressed columns, or a
-# triangle of them. Any other wrapper is materialized, which is O(nnz): an adjoint or
-# transpose, a symmetric or Hermitian matrix, and the adjoint or transpose of a triangle,
-# which LinearAlgebra makes eagerly.
-const SparseMulOperand = Union{SparseOrTri, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC},
-                               SparseMatrixCSCSymmHerm, SparseAdjOrTransTriangular}
 _spmul_operand(A::SparseOrTri) = A
 _spmul_operand(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = copy(A)
 _spmul_operand(A::SparseMatrixCSCSymmHerm) = sparse(A)
