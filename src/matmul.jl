@@ -1217,7 +1217,7 @@ function _dense_spvec_mul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSpar
 end
 
 function _denseT_spvec_mul!(tfun::Function,
-                            y::AbstractVector, A::Union{StridedMatrix,UpperOrLowerTriangular}, x::AbstractSparseVector,
+                            y::AbstractVector, A::StridedMatrix, x::AbstractSparseVector,
                             α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     n, m = size(A)
@@ -1245,41 +1245,18 @@ function _denseT_spvec_mul!(tfun::Function,
     return
 end
 
+# A triangle, of any parent and under any wrapper character, takes the kernel for any matrix,
+# whose `getindex` leaves out the other triangle. A direct call with a character would
+# otherwise take LinearAlgebra's generic kernel, which visits every entry of `x`.
 LinearAlgebra._mul!(y::AbstractVector, A::UpperOrLowerTriangular, x::AbstractSparseVector,
                     alpha::Number, beta::Number) = _tri_spvec_mul!(y, A, x, alpha, beta)
-# A direct call with a character would otherwise take LinearAlgebra's generic kernel, which
-# visits every entry of `x`. A triangle under `T` or `C` is a triangle again; under `S` or `H`
-# it is not, and takes the kernel for any matrix, as a strided matrix does.
-Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
-                                                        alpha::Number, beta::Number)
-    _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
-    tA_uc = _uppercase(tA)
-    if tA_uc == 'N'
-        _tri_spvec_mul!(y, A, x, alpha, beta)
-    elseif tA_uc in ('T', 'C')
-        _tri_spvec_mul!(y, _tfun(tA_uc)(A), x, alpha, beta)
-    else
-        _dense_spvec_mul!(y, wrap(A, tA), x, alpha, beta)
-    end
-    return y
-end
+Base.@constprop :aggressive mul!(y::AbstractVector, tA, A::UpperOrLowerTriangular, x::AbstractSparseVector,
+                                 alpha::Number, beta::Number) = _tri_spvec_mul!(y, wrap(A, tA), x, alpha, beta)
 function _tri_spvec_mul!(y, A, x, alpha, beta)
     _is_fixed(y) && return copyto!(y, _tri_spvec_mul!(Vector(y), A, x, alpha, beta))
-    Adata = parent(A)
-    if Adata isa Transpose
-        _denseT_spvec_mul!(transpose, y, _fliptri(A), x, alpha, beta)
-    elseif Adata isa Adjoint
-        _denseT_spvec_mul!(adjoint, y, _fliptri(A), x, alpha, beta)
-    else # Adata is plain
-        _dense_spvec_mul!(y, A, x, alpha, beta)
-    end
+    _dense_spvec_mul!(y, A, x, alpha, beta)
     return y
 end
-
-_fliptri(A::UpperTriangular) = LowerTriangular(parent(parent(A)))
-_fliptri(A::UnitUpperTriangular) = UnitLowerTriangular(parent(parent(A)))
-_fliptri(A::LowerTriangular) = UpperTriangular(parent(parent(A)))
-_fliptri(A::UnitLowerTriangular) = UnitUpperTriangular(parent(parent(A)))
 
 
 # ---- Sparse matrix * sparse vector, dense result ----
