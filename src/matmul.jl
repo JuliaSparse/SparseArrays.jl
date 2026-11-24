@@ -1,6 +1,22 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # Products: `*`, `mul!`, `lmul!`, `rmul!` and the kernels behind them.
+#
+# The product kernels are named `_<A>_<B>_mul[_<result>][!]` after their two factors:
+#   sp       a sparse matrix (CSC, or a view of one)
+#   spT      a transpose or adjoint of a sparse matrix, never the plain matrix
+#   dense    a dense matrix
+#   denseT   a transpose or adjoint of a dense matrix
+#   symherm  a Symmetric or Hermitian sparse matrix
+#   tri      a triangular matrix
+#   spvec    a sparse vector
+# The suffix names the result where the factors leave it open: `_dense!` writes into a dense
+# destination, `_sparse` and `_densevec` return a new array, and `_hash`, `_rank` and `_spgemm`
+# are the three algorithms for a sparse-vector result. A name without a suffix, such as
+# `_sp_sp_mul` or `_sp_spvec_mul`, picks the kernel for its operands, and `_dispatch!` names the
+# methods that pick one from the wrapper characters of `mul!`. Two kernels also take their
+# sparse factor transposed: `_dense_sp_mul!` through `tfun`, which may be `identity`, and
+# `_sp_spvec_mul_densevec` through `trans`.
 
 _fix_size(M, nrow, ncol) = M
 
@@ -76,19 +92,19 @@ _sparsehessenberg(A::UpperHessenberg) = triu(convert(SparseMatrixCSC, parent(A))
 # so it is any matrix with fast scalar `getindex`: strided or not, or a structured dense
 # type without a product of its own, such as `UpperHessenberg`.
 mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrSubArray, B::AbstractMatrix, alpha::Number, beta::Number) =
-    spdensemul!(C, tA, tB, _compressed(A), B, alpha, beta)
+    _sp_dense_mul_dispatch!(C, tA, tB, _compressed(A), B, alpha, beta)
 mul!(C::StridedMatrix, tA, tB, A::AbstractMatrix, B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number) =
-    densespmul!(C, tA, tB, A, _compressed(B), alpha, beta)
+    _dense_sp_mul_dispatch!(C, tA, tB, A, _compressed(B), alpha, beta)
 # With both factors sparse, only pairs of stored entries contribute: column `k` of `B` selects
 # the columns of `A` that are added into column `k` of `C`. A wrapped or subset factor is
 # materialized first, which is O(nnz).
 function mul!(C::StridedMatrix, tA, tB, A::SparseMatrixCSCOrSubArray, B::SparseMatrixCSCOrSubArray, alpha::Number, beta::Number)
     A, B = _compressed(A), _compressed(B)
-    _spmatspmat_dense!(C, _uppercase(tA) == 'N' ? A : sparse(wrap(A, tA)),
+    _sp_sp_mul_dense!(C, _uppercase(tA) == 'N' ? A : sparse(wrap(A, tA)),
                        _uppercase(tB) == 'N' ? B : sparse(wrap(B, tB)), alpha, beta)
     return C
 end
-function _spmatspmat_dense!(C, A, B, α, β)
+function _sp_sp_mul_dense!(C, A, B, α, β)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
     rvA, nzA = getrowval(A), getnzval(A)
     rvB, nzB = getrowval(B), getnzval(B)
@@ -103,7 +119,7 @@ function _spmatspmat_dense!(C, A, B, α, β)
 end
 function LinearAlgebra._mul!(C::StridedMatrix, A::QuasiSparseMatrix, B::AbstractTriangular, alpha::Number, beta::Number)
     tA, P = _trimul_factor(A)
-    return spdensemul!(C, tA, LinearAlgebra.wrapper_char(B), P, B, alpha, beta)
+    return _sp_dense_mul_dispatch!(C, tA, LinearAlgebra.wrapper_char(B), P, B, alpha, beta)
 end
 # The kernels read an adjoint, transpose, symmetric or Hermitian wrapper of compressed
 # storage in place. A triangle and an `UpperHessenberg` have no such kernel and are
@@ -114,7 +130,7 @@ _trimul_factor(A::Union{SparseMatrixCSCOrColumnSubset,AdjOrTrans{<:Any,<:SparseM
 _trimul_factor(A::UpperHessenberg) = 'N', _sparsehessenberg(A)
 _trimul_factor(A) = 'N', convert(SparseMatrixCSC, A)
 mul!(C::StridedVecOrMat, tA, A::SparseMatrixCSCOrSubArray, B::AbstractVector, alpha::Number, beta::Number) =
-    spdensemul!(C, tA, 'N', _compressed(A), B, alpha, beta)
+    _sp_dense_mul_dispatch!(C, tA, 'N', _compressed(A), B, alpha, beta)
 # LinearAlgebra materializes the second of two symmetric/Hermitian factors, elementwise
 # when it is sparse; the kernels take both wrappers as they are
 LinearAlgebra.mul(A::HermOrSym{<:Any,<:DenseMatrixUnion}, B::SparseMatrixCSCSymmHerm) = LinearAlgebra._mul(A, B)
@@ -124,15 +140,15 @@ LinearAlgebra.mul(A::SparseMatrixCSCSymmHerm, B::HermOrSym{<:Any,<:DenseMatrixUn
 # `WrapperChar`, uppercase it once, and pass a transpose or adjoint to the kernel as a function.
 _tfun(t_uc) = t_uc == 'T' ? transpose : adjoint
 
-Base.@constprop :aggressive function spdensemul!(C, tA, tB, A, B, alpha, beta)
+Base.@constprop :aggressive function _sp_dense_mul_dispatch!(C, tA, tB, A, B, alpha, beta)
     tA_uc = _uppercase(tA)
     if tA_uc == 'N'
-        _spmatmul!(C, A, wrap(B, tB), alpha, beta)
+        _sp_dense_mul!(C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc in ('T', 'C')
-        _At_or_Ac_mul_B!(_tfun(tA_uc), C, A, wrap(B, tB), alpha, beta)
+        _spT_dense_mul!(_tfun(tA_uc), C, A, wrap(B, tB), alpha, beta)
     elseif tA_uc in ('S', 'H')
         rangefun, diagop, odiagop = _symherm_ops(tA)
-        _symherm_mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), alpha, beta)
+        _symherm_dense_mul!(rangefun, diagop, odiagop, C, A, wrap(B, tB), alpha, beta)
     else
         LinearAlgebra._generic_matmatmul!(C, wrap(A, tA), wrap(B, tB), alpha, beta)
     end
@@ -192,7 +208,7 @@ end
 end
 @inline _αscale(x, α) = α isa Bool ? x : x * α
 
-function _spmatmul!(C, A, B, α, β)
+function _sp_dense_mul!(C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
@@ -212,7 +228,7 @@ function _spmatmul!(C, A, B, α, β)
     end
 end
 
-function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
+function _spT_dense_mul!(tfun::Function, C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AtB(C, A, B)
@@ -233,16 +249,16 @@ function _At_or_Ac_mul_B!(tfun::Function, C, A, B, α, β)
     end
 end
 
-Base.@constprop :aggressive function densespmul!(C, tA, tB, A, B, alpha, beta)
+Base.@constprop :aggressive function _dense_sp_mul_dispatch!(C, tA, tB, A, B, alpha, beta)
     X = wrap(A, tA)
     tB_uc = _uppercase(tB)
     if tB_uc == 'N'
-        _A_mul_Bt_or_Bc!(identity, C, X, B, alpha, beta)
+        _dense_sp_mul!(identity, C, X, B, alpha, beta)
     elseif tB_uc in ('T', 'C')
-        _A_mul_Bt_or_Bc!(_tfun(tB_uc), C, X, B, alpha, beta)
+        _dense_sp_mul!(_tfun(tB_uc), C, X, B, alpha, beta)
     elseif tB_uc in ('S', 'H')
         rangefun, diagop, odiagop = _symherm_ops(tB)
-        _A_mul_symherm!(rangefun, diagop, odiagop, C, X, B, alpha, beta)
+        _dense_symherm_mul!(rangefun, diagop, odiagop, C, X, B, alpha, beta)
     else
         LinearAlgebra._generic_matmatmul!(C, X, wrap(B, tB), alpha, beta)
     end
@@ -252,7 +268,7 @@ end
 
 # `C = A * tfun(B) * α + C * β`, with `tfun === identity` for the plain product: column `src`
 # of `A` is added into column `dst` of `C` once per stored entry of `B`
-function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
+function _dense_sp_mul!(tfun::F, C::StridedMatrix, A::AbstractMatrix, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
     plain = tfun === identity
     Bax2 = axes(B, 2)
     Aax1 = axes(A, 1)
@@ -274,7 +290,7 @@ end
 # With an adjoint/transpose `A` and a transposed `B`, a column of `A` is a strided row of its
 # parent that every stored entry of the matching column of `B` would reread; it is copied
 # out once per column instead.
-function _A_mul_Bt_or_Bc!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
+function _dense_sp_mul!(tfun::F, C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number) where {F<:Function}
     Aax1 = axes(A, 1)
     mC, nC, mA, nA, mB, nB = _matmul_size_ABt(C, A, B)
     rv = getrowval(B)
@@ -300,7 +316,7 @@ end
 
 # the plain product with an adjoint/transpose `A` reads it along its rows, which are the
 # columns of its parent; with a transposed `B` that would scatter across the rows of `C`
-function _A_mul_Bt_or_Bc!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
+function _dense_sp_mul!(::typeof(identity), C::StridedMatrix, A::AdjOrTrans, B::SparseMatrixCSCOrColumnSubset, α::Number, β::Number)
     Aax1 = axes(A, 1)
     Bax2 = axes(B, 2)
     mC, nC, mA, nA, mB, nB = _matmul_size_AB(C, A, B)
@@ -340,25 +356,26 @@ end
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
-# Sparse matrix times sparse vector. `_spmatvec` takes the kernel for plain or adjoint CSC
+# Sparse matrix times sparse vector. `_sp_spvec_mul` takes the kernel for plain or adjoint CSC
 # times an AbstractSparseVector, defined with the sparse vector products below, which stores
 # no zeros. A view of a vector is read as the sparse vector it holds, and a view of a column
-# range as its parent times `x` moved to those columns. A triangle takes `spmatmulv`, with
-# a range view read as the sparse vector it holds, and drops the zeros the same way. Other
-# AbstractSparseVectors times a view or a wrapper take the generic product.
-_spmatmulv_operand(x::Union{AbstractCompressedVector,SparseColumnView,SparseVectorView}) = x
-_spmatmulv_operand(x::SparseVectorPartialView) = _sparsevector(x)
-_spmatvec(A::AbstractSparseMatrixCSC, x) = _spmatvec(A, _sparsevector(x))
-function _spmatvec(A::SparseMatrixCSCView, x)
+# range as its parent times `x` moved to those columns. A triangle takes
+# `_sp_spvec_mul_spgemm`, with a range view read as the sparse vector it holds, and drops the
+# zeros the same way. Other AbstractSparseVectors times a view or a wrapper take the generic
+# product.
+_spvec_operand(x::Union{AbstractCompressedVector,SparseColumnView,SparseVectorView}) = x
+_spvec_operand(x::SparseVectorPartialView) = _sparsevector(x)
+_sp_spvec_mul(A::AbstractSparseMatrixCSC, x) = _sp_spvec_mul(A, _sparsevector(x))
+function _sp_spvec_mul(A::SparseMatrixCSCView, x)
     n = size(A, 2)
     length(x) == n || throw(DimensionMismatch(
         lazy"Matrix A has $n columns, but vector x has a length $(length(x))"))
     P = parent(A)
     xs = _sparsevector(x)
     off = first(parentindices(A)[2]) - 1
-    return _spmatvec(P, SparseVector(size(P, 2), nonzeroinds(xs) .+ off, nonzeros(xs)))
+    return _sp_spvec_mul(P, SparseVector(size(P, 2), nonzeroinds(xs) .+ off, nonzeros(xs)))
 end
-_spmatvec(A::SparseTriangular, x) = dropzeros!(spmatmulv(A, _spmatmulv_operand(x)))
+_sp_spvec_mul(A::SparseTriangular, x) = dropzeros!(_sp_spvec_mul_spgemm(A, _spvec_operand(x)))
 """
     *(A::AbstractSparseMatrixCSC, B::AbstractSparseMatrixCSC)
 
@@ -387,7 +404,7 @@ julia> A * B
 ```
 """
 *(A::SparseMatrixCSCOrView, B::SparseMatrixCSCOrView)
-*(A::SparseOrTri, B::SparseOrTri) = spmatmul1(A, B)
+*(A::SparseOrTri, B::SparseOrTri) = _sp_sp_mul(A, B)
 # Any other sparse factor is materialized into compressed columns or a triangle of them,
 # at a cost proportional to its stored entries. The converted factors are multiplied with
 # `*` again, which lands on the method above. A matrix times a sparse vector converts the
@@ -396,11 +413,11 @@ const _SparseMulOperand = Union{SparseOrTri, AdjOrTrans{<:Any,<:AbstractSparseMa
                                 SparseMatrixCSCSymmHerm, SparseAdjOrTransTriangular}
 *(A::_SparseMulOperand, B::_SparseMulOperand) = _spmul_operand(A) * _spmul_operand(B)
 *(A::Union{SparseOrTri,SparseMatrixCSCSymmHerm,SparseAdjOrTransTriangular},
-  x::Union{SparseVectorOrView,SparseVectorPartialView}) = _spmatvec(_spmul_operand(A), x)
+  x::Union{SparseVectorOrView,SparseVectorPartialView}) = _sp_spvec_mul(_spmul_operand(A), x)
 *(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, x::AbstractSparseVector) =
-    _spmatvec(A, x)
+    _sp_spvec_mul(A, x)
 # disambiguates the two methods above
-*(A::AbstractSparseMatrixCSC, x::AbstractCompressedVector) = _spmatvec(A, x)
+*(A::AbstractSparseMatrixCSC, x::AbstractCompressedVector) = _sp_spvec_mul(A, x)
 _spmul_operand(A::SparseOrTri) = A
 _spmul_operand(A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}) = copy(A)
 _spmul_operand(A::SparseMatrixCSCSymmHerm) = sparse(A)
@@ -417,7 +434,7 @@ _spmul_operand(A::SparseMatrixCSCView) = A
     _spmul_operand(A) * _spmul_operand(B)
 # disambiguates the method above from that for two `_SparseMulOperand` factors
 *(A::Union{AbstractSparseMatrixCSC,AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, B::SparseMatrixCSCView) =
-    spmatmul(_spmul_operand(A), B)
+    _sp_sp_mul_sparse(_spmul_operand(A), B)
 
 (*)(Da::Diagonal, A::Union{SparseMatrixCSCOrView, AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}}, Db::Diagonal) = Da * (A * Db)
 function (*)(Da::Diagonal, A::SparseMatrixCSC, Db::Diagonal)
@@ -452,7 +469,7 @@ _explicitdiag(A::UnitUpperTriangular{<:Any,<:SparseMatrixCSCOrView}) = sparse(Un
 _explicitdiag(A::UnitLowerTriangular{<:Any,<:SparseMatrixCSCOrView}) = sparse(UnitLowerTriangular(_fitsdiag(parent(A))))
 # colptr[end] is one past the stored count
 _fitsdiag(S) = nnz(S) + size(S, 2) < typemax(indtype(S)) ? S : SparseMatrixCSC{eltype(S),Int}(S)
-function spmatmul(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,SubArray{<:Any,<:Any,<:AbstractSparseArray}})
+function _sp_sp_mul_sparse(A::SparseOrTri, B::Union{SparseOrTri,AbstractCompressedVector,SubArray{<:Any,<:Any,<:AbstractSparseArray}})
     Tv = promote_op(matprod, eltype(A), eltype(B))
     Ti = promote_type(indtype(A), indtype(B))
     A = _explicitdiag(A)
@@ -600,14 +617,14 @@ function _bitmaporder!(rowvalC, nzvalC, xb, bits::Memory{UInt64}, ip0, ip, k0, m
 end
 
 # special cases of same twin Upper/LowerTriangular
-spmatmul1(A, B) = spmatmul(A, B)
-spmatmul1(A::UpperOrUnitUpperTriangular, B::UpperOrUnitUpperTriangular) = UpperTriangular(spmatmul(A, B))
-spmatmul1(A::UnitUpperTriangular, B::UnitUpperTriangular) = UnitUpperTriangular(spmatmul(A, B))
-spmatmul1(A::LowerOrUnitLowerTriangular, B::LowerOrUnitLowerTriangular) = LowerTriangular(spmatmul(A, B))
-spmatmul1(A::UnitLowerTriangular, B::UnitLowerTriangular) = UnitLowerTriangular(spmatmul(A, B))
-# exploit spmatmul for sparse vectors and column views
-function spmatmulv(A, B)
-    spmatmul(A, B)[:,1]
+_sp_sp_mul(A, B) = _sp_sp_mul_sparse(A, B)
+_sp_sp_mul(A::UpperOrUnitUpperTriangular, B::UpperOrUnitUpperTriangular) = UpperTriangular(_sp_sp_mul_sparse(A, B))
+_sp_sp_mul(A::UnitUpperTriangular, B::UnitUpperTriangular) = UnitUpperTriangular(_sp_sp_mul_sparse(A, B))
+_sp_sp_mul(A::LowerOrUnitLowerTriangular, B::LowerOrUnitLowerTriangular) = LowerTriangular(_sp_sp_mul_sparse(A, B))
+_sp_sp_mul(A::UnitLowerTriangular, B::UnitLowerTriangular) = UnitLowerTriangular(_sp_sp_mul_sparse(A, B))
+# exploit _sp_sp_mul_sparse for sparse vectors and column views
+function _sp_spvec_mul_spgemm(A, B)
+    _sp_sp_mul_sparse(A, B)[:,1]
 end
 
 # The number of entries to allocate for `A*B`. Uniform random matrices give `(1-(1-p)^n)*m*k`,
@@ -806,7 +823,7 @@ function _mattrimul!(C, upper::Bool, unit::Bool, f::Function, X, B)
 end
 
 
-function _symherm_mul!(rangefun::R, diagop::D, odiagop::O, C::StridedVecOrMat, A, B, α::Number, β::Number) where {R<:Function,D<:Function,O<:Function}
+function _symherm_dense_mul!(rangefun::R, diagop::D, odiagop::O, C::StridedVecOrMat, A, B, α::Number, β::Number) where {R<:Function,D<:Function,O<:Function}
     n = size(A, 2)
     m = size(B, 2)
     n == size(B, 1) == size(C, 1) && m == size(C, 2) ||
@@ -834,7 +851,7 @@ function _symherm_mul!(rangefun::R, diagop::D, odiagop::O, C::StridedVecOrMat, A
     end
 end
 
-function _A_mul_symherm!(rangefun::Function, diagop::Function, odiagop::Function, C::StridedMatrix, X::AbstractMatrix, A, α::Number, β::Number)
+function _dense_symherm_mul!(rangefun::Function, diagop::Function, odiagop::Function, C::StridedMatrix, X::AbstractMatrix, A, α::Number, β::Number)
     Aax2 = axes(A, 2)
     Xax1 = axes(X, 1)
     mC, nC, mX, nX, mA, nA = _matmul_size_AB(C, X, A)
@@ -1147,17 +1164,17 @@ Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::StridedMatri
     _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     tA_uc = _uppercase(tA)
     if tA_uc == 'N'
-        _A_mul_spvec!(y, A, x, alpha, beta)
+        _dense_spvec_mul!(y, A, x, alpha, beta)
     elseif tA_uc in ('T', 'C')
-        _At_or_Ac_mul_spvec!(_tfun(tA_uc), y, A, x, alpha, beta)
+        _denseT_spvec_mul!(_tfun(tA_uc), y, A, x, alpha, beta)
     else
-        _A_mul_spvec!(y, wrap(A, tA), x, alpha, beta)
+        _dense_spvec_mul!(y, wrap(A, tA), x, alpha, beta)
     end
     return y
 end
 
 LinearAlgebra._mul!(y::AbstractVector, A::UpperOrLowerTriangular, x::AbstractSparseVector,
-                    alpha::Number, beta::Number) = _tri_mul_spvec!(y, A, x, alpha, beta)
+                    alpha::Number, beta::Number) = _tri_spvec_mul!(y, A, x, alpha, beta)
 # A direct call with a character would otherwise take LinearAlgebra's generic kernel, which
 # visits every entry of `x`. A triangle under `T` or `C` is a triangle again; under `S` or `H`
 # it is not, and takes the kernel for any matrix, as a strided matrix does.
@@ -1166,27 +1183,27 @@ Base.@constprop :aggressive function mul!(y::AbstractVector, tA, A::UpperOrLower
     _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     tA_uc = _uppercase(tA)
     if tA_uc == 'N'
-        _tri_mul_spvec!(y, A, x, alpha, beta)
+        _tri_spvec_mul!(y, A, x, alpha, beta)
     elseif tA_uc in ('T', 'C')
-        _tri_mul_spvec!(y, _tfun(tA_uc)(A), x, alpha, beta)
+        _tri_spvec_mul!(y, _tfun(tA_uc)(A), x, alpha, beta)
     else
-        _A_mul_spvec!(y, wrap(A, tA), x, alpha, beta)
+        _dense_spvec_mul!(y, wrap(A, tA), x, alpha, beta)
     end
     return y
 end
-function _tri_mul_spvec!(y, A, x, alpha, beta)
-    _is_fixed(y) && return copyto!(y, _tri_mul_spvec!(Vector(y), A, x, alpha, beta))
+function _tri_spvec_mul!(y, A, x, alpha, beta)
+    _is_fixed(y) && return copyto!(y, _tri_spvec_mul!(Vector(y), A, x, alpha, beta))
     Adata = parent(A)
     if Adata isa Transpose
-        _At_or_Ac_mul_spvec!(transpose, y, _fliptri(A), x, alpha, beta)
+        _denseT_spvec_mul!(transpose, y, _fliptri(A), x, alpha, beta)
     elseif Adata isa Adjoint
-        _At_or_Ac_mul_spvec!(adjoint, y, _fliptri(A), x, alpha, beta)
+        _denseT_spvec_mul!(adjoint, y, _fliptri(A), x, alpha, beta)
     else # Adata is plain
-        _A_mul_spvec!(y, A, x, alpha, beta)
+        _dense_spvec_mul!(y, A, x, alpha, beta)
     end
     return y
 end
-function _A_mul_spvec!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, α::Number, β::Number)
+function _dense_spvec_mul!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVector, α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == n || throw(DimensionMismatch(
@@ -1211,7 +1228,7 @@ function _A_mul_spvec!(y::AbstractVector, A::AbstractMatrix, x::AbstractSparseVe
     end
 end
 
-function _At_or_Ac_mul_spvec!(tfun::Function,
+function _denseT_spvec_mul!(tfun::Function,
                             y::AbstractVector, A::Union{StridedMatrix,UpperOrLowerTriangular}, x::AbstractSparseVector,
                             α::Number, β::Number)
     require_one_based_indexing(y, A, x)
@@ -1242,7 +1259,7 @@ end
 
 ### BLAS-2 / sparse A * sparse x -> dense y
 
-function densemv(A::AbstractSparseMatrixCSC, x::AbstractSparseVector; trans::AbstractChar='N')
+function _sp_spvec_mul_densevec(A::AbstractSparseMatrixCSC, x::AbstractSparseVector; trans::AbstractChar='N')
     local xlen::Int, ylen::Int
     require_one_based_indexing(A, x)
     m, n = size(A)
@@ -1271,28 +1288,28 @@ end
 
 # * and mul!
 mul!(y::AbstractVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, alpha::Number, beta::Number) =
-    _spmatspvecmul!(y, tA, A, x, alpha, beta)
+    _sp_spvec_mul_dispatch!(y, tA, A, x, alpha, beta)
 # disambiguates against the sparse matrix times dense vector method
 mul!(y::StridedVector, tA, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, alpha::Number, beta::Number) =
-    _spmatspvecmul!(y, tA, A, x, alpha, beta)
-Base.@constprop :aggressive function _spmatspvecmul!(y, tA, A, x, alpha, beta)
+    _sp_spvec_mul_dispatch!(y, tA, A, x, alpha, beta)
+Base.@constprop :aggressive function _sp_spvec_mul_dispatch!(y, tA, A, x, alpha, beta)
     _is_fixed(y) && return _mul_fixed!(y, tA, A, x, alpha, beta)
     tA_uc = _uppercase(tA)
     if tA_uc == 'N'
-        _spA_mul_spvec!(y, A, x, alpha, beta)
+        _sp_spvec_mul_dense!(y, A, x, alpha, beta)
     elseif tA_uc in ('T', 'C')
         tfun = _tfun(tA_uc)
-        _spAt_or_Ac_mul_spvec!((a,b) -> tfun(a) * b, y, A, x, alpha, beta)
+        _spT_spvec_mul_dense!((a,b) -> tfun(a) * b, y, A, x, alpha, beta)
     elseif tA_uc in ('S', 'H')
         # the stored triangle alone cannot be walked by the columns `x` selects
-        _spA_mul_spvec!(y, sparse(wrap(A, tA)), x, alpha, beta)
+        _sp_spvec_mul_dense!(y, sparse(wrap(A, tA)), x, alpha, beta)
     else
         LinearAlgebra._generic_matvecmul!(y, 'N', wrap(A, tA), x, alpha, beta)
     end
     return y
 end
 
-function _spA_mul_spvec!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, α::Number, β::Number)
+function _sp_spvec_mul_dense!(y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector, α::Number, β::Number)
     require_one_based_indexing(y, A, x)
     m, n = size(A)
     length(x) == n || throw(DimensionMismatch(
@@ -1414,7 +1431,7 @@ function _spcoldot(f::F, A, j, Arowval, Anzval, pos::_SpvecSlots, xnzind, xnzval
     return s
 end
 
-function _spAt_or_Ac_mul_spvec!(tfun::F,
+function _spT_spvec_mul_dense!(tfun::F,
                           y::AbstractVector, A::AbstractSparseMatrixCSC, x::AbstractSparseVector,
                           α::Number, β::Number) where {F<:Function}
     require_one_based_indexing(y, A, x)
@@ -1467,7 +1484,7 @@ end
 
 @inline _spmv_slot(r, shift) = Int((r % UInt64 * 0x9E3779B97F4A7C15) >>> shift) + 1
 
-function _spA_mul_spvec_hash(A, x, flops)
+function _sp_spvec_mul_hash(A, x, flops)
     T = promote_op(matprod, eltype(A), eltype(x))
     xnzind = nonzeroinds(x)
     xnzval = nonzeros(x)
@@ -1518,7 +1535,7 @@ function _spA_mul_spvec_hash(A, x, flops)
     return dropzeros!(SparseVector(size(A, 1), ynzind, ynzval))
 end
 
-function _spA_mul_spvec_rank(A, x)
+function _sp_spvec_mul_rank(A, x)
     m = size(A, 1)
     T = promote_op(matprod, eltype(A), eltype(x))
     xnzind = nonzeroinds(x)
@@ -1563,7 +1580,7 @@ function _spA_mul_spvec_rank(A, x)
     return dropzeros!(SparseVector(m, ynzind, ynzval))
 end
 
-function _spmatvec(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
+function _sp_spvec_mul(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
     require_one_based_indexing(A, x)
     m, n = size(A)
     # counting misses the cache once per entry of `x`, which a product that will take the
@@ -1571,16 +1588,16 @@ function _spmatvec(A::AbstractSparseMatrixCSC, x::AbstractSparseVector)
     cutoff = 3m ÷ 10
     if m >= 64 && length(x) == n && nnz(A) * (length(nonzeroinds(x)) / max(n, 1)) < cutoff
         flops = _spmv_flops(A, x)
-        flops < m >> 11 && return _spA_mul_spvec_hash(A, x, flops)
-        flops < cutoff && return _spA_mul_spvec_rank(A, x)
+        flops < m >> 11 && return _sp_spvec_mul_hash(A, x, flops)
+        flops < cutoff && return _sp_spvec_mul_rank(A, x)
     end
-    y = densemv(A, x)
+    y = _sp_spvec_mul_densevec(A, x)
     initcap = min(nnz(A), size(A,1))
     _dense2sparsevec(eltype(y), y, initcap)
 end
 
-_spmatvec(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
-    _spAt_or_Ac_mul_spvec((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
+_sp_spvec_mul(xA::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, x::AbstractSparseVector) =
+    _spT_spvec_mul_sparse((a,b) -> wrapperop(xA)(a) * b, parent(xA), x, promote_op(matprod, eltype(xA), eltype(x)))
 
 function _spcoldots_nonzero!(tfun::F, ynzind, ynzval, A, pos::P, Arowval, Anzval, xnzind, xnzval) where {F,P}
     jr = 0
@@ -1595,7 +1612,7 @@ function _spcoldots_nonzero!(tfun::F, ynzind, ynzval, A, pos::P, Arowval, Anzval
     return jr
 end
 
-function _spAt_or_Ac_mul_spvec(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
+function _spT_spvec_mul_sparse(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::AbstractSparseVector{TvX,TiX},
                          Tv = promote_op(matprod, TvA, TvX)) where {F<:Function,TvA,TiA,TvX,TiX}
     require_one_based_indexing(A, x)
     m, n = size(A)
