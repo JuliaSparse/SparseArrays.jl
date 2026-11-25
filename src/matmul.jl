@@ -225,6 +225,12 @@ function _sp_dense_mul!(C, A, B, α, β)
     end
 end
 
+# With complex entries `muladd` chains two fused operations through the running dot for each
+# entry, which doubles the latency that bounds the loop; forming the product first leaves one
+# addition in the chain.
+@inline _dotstep(a, b, t) = muladd(a, b, t)
+@inline _dotstep(a::Complex, b::Complex, t) = t + a * b
+
 function _spT_dense_mul!(tfun::Function, C, A, B, α, β)
     Cax2 = axes(C, 2)
     Aax2 = axes(A, 2)
@@ -239,7 +245,7 @@ function _spT_dense_mul!(tfun::Function, C, A, B, α, β)
         @inbounds for col in Aax2
             tmp = C0
             for j in getnzrange(A, col)
-                tmp = muladd(tfun(nzv[j]), B[rv[j], k], tmp)
+                tmp = _dotstep(tfun(nzv[j]), B[rv[j], k], tmp)
             end
             C[col, k] = α isa Bool ? tmp + C[col, k] : muladd(tmp, α, C[col, k])
         end

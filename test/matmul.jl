@@ -397,6 +397,10 @@ end
     for (A, B) in ((Z, sparse(N)), (N', transpose(Z)), (N, Symmetric(Z)), (Z, N), (Z', N)), α in (false, 0.0)
         @test mul!(ones(2, 2), A, B, α, 2.0) == mul!(ones(2, 2), Matrix(A), Matrix(B), α, 2.0) == fill(2.0, 2, 2)
     end
+    # a complex dot rounds each product before adding it, where `muladd` would fuse the two
+    # and leave the -2^-54 that the rounding drops
+    e = 2.0^-27
+    @test sparse([1, 2], [1, 1], ComplexF64[1, 1 + e])' * ComplexF64[-1, 1 - e] == [0]
     end
 end
 
