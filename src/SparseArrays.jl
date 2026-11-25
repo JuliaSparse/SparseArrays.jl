@@ -77,16 +77,9 @@ end
 # factorization `F`, and between writes to the output `X`.
 _check_workspace_aliasing(::Nothing, X, B, F) = nothing
 @inline function _check_workspace_aliasing(ws, X, B, F)
-    _anyaliases(LinearAlgebra.aliasparts(ws), X, B, F) && _throw_workspace_aliasing()
+    (LinearAlgebra.deepmightalias(ws, X) || LinearAlgebra.deepmightalias(ws, B) ||
+        LinearAlgebra.deepmightalias(ws, F)) && _throw_workspace_aliasing()
     return nothing
-end
-# One array of the workspace at a time: `deepmightalias` of the whole workspace goes through
-# a closure that is not inlined for a tuple of several array types, and allocates.
-_anyaliases(::Tuple{}, X, B, F) = false
-@inline function _anyaliases(parts::Tuple, X, B, F)
-    w = first(parts)
-    return LinearAlgebra.deepmightalias(w, X) || LinearAlgebra.deepmightalias(w, B) ||
-        LinearAlgebra.deepmightalias(w, F) || _anyaliases(Base.tail(parts), X, B, F)
 end
 @noinline _throw_workspace_aliasing() = throw(ArgumentError(
     "the workspace must not share memory with the output, the right-hand side or the factorization"))
