@@ -8,12 +8,12 @@
 # pivoting code", SIAM J. Sci. Comput. 14(1), 1993, pp. 253-257, applied to the diagonal
 # blocks of the block triangular form that `dmperm` finds.
 
-# Sort the row indices of every column of the square matrix with the CSC arrays `colptr`,
-# `rowval` and `nzval` in place, by transposing it twice: O(nnz + n).
-function _sortrows!(colptr::Vector{Int}, rowval::Vector{Int}, nzval::Vector{Tv}) where {Tv}
+# Sort the row indices of every column of the matrix with `m` rows and the CSC arrays
+# `colptr`, `rowval` and `nzval` in place, by transposing it twice: O(nnz + m + n).
+function _sortrows!(colptr::Vector{Int}, rowval::Vector{Int}, nzval::Vector{Tv}, m::Int) where {Tv}
     n = length(colptr) - 1
-    S = SparseMatrixCSC{Tv,Int}(n, n, colptr, rowval, nzval)
-    X = SparseMatrixCSC{Tv,Int}(n, n, ones(Int, n + 1), Int[], Tv[])
+    S = SparseMatrixCSC{Tv,Int}(m, n, colptr, rowval, nzval)
+    X = SparseMatrixCSC{Tv,Int}(n, m, ones(Int, m + 1), Int[], Tv[])
     halfperm!(X, S, axes(S, 2))
     halfperm!(S, X, axes(X, 2))
     return nothing
@@ -265,9 +265,9 @@ function _upperfactor(F::SparseLU{Tv,Ti}) where {Tv,Ti}
         _sptrisolve(getfield(F, :lower), true, true, off, Tv, Int)
 end
 
-# The arrays of a factorization in progress: the columns of L and U built so far, the
-# pivot position `pinv[i]` of each row (0 until it is a pivot), the pruned end `lend` of
-# each column of L, and the work arrays of a column.
+# The arrays of a factorization in progress of a matrix with `m` rows and `n` columns: the
+# columns of L and U built so far, the pivot position `pinv[i]` of each row (0 until it is
+# a pivot), the pruned end `lend` of each column of L, and the work arrays of a column.
 struct GPState{Tv}
     Lp::Vector{Int}
     Li::Vector{Int}
@@ -285,14 +285,14 @@ struct GPState{Tv}
     pos::Vector{Int}
     cand::Vector{Int}
 end
-function GPState{Tv}(n::Int, nz::Int) where {Tv}
+function GPState{Tv}(m::Int, n::Int, nz::Int) where {Tv}
     Li = Int[]; Lx = Tv[]; Ui = Int[]; Ux = Tv[]
     sizehint!(Li, nz + n); sizehint!(Lx, nz + n)
     sizehint!(Ui, nz + n); sizehint!(Ux, nz + n)
     return GPState{Tv}(Vector{Int}(undef, n + 1), Li, Lx, Vector{Int}(undef, n + 1), Ui, Ux,
-                       zeros(Int, n), zeros(Int, n), falses(n), zeros(Int, n), zeros(Tv, n),
-                       Vector{Int}(undef, n), Vector{Int}(undef, n), Vector{Int}(undef, n),
-                       Vector{Int}(undef, n))
+                       zeros(Int, m), zeros(Int, n), falses(n), zeros(Int, m), zeros(Tv, m),
+                       Vector{Int}(undef, m), Vector{Int}(undef, m), Vector{Int}(undef, m),
+                       Vector{Int}(undef, m))
 end
 
 # Factor the diagonal blocks `first` and later of the block upper triangular `B`, whose
@@ -312,12 +312,18 @@ end
 # `limit[b]` (0 for no limit), the block is taken out of `S` again and b is returned: the
 # caller reorders it and calls again with `first = b`.
 #
+# A column with no nonzero candidate for its pivot throws a `SingularException` when
+# `check`. Otherwise it pivots on its largest candidate, or on the first row without a
+# pivot when the column reaches none, stores that pivot even if it is zero in U, and
+# leaves its column of L unscaled, as LAPACK does; a column past the last row of a wide
+# matrix has no pivot. Rectangular matrices are factored as one block (`bp = [1, n + 1]`).
+#
 # Column j of B = A[p, q] is read from column q[j] of A, its rows renumbered by `rowpos`
 # (the inverse of p) and sorted into `crow` and `cval`, so that B is never formed.
 function _gplu!(S::GPState{Tv}, A::AbstractSparseMatrixCSC, rowpos::Vector{Int}, bp::Vector{Int},
                 first::Int, limit::Vector{Int}, tol::Float64, prune::Bool, q::Vector{Int},
-                crow::Vector{Int}, cval::Vector, perm::Vector{Int}) where {Tv}
-    n = size(A, 2)
+                crow::Vector{Int}, cval::Vector, perm::Vector{Int}, check::Bool) where {Tv}
+    m = size(A, 1)
     Ai = rowvals(A)
     Ax = nonzeros(A)
     Lp = S.Lp; Li = S.Li; Lx = S.Lx; Up = S.Up; Ui = S.Ui; Ux = S.Ux
@@ -327,6 +333,7 @@ function _gplu!(S::GPState{Tv}, A::AbstractSparseMatrixCSC, rowpos::Vector{Int},
         lo = bp[b]
         hi = bp[b + 1] - 1
         nupper = 0      # entries of U in the block so far
+        free = lo       # the rows of the block before it have pivots
         for j in lo:hi
             if limit[b] > 0 && j > lo && length(Li) - Lp[lo] + 1 + nupper > limit[b]
                 resize!(Li, Lp[lo] - 1); resize!(Lx, Lp[lo] - 1)
@@ -341,7 +348,7 @@ function _gplu!(S::GPState{Tv}, A::AbstractSparseMatrixCSC, rowpos::Vector{Int},
             end
             Lp[j] = length(Li) + 1
             Up[j] = length(Ui) + 1
-            top = n + 1
+            top = m + 1
             ncand = 0
             cnt = _permutedcolumn!(crow, cval, perm, A, Ai, Ax, rowpos, Int(q[j]))
             for t in 1:cnt
@@ -390,7 +397,7 @@ function _gplu!(S::GPState{Tv}, A::AbstractSparseMatrixCSC, rowpos::Vector{Int},
                 end
             end
             ublock = length(Ui) + 1
-            for t in top:n
+            for t in top:m
                 i = order[t]
                 k = pinv[i]
                 ukj = x[i]
@@ -401,32 +408,46 @@ function _gplu!(S::GPState{Tv}, A::AbstractSparseMatrixCSC, rowpos::Vector{Int},
                     x[Li[p]] -= Lx[p] * ukj
                 end
             end
+            if j > m
+                nupper += length(Ui) - ublock + 1
+                continue
+            end
             # the pivot: the diagonal if it is within `tol` of the largest candidate
-            ncand == 0 && throw(LinearAlgebra.SingularException(q[j]))
-            # the largest candidate, and of equal ones the first row, whatever order the
-            # search found them in
-            piv = cand[1]
-            amax = abs(x[piv])
-            for t in 2:ncand
-                i = cand[t]
-                a = abs(x[i])
-                if a > amax || (i < piv && a == amax)
-                    amax = a
-                    piv = i
+            if ncand == 0
+                check && throw(LinearAlgebra.SingularException(q[j]))
+                while pinv[free] != 0
+                    free += 1
                 end
+                piv = free
+                pivot = zero(Tv)
+            else
+                # the largest candidate, and of equal ones the first row, whatever order the
+                # search found them in
+                piv = cand[1]
+                amax = abs(x[piv])
+                for t in 2:ncand
+                    i = cand[t]
+                    a = abs(x[i])
+                    if a > amax || (i < piv && a == amax)
+                        amax = a
+                        piv = i
+                    end
+                end
+                if _iszero(amax)
+                    check && throw(LinearAlgebra.SingularException(q[j]))
+                elseif piv != j && pinv[j] == 0 && mark[j] == j
+                    _acceptable(abs(x[j]), amax, tol) && (piv = j)
+                end
+                pivot = x[piv]
             end
-            _iszero(amax) && throw(LinearAlgebra.SingularException(q[j]))
-            if piv != j && pinv[j] == 0 && mark[j] == j
-                _acceptable(abs(x[j]), amax, tol) && (piv = j)
-            end
-            pivot = x[piv]
+            singular = _iszero(pivot)
             pinv[piv] = j
             push!(Ui, j); push!(Ux, pivot)
             push!(Li, piv); push!(Lx, one(Tv))
             for t in 1:ncand
                 i = cand[t]
                 if i != piv
-                    push!(Li, i); push!(Lx, x[i] / pivot)
+                    push!(Li, i); push!(Lx, singular ? x[i] : x[i] / pivot)
                 end
                 x[i] = zero(Tv)
             end
@@ -501,18 +522,37 @@ end
 
 # Close the columns of the finished factorization, number the rows of L by pivot position
 # and sort the columns: the CSC arrays of L (unit diagonal stored) and of U with the
-# entries of B above its diagonal blocks, and pinv.
+# entries of B above its diagonal blocks, and pinv. The rows of a tall matrix that have no
+# pivot follow the others, in increasing order. L has a column for each column of B, empty
+# past the last row of a wide B.
 function _gpfinish!(S::GPState)
-    n = length(S.pinv)
+    m = length(S.pinv)
+    n = length(S.Up) - 1
     Lp = S.Lp; Li = S.Li; Up = S.Up; Ui = S.Ui; pinv = S.pinv
     Lp[n + 1] = length(Li) + 1
     Up[n + 1] = length(Ui) + 1
+    k = min(m, n)
+    @inbounds for i in 1:m
+        if pinv[i] == 0
+            k += 1
+            pinv[i] = k
+        end
+    end
     @inbounds for p in eachindex(Li)
         Li[p] = pinv[Li[p]]
     end
-    _sortrows!(Lp, Li, S.Lx)
-    _sortrows!(Up, Ui, S.Ux)
+    _sortrows!(Lp, Li, S.Lx, m)
+    _sortrows!(Up, Ui, S.Ux, m)
     return Lp, Li, S.Lx, Up, Ui, S.Ux, pinv
+end
+
+# the work arrays of `_permutedcolumn!` for the columns of `A`
+function _columnbuffers(A::AbstractSparseMatrixCSC{Tv}) where {Tv}
+    maxcol = 0
+    @inbounds for j in axes(A, 2)
+        maxcol = max(maxcol, length(nzrange(A, j)))
+    end
+    return Vector{Int}(undef, 2maxcol), Vector{Tv}(undef, 2maxcol), Vector{Int}(undef, maxcol)
 end
 
 ## Fill-reducing ordering of the diagonal blocks
@@ -774,17 +814,11 @@ function _sparselu(A::AbstractSparseMatrixCSC{TvA,Ti}, tol::Float64, ordering::S
         ordering === :natural || _orderblocks!(limit, p, q, rowpos, A, bp, ordering, tol)
         densefill > 0 && length(bp) == 2 && limit[1] > _AMD_FILL_LIMIT * densefill * n &&
             return nothing
-        S = GPState{Tv}(n, nnz(A))
-        maxcol = 0
-        @inbounds for j in 1:n
-            maxcol = max(maxcol, length(nzrange(A, j)))
-        end
-        crow = Vector{Int}(undef, 2maxcol)
-        cval = Vector{TvA}(undef, 2maxcol)
-        perm = Vector{Int}(undef, maxcol)
+        S = GPState{Tv}(n, n, nnz(A))
+        crow, cval, perm = _columnbuffers(A)
         first = 1
         while true
-            blown = _gplu!(S, A, rowpos, bp, first, limit, tol, prune, q, crow, cval, perm)
+            blown = _gplu!(S, A, rowpos, bp, first, limit, tol, prune, q, crow, cval, perm, true)
             blown == 0 && break
             # AMD's prediction failed for this block: its pivots left the diagonal
             _orderblocks!(limit, p, q, rowpos, A, bp, :colamd, tol, blown:blown)
