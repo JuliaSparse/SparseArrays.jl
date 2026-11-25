@@ -5,7 +5,7 @@ top-level `AGENTS.md`. This directory and `test/solvers/` hold everything that d
 on the GPL libraries; see the Layout section there.
 
 - `wrappers.jl` is generated from the SuiteSparse headers by `gen/`. Never edit it by
-  hand; `gen/AGENTS.md` covers regenerating it and upgrading SuiteSparse.
+  hand; the `suitesparse-wrappers` skill covers regenerating it and upgrading SuiteSparse.
 - Never throw a Julia exception from inside a C callback. Record the error, return, and
   check the status after the call.
 - Own every C pointer exactly once. Anything that can throw between allocation and
@@ -63,9 +63,3 @@ on the GPL libraries; see the Layout section there.
   copy, release, then work on the copy. Finalizers never lock; an explicit `free!`
   locks and the finalizer calls an unlocked helper.
 - Do not change ordering or tolerance defaults without an opt-in keyword.
-- SuiteSparse selects the C entry point by index type. Standard mode tests the build's
-  `Int`, and the 32-bit CI jobs reach the other entry points; comprehensive mode tests
-  both index types. Single-precision tests need well-conditioned inputs. Explicit
-  `GC.gc()` calls belong only in the isolated lifetime tests, where they exercise
-  finalization and rooting.
-  Windows hangs have historically been CHOLMOD threading under GitHub Actions.

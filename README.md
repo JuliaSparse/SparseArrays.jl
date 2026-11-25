@@ -51,4 +51,5 @@ both issue suites.
 
 [AGENTS.md](AGENTS.md) has the conventions this repository follows, the commands for
 running a single test file, the whitespace check and the doctests, and pointers to the
-guides for the solvers, the test suite and upgrading SuiteSparse.
+guides for the solvers and the test suite. Procedures for particular tasks, such as
+opening a pull request or upgrading SuiteSparse, are in [`.agents/skills`](.agents/skills).
