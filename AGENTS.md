@@ -5,8 +5,7 @@ project's merged pull requests. Follow it unless a maintainer says otherwise.
 
 SparseArrays is a Julia stdlib: `SparseMatrixCSC`, `SparseVector`, sparse broadcast and
 linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) in
-`src/solvers/`. `src/solvers/AGENTS.md` and `test/AGENTS.md` add rules for their
-directories; read them before working there.
+`src/solvers/`.
 
 ## Skills
 
@@ -14,6 +13,13 @@ Procedures for particular tasks live in skills. Read the one that fits before yo
 
 - [`pull-request`](.agents/skills/pull-request/SKILL.md): branch, title and body of a
   pull request, and the measurements it shows.
+- [`write-tests`](.agents/skills/write-tests/SKILL.md): adding, changing or reorganizing
+  a test. The repository's suites and helpers are in the Tests section below.
+- [`sparse-solvers`](.agents/skills/sparse-solvers/SKILL.md): any change in
+  `src/solvers/`. The workspaces are `UmfpackWS`, `CholmodWS` and `SpqrWS`; `UmfpackLU`
+  and `CHOLMOD.Factor` carry the `lock` field, and the immutable `QRSparse` has none.
+  An UMFPACK solve writes its statistics to the workspace's `info`, never `F.info`; a
+  lock-free CHOLMOD solve passes no `Bset`. Library handles belong to `LibSuiteSparse`.
 - [`restructure-code`](.agents/skills/restructure-code/SKILL.md): reorganizing a source
   file or a family of methods.
 - [`manual-page`](.agents/skills/manual-page/SKILL.md): `docs/src/index.md`, which is
@@ -73,9 +79,17 @@ julia .ci/check-whitespace.jl
 julia .ci/check-gpl-usage.jl
 ```
 
+To run the serial fallback that Julia's CI uses, and to measure one suite (the first
+line, with `JULIA_OBJCACHE=0`, gives the figure that matters):
+
+```sh
+JULIA_OBJCACHE=0 JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl
+JULIA_OBJCACHE=0 julia +nightly --project --startup-file=no --threads=1 --check-bounds=yes .ci/measure-tests.jl higherorderfns --verbose
+```
+
 The trimmed app is built by the `trim` job in `.github/workflows/ci.yml`. Comprehensive
-mode (see `test/AGENTS.md`) runs only in the coverage CI job; run it locally before a PR
-that touches a kernel or a constructor.
+mode runs only in the coverage CI job; run it locally before a PR that touches a kernel
+or a constructor.
 
 ## Architecture
 
@@ -144,10 +158,30 @@ moves toward it in its own restructuring PRs, not as part of an unrelated change
 
 ## Tests
 
-`test/AGENTS.md` has the rules. In short: a new test is comprehensive (behind
-`@static if COMPREHENSIVE`, or in `test/issues.jl`) unless it is the one representative
-case of new code; inputs are fixed fixtures or literals; and a sparse result is compared
-with `mismatch(S, D) === nothing`.
+- `test/runtests.jl` lists the suites for ParallelTestRunner and for the serial fallback.
+  Selectors match suite names by prefix and `!prefix` excludes. `--comprehensive` sets
+  `SPARSEARRAYS_TEST_COMPREHENSIVE=true`, which selects comprehensive mode.
+- `test/SparseTestHelpers.jl` is the shared module, loaded once per process by the
+  `testhelpers.jl` that every suite includes first, which also sets
+  `@compiler_options optimize=0`. It holds the guard `COMPREHENSIVE`, the type sets
+  `STD_ELTYPES`, `core_itypes` and `itypes`, the fixtures `fixture`, `fixturevec`,
+  `fixturepair` and `FIXTURE_SHAPES`, the comparison `mismatch`, the grid helpers
+  `eachvalue` and `pairwise`, `allocated_bytes`, and every type a test defines.
+- `issues.jl` and `solvers/issues.jl` are the issue suites; the selector `issues` takes
+  both. `ambiguous.jl` and `aqua.jl` run only when named, and load Aqua through
+  `with_aqua` so a failure leaves Base CI's worker usable.
+- Placement: triangular products and solves in `triangular.jl`; all concatenation in
+  `concatenation.jl`; every other product in `matmul.jl`, except the vector `axpy!` and
+  `dot` in `sparsevector.jl`; `transpose`, `adjoint` and `permute` in `sparsematrix.jl`.
+  The files in `test/solvers/` carry no GPL guards of their own.
+- `solvers/threads.jl` owns the tests that need a fresh process, through
+  `testprocess.jl`. Standard mode starts one child, `threads_child.jl`, with four
+  threads; the other cases, including `cholmod_lifetime.jl`, are guarded. Keep the rooting
+  stress workload until a smaller reproducer is demonstrated.
+- `test/trim/` is not a suite but an app the `trim` job builds with `juliac --trim=safe`.
+  It covers the main sparse operations and the concatenation hooks for dense arrays,
+  leaves out `show`, which does not trim, and cannot call BLAS or, unless given the
+  `solvers` argument, the solvers.
 
 ## Changes
 
