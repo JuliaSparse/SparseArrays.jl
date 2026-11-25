@@ -954,7 +954,8 @@ destination, `mul!(C, A, B, α, β)` takes a sparse `A` and a dense `B`, or the 
 round, and reads the adjoint or transpose of a sparse factor in place.
 """
 function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagonal, alpha::Number, beta::Number)
-    LinearAlgebra.check_mul_aliasing(C, A, D)
+    LinearAlgebra.checkaliasing(C, A)
+    LinearAlgebra.checkaliasing(C, D)
     m, n = size(A)
     lb = length(D.diag)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
@@ -963,7 +964,8 @@ function mul!(C::AbstractSparseMatrixCSC, A::AbstractSparseMatrixCSC, D::Diagona
 end
 
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AbstractSparseMatrixCSC, alpha::Number, beta::Number)
-    LinearAlgebra.check_mul_aliasing(C, D, A)
+    LinearAlgebra.checkaliasing(C, D)
+    LinearAlgebra.checkaliasing(C, A)
     m, n = size(A)
     lb = length(D.diag)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
@@ -1051,7 +1053,8 @@ _adjtrans_direct(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSpars
     _storesafely(eltype(C), _diagmul_eltype(C, eltype(C), alpha, beta))
 
 function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, D::Diagonal, alpha::Number, beta::Number)
-    LinearAlgebra.check_mul_aliasing(C, A, D)
+    LinearAlgebra.checkaliasing(C, A)
+    LinearAlgebra.checkaliasing(C, D)
     m, n = size(A)
     lb = length(D.diag)
     n == lb || throw(DimensionMismatch(lazy"A has size ($m, $n) but D has size ($lb, $lb)"))
@@ -1063,7 +1066,8 @@ function mul!(C::AbstractSparseMatrixCSC, A::AdjOrTrans{<:Any,<:AbstractSparseMa
 end
 
 function mul!(C::AbstractSparseMatrixCSC, D::Diagonal, A::AdjOrTrans{<:Any,<:AbstractSparseMatrixCSC}, alpha::Number, beta::Number)
-    LinearAlgebra.check_mul_aliasing(C, D, A)
+    LinearAlgebra.checkaliasing(C, D)
+    LinearAlgebra.checkaliasing(C, A)
     m, n = size(A)
     lb = length(D.diag)
     m == lb || throw(DimensionMismatch(lazy"D has size ($lb, $lb) but A has size ($m, $n)"))
@@ -1102,13 +1106,13 @@ end
 
 function rmul!(A::AbstractSparseMatrixCSC, D::Diagonal)
     _checkscaledims(A, A, D, 2)
-    LinearAlgebra.check_inplace_aliasing(A, D)
+    LinearAlgebra.checkaliasing(A, D)
     return _scalecols!(A, A, D.diag, *)
 end
 
 function lmul!(D::Diagonal, A::AbstractSparseMatrixCSC)
     _checkscaledims(A, A, D, 1)
-    LinearAlgebra.check_inplace_aliasing(A, D)
+    LinearAlgebra.checkaliasing(A, D)
     return _scalerows!(A, A, D.diag, *)
 end
 
