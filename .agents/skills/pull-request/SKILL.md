@@ -7,9 +7,8 @@ description: Open or update a pull request - branch, title, body with Before/Aft
 
 ## Branch
 
-- Work in a git worktree on a branch off `main`, never on `main` itself.
-- One logical change per PR. Stack follow-ups and say so: a PR based on another PR's
-  branch carries that diff when squash-merged.
+- Stack follow-ups and say so: a PR based on another PR's branch carries that diff when
+  squash-merged.
 - PRs merge fast. Before pushing to an existing PR or editing its body, check
   `gh pr view N --json state`; if it is merged, start a new branch off `origin/main`.
 

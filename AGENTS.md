@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Guidance for agents and other contributors to SparseArrays.jl, distilled from the
-project's merged pull requests. Follow it unless a maintainer says otherwise.
+Guidance for agents and other contributors to SparseArrays.jl. Follow it unless a
+maintainer says otherwise.
 
 SparseArrays is a Julia stdlib: `SparseMatrixCSC`, `SparseVector`, sparse broadcast and
 linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) in
@@ -65,8 +65,7 @@ variable.
 Files in `src/` and `test/` are named by area. `sparsevector.jl` holds everything for
 vectors except products (`matmul.jl`) and concatenation (`concatenation.jl`); `linalg.jl`
 holds `dot`, `kron`, solves, norms and the LinearAlgebra wrappers; the shared dispatch
-aliases live in `SparseArrays.jl`; test files are listed explicitly in
-`test/runtests.jl`.
+aliases live in `SparseArrays.jl`.
 
 ## Commands
 
@@ -89,8 +88,7 @@ JULIA_OBJCACHE=0 julia +nightly --project --startup-file=no --threads=1 --check-
 ```
 
 The trimmed app is built by the `trim` job in `.github/workflows/ci.yml`. Comprehensive
-mode runs only in the coverage CI job; run it locally before a PR that touches a kernel
-or a constructor.
+mode runs only in the coverage CI job.
 
 ## Architecture
 
@@ -176,10 +174,9 @@ How an operation dispatches:
   `SPARSEARRAYS_TEST_COMPREHENSIVE=true`, which selects comprehensive mode.
 - `test/SparseTestHelpers.jl` is the shared module, loaded once per process by the
   `testhelpers.jl` that every suite includes first, which also sets
-  `@compiler_options optimize=0`. It holds the guard `COMPREHENSIVE`, the type sets
-  `STD_ELTYPES`, `core_itypes` and `itypes`, the fixtures `fixture`, `fixturevec`,
-  `fixturepair` and `FIXTURE_SHAPES`, the comparison `mismatch`, the grid helpers
-  `eachvalue` and `pairwise`, `allocated_bytes`, and every type a test defines.
+  `@compiler_options optimize=0`. It holds the guard `COMPREHENSIVE`, the type sets,
+  the fixtures, the comparison `mismatch`, the grid helpers, and every type a test
+  defines.
 - `issues.jl` and `solvers/issues.jl` are the issue suites; the selector `issues` takes
   both. `ambiguous.jl` and `aqua.jl` run only when named, and load Aqua through
   `with_aqua` so a failure leaves Base CI's worker usable.
@@ -189,12 +186,10 @@ How an operation dispatches:
   The files in `test/solvers/` carry no GPL guards of their own.
 - `solvers/threads.jl` owns the tests that need a fresh process, through
   `testprocess.jl`. Standard mode starts one child, `threads_child.jl`, with four
-  threads; the other cases, including `cholmod_lifetime.jl`, are guarded. Keep the rooting
-  stress workload until a smaller reproducer is demonstrated.
+  threads; the other cases, including `cholmod_lifetime.jl`, are guarded.
 - `test/trim/` is not a suite but an app the `trim` job builds with `juliac --trim=safe`.
-  It covers the main sparse operations and the concatenation hooks for dense arrays,
-  leaves out `show`, which does not trim, and cannot call BLAS or, unless given the
-  `solvers` argument, the solvers.
+  It cannot use `show`, which does not trim, or BLAS, or the solvers unless given the
+  `solvers` argument.
 
 ## Changes
 

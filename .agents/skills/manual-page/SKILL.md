@@ -16,6 +16,6 @@ and nothing else. Julia's docs build, not this repository's, is the one that has
   32-bit build, so the entry matches on every platform.
 - The page's `@contents` block names the page both by its file name here and by its file
   name in Julia's manual. Under any other name the table of contents is empty.
-- Public surface changes are documented; internal helpers are not API and get no entry.
+- Internal helpers get no entry.
 - Build the docs and run the doctests locally before a PR.
 - A documentation-only PR body needs just the source of the material.
