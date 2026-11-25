@@ -6,7 +6,7 @@ using Test
 using SparseArrays
 using Serialization
 using LinearAlgebra:
-    LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, Transpose, SingularException, Diagonal, logabsdet, Symmetric, Hermitian
+    LinearAlgebra, I, det, diag, issuccess, ldiv!, lu, lu!, LU, Transpose, SingularException, Diagonal, logabsdet, Symmetric, Hermitian
 using SparseArrays: nnz, sparse, SparseMatrixCSC, UMFPACK, increment!
 include("../testhelpers.jl")
 
@@ -351,8 +351,26 @@ end
         end
     end
 
-    @testset "BigFloat not supported" for T in (BigFloat, (@static COMPREHENSIVE ? (Complex{BigFloat},) : ())...)
-        @test_throws ArgumentError lu(sparse(fill(T(1), 1, 1)))
+    @testset "lu of an eltype that UMFPACK does not take, $T" for T in (DualNumber, (@static COMPREHENSIVE ? (BigFloat, Complex{BigFloat}) : ())...)
+        # A = P'LU in exact arithmetic, with the first pivot below the diagonal and fill-in
+        # that cancels; the derivative of a `DualNumber` entry is its row
+        M = [0 1 2.5 1; 4 2 0 1; 1 0.5 1 4.75; 2 3 1 0.5]
+        A = sparse(T <: DualNumber ? DualNumber.(M, [i * !iszero(M[i, j]) for i in 1:4, j in 1:4]) : T.(M))
+        F = lu(A)
+        @test F isa LU{T,SparseMatrixCSC{T,Int}}
+        @test F.p == [2, 4, 1, 3]
+        x = T.(1:4)
+        @test (A \ (A * x))::Vector{T} == x
+        @static if COMPREHENSIVE
+            @test mismatch(F.L * F.U, Matrix(A)[F.p, :]) === nothing
+            @test A' \ (A' * x) == x
+            @test transpose(A) \ (transpose(A) * x) == x
+            @test det(F) == det(Matrix(A))
+            S = sparse(T[1 1; 1 1])
+            @test_throws SingularException(2) lu(S)
+            @test !issuccess(lu(S; check = false))
+            @test S == sparse(T[1 1; 1 1])
+        end
     end
 
     @testset "size(::UmfpackLU)" begin

@@ -10,6 +10,7 @@ export COMPREHENSIVE, STD_ELTYPES, itypes, core_itypes, eachvalue, pairwise,
     same_pattern, exact_equal, WrappedSparseVector, OpCount, mulcount, eqcount,
     opcount_sparse, CountedReads, hasunionlocal, quaternion_type, SimpleSMatrix,
     NonCSCSparse, LegacyCSC, ConcatArray, KeysVector, AllBut, MockTropical, Variable, Expression, Meters,
+    DualNumber,
     OneSided, Tagged, CustomType, UndefElt, Positive,
     check_trisolve, check_scalar_broadcast, allocated_bytes,
     show_plain, show_contents,
@@ -299,6 +300,29 @@ struct Meters <: Number
 end
 Base.zero(::Type{Meters}) = Meters(0)
 Base.one(::Type{Meters}) = 1
+
+# A dual number of forward-mode automatic differentiation, the value `v` with its derivative
+# `d`: a `Real` that is not an `AbstractFloat` and whose `float` is itself, as
+# `ForwardDiff.Dual` is. Equality compares the derivatives too, and order the values only.
+struct DualNumber <: Real
+    v::Float64
+    d::Float64
+end
+DualNumber(x::DualNumber) = x
+DualNumber(x::Real) = DualNumber(x, 0.0)
+Base.float(x::DualNumber) = x
+Base.zero(::Type{DualNumber}) = DualNumber(0.0, 0.0)
+Base.one(::Type{DualNumber}) = DualNumber(1.0, 0.0)
+Base.:+(a::DualNumber, b::DualNumber) = DualNumber(a.v + b.v, a.d + b.d)
+Base.:-(a::DualNumber, b::DualNumber) = DualNumber(a.v - b.v, a.d - b.d)
+Base.:-(a::DualNumber) = DualNumber(-a.v, -a.d)
+Base.:*(a::DualNumber, b::DualNumber) = DualNumber(a.v * b.v, a.d * b.v + a.v * b.d)
+Base.:/(a::DualNumber, b::DualNumber) = DualNumber(a.v / b.v, (a.d * b.v - a.v * b.d) / b.v^2)
+Base.sqrt(a::DualNumber) = (s = sqrt(a.v); DualNumber(s, a.d / 2s))
+Base.abs(a::DualNumber) = a.v < 0 ? -a : a
+Base.:(==)(a::DualNumber, b::DualNumber) = a.v == b.v && a.d == b.d
+Base.:<(a::DualNumber, b::DualNumber) = a.v < b.v
+Base.isfinite(a::DualNumber) = isfinite(a.v) && isfinite(a.d)
 
 # An element type that equals a number from the left only, as an affine expression of an
 # optimization model does.
