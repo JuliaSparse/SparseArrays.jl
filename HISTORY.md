@@ -17,14 +17,14 @@ changes that can require updating code written for v1.13.
 
 Changes on `main` that no release branch has yet.
 
-* **Changed:** `sprand` and `sprandn` accept a matrix of 2^63 or more entries again, drawing
-  it column by column, instead of throwing an `OverflowError` ([#1143]).
+* **Changed:** Every form of a sparse product follows one set of rules for zero
+  coefficients and stored zeros, whatever wraps its operands ([#1150], [#1199], [#1209]).
 * **Faster:** The package image holds native code for `show`, `\`, products, broadcast,
   concatenation and `sprand` of sparse `Float64` and `ComplexF64` arrays, so their first
   call compiles less ([#1103]).
-* **Faster:** `transpose(A) * x`, `A' * x` and `mul!(y, A', x)` with a sparse matrix `A` and
-  a sparse vector `x` no longer merge `x` with every column of `A`, which is much faster
-  when `A` has many columns ([#1139]).
+* **Faster:** Sparse products, most of all sparse `A*B`, products with sparse vectors, views
+  and `Diagonal` matrices, and `dot` ([#1139], [#1140], [#1141], [#1149], [#1201], [#1204],
+  [#1205], [#1212]).
 
 ## Julia v1.14
 
@@ -75,8 +75,9 @@ A[true, 1]       # v1.13: 1.0; v1.14: ArgumentError
 * `rowvals`, `nonzeros` and `nzrange` of an `UpperTriangular` or `LowerTriangular` wrapper
   of a sparse matrix throw a `MethodError` instead of returning the parent's storage,
   entries outside the triangle included ([#893], [#1050]).
-* `sprand` and `sprandn` of a matrix with 2^63 or more entries throw an `OverflowError`
-  ([#1137]).
+* In-place products and solves throw an `ArgumentError` when the array they overwrite
+  shares memory with an operand, as LinearAlgebra's do ([#1186], [#1187]).
+* Sparse `\` with a general `Rational` matrix returns a floating-point solution ([#1190]).
 * A subtype of `AbstractSparseMatrixCSC` that implements `rowvals` and `nonzeros` instead of
   `getrowval` and `getnzval` gets a deprecation warning ([#1011]).
 
@@ -933,13 +934,24 @@ Released with Julia v1.0.0 on 2018-08-08. SuiteSparse 4.4.5.
 [#1127]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1127
 [#1128]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1128
 [#1131]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1131
-[#1137]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1137
 [#1139]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1139
+[#1140]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1140
+[#1141]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1141
 [#1142]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1142
-[#1143]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1143
 [#1145]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1145
+[#1149]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1149
+[#1150]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1150
 [#1157]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1157
 [#1160]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1160
+[#1186]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1186
+[#1187]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1187
+[#1190]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1190
+[#1199]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1199
+[#1201]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1201
+[#1204]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1204
+[#1205]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1205
+[#1209]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1209
+[#1212]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1212
 [JuliaLang/julia#24980]: https://github.com/JuliaLang/julia/pull/24980
 [JuliaLang/julia#28242]: https://github.com/JuliaLang/julia/pull/28242
 [JuliaLang/julia#28469]: https://github.com/JuliaLang/julia/pull/28469

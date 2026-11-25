@@ -5,10 +5,25 @@ description: Add, move and maintain entries in the release history - which chang
 
 # The release history
 
-The release history lists, for each Julia release, the changes users of this package can
-notice. Its header states what is listed; read it before writing an entry. An entry
-written later, from a squashed commit, loses what the PR author knew, so every PR that
-needs one adds it.
+The release history tells a user what a release changes for them, at a high level. It is
+strategic, not a list of PRs: a reader scanning a release should see its few themes and
+anything that makes them update their code. Its header states what is listed; read it
+before writing an entry. An entry written later, from a squashed commit, loses what the
+PR author knew, so every PR that needs one adds it or extends an existing one.
+
+## Keep it high level
+
+- One entry per theme, not per PR or per function. A series of PRs on one area (say,
+  faster products, or one set of rules for every route of an operation) is one entry
+  with all their references.
+- Name the area and the effect, not each function, wrapper and case: "Sparse products
+  are faster, most of all `A*B`", not a list of the forms that changed.
+- Prefer extending an existing entry, by its wording or just its references, to adding a
+  new one.
+- Small fixes, edge cases, and fixes of a regression that no release shipped get no
+  entry.
+- What breaks existing code always gets one, in the release's upgrading section when it
+  has one.
 
 ## Which changes need an entry
 
@@ -16,10 +31,10 @@ needs one adds it.
   operation that threw and now works.
 - **Changed**: a result that code could have relied on is different: its type, its
   value, its stored zeros, its index type, an error thrown instead of a result. A bug fix
-  counts only when it changes such a result, not when it turns a crash into the
-  documented answer.
-- **Faster**: a measured improvement users would notice, including allocation, compile
-  and load time.
+  counts only when it changes such a result broadly enough to matter, not when it turns a
+  crash into the documented answer.
+- **Faster**: a measured improvement users would notice in common use, including
+  allocation, compile and load time.
 - **Deprecated** and **Removed**.
 
 No entry for internal helpers, experimental features, tests, CI, documentation, or a
@@ -27,16 +42,12 @@ restructuring that changes no result.
 
 ## Writing an entry
 
-- One bullet: the mark in bold, then a sentence in the user's terms, naming the public
-  function and the case, and what it does now, with the old behaviour when that is what
-  a reader needs to update their code. Not the mechanism: "visits only the stored
-  entries", not the name of a kernel.
+- One bullet: the mark in bold, then one or two sentences in the user's terms on what
+  now behaves differently, with the old behaviour when a reader needs it to update their
+  code. Not the mechanism, and never the name of a kernel.
 - End it with the PR reference, and add the reference's link definition at the bottom
   of the file, in numerical order. The number is known once the PR is open; add the
   entry in a commit after opening it.
-- Several PRs that make one user-visible change share one entry with all their
-  references. Extend an existing entry rather than adding a second one about the same
-  function.
 - Within a list, entries go in the order of the marks: New, Changed, Faster, Deprecated,
   Removed.
 

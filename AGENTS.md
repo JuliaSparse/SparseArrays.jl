@@ -31,8 +31,8 @@ Procedures for particular tasks live in skills. Read the one that fits before yo
   `_writablecopy`, in `src/fixed.jl`.
 - [`test-time`](.agents/skills/test-time/SKILL.md): measuring test time and cutting a
   test grid.
-- [`release-history`](.agents/skills/release-history/SKILL.md): `HISTORY.md`. Every PR
-  that changes what users see adds its entry there.
+- [`release-history`](.agents/skills/release-history/SKILL.md): `HISTORY.md`, a high-level
+  record of what each release changes for users.
 - [`backport`](.agents/skills/backport/SKILL.md): a backport PR from the branch
   `backports-release-1.x` into `release-1.x`, for the PRs labelled `backport 1.x`.
 - [`suitesparse-wrappers`](.agents/skills/suitesparse-wrappers/SKILL.md): regenerating
@@ -203,5 +203,6 @@ How an operation dispatches:
 - Each change in its own git worktree and branch off `main`, one logical change per PR.
 - Behaviour-neutral restructuring, behaviour changes and style-only changes go in
   separate PRs. Never let an editor reformat a functional PR.
-- A change users can see adds an entry to `HISTORY.md`.
+- A change users would notice adds an entry to `HISTORY.md` or extends one; the history
+  stays high level.
 - Sweep sparse against dense locally; commit only the reproducer.
