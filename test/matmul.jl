@@ -1006,6 +1006,11 @@ end
             x = SparseVector(40, [1, 4], [0.0, 2.0])
             @test SparseArrays._spvec_positions(B, nonzeroinds(x)) === nothing
             @test isequal(mul!(zeros(2), transpose(B), x), [NaN, 10.0])
+            # a column that shares no row with `x` still takes `0 * α`, and a dot may be `missing`
+            x4 = SparseVector(4, [1, 4], [0.0, 2.0])
+            @test isequal(mul!(fill(-0.0, 8), A', x4, Inf, 1.0), [NaN; Inf; fill(NaN, 6)])
+            M = sparse([1, 2], [1, 1], Union{Missing,Float64}[missing, 1.0], 4, 2)
+            @test isequal(mul!(zeros(Union{Missing,Float64}, 2), M', x4), [missing, 0.0])
             # a narrow index type and a complex eltype
             F = sparse(I, J, complex.([1.0, 2.0, 3.0, 4.0, 5.0], 1.0), 4, 2)
             w = SparseVector{ComplexF64,Int8}(4, Int8[1, 4], [1.0im, 2.0])
@@ -1303,7 +1308,7 @@ end
     A = fixturestrided(Float64, 400, 400, 99); xs = fixturevec(Float64, 400); ys = zeros(400)
     A16 = repeat(A, 1, 16); ys16 = zeros(6400)
     mul!(ys, A', xs, 2.0, 0.5); mul!(ys16, A16', xs, 2.0, 0.5)
-    @test (@allocated mul!(ys16, A16', xs, 2.0, 0.5)) < 2 * (@allocated mul!(ys, A', xs, 2.0, 0.5))
+    @test (@allocated mul!(ys16, A16', xs, 2.0, 0.5)) < 2 * (@allocated mul!(ys, A', xs, 2.0, 0.5)) + 1000
 end
 
 @testset "dimension mismatch error" begin

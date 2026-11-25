@@ -1387,8 +1387,9 @@ Base.@propagate_inbounds function _spvec_index(pos::_SpvecSlots, xnzind, r)
     end
 end
 
-# Calls `out(j, s)` with each dot `s` of a column `j` of `A` with `x` that is not zero, in the
-# order of `j`. `tfun(a, b)` is the product of an entry of `A` and one of `x`.
+# Calls `out(j, s)` with the dot `s` of each column `j` of `A` with `x`, in the order of `j`;
+# a column that shares no stored row with `x` may be left out. `tfun(a, b)` is the product of
+# an entry of `A` and one of `x`.
 function _spT_spvec_dots!(out::O, tfun::F, A::AbstractSparseMatrixCSC, x::AbstractSparseVector) where {O,F}
     xnzind = nonzeroinds(x)
     (isempty(xnzind) || size(A, 2) == 0) && return
@@ -1406,7 +1407,7 @@ function _spcoldots_merge!(out::O, tfun::F, A, xnzind, xnzval) where {O,F}
     for j in axes(A, 2)
         s = _spdot_merge(tfun, Int(first(nzrange(A, j))), Int(last(nzrange(A, j))), Arowval, Anzval,
                          1, length(xnzind), xnzind, xnzval)
-        s != zero(s) && out(j, s)
+        out(j, s)
     end
 end
 function _spcoldots_scan!(out::O, tfun::F, A, pos::P, xnzind, xnzval) where {O,F,P}
@@ -1431,7 +1432,7 @@ function _spcoldots_scan!(out::O, tfun::F, A, pos::P, xnzind, xnzval) where {O,F
         for i in 1:c
             p = hits[i]
             if p >= jend
-                s != zero(s) && out(j, s)
+                j != 0 && out(j, s)
                 j = _spvec_nextcol(colptr, p, j, n)
                 jend = Int(colptr[j+1])
                 s = z
@@ -1439,7 +1440,7 @@ function _spcoldots_scan!(out::O, tfun::F, A, pos::P, xnzind, xnzval) where {O,F
             s += tfun(Anzval[p], xnzval[_spvec_index(pos, xnzind, Arowval[p])])
         end
     end
-    s != zero(s) && out(j, s)
+    j != 0 && out(j, s)
 end
 # the column that holds the stored position `p`, which lies past column `j`
 @inline function _spvec_nextcol(colptr, p, j, n)
@@ -1462,7 +1463,19 @@ function _spT_spvec_mul_dense!(tfun::F,
     length(y) == n || throw(DimensionMismatch(
         "Matrix A has $n columns, but vector y has a length $(length(y))"))
     _scale_dest!(y, α, β) || return
-    _spT_spvec_dots!((j, s) -> (@inbounds y[j] += s * α), tfun, A, x)
+    # a column the scan leaves out still takes `0 * α`, as in a dense product
+    z = _spdotzero(tfun, eltype(A), eltype(x))
+    next = Ref(1)
+    _spT_spvec_dots!(tfun, A, x) do j, s
+        @inbounds for i in next[]:j-1
+            y[i] += z * α
+        end
+        @inbounds y[j] += s * α
+        next[] = j + 1
+    end
+    @inbounds for i in next[]:n
+        y[i] += z * α
+    end
 end
 
 
@@ -1634,6 +1647,6 @@ function _spT_spvec_mul_sparse(tfun::F, A::AbstractSparseMatrixCSC{TvA,TiA}, x::
     est = min(n, ceil(Int, nnz(A) * (length(nonzeroinds(x)) / max(m, 1))))
     sizehint!(ynzind, est)
     sizehint!(ynzval, est)
-    _spT_spvec_dots!((j, s) -> (push!(ynzind, j); push!(ynzval, s)), tfun, A, x)
+    _spT_spvec_dots!((j, s) -> _isnotzero(s) && (push!(ynzind, j); push!(ynzval, s)), tfun, A, x)
     return SparseVector(n, ynzind, ynzval)
 end
