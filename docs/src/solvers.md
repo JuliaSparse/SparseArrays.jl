@@ -23,6 +23,12 @@ Sparse factorizations call SuiteSparse:
 | [`qr`](@ref SparseArrays.SPQR.qr) | [`SPQR.QRSparse`](@ref SparseArrays.SPQR.QRSparse) | SPQR |
 | [`lq`](@ref SparseArrays.SPQR.lq) | `SPQR.AdjointQRSparse`, the adjoint of `qr(A')` | SPQR |
 
+UMFPACK computes in `Float64` or `ComplexF64`. For an element type that `float` does
+not turn into one of those, such as `BigFloat` or a dual number of automatic
+differentiation, `lu` instead returns a `LinearAlgebra.LU` with sparse factors, computed
+in that element type with partial pivoting and without reordering the columns to reduce
+fill-in, and `\` solves with it.
+
 For a sparse `A` and a dense `b`, `A \ b` picks a method from the structure of `A` and
 returns a dense result. `factorize(A)` makes the same choice and returns the
 factorization. A sparse `b` gives a sparse result, by the methods under

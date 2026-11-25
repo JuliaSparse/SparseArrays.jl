@@ -555,6 +555,63 @@ function _columnbuffers(A::AbstractSparseMatrixCSC{Tv}) where {Tv}
     return Vector{Int}(undef, 2maxcol), Vector{Tv}(undef, 2maxcol), Vector{Int}(undef, maxcol)
 end
 
+## LU factorization with partial pivoting in the natural column order
+
+# The LU factorization with partial pivoting of a sparse matrix of an eltype that UMFPACK
+# does not take, in that eltype's own arithmetic, for `lu`: `A` factored as one block in
+# its natural column order with `tol = 1`. The columns are not reordered to reduce fill-in,
+# so that the factors fit the `LU` of LinearAlgebra, laid out as LAPACK's are.
+function _generic_lu(A::AbstractSparseMatrixCSC{Tv,Ti}; check::Bool = true) where {Tv,Ti}
+    T = LinearAlgebra.lutype(Tv)
+    m, n = size(A)
+    mn = min(m, n)
+    S = GPState{T}(m, n, nnz(A))
+    crow, cval, perm = _columnbuffers(A)
+    _gplu!(S, A, collect(1:m), [1, n + 1], 1, [0], 1.0, true, collect(1:n), crow, cval, perm, check)
+    Lp, Li, Lx, Up, Ui, Ux, pinv = _gpfinish!(S)
+    # the first zero pivot; the diagonal entry is the last of its column of U
+    info = 0
+    @inbounds for k in 1:mn
+        if _iszero(Ux[Up[k + 1] - 1])
+            info = k
+            break
+        end
+    end
+    # `ipiv` gives the pivot rows as the row swaps that LAPACK records, and those swaps place
+    # the rows that a tall `A` leaves without a pivot
+    prow = Vector{Int}(undef, m)
+    @inbounds for i in 1:m
+        prow[pinv[i]] = i
+    end
+    rowperm, pos = collect(1:m), collect(1:m)
+    ipiv = Vector{Ti}(undef, mn)
+    @inbounds for k in 1:mn
+        r = prow[k]
+        j = pos[r]
+        ipiv[k] = j
+        s = rowperm[k]
+        rowperm[k], rowperm[j] = r, s
+        pos[r], pos[s] = k, j
+    end
+    # U and the strict lower triangle of L, whose diagonal is the first entry of a column
+    nU = length(Ui)
+    nz = nU + length(Li) - mn
+    rows = Vector{Ti}(undef, nz)
+    cols = Vector{Ti}(undef, nz)
+    vals = Vector{T}(undef, nz)
+    @inbounds for k in 1:n, p in Up[k]:(Up[k + 1] - 1)
+        rows[p], cols[p], vals[p] = Ui[p], k, Ux[p]
+    end
+    t = nU
+    @inbounds for k in 1:mn, p in (Lp[k] + 1):(Lp[k + 1] - 1)
+        t += 1
+        r = Li[p]
+        rows[t], cols[t], vals[t] = r <= mn ? r : pos[prow[r]], k, Lx[p]
+    end
+    factors = sparse(rows, cols, vals, m, n)
+    return LU{T,typeof(factors),typeof(ipiv)}(factors, ipiv, info)
+end
+
 ## Fill-reducing ordering of the diagonal blocks
 
 # AMD and COLAMD are the BSD-licensed ordering libraries of SuiteSparse, which every

@@ -303,6 +303,24 @@ end
     @test cond(sparse(Float32[1 2; 3 4]), 1) isa Float32
 end
 
+@testset "`lu` and `\\` of dual numbers (#1214)" begin
+    # `float` of a dual number is itself, so `lu` called itself on `float(A)` without end, and
+    # a symmetric matrix reached it through the Hermitian solve
+    n = 6
+    A = spdiagm(-1 => fill(DualNumber(-1.0, 0.0), n - 1), 0 => fill(DualNumber(2.0, 1.0), n),
+        1 => fill(DualNumber(-1.0, 0.0), n - 1))
+    x = A \ DualNumber.(1:n)
+    @test x isa Vector{DualNumber}
+    # the derivative of the solution of A x = b, where only the diagonal of A changes, is -A⁻¹x
+    A0 = Matrix(SymTridiagonal(fill(2.0, n), fill(-1.0, n - 1)))
+    x0 = A0 \ (1:n)
+    @test getfield.(x, :v) ≈ x0
+    @test getfield.(x, :d) ≈ -(A0 \ x0)
+    F = lu(A)
+    @test F isa LU{DualNumber,SparseMatrixCSC{DualNumber,Int}}
+    @test nnz(F.factors) == nnz(A)
+end
+
 @testset "the names SuiteSparse.jl binds exist" begin
     # JuliaSparse/SuiteSparse.jl, which Julia ships as a stdlib, binds these at load time
     for name in (:increment, :increment!, :decrement, :decrement!, :LibSuiteSparse,

@@ -14,7 +14,7 @@ import LinearAlgebra: Factorization, AdjointFactorization, TransposeFactorizatio
 
 using SparseArrays
 using SparseArrays: getcolptr, getrowval, getnzval, AbstractSparseMatrixCSC, _checkconvertible,
-    _check_workspace_aliasing
+    _check_workspace_aliasing, _generic_lu
 import SparseArrays: nnz, _lu_rhs_densefill, _lu_rhs_solve
 
 import Serialization: AbstractSerializer, deserialize, serialize
@@ -450,6 +450,11 @@ true
     As this library only supports sparse matrices with [`Float64`](@ref) or
     `ComplexF64` elements, `lu` converts `A` into a copy that is of type
     `SparseMatrixCSC{Float64}` or `SparseMatrixCSC{ComplexF64}` as appropriate.
+    An element type that `float` does not turn into one of those, such as `BigFloat` or a
+    dual number of automatic differentiation, is factorized in its own arithmetic: `lu`
+    then returns a `LinearAlgebra.LU` whose factors are a `SparseMatrixCSC`, computed with
+    partial pivoting and without reordering the columns to reduce fill-in, so that
+    `F.L * F.U == A[F.p, :]`.
 
 [^ACM832]: Davis, Timothy A. (2004b). Algorithm 832: UMFPACK V4.3---an Unsymmetric-Pattern Multifrontal Method. ACM Trans. Math. Softw., 30(2), 196–199. [doi:10.1145/992200.992206](https://doi.org/10.1145/992200.992206)
 """
@@ -466,12 +471,12 @@ lu(A::AbstractSparseMatrixCSC{<:Union{Float16,Float32},Ti}; kws...) where {Ti<:U
 lu(A::AbstractSparseMatrixCSC{<:Union{ComplexF16,ComplexF32},Ti}; kws...) where {Ti<:UMFITypes} =
     lu(convert(SparseMatrixCSC{ComplexF64,Ti}, A); kws...)
 lu(A::Union{AbstractSparseMatrixCSC{T},AbstractSparseMatrixCSC{Complex{T}}};
-   kws...) where {T<:AbstractFloat} =
-    throw(ArgumentError(string("matrix type ", typeof(A), " not supported. ",
-    "Try lu(convert(SparseMatrixCSC{Float64/ComplexF64,Int}, A)) for ",
-    "sparse floating point LU using UMFPACK or lu(Array(A)) for generic ",
-    "dense LU.")))
-lu(A::AbstractSparseMatrixCSC; kws...) = lu(float(A); kws...)
+   check::Bool = true) where {T<:AbstractFloat} = _generic_lu(A; check)
+function lu(A::AbstractSparseMatrixCSC; kws...)
+    B = float(A)
+    # `float` returns an eltype that UMFPACK does not take, such as a dual number, as it is
+    return eltype(B) === eltype(A) ? _generic_lu(B; kws...) : lu(B; kws...)
+end
 
 # We could do this as lu(A') = lu(A)' with UMFPACK, but the user could want to do one over the other
 lu(A::AdjOrTrans{T,S}; kws...) where {T<:UMFVTypes, S<:AbstractSparseMatrixCSC{T}} =
