@@ -50,5 +50,6 @@ The `solvers` selector includes them only in comprehensive mode, and `!issues` e
 both issue suites.
 
 [AGENTS.md](AGENTS.md) has the conventions this repository follows, the commands for
-running a single test file, the whitespace check and the doctests, and pointers to the
-guides for the solvers, the test suite and upgrading SuiteSparse.
+running a single test file, the whitespace check and the doctests, and links to the
+skills in [`.agents/skills`](.agents/skills), which cover particular tasks such as
+writing tests, changing the solvers, opening a pull request or upgrading SuiteSparse.

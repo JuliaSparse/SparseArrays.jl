@@ -1,207 +1,207 @@
 # AGENTS.md
 
-Guidance for agents and other contributors to SparseArrays.jl, distilled from the
-project's merged pull requests. Follow it unless a maintainer says otherwise.
+Guidance for agents and other contributors to SparseArrays.jl. Follow it unless a
+maintainer says otherwise.
 
-## What this repo is
+SparseArrays is a Julia stdlib: `SparseMatrixCSC`, `SparseVector`, sparse broadcast and
+linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) in
+`src/solvers/`.
 
-A Julia stdlib providing `SparseMatrixCSC`, `SparseVector`, sparse broadcast and
-linear algebra, and the SuiteSparse solver wrappers (CHOLMOD, UMFPACK, SPQR) under
-`src/solvers/`. Three directories carry their own `AGENTS.md`, which applies on top of
-this one; read it before working there:
+## Skills
 
-- `src/solvers/AGENTS.md`: rules for the SuiteSparse solver layer.
-- `test/AGENTS.md`: suite layout, standard and comprehensive mode, where a new test
-  goes, and how to measure test time.
-- `gen/AGENTS.md`: regenerating `src/solvers/wrappers.jl`, and upgrading SuiteSparse
-  and Clang.jl.
+Procedures for particular tasks live in skills. Read the one that fits before you start:
 
-Being a stdlib shapes everything below:
+- [`pull-request`](.agents/skills/pull-request/SKILL.md): branch, title and body of a
+  pull request, and the measurements it shows.
+- [`write-tests`](.agents/skills/write-tests/SKILL.md): adding, changing or reorganizing
+  a test. The repository's suites and helpers are in the Tests section below.
+- [`sparse-solvers`](.agents/skills/sparse-solvers/SKILL.md): any change in
+  `src/solvers/`. The workspaces are `UmfpackWS`, `CholmodWS` and `SpqrWS`; `UmfpackLU`
+  and `CHOLMOD.Factor` carry the `lock` field, and the immutable `QRSparse` has none.
+  An UMFPACK solve writes its statistics to the workspace's `info`, never `F.info`; a
+  lock-free CHOLMOD solve passes no `Bset`. Library handles belong to `LibSuiteSparse`.
+- [`restructure-code`](.agents/skills/restructure-code/SKILL.md): whether and how to
+  restructure code: moves within and between files, renames, merged kernels, operand
+  normalization, each step proven behaviour-neutral.
+- [`manual-page`](.agents/skills/manual-page/SKILL.md): `docs/src/index.md`, which is
+  `SparseArrays.md` in Julia's manual, and the docstrings it lists. The solvers'
+  index-type aliases are `UMFPACK.UMFITypes` and `CHOLMOD.ITypes`.
+- [`fixed-pattern`](.agents/skills/fixed-pattern/SKILL.md): `FixedSparseCSC` and
+  `FixedSparseVector`. The helpers are `_checkpatternwritable`, `_is_fixed` and
+  `_writablecopy`, in `src/fixed.jl`.
+- [`test-time`](.agents/skills/test-time/SKILL.md): measuring test time and cutting a
+  test grid.
+- [`release-history`](.agents/skills/release-history/SKILL.md): `HISTORY.md`. Every PR
+  that changes what users see adds its entry there.
+- [`backport`](.agents/skills/backport/SKILL.md): a backport PR from the branch
+  `backports-release-1.x` into `release-1.x`, for the PRs labelled `backport 1.x`.
+- [`suitesparse-wrappers`](.agents/skills/suitesparse-wrappers/SKILL.md): regenerating
+  `src/solvers/wrappers.jl`, and upgrading SuiteSparse, Clang.jl or JuliaFormatter.
 
-- The `julia` compat in `Project.toml` tracks the next release, so develop and test on
-  `julia +nightly`. Each Julia release ships a fixed copy of this package, so there are
-  no `@static if VERSION` branches; to reach an older Julia, backport instead.
-- Code reaches users only when JuliaLang/julia bumps its pinned SparseArrays version.
-  Say in the PR when a fix unblocks Base CI so the bump gets triggered.
-- LinearAlgebra is pinned in lockstep. Never write version-sniffing shims for its
-  internals. Changes to the hooks shared with it need a paired PR there, and CI stays
-  red until both sides merge.
-- Base runs this package's tests in its own CI, serially, without ParallelTestRunner and
-  with `--depwarn=error`. Keep `test/runtests.jl`'s serial fallback, and keep test time
-  down. A test that passes only sometimes fails the bump: see the rule on random inputs
-  under Tests.
-- Base's `juliac --trim=safe` test loads this package, so the code must stay trimmable;
-  the `trim` CI job builds the app in `test/trim` to check it.
-- No new dependencies.
-- Loading the package is measured in sysimage invalidations. Do not define methods
-  Base or LinearAlgebra already provide generically.
-- Julia's manual includes `docs/src/index.md` and the docstrings it lists, and no other
-  page. All documentation goes in that one file; an `@ref` to anything outside it breaks
-  Julia's docs build. So does a `@docs` entry for a function that LinearAlgebra's page
-  lists too, such as `lu` or `cholesky`, unless it carries the method signature of the
-  sparse docstring. Write that signature with the solver's own index type alias
-  (`UMFPACK.UMFITypes`, `CHOLMOD.ITypes`), which is `Int32` alone on a 32-bit build.
-  The page's `@contents` block names it as both `index.md` and `SparseArrays.md`, its
-  file name in Julia's manual; under any other name the table of contents comes out empty.
+## Being a stdlib
+
+- Develop and test on `julia +nightly`; the `julia` compat tracks the next release. No
+  `@static if VERSION` branches: an older Julia gets a backport.
+- LinearAlgebra is pinned in lockstep. No version-sniffing shims for its internals; a
+  change to a hook shared with it needs a paired PR there.
+- Base runs these tests serially, without ParallelTestRunner, with `--depwarn=error`, and
+  a flaky test fails the version bump. Keep `test/runtests.jl`'s serial fallback, and
+  keep test time down.
+- The code must stay trimmable (`juliac --trim=safe`, checked by the `trim` CI job).
+- No new dependencies. Package load is measured in sysimage invalidations: do not define
+  methods that Base or LinearAlgebra already provide generically.
 - Every source and test file starts with the Julia MIT license banner.
+
+## The GPL boundary
+
+Everything that depends on the GPL SuiteSparse libraries lives in `src/solvers/` and
+`test/solvers/`, and nowhere else. `Base.USE_GPL_LIBS` is checked once per tree, with
+`@static`: where `SparseArrays.jl` includes the solvers and where `test/runtests.jl` lists
+their suites. Other code reaches a solver only through the generic LinearAlgebra
+functions (`lu`, `qr`, `cholesky`, `\`), never by naming a solver module. A test that
+factorizes or solves with a sparse matrix goes in `test/solvers/`, whatever feature it is
+about: the other suites must pass on a build without GPL libraries.
+`.ci/check-gpl-usage.jl` enforces this, but cannot see a factorization of a sparse
+variable.
 
 ## Layout
 
-Files in `src/` and `test/` are named by area. What the names do not tell you:
+Files in `src/` and `test/` are named by area. `sparsevector.jl` holds everything for
+vectors except products (`matmul.jl`) and concatenation (`concatenation.jl`); `linalg.jl`
+holds `dot`, `kron`, solves, norms and the LinearAlgebra wrappers; the shared dispatch
+aliases live in `SparseArrays.jl`.
 
-- `sparsevector.jl` holds everything for vectors except products (`matmul.jl`) and
-  concatenation (`concatenation.jl`), which cover matrices and vectors together.
-- `linalg.jl` holds `dot`, `kron`, solves, norms and the LinearAlgebra wrappers.
-- The shared dispatch aliases live in `SparseArrays.jl`.
-- Test files are listed explicitly in `test/runtests.jl`.
-- Everything that depends on the GPL SuiteSparse libraries lives in `src/solvers/` and
-  `test/solvers/`, and nowhere else. `Base.USE_GPL_LIBS` is checked once per tree, with
-  `@static`: where `SparseArrays.jl` includes the solvers and where `test/runtests.jl`
-  lists their suites. Code outside `src/solvers/` reaches a solver only through the
-  generic LinearAlgebra functions (`lu`, `qr`, `cholesky`, `\`), never by naming a
-  solver module. A test that factorizes or solves with a sparse matrix goes in
-  `test/solvers/`, whatever feature it is about; the other suites must pass on a build
-  without GPL libraries. `.ci/check-gpl-usage.jl`, run by the `code-checks` CI job, fails
-  on solver names outside those directories.
-
-## Running tests
+## Commands
 
 ```sh
-julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one file; omit test_args for all
-julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["--comprehensive"])'   # comprehensive mode
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["fixed"])'   # one suite; omit test_args for all
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["--comprehensive"])'
 julia +nightly --project -e 'using Test, LinearAlgebra, SparseArrays; include("test/fixed.jl")'
+julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous", "aqua"])'   # run only when named
+julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'
 julia .ci/check-whitespace.jl
-julia +nightly --project -e 'using Pkg; Pkg.test(test_args=["ambiguous", "aqua"])'   # ambiguity and Aqua checks
-julia +nightly --project=docs -e 'using Pkg; Pkg.instantiate(); include("docs/make.jl")'  # doctests
-julia .ci/check-gpl-usage.jl   # no solver names outside src/solvers/ and test/solvers/
+julia .ci/check-gpl-usage.jl
 ```
 
-The `ambiguous` and `aqua` suites run only when selected by name. The commands for the
-trimmed app are in the `trim` job of `.github/workflows/ci.yml`.
-The tests run in two modes, described in `test/AGENTS.md`. Standard mode is what
-`Pkg.test`, Julia's own CI and every CI job but the coverage job run. Comprehensive mode
-also runs the tests guarded with `@static if COMPREHENSIVE`, `test/issues.jl` and
-`test/solvers/issues.jl`; only the coverage job runs it, so run it locally before a PR
-that touches a kernel.
+To run the serial fallback that Julia's CI uses, and to measure one suite (the first
+line, with `JULIA_OBJCACHE=0`, gives the figure that matters):
 
-## Style
+```sh
+JULIA_OBJCACHE=0 JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl
+JULIA_OBJCACHE=0 julia +nightly --project --startup-file=no --threads=1 --check-bounds=yes .ci/measure-tests.jl higherorderfns --verbose
+```
 
-- Comment only genuinely tricky code (non-obvious workarounds, platform quirks, ABI
-  hacks) and say why, not what. Comments describe the current state; change history
-  belongs in the PR text.
-- Style-only changes go in their own PR. Never let an editor reformat whitespace in a
-  functional PR.
+The trimmed app is built by the `trim` job in `.github/workflows/ci.yml`. Comprehensive
+mode runs only in the coverage CI job.
+
+## Architecture
+
+The target for new and restructured code. Older code moves toward it in its own
+restructuring PRs, not as part of an unrelated change.
+
+Where code lives:
+
+- **One home per function.** A function lives in the file for its area, together with
+  its relatives: the in-place and out-of-place forms, the vector and matrix methods, and
+  the methods on views and on adjoint and transpose wrappers. A file lists its sections,
+  in dispatch order, at the top.
+- **One loop per algorithm.** When the vector and matrix versions, or the in-place and
+  out-of-place versions, run the same loop, they share one kernel. An out-of-place method
+  allocates its result and calls the in-place kernel rather than repeating its loop.
+- **Public methods are thin.** A public method checks and normalizes its arguments and
+  calls a private `_` helper; internal callers go to that helper, never to a public
+  signature.
+
+How an operation dispatches:
+
+- **Entry methods are few.** They dispatch on unions of operand kinds, normalize each
+  operand in one place, and call a private function that picks the kernel. A method
+  exists to dispatch or to resolve an ambiguity, not once per combination of wrappers.
+  Every dispatcher of an operation normalizes its input the same way.
+- **Kernels are named after what they take and return**, and a file with a family of
+  kernels states its naming scheme at the top.
+- **The long tail goes through a copy.** A rare operand form is copied once, in O(nnz),
+  into the form an existing kernel takes. A dedicated kernel stays only where a
+  measurement shows it beats the copy on the common cases.
+- **One operation, one set of semantics.** Every route of an operation gives the same
+  stored zeros, index type, results for special values and coefficients, and errors.
+  When two routes disagree, send both to one kernel rather than patching each.
+- **Variants are parameters, not copies.** When kernels differ in one term, pass the
+  difference as a parameter (a `Val`, a function such as `identity` or `adjoint`, or
+  `nothing` for a trivial coefficient), so one loop body still compiles to each
+  specialized loop. Shared preambles (size checks, scaling the destination) are one
+  `@inline` helper.
 
 ## Coding conventions
 
-- **Sparse kernels are O(nnz).** Any elementwise `AbstractArray` fallback reached by a
-  sparse type is a bug. When you specialize a function, its relatives (equality,
-  hashing, adjoint and transpose wrappers) need the same treatment.
+- **Sparse kernels are O(nnz).** An elementwise `AbstractArray` fallback reached by a
+  sparse type is a bug. Specializing a function means specializing its relatives
+  (equality, hashing, adjoint and transpose wrappers, views) too.
 - **Validate before mutating.** In-place kernels check shapes, aliasing and pattern
-  compatibility up front and throw with the destination untouched. Cheap direct check
-  first, expensive dry run only if that fails.
-- **Unalias.** Use `Base.mightalias` / `Base.unalias` when a destination may share
-  storage with an input. Structurally empty arrays report as aliased on recent Julia,
-  so compare only the buffers you write.
-- **Never infer structure from `nnz`.** Stored zeros are the recurring correctness
-  trap; walk the column.
-- **Write through the storage accessors.** Use `getnzval`, `getrowval`, `getcolptr`,
-  `nzrange` and `parent` on a matrix (`nonzeros` and `nonzeroinds` on a vector), never
-  fields, and never indexed `setindex!` on a result whose
-  pattern you already know. Do not materialize with `findnz`.
-- **Follow dense semantics** when sparse behaviour is in doubt: shape rules,
-  promotion, unaliasing. Sweep sparse against dense locally; commit only the
-  reproducer.
-- **Extend, don't shadow.** An unqualified definition that shares a Base or
-  LinearAlgebra name silently creates a dead local function. Qualify it.
-- **Dispatch narrowly.** Cross-file `Union` aliases live in one documented section of
-  `SparseArrays.jl`; reuse LinearAlgebra's aliases and do not add one when an
-  existing one fits. Define against `Matrix`/`Vector` rather than `AbstractMatrix`
-  where a wider signature would capture structured LinearAlgebra types. Views of
-  sparse arrays are first-class: define methods on the view aliases too.
-- **Products and solves follow the dense factor.** Sparse times dense returns dense,
-  sparse times a banded structured type stays sparse, solves return dense.
-- **A result that would store every entry is dense.** That holds for sparse `+` and `-`
-  with a dense array or a scalar, in operator and broadcast form, and for a broadcast
-  whose function is not zero where its arguments are. Decide it from the function and
-  the argument types so that the result type stays inferable, and look at the shape of
-  the result before densifying an argument.
-- **Elements are opaque.** The eltype need not be a machine number: `zero(Tv)` may be of
-  another type than `Tv` (a JuMP variable) or not exist, so take the implicit zero from
-  `_densezero` and do not convert it to `Tv`. Do not `copy` an element. Do not assume
-  that a reducer commutes; walk the positions in order unless `op` is known to. A change
-  to the result type of an arithmetic operation is checked against JuMP's and
-  MutableArithmetics' test suites.
-- **Keep kernels trimmable.** Julia does not specialize a method on a function or a
-  splatted argument that it only passes on, which `--trim` rejects and which allocates.
-  Write `f::F` and `Vararg{T,N}` there.
-- **Prefer explicit helpers over `invoke`** for fallbacks; tooling cannot model
-  `invoke` chains.
-- **Errors name the type and the reason**, and the working alternative when there is
-  one. `ArgumentError` for bad values, `DimensionMismatch` for shapes.
-- **A fixed-pattern array is a destination, not a kind of value.** Read
-  "Sparse arrays with a fixed pattern" in `docs/src/index.md` before touching one. A
-  kernel that writes its argument stores inside the pattern or throws before changing
-  anything; one whose purpose is to change the pattern calls `_checkpatternwritable`. As
-  an operand a fixed array reads as the plain array, and no result is fixed except
-  `copy`, so an out-of-place kernel never checks `_is_fixed` on an input and starts from
-  `_writablecopy` when it mutates a copy. Do not add a method to make another operation
-  return a fixed array. A method on a fixed type is only for a function whose generic
-  method in Base or LinearAlgebra never reaches a kernel of this package that could check.
-- **Fixed-pattern arrays stay experimental and unexported.**
-- **`@inbounds` only after the bounds are provably guarded.** Performance PRs include a
-  before/after table of time and allocations at realistic sizes.
+  compatibility up front and throw with the destination untouched: a cheap direct check
+  first, an expensive dry run only if that fails. That includes checking that values
+  convert and that sizes and positions fit the index type.
+- **Unalias** with `Base.mightalias` / `Base.unalias`, comparing only the buffers you write:
+  structurally empty arrays report as aliased.
+- **Never infer structure from `nnz`.** Stored zeros are the recurring trap; walk the column.
+- **Use the storage accessors** (`getnzval`, `getrowval`, `getcolptr`, `nzrange`, `parent`;
+  `nonzeros`, `nonzeroinds`), never fields, never indexed `setindex!` into a pattern you
+  already know, never `findnz` to materialize.
+- **Follow dense semantics** where sparse behaviour is in doubt: shapes, promotion,
+  aliasing, NaN and signed zeros. Products and solves follow the dense factor: sparse
+  times dense is dense, sparse times a banded structured type stays sparse, solves return
+  dense. A result that would store every entry is dense (sparse `+` or `-` with a dense
+  array or a scalar, a broadcast of a function that is not zero at zero). Decide it from
+  the function and argument types so it stays inferable, and look at the shape of the
+  result before densifying an argument.
+- **Extend, don't shadow.** Qualify any definition that shares a Base or LinearAlgebra name.
+- **Dispatch narrowly.** Cross-file `Union` aliases live in one section of
+  `SparseArrays.jl`; reuse LinearAlgebra's, and do not add one when an existing one fits.
+  Prefer `Matrix`/`Vector` to `AbstractMatrix` where a wider signature would capture
+  structured types. Views are first-class: define methods on the view aliases too.
+- **Elements are opaque.** `zero(Tv)` may be another type or not exist: take the implicit
+  zero from `_densezero` and do not convert it. Do not `copy` an element, and do not
+  assume a reducer commutes. Check a change to an arithmetic result type against JuMP's
+  and MutableArithmetics' test suites.
+- **Keep kernels trimmable**: `f::F` and `Vararg{T,N}` for arguments that are only passed on.
+- **Prefer an explicit helper to `invoke`** for fallbacks: tooling cannot model `invoke`
+  chains.
+- **Errors name the type, the reason and the alternative when there is one.**
+  `ArgumentError` for values, `DimensionMismatch` for shapes.
+- **`@inbounds` only where the bounds are provably checked.**
+- **Comments say why**, for genuinely tricky code, and describe the current state.
+- **Internal helpers are not API.** Public surface changes are explicit and documented.
+  Still, Julia and its other stdlibs call some internals (the SuiteSparse stdlib binds
+  `decrement!`): search them before removing an internal name.
 
 ## Tests
 
-`test/AGENTS.md` has the detail: the two modes, the fixtures and helpers, and what test
-time costs. In short:
+- `test/runtests.jl` lists the suites for ParallelTestRunner and for the serial fallback.
+  Selectors match suite names by prefix and `!prefix` excludes. `--comprehensive` sets
+  `SPARSEARRAYS_TEST_COMPREHENSIVE=true`, which selects comprehensive mode.
+- `test/SparseTestHelpers.jl` is the shared module, loaded once per process by the
+  `testhelpers.jl` that every suite includes first, which also sets
+  `@compiler_options optimize=0`. It holds the guard `COMPREHENSIVE`, the type sets,
+  the fixtures, the comparison `mismatch`, the grid helpers, and every type a test
+  defines.
+- `issues.jl` and `solvers/issues.jl` are the issue suites; the selector `issues` takes
+  both. `ambiguous.jl` and `aqua.jl` run only when named, and load Aqua through
+  `with_aqua` so a failure leaves Base CI's worker usable.
+- Placement: triangular products and solves in `triangular.jl`; all concatenation in
+  `concatenation.jl`; every other product in `matmul.jl`, except the vector `axpy!` and
+  `dot` in `sparsevector.jl`; `transpose`, `adjoint` and `permute` in `sparsematrix.jl`.
+  The files in `test/solvers/` carry no GPL guards of their own.
+- `solvers/threads.jl` owns the tests that need a fresh process, through
+  `testprocess.jl`. Standard mode starts one child, `threads_child.jl`, with four
+  threads; the other cases, including `cholmod_lifetime.jl`, are guarded.
+- `test/trim/` is not a suite but an app the `trim` job builds with `juliac --trim=safe`.
+  It cannot use `show`, which does not trim, or BLAS, or the solvers unless given the
+  `solvers` argument.
 
-- A new test is a comprehensive test. Put a standalone issue reproducer in
-  `test/issues.jl`, or `test/solvers/issues.jl` if it uses a sparse solver. Put additional
-  feature cases next to the feature, in an existing testset when one fits, inside
-  `@static if COMPREHENSIVE ... end`. An unguarded feature test is only for new code,
-  and one representative case of it; retain existing standard regression coverage.
-- Test time is compilation, so it grows with the number of type combinations a test
-  compiles. Cover real and complex eltypes, vector and matrix, with `Int` indices, and
-  take any other type or helper from `test/SparseTestHelpers.jl`.
-- Inputs are fixed and built inside the testset, from the fixtures or a literal that
-  guarantees the property the test relies on. Random input is only for a test whose
-  point is randomness, and then it is seeded.
-- Compare a sparse result with `mismatch(S, D) === nothing`, which checks its structure
-  and types as well as its values. After an expected throw, assert the destination is
-  unchanged.
-- Do not add an assertion that an existing loop already makes for the same kernel path.
-- A method that exists only for speed needs a test proving it is dispatched to, not
-  just a correctness check against dense, which passes on the fallback too.
-- No wall-clock assertions. Allocation bounds prove constancy, not zero. Match
-  `@test_throws` messages loosely, because Base rewords errors.
-- Ambiguity failures on nightly are often Base's. Check before blaming a change.
+## Changes
 
-## Pull requests
-
-- Do each change in its own git worktree on a branch off `main`, never on `main`
-  itself.
-- One logical change per PR. Stack follow-ups and say so. A PR based on another PR's
-  branch carries that diff when squash-merged.
-- PRs are squash-merged with the title as the subject. Titles are imperative, name the
-  API involved, and fit on one line of `git log --oneline`: one clause, not a list of
-  everything the PR does.
-- The body is the design record, kept short: the issue, a **Before** and an **After**
-  block (a reproducer with its output on `main` and on the branch, or a measurement
-  table), one paragraph on mechanism and fix, and anything deliberately left out. No
-  section headers unless the change is large. A documentation-only PR needs just the
-  source of the material.
-- **Do not report what CI checks.** No sentence says that the tests, either test mode,
-  the whitespace or GPL usage check, the ambiguity or Aqua check, the doctests or the
-  docs build pass, were run, or are clean, and none gives the Julia build they ran on,
-  the pass counts, or which suites were selected. The same goes for where the new tests
-  were put and that they fail on `main`: the diff and the **Before** block show both.
-  Mention a check only when CI does not run it: a downstream package's test suite, a
-  bitwise or line-coverage comparison against `main`, a sweep against dense, a
-  benchmark.
-- Say when a PR touches dispatch, needs a docs update, or should be backported
-  (label `backport 1.x`). Backports are bug and regression fixes only, never new
-  methods or behaviour changes. Never bump compat on a release branch or push to one.
-- Internal helpers are not API. Public surface changes are explicit, with docs.
-- Agent-authored PRs say which tool wrote them, with a session link when there is one.
+- Each change in its own git worktree and branch off `main`, one logical change per PR.
+- Behaviour-neutral restructuring, behaviour changes and style-only changes go in
+  separate PRs. Never let an editor reformat a functional PR.
+- A change users can see adds an entry to `HISTORY.md`.
+- Sweep sparse against dense locally; commit only the reproducer.
