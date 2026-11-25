@@ -39,7 +39,8 @@ Say when the PR:
 - needs a docs update;
 - unblocks Base CI, so that the stdlib bump is triggered (code reaches users only when
   JuliaLang/julia bumps its pinned version);
-- needs a paired LinearAlgebra PR, in which case CI stays red until both merge.
+- needs a paired LinearAlgebra PR, in which case CI stays red until both merge;
+- is a bug or regression fix that qualifies for a backport.
 
 ### What not to report
 
@@ -49,8 +50,8 @@ or were run, and no Julia build, pass counts or suite selections. Do not say whe
 new tests went or that they fail on `main`: the diff and the **Before** block show both.
 
 Do report, under "Not checked by CI:", the checks CI does not run: a bitwise comparison
-of results against `main`, a sweep against dense, a dispatch sweep, a downstream package's
-test suite, a benchmark. Give the size of the sweep and what differed.
+of results or of line coverage against `main`, a sweep against dense, a dispatch sweep, a
+downstream package's test suite, a benchmark. Give the size of the sweep and what differed.
 
 ## Measurements
 

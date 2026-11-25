@@ -178,10 +178,15 @@ From the repository root, to exercise the serial fallback without picking up a g
 installed ParallelTestRunner, and to measure one suite:
 
 ```sh
-JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl
-JULIA_OBJCACHE=0 julia +nightly --project --startup-file=no --threads=1 .ci/measure-tests.jl higherorderfns
-SPARSEARRAYS_TEST_COMPREHENSIVE=true julia +nightly --project --startup-file=no --threads=1 .ci/measure-tests.jl higherorderfns
+JULIA_OBJCACHE=0 JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl
+JULIA_OBJCACHE=0 julia +nightly --project --startup-file=no --threads=1 --check-bounds=auto .ci/measure-tests.jl higherorderfns
+JULIA_OBJCACHE=0 julia +nightly --project --startup-file=no --threads=1 --check-bounds=yes .ci/measure-tests.jl higherorderfns --verbose
+JULIA_OBJCACHE=0 SPARSEARRAYS_TEST_COMPREHENSIVE=true julia +nightly --project --startup-file=no --threads=1 .ci/measure-tests.jl higherorderfns
 ```
+
+The first command, with `JULIA_OBJCACHE=0`, gives the figure that matters: Julia's CI runs
+every suite serially in one process, so the sum of per-suite measurements overstates it.
+CI runs one job with `--check-bounds=yes`.
 
 `.ci/measure-tests.jl` prints a `MEASURE` line; `--verbose` adds nested testset timing.
 Keep the `--verbose` per-suite reporting that `runtests.jl` turns on in CI.

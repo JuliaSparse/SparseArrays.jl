@@ -2,7 +2,7 @@
 
 Rules for the SuiteSparse solver layer (CHOLMOD, UMFPACK, SPQR), in addition to the
 top-level `AGENTS.md`. This directory and `test/solvers/` hold everything that depends
-on the GPL libraries; see the Layout section there.
+on the GPL libraries; see the GPL boundary section there.
 
 - `wrappers.jl` is generated from the SuiteSparse headers by `gen/`. Never edit it by
   hand; the `suitesparse-wrappers` skill covers regenerating it and upgrading SuiteSparse.

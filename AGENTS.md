@@ -15,8 +15,11 @@ that fits before you start:
 
 - `pull-request`: branch, title and body of a pull request, and the measurements it shows.
 - `restructure-code`: reorganizing a source file or a family of methods.
-- `manual-page`: `docs/src/index.md` and the docstrings it lists.
-- `fixed-pattern`: `FixedSparseCSC` and `FixedSparseVector`.
+- `manual-page`: `docs/src/index.md`, which is `SparseArrays.md` in Julia's manual, and
+  the docstrings it lists. The solvers' index-type aliases are `UMFPACK.UMFITypes` and
+  `CHOLMOD.ITypes`.
+- `fixed-pattern`: `FixedSparseCSC` and `FixedSparseVector`. The helpers are
+  `_checkpatternwritable`, `_is_fixed` and `_writablecopy`, in `src/fixed.jl`.
 - `test-time`: measuring test time and cutting a test grid.
 - `suitesparse-wrappers`: regenerating `src/solvers/wrappers.jl`, and upgrading
   SuiteSparse or Clang.jl.
@@ -41,8 +44,11 @@ Everything that depends on the GPL SuiteSparse libraries lives in `src/solvers/`
 `test/solvers/`, and nowhere else. `Base.USE_GPL_LIBS` is checked once per tree, with
 `@static`: where `SparseArrays.jl` includes the solvers and where `test/runtests.jl` lists
 their suites. Other code reaches a solver only through the generic LinearAlgebra
-functions (`lu`, `qr`, `cholesky`, `\`), never by naming a solver module, and a test that
-factorizes or solves goes in `test/solvers/`. `.ci/check-gpl-usage.jl` enforces this.
+functions (`lu`, `qr`, `cholesky`, `\`), never by naming a solver module. A test that
+factorizes or solves with a sparse matrix goes in `test/solvers/`, whatever feature it is
+about: the other suites must pass on a build without GPL libraries.
+`.ci/check-gpl-usage.jl` enforces this, but cannot see a factorization of a sparse
+variable.
 
 ## Layout
 
@@ -70,12 +76,14 @@ that touches a kernel or a constructor.
 
 ## Architecture
 
-Every operation is layered the same way.
+The target for new and restructured code; the product code follows it, and older code
+moves toward it in its own restructuring PRs, not as part of an unrelated change.
 
 - **Entry methods are few.** They dispatch on unions of operand kinds, normalize each
   operand in one place, and call a private function that picks the kernel. A method
-  exists to dispatch or to resolve an ambiguity, not once per pair of wrappers. Internal
-  calls go to private helpers, never to a public-signature method.
+  exists to dispatch or to resolve an ambiguity, not once per pair of wrappers. A
+  dispatcher hands off to a private kernel, not to another public-signature method of
+  the same operation.
 - **Kernels are named after their operands and result**, and a file states its naming
   scheme and its sections, in dispatch order, at the top.
 - **The long tail goes through a copy.** A rare wrapper (a non-range view, an adjoint, a
@@ -115,16 +123,18 @@ Every operation is layered the same way.
   result before densifying an argument.
 - **Extend, don't shadow.** Qualify any definition that shares a Base or LinearAlgebra name.
 - **Dispatch narrowly.** Cross-file `Union` aliases live in one section of
-  `SparseArrays.jl`; reuse LinearAlgebra's. Prefer `Matrix`/`Vector` to `AbstractMatrix`
-  where a wider signature would capture structured types. Views are first-class.
+  `SparseArrays.jl`; reuse LinearAlgebra's, and do not add one when an existing one fits.
+  Prefer `Matrix`/`Vector` to `AbstractMatrix` where a wider signature would capture
+  structured types. Views are first-class: define methods on the view aliases too.
 - **Elements are opaque.** `zero(Tv)` may be another type or not exist: take the implicit
   zero from `_densezero` and do not convert it. Do not `copy` an element, and do not
   assume a reducer commutes. Check a change to an arithmetic result type against JuMP's
   and MutableArithmetics' test suites.
 - **Keep kernels trimmable**: `f::F` and `Vararg{T,N}` for arguments that are only passed on.
-- **No `invoke`** for fallbacks; write an explicit helper.
-- **Errors name the type, the reason and the alternative.** `ArgumentError` for values,
-  `DimensionMismatch` for shapes.
+- **Prefer an explicit helper to `invoke`** for fallbacks: tooling cannot model `invoke`
+  chains.
+- **Errors name the type, the reason and the alternative when there is one.**
+  `ArgumentError` for values, `DimensionMismatch` for shapes.
 - **`@inbounds` only where the bounds are provably checked.**
 - **Comments say why**, for genuinely tricky code, and describe the current state.
 - **Internal helpers are not API.** Public surface changes are explicit and documented.
