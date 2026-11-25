@@ -20,8 +20,9 @@ Procedures for particular tasks live in skills. Read the one that fits before yo
   and `CHOLMOD.Factor` carry the `lock` field, and the immutable `QRSparse` has none.
   An UMFPACK solve writes its statistics to the workspace's `info`, never `F.info`; a
   lock-free CHOLMOD solve passes no `Bset`. Library handles belong to `LibSuiteSparse`.
-- [`restructure-code`](.agents/skills/restructure-code/SKILL.md): reorganizing a source
-  file or a family of methods.
+- [`restructure-code`](.agents/skills/restructure-code/SKILL.md): whether and how to
+  restructure code: moves within and between files, renames, merged kernels, operand
+  normalization, each step proven behaviour-neutral.
 - [`manual-page`](.agents/skills/manual-page/SKILL.md): `docs/src/index.md`, which is
   `SparseArrays.md` in Julia's manual, and the docstrings it lists. The solvers'
   index-type aliases are `UMFPACK.UMFITypes` and `CHOLMOD.ITypes`.
@@ -93,29 +94,41 @@ or a constructor.
 
 ## Architecture
 
-The target for new and restructured code; the product code follows it, and older code
-moves toward it in its own restructuring PRs, not as part of an unrelated change.
+The target for new and restructured code. Older code moves toward it in its own
+restructuring PRs, not as part of an unrelated change.
+
+Where code lives:
+
+- **One home per function.** A function lives in the file for its area, together with
+  its relatives: the in-place and out-of-place forms, the vector and matrix methods, and
+  the methods on views and on adjoint and transpose wrappers. A file lists its sections,
+  in dispatch order, at the top.
+- **One loop per algorithm.** When the vector and matrix versions, or the in-place and
+  out-of-place versions, run the same loop, they share one kernel. An out-of-place method
+  allocates its result and calls the in-place kernel rather than repeating its loop.
+- **Public methods are thin.** A public method checks and normalizes its arguments and
+  calls a private `_` helper; internal callers go to that helper, never to a public
+  signature.
+
+How an operation dispatches:
 
 - **Entry methods are few.** They dispatch on unions of operand kinds, normalize each
   operand in one place, and call a private function that picks the kernel. A method
-  exists to dispatch or to resolve an ambiguity, not once per pair of wrappers. A
-  dispatcher hands off to a private kernel, not to another public-signature method of
-  the same operation.
-- **Kernels are named after their operands and result**, and a file states its naming
-  scheme and its sections, in dispatch order, at the top.
-- **The long tail goes through a copy.** A rare wrapper (a non-range view, an adjoint, a
-  triangle of a view) is copied once, in O(nnz), into the form an existing kernel takes.
-  A dedicated kernel stays only where a measurement shows it beats the copy on the
-  common cases.
+  exists to dispatch or to resolve an ambiguity, not once per combination of wrappers.
+  Every dispatcher of an operation normalizes its input the same way.
+- **Kernels are named after what they take and return**, and a file with a family of
+  kernels states its naming scheme at the top.
+- **The long tail goes through a copy.** A rare operand form is copied once, in O(nnz),
+  into the form an existing kernel takes. A dedicated kernel stays only where a
+  measurement shows it beats the copy on the common cases.
 - **One operation, one set of semantics.** Every route of an operation gives the same
-  stored zeros, index type, strong-zero `α` and errors. When two routes disagree, send
-  both to one kernel rather than patching each.
-- **Variants are parameters, not copies.** Pass the side as a `Val`, the wrapper as a
-  function (`identity`, `transpose`, `adjoint`), or a trivial coefficient as `nothing`, so
-  one loop body compiles to each specialized loop. Shared preambles (size checks, scaling
-  the destination) are one `@inline` helper.
-- **Dispatchers normalize their input once**, and every dispatcher of an operation reads
-  it the same way.
+  stored zeros, index type, results for special values and coefficients, and errors.
+  When two routes disagree, send both to one kernel rather than patching each.
+- **Variants are parameters, not copies.** When kernels differ in one term, pass the
+  difference as a parameter (a `Val`, a function such as `identity` or `adjoint`, or
+  `nothing` for a trivial coefficient), so one loop body still compiles to each
+  specialized loop. Shared preambles (size checks, scaling the destination) are one
+  `@inline` helper.
 
 ## Coding conventions
 

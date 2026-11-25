@@ -1,14 +1,25 @@
 ---
 name: restructure-code
-description: Reorganize a source file or a family of methods - layout, naming, operand normalization, merging duplicated kernels, routing rare wrappers through a copy - as a series of small, verified PRs. Use when asked to refactor, simplify, clean up or review the structure of package code.
+description: Plan and carry out a restructuring of package code - moving code within or between files, naming, operand normalization, merging duplicated kernels, routing rare operand forms through a copy - as a series of small, verified PRs, and decide whether a restructuring is worth its cost. Use when asked to refactor, reorganize, simplify or clean up package code.
 ---
 
 # Restructuring code
 
-The goal is the architecture in `AGENTS.md`: few entry methods, operands normalized in one
-place, kernels named after what they take and return, rare cases routed through a copy,
-and one set of semantics per operation. This is how to get there without changing
-behaviour by accident.
+The goal is the architecture in `AGENTS.md`. This is how to get there without changing
+behaviour by accident, and how to decide whether to go at all.
+
+## 0. Decide whether it is worth it
+
+Each Julia release ships its own copy of this package, and fixes reach it as backports
+cherry-picked from `main`. Code that has moved makes every later backport to an older
+release conflict, and buries `git blame` under the move.
+
+- Restructure where the code shows a concrete problem: duplicated loops, routes of one
+  operation that disagree, a complexity bug, or dispatch nobody can follow. Not for taste.
+- Do not move code that an open bug fix or a pending backport touches; land that first.
+- Prefer one move of a region to several, and do the move when the region is quiet.
+- Once a pure move or rename has merged, add its commit to a `.git-blame-ignore-revs`
+  file so that `git blame` skips it.
 
 ## 1. Map before you move
 
@@ -20,12 +31,15 @@ the trace turns up are listed separately and get their own PRs.
 
 ## 2. Behaviour-neutral steps
 
-- **Layout.** Move whole top-level definitions, each with the comments above it, into
-  sections that follow the dispatch, and list the sections at the top of the file. Change
-  no line of code. Do it with a script that parses the file into top-level items, places
-  each by a rule on its signature, fails on an unmatched item or an unused rule, and
-  checks that every non-blank line appears as often as before. Put the script in the PR so
-  it can be rerun when `main` moves, and ask reviewers to read the layout, not the diff.
+- **Layout and moves.** Move whole top-level definitions, each with the comments above
+  it, into sections that follow the dispatch, within a file or into the file that is the
+  function's home, and list each file's sections at the top. Change no line of code. Do
+  it with a script that parses the files into top-level items, places each by a rule on
+  its signature, fails on an unmatched item or an unused rule, and checks that every
+  non-blank line appears as often as before across the files. Put the script in the PR
+  body so it can be rerun when `main` moves, and ask reviewers to read the layout, not
+  the diff. A move between files can change the order of definitions; check the method
+  count and ambiguities as for a dispatch change.
 - **Shared preambles.** Size checks, destination scaling and factor handling that each
   kernel spells out become one `@inline` helper. Check that the generated code is unchanged.
 - **Merge mirrored kernels.** Kernels that differ in one term take the difference as a
@@ -45,7 +59,7 @@ Renames merge before the layout PR, which is regenerated last.
 
 ## 3. Behaviour changes, each in its own PR
 
-- **Route the long tail through a copy.** Add the rare wrapper to the operand union so it
+- **Route the long tail through a copy.** Add the rare operand form to the operand union so it
   is copied once, in O(nnz), into an existing kernel's input. Measure the common forms; if
   one gets slower, state by how much or keep the special kernel. Record the routes you
   measured and rejected, so they are not measured again.
@@ -68,4 +82,5 @@ Renames merge before the layout PR, which is regenerated last.
 - Consolidating methods onto unions can create ambiguities with Base or LinearAlgebra; the
   ambiguity and Aqua checks decide how far a step can go.
 
-Commit none of this tooling. The PR states what was compared and how many cases differed.
+None of this tooling goes in the repository; scripts go in the PR body. The PR states
+what was compared and how many cases differed.
