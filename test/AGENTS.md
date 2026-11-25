@@ -1,8 +1,8 @@
 # AGENTS.md for `test/`
 
 How the test suite is organized, its standard and comprehensive modes, and where a new
-test goes, in addition to the top-level `AGENTS.md`. The `test-time` skill
-(`.agents/skills/test-time/SKILL.md`) covers measuring test time and cutting a grid.
+test goes, in addition to the top-level `AGENTS.md`. The `test-time` skill covers
+measuring test time and cutting a grid.
 
 ## Layout
 
@@ -171,3 +171,17 @@ measures allocations or inference.
 - No wall-clock assertions. An allocation bound proves constancy, not zero.
 - Match `@test_throws` messages loosely, because Base rewords errors.
 - Ambiguity failures on nightly are often Base's. Check before blaming a change.
+
+## Running and measuring
+
+From the repository root, to exercise the serial fallback without picking up a globally
+installed ParallelTestRunner, and to measure one suite:
+
+```sh
+JULIA_LOAD_PATH="@:@stdlib" julia +nightly --project --startup-file=no test/runtests.jl
+JULIA_OBJCACHE=0 julia +nightly --project --startup-file=no --threads=1 .ci/measure-tests.jl higherorderfns
+SPARSEARRAYS_TEST_COMPREHENSIVE=true julia +nightly --project --startup-file=no --threads=1 .ci/measure-tests.jl higherorderfns
+```
+
+`.ci/measure-tests.jl` prints a `MEASURE` line; `--verbose` adds nested testset timing.
+Keep the `--verbose` per-suite reporting that `runtests.jl` turns on in CI.

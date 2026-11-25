@@ -1,9 +1,9 @@
 ---
 name: pull-request
-description: Open or update a SparseArrays.jl pull request - branch, title, body with Before/After blocks, measurement tables, backports and attribution. Use before writing any PR title or description in this repository.
+description: Open or update a pull request - branch, title, body with Before/After blocks, measurement tables, backports and attribution. Use before writing any PR title or description in this repository.
 ---
 
-# Pull requests in SparseArrays.jl
+# Pull requests
 
 ## Branch
 
@@ -17,7 +17,6 @@ description: Open or update a SparseArrays.jl pull request - branch, title, body
 
 PRs are squash-merged with the title as the subject. It is imperative, names the API
 involved, and fits on one line of `git log --oneline`: one clause, not a list.
-For example: "Merge sparsity patterns in linear time in `mergeinds!`".
 
 ## Body
 

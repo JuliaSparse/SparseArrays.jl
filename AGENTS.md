@@ -14,8 +14,7 @@ Procedures for particular tasks live in `.agents/skills/<name>/SKILL.md`. Read t
 that fits before you start:
 
 - `pull-request`: branch, title and body of a pull request, and the measurements it shows.
-- `restructure-code`: reorganizing a source file or a family of methods, modelled on the
-  `src/matmul.jl` series (#1195).
+- `restructure-code`: reorganizing a source file or a family of methods.
 - `manual-page`: `docs/src/index.md` and the docstrings it lists.
 - `fixed-pattern`: `FixedSparseCSC` and `FixedSparseVector`.
 - `test-time`: measuring test time and cutting a test grid.
@@ -71,13 +70,12 @@ that touches a kernel or a constructor.
 
 ## Architecture
 
-Every operation is layered the same way; `src/matmul.jl` is the model.
+Every operation is layered the same way.
 
-- **Entry methods are few.** `*`, `mul!` and the rest dispatch on unions of operand
-  kinds, normalize each operand in one place (`_spmul_operand`), and call a private picker
-  that chooses a kernel. A method exists to dispatch, or to resolve an ambiguity, not
-  once per pair of wrappers. Internal calls go to private helpers, never to a
-  public-signature method.
+- **Entry methods are few.** They dispatch on unions of operand kinds, normalize each
+  operand in one place, and call a private function that picks the kernel. A method
+  exists to dispatch or to resolve an ambiguity, not once per pair of wrappers. Internal
+  calls go to private helpers, never to a public-signature method.
 - **Kernels are named after their operands and result**, and a file states its naming
   scheme and its sections, in dispatch order, at the top.
 - **The long tail goes through a copy.** A rare wrapper (a non-range view, an adjoint, a
@@ -87,12 +85,12 @@ Every operation is layered the same way; `src/matmul.jl` is the model.
 - **One operation, one set of semantics.** Every route of an operation gives the same
   stored zeros, index type, strong-zero `α` and errors. When two routes disagree, send
   both to one kernel rather than patching each.
-- **Variants are parameters, not copies.** Pass `Val(side)`, a `tfun` of `identity`,
-  `transpose` or `adjoint`, or `nothing` for a unit `α` or zero `β`, so one loop body
-  compiles to each specialized loop. Shared preambles (size checks, `β` scaling, the
-  `α` factor) are one `@inline` helper.
-- **Dispatchers normalize their input once**, such as the wrapper character of `mul!`,
-  and every dispatcher of an operation reads it the same way.
+- **Variants are parameters, not copies.** Pass the side as a `Val`, the wrapper as a
+  function (`identity`, `transpose`, `adjoint`), or a trivial coefficient as `nothing`, so
+  one loop body compiles to each specialized loop. Shared preambles (size checks, scaling
+  the destination) are one `@inline` helper.
+- **Dispatchers normalize their input once**, and every dispatcher of an operation reads
+  it the same way.
 
 ## Coding conventions
 
