@@ -10,19 +10,22 @@ directories; read them before working there.
 
 ## Skills
 
-Procedures for particular tasks live in `.agents/skills/<name>/SKILL.md`. Read the one
-that fits before you start:
+Procedures for particular tasks live in skills. Read the one that fits before you start:
 
-- `pull-request`: branch, title and body of a pull request, and the measurements it shows.
-- `restructure-code`: reorganizing a source file or a family of methods.
-- `manual-page`: `docs/src/index.md`, which is `SparseArrays.md` in Julia's manual, and
-  the docstrings it lists. The solvers' index-type aliases are `UMFPACK.UMFITypes` and
-  `CHOLMOD.ITypes`.
-- `fixed-pattern`: `FixedSparseCSC` and `FixedSparseVector`. The helpers are
-  `_checkpatternwritable`, `_is_fixed` and `_writablecopy`, in `src/fixed.jl`.
-- `test-time`: measuring test time and cutting a test grid.
-- `suitesparse-wrappers`: regenerating `src/solvers/wrappers.jl`, and upgrading
-  SuiteSparse or Clang.jl.
+- [`pull-request`](.agents/skills/pull-request/SKILL.md): branch, title and body of a
+  pull request, and the measurements it shows.
+- [`restructure-code`](.agents/skills/restructure-code/SKILL.md): reorganizing a source
+  file or a family of methods.
+- [`manual-page`](.agents/skills/manual-page/SKILL.md): `docs/src/index.md`, which is
+  `SparseArrays.md` in Julia's manual, and the docstrings it lists. The solvers'
+  index-type aliases are `UMFPACK.UMFITypes` and `CHOLMOD.ITypes`.
+- [`fixed-pattern`](.agents/skills/fixed-pattern/SKILL.md): `FixedSparseCSC` and
+  `FixedSparseVector`. The helpers are `_checkpatternwritable`, `_is_fixed` and
+  `_writablecopy`, in `src/fixed.jl`.
+- [`test-time`](.agents/skills/test-time/SKILL.md): measuring test time and cutting a
+  test grid.
+- [`suitesparse-wrappers`](.agents/skills/suitesparse-wrappers/SKILL.md): regenerating
+  `src/solvers/wrappers.jl`, and upgrading SuiteSparse, Clang.jl or JuliaFormatter.
 
 ## Being a stdlib
 
