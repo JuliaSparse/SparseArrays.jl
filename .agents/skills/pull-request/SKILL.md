@@ -30,6 +30,9 @@ large:
 
 A documentation-only PR needs just the source of the material.
 
+A PR that changes what users see adds its release-history entry, once the PR number is
+known (see the `release-history` skill).
+
 Say when the PR:
 
 - touches dispatch (adds, removes or reroutes a method);
@@ -63,8 +66,8 @@ dimension of a dense result small.
 
 ## Backports
 
-Bug and regression fixes only, never new methods or behaviour changes. Never bump compat
-on a release branch or push to one. Leave the `backport 1.x` label to the maintainers.
+Leave the backport label to the maintainers. Assembling a backport is the `backport`
+skill.
 
 ## Attribution
 

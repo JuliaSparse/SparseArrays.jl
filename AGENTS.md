@@ -31,6 +31,10 @@ Procedures for particular tasks live in skills. Read the one that fits before yo
   `_writablecopy`, in `src/fixed.jl`.
 - [`test-time`](.agents/skills/test-time/SKILL.md): measuring test time and cutting a
   test grid.
+- [`release-history`](.agents/skills/release-history/SKILL.md): `HISTORY.md`. Every PR
+  that changes what users see adds its entry there.
+- [`backport`](.agents/skills/backport/SKILL.md): a backport PR from the branch
+  `backports-release-1.x` into `release-1.x`, for the PRs labelled `backport 1.x`.
 - [`suitesparse-wrappers`](.agents/skills/suitesparse-wrappers/SKILL.md): regenerating
   `src/solvers/wrappers.jl`, and upgrading SuiteSparse, Clang.jl or JuliaFormatter.
 
@@ -135,7 +139,8 @@ How an operation dispatches:
   (equality, hashing, adjoint and transpose wrappers, views) too.
 - **Validate before mutating.** In-place kernels check shapes, aliasing and pattern
   compatibility up front and throw with the destination untouched: a cheap direct check
-  first, an expensive dry run only if that fails.
+  first, an expensive dry run only if that fails. That includes checking that values
+  convert and that sizes and positions fit the index type.
 - **Unalias** with `Base.mightalias` / `Base.unalias`, comparing only the buffers you write:
   structurally empty arrays report as aliased.
 - **Never infer structure from `nnz`.** Stored zeros are the recurring trap; walk the column.
@@ -166,6 +171,8 @@ How an operation dispatches:
 - **`@inbounds` only where the bounds are provably checked.**
 - **Comments say why**, for genuinely tricky code, and describe the current state.
 - **Internal helpers are not API.** Public surface changes are explicit and documented.
+  Still, Julia and its other stdlibs call some internals (the SuiteSparse stdlib binds
+  `decrement!`): search them before removing an internal name.
 
 ## Tests
 
@@ -196,4 +203,5 @@ How an operation dispatches:
 - Each change in its own git worktree and branch off `main`, one logical change per PR.
 - Behaviour-neutral restructuring, behaviour changes and style-only changes go in
   separate PRs. Never let an editor reformat a functional PR.
+- A change users can see adds an entry to `HISTORY.md`.
 - Sweep sparse against dense locally; commit only the reproducer.
