@@ -17,38 +17,14 @@ changes that can require updating code written for v1.13.
 
 Changes on `main` that no release branch has yet.
 
-* **Changed:** Sparse `mul!` into a dense destination skips the product for any zero `α`,
-  not only `false`, as dense `mul!` does, so a `NaN` or `Inf` in a factor no longer reaches
-  the destination ([#1199]).
-* **Changed:** A sparse matrix times a sparse vector stores no zeros, whatever wraps either
-  operand: entries that cancel are dropped through views, triangles and `Symmetric` or
-  `Hermitian` wrappers, as they are for a plain matrix and vector ([#1209], [#1212]).
-* **Changed:** `dot(x, Symmetric(A), y)` and `dot(x, Hermitian(A), y)` with sparse vectors
-  `x` and `y` combine only entries that all three store, as `dot(x, A, y)` does, so a `NaN`
-  or `Inf` in one operand no longer meets an unstored entry of another ([#1150]).
+* **Changed:** Every form of a sparse product follows one set of rules for zero
+  coefficients and stored zeros, whatever wraps its operands ([#1150], [#1199], [#1209]).
 * **Faster:** The package image holds native code for `show`, `\`, products, broadcast,
   concatenation and `sprand` of sparse `Float64` and `ComplexF64` arrays, so their first
   call compiles less ([#1103]).
-* **Faster:** `transpose(A) * x`, `A' * x` and `mul!(y, A', x)` with a sparse matrix `A` and
-  a sparse vector `x` no longer merge `x` with every column of `A`, which is much faster
-  when `A` has many columns ([#1139]).
-* **Faster:** `A * x` with a sparse matrix `A` and a sparse vector `x` takes time and memory
-  in proportion to the rows of the result it touches, not to the number of rows of `A`
-  ([#1140]).
-* **Faster:** Sparse `A * B` is up to twice as fast when the columns of the result are long
-  ([#1141]).
-* **Faster:** Products of a view of a sparse matrix other than a range of columns with a
-  sparse matrix, its adjoint or transpose, a triangular, `Symmetric` or `Hermitian` sparse
-  matrix, or a sparse vector copy the view once and use the sparse kernels, instead of
-  reading every element or copying the product ([#1205], [#1212]).
-* **Faster:** `D * S'`, `S' * D` and their `transpose` forms, with a `Diagonal` `D` and a
-  sparse `S`, transpose straight into the result and allocate half as much ([#1204]).
-* **Faster:** `mul!(C, A, D, α, β)` and `mul!(C, D, A, α, β)` with sparse `A` and `C`, a
-  `Diagonal` `D` and a nonzero `β` merge the patterns of `A` and `C` in linear instead of
-  quadratic time ([#1201]).
-* **Faster:** `dot(x, y)` of sparse vectors of very different lengths, and `dot(x, A, y)`
-  with sparse vectors, skip through the longer list of entries instead of merging it
-  ([#1149]).
+* **Faster:** Sparse products, most of all sparse `A*B`, products with sparse vectors, views
+  and `Diagonal` matrices, and `dot` ([#1139], [#1140], [#1141], [#1149], [#1201], [#1204],
+  [#1205], [#1212]).
 
 ## Julia v1.14
 
@@ -99,11 +75,9 @@ A[true, 1]       # v1.13: 1.0; v1.14: ArgumentError
 * `rowvals`, `nonzeros` and `nzrange` of an `UpperTriangular` or `LowerTriangular` wrapper
   of a sparse matrix throw a `MethodError` instead of returning the parent's storage,
   entries outside the triangle included ([#893], [#1050]).
-* `mul!`, `lmul!`, `rmul!`, `ldiv!` and `rdiv!` with sparse operands or a sparse
-  factorization throw an `ArgumentError` when the array they overwrite shares memory with
-  another operand ([#1186], [#1187]).
-* Sparse `\` with a `Rational` matrix that is neither triangular nor Hermitian returns a
-  floating-point solution instead of a `Rational` one ([#1190]).
+* In-place products and solves throw an `ArgumentError` when the array they overwrite
+  shares memory with an operand, as LinearAlgebra's do ([#1186], [#1187]).
+* Sparse `\` with a general `Rational` matrix returns a floating-point solution ([#1190]).
 * A subtype of `AbstractSparseMatrixCSC` that implements `rowvals` and `nonzeros` instead of
   `getrowval` and `getnzval` gets a deprecation warning ([#1011]).
 
@@ -186,9 +160,6 @@ A[true, 1]       # v1.13: 1.0; v1.14: ArgumentError
   unstored entries, as for dense arrays ([#1065], [#1077], [#1101]).
 * **Changed:** `kron` with a view of a sparse matrix, and `diff` of a sparse view, transpose
   or adjoint, return sparse results ([#953], [#1078], [#1118]).
-* **Changed:** `diff` of a sparse array promotes its element type as dense `diff` does, so
-  `diff` of a `Bool` array has `Int` entries instead of throwing or returning `Bool`
-  ([#1183]).
 * **Faster:** Broadcasts of a sparse array with a scalar or a dense array, such as `A .+ 1`,
   skip the dense copy of the sparse operand ([#982], [#983], [#1105]).
 * **Faster:** Sparse broadcast grows its result storage on demand instead of allocating the
@@ -221,8 +192,6 @@ A[true, 1]       # v1.13: 1.0; v1.14: ArgumentError
   return a dense `Array` ([#928], [#935]).
 * **Changed:** `findmin` and `findmax` of a `SparseVector` always return an `Int` index, and
   apply `f` to a vector with no stored entries ([#922]).
-* **Changed:** `findnext` and `findprev` of a sparse array throw a `BoundsError` for a start
-  outside the array, as for dense arrays, instead of returning a match ([#1182]).
 * **Faster:** `isequal`, `findnext`, `findprev` and `hash` of sparse arrays visit only the
   stored entries ([#766], [#769]).
 * **Faster:** `mapreduce(f, op, A, B)` over two sparse arrays reduces without building
@@ -259,11 +228,6 @@ A[true, 1]       # v1.13: 1.0; v1.14: ArgumentError
   `cond` of an empty one returns zero ([#989], [#1126], [#1131]).
 * **Changed:** `D \ A` and `A / D` with a sparse `A` and a singular `Diagonal` `D` throw
   `SingularException` ([#944]).
-* **Changed:** `mul!`, `lmul!`, `rmul!`, `ldiv!` and `rdiv!` with sparse operands, and
-  `ldiv!` and `Q` products with an `UmfpackLU` or `QRSparse`, throw an `ArgumentError` when
-  the array they overwrite shares memory with another operand or with the factorization,
-  as LinearAlgebra's methods do. A structurally empty sparse array shares no memory
-  ([#1186], [#1187]).
 * **Faster:** Sparse `A*B` sizes its result from a sample of its columns and releases spare
   capacity, which cuts the memory it holds several times over where rows collide, as for a
   stencil ([#1142]).
@@ -297,9 +261,6 @@ A[true, 1]       # v1.13: 1.0; v1.14: ArgumentError
   `\` does ([#831]).
 * **Changed:** Sparse `\`, its adjoint and transpose forms, and `qr(A) \ b` return the
   element type of dense `\`, whatever the shape of `A` ([#950], [#1124]).
-* **Changed:** Sparse `\` with a `Rational` matrix that is neither triangular nor Hermitian
-  returns the floating-point solution of its `Float64` factorization, as `lu(A) \ b` does,
-  instead of converting it to `Rational`, which looked exact and was not ([#1190]).
 * **Changed:** `\` with a sparse right-hand side, and `sparse(F.L)` of a factorization,
   return a `SparseMatrixCSC` ([#933]).
 * **Changed:** Sparse `\` and `factorize` treat a Hermitian matrix as Hermitian only for
@@ -982,8 +943,6 @@ Released with Julia v1.0.0 on 2018-08-08. SuiteSparse 4.4.5.
 [#1150]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1150
 [#1157]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1157
 [#1160]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1160
-[#1182]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1182
-[#1183]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1183
 [#1186]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1186
 [#1187]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1187
 [#1190]: https://github.com/JuliaSparse/SparseArrays.jl/pull/1190
